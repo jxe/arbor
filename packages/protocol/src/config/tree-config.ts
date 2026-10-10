@@ -83,9 +83,9 @@ export function treeConfigurationID(tree: string): string {
 }
 
 /** The segment parameter that addresses a tree's configuration. */
-export const CONFIGURATION_PARAMETER = "arbor-config";
+export const CONFIGURATION_PARAMETER = "overstory-config";
 
-/** A tree reference as the host routes read it: `tr_x` or `tr_x;arbor-config`. */
+/** A tree reference as the host routes read it: `tr_x` or `tr_x;overstory-config`. */
 export function parseTreeReference(value: string): { tree: string; configuration: boolean } {
   const suffix = `;${CONFIGURATION_PARAMETER}`;
   const configuration = value.endsWith(suffix);

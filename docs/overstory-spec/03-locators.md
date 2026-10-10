@@ -10,20 +10,20 @@ lookup.*
 Portable Overstory content uses these locator forms:
 
 ```text
-arbor://<TreeID>/path[;arbor-key=<key-token>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
-./relative/tree/path[;arbor-key=<key-token>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
-/tree-rooted/path[;arbor-key=<key-token>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
-https://canopy.example/path[;arbor-key=<key-token>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
-arbor://canopy.example/path[;arbor-key=<key-token>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+overstory://<TreeID>/path[;overstory-key=<key-token>][;overstory-rev=sha256:<root>][?application-query][#content-fragment]
+./relative/tree/path[;overstory-key=<key-token>][;overstory-rev=sha256:<root>][?application-query][#content-fragment]
+/tree-rooted/path[;overstory-key=<key-token>][;overstory-rev=sha256:<root>][?application-query][#content-fragment]
+https://host.example/path[;overstory-key=<key-token>][;overstory-rev=sha256:<root>][?application-query][#content-fragment]
+overstory://host.example/path[;overstory-key=<key-token>][;overstory-rev=sha256:<root>][?application-query][#content-fragment]
 ```
 
-`arbor://<TreeID>/...` directly names the primary tree identity plus a logical
+`overstory://<TreeID>/...` directly names the primary tree identity plus a logical
 path. A `TreeID` begins with `tr_`, and an underscore cannot appear in a DNS
 label, so the authority component is unambiguously either a TreeID or a DNS
 name; an authority beginning `tr_` that is not a well-formed TreeID is invalid.
 Relative and tree-rooted paths resolve within an already selected
 tree. Their portable meaning is never an operating-system path. Canonical HTTP
-and `arbor://<authority>/...` names first resolve through the secondary
+and `overstory://<authority>/...` names first resolve through the secondary
 canonical lookup: the URI's DNS authority places/selects a host, then that
 host resolves its longest readable registered boundary to a TreeID. `authority`
 here is the URI authority component. Operating-system paths and `system:` content
@@ -40,14 +40,14 @@ operation.
 A canonical path is a host-assigned name, not a profile identifier. Overstory
 does not prescribe where profiles, groups, or any other trees are placed:
 which paths exist, their shape, and which account may declare each are host
-policy ([canopyd's](../architecture/canopyd/README.md#accounts-and-canonical-paths) uses `/~name` segments). The same path at two
+policy ([overstoryd's](../architecture/overstoryd/README.md#accounts-and-canonical-paths) uses `/~name` segments). The same path at two
 hosts implies no relationship, and one profile `TreeID` may be associated with
 differently shaped account locators at several hosts. An account locator may
 also exist before any tree is registered at it. Profile identity equality comes only from the profile `TreeID` recorded by the
 account, never from a handle or canonical URL.
 
 A profile on another host may be named by its canonical locator there
-(`https://home.example/~alice` or `arbor://home.example/~alice`) wherever a
+(`https://home.example/~alice` or `overstory://home.example/~alice`) wherever a
 host's configuration names a profile: a group's member, which in the
 community with a handle is a placement account
 ([accounts §1.3](04-accounts-and-devices.md#13-placement-accounts)), or a
@@ -109,8 +109,8 @@ The token appears in exactly two places, one per kind of surface:
 | Surface | Spelling |
 |---|---|
 | Node reference (`NodeRef.stableKey`) | the canonical key JSON itself |
-| `arbor://`, canonical HTTP, and tree-rooted locators; any locator that also carries a revision or a content fragment | `;arbor-key=<key-token>` on the final path segment |
-| Relative link written in Markdown | `<file>#arbor-key=<key-token>` (§2.1) |
+| `overstory://`, canonical HTTP, and tree-rooted locators; any locator that also carries a revision or a content fragment | `;overstory-key=<key-token>` on the final path segment |
+| Relative link written in Markdown | `<file>#overstory-key=<key-token>` (§2.1) |
 | Markdown document identity | frontmatter `id: x7f3q2`, which is the key `[["id","x7f3q2"]]` ([directory format](02-directory-format.md#3-properties-markdown-content-and-identity)) |
 | Collection row child segment | the row segment rule of [child backings](06-child-backings.md) (still under review, [Postgres 005](../../plans/postgres/005-representation-equivalence.md)) |
 
@@ -118,8 +118,8 @@ The suffix supplies the third component of `(TreeID, path, stable key or
 null)`; it is not part of the decoded logical path.
 
 ```text
-arbor://<TreeID>/roadmap;arbor-key=id:x7f3q2
-arbor://<TreeID>/practices/walking;arbor-key=slug:walking
+overstory://<TreeID>/roadmap;overstory-key=id:x7f3q2
+overstory://<TreeID>/practices/walking;overstory-key=slug:walking
 ```
 
 The same syntax is used for a Markdown `id`, a collection primary key, or any
@@ -141,30 +141,30 @@ reader or editor follows it:
   inside a collection file or a directory without a body, is named by its
   extensionless logical path. Readers accept `x.md`, `x/_index.md`, `x/`, and
   `x` as the same node.
-- The key is the Markdown alias `#arbor-key=<key-token>`, which a
+- The key is the Markdown alias `#overstory-key=<key-token>`, which a
   non-Overstory reader treats as a missing anchor and ignores:
 
 ```md
-[Walking](walking.md#arbor-key=slug:walking)
-[List](List/_index.md?id=p_123#arbor-key=id:k2m9xq)
+[Walking](walking.md#overstory-key=slug:walking)
+[List](List/_index.md?id=p_123#overstory-key=id:k2m9xq)
 ```
 
 The alias is the same stable-key component as the path suffix, not an
 ordinary content fragment, and is permitted only on relative authored links.
 An Overstory HTTP renderer rewrites the destination to the server-visible
-`walking;arbor-key=slug:walking` form before emitting HTML, preserving the
+`walking;overstory-key=slug:walking` form before emitting HTML, preserving the
 application query unchanged. A link that needs a content fragment or a
 revision as well as a key uses the path suffix instead, for example
-`Calendar.md;arbor-key=id:h31mlm#june`, which Overstory resolves but other
+`Calendar.md;overstory-key=id:h31mlm#june`, which Overstory resolves but other
 Markdown readers do not.
 
-Append `;arbor-rev=sha256:<root>` to the final path segment, after any
+Append `;overstory-rev=sha256:<root>` to the final path segment, after any
 identity suffix, to select an immutable Overstory root of the addressed tree:
 
 ```text
-arbor://<TreeID>/notes;arbor-rev=sha256:<root>
-arbor://community.example/~alice/atlas/notes;arbor-rev=sha256:<root>
-./notes.md;arbor-key=<key-token>;arbor-rev=sha256:<root>
+overstory://<TreeID>/notes;overstory-rev=sha256:<root>
+overstory://community.example/~alice/atlas/notes;overstory-rev=sha256:<root>
+./notes.md;overstory-key=<key-token>;overstory-rev=sha256:<root>
 ```
 
 A revision locator is read-only. Mutations against it fail as read-only. The
@@ -175,14 +175,14 @@ A query string follows the segment parameters and belongs completely to the
 addressed application document:
 
 ```text
-arbor://<TreeID>/Practice;arbor-key=<key-token>?id=p_123&edit
+overstory://<TreeID>/Practice;overstory-key=<key-token>?id=p_123&edit
 ```
 
 Overstory routing consumes neither application keys nor values. Other fragments
 remain ordinary content-local navigation and are not used as node identity:
 
 ```text
-arbor://<TreeID>/roadmap;arbor-key=<key-token>#implementation
+overstory://<TreeID>/roadmap;overstory-key=<key-token>#implementation
 ```
 
 This separation is required for server rendering: the host receives the
@@ -196,13 +196,13 @@ The Markdown alias cannot carry a content fragment as well
 ## 3. Parsing and canonicalization
 
 An external URL parser separates the final raw segment's parameter block,
-beginning at its first `;arbor-`, before percent-decoding path components. A
+beginning at its first `;story-`, before percent-decoding path components. A
 literal suffix-like filename encodes its semicolon as `%3B`; it is data, not
-identity syntax. Within the block, any parameter other than `arbor-key`, `arbor-rev` and
-`arbor-config`, a repeated parameter, an empty value, or `arbor-key` and `arbor-rev` in the
-wrong order makes the locator invalid rather than path data. `arbor-config` takes no
+identity syntax. Within the block, any parameter other than `overstory-key`, `overstory-rev` and
+`overstory-config`, a repeated parameter, an empty value, or `overstory-key` and `overstory-rev` in the
+wrong order makes the locator invalid rather than path data. `overstory-config` takes no
 value, appears only on a tree's root (a canonical boundary or
-`arbor://<TreeID>`), stands alone, and addresses that tree's
+`overstory://<TreeID>`), stands alone, and addresses that tree's
 [configuration](04-accounts-and-devices.md#21-finding-it) rather than a node;
 the host answers it only to the tree's administrators. The parser then
 percent-decodes each path component exactly once. Every internal logical path is
@@ -248,7 +248,7 @@ mount path ([accounts §3](04-accounts-and-devices.md#3-configuration-yaml)),
 and a host roots the graph at its community root. The parent's administrators
 choose its names; mounting a tree also requires administering it. How a host
 mounts its members' profiles is host policy
-([canopyd's policy](../architecture/canopyd/README.md#accounts-and-canonical-paths)).
+([overstoryd's policy](../architecture/overstoryd/README.md#accounts-and-canonical-paths)).
 Longest-boundary lookup resolves mounted trees below a path whether or not a
 tree is registered at the path itself. No allocation rule is part of the
 portable locator grammar.
@@ -256,16 +256,16 @@ portable locator grammar.
 Canonical placement is mutable naming. Changing the host's DNS name, moving
 a registered boundary, or renaming a node changes canonical URLs without
 changing TreeID or stable key. Moving the physical server behind an unchanged
-DNS origin changes neither. A raw `arbor://<TreeID>/...` locator remains the
+DNS origin changes neither. A raw `overstory://<TreeID>/...` locator remains the
 primary address when a canonical name is absent, unknown, inaccessible, or
 changing.
 
 ```text
-GET /.arbor/health
-GET /.arbor/integrity
-GET /.arbor/account
-GET /.arbor/trees
-GET /.well-known/arbor[/{path}]
+GET /.overstory/health
+GET /.overstory/integrity
+GET /.overstory/account
+GET /.overstory/trees
+GET /.well-known/overstory[/{path}]
 ```
 
 `health` is a cheap readiness check that answers `{"status":"ok"}` while the
@@ -277,7 +277,7 @@ Authenticated account and tree-list reads use explicit envelopes,
 `{ account }` and `{ snapshot: RemoteTreeDescriptor[] }`; bare arrays and
 descriptors are not mutable responses. They carry no observation cursor: a
 cursor spanning the whole host resumes no watch, which is per tree. A client
-that will watch a listed tree reads it (`GET /.arbor/trees/{TreeID}`) for
+that will watch a listed tree reads it (`GET /.overstory/trees/{TreeID}`) for
 its `observedThrough`, the same snapshot-then-observe rule as the core tree
 API. The accepted-update ID remains the content synchronization base;
 `observedThrough` independently records the read/watch boundary. Clients must
@@ -300,7 +300,7 @@ type LocatorResolution = {
 
 ## 6. Public HTTP projection
 
-Readable canonical paths have safe HTTP and `arbor://` projections. HTML,
+Readable canonical paths have safe HTTP and `overstory://` projections. HTML,
 Markdown, files, and redirects retain canonical tree/path provenance and never
 broaden access. Historical roots remain immutable and read-only. The server
 does not publish or resolve tree configurations.

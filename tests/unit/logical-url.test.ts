@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  buildArborLocator,
+  buildOverstoryLocator,
   buildMarkdownLink,
   buildNetworkLocator,
   canonicalStableKey,
@@ -21,7 +21,7 @@ import {
   type MarkdownLinkTarget,
   type ResolvedLink,
   type ResolvedNodeTarget,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 
 interface UrlCase {
   sourceDirectory: string;
@@ -116,13 +116,13 @@ describe("logical URL resolution", () => {
     }
   });
 
-  test("arbor locators round-trip through node-target resolution", () => {
+  test("story locators round-trip through node-target resolution", () => {
     const key = markdownStableKey("x6baw0");
-    const locator = buildArborLocator("tr_sample", "/notes/deep", key);
-    expect(locator).toBe("arbor://tr_sample/notes/deep;arbor-key=id:x6baw0");
+    const locator = buildOverstoryLocator("tr_sample", "/notes/deep", key);
+    expect(locator).toBe("overstory://tr_sample/notes/deep;overstory-key=id:x6baw0");
     expect(resolveNodeTarget("/", locator)).toEqual({ tree: "tr_sample", path: "/notes/deep", stableKey: key });
-    expect(rewriteLocalLinkPath("/", locator, { path: "/new", body: "sibling" })).toBe("arbor://tr_sample/new;arbor-key=id:x6baw0");
-    expect(rewriteLocalLinkPath("/", "arbor://example.com/old", { path: "/new", body: "sibling" })).toBeNull();
+    expect(rewriteLocalLinkPath("/", locator, { path: "/new", body: "sibling" })).toBe("overstory://tr_sample/new;overstory-key=id:x6baw0");
+    expect(rewriteLocalLinkPath("/", "overstory://example.com/old", { path: "/new", body: "sibling" })).toBeNull();
   });
 
   test("a bare fragment is only a content fragment", () => {
@@ -146,8 +146,8 @@ describe("logical URL resolution", () => {
   test("the key spellings carry the same token", () => {
     const stableKey = canonicalStableKey([["id", "x7f3q2"]]);
     expect(buildNetworkLocator("../roadmap.md", { stableKey, applicationQuery: "view=board&edit", contentFragment: "implementation" }))
-      .toBe("../roadmap.md;arbor-key=id:x7f3q2?view=board&edit#implementation");
+      .toBe("../roadmap.md;overstory-key=id:x7f3q2?view=board&edit#implementation");
     expect(buildMarkdownLink("/projects/atlas", { path: "/projects/roadmap", body: "sibling", stableKey, applicationQuery: "view=board&edit" }))
-      .toBe("../roadmap.md?view=board&edit#arbor-key=id:x7f3q2");
+      .toBe("../roadmap.md?view=board&edit#overstory-key=id:x7f3q2");
   });
 });

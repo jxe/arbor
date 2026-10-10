@@ -5,9 +5,9 @@
     { "tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "configuration": "tr_zofcbjdjbdpvqdw2mc4crf4y32lix4cszm2dlxtk6rbllc3d7yvq" }
   ],
   "references": [
-    { "value": "tr_owozr6aegt5z7x6qyllvzljl5u;arbor-config", "tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "configuration": true },
+    { "value": "tr_owozr6aegt5z7x6qyllvzljl5u;overstory-config", "tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "configuration": true },
     { "value": "tr_owozr6aegt5z7x6qyllvzljl5u", "tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "configuration": false },
-    { "value": "tr_owozr6aegt5z7x6qyllvzljl5u;arbor-key=id:x", "invalid": true },
+    { "value": "tr_owozr6aegt5z7x6qyllvzljl5u;overstory-key=id:x", "invalid": true },
     { "value": "https://community.example/~joe", "invalid": true }
   ],
   "valid": [
@@ -118,7 +118,7 @@
     { "name": "person-co-administrator", "kind": "person", "file": "access.yaml", "source": "- who: {profile: tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq}\n  allow: [admin]\n- who: {profile: tr_aaaaaaaaaaaaaaaaaaaaaaaaaa}\n  allow: [admin]\n" },
     { "name": "missing-administrator-device", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n" },
     { "name": "credential-in-devices", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n  administrator: true\n  credential: secret\n" },
-    { "name": "account-yaml", "kind": "person", "file": "account.yaml", "source": "canopy: https://community.example\n" },
+    { "name": "account-yaml", "kind": "person", "file": "account.yaml", "source": "overstoryd: https://community.example\n" },
     { "name": "trees-yaml", "kind": "person", "file": "trees.yaml", "source": "{}\n" },
     { "name": "malformed-device-key", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n  administrator: true\n  key: ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w=\n" },
     { "name": "unknown-key-algorithm", "kind": "person", "file": "devices.yaml", "source": "dv_mmmmmmmmmmmmmmmmmmmmmmmmmm:\n  label: Mac\n  administrator: true\n  key: rsa:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w\n" },

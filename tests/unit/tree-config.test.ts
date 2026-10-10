@@ -10,7 +10,7 @@ import {
   type TreeConfigFile,
   type TreeConfigKind,
   type TreeConfigValues,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 import vectors from "../../docs/overstory-spec/conformance/tree-configuration.json";
 
 const base: Record<TreeConfigKind, Partial<Record<TreeConfigFile, string>>> = {

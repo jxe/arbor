@@ -29,7 +29,7 @@ export interface ServerDevice {
 
 
 /** An accepted update. Its `id` is an opaque identity, not an observation
- * cursor: a host may spell both identically (canopyd uses one ordinal for
+ * cursor: a host may spell both identically (overstoryd uses one ordinal for
  * both), but clients never derive one from the other or compare them as
  * accepted order (spec 01, tree operations). */
 export interface AcceptedUpdate {

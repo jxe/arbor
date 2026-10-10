@@ -1,7 +1,7 @@
 import type { BigIntStats } from "node:fs";
 import { mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
-import type { CollectionFileDescriptor, Hash } from "@overstory/protocol";
+import type { CollectionFileDescriptor, Hash } from "@ovst/protocol";
 import {
   compareProtocolNames,
   decodeProtocolDirectory,
@@ -13,9 +13,9 @@ import {
   type ProtocolDirectoryEntry,
   type ProtocolDirectory,
   type ProtocolObjectSource,
-} from "@overstory/protocol";
-import { toTreePath } from "@overstory/protocol/path";
-import { writeAtomic } from "@overstory/protocol/file-ops";
+} from "@ovst/protocol";
+import { toTreePath } from "@ovst/protocol/path";
+import { writeAtomic } from "@ovst/protocol/file-ops";
 import {
   isCloudPlaceholderName,
   isPlatformMetadataName,

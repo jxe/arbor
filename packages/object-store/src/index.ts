@@ -8,7 +8,7 @@ import {
   type ObjectDelta,
   type ObjectHash,
   type TreeSnapshot,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 
 import { Packs, prepareRecords, type PackCandidate, type PackOptions } from "./packs.ts";
 

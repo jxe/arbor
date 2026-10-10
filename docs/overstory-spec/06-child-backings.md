@@ -316,7 +316,7 @@ Authorities advertise collection-file, schema, and row quotas and never accept
 a collection file they cannot validate completely. Semantic merge reports
 `collection-file-row-conflict`, `collection-file-schema-conflict`, or
 `collection-file-constraint-conflict`; a row conflict path uses the parent
-logical path plus its `arbor-key` identity suffix.
+logical path plus its `overstory-key` identity suffix.
 
 ### 2.4 Collection schema profile
 

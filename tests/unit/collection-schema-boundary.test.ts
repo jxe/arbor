@@ -23,7 +23,7 @@ async function sourceFiles(directory: string): Promise<string[]> {
  * alone, in a fresh Bun process outside the test runner.
  */
 async function resolvedClosure(entrypoints: string[]): Promise<string[]> {
-  const directory = await mkdtemp(join(tmpdir(), "arbor-closure-"));
+  const directory = await mkdtemp(join(tmpdir(), "story-closure-"));
   try {
     const script = join(directory, "closure.ts");
     await writeFile(script, `
@@ -54,7 +54,7 @@ describe("collection schema package boundary", () => {
 
   test("the pure package executes no code and reaches no filesystem, network, or runtime code generation", async () => {
     const manifest = JSON.parse(await readFile(join(root, "packages/collection-schema/package.json"), "utf8")) as { dependencies: Record<string, string> };
-    expect(Object.keys(manifest.dependencies).sort()).toEqual(["@overstory/protocol", "csv-parse"]);
+    expect(Object.keys(manifest.dependencies).sort()).toEqual(["@ovst/protocol", "csv-parse"]);
     for (const path of await sourceFiles(join(root, "packages/collection-schema/src"))) {
       const source = await readFile(path, "utf8");
       expect(source, path).not.toMatch(/from "(?:node:|bun:|@overstory\/(?!protocol))/);
@@ -64,12 +64,12 @@ describe("collection schema package boundary", () => {
     expect(closure.filter((path) => !/^(?:packages\/(?:collection-schema|protocol)\/|node_modules\/.*(?:csv-parse|@noble\/hashes|yaml)\/)/.test(path))).toEqual([]);
   });
 
-  test("the resolved import closures of canopyd, the merge worker, and Arbor Sync exclude QuickJS", async () => {
+  test("the resolved import closures of overstoryd, the merge worker, and Story Sync exclude QuickJS", async () => {
     const closure = await resolvedClosure([
-      "packages/canopyd/src/cli.ts",
-      "packages/canopyd-merge/src/cli.ts",
+      "packages/overstoryd/src/cli.ts",
+      "packages/overstoryd-merge/src/cli.ts",
       "packages/tree-merge/src/index.ts",
-      "packages/arborsync/src/cli.ts",
+      "packages/story-sync/src/cli.ts",
       "packages/cli/src/index.ts",
     ]);
     expect(closure.some((path) => path.startsWith("packages/collection-schema/"))).toBe(true);
@@ -78,7 +78,7 @@ describe("collection schema package boundary", () => {
   });
 
   test("collection acceptance, projection, merge, and local reads run with QuickJS unavailable", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "arbor-runtime-fixture-"));
+    const directory = await mkdtemp(join(tmpdir(), "story-runtime-fixture-"));
     // The fixture lives outside the checkout, so it names package sources by path.
     const module = (path: string) => JSON.stringify(join(root, "packages", path));
     try {
@@ -96,13 +96,13 @@ describe("collection schema package boundary", () => {
       await Bun.write(join(collection, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, count: uint }\n');
       await Bun.write(join(collection, "_store.csv"), "id,count\n001,1\n002,2\n");
       await writeFile(join(directory, "exercise.ts"), `
-        import { ProjectionProviderHost } from ${module("arborsync/src/state/index.ts")};
+        import { ProjectionProviderHost } from ${module("story-sync/src/state/index.ts")};
         import { resolveSnapshot, snapshotDirectory } from ${module("fs/src/index.ts")};
         import { mergeProtocolTrees } from ${module("tree-merge/src/index.ts")};
         import { decodeProtocolCollectionFile } from ${module("collection-schema/src/index.ts")};
         import { decodeProtocolDirectory } from ${module("protocol/src/index.ts")};
-        import { ProtocolProjection } from ${module("canopyd/src/projection.ts")};
-        import ${module("canopyd/src/index.ts")};
+        import { ProtocolProjection } from ${module("overstoryd/src/projection.ts")};
+        import ${module("overstoryd/src/index.ts")};
         const providers = new ProjectionProviderHost();
         const snapshot = await resolveSnapshot(await snapshotDirectory(${JSON.stringify(directory)}, new Map(), [${JSON.stringify(join(directory, "block-engine.ts"))}, ${JSON.stringify(join(directory, "exercise.ts"))}], (dir, name) => providers.collectionFileDescriptor(dir, name)));
         const load = async (hash) => snapshot.objects.get(hash);

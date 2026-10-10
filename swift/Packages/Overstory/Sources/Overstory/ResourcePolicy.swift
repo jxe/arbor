@@ -54,9 +54,9 @@ public enum ProtocolResourceWho: Hashable, Sendable, Codable {
 }
 
 /// A profile named by its canonical locator at another host (locators §1):
-/// `https://host/path`, `arbor://host/path`, or `http://` for a loopback
+/// `https://host/path`, `overstory://host/path`, or `http://` for a loopback
 /// host. `locator` is its canonical spelling, the subject's merge key
-/// (`arbor://` becomes the HTTP locator it resolves through, the host is
+/// (`overstory://` becomes the HTTP locator it resolves through, the host is
 /// lowercase, and no port the scheme implies is written); `origin` is where
 /// the profile is read. Nil for anything else, a TreeID included.
 public struct ProfileLocator: Hashable, Sendable {
@@ -77,7 +77,7 @@ public struct ProfileLocator: Hashable, Sendable {
         switch scheme {
         case "https": output = "https"
         case "http" where loopback: output = "http"
-        case "arbor": output = loopback ? "http" : "https"
+        case "story": output = loopback ? "http" : "https"
         default: return nil
         }
         let implied = output == "https" ? 443 : 80
@@ -257,8 +257,8 @@ public struct ProtocolSafeResourceAccessRule: Codable, Sendable, Hashable {
     public var allow: [ProtocolResourceOperation]
     public var within: String?
 }
-/// `GET /.arbor/trees/{TreeID}/access` (access control §4): the tree's rules,
-/// and the `arbor://` locator of each profile a rule names by TreeID.
+/// `GET /.overstory/trees/{TreeID}/access` (access control §4): the tree's rules,
+/// and the `overstory://` locator of each profile a rule names by TreeID.
 public struct ProtocolTreeAccess: Codable, Sendable {
     public var policy: [ProtocolSafeResourceAccessRule]
     public var locators: [String: String]

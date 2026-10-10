@@ -1,5 +1,5 @@
 import { generateKeyPairSync, sign } from "node:crypto";
-import { accountChallengeBytes, personProfileTreeID, type AccountChallenge } from "@overstory/protocol";
+import { accountChallengeBytes, personProfileTreeID, type AccountChallenge } from "@ovst/protocol";
 
 export interface TestProfileIdentity {
   profileTree: string;

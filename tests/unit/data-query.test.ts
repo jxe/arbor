@@ -5,7 +5,7 @@ import { node, compileQuery, introspectStoreSchema, query, resolveDatabaseLocati
 const repository = join(import.meta.dir, "..", "..");
 const supplies = join(repository, "examples", "supplies");
 
-describe("arbor/data query planning", () => {
+describe("story/data query planning", () => {
   test("runs an authored planner once and retains symbolic input", () => {
     let invocations = 0;
     const handle = query.many(node("./data/practices").children, (practice, { input }: any) => {

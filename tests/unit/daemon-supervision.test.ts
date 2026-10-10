@@ -3,51 +3,51 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  ARBOR_SYNC_LABEL,
-  DarwinArborDaemonSupervisor,
+  STORY_SYNC_LABEL,
+  DarwinStoryDaemonSupervisor,
   darwinDaemonCommand,
   darwinDaemonPaths,
   darwinLaunchAgentPlist,
 } from "../../packages/cli/src/daemon.ts";
 
 const roots: string[] = [];
-const previousDataHome = process.env.ARBOR_DATA_HOME;
+const previousDataHome = process.env.STORY_HOME;
 
 // Supervision owns only the default data home, so tests that install clear the
 // override inside their own body; it is restored before the next test starts.
 afterEach(async () => {
-  if (previousDataHome === undefined) delete process.env.ARBOR_DATA_HOME;
-  else process.env.ARBOR_DATA_HOME = previousDataHome;
+  if (previousDataHome === undefined) delete process.env.STORY_HOME;
+  else process.env.STORY_HOME = previousDataHome;
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-describe("Arbor daemon supervision", () => {
+describe("Story daemon supervision", () => {
   test("generates a literal per-user launch agent without data-home secrets", () => {
     const paths = darwinDaemonPaths("/Users/alice");
-    const command = darwinDaemonCommand({ executable: "/Applications/Arbor CLI/bin/arborsync" });
+    const command = darwinDaemonCommand({ executable: "/Applications/Story CLI/bin/story-sync" });
     const plist = darwinLaunchAgentPlist(command, paths);
 
-    expect(plist).toContain(`<string>${ARBOR_SYNC_LABEL}</string>`);
-    expect(plist).toContain("<string>/Applications/Arbor CLI/bin/arborsync</string>");
+    expect(plist).toContain(`<string>${STORY_SYNC_LABEL}</string>`);
+    expect(plist).toContain("<string>/Applications/Story CLI/bin/story-sync</string>");
     expect(plist).toContain("<string>--control</string>");
     expect(plist).toContain("<key>Crashed</key>");
-    expect(plist).toContain("/Users/alice/Library/Logs/Arbor/arborsync.log");
-    expect(plist).not.toContain("ARBOR_DATA_HOME");
+    expect(plist).toContain("/Users/alice/Library/Logs/Story/story-sync.log");
+    expect(plist).not.toContain("STORY_HOME");
   });
 
   test("installs, reports, stops, restarts, and uninstalls one launchd job", async () => {
-    delete process.env.ARBOR_DATA_HOME;
-    const home = await mkdtemp(join(tmpdir(), "arbor-daemon-supervision-"));
+    delete process.env.STORY_HOME;
+    const home = await mkdtemp(join(tmpdir(), "story-daemon-supervision-"));
     roots.push(home);
     const commands: string[][] = [];
     let loaded = false;
     let running = false;
     let instance = 0;
-    const supervisor = new DarwinArborDaemonSupervisor({
+    const supervisor = new DarwinStoryDaemonSupervisor({
       home,
-      executable: "/opt/arbor/arborsync",
+      executable: "/opt/story/story-sync",
       fetcher: (async () => running
-        ? Response.json({ service: "arborsync", protocolVersion: "v1", instanceID: `instance-${instance}` })
+        ? Response.json({ service: "story-sync", protocolVersion: "v1", instanceID: `instance-${instance}` })
         : Promise.reject(new Error("stopped"))),
       run: async (command) => {
         commands.push(command);
@@ -66,7 +66,7 @@ describe("Arbor daemon supervision", () => {
     });
 
     expect(await supervisor.install()).toContain("Installed and started");
-    expect(await readFile(darwinDaemonPaths(home).plist, "utf8")).toContain("/opt/arbor/arborsync");
+    expect(await readFile(darwinDaemonPaths(home).plist, "utf8")).toContain("/opt/story/story-sync");
     expect(await supervisor.status()).toMatchObject({ state: "running", installed: true, pid: 812 });
     expect(await supervisor.stop()).toContain("Stopped");
     expect((await supervisor.status()).state).toBe("stopped");
@@ -77,30 +77,30 @@ describe("Arbor daemon supervision", () => {
     expect(commands.some((command) => command.includes("-k"))).toBe(true);
   });
 
-  test("does not register an alternate Arbor data home as the default service", async () => {
-    process.env.ARBOR_DATA_HOME = "/tmp/arbor-isolated";
-    const supervisor = new DarwinArborDaemonSupervisor({
+  test("does not register an alternate Story data home as the default service", async () => {
+    process.env.STORY_HOME = "/tmp/story-isolated";
+    const supervisor = new DarwinStoryDaemonSupervisor({
       run: async () => ({ exitCode: 1, stdout: "", stderr: "" }),
     });
-    await expect(supervisor.install()).rejects.toThrow("default Arbor data home");
+    await expect(supervisor.install()).rejects.toThrow("default Story data home");
   });
 
   test("refuses to install over an unsupervised process on the well-known port", async () => {
-    delete process.env.ARBOR_DATA_HOME;
-    const home = await mkdtemp(join(tmpdir(), "arbor-daemon-collision-"));
+    delete process.env.STORY_HOME;
+    const home = await mkdtemp(join(tmpdir(), "story-daemon-collision-"));
     roots.push(home);
-    const supervisor = new DarwinArborDaemonSupervisor({
+    const supervisor = new DarwinStoryDaemonSupervisor({
       home,
-      fetcher: async () => Response.json({ service: "arborsync", protocolVersion: "v1" }),
+      fetcher: async () => Response.json({ service: "story-sync", protocolVersion: "v1" }),
       run: async () => ({ exitCode: 113, stdout: "", stderr: "not found" }),
     });
-    await expect(supervisor.install()).rejects.toThrow("unsupervised Arbor Sync");
+    await expect(supervisor.install()).rejects.toThrow("unsupervised Story Sync");
   });
 
   test("does not report restart success while the old instance still owns the port", async () => {
-    delete process.env.ARBOR_DATA_HOME;
-    const supervisor = new DarwinArborDaemonSupervisor({
-      fetcher: async () => Response.json({ service: "arborsync", protocolVersion: "v1", instanceID: "old-instance" }),
+    delete process.env.STORY_HOME;
+    const supervisor = new DarwinStoryDaemonSupervisor({
+      fetcher: async () => Response.json({ service: "story-sync", protocolVersion: "v1", instanceID: "old-instance" }),
       run: async (command) => command[1] === "print"
         ? { exitCode: 0, stdout: "state = running\npid = 812", stderr: "" }
         : { exitCode: 0, stdout: "", stderr: "" },

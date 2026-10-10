@@ -15,7 +15,7 @@
     {
       "name": "explicit-marker-places-unmatched",
       "directory": { "path": "/dir", "body": "index" },
-      "source": "# Directory\n\n<!-- arbor:children -->\n\nTail.\n",
+      "source": "# Directory\n\n<!-- overstory:children -->\n\nTail.\n",
       "children": [
         { "name": "z", "path": "/dir/z", "body": "sibling" },
         { "name": "A", "path": "/dir/A", "body": "index" }
@@ -32,18 +32,18 @@
         { "name": "alpha", "path": "/notes/alpha", "body": "sibling", "stableKey": "[[\"id\",\"a1\"]]" },
         { "name": "beta", "path": "/notes/beta", "body": "sibling" }
       ],
-      "expectedBlockPaths": ["notes/beta.md", "notes/alpha.md#arbor-key=id:a1"],
+      "expectedBlockPaths": ["notes/beta.md", "notes/alpha.md#overstory-key=id:a1"],
       "expectedGeneratedChildren": ["/notes/alpha"],
       "expectedDiagnosticCodes": []
     },
     {
       "name": "stable-key-survives-stale-path",
       "directory": { "path": "/dir", "body": "index" },
-      "source": "[Moved](old.md#arbor-key=id:page-opaque)\n",
+      "source": "[Moved](old.md#overstory-key=id:page-opaque)\n",
       "children": [
         { "name": "Moved", "path": "/dir/new", "body": "sibling", "stableKey": "[[\"id\",\"page-opaque\"]]" }
       ],
-      "expectedBlockPaths": ["old.md#arbor-key=id:page-opaque"],
+      "expectedBlockPaths": ["old.md#overstory-key=id:page-opaque"],
       "expectedGeneratedChildren": [],
       "expectedDiagnosticCodes": []
     },
@@ -54,14 +54,14 @@
       "children": [
         { "name": "Moved", "path": "/dir/new", "body": "sibling", "stableKey": "[[\"id\",\"page-opaque\"]]" }
       ],
-      "expectedBlockPaths": ["old#page-opaque", "new.md#arbor-key=id:page-opaque"],
+      "expectedBlockPaths": ["old#page-opaque", "new.md#overstory-key=id:page-opaque"],
       "expectedGeneratedChildren": ["/dir/new"],
       "expectedDiagnosticCodes": []
     },
     {
       "name": "duplicate-marker-blocks-generation",
       "directory": { "path": "/dir", "body": "index" },
-      "source": "<!-- arbor:children -->\n\nText\n\n<!-- arbor:children -->\n",
+      "source": "<!-- overstory:children -->\n\nText\n\n<!-- overstory:children -->\n",
       "children": [
         { "name": "child", "path": "/dir/child", "body": "sibling" }
       ],

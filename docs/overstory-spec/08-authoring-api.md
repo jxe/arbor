@@ -43,7 +43,7 @@ Executable documents have Tailwind available as a compiler capability without an
 `Markdown` from `overstory/react` renders a Markdown source string with Overstory's ordinary link resolution, safe URL and asset policy, and source semantics. It is the standard way for a component to present stored Markdown; executable documents do not choose a separate third-party Markdown policy accidentally.
 It resolves a relative Markdown destination from the directory holding the
 source file, as [locators §2.1](03-locators.md#21-links-written-in-markdown)
-defines. For a destination carrying the reserved `#arbor-key=` alias, it emits
+defines. For a destination carrying the reserved `#overstory-key=` alias, it emits
 the equivalent server-visible path suffix and preserves the authored
 application query. It does not forward the reserved identity alias as an HTML
 fragment.

@@ -1,4 +1,4 @@
-import { rowPathSegment, type JSONValue } from "@overstory/protocol";
+import { rowPathSegment, type JSONValue } from "@ovst/protocol";
 import type { ChildNameRule } from "./compile.ts";
 
 /** Names that select a directory's representation and never name a row. */

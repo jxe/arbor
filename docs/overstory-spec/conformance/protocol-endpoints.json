@@ -6,7 +6,7 @@
     "access": "write",
     "canonical": {
       "path": "/~alice/atlas",
-      "endpoint": "https://community.example/.arbor/trees/tr_atlas",
+      "endpoint": "https://community.example/.overstory/trees/tr_atlas",
       "parentTree": "tr_alice"
     },
     "update": "1",
@@ -18,7 +18,7 @@
       "name": "read-ref",
       "request": {
         "method": "GET",
-        "path": "/.arbor/trees/tr_atlas",
+        "path": "/.overstory/trees/tr_atlas",
         "headers": {
           "Authorization": "Bearer <account-device-token>"
         }
@@ -32,7 +32,7 @@
             "access": "write",
             "canonical": {
               "path": "/~alice/atlas",
-              "endpoint": "https://community.example/.arbor/trees/tr_atlas",
+              "endpoint": "https://community.example/.overstory/trees/tr_atlas",
               "parentTree": "tr_alice"
             },
             "update": "1",
@@ -47,7 +47,7 @@
       "name": "read-accepted-snapshot",
       "request": {
         "method": "GET",
-        "path": "/.arbor/trees/tr_new/snapshots/sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+        "path": "/.overstory/trees/tr_new/snapshots/sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
         "headers": {
           "Authorization": "Bearer <account-device-token>",
           "Accept": "application/cbor"
@@ -58,7 +58,7 @@
         "contentType": "application/cbor",
         "headers": {
           "Cache-Control": "private, max-age=31536000, immutable",
-          "Vary": "Authorization, Arbor-Access-Link",
+          "Vary": "Authorization, Overstory-Access-Link",
           "ETag": "\"sha256:05774224feee0c67a8ce9fcacccd994c18548ed63babeac0b8edfd88893e638e\""
         },
         "bodyBase64": "omdvYmplY3RzgVgZomR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgGd2ZXJzaW9uAQ=="
@@ -68,7 +68,7 @@
       "name": "submit-current-update",
       "request": {
         "method": "POST",
-        "path": "/.arbor/trees/tr_atlas/updates",
+        "path": "/.overstory/trees/tr_atlas/updates",
         "headers": {
           "Authorization": "Bearer <account-device-token>"
         },
@@ -118,7 +118,7 @@
       "name": "activate-with-null-base",
       "request": {
         "method": "POST",
-        "path": "/.arbor/trees/tr_new/updates",
+        "path": "/.overstory/trees/tr_new/updates",
         "headers": {
           "Authorization": "Bearer <administrator-device-token>"
         },
@@ -173,9 +173,9 @@
       "name": "link-read",
       "request": {
         "method": "GET",
-        "path": "/.arbor/trees/tr_atlas",
+        "path": "/.overstory/trees/tr_atlas",
         "headers": {
-          "Arbor-Access-Link": "<raw-link-secret>"
+          "Overstory-Access-Link": "<raw-link-secret>"
         }
       },
       "response": {
@@ -187,7 +187,7 @@
             "access": "read",
             "canonical": {
               "path": "/~alice/atlas",
-              "endpoint": "https://community.example/.arbor/trees/tr_atlas",
+              "endpoint": "https://community.example/.overstory/trees/tr_atlas",
               "parentTree": "tr_alice"
             },
             "update": "1",
@@ -202,7 +202,7 @@
       "name": "watch-ref",
       "request": {
         "method": "GET",
-        "path": "/.arbor/trees/tr_atlas/watch",
+        "path": "/.overstory/trees/tr_atlas/watch",
         "headers": {
           "Last-Event-ID": "1"
         }
@@ -210,14 +210,14 @@
       "response": {
         "status": 200,
         "contentType": "text/event-stream; charset=utf-8",
-        "frame": "id: 2\nevent: tree.update\ndata: {\"cursor\":\"2\",\"tree\":\"tr_atlas\",\"kind\":\"tree.update\",\"change\":{\"descriptor\":{\"id\":\"tr_atlas\",\"kind\":\"ordinary\",\"access\":\"write\",\"canonical\":{\"path\":\"/~alice/atlas\",\"endpoint\":\"https://community.example/.arbor/trees/tr_atlas\",\"parentTree\":\"tr_alice\"},\"ref\":\"sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03\",\"update\":\"2\"}}}\n\n"
+        "frame": "id: 2\nevent: tree.update\ndata: {\"cursor\":\"2\",\"tree\":\"tr_atlas\",\"kind\":\"tree.update\",\"change\":{\"descriptor\":{\"id\":\"tr_atlas\",\"kind\":\"ordinary\",\"access\":\"write\",\"canonical\":{\"path\":\"/~alice/atlas\",\"endpoint\":\"https://community.example/.overstory/trees/tr_atlas\",\"parentTree\":\"tr_alice\"},\"ref\":\"sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03\",\"update\":\"2\"}}}\n\n"
       }
     },
     {
       "name": "query-derived-model-state",
       "request": {
         "method": "QUERY",
-        "path": "/.arbor/trees/tr_atlas/queries",
+        "path": "/.overstory/trees/tr_atlas/queries",
         "headers": {
           "Authorization": "Bearer <account-device-token>",
           "Content-Type": "application/json",
@@ -258,7 +258,7 @@
       "name": "mutate-reviewed-model-intent",
       "request": {
         "method": "POST",
-        "path": "/.arbor/trees/tr_atlas/mutate",
+        "path": "/.overstory/trees/tr_atlas/mutate",
         "headers": {
           "Authorization": "Bearer <account-device-token>",
           "Content-Type": "application/json"

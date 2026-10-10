@@ -3,15 +3,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ArborSyncDaemon, serveArborSync } from "@overstory/arborsync";
-import { ArborSyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
+import { StorySyncDaemon, serveStorySync } from "@ovst/story-sync";
+import { StorySyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import { Database } from "bun:sqlite";
-import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts";
-import { serveHost } from "@overstory/canopyd";
-import { HostAccountStore, type CandidateUpdate, compareProtocolNames, decodeUpdateRequestJSON, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, ProtocolClient } from "@overstory/protocol";
+import { AcceptedUpdateStore } from "../../packages/overstoryd/src/updates/store.ts";
+import { serveHost } from "@ovst/overstoryd";
+import { HostAccountStore, type CandidateUpdate, compareProtocolNames, decodeUpdateRequestJSON, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, ProtocolClient } from "@ovst/protocol";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { interceptedBody, wireResponseValue } from "../support/wire-body.ts";
-import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 
 const token = "self-sync-owner";
@@ -36,14 +36,14 @@ async function readAccepted(client: ProtocolClient, treeID: string) {
 }
 
 async function launch(state: string, path: string) {
-  process.env.ARBOR_DATA_HOME = state;
+  process.env.STORY_HOME = state;
   // A long fallback interval proves that live protocol watches, not polling,
   // drive every cross-daemon expectation below.
-  const running = await serveArborSync(path, {
+  const running = await serveStorySync(path, {
     port: 0,
     syncIntervalMs: 60_000,
   });
-  const client = new ArborSyncRESTClient({ baseURL: running.url });
+  const client = new StorySyncRESTClient({ baseURL: running.url });
   const close = async () => {
     running.server.stop(true);
     await running.service[Symbol.asyncDispose]();
@@ -61,7 +61,7 @@ async function waitFor(read: () => Promise<boolean>, timeout = 5_000): Promise<v
 }
 
 beforeAll(async () => {
-  sandbox = await mkdtemp(join(tmpdir(), "arbor-self-sync-"));
+  sandbox = await mkdtemp(join(tmpdir(), "story-self-sync-"));
   hostState = join(sandbox, "host");
   stateA = join(sandbox, "home-a");
   stateB = join(sandbox, "home-b");
@@ -96,14 +96,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   host.server.stop(true);
-  await host.canopy[Symbol.asyncDispose]();
-  process.env.ARBOR_DATA_HOME = stateA;
-  const cleanup = await serveArborSync(treeA, { port: 0 });
+  await host.overstoryd[Symbol.asyncDispose]();
+  process.env.STORY_HOME = stateA;
+  const cleanup = await serveStorySync(treeA, { port: 0 });
   for (const account of await HostAccountStore.list()) await new HostAccountStore(account.configurationTree).remove();
   cleanup.server.stop(true);
   await cleanup.service[Symbol.asyncDispose]();
-  process.env.ARBOR_DATA_HOME = stateB;
-  const peerCleanup = await serveArborSync(bootstrapB, { port: 0 });
+  process.env.STORY_HOME = stateB;
+  const peerCleanup = await serveStorySync(bootstrapB, { port: 0 });
   for (const account of await HostAccountStore.list()) await new HostAccountStore(account.configurationTree).remove();
   peerCleanup.server.stop(true);
   await peerCleanup.service[Symbol.asyncDispose]();
@@ -112,7 +112,7 @@ afterAll(async () => {
 
 
 describe("private self-sync", () => {
-  test("places one TreeID in two isolated Arbor homes and pulls edits", async () => {
+  test("places one TreeID in two isolated Story homes and pulls edits", async () => {
     const first = await launch(stateA, treeA);
     expect((await first.client.trees()).snapshot.some((descriptor) => descriptor.id === tree)).toBe(true);
     await first.close();
@@ -127,14 +127,14 @@ describe("private self-sync", () => {
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const historyBefore = host.canopy.acceptedUpdates(tree).length;
+    const historyBefore = host.overstoryd.acceptedUpdates(tree).length;
     const source = (await readFile(join(treeA, "note.md"), "utf8")).replace("Common", "From A");
     await writeFile(join(treeA, "note.md"), source);
     await author.running.service.synchronizeNow();
-    await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 1
+    await waitFor(async () => host.overstoryd.acceptedUpdates(tree).length === historyBefore + 1
       && (await author.running.service.trees.descriptors())
         .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    expect(host.canopy.acceptedUpdates(tree).at(-1)?.previous).not.toBeNull();
+    expect(host.overstoryd.acceptedUpdates(tree).at(-1)?.previous).not.toBeNull();
     await author.close();
 
     const reader = await launch(stateB, treeB);
@@ -147,14 +147,14 @@ describe("private self-sync", () => {
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
     await writeFile(join(treeA, "note.md"), "# Complete-object fallback\n");
     await fallback.running.service.synchronizeNow();
-    await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2);
+    await waitFor(async () => host.overstoryd.acceptedUpdates(tree).length === historyBefore + 2);
     await fallback.close();
   }, 20_000);
 
   test("preserves both sides when devices diverge offline", async () => {
-    const commonRef = host.canopy.get(tree)!.ref;
+    const commonRef = host.overstoryd.get(tree)!.ref;
     host.server.stop(true);
-    await host.canopy[Symbol.asyncDispose]();
+    await host.overstoryd[Symbol.asyncDispose]();
 
     // A daemon pass with Canopy unreachable retains the local head durably
     // instead of failing or waiting for the server.
@@ -181,7 +181,7 @@ describe("private self-sync", () => {
     });
 
     const first = await launch(stateA, treeA);
-    await waitFor(async () => host.canopy.get(tree)?.ref !== commonRef);
+    await waitFor(async () => host.overstoryd.get(tree)?.ref !== commonRef);
     await first.close();
 
     const second = await launch(stateB, treeB);
@@ -203,8 +203,8 @@ describe("private self-sync", () => {
   test("accepts binary alternatives, keeps filesystem publication live, and resolves through Canopy", async () => {
     const preparing = await launch(stateA, treeA);
     await writeFile(join(treeA, "sample.bin"), "common-binary");
-    const beforeCommon = host.canopy.currentUpdate(tree)!.id;
-    await waitFor(async () => host.canopy.currentUpdate(tree)!.id !== beforeCommon);
+    const beforeCommon = host.overstoryd.currentUpdate(tree)!.id;
+    await waitFor(async () => host.overstoryd.currentUpdate(tree)!.id !== beforeCommon);
     await preparing.close();
 
     const receiving = await launch(stateB, treeB);
@@ -212,10 +212,10 @@ describe("private self-sync", () => {
       .then((value) => value === "common-binary")
       .catch(() => false));
     await receiving.close();
-    const historyBefore = host.canopy.acceptedUpdates(tree).length;
+    const historyBefore = host.overstoryd.acceptedUpdates(tree).length;
 
     host.server.stop(true);
-    await host.canopy[Symbol.asyncDispose]();
+    await host.overstoryd[Symbol.asyncDispose]();
     await writeFile(join(treeA, "sample.bin"), "binary-from-a");
     await writeFile(join(treeB, "sample.bin"), "binary-from-b");
     host = await serveHost({
@@ -227,7 +227,7 @@ describe("private self-sync", () => {
     });
 
     const winner = await launch(stateA, treeA);
-    await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 1);
+    await waitFor(async () => host.overstoryd.acceptedUpdates(tree).length === historyBefore + 1);
     await winner.close();
 
     const conflicted = await launch(stateB, treeB);
@@ -237,7 +237,7 @@ describe("private self-sync", () => {
         return descriptor?.sync === "idle" && descriptor.conflicted === true;
       });
       expect(await readFile(join(treeB, "sample.bin"), "utf8")).toBe("binary-from-a");
-      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 2);
+      expect(host.overstoryd.acceptedUpdates(tree)).toHaveLength(historyBefore + 2);
       expect(await conflicted.running.service.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
     } finally { await conflicted.close(); }
 
@@ -268,14 +268,14 @@ describe("private self-sync", () => {
         objects: [...current.snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
       }] });
       await waitFor(async () => (await readFile(join(treeB, "sample.bin"), "utf8")) === "binary-from-b");
-      expect(host.canopy.currentUpdate(tree)!.conflicted).toBe(false);
+      expect(host.overstoryd.currentUpdate(tree)!.conflicted).toBe(false);
     } finally { await restarted.close(); }
 
     const follower = await launch(stateA, treeA);
     try {
       await waitFor(async () => (await readFile(join(treeA, "sample.bin"), "utf8")) === "binary-from-b");
       expect(await readFile(join(treeA, "during-review.txt"), "utf8")).toBe("Editing continues\n");
-      expect(host.canopy.currentUpdate(tree)!.conflicted).toBe(false);
+      expect(host.overstoryd.currentUpdate(tree)!.conflicted).toBe(false);
     } finally { await follower.close(); }
   }, 15_000);
 
@@ -345,7 +345,7 @@ describe("private self-sync", () => {
     const daemonReleased = new Promise<void>((resolve) => { releaseDaemon = resolve; });
     globalThis.fetch = (async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      const body = url.includes(`/.arbor/trees/${tree}/updates`) ? interceptedBody(init) : undefined;
+      const body = url.includes(`/.overstory/trees/${tree}/updates`) ? interceptedBody(init) : undefined;
       if (body) {
         if (failing) throw new TypeError("connection lost");
         // Only the daemon's first chain is held; the peer's own request passes.
@@ -365,7 +365,7 @@ describe("private self-sync", () => {
       .find((descriptor) => descriptor.id === tree)?.sync === "idle";
     try {
       await waitFor(idle);
-      const historyBefore = host.canopy.acceptedUpdates(tree).length;
+      const historyBefore = host.overstoryd.acceptedUpdates(tree).length;
       failing = true;
       await writeFile(join(treeA, "chain-one.txt"), "chain one\n");
       await author.running.service.synchronizeNow().catch(() => {});
@@ -405,7 +405,7 @@ describe("private self-sync", () => {
       await waitFor(idle);
 
       // Canopy replayed the daemon's chain by digest: no merge, no new update.
-      expect(host.canopy.acceptedUpdates(tree).length).toBe(historyBefore + chain.updates.length + 1);
+      expect(host.overstoryd.acceptedUpdates(tree).length).toBe(historyBefore + chain.updates.length + 1);
       expect(await author.running.service.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
       expect(author.running.service.trees.placementFor(tree)?.update).toBe(successorAccepted.update.id);
       expect(daemonResponses).toHaveLength(1);
@@ -420,9 +420,9 @@ describe("private self-sync", () => {
   }, 30_000);
 
   test("filesystem sync persists unresolved metadata and an independent cursor without holding edits", async () => {
-    process.env.ARBOR_DATA_HOME = stateA;
-    const daemon = await ArborSyncDaemon.openControl({ autoSync: false });
-    const db = new Database(join(hostState, "canopy.sqlite3"));
+    process.env.STORY_HOME = stateA;
+    const daemon = await StorySyncDaemon.openControl({ autoSync: false });
+    const db = new Database(join(hostState, "overstoryd.sqlite3"));
     const store = new AcceptedUpdateStore(db);
     try {
       await daemon.synchronizeNow();
@@ -450,7 +450,7 @@ describe("private self-sync", () => {
       expect(store.current(tree)!.conflicted).toBe(true);
       expect(store.current(tree)!.previous!.id).toBe(metadata.id);
     } finally { await daemon[Symbol.asyncDispose](); db.close(); }
-    const restarted = await ArborSyncDaemon.openControl({ autoSync: false });
+    const restarted = await StorySyncDaemon.openControl({ autoSync: false });
     try {
       expect(restarted.trees.placementFor(tree)?.conflicted).toBe(true);
       await restarted.synchronizeNow();
@@ -459,7 +459,7 @@ describe("private self-sync", () => {
   });
 
   test("a declined folder change is kept on disk across restart while the account folder keeps syncing, until restored", async () => {
-    process.env.ARBOR_DATA_HOME = stateA;
+    process.env.STORY_HOME = stateA;
     const owner = await deviceClient(host.url, token);
     const configurationTree = (await owner.account()).account.configuration.id;
     const remote = await owner.descriptor(configurationTree);
@@ -468,7 +468,7 @@ describe("private self-sync", () => {
     await mkdir(join(checkout, "LinkPreviews"), { recursive: true });
     await writeFile(join(checkout, "LinkPreviews", "preview.txt"), "refused\n");
 
-    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    const service = await StorySyncDaemon.openControl({ autoSync: false });
     try {
       await service.synchronizeNow();
       expect(await service.syncPresentation(configurationTree)).toMatchObject({ state: "current", pending: 0 });
@@ -480,7 +480,7 @@ describe("private self-sync", () => {
     } finally {
       await service[Symbol.asyncDispose]();
     }
-    const restarted = await ArborSyncDaemon.openControl({ autoSync: false });
+    const restarted = await StorySyncDaemon.openControl({ autoSync: false });
     try {
       await restarted.synchronizeNow();
       expect((await restarted.declinedChanges(configurationTree))?.points).toEqual(["/LinkPreviews"]);
@@ -500,12 +500,12 @@ describe("private self-sync", () => {
   });
 
   test("independent folder work publishes and remote work arrives while a declined path is kept", async () => {
-    process.env.ARBOR_DATA_HOME = stateA;
+    process.env.STORY_HOME = stateA;
     const systemFetch = globalThis.fetch;
     let refusing = false;
     globalThis.fetch = (async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (refusing && url.includes(`/.arbor/trees/${tree}/updates`)) {
+      if (refusing && url.includes(`/.overstory/trees/${tree}/updates`)) {
         return Response.json({ error: "invalid-request", message: "refused for the test", retryable: false }, { status: 400 });
       }
       return systemFetch(input, init);
@@ -515,7 +515,7 @@ describe("private self-sync", () => {
       const current = await readAccepted(owner, tree);
       return decodeProtocolDirectory(current.snapshot.objects.get(current.snapshot.root)!).entries.some((entry) => entry.name === name);
     };
-    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    const service = await StorySyncDaemon.openControl({ autoSync: false });
     try {
       await service.synchronizeNow();
       refusing = true;
@@ -560,17 +560,17 @@ describe("private self-sync", () => {
   });
 
   test("a declined path is released when the folder is put back", async () => {
-    process.env.ARBOR_DATA_HOME = stateA;
+    process.env.STORY_HOME = stateA;
     const systemFetch = globalThis.fetch;
     let refusing = false;
     globalThis.fetch = (async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (refusing && url.includes(`/.arbor/trees/${tree}/updates`)) {
+      if (refusing && url.includes(`/.overstory/trees/${tree}/updates`)) {
         return Response.json({ error: "invalid-request", message: "refused for the test", retryable: false }, { status: 400 });
       }
       return systemFetch(input, init);
     }) as typeof fetch;
-    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    const service = await StorySyncDaemon.openControl({ autoSync: false });
     try {
       await service.synchronizeNow();
       refusing = true;
@@ -591,7 +591,7 @@ describe("private self-sync", () => {
 
 describe("ignore rules in a placed folder", () => {
   const owner = () => deviceClient(host.url, token);
-  const syncState = async (service: ArborSyncDaemon) => (await service.trees.descriptors()).find(({ id }) => id === tree)?.sync;
+  const syncState = async (service: StorySyncDaemon) => (await service.trees.descriptors()).find(({ id }) => id === tree)?.sync;
 
   /** The accepted text at a path, "<directory>" for a directory, or null. */
   async function acceptedFile(path: string): Promise<string | null> {
@@ -633,58 +633,58 @@ describe("ignore rules in a placed folder", () => {
   }
 
   test("ignored, untracked content is never published, deleted by a pull, or scanned into a change", async () => {
-    process.env.ARBOR_DATA_HOME = stateA;
+    process.env.STORY_HOME = stateA;
     await writeFile(join(treeA, ".gitignore"), ".env\nbuild/\n");
-    await writeFile(join(treeA, ".arborignore"), "draft.md\n");
+    await writeFile(join(treeA, ".overstoryignore"), "draft.md\n");
     await writeFile(join(treeA, ".env"), "TOKEN=never-leaves\n");
     await mkdir(join(treeA, "build"), { recursive: true });
     await writeFile(join(treeA, "build", "out.bin"), "generated\n");
     await writeFile(join(treeA, "draft.md"), "---\nid: draft1\n---\nNot yet\n");
-    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    const service = await StorySyncDaemon.openControl({ autoSync: false });
     try {
       await service.synchronizeNow();
       expect(await acceptedFile("/.gitignore")).toBe(".env\nbuild/\n");
-      expect(await acceptedFile("/.arborignore")).toBe("draft.md\n");
+      expect(await acceptedFile("/.overstoryignore")).toBe("draft.md\n");
       for (const path of ["/.env", "/build", "/draft.md"]) expect(await acceptedFile(path)).toBeNull();
       expect(await syncState(service)).toBe("idle");
       expect((await service.pendingUpdate(tree)).request).toBeNull();
 
-      const before = host.canopy.acceptedUpdates(tree).length;
+      const before = host.overstoryd.acceptedUpdates(tree).length;
       await remoteChange({ "/remote-note.txt": "from elsewhere\n" });
       await service.synchronizeNow();
       expect(await readFile(join(treeA, "remote-note.txt"), "utf8")).toBe("from elsewhere\n");
       expect(await readFile(join(treeA, ".env"), "utf8")).toBe("TOKEN=never-leaves\n");
       expect(await readFile(join(treeA, "build", "out.bin"), "utf8")).toBe("generated\n");
       expect(await readFile(join(treeA, "draft.md"), "utf8")).toContain("Not yet");
-      expect(host.canopy.acceptedUpdates(tree).length).toBe(before + 1);
+      expect(host.overstoryd.acceptedUpdates(tree).length).toBe(before + 1);
       expect(await syncState(service)).toBe("idle");
     } finally {
       await service[Symbol.asyncDispose]();
     }
-    const count = host.canopy.acceptedUpdates(tree).length;
-    const restarted = await ArborSyncDaemon.openControl({ autoSync: false });
+    const count = host.overstoryd.acceptedUpdates(tree).length;
+    const restarted = await StorySyncDaemon.openControl({ autoSync: false });
     try {
       await restarted.synchronizeNow();
       expect(await syncState(restarted)).toBe("idle");
       expect((await restarted.pendingUpdate(tree)).request).toBeNull();
-      expect(host.canopy.acceptedUpdates(tree).length).toBe(count);
+      expect(host.overstoryd.acceptedUpdates(tree).length).toBe(count);
     } finally {
       await restarted[Symbol.asyncDispose]();
     }
   }, 20_000);
 
   test("a tracked path stays synchronized when a rule matches it, until it is deleted", async () => {
-    process.env.ARBOR_DATA_HOME = stateA;
-    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    process.env.STORY_HOME = stateA;
+    const service = await StorySyncDaemon.openControl({ autoSync: false });
     try {
       await writeFile(join(treeA, "tracked.log"), "first\n");
       await service.synchronizeNow();
       expect(await acceptedFile("/tracked.log")).toBe("first\n");
 
-      await writeFile(join(treeA, ".arborignore"), "draft.md\n*.log\n");
+      await writeFile(join(treeA, ".overstoryignore"), "draft.md\n*.log\n");
       await writeFile(join(treeA, "untracked.log"), "local only\n");
       await service.synchronizeNow();
-      expect(await acceptedFile("/.arborignore")).toBe("draft.md\n*.log\n");
+      expect(await acceptedFile("/.overstoryignore")).toBe("draft.md\n*.log\n");
       expect(await acceptedFile("/tracked.log")).toBe("first\n");
       expect(await acceptedFile("/untracked.log")).toBeNull();
 
@@ -702,11 +702,11 @@ describe("ignore rules in a placed folder", () => {
       await rm(join(treeA, "tracked.log"));
       await service.synchronizeNow();
       expect(await acceptedFile("/tracked.log")).toBeNull();
-      const count = host.canopy.acceptedUpdates(tree).length;
+      const count = host.overstoryd.acceptedUpdates(tree).length;
       await writeFile(join(treeA, "tracked.log"), "recreated\n");
       await service.synchronizeNow();
       expect(await acceptedFile("/tracked.log")).toBeNull();
-      expect(host.canopy.acceptedUpdates(tree).length).toBe(count);
+      expect(host.overstoryd.acceptedUpdates(tree).length).toBe(count);
       expect(await syncState(service)).toBe("idle");
       expect(await readFile(join(treeA, "tracked.log"), "utf8")).toBe("recreated\n");
     } finally {
@@ -715,13 +715,13 @@ describe("ignore rules in a placed folder", () => {
   }, 20_000);
 
   test("remote deletions and rule changes keep ignored local bytes, and a removed rule publishes what it uncovered", async () => {
-    process.env.ARBOR_DATA_HOME = stateA;
-    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    process.env.STORY_HOME = stateA;
+    const service = await StorySyncDaemon.openControl({ autoSync: false });
     try {
       await writeFile(join(treeA, "kept.tmp"), "tracked before its rule\n");
       await writeFile(join(treeA, "arrives.tmp2"), "tracked before a remote rule\n");
       await service.synchronizeNow();
-      await writeFile(join(treeA, ".arborignore"), "draft.md\n*.log\n*.tmp\n");
+      await writeFile(join(treeA, ".overstoryignore"), "draft.md\n*.log\n*.tmp\n");
       await service.synchronizeNow();
       expect(await acceptedFile("/kept.tmp")).toBe("tracked before its rule\n");
 
@@ -733,10 +733,10 @@ describe("ignore rules in a placed folder", () => {
       expect(await syncState(service)).toBe("idle");
 
       // A rule arriving with a deletion keeps those bytes too; the rule it drops uncovers draft.md.
-      await remoteChange({ "/.arborignore": "*.log\n*.tmp\n*.tmp2\n", "/arrives.tmp2": null });
+      await remoteChange({ "/.overstoryignore": "*.log\n*.tmp\n*.tmp2\n", "/arrives.tmp2": null });
       await service.synchronizeNow();
       expect(await readFile(join(treeA, "arrives.tmp2"), "utf8")).toBe("tracked before a remote rule\n");
-      expect(await readFile(join(treeA, ".arborignore"), "utf8")).toBe("*.log\n*.tmp\n*.tmp2\n");
+      expect(await readFile(join(treeA, ".overstoryignore"), "utf8")).toBe("*.log\n*.tmp\n*.tmp2\n");
       await waitFor(async () => (await acceptedFile("/draft.md"))?.includes("Not yet") === true, 8_000);
       await service.synchronizeNow();
       expect(await acceptedFile("/arrives.tmp2")).toBeNull();
@@ -749,11 +749,11 @@ describe("ignore rules in a placed folder", () => {
   }, 20_000);
 
   test("an ignore file that is not UTF-8 applies no rules and does not stop synchronization", async () => {
-    process.env.ARBOR_DATA_HOME = stateA;
+    process.env.STORY_HOME = stateA;
     await mkdir(join(treeA, "bytes"), { recursive: true });
     await writeFile(join(treeA, "bytes", ".gitignore"), Buffer.from([0xff, 0x2a, 0x0a]));
     await writeFile(join(treeA, "bytes", "kept.txt"), "still content\n");
-    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    const service = await StorySyncDaemon.openControl({ autoSync: false });
     try {
       await service.synchronizeNow();
       expect(await acceptedFile("/bytes/kept.txt")).toBe("still content\n");

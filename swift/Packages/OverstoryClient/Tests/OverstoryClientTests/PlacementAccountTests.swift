@@ -82,7 +82,7 @@ private actor PlacementHostState {
         requests.append(.init(method: method, url: url, authorization: request.value(forHTTPHeaderField: "Authorization"), body: body))
         let fields = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
         switch (method, url) {
-        case ("POST", "https://place.test/.arbor/device-sessions/challenges"):
+        case ("POST", "https://place.test/.overstory/device-sessions/challenges"):
             guard reserved else { return (404, Data(#"{"error":"not-found","message":"No such account","retryable":false}"#.utf8)) }
             if homeUnreachable {
                 return (503, Data(#"{"error":"internal-error","message":"home unreachable","retryable":true,"details":{"homeHost":"https://home.test"}}"#.utf8))
@@ -95,10 +95,10 @@ private actor PlacementHostState {
                 "profileTree": fields["profileTree"] ?? "", "device": fields["device"] ?? "", "nonce": String(repeating: "B", count: 43),
                 "issuedAt": 1_788_000_000_000, "expiresAt": 1_788_000_120_000,
             ]))
-        case ("POST", "https://place.test/.arbor/device-sessions"):
+        case ("POST", "https://place.test/.overstory/device-sessions"):
             let device = ((fields["challenge"] as? [String: Any])?["device"] as? String) ?? ""
             return (201, jsonData(["token": "ars_place", "device": device, "expiresAt": Int(Date().timeIntervalSince1970 * 1000) + 3_600_000]))
-        case ("GET", "https://place.test/.arbor/account"):
+        case ("GET", "https://place.test/.overstory/account"):
             guard request.value(forHTTPHeaderField: "Authorization") == "Bearer ars_place" else {
                 return (401, Data(#"{"error":"unauthenticated","message":"Authentication required","retryable":false}"#.utf8))
             }
@@ -197,9 +197,9 @@ struct PlacementAccountTests {
         #expect(try await service.placements() == [connected.placement])
         let requests = await PlacementHostProtocol.state.requests
         // No claim: only a session this device's key opens, and the account it reads.
-        #expect(!requests.contains { $0.url.hasSuffix("/.arbor/account-challenges") || $0.method == "PUT" })
+        #expect(!requests.contains { $0.url.hasSuffix("/.overstory/account-challenges") || $0.method == "PUT" })
         #expect(requests.allSatisfy { !$0.url.hasPrefix("https://home.test") })
-        #expect(requests.last { $0.url.hasSuffix("/.arbor/account") }?.authorization == "Bearer ars_place")
+        #expect(requests.last { $0.url.hasSuffix("/.overstory/account") }?.authorization == "Bearer ars_place")
         let sessionChallenge = try #require(requests.first { $0.url.hasSuffix("/device-sessions/challenges") })
         #expect((try JSONSerialization.jsonObject(with: sessionChallenge.body) as? [String: Any])?["device"] as? String == "dv_phone")
 
@@ -280,7 +280,7 @@ struct PlacementAccountTests {
         #expect(NativePlacementAccount.directoryName(origin: "http://127.0.0.1:4318") == "host-7cffd9399162b658b2df48c9")
         #expect(NativePlacementAccount.key(configurationTree: "tr_config", origin: "https://place.test") == "tr_config/host-dfe99d38f7932adc13be32e7")
 
-        let dataHome = FileManager.default.temporaryDirectory.appending(path: "ArborPlacements-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let dataHome = FileManager.default.temporaryDirectory.appending(path: "StoryPlacements-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: dataHome) }
         let store = DataHomePlacementStore(dataHome: dataHome)
         let directory = store.directory(configurationTree: "tr_config", origin: "https://place.test")

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
   describeTransitionPayload, encodeProtocolDirectory, hashObject, transitionPayload,
   type ObjectHash, type ProtocolDirectoryEntry,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 
 function store() {
   const objects = new Map<ObjectHash, Uint8Array>();

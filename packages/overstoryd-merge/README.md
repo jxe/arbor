@@ -1,0 +1,33 @@
+# @ovst/overstoryd-merge
+
+overstoryd's merge sidecar and the `overstoryd-merge` command. It runs as a separate
+Bun process with fixed object-store paths and a minimal environment, and it
+has no database connection or credentials.
+
+- `sidecar.ts`: the question loop: the in-memory cache of engine states per
+  log entry, replay from each chain's start and alignment to recorded
+  entries, and the answer. The question, answer and log entry shapes are in
+  [`@ovst/merge-protocol`](../merge-protocol/README.md), the only
+  contract overstoryd sees.
+- `snapshot.ts`, `trees.ts`: a snapshot's choices (one per conflicting entry
+  or folder, continuing a hidden alternative) and path-copying tree edits.
+- `log-decisions.ts`: a retained state's decisions as log decisions, with
+  node identities resolved to paths; checkpoints take log decisions back.
+- `engine-contract.ts`: the engine's own request and result shapes: an
+  authored evaluation and a checkpoint, which records an accepted root (and
+  its choices) onto a retained state; replay aligns with it.
+- `intent-engine.ts`, `intent-model.ts`: exact authored-operation execution
+  over traces of frames, choices, and retained state.
+- `format-rules.ts`, `markdown-format.ts`, `web-formats.ts`: the format
+  support rules (see the [format support contract](../../docs/architecture/overstoryd/merge-tool.md#format-support-contract)).
+  A snapshot's tree merge, with its Markdown and collection rules, is
+  [`@ovst/tree-merge`](../tree-merge/README.md).
+- `pieces.ts`, `retained-state.ts`: source pieces, and the engine's recorded
+  states: frozen and interned values in persistent maps, identified by content.
+- `cli.ts`: the JSON-lines `serve` process.
+
+It has no tree-configuration rule: overstoryd merges its own policy files.
+
+The API is [writing a sidecar](../../docs/architecture/overstoryd/writing-a-sidecar.md);
+the process, cache, limits and failure behavior are in
+[the merge sidecar](../../docs/architecture/overstoryd/merge-tool.md).

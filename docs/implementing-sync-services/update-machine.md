@@ -8,12 +8,12 @@ sources append **local changes** to a durable **change log**; the machine
 decides when and how the log is published; the **runner** performs what the
 machine decides. An editor generation, a structural action, a review
 resolution, and a folder scan are all local changes. The Canopy app's
-`CanopyWorkingTree` runs the Swift runner; Arbor Sync runs the TypeScript
-runner in `@overstory/working-tree` once per placed folder (`FolderSync`).
+`OverstoryWorkingTree` runs the Swift runner; Story Sync runs the TypeScript
+runner in `@ovst/working-tree` once per placed folder (`FolderSync`).
 Both pass the same runner vectors.
 
-The machine is the pure reducer `UpdateMachine` (`CanopyWorkingTree`) and
-`reduceUpdate` (`@overstory/working-tree`). Both execute the
+The machine is the pure reducer `UpdateMachine` (`OverstoryWorkingTree`) and
+`reduceUpdate` (`@ovst/working-tree`). Both execute the
 `working-tree-updates` scenarios in
 [`docs/overstory-spec/conformance/client-state-machines.json`](../overstory-spec/conformance/client-state-machines.json).
 Both runners execute
@@ -23,8 +23,8 @@ what the host received, the change log, and what the editor reads.
 
 ## The runner's contract
 
-`UpdateCoordinator` is the runner, in Swift (`CanopyWorkingTree`) and in
-TypeScript (`@overstory/working-tree`). Its rule is **the machine decides;
+`UpdateCoordinator` is the runner, in Swift (`OverstoryWorkingTree`) and in
+TypeScript (`@ovst/working-tree`). Its rule is **the machine decides;
 the runner performs**:
 
 - A runner turns I/O results into events and executes every effect it is
@@ -64,7 +64,7 @@ authored on them from the log, then dispatches `heldDiscarded`.
 
 ## The TypeScript runner's ports
 
-`@overstory/working-tree` is browser-safe; `@overstory/working-tree/node` adds
+`@ovst/working-tree` is browser-safe; `@ovst/working-tree/node` adds
 the file-backed `ChangeLog` and `FileControlStore`. The runner takes:
 
 - a **change log** (`ChangeLogPort`): `retained`, `nextPublication`,
@@ -82,7 +82,7 @@ view from the log; a folder writes accepted bytes to disk only when nothing is
 pending and the folder still holds what it last wrote or scanned (spec 09 rule
 13). A source appends to the log and then calls `noteLocalChange()`.
 
-**The folder as a source.** `FolderSync` (`packages/arborsync`) is the folder's
+**The folder as a source.** `FolderSync` (`packages/story-sync`) is the folder's
 accepted tree and its only source. A watcher event schedules a scan through the
 stat index; a scan whose root differs from what the folder last held appends a
 `trace: null` change whose basis is what the folder held (the accepted state it
@@ -144,7 +144,7 @@ The change log refuses any other fork (`ChangeLog.retain(_:settled:)` in Swift,
 The one exception is a merge: an edit captured before work it must be merged
 with, either an update from the host installed while its generation was in
 flight, or a change of our own to the same document. It keeps its own basis,
-declared to the log (`merging:`), and canopyd merges it. Requests go out one at
+declared to the log (`merging:`), and overstoryd merges it. Requests go out one at
 a time, so that merge is the only one in flight. A Move to Document whose
 documents changed since the editor read them reports `basesDiverged`; the editor
 publishes pending work and retries on the accepted view. Each request repeats
@@ -192,7 +192,7 @@ releases only its own claim. The last active source draining starts the quiet
 period. Durable local changes also reset the timer, including while a request is
 in flight or transport is unavailable. Once idle elapses, the successor is ready; acceptance does not add
 another wait. Watch traffic and freshness polls do not cut an active burst short.
-Explicit synchronization forces publication. Arbor Sync's folder source opts
+Explicit synchronization forces publication. Story Sync's folder source opts
 into a **1 s maximum** so continuously changing files still make progress; the
 maximum starts with the first pending change and remains due across submission.
 The app polls every 30 s for freshness. These are configurable implementation
@@ -242,7 +242,7 @@ Prepared or ambiguously transmitted prefixes are immutable, including across
 restart. Mapping retention follows the retained local chain. A semantic change
 with unchanged final bytes still publishes: equal roots do not prove equal identity.
 This includes snapshot resolutions (`trace: null` with `resolves`) and `ifCurrent`
-guards. Both clients must send them to canopyd; local byte equality cannot
+guards. Both clients must send them to overstoryd; local byte equality cannot
 acknowledge a resolution or evaluate an authority guard.
 
 Shared `coalesced-publication.json` fixtures check the compiler in both languages;

@@ -50,7 +50,7 @@
           }
         },
         "content": {
-          "source": "---\nid: pg_practices\ntitle: Practices\nfeatured: true\n---\n\n# Practices\n\n<!-- arbor:children -->\n",
+          "source": "---\nid: pg_practices\ntitle: Practices\nfeatured: true\n---\n\n# Practices\n\n<!-- overstory:children -->\n",
           "representation": { "state": "stored", "origin": "sibling" }
         },
         "materialization": "available",

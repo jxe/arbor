@@ -15,7 +15,7 @@ import type {
   RelationMetadata,
   RelationshipMetadata,
   ResolvedDatabaseLocation,
-  ResolvedArborSource,
+  ResolvedStorySource,
   StoreSchema,
 } from "./schema.ts";
 import { introspectStoreSchema } from "./schema.ts";
@@ -503,7 +503,7 @@ async function resolveProfiles(
 }
 
 export class SQLiteQueryEngine implements AsyncDisposable {
-  private readonly bindings = new WeakMap<QueryHandle<unknown, unknown>, ResolvedArborSource>();
+  private readonly bindings = new WeakMap<QueryHandle<unknown, unknown>, ResolvedStorySource>();
 
   private constructor(
     readonly schema: StoreSchema,
@@ -520,7 +520,7 @@ export class SQLiteQueryEngine implements AsyncDisposable {
     return new SQLiteQueryEngine(schema, location.databasePath, profiles, { tree: location.tree, path: location.path });
   }
 
-  bind(handle: QueryHandle<unknown, unknown>, source: ResolvedArborSource): void {
+  bind(handle: QueryHandle<unknown, unknown>, source: ResolvedStorySource): void {
     if (source.authoredPath !== handle.source.path) {
       throw new QueryCompileError("The resolved query source does not match its authored node() path");
     }
@@ -528,7 +528,7 @@ export class SQLiteQueryEngine implements AsyncDisposable {
     this.bindings.set(handle, source);
   }
 
-  private assertSource(handle: QueryHandle<unknown, unknown>, source: ResolvedArborSource): void {
+  private assertSource(handle: QueryHandle<unknown, unknown>, source: ResolvedStorySource): void {
     if (source.schemaFingerprint !== this.schema.fingerprint) {
       throw new QueryCompileError("The resolved query source schema is not active");
     }
@@ -599,7 +599,7 @@ export class SQLiteQueryEngine implements AsyncDisposable {
   private async rootRows(plan: QueryPlan, context: ExecutionContext): Promise<Record<string, unknown>[]> {
     const relationMetadata = this.schema.relations[plan.relation]!;
     const portable = isPortableNodePlan(plan);
-    if (relationMetadata.source === "arbor-profile") {
+    if (relationMetadata.source === "overstory-profile") {
       const id = profileIDFromPredicate(plan.where, context);
       if (!id) throw new QueryCompileError("A root arbor_profiles query must constrain id exactly");
       const fields = requiredFields(plan, plan.relation, this.schema);
@@ -668,11 +668,11 @@ export class SQLiteQueryEngine implements AsyncDisposable {
   ): Promise<Record<string, unknown>[][]> {
     if (parents.length === 0) return [];
     const target = this.schema.relations[metadata.target]!;
-    const grouped = target.source === "arbor-profile"
+    const grouped = target.source === "overstory-profile"
       ? await this.profileRelationshipRows(parents, metadata, selected.plan, context)
       : this.sqliteRelationshipRows(parents, metadata, selected.plan, context);
     return grouped.map((rows) => {
-      const ordered = target.source === "arbor-profile"
+      const ordered = target.source === "overstory-profile"
         ? sortRows(rows, metadata.target, selected.plan, this.schema, context, metadata)
         : rows;
       if (metadata.cardinality === "many") assertStableRows(ordered, this.schema, metadata.target, selected.plan, metadata);

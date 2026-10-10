@@ -3,11 +3,11 @@ import { executeExactSourceEdits } from "../support/source-edits.ts";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveArborSyncControl } from "@overstory/arborsync";
-import { serveHost } from "@overstory/canopyd";
-import { decodeProtocolDirectory, type SourceOperation } from "@overstory/protocol";
+import { serveStorySyncControl } from "@ovst/story-sync";
+import { serveHost } from "@ovst/overstoryd";
+import { decodeProtocolDirectory, type SourceOperation } from "@ovst/protocol";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
-import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { deviceClient, deviceSession, testAccount, testDevice } from "../helpers/devices.ts";
 
 async function run(command: string[], environment: Record<string, string> = {}): Promise<void> {
@@ -24,18 +24,18 @@ async function run(command: string[], environment: Record<string, string> = {}):
 }
 
 const fixtures = {
-  ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../docs/overstory-spec/conformance"),
-  ARBOR_REFERENCE_FIXTURES: join(import.meta.dir, "../fixtures"),
+  STORY_PROTOCOL_FIXTURES: join(import.meta.dir, "../../docs/overstory-spec/conformance"),
+  STORY_REFERENCE_FIXTURES: join(import.meta.dir, "../fixtures"),
 };
 
-const sandbox = await mkdtemp(join(tmpdir(), "arbor-protocol-"));
+const sandbox = await mkdtemp(join(tmpdir(), "story-protocol-"));
 const home = join(sandbox, "home");
 const treeDir = join(sandbox, "tree");
-const authorityState = join(sandbox, "canopy");
-const previousDataHome = process.env.ARBOR_DATA_HOME;
+const authorityState = join(sandbox, "overstoryd");
+const previousDataHome = process.env.STORY_HOME;
 
 try {
-  const directoryFixture = JSON.parse(await readFile(join(fixtures.ARBOR_REFERENCE_FIXTURES, "canopy/directory.json"), "utf8")) as {
+  const directoryFixture = JSON.parse(await readFile(join(fixtures.STORY_REFERENCE_FIXTURES, "overstoryd/directory.json"), "utf8")) as {
     snapshot?: Array<{ profile?: string; sources?: string[] }>;
   };
   if ("observedThrough" in directoryFixture || !directoryFixture.snapshot?.every(entry => entry.profile?.startsWith("tr_") && entry.sources?.length)) {
@@ -47,7 +47,7 @@ try {
   // places `treeDir` under that account so the Swift suites can exercise the
   // loopback services (bootstrap, credential, objects) and the protocol directly.
   const authorityToken = "swift-protocol-device-token";
-  const canopy = await serveHost({
+  const overstoryd = await serveHost({
     dataRoot: authorityState,
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
@@ -62,7 +62,7 @@ try {
     await writeFile(join(treeDir, "photo.bin"), new Uint8Array([1, 2, 3, 4, 5]));
     await writeFile(join(treeDir, "sub", "child.md"), "Child\n");
 
-    const owner = await deviceClient(canopy.url, authorityToken);
+    const owner = await deviceClient(overstoryd.url, authorityToken);
     const account = await owner.account();
     const profile = account.account.profileTree!;
     const device = Object.values((await readTreeConfig(owner, profile, "person")).values.devices!).find(device => device.administrator)!.id;
@@ -82,7 +82,7 @@ try {
     // record the device and community credential the daemon reads at start.
     await installAccountHome(home, owner, device, testDevice(authorityToken).seed, { [treeDir]: tree });
 
-    const control = await serveArborSyncControl({ port: 0, syncIntervalMs: 60_000 });
+    const control = await serveStorySyncControl({ port: 0, syncIntervalMs: 60_000 });
     try {
       // One explicit pass places the tree and records its accepted base.
       const sync = await fetch(`${control.url}/v1/sync`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
@@ -91,23 +91,23 @@ try {
       const placed = trees.snapshot.find((item) => item.id === tree);
       if (!placed?.root || !placed.update) throw new Error("Placed tree did not record its accepted base");
 
-      const daemon = { ARBOR_TEST_URL: control.url, ARBOR_TEST_TREE: tree };
+      const daemon = { STORY_TEST_URL: control.url, STORY_TEST_TREE: tree };
       // The daemon client is Mac app code (Native 011), so its suites run in
-      // the app-hosted CanopyAppTests bundle; xcodebuild forwards
+      // the app-hosted StoryAppTests bundle; xcodebuild forwards
       // `TEST_RUNNER_`-prefixed variables to the test process. A local
       // workspace, when present, overrides the pinned Quagmire with the
       // sibling checkout (DEVELOPMENT.md, "Developing Overstory with Quagmire").
-      const localWorkspace = "swift/Canopy.local.xcworkspace";
+      const localWorkspace = "swift/Story.local.xcworkspace";
       const container = await Bun.file(join(import.meta.dir, "../..", localWorkspace, "contents.xcworkspacedata")).exists()
         ? ["-workspace", localWorkspace]
-        : ["-project", "swift/Canopy.xcodeproj"];
+        : ["-project", "swift/Story.xcodeproj"];
       await run([
         "xcodebuild", "test", "-quiet", ...container, "-scheme", "Canopy",
         "-destination", "platform=macOS",
-        "-only-testing:CanopyAppTests/ArborSyncClientTests",
-        "-only-testing:CanopyAppTests/LoopbackServicesTests",
+        "-only-testing:StoryAppTests/StorySyncClientTests",
+        "-only-testing:StoryAppTests/LoopbackServicesTests",
       ], Object.fromEntries(Object.entries({ ...fixtures, ...daemon }).map(([key, value]) => [`TEST_RUNNER_${key}`, value])));
-      await run(["swift", "test", "--package-path", "swift/Packages/CanopyAppKit"], fixtures);
+      await run(["swift", "test", "--package-path", "swift/Packages/StoryKit"], fixtures);
       // Exercise a real accepted conflict through the baseline filesystem client.
       const basis = (await owner.descriptor(tree)).tree;
       const snapshot = await owner.snapshot(tree, basis.root);
@@ -142,29 +142,29 @@ try {
     }
 
     // The Swift suites present a session of the owner's device, as any client does.
-    const session = await deviceSession(canopy.url, authorityToken);
+    const session = await deviceSession(overstoryd.url, authorityToken);
     const wire = {
-      ARBOR_WIRE_TEST_URL: canopy.url,
-      ARBOR_WIRE_TEST_TOKEN: session,
-      ARBOR_WIRE_TEST_TREE: tree,
+      STORY_PROTOCOL_TEST_URL: overstoryd.url,
+      STORY_PROTOCOL_TEST_TOKEN: session,
+      STORY_PROTOCOL_TEST_TREE: tree,
     };
     await run(["swift", "test", "--package-path", "swift/Packages/Overstory"], { ...fixtures, ...wire });
     await run(["swift", "test", "--package-path", "swift/Packages/OverstoryClient"], { ...fixtures, ...wire });
-    await run(["swift", "test", "--package-path", "swift/Packages/CanopyWorkingTree"], {
-      ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,
-      ARBOR_SOURCE_TEST_TOKEN: session, ARBOR_SOURCE_TEST_TREE: sourceTree,
-      ARBOR_REVIEW_TEST_TREES: JSON.stringify(reviewTrees), ARBOR_BRANCH_TEST_TREE: branchTree,
+    await run(["swift", "test", "--package-path", "swift/Packages/OverstoryWorkingTree"], {
+      ...fixtures, STORY_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, STORY_SOURCE_TEST_URL: overstoryd.url,
+      STORY_SOURCE_TEST_TOKEN: session, STORY_SOURCE_TEST_TREE: sourceTree,
+      STORY_REVIEW_TEST_TREES: JSON.stringify(reviewTrees), STORY_BRANCH_TEST_TREE: branchTree,
     });
-    await run(["swift/scripts/test-canopy-editor-local.sh", "--filter", "LiveEditorAdmissionTests"], {
-      ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,
-      ARBOR_SOURCE_TEST_TOKEN: session, ARBOR_SOURCE_TEST_TREE: sourceTree,
+    await run(["swift/scripts/test-story-editor-local.sh", "--filter", "LiveEditorAdmissionTests"], {
+      ...fixtures, STORY_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, STORY_SOURCE_TEST_URL: overstoryd.url,
+      STORY_SOURCE_TEST_TOKEN: session, STORY_SOURCE_TEST_TREE: sourceTree,
     });
   } finally {
-    canopy.server.stop(true);
-    await canopy.canopy[Symbol.asyncDispose]();
+    overstoryd.server.stop(true);
+    await overstoryd.overstoryd[Symbol.asyncDispose]();
   }
 } finally {
-  if (previousDataHome === undefined) delete process.env.ARBOR_DATA_HOME;
-  else process.env.ARBOR_DATA_HOME = previousDataHome;
+  if (previousDataHome === undefined) delete process.env.STORY_HOME;
+  else process.env.STORY_HOME = previousDataHome;
   await rm(sandbox, { recursive: true, force: true });
 }

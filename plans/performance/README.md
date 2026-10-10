@@ -11,7 +11,7 @@ the benefit and the cost to correctness, recovery and offline use.
 | [002: Shared merge cache rollout](002-shared-merge-cache.md) | Implemented locally after the iPhone replay loop. Verify the deployed revision and original queued request after Joe pushes. |
 | [001: Pack object storage](001-pack-object-storage.md) | When loose objects make storage, startup, audit or backup expensive. Built 2026-10-09 and off by default, as document-grouped zstd frames, chosen on a copy of live data; rehearsal and rollout remain. |
 
-These retain their historical Native 006 and canopyd 001 identifiers.
+These retain their historical Native 006 and overstoryd 001 identifiers.
 [Client coalescing](../merge/002-identity-preserving-coalescing.md) also reduces
 wire traffic but stays with merge work because preserving authored identity is
 its central constraint. [Performance ideas](../ideas.md#speed) collects measured

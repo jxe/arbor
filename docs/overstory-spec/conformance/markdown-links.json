@@ -2,12 +2,12 @@
   {
     "sourceDirectory": "/",
     "target": {"path": "/Calendar", "body": "sibling", "stableKey": "[[\"id\",\"h31mlm\"]]"},
-    "expected": "Calendar.md#arbor-key=id:h31mlm"
+    "expected": "Calendar.md#overstory-key=id:h31mlm"
   },
   {
     "sourceDirectory": "/",
     "target": {"path": "/Picture-of-Life/Foo", "body": "sibling", "stableKey": "[[\"id\",\"abc123\"]]"},
-    "expected": "Picture-of-Life/Foo.md#arbor-key=id:abc123"
+    "expected": "Picture-of-Life/Foo.md#overstory-key=id:abc123"
   },
   {
     "sourceDirectory": "/x",
@@ -42,27 +42,27 @@
   {
     "sourceDirectory": "/a",
     "target": {"path": "/a/Tasks/walking", "body": null, "stableKey": "[[\"slug\",\"walking\"]]"},
-    "expected": "Tasks/walking#arbor-key=slug:walking"
+    "expected": "Tasks/walking#overstory-key=slug:walking"
   },
   {
     "sourceDirectory": "/a",
     "target": {"path": "/a/Tasks/walking", "body": "sibling", "stableKey": "[[\"slug\",\"walking\"]]"},
-    "expected": "Tasks/walking.md#arbor-key=slug:walking"
+    "expected": "Tasks/walking.md#overstory-key=slug:walking"
   },
   {
     "sourceDirectory": "/a",
     "target": {"path": "/a/Tasks/row", "body": null, "stableKey": "[[\"id\",42]]"},
-    "expected": "Tasks/row#arbor-key=id=42"
+    "expected": "Tasks/row#overstory-key=id=42"
   },
   {
     "sourceDirectory": "/",
     "target": {"path": "/Calendar", "body": "sibling", "stableKey": "[[\"id\",\"h31mlm\"]]", "contentFragment": "june"},
-    "expected": "Calendar.md;arbor-key=id:h31mlm#june"
+    "expected": "Calendar.md;overstory-key=id:h31mlm#june"
   },
   {
     "sourceDirectory": "/",
     "target": {"path": "/Calendar", "body": "sibling", "revision": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
-    "expected": "Calendar.md;arbor-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    "expected": "Calendar.md;overstory-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   },
   {
     "sourceDirectory": "/",
@@ -72,7 +72,7 @@
   {
     "sourceDirectory": "/projects/atlas",
     "target": {"path": "/projects/roadmap", "body": "sibling", "stableKey": "[[\"id\",\"x7f3q2\"]]", "applicationQuery": "view=board&edit"},
-    "expected": "../roadmap.md?view=board&edit#arbor-key=id:x7f3q2"
+    "expected": "../roadmap.md?view=board&edit#overstory-key=id:x7f3q2"
   },
   {
     "sourceDirectory": "/",

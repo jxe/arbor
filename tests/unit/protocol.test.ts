@@ -5,11 +5,11 @@ import { join } from "node:path";
 import type {
   OverstoryError,
   WorkspaceEvent,
-} from "@overstory/protocol";
-import { applySourceEdits, canonicalArborLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeUpdateConflictJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeProtocolDirectory, hashObject, updateRequestDigests } from "@overstory/protocol";
-import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@overstory/protocol";
-import { decodeCanonicalCBOR } from "@overstory/protocol";
-import type { ArborSyncStatus, TreeBootstrap, TreeCredential } from "../../packages/cli/src/daemon-client.ts";
+} from "@ovst/protocol";
+import { applySourceEdits, canonicalOverstoryLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeUpdateConflictJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeProtocolDirectory, hashObject, updateRequestDigests } from "@ovst/protocol";
+import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@ovst/protocol";
+import { decodeCanonicalCBOR } from "@ovst/protocol";
+import type { StorySyncStatus, TreeBootstrap, TreeCredential } from "../../packages/cli/src/daemon-client.ts";
 
 // Test-local checks mirroring Overstory's `ProtocolTreeDescriptor.validated()` and
 // `ProtocolSafeAccessSubject` decoding; the TypeScript packages export no descriptor
@@ -26,7 +26,7 @@ function validateTreeDescriptor(value: unknown): TreeDescriptor {
   } else if (descriptor.canonical !== null) {
     const canonical = descriptor.canonical;
     if (!canonical || !canonical.path.startsWith("/")) throw new TypeError("canonical data needs a path");
-    for (const url of [canonical.endpoint, canonicalHTTPURL(canonical), canonicalArborLocator(canonical)]) new URL(url);
+    for (const url of [canonical.endpoint, canonicalHTTPURL(canonical), canonicalOverstoryLocator(canonical)]) new URL(url);
     if (canonical.parentTree !== null && typeof canonical.parentTree !== "string") throw new TypeError("parentTree must be a TreeID or null");
   }
   return descriptor as TreeDescriptor;
@@ -51,9 +51,9 @@ function decodeProtocolValue(value: unknown): unknown {
   return validateTreeDescriptor(record);
 }
 
-const fixtures = join(import.meta.dir, "../fixtures/arborsync");
+const fixtures = join(import.meta.dir, "../fixtures/story-sync");
 const conformance = join(import.meta.dir, "../../docs/overstory-spec/conformance");
-const canopyFixtures = join(import.meta.dir, "../fixtures/canopy");
+const overstorydFixtures = join(import.meta.dir, "../fixtures/overstoryd");
 const json = async <T>(name: string): Promise<T> =>
   JSON.parse(await readFile(join(fixtures, name), "utf8")) as T;
 /** A bootstrap body exactly as `GET /v1/bootstrap` sends it: canonical CBOR. */
@@ -64,11 +64,11 @@ const conformanceJSON = async <T>(name: string): Promise<T> =>
 
 describe("REST v1 protocol fixtures", () => {
   test("decode the shared status and unknown error values", async () => {
-    const status = await json<ArborSyncStatus>("status.json");
+    const status = await json<StorySyncStatus>("status.json");
     const error = await json<OverstoryError>("error.json");
     expect(error.error).toBe("future-error-code");
     expect(status).toEqual({
-      service: "arborsync",
+      service: "story-sync",
       version: "0.1.0",
       protocolVersion: "v1",
       instanceID: "instance-fixture-01",
@@ -98,7 +98,7 @@ describe("REST v1 protocol fixtures", () => {
     expect(legacy.spine).toEqual(clean.spine);
     expect(legacy.accepted.root).toBe(clean.accepted.root);
     expect(legacy.accepted.update).toBe(clean.accepted.update);
-    expect(credential.token).toBe("canopy-account-token-fixture");
+    expect(credential.token).toBe("overstoryd-account-token-fixture");
   });
 
   test("covers every current error code, cursor shape, and the control routes' fixtures", async () => {
@@ -144,7 +144,7 @@ describe("REST v1 protocol fixtures", () => {
     const tree = data.transition.update.tree;
     // The frame is one the watch decoder accepts.
     expect(decodeAcceptedWatchChange(data, tree).transition.update.id).toBe("1");
-    expect(data.canonical.endpoint).toBe(`https://community.example/.arbor/trees/${tree}`);
+    expect(data.canonical.endpoint).toBe(`https://community.example/.overstory/trees/${tree}`);
     expect(resync.id).toBeUndefined();
     expect(JSON.parse(resync.data)).toEqual({ reason: "The requested cursor is no longer retained" });
   });
@@ -160,7 +160,7 @@ describe("REST v1 protocol fixtures", () => {
           headers: { "content-type": "text/event-stream; charset=utf-8" },
         })) as unknown as typeof fetch;
         const client = new ProtocolClient("https://community.example");
-        await expect(Array.fromAsync(client.watch("tr_a", null))).rejects.toThrow("Malformed Arbor watch event");
+        await expect(Array.fromAsync(client.watch("tr_a", null))).rejects.toThrow("Malformed Story watch event");
       }
     } finally {
       globalThis.fetch = originalFetch;
@@ -183,7 +183,7 @@ describe("REST v1 protocol fixtures", () => {
     const { valid } = values;
     for (const descriptor of [valid.treeDescriptor, valid.remoteTreeDescriptor, valid.resolution.enclosingTree]) {
       validateTreeDescriptor(descriptor);
-      expect(descriptor.canonical?.endpoint).toBe(`https://community.example/.arbor/trees/${descriptor.id}`);
+      expect(descriptor.canonical?.endpoint).toBe(`https://community.example/.overstory/trees/${descriptor.id}`);
     }
     expect(validateTreeDescriptor(valid.treeConfigurationDescriptor).canonical).toBeNull();
     expect(validateTreeDescriptor(valid.unmountedTreeDescriptor).canonical).toBeNull();
@@ -214,7 +214,7 @@ describe("REST v1 protocol fixtures", () => {
     }>("protocol-endpoints.json");
     const wireErrors = await conformanceJSON<OverstoryError[]>("errors.json");
     expect(decodeUpdateConflictJSON(wireErrors.find((value) => value.error === "conflict")).details.current.id).toBe("up_current");
-    const merges = JSON.parse(await readFile(join(canopyFixtures, "merge.json"), "utf8")) as {
+    const merges = JSON.parse(await readFile(join(overstorydFixtures, "merge.json"), "utf8")) as {
       version: number;
       markdownCases: Array<{ name: string }>;
       pageMoveCases: Array<{ name: string }>;
@@ -246,7 +246,7 @@ describe("REST v1 protocol fixtures", () => {
     // Decode each response body with the matching wire decoder where one exists.
     const byName = new Map(endpoints.cases.map((item) => [item.name, item]));
     const tree = validateTreeDescriptor(endpoints.tree);
-    expect(tree.canonical?.endpoint).toBe("https://community.example/.arbor/trees/tr_atlas");
+    expect(tree.canonical?.endpoint).toBe("https://community.example/.overstory/trees/tr_atlas");
     for (const name of ["read-ref", "link-read"]) {
       const snapshot = validateTreeDescriptor(byName.get(name)!.response.body!.tree) as RemoteTreeDescriptor;
       expect(snapshot.canonical).toEqual(tree.canonical);
@@ -299,14 +299,14 @@ describe("REST v1 protocol fixtures", () => {
 describe("canonical descriptor helpers", () => {
   // The exact strings the retired `canonical.locator` / `canonical.httpURL`
   // fields carried when Canopy's `descriptor()` produced them.
-  function canopyDescriptorStrings(origin: string, canonicalPath: string, id: string) {
+  function overstorydDescriptorStrings(origin: string, canonicalPath: string, id: string) {
     const encodedPath = canonicalPath === "/"
       ? ""
       : `/${canonicalPath.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
     const host = new URL(origin).host;
     return {
-      locator: `arbor://${host}${encodedPath || "/"}`,
-      endpoint: `${origin}/.arbor/trees/${encodeURIComponent(id)}`,
+      locator: `overstory://${host}${encodedPath || "/"}`,
+      endpoint: `${origin}/.overstory/trees/${encodeURIComponent(id)}`,
       httpURL: `${origin}${encodedPath || "/"}`,
     };
   }
@@ -320,30 +320,30 @@ describe("canonical descriptor helpers", () => {
       ["https://community.example", "/~joe/my notes/ünïcode/a&b?c#d", "tr_odd"],
     ] as const;
     for (const [origin, path, id] of cases) {
-      const legacy = canopyDescriptorStrings(origin, path, id);
+      const legacy = overstorydDescriptorStrings(origin, path, id);
       const canonical = { path, endpoint: legacy.endpoint, parentTree: null };
       expect(canonicalHTTPURL(canonical), path).toBe(legacy.httpURL);
-      expect(canonicalArborLocator(canonical), path).toBe(legacy.locator);
+      expect(canonicalOverstoryLocator(canonical), path).toBe(legacy.locator);
     }
   });
 
-  test("derive the strings the arborsync placement producer emitted from a bare server origin", () => {
+  test("derive the strings the story-sync placement producer emitted from a bare server origin", () => {
     // tree-manager built `httpURL` as `${placement.endpoint}${path}` and stores
-    // built the locator as `arbor://${new URL(endpoint).host}${path}`.
+    // built the locator as `overstory://${new URL(endpoint).host}${path}`.
     const placement = { endpoint: "https://notes.example", canonicalPath: "/~joe/notes" };
     const canonical = { path: placement.canonicalPath, endpoint: placement.endpoint, parentTree: null };
     expect(canonicalHTTPURL(canonical)).toBe(`${placement.endpoint}${placement.canonicalPath}`);
-    expect(canonicalArborLocator(canonical)).toBe(`arbor://${new URL(placement.endpoint).host}${placement.canonicalPath}`);
+    expect(canonicalOverstoryLocator(canonical)).toBe(`overstory://${new URL(placement.endpoint).host}${placement.canonicalPath}`);
   });
 
   test("agree with the shared conformance vectors", async () => {
     const values = await conformanceJSON<{ valid: { remoteTreeDescriptor: RemoteTreeDescriptor } }>("protocol-values.json");
     const canonical = values.valid.remoteTreeDescriptor.canonical!;
     expect(canonicalHTTPURL(canonical)).toBe("https://community.example/~joe");
-    expect(canonicalArborLocator(canonical)).toBe("arbor://community.example/~joe");
+    expect(canonicalOverstoryLocator(canonical)).toBe("overstory://community.example/~joe");
     const bootstrap = await bootstrapBody("bootstrap.cbor");
     expect(canonicalHTTPURL(bootstrap.tree.canonical!)).toBe("https://notes.example/~joe/notes");
-    expect(canonicalArborLocator(bootstrap.tree.canonical!)).toBe("arbor://notes.example/~joe/notes");
+    expect(canonicalOverstoryLocator(bootstrap.tree.canonical!)).toBe("overstory://notes.example/~joe/notes");
   });
 });
 

@@ -21,14 +21,14 @@
   Data 002 (completed plan, deleted; see git history)'s
   provider-neutral node/query contracts and Apps 001's checked-in
   Supplies corpus.
-- **Blocks:** Apps 001 local/canopyd execution, Apps 002 hosted agents, and
+- **Blocks:** Apps 001 local/overstoryd execution, Apps 002 hosted agents, and
   Apps 006 authority-manifest and durable-step integration.
 
 ## Target result
 
 An authored `.ts`, `.tsx`, or `.mdx` module inside any tracked Overstory tree gets
 the same source-located typechecking, completion, activation manifest, and
-runtime meaning in `arbor check`, VS Code, Zed, local Overstory, and canopyd. Editor
+runtime meaning in `story check`, VS Code, Zed, local Overstory, and overstoryd. Editor
 integration is an adapter over an editor-independent compiler and language
 service; no normative type information exists only inside a VS Code plugin.
 
@@ -69,7 +69,7 @@ activation manifest.
 
 ## Development typechecking
 
-Implement `arbor check <tree-or-path>` and watch mode over the compiler core.
+Implement `story check <tree-or-path>` and watch mode over the compiler core.
 Diagnostics identify authored spans and distinguish source, schema,
 capability, access, and stale-activation failures. Schema, tree placement,
 mount, imported profile-shape, or compiler-version changes invalidate exactly
@@ -96,7 +96,7 @@ Build one Overstory language server over the same compiler core:
 VS Code and Zed receive thin extensions that start or connect to this service.
 VS Code may additionally use a TypeScript language-service plugin; Zed may run
 the Overstory service beside `vtsls`. Neither adapter may define types or query
-semantics unavailable to `arbor check` and ordinary generated declarations.
+semantics unavailable to `story check` and ordinary generated declarations.
 Cache the last known good declarations for offline editing and clearly mark
 them stale rather than silently discarding type information.
 
@@ -128,10 +128,10 @@ and server-handle leakage.
 
 Completion gate:
 
-- `arbor check examples/supplies` typechecks the corpus adapted under Apps 006;
+- `story check examples/supplies` typechecks the corpus adapted under Apps 006;
 - inferred result and mutation types reach TSX and MDX call sites;
 - VS Code and Zed show the same representative completions and diagnostics;
-- local Overstory and canopyd activate the identical reviewed manifest; and
+- local Overstory and overstoryd activate the identical reviewed manifest; and
 - inspection proves public bundles contain no private data, credentials,
   physical store paths, or server implementations.
 
@@ -143,5 +143,5 @@ Completion gate:
   [access control](../../docs/overstory-spec/05-access-control.md); Apps 006 owns the final authoring surface.
 - Do not make a global TreeID/path registry part of authored application code.
 - Do not infer property types from currently sampled rows.
-- Do not require one editor, one workspace layout, or a running canopyd.
+- Do not require one editor, one workspace layout, or a running overstoryd.
 - Do not absorb Apps 001 rendering/hosting or Postgres 004 replication.

@@ -6,7 +6,7 @@ import Testing
 struct AuthoredContractTests {
     @Test("Shared grammar, round trips and canonical request identities")
     func sharedVectors() throws {
-        let root = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
+        let root = ProcessInfo.processInfo.environment["STORY_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
             ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance").standardizedFileURL
         let fixture = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: root.appending(path: "protocol-authored-updates.json"))) as? [String: Any])
         let tree = try #require(fixture["tree"] as? String)

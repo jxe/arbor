@@ -1,4 +1,4 @@
-/** A disposable canopyd-shaped data root built from a Git repository's
+/** A disposable overstoryd-shaped data root built from a Git repository's
  * first-parent history, for storage experiments that must not touch Canopy
  * data. Each commit becomes one accepted update of one tree: its files and
  * directories as protocol objects (unchanged subtrees keep their hashes), a
@@ -15,9 +15,9 @@
 import { Database } from "bun:sqlite";
 import { mkdir, utimes } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { ObjectStore } from "@overstory/object-store";
-import { compareProtocolNames, encodeProtocolDirectory, executeExactSourceEdits, hashObject, type ProtocolDirectoryEntry, type SourceFrame, type SourceOperation } from "@overstory/protocol";
-import { encodeLogEntry, LOG_ENTRY_FORMAT, type LogEntry } from "@overstory/merge-protocol";
+import { ObjectStore } from "@ovst/object-store";
+import { compareProtocolNames, encodeProtocolDirectory, executeExactSourceEdits, hashObject, type ProtocolDirectoryEntry, type SourceFrame, type SourceOperation } from "@ovst/protocol";
+import { encodeLogEntry, LOG_ENTRY_FORMAT, type LogEntry } from "@ovst/merge-protocol";
 
 const TREE = "tr_fixturegithistory";
 
@@ -140,7 +140,7 @@ export async function buildGitHistoryFixture(out: string, options: { repo?: stri
   const commits = parseLog(await git(repo, ["log", "--reverse", "--first-parent", "-m", "--raw", "--no-renames", "--no-abbrev", "--format=C%x09%H%x09%at", options.rev ?? "HEAD"]));
   await mkdir(join(out, "objects"), { recursive: true });
   const store = new ObjectStore(join(out, "objects"));
-  const db = new Database(join(out, "canopy.sqlite3"), { create: true });
+  const db = new Database(join(out, "overstoryd.sqlite3"), { create: true });
   db.run("PRAGMA journal_mode=WAL");
   db.run("CREATE TABLE IF NOT EXISTS accepted_updates (ordinal INTEGER PRIMARY KEY AUTOINCREMENT, tree_id TEXT NOT NULL, root TEXT NOT NULL, accepted_at INTEGER NOT NULL, entry TEXT NOT NULL)");
   db.run("CREATE TABLE IF NOT EXISTS document_versions (tree_id TEXT NOT NULL, stable_key TEXT NOT NULL, update_id TEXT NOT NULL, entry_path TEXT NOT NULL, content_hash TEXT NOT NULL, accepted_at INTEGER NOT NULL)");

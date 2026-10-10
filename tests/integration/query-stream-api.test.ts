@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serveHost } from "@overstory/canopyd";
-import type { MutationCallRequest, MutationCallRuntime, MutationResultReceipt, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime } from "@overstory/protocol";
+import { serveHost } from "@ovst/overstoryd";
+import type { MutationCallRequest, MutationCallRuntime, MutationResultReceipt, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime } from "@ovst/protocol";
 import { deviceSession, testAccount } from "../helpers/devices.ts";
 
 const request: QueryStreamRequest = {
@@ -60,7 +60,7 @@ function expectFrames(body: string) {
 
 describe("stateless query stream HTTP contract", () => {
   test("serves the Overstory protocol with the authenticated profile context", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-query-wire-"));
+    const root = await mkdtemp(join(tmpdir(), "story-query-wire-"));
     const runtime = new FixtureRuntime();
     const mutations = new FixtureMutationRuntime();
     const token = "query-stream-owner-token";
@@ -75,10 +75,10 @@ describe("stateless query stream HTTP contract", () => {
     });
     try {
       const session = await deviceSession(running.url, token);
-      const account = await fetch(`${running.url}/.arbor/account`, { headers: { authorization: `Bearer ${session}` } }).then((response) => response.json()) as any;
+      const account = await fetch(`${running.url}/.overstory/account`, { headers: { authorization: `Bearer ${session}` } }).then((response) => response.json()) as any;
       const tree = account.account.profileTree as string;
       const wireRequest = requestFor(tree);
-      const response = await fetch(`${running.url}/.arbor/trees/${tree}/queries`, {
+      const response = await fetch(`${running.url}/.overstory/trees/${tree}/queries`, {
         method: "QUERY",
         headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
         body: JSON.stringify(wireRequest),
@@ -92,7 +92,7 @@ describe("stateless query stream HTTP contract", () => {
         mutationID: "mut_wire",
         input: { value: 2 },
       };
-      const mutationResponse = await fetch(`${running.url}/.arbor/trees/${tree}/mutate`, {
+      const mutationResponse = await fetch(`${running.url}/.overstory/trees/${tree}/mutate`, {
         method: "POST",
         headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
         body: JSON.stringify(mutation),
@@ -101,7 +101,7 @@ describe("stateless query stream HTTP contract", () => {
       expect(await mutationResponse.json()).toMatchObject({ mutationID: "mut_wire", result: { accepted: true } });
     } finally {
       running.server.stop(true);
-      await running.canopy[Symbol.asyncDispose]();
+      await running.overstoryd[Symbol.asyncDispose]();
       await rm(root, { recursive: true, force: true });
     }
   });

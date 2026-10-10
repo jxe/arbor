@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { revisionOf } from "@overstory/protocol";
+import { revisionOf } from "@ovst/protocol";
 import { z } from "zod";
 import {
   node,
@@ -9,7 +9,7 @@ import {
   QueryInputError,
   QueryUserRequiredError,
   SQLiteQueryEngine,
-  resolveArborSource,
+  resolveStorySource,
   resolveDatabaseLocation,
   type ProfileResolver,
   type QueryExecution,
@@ -93,7 +93,7 @@ beforeAll(async () => {
     myLists: join(supplies, "scripts", "queries.ts"),
   };
   await Promise.all(Object.entries(handles).map(async ([name, handle]) => {
-    engine.bind(handle, await resolveArborSource(
+    engine.bind(handle, await resolveStorySource(
       modules[name]!,
       handle.source.path,
       boundaries,
@@ -129,7 +129,7 @@ describe("Supplies SQLite query engine", () => {
   test("introspects stable keys, booleans, virtual profiles, and reviewed relationships", () => {
     expect(engine.schema.relations.lists?.primaryKey).toEqual(["id"]);
     expect(engine.schema.relations.lists?.fields.allow_arbor_user_edits?.type).toBe("boolean");
-    expect(engine.schema.relations.arbor_profiles?.source).toBe("arbor-profile");
+    expect(engine.schema.relations.arbor_profiles?.source).toBe("overstory-profile");
     expect(engine.schema.relationships["list_practices.tags"]?.through?.source).toHaveLength(2);
     expect(engine.schema.relationships["lists.items"]?.key).toEqual(["practice_id"]);
     expect(engine.schema.fingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
@@ -224,7 +224,7 @@ describe("Supplies SQLite query engine", () => {
       }),
     );
     for (const handle of [transformedSearch, exactPractice]) {
-      engine.bind(handle, await resolveArborSource(
+      engine.bind(handle, await resolveStorySource(
         join(supplies, "List.tsx"),
         handle.source.path,
         [

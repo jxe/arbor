@@ -12,7 +12,7 @@ extension ProtocolAuthoredUpdateRequest {
 @Suite("Consolidated request transport")
 struct AuthoredTransportTests {
     private func fixture(_ name: String) throws -> [String: Any] {
-        let root = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
+        let root = ProcessInfo.processInfo.environment["STORY_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
             ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance").standardizedFileURL
         return try #require(JSONSerialization.jsonObject(with: Data(contentsOf: root.appending(path: name))) as? [String: Any])
     }
@@ -70,7 +70,7 @@ struct AuthoredTransportTests {
         #expect(try complete.identities(tree: tree)[0].digest == sparse.identities(tree: tree)[0].digest)
         let full = try request(5)
         let prefix = try ProtocolAuthoredUpdateRequest(base: full.base,updates: [full.updates[0]])
-        let directory = FileManager.default.temporaryDirectory.appending(path: "arbor-authored-request-\(UUID().uuidString)")
+        let directory = FileManager.default.temporaryDirectory.appending(path: "story-authored-request-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory,withIntermediateDirectories:true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let path = directory.appending(path: "pending.json")

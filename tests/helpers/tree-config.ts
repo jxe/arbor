@@ -1,5 +1,5 @@
 import {
-  generateArborID,
+  generateOverstoryID,
   readTreeConfigGraph,
   snapshotTreeConfig,
   type ProtocolClient,
@@ -7,7 +7,7 @@ import {
   type TreeConfigKind,
   type TreeConfigValues,
   type TreeSnapshot,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 
 /** A tree's accepted configuration values, read as one of its administrators. */
 export async function readTreeConfig(client: ProtocolClient, tree: string, kind: TreeConfigKind): Promise<{ values: TreeConfigValues; update: string }> {
@@ -45,7 +45,7 @@ export async function hostTree(
 ): Promise<string> {
   // At a placement host as at a home host: the profile is the account's.
   const { account } = await client.anyAccount();
-  const tree = options.tree ?? generateArborID("tr");
+  const tree = options.tree ?? generateOverstoryID("tr");
   const admins = options.administrators ?? [account.profileTree!];
   await client.declareTree(tree, snapshotTreeConfig({
     access: [...admins.map((profile) => ({ who: { profile }, allow: ["admin" as const] })), ...(options.access ?? [])],

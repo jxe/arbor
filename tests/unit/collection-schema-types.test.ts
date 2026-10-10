@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { collectionTypeDeclarations, compileCollectionSchema } from "@overstory/collection-schema";
+import { collectionTypeDeclarations, compileCollectionSchema } from "@ovst/collection-schema";
 
 const source = `overstory-schema-version = 1
 overstory-primary-key = ["id"]
@@ -44,7 +44,7 @@ describe("generated collection declarations", () => {
   });
 
   test("typecheck without authored schema modules or Zod", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "arbor-collection-types-"));
+    const directory = await mkdtemp(join(tmpdir(), "story-collection-types-"));
     try {
       await writeFile(join(directory, "tree.gen.d.ts"), `${collectionTypeDeclarations(compileCollectionSchema(source), "Row")}\n`);
       await writeFile(join(directory, "use.ts"), [

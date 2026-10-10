@@ -24,8 +24,8 @@ public struct ProtocolCanonicalDescriptor: Codable, Sendable, Equatable {
 
     /// The public HTTP URL: the endpoint's origin followed by the encoded canonical path.
     public var httpURL: String { canonicalHTTPURL(endpoint: endpoint, path: path) }
-    /// The `arbor://` locator: the endpoint's host followed by the encoded canonical path.
-    public var arborURL: String { canonicalArborLocator(endpoint: endpoint, path: path) }
+    /// The `overstory://` locator: the endpoint's host followed by the encoded canonical path.
+    public var overstoryURL: String { canonicalOverstoryLocator(endpoint: endpoint, path: path) }
 }
 
 /// Characters `encodeURIComponent` leaves unencoded; every other byte is percent-encoded.
@@ -58,10 +58,10 @@ private func canonicalHTTPURL(endpoint: String, path: String) -> String {
     return "\(origin.scheme)://\(origin.authority)\(encodedCanonicalPath(path))"
 }
 
-/// The `arbor://` locator of a canonical tree, derived from its endpoint and decoded path.
-private func canonicalArborLocator(endpoint: String, path: String) -> String {
-    guard let origin = endpointOrigin(endpoint) else { return "arbor://" + encodedCanonicalPath(path) }
-    return "arbor://\(origin.authority)\(encodedCanonicalPath(path))"
+/// The `overstory://` locator of a canonical tree, derived from its endpoint and decoded path.
+private func canonicalOverstoryLocator(endpoint: String, path: String) -> String {
+    guard let origin = endpointOrigin(endpoint) else { return "overstory://" + encodedCanonicalPath(path) }
+    return "overstory://\(origin.authority)\(encodedCanonicalPath(path))"
 }
 
 public struct ProtocolTreeDescriptor: Codable, Sendable, Equatable {
@@ -77,7 +77,7 @@ public struct ProtocolTreeDescriptor: Codable, Sendable, Equatable {
     public var canonicalPath: String? { canonical?.path }
     public var parentTree: String? { canonical?.parentTree }
     public var httpURL: String? { canonical?.httpURL }
-    public var arborURL: String? { canonical?.arborURL }
+    public var overstoryURL: String? { canonical?.overstoryURL }
 
     public init(
         id: String,
@@ -135,7 +135,7 @@ public struct ProtocolTreeDescriptor: Codable, Sendable, Equatable {
     }
 }
 
-/// `GET /.arbor/trees/{id}/entry-metadata`: file entries of the current root,
+/// `GET /.overstory/trees/{id}/entry-metadata`: file entries of the current root,
 /// keyed by entry path (`/Trips/_index.md`), with the accepted update they
 /// describe. Unknown fields inside an entry are ignored.
 public struct ProtocolEntryMetadata: Decodable, Sendable, Equatable {
@@ -176,15 +176,15 @@ public struct ProtocolAccountDescriptor: Codable, Sendable, Equatable {
     public var device: Device? = nil
 }
 
-/// `GET /.arbor/account` at a home host. Like the tree and directory lists it
+/// `GET /.overstory/account` at a home host. Like the tree and directory lists it
 /// carries no observation cursor: a cursor spanning the whole host resumes no
 /// watch.
 public struct ProtocolAccountSnapshot: Codable, Sendable, Equatable {
     public var account: ProtocolAccountDescriptor
 }
 
-/// A host list read, `/.arbor/trees` or `/.arbor/directory`: no observation
-/// cursor, unlike Arbor Sync's local `ProtocolSnapshotEnvelope`.
+/// A host list read, `/.overstory/trees` or `/.overstory/directory`: no observation
+/// cursor, unlike Story Sync's local `ProtocolSnapshotEnvelope`.
 public struct ProtocolRemoteSnapshot<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
     public var snapshot: Value
     public init(snapshot: Value) { self.snapshot = snapshot }
@@ -1015,7 +1015,7 @@ public struct ProtocolAccountChallenge: Codable, Sendable, Equatable {
 
 /// Whether `value` is an origin a placement host may read device keys from
 /// (accounts §1.3): exactly an HTTPS origin, or plain HTTP on a loopback
-/// address for local hosts. Matches `isHomeHostOrigin` in `@overstory/protocol`.
+/// address for local hosts. Matches `isHomeHostOrigin` in `@ovst/protocol`.
 public func isHomeHostOrigin(_ value: String) -> Bool {
     guard let url = URL(string: value), let origin = webOrigin(url), origin == value else { return false }
     switch url.scheme?.lowercased() {
@@ -1030,7 +1030,7 @@ public func isHomeHostOrigin(_ value: String) -> Bool {
 /// the parent of the person's trees there.
 public struct ProtocolPlacementRoot: Codable, Sendable, Equatable {
     public var id: String
-    /// The canonical path the host mounts it at (canopyd: `/~handle`).
+    /// The canonical path the host mounts it at (overstoryd: `/~handle`).
     public var path: String
     /// Its descriptor once its first snapshot activated it; nil until then.
     public var tree: ProtocolTreeDescriptor?
@@ -1073,7 +1073,7 @@ public struct ProtocolPlacementAccountSnapshot: Codable, Sendable, Equatable {
     public var account: ProtocolPlacementAccountDescriptor
 }
 
-/// `GET /.arbor/account` as a host sends it: a home host's account, with its
+/// `GET /.overstory/account` as a host sends it: a home host's account, with its
 /// configuration, or a placement host's (accounts §1.3), told apart by
 /// `homeHost` as `isPlacementAccountDescriptor` does in TypeScript.
 public enum ProtocolAnyAccountDescriptor: Codable, Sendable, Equatable {

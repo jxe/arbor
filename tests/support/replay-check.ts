@@ -1,12 +1,12 @@
 import { join } from "node:path";
 import { expect } from "bun:test";
-import { ObjectStore, holdsObject } from "@overstory/object-store";
-import { stableJSONString } from "@overstory/protocol";
-import type { LogEntry, MergeQuestion } from "@overstory/merge-protocol";
-import { Sidecar } from "../../packages/canopyd-merge/src/sidecar.ts";
+import { ObjectStore, holdsObject } from "@ovst/object-store";
+import { stableJSONString } from "@ovst/protocol";
+import type { LogEntry, MergeQuestion } from "@ovst/merge-protocol";
+import { Sidecar } from "../../packages/overstoryd-merge/src/sidecar.ts";
 import { acceptedEntries } from "./log-entries.ts";
 
-/** canopyd's default rules, which a fast-forwarded entry records none of. */
+/** overstoryd's default rules, which a fast-forwarded entry records none of. */
 const DEFAULT_RULES = { id: "tree-default", revision: 1, config: { contentChoices: "source", conflictProjection: "current", maxMillis: 20_000 } };
 
 /** The question an entry records, asked again with its previous entry as head. */

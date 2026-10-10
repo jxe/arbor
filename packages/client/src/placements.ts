@@ -1,9 +1,9 @@
 import { watch, type FSWatcher } from "node:fs";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
-import type { Diagnostic, TreeID } from "@overstory/protocol";
+import type { Diagnostic, TreeID } from "@ovst/protocol";
 import { isAlias, isMap, isSeq, parseDocument, type Node } from "yaml";
-import { arborDataRoot, prepareArborDataRoot, configurationTreeID, isHomeHostOrigin } from "@overstory/protocol";
+import { storyDataRoot, prepareStoryDataRoot, configurationTreeID, isHomeHostOrigin } from "@ovst/protocol";
 
 export interface LocalPlacement {
   configurationTree: TreeID;
@@ -44,7 +44,7 @@ function record(value: unknown, label: string): Record<string, unknown> {
 }
 
 export function placementsFilePath(): string {
-  return join(arborDataRoot(), "placements.yaml");
+  return join(storyDataRoot(), "placements.yaml");
 }
 
 /**
@@ -60,7 +60,7 @@ function placementEntry(value: unknown, label: string): { tree: TreeID; host?: s
   const tree = configurationTreeID(entry.tree, `${label}.tree`);
   if (entry.host === undefined) return { tree };
   if (typeof entry.host !== "string" || !isHomeHostOrigin(entry.host)) {
-    throw new Error(`${label}.host must be an HTTPS origin such as https://canopy.example`);
+    throw new Error(`${label}.host must be an HTTPS origin such as https://host.example`);
   }
   return { tree, host: entry.host };
 }
@@ -114,7 +114,7 @@ export async function loadLocalPlacements(): Promise<LocalPlacementsSnapshot> {
 
 /** Atomically add one exact local placement without replacing another tree or path. */
 export async function addLocalPlacement(placement: LocalPlacement): Promise<void> {
-  await prepareArborDataRoot();
+  await prepareStoryDataRoot();
   const path = placementsFilePath();
   let original: string;
   try { original = await readFile(path, "utf8"); }
@@ -184,7 +184,7 @@ export async function replaceLocalPlacement(
 
 export function watchLocalPlacements(onChange: () => void): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const watcher: FSWatcher = watch(arborDataRoot(), { persistent: false }, (_event, filename) => {
+  const watcher: FSWatcher = watch(storyDataRoot(), { persistent: false }, (_event, filename) => {
     if (filename?.toString() !== "placements.yaml") return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(onChange, 80);

@@ -2,10 +2,10 @@
  * bun tests/performance/benchmark-history-maps.ts
  * No accepted data is read or changed. Setup and reference evaluation are
  * outside the timer; compare answer digests across implementations. */
-import { hashObject, stableJSONString } from "@overstory/protocol";
-import { mergeIntent } from "../../packages/canopyd-merge/src/intent-engine.ts";
-import { historyMapDiagnostics, resetHistoryMapDiagnostics, retainState } from "../../packages/canopyd-merge/src/retained-state.ts";
-import { Fixture } from "../unit/canopyd-merge/fixture.ts";
+import { hashObject, stableJSONString } from "@ovst/protocol";
+import { mergeIntent } from "../../packages/overstoryd-merge/src/intent-engine.ts";
+import { historyMapDiagnostics, resetHistoryMapDiagnostics, retainState } from "../../packages/overstoryd-merge/src/retained-state.ts";
+import { Fixture } from "../unit/overstoryd-merge/fixture.ts";
 
 const counts = (process.env.COUNTS ?? "1000,10000").split(",").map(Number);
 const repeats = Number(process.env.REPEATS ?? 20);

@@ -1,4 +1,4 @@
-import { stableJSONString, semanticRequestDigest, sha256, type Hash, type MutationCallRequest, type MutationCallRuntime, type MutationHandleRef, type MutationResultReceipt } from "@overstory/protocol";
+import { stableJSONString, semanticRequestDigest, sha256, type Hash, type MutationCallRequest, type MutationCallRuntime, type MutationHandleRef, type MutationResultReceipt } from "@ovst/protocol";
 import { Database } from "bun:sqlite";
 import { posix } from "node:path";
 import {
@@ -10,7 +10,7 @@ import {
   type NodeSetHandle,
   type StandardSchemaV1,
 } from "./authoring.ts";
-import type { FieldMetadata, RelationMetadata, ResolvedArborSource, StoreSchema } from "./schema.ts";
+import type { FieldMetadata, RelationMetadata, ResolvedStorySource, StoreSchema } from "./schema.ts";
 import { SQLiteStoreBroker } from "./observer.ts";
 
 export interface MutationPublicErrorValue {
@@ -44,7 +44,7 @@ function quote(value: string): string {
 function relationFor(
   schema: StoreSchema,
   handle: NodeSetHandle,
-  bindings: ReadonlyMap<string, ResolvedArborSource>,
+  bindings: ReadonlyMap<string, ResolvedStorySource>,
   storeSource: { tree: string; path: string },
 ): RelationMetadata {
   const name = relationNameOf(handle);
@@ -122,7 +122,7 @@ export class SQLiteMutationTransaction {
   constructor(
     private readonly database: Database,
     readonly schema: StoreSchema,
-    private readonly bindings: ReadonlyMap<string, ResolvedArborSource>,
+    private readonly bindings: ReadonlyMap<string, ResolvedStorySource>,
     private readonly storeSource: { tree: string; path: string },
   ) {}
 
@@ -291,11 +291,11 @@ export class SQLiteMutationBroker {
       mutationID: string;
       input: unknown;
       user: OverstoryUser | null;
-      sources: readonly ResolvedArborSource[];
+      sources: readonly ResolvedStorySource[];
     },
   ): Promise<MutationResultReceipt<Result>> {
     if (!call.scope || !call.mutationID) throw new MutationCallError({ code: "invalid-request", message: "A mutation identity is required", retryable: false });
-    const bindings = new Map<string, ResolvedArborSource>();
+    const bindings = new Map<string, ResolvedStorySource>();
     for (const source of call.sources) {
       const existing = bindings.get(source.authoredPath);
       if (existing && stableJSONString(existing) !== stableJSONString(source)) {
@@ -360,7 +360,7 @@ export class SQLiteMutationBroker {
       if (error instanceof PublicMutationError) {
         throw new MutationCallError({ code: error.code, message: error.message, retryable: false }, error);
       }
-      (this.options.diagnostic ?? ((failure) => console.error("Arbor mutation failed", failure)))(error);
+      (this.options.diagnostic ?? ((failure) => console.error("Story mutation failed", failure)))(error);
       throw new MutationCallError({ code: "internal-error", message: "The mutation could not be completed", retryable: true }, error);
     }
   }
@@ -373,7 +373,7 @@ function refKey(ref: MutationHandleRef): string {
 export class RegisteredMutationRuntime implements MutationCallRuntime {
   private readonly handles = new Map<string, {
     handle: MutationHandle<unknown, unknown>;
-    sources: readonly ResolvedArborSource[];
+    sources: readonly ResolvedStorySource[];
   }>();
 
   constructor(
@@ -382,7 +382,7 @@ export class RegisteredMutationRuntime implements MutationCallRuntime {
     entries: readonly {
       ref: MutationHandleRef;
       handle: MutationHandle<unknown, unknown>;
-      sources: readonly ResolvedArborSource[];
+      sources: readonly ResolvedStorySource[];
     }[],
   ) {
     for (const entry of entries) this.handles.set(refKey(entry.ref), { handle: entry.handle, sources: entry.sources });

@@ -14,4 +14,4 @@ Collection schemas are not executed here or anywhere: they are declarative
 `schema.cddl` files interpreted by [`collection-schema`](../collection-schema/README.md).
 `collections/` keeps only the projection-provider contract types.
 
-See the [runtime package](../../../packages/apps-runtime/README.md) and [execution sidecar boundary](../canopyd/execution-sidecar.md).
+See the [runtime package](../../../packages/apps-runtime/README.md) and [execution sidecar boundary](../overstoryd/execution-sidecar.md).

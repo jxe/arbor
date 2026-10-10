@@ -1,0 +1,16 @@
+{
+  "snapshot": [{
+    "profile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "kind": "person",
+    "handle": "alice",
+    "locator": "overstory://community.example/~alice",
+    "displayName": "Alice Story",
+    "description": "Builds shared gardens.",
+    "avatar": {
+      "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "path": "images/avatar.webp",
+      "hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "sources": ["community", "access"]
+  }]
+}

@@ -1,6 +1,6 @@
 import { withLocalStateLock } from "./local-state-lock.ts";
 import { homedir } from "node:os";
-import type { ProfileIdentity } from "@overstory/protocol";
+import type { ProfileIdentity } from "@ovst/protocol";
 import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, scrypt, sign } from "node:crypto";
 import { chmod, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -13,8 +13,8 @@ import {
   type AccountChallenge,
   parseMarkdown,
   patchFrontmatter,
-} from "@overstory/protocol";
-import { arborPrivateRoot, bindWorkspaceIdentity, prepareArborDataRoot, loadWorkspaceRegistry } from "@overstory/protocol";
+} from "@ovst/protocol";
+import { overstoryPrivateRoot, bindWorkspaceIdentity, prepareStoryDataRoot, loadWorkspaceRegistry } from "@ovst/protocol";
 
 const SERVICE = "org.arbor.person-profile";
 const PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
@@ -28,7 +28,7 @@ export interface ProfileIdentityMetadata {
   credential: string;
 }
 
-/** The stored identity plus key availability; the same shape Arbor Sync reports as `identity`. */
+/** The stored identity plus key availability; the same shape Story Sync reports as `identity`. */
 export type ProfileIdentityStatus = ProfileIdentity;
 
 interface ProfileIdentityBackup {
@@ -101,7 +101,7 @@ async function decryptBackup(value: EncryptedProfileIdentityBackup, passphrase: 
     || !Number.isSafeInteger(encryption.r) || encryption.r < 1 || encryption.r > BACKUP_KDF_LIMITS.maxR
     || !Number.isSafeInteger(encryption.p) || encryption.p < 1 || encryption.p > BACKUP_KDF_LIMITS.maxP
     || typeof value.encryptedPrivateKey !== "string") {
-    throw new Error("Malformed Arbor identity backup");
+    throw new Error("Malformed Story identity backup");
   }
   if (passphrase === undefined) throw new Error("This identity backup is encrypted; its passphrase is required");
   const salt = bytes(encryption.salt, 16, "Backup salt"), nonce = bytes(encryption.nonce, 12, "Backup nonce");
@@ -145,7 +145,7 @@ function generatedMaterial(): { seed: Buffer; publicKey: Buffer; profileTree: st
 }
 
 function credentialName(profileTree: string): string {
-  return `self-${sha256(`${arborPrivateRoot()}\0${profileTree}`).slice(0, 24)}`;
+  return `self-${sha256(`${overstoryPrivateRoot()}\0${profileTree}`).slice(0, 24)}`;
 }
 
 interface IdentityRecord extends ProfileIdentityBackup { profilePath: string }
@@ -174,25 +174,25 @@ async function ensureProfileFolder(inputPath: string): Promise<string> {
 }
 
 export class ProfileIdentityStore {
-  private get path(): string { return join(arborPrivateRoot(), "self.json"); }
+  private get path(): string { return join(overstoryPrivateRoot(), "self.json"); }
 
-  private get fileCredentials(): boolean { return process.env.ARBOR_CREDENTIAL_STORE === "file"; }
+  private get fileCredentials(): boolean { return process.env.STORY_CREDENTIAL_STORE === "file"; }
   private get isolatedHome(): boolean {
-    return resolve(arborPrivateRoot()) !== join(homedir(), ".arbor", ".state");
+    return resolve(overstoryPrivateRoot()) !== join(homedir(), ".story", ".state");
   }
   private get slot(): string {
     // Explicit data homes remain isolated; only the ordinary installation has
     // a path-independent primary identity in the credential store.
     return this.isolatedHome
-      ? `home-v2-${sha256(arborPrivateRoot()).slice(0, 24)}` : "primary-v2";
+      ? `home-v2-${sha256(overstoryPrivateRoot()).slice(0, 24)}` : "primary-v2";
   }
   private get lockPath(): string {
     return !this.fileCredentials && !this.isolatedHome
-      ? join(homedir(), process.platform === "darwin" ? "Library/Application Support" : ".local/state", "Arbor", "Identity", "setup.sqlite")
-      : join(arborPrivateRoot(), "identity-lock.sqlite");
+      ? join(homedir(), process.platform === "darwin" ? "Library/Application Support" : ".local/state", "Story", "Identity", "setup.sqlite")
+      : join(overstoryPrivateRoot(), "identity-lock.sqlite");
   }
   private async locked<T>(operation: () => Promise<T>): Promise<T> {
-    await prepareArborDataRoot();
+    await prepareStoryDataRoot();
     return withLocalStateLock(this.lockPath, operation);
   }
 
@@ -201,8 +201,8 @@ export class ProfileIdentityStore {
       const value = JSON.parse(await readFile(this.path, "utf8")) as Partial<ProfileIdentityMetadata>;
       if (!value || value.version !== 1 || typeof value.profileTree !== "string" || !isPersonProfileTreeID(value.profileTree)
         || typeof value.publicKey !== "string" || typeof value.profilePath !== "string"
-        || typeof value.credential !== "string" || !/^org\.arbor\.person-profile\/(?:self-[a-f0-9]{24}|primary-v2|home-v2-[a-f0-9]{24})$/.test(value.credential)) {
-        throw new Error("Malformed Arbor identity metadata; recover the existing identity");
+        || typeof value.credential !== "string" || !/^org\.overstory\.person-profile\/(?:self-[a-f0-9]{24}|primary-v2|home-v2-[a-f0-9]{24})$/.test(value.credential)) {
+        throw new Error("Malformed Story identity metadata; recover the existing identity");
       }
       if (personProfileTreeID(bytes(value.publicKey, 32, "Profile public key")) !== value.profileTree) {
         throw new Error("Stored identity does not match its public key");
@@ -216,7 +216,7 @@ export class ProfileIdentityStore {
 
   private async readRecord(slot: string): Promise<IdentityRecord | null> {
     const source = this.fileCredentials
-      ? await readFile(join(arborPrivateRoot(), "self.identity.json"), "utf8").catch((error: NodeJS.ErrnoException) => {
+      ? await readFile(join(overstoryPrivateRoot(), "self.identity.json"), "utf8").catch((error: NodeJS.ErrnoException) => {
           if (error.code === "ENOENT") return null;
           throw error;
         })
@@ -227,7 +227,7 @@ export class ProfileIdentityStore {
   private async saveRecord(record: IdentityRecord, slot: string): Promise<void> {
     const source = JSON.stringify(record);
     if (this.fileCredentials) {
-      const path = join(arborPrivateRoot(), "self.identity.json");
+      const path = join(overstoryPrivateRoot(), "self.identity.json");
       const temporary = `${path}.${crypto.randomUUID()}.tmp`;
       await writeFile(temporary, source, { mode: 0o600 });
       await rename(temporary, path);
@@ -247,7 +247,7 @@ export class ProfileIdentityStore {
     }
     if (!record && metadata) {
       const seed = this.fileCredentials
-        ? await readFile(join(arborPrivateRoot(), "self.key"), "utf8").catch((error: NodeJS.ErrnoException) => {
+        ? await readFile(join(overstoryPrivateRoot(), "self.key"), "utf8").catch((error: NodeJS.ErrnoException) => {
             if (error.code === "ENOENT") return null;
             throw error;
           })
@@ -263,7 +263,7 @@ export class ProfileIdentityStore {
       for (const entry of Object.values(registry.registry)) {
         if (!isPersonProfileTreeID(entry.rootID)) continue;
         const seed = this.fileCredentials
-          ? await readFile(join(arborPrivateRoot(), "self.key"), "utf8").catch((error: NodeJS.ErrnoException) => {
+          ? await readFile(join(overstoryPrivateRoot(), "self.key"), "utf8").catch((error: NodeJS.ErrnoException) => {
               if (error.code === "ENOENT") return null;
               throw error;
             })
@@ -278,7 +278,7 @@ export class ProfileIdentityStore {
         record = candidates[0]!;
         await this.saveRecord(record, slot);
       } else if (this.fileCredentials) {
-        const orphan = await readFile(join(arborPrivateRoot(), "self.key"), "utf8").catch((error: NodeJS.ErrnoException) => {
+        const orphan = await readFile(join(overstoryPrivateRoot(), "self.key"), "utf8").catch((error: NodeJS.ErrnoException) => {
           if (error.code === "ENOENT") return null;
           throw error;
         });
@@ -314,10 +314,10 @@ export class ProfileIdentityStore {
   private async install(material: ReturnType<typeof materialFromSeed>, inputPath: string): Promise<ProfileIdentityStatus> {
     const { metadata, record, slot } = await this.state();
     const existing = record ?? metadata;
-    if (existing && existing.profileTree !== material.profileTree) throw new Error(`This Arbor home already belongs to ${existing.profileTree}`);
+    if (existing && existing.profileTree !== material.profileTree) throw new Error(`This Story home already belongs to ${existing.profileTree}`);
     const profilePath = await ensureProfileFolder(inputPath);
     if (existing && await realpath(existing.profilePath).catch(() => existing.profilePath) !== profilePath) {
-      throw new Error(`This Arbor identity is already bound to ${existing.profilePath}`);
+      throw new Error(`This Story identity is already bound to ${existing.profilePath}`);
     }
     const binding = (await loadWorkspaceRegistry()).registry[profilePath];
     if (binding && binding.rootID !== material.profileTree) throw new Error(`This profile folder already belongs to ${binding.rootID}; recover that identity`);
@@ -336,7 +336,7 @@ export class ProfileIdentityStore {
         const existing = record ?? metadata!;
         const canonical = await realpath(profilePath).catch(() => resolve(profilePath));
         if (canonical !== await realpath(existing.profilePath).catch(() => existing.profilePath)) {
-          throw new Error(`This Arbor identity is already bound to ${existing.profilePath}`);
+          throw new Error(`This Story identity is already bound to ${existing.profilePath}`);
         }
         if (!record) throw new Error(`The private key for ${existing.profileTree} is unavailable; restore a backup`);
         return this.finish(record, slot);
@@ -347,7 +347,7 @@ export class ProfileIdentityStore {
 
   async updateProfile(patch: { displayName?: string; avatar?: string; description?: string }): Promise<ProfileIdentityStatus> {
     const status = await this.status();
-    if (!status) throw new Error("No person identity exists; run `arbor me create`");
+    if (!status) throw new Error("No person identity exists; run `story me create`");
     const path = join(status.profilePath, "_index.md");
     const source = await readFile(path, "utf8");
     const document = parseMarkdown(source);
@@ -362,7 +362,7 @@ export class ProfileIdentityStore {
   private async keyMaterial(): Promise<{ metadata: ProfileIdentityMetadata; seed: Buffer; publicKey: Buffer }> {
     return this.locked(async () => {
       const { metadata, record, slot } = await this.state();
-      if (!record) throw new Error(metadata ? `The private identity key for ${metadata.profileTree} is unavailable; restore a backup` : "No person identity exists; run `arbor me create`");
+      if (!record) throw new Error(metadata ? `The private identity key for ${metadata.profileTree} is unavailable; restore a backup` : "No person identity exists; run `story me create`");
       const settled = await this.finish(record, slot);
       const material = materialFromSeed(bytes(record.privateKey, 32, "Profile private key"));
       return { metadata: settled, seed: material.seed, publicKey: material.publicKey };
@@ -402,16 +402,16 @@ export class ProfileIdentityStore {
 
   /** Restore a backup: version 2 needs its passphrase, version 1 holds the key in the clear. */
   async restoreValue(input: unknown, profilePath: string, passphrase?: string): Promise<ProfileIdentityStatus> {
-    if (!input || typeof input !== "object") throw new Error("Malformed Arbor identity backup");
+    if (!input || typeof input !== "object") throw new Error("Malformed Story identity backup");
     const value = (backupIsEncrypted(input)
       ? await decryptBackup(input as EncryptedProfileIdentityBackup, passphrase)
       : input) as Partial<ProfileIdentityBackup>;
     if (value.version !== 1 || typeof value.profileTree !== "string" || typeof value.publicKey !== "string" || typeof value.privateKey !== "string") {
-      throw new Error("Malformed Arbor identity backup");
+      throw new Error("Malformed Story identity backup");
     }
     const material = materialFromSeed(bytes(value.privateKey, 32, "Profile private key"));
     if (!isPersonProfileTreeID(value.profileTree) || material.profileTree !== value.profileTree || base64url(material.publicKey) !== value.publicKey) {
-      throw new Error("Arbor identity backup does not match its Profile TreeID");
+      throw new Error("Story identity backup does not match its Profile TreeID");
     }
     return this.locked(async () => {
       try { await this.metadata(); }
@@ -422,14 +422,14 @@ export class ProfileIdentityStore {
         const record = await this.readRecord(this.slot);
         if (!record || record.profileTree !== material.profileTree || record.privateKey !== value.privateKey) throw error;
         if (await realpath(profilePath).catch(() => resolve(profilePath)) !== record.profilePath) {
-          throw new Error(`This Arbor identity is already bound to ${record.profilePath}`);
+          throw new Error(`This Story identity is already bound to ${record.profilePath}`);
         }
         await readFile(this.path, "utf8");
         await rename(this.path, `${this.path}.damaged-${crypto.randomUUID()}`);
       }
       if (!await this.metadata() && !await this.readRecord(this.slot)) {
         const seed = this.fileCredentials
-          ? await readFile(join(arborPrivateRoot(), "self.key"), "utf8").catch((error: NodeJS.ErrnoException) => {
+          ? await readFile(join(overstoryPrivateRoot(), "self.key"), "utf8").catch((error: NodeJS.ErrnoException) => {
               if (error.code === "ENOENT") return null; throw error;
             })
           : await Bun.secrets.get({ service: SERVICE, name: credentialName(material.profileTree) });

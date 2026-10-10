@@ -45,4 +45,4 @@ caller-signed only; those stay same-host until someone needs them.
   its lifetime and revocation (a revoked device or lend ends the execution on
   S, as on one host), and how a long-running or resumed execution renews it;
   then spec (executable documents §12.3, access control §1.1 and §2.1, the
-  deferred list), canopyd on both roles, and a two-host test.
+  deferred list), overstoryd on both roles, and a two-host test.

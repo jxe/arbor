@@ -4,10 +4,10 @@ import { join } from "node:path";
 
 const [runtime, script] = process.argv.slice(2);
 if (!runtime || !script) throw new Error("Usage: test-sync-helper runtime script");
-const scratch = await mkdtemp(join(tmpdir(), "arbor-helper-check-"));
+const scratch = await mkdtemp(join(tmpdir(), "story-helper-check-"));
 const child = Bun.spawn([runtime, script, "--control", "--port", "0"], {
   cwd: scratch,
-  env: { ...process.env, PATH: "/usr/bin:/bin", ARBOR_DATA_HOME: join(scratch, "data"), ARBOR_CREDENTIAL_STORE: "file" },
+  env: { ...process.env, PATH: "/usr/bin:/bin", STORY_HOME: join(scratch, "data"), STORY_CREDENTIAL_STORE: "file" },
   stdout: "pipe", stderr: "pipe",
 });
 try {
@@ -26,7 +26,7 @@ try {
     new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Helper readiness timed out")), 15000); }),
   ]).finally(() => clearTimeout(timer));
   const status = await (await fetch(`${origin}/v1/status`)).json();
-  if (status.service !== "arborsync") throw new Error("Unexpected service");
+  if (status.service !== "story-sync") throw new Error("Unexpected service");
   const accounts = await (await fetch(`${origin}/v1/accounts`)).json();
   if (accounts.identity !== null || accounts.accounts.length !== 0) throw new Error("Expected a fresh data home");
   const create = await fetch(`${origin}/v1/me`, { method: "POST", body: JSON.stringify({ path: join(scratch, "profile") }) });

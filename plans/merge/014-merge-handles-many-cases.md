@@ -1,8 +1,8 @@
-# canopyd 014: Handle more merge cases
+# overstoryd 014: Handle more merge cases
 
 **Why and when:** prose already merges well. Take an item from this menu when a real edit reaches review that should have merged.
 
-Formerly "Merge moved and copied text beyond paragraphs", split from canopyd
+Formerly "Merge moved and copied text beyond paragraphs", split from overstoryd
 009 (merge rule selection, since deleted; see git history) on 2026-09-22. (Plan
 numbers are separate from migration numbers: this is not migration 014.)
 
@@ -11,7 +11,7 @@ numbers are separate from migration numbers: this is not migration 014.)
 - **State:** IDEAS AND CANDIDATES. The first round (Markdown list, table and
   link transfers, same-anchor ordering, keyed JSON/YAML moves, TS/JS function
   moves) is implemented and not deployed; see [status](../../status.md), the
-  [transfer rules](../../docs/architecture/canopyd/merge-tool.md#transfers) and
+  [transfer rules](../../docs/architecture/overstoryd/merge-tool.md#transfers) and
   the [release gate](../small-work.md#server-refinements).
   Everything below is a menu. Take an item when a real edit has asked for it.
 
@@ -55,7 +55,7 @@ that each change means the same in the combined file); under this plan such a
 proof decides only between a plain merge and a merge with a note.
 
 Today's automatic subsets are in the
-[format support contract](../../docs/architecture/canopyd/merge-tool.md#format-support-contract).
+[format support contract](../../docs/architecture/overstoryd/merge-tool.md#format-support-contract).
 Most of its "requires review" column is cases that lose nothing and keep the
 syntax, and would become merges or merges with a note.
 
@@ -74,7 +74,7 @@ syntax, and would become merges or merges with a note.
   permit all three and require only the first two constraints for an automatic
   outcome. How eagerly a tool merges is its own choice.
 - **Count what reaches review.** Accepted history records each decision's rule
-  and policy reason. Add a canopyd report (counts only, no content) of
+  and policy reason. Add a overstoryd report (counts only, no content) of
   unresolved decisions by format, rule and reason, over a tree or the whole host.
   Run it on the live host with Joe's go-ahead, and rank the candidates by what
   users actually hit.
@@ -111,7 +111,7 @@ merge with a note) or **review**.
    holds for a move anchored on material an earlier move in the change carried
    into another document (Move to Document of blocks apart from each other):
    the engine executes it, but a peer's edit to that text reconciles only when
-   the peer arrives first (`tests/unit/canopyd-merge/source-moves.test.ts`).
+   the peer arrives first (`tests/unit/overstoryd-merge/source-moves.test.ts`).
    Native copies such a selection until it merges in both orders.
 2. **Two moves of the same text.** You move a paragraph up, I move it down. A
    real choice: **review**, presented as "moved here, or here" rather than byte
@@ -129,12 +129,12 @@ merge with a note) or **review**.
    rewritten link as a one-click fix. Heading text is in Markdown's automatic
    subset, so this probably merges silently today; check that first. Related:
    Canopy heals page links after a rename or move
-   (`CanopyEditorWorkspace.healLinks`).
+   (`StoryEditorWorkspace.healLinks`).
 6. **Richer lists.** Moves and insertions in ordered lists, nested items (moved
    with their children, or re-indented under a new parent, which Native now
    states as a move plus edits to leading spaces), multi-line and loose items:
    **merge**. A moved item of a nested list beside an edit to its text reviews
-   today (`tests/unit/canopyd-merge/source-moves.test.ts`). When a move
+   today (`tests/unit/overstoryd-merge/source-moves.test.ts`). When a move
    leaves ordered-list numbers out of sequence, **note**; renumbering would write
    bytes neither side wrote.
 7. **Task items.** One side ticks the box, the other edits the text: **merge**.
@@ -228,7 +228,7 @@ merge with a note) or **review**.
 
 Per candidate: tests in both arrival orders giving one result, a case that must
 still go to review, a replay check, the rule's revision bumped, the
-[format support contract](../../docs/architecture/canopyd/merge-tool.md#format-support-contract)
+[format support contract](../../docs/architecture/overstoryd/merge-tool.md#format-support-contract)
 updated, and the release gate recorded in
 [small work](../small-work.md#server-refinements)
 before any client relies on it.

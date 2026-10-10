@@ -1,0 +1,4 @@
+{$OVERSTORYD_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy story:4318
+}

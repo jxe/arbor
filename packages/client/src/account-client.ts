@@ -1,4 +1,4 @@
-import { ProtocolError, HostAccountStore, HostPlacementStore, ProtocolClient } from "@overstory/protocol";
+import { ProtocolError, HostAccountStore, HostPlacementStore, ProtocolClient } from "@ovst/protocol";
 
 /**
  * Which claimed account a protocol call should speak for: an explicit account
@@ -22,7 +22,7 @@ export interface AccountProtocolClient {
 }
 
 /**
- * The multiplexer: one Arbor Sync data home holds several Canopy accounts,
+ * The multiplexer: one Story Sync data home holds several Canopy accounts,
  * and every pass-through to Canopy picks the account whose address contains
  * the target, then forwards with that credential. A profile has one home
  * account and at most one placement account per other host; an origin that

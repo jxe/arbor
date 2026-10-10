@@ -1,10 +1,10 @@
-import type { ArborBlock, Diagnostic, MarkdownDocument } from "../index.ts";
+import type { OverstoryBlock, Diagnostic, MarkdownDocument } from "../index.ts";
 import { sha256 } from "../model/hash.ts";
 import { compareUTF8 } from "../model/utf8.ts";
 import { canonicalNodePath } from "../model/logical-path.ts";
 import { buildMarkdownLink, markdownSourceDirectory, resolveLogicalURL, type MarkdownBodyOrigin } from "../model/logical-url.ts";
 
-export const CHILDREN_MARKER = "<!-- arbor:children -->";
+export const CHILDREN_MARKER = "<!-- overstory:children -->";
 
 export interface DirectoryPlacementChild {
   name: string;
@@ -26,7 +26,7 @@ export interface DirectoryPlacementResult {
   diagnostics: Diagnostic[];
 }
 
-function isChildrenMarker(block: ArborBlock): boolean {
+function isChildrenMarker(block: OverstoryBlock): boolean {
   return block.type === "rawMarkdown" && String(block.content ?? block.source ?? "").trim() === CHILDREN_MARKER;
 }
 
@@ -49,7 +49,7 @@ export function directoryPlacementDiagnostics(
  *
  * Authored standalone links claim their first matching child. Unclaimed
  * children are virtual blocks at the explicit marker, or after authored source
- * when the marker is absent. Virtual blocks carry `arborGenerated` and the
+ * when the marker is absent. Virtual blocks carry `storyGenerated` and the
  * Markdown serializer omits them, so paging a large collection file never expands its
  * `_index.md`. Moving a virtual block through the managed-row operation clears
  * that flag and makes the link an authored placement.
@@ -68,7 +68,7 @@ export function placeDirectoryChildren(
   const childByStableKey = new Map(children.flatMap((child) => child.stableKey ? [[child.stableKey, child] as const] : []));
   const matched = new Set<DirectoryPlacementChild>();
 
-  const walk = (blocks: readonly ArborBlock[]): void => {
+  const walk = (blocks: readonly OverstoryBlock[]): void => {
     for (const block of blocks) {
       if (block.type === "standaloneLink") {
         const resolved = resolveLogicalURL(sourceDirectory, String(block.props?.path ?? ""));
@@ -94,7 +94,7 @@ export function placeDirectoryChildren(
   }
 
   const missing = children.filter((child) => !matched.has(child));
-  const generated = missing.map((child): ArborBlock => {
+  const generated = missing.map((child): OverstoryBlock => {
     const path = canonicalNodePath(child.path);
     const key = child.stableKey ?? null;
     return {
@@ -103,7 +103,7 @@ export function placeDirectoryChildren(
       content: child.name,
       props: {
         path: buildMarkdownLink(sourceDirectory, { path, body: child.body, stableKey: key }),
-        arborGenerated: true,
+        storyGenerated: true,
       },
       children: [],
     };
@@ -111,7 +111,7 @@ export function placeDirectoryChildren(
 
   const markerIndex = document.blocks.findIndex(isChildrenMarker);
   const blocks = document.blocks.map((block) => isChildrenMarker(block)
-    ? { ...block, props: { ...block.props, arborChildrenMarker: true } }
+    ? { ...block, props: { ...block.props, storyChildrenMarker: true } }
     : block
   );
   if (generated.length) blocks.splice(markerIndex === -1 ? blocks.length : markerIndex + 1, 0, ...generated);

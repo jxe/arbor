@@ -1,15 +1,15 @@
 import {
   type ObjectHash,
   type UpdateConflict,
-} from "@overstory/protocol";
-import { encodeStableKey, stableJSONString, type CollectionFileDescriptor } from "@overstory/protocol";
+} from "@ovst/protocol";
+import { encodeStableKey, stableJSONString, type CollectionFileDescriptor } from "@ovst/protocol";
 import {
   collectionChildSetHash,
   decodeProtocolCollectionFile,
   encodeProtocolCollectionFile,
   ProtocolCollectionFileError,
   type ProtocolCollectionFileRow,
-} from "@overstory/collection-schema";
+} from "@ovst/collection-schema";
 
 /**
  * Merge rules: the representation-specific way to combine two changes to one
@@ -296,7 +296,7 @@ export async function collectionFileRowsV1(
         mergedRows += 1;
       } else {
         const name = candidate?.path ?? current?.path ?? before?.path ?? "row";
-        context.conflicts.push({ path: `${path === "/" ? "" : path}/${name};arbor-key=${encodeStableKey(key)}`, reason: "collection-file-row-conflict" });
+        context.conflicts.push({ path: `${path === "/" ? "" : path}/${name};overstory-key=${encodeStableKey(key)}`, reason: "collection-file-row-conflict" });
         row = candidate;
       }
       if (row) selected.set(key, row);

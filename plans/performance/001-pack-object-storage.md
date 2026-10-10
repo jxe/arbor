@@ -1,23 +1,23 @@
-# canopyd 001: Pack retained objects
+# overstoryd 001: Pack retained objects
 
 **Why and when:** when size hurts: the live volume or backups grow until loose objects cost startup, audit or backup time. Space is not pressing.
 
-Historical identifier: **canopyd storage 001**. The filename number is preserved; this plan now belongs to canopy.
+Historical identifier: **overstoryd storage 001**. The filename number is preserved; this plan now belongs to overstoryd.
 
 ## Status
 
 - **Effort:** M (most of it built)
 - **Risk:** MEDIUM. An index row pointing at the wrong bytes would corrupt reads,
   but every read is checked against its hash.
-- **State:** BUILT. Off on main (`ARBOR_OBJECT_PACKING=1` to enable). The
+- **State:** BUILT. Off on main (`OVERSTORYD_OBJECT_PACKING=1` to enable). The
   branch `claude/blissful-maxwell-r3sys4` turns it on by default
-  (`ARBOR_OBJECT_PACKING=0` to disable) and awaits the rehearsal below. The
+  (`OVERSTORYD_OBJECT_PACKING=0` to disable) and awaits the rehearsal below. The
   layout was chosen on a copy of live data.
 
 ## What is built
 
 `ObjectStore` falls back from loose files to packs under `objects/packs/`, indexed in
-`objects/packs/index.sqlite3`. The index is owned by the object store, so canopyd's
+`objects/packs/index.sqlite3`. The index is owned by the object store, so overstoryd's
 schema is unchanged and the merge sidecar opens it read-only.
 
 - **Layout.** A pack holds zstd frames of about 1 MiB raw. Each frame holds one
@@ -34,7 +34,7 @@ schema is unchanged and the merge sidecar opens it read-only.
 
   A crash leaves every object loose, packed or both. An unindexed pack older than an
   hour is an orphan and is removed.
-- **What is packed.** `PackMaintenance` in canopyd packs loose objects older than an
+- **What is packed.** `PackMaintenance` in overstoryd packs loose objects older than an
   hour that lie outside every tree's current closure. The hot set stays loose, so
   current-tree reads and freshens never touch packs. Each object is keyed by its
   `document_versions` stable key, else its path in the root that holds it, else its
@@ -48,7 +48,7 @@ schema is unchanged and the merge sidecar opens it read-only.
   period, conditional on `used_at`, then rewrites packs that lost half their bytes by
   copying frames unchanged.
 - **Tests.** Packing is covered by `tests/unit/object-store-packs.test.ts` and the
-  packed-history case in `tests/integration/canopyd/object-collection.test.ts`. That
+  packed-history case in `tests/integration/overstoryd/object-collection.test.ts`. That
   case covers packing, restart, integrity audit, acceptance on top, collection and
   sidecar replay.
 
@@ -139,13 +139,13 @@ Joe's rehearsal used a read-only copy taken at 14:31:55Z: 22,379 objects, 431 MB
      - foreground latency while a pass runs, including a burst arriving mid-pass.
    - Inject failures at each pass step (kill between pack write, index commit,
      read-back and loose removal) and confirm a rerun converges.
-3. **Update the operating material.** In `packages/canopyd/deploy/README.md`: the
+3. **Update the operating material.** In `packages/overstoryd/deploy/README.md`: the
    backup tar includes `objects/packs/`, and the index must be copied consistently
    (a SQLite backup of `index.sqlite3`, or a stopped writer). Update
-   `docs/architecture/canopyd/` storage notes and the status row.
+   `docs/architecture/overstoryd/` storage notes and the status row.
 4. **Roll out with Joe's explicit go-ahead.** That means the full verification gate, a
    rollback plan (packs can be expanded back to loose files by reading every packed
-   object and storing it), then setting `ARBOR_OBJECT_PACKING=1` on the host.
+   object and storing it), then setting `OVERSTORYD_OBJECT_PACKING=1` on the host.
 5. **Open, smaller.**
    - A periodic integrity check of pack files against their names.
    - Packed bytes in the integrity and collector reports.
@@ -155,7 +155,7 @@ Joe's rehearsal used a read-only copy taken at 14:31:55Z: 22,379 objects, 431 MB
 ## Non-goals
 
 - Changing object hashes, canonical encodings, update IDs, or Overstory formats.
-- Synchronizing packs between Canopies.
+- Synchronizing packs between hosts.
 
 ## Compaction obligations
 

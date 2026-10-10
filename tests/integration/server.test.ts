@@ -1,37 +1,37 @@
 import { installAccountHome } from "../helpers/account-home.ts";
-import { decodeCanonicalCBOR, encodeProtocolDirectory, ProtocolClient } from "@overstory/protocol";
+import { decodeCanonicalCBOR, encodeProtocolDirectory, ProtocolClient } from "@ovst/protocol";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
-import { serveArborSyncControl, serveArborSync } from "@overstory/arborsync";
-import { ArborSyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
-import type { Workspace } from "@overstory/arborsync";
+import { serveStorySyncControl, serveStorySync } from "@ovst/story-sync";
+import { StorySyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
+import type { Workspace } from "@ovst/story-sync";
 import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 
 let root: string;
 let state: string;
 let base: string;
-let client: ArborSyncRESTClient;
+let client: StorySyncRESTClient;
 let close: () => Promise<void>;
 let activeWorkspace: Workspace;
 let scope: string;
 
 beforeAll(async () => {
-  root = await mkdtemp(join(tmpdir(), "arbor-server-"));
-  state = await mkdtemp(join(tmpdir(), "arbor-server-state-"));
-  process.env.ARBOR_DATA_HOME = state;
+  root = await mkdtemp(join(tmpdir(), "story-server-"));
+  state = await mkdtemp(join(tmpdir(), "story-server-state-"));
+  process.env.STORY_HOME = state;
   await writeFile(join(root, "page.md"), "Hello API\n");
   await mkdir(join(root, "data"));
   const database = new Database(join(root, "data", "_store.sqlite3"));
   database.exec("create table items (id text primary key, title text not null); insert into items values ('one', 'One')");
   database.close();
-  const running = await serveArborSync(root, { port: 0 });
+  const running = await serveStorySync(root, { port: 0 });
   activeWorkspace = running.workspace;
   scope = activeWorkspace.tree;
   base = running.url;
-  client = new ArborSyncRESTClient({ baseURL: base });
+  client = new StorySyncRESTClient({ baseURL: base });
   close = async () => {
     running.server.stop(true);
     await running.workspace[Symbol.asyncDispose]();
@@ -44,10 +44,10 @@ afterAll(async () => {
   await rm(state, { recursive: true, force: true });
 });
 
-describe("arborsync REST v1", () => {
-  test("identifies the running Arbor Sync instance and runtime kind", async () => {
+describe("story-sync REST v1", () => {
+  test("identifies the running Story Sync instance and runtime kind", async () => {
     expect(await client.status()).toMatchObject({
-      service: "arborsync",
+      service: "story-sync",
       protocolVersion: "v1",
       runtimeKind: "foreground",
       instanceID: expect.any(String),
@@ -59,7 +59,7 @@ describe("arborsync REST v1", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
       error: "invalid-request",
-      message: "Arbor Sync accepts only loopback Host headers",
+      message: "Story Sync accepts only loopback Host headers",
     });
   });
 
@@ -93,9 +93,9 @@ describe("arborsync REST v1", () => {
   });
 
   test("serves the control surface without a local browsing session", async () => {
-    const running = await serveArborSyncControl({ port: 0 });
+    const running = await serveStorySyncControl({ port: 0 });
     try {
-      const controlClient = new ArborSyncRESTClient({ baseURL: running.url });
+      const controlClient = new StorySyncRESTClient({ baseURL: running.url });
       expect(await controlClient.status()).toMatchObject({ runtimeKind: "persistent" });
       expect((await controlClient.trees()).snapshot).toBeArray();
       const response = await fetch(`${running.url}/v1/node?tree=system&path=%2Fdiagnostics`);
@@ -118,7 +118,7 @@ describe("arborsync REST v1", () => {
     const shell = await fetch(`${base}/render/renamed`);
     expect(shell.status).toBe(200);
     expect(shell.headers.get("content-type")).toContain("text/html");
-    expect(await shell.text()).toContain("Arbor web is being rebuilt (Plan B)");
+    expect(await shell.text()).toContain("Story web is being rebuilt (Plan B)");
   });
 
   test("serves ordinary-file bytes at OS-shaped logical routes with ETag, range, and ?raw", async () => {
@@ -158,12 +158,12 @@ describe("arborsync REST v1", () => {
 
 });
 
-describe("arborsync object route", () => {
+describe("story-sync object route", () => {
   const validHash = (hex: string) => `sha256:${hex.repeat(64 / hex.length)}`;
 
   async function indexedSnapshot() {
-    const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
-    const { hashObject, decodeProtocolDirectory } = await import("@overstory/protocol");
+    const { resolveSnapshot, snapshotDirectory } = await import("@ovst/fs");
+    const { hashObject, decodeProtocolDirectory } = await import("@ovst/protocol");
     const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], undefined, activeWorkspace.objectIndex()));
     return { snapshot, hashObject, decodeProtocolDirectory };
   }
@@ -201,10 +201,10 @@ describe("arborsync object route", () => {
   });
 
   test("serves objects held only by a pending local change", async () => {
-    const { hashObject, encodeCandidateUpdateJSON } = await import("@overstory/protocol");
-    const { snapshotJSON } = await import("@overstory/working-tree");
-    const { ChangeLog } = await import("@overstory/working-tree/node");
-    const { folderStateRoot } = await import("../../packages/arborsync/src/folder-sync.ts");
+    const { hashObject, encodeCandidateUpdateJSON } = await import("@ovst/protocol");
+    const { snapshotJSON } = await import("@ovst/working-tree");
+    const { ChangeLog } = await import("@ovst/working-tree/node");
+    const { folderStateRoot } = await import("../../packages/story-sync/src/folder-sync.ts");
     const bytes = new TextEncoder().encode("pending-only-object");
     const hash = hashObject(bytes);
     const empty = encodeProtocolDirectory({ type: "directory", entries: [] }), emptyHash = hashObject(empty);
@@ -226,28 +226,28 @@ describe("arborsync object route", () => {
   });
 
   test("fetches through to Canopy for an unplaced tree named by origin", async () => {
-    const { serveHost } = await import("@overstory/canopyd");
-    const { hashObject } = await import("@overstory/protocol");
-    const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
-    const hostRoot = await mkdtemp(join(tmpdir(), "arbor-object-canopy-"));
+    const { serveHost } = await import("@ovst/overstoryd");
+    const { hashObject } = await import("@ovst/protocol");
+    const { resolveSnapshot, snapshotDirectory } = await import("@ovst/fs");
+    const hostRoot = await mkdtemp(join(tmpdir(), "story-object-overstoryd-"));
     const token = "object-route-owner";
-    const canopy = await serveHost({
-      dataRoot: join(hostRoot, "canopy"),
+    const overstoryd = await serveHost({
+      dataRoot: join(hostRoot, "overstoryd"),
       accounts: [testAccount("owner", token, { communityWriter: true })],
       publicOrigin: "http://127.0.0.1:0",
       hostname: "127.0.0.1",
       port: 0,
     });
     try {
-      const owner = await deviceClient(canopy.url, token);
+      const owner = await deviceClient(overstoryd.url, token);
       const account = await owner.account();
       const communityTree = account.account.community.id;
       const community = await owner.descriptor(communityTree);
       const source = join(hostRoot, "community");
       await mkdir(source, { recursive: true });
       // The community keeps its member: a group that administers a tree keeps one.
-      await writeFile(join(source, "_index.md"), `---\ntype: group\nmembers:\n  - profile: "arbor://${account.account.profileTree!}/"\n    handle: owner\n---\n# Community\n`);
-      const remoteOnly = new TextEncoder().encode("only-on-canopy");
+      await writeFile(join(source, "_index.md"), `---\ntype: group\nmembers:\n  - profile: "overstory://${account.account.profileTree!}/"\n    handle: owner\n---\n# Community\n`);
+      const remoteOnly = new TextEncoder().encode("only-on-overstoryd");
       await writeFile(join(source, "remote-only.bin"), remoteOnly);
       const boundaries = new Map([[join(source, "~owner"), account.account.profileTree!]]);
       await owner.submitUpdate(communityTree, community.tree.update, await resolveSnapshot(await snapshotDirectory(source, boundaries)));
@@ -255,18 +255,18 @@ describe("arborsync object route", () => {
       await rm(join(source, "remote-only.bin"));
       const hash = hashObject(remoteOnly);
 
-      const served = await client.object(communityTree, hash, canopy.url);
+      const served = await client.object(communityTree, hash, overstoryd.url);
       expect(hashObject(served)).toBe(hash);
-      const response = await fetch(`${base}/v1/objects/${encodeURIComponent(hash)}?tree=${encodeURIComponent(communityTree)}&origin=${encodeURIComponent(canopy.url)}`);
+      const response = await fetch(`${base}/v1/objects/${encodeURIComponent(hash)}?tree=${encodeURIComponent(communityTree)}&origin=${encodeURIComponent(overstoryd.url)}`);
       expect(response.headers.get("etag")).toBe(`"${hash}"`);
 
       // Fetched bytes are retained by hash, so a repeat needs no origin.
       expect(await client.object(communityTree, hash)).toEqual(served);
-      const unknown = await fetch(`${base}/v1/objects/${validHash("1e")}?tree=${encodeURIComponent(communityTree)}&origin=${encodeURIComponent(canopy.url)}`);
+      const unknown = await fetch(`${base}/v1/objects/${validHash("1e")}?tree=${encodeURIComponent(communityTree)}&origin=${encodeURIComponent(overstoryd.url)}`);
       expect(unknown.status).toBe(404);
     } finally {
-      canopy.server.stop(true);
-      await canopy.canopy[Symbol.asyncDispose]();
+      overstoryd.server.stop(true);
+      await overstoryd.overstoryd[Symbol.asyncDispose]();
       await rm(hostRoot, { recursive: true, force: true });
     }
   });
@@ -285,24 +285,24 @@ describe("arborsync object route", () => {
   });
 });
 
-describe("arborsync bootstrap and credential routes", () => {
+describe("story-sync bootstrap and credential routes", () => {
   const token = "bootstrap-route-owner";
   let sandbox: string;
   let home: string;
   let previousHome: string | undefined;
   let treeDir: string;
   let tree: string;
-  let canopy: Awaited<ReturnType<typeof import("@overstory/canopyd")["serveHost"]>>;
-  let daemon: Awaited<ReturnType<typeof serveArborSync>>;
-  let placedClient: ArborSyncRESTClient;
+  let overstoryd: Awaited<ReturnType<typeof import("@ovst/overstoryd")["serveHost"]>>;
+  let daemon: Awaited<ReturnType<typeof serveStorySync>>;
+  let placedClient: StorySyncRESTClient;
   let placedBase: string;
 
   beforeAll(async () => {
-    const { serveHost } = await import("@overstory/canopyd");
-    const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
+    const { serveHost } = await import("@ovst/overstoryd");
+    const { resolveSnapshot, snapshotDirectory } = await import("@ovst/fs");
     const { hostTree, readTreeConfig } = await import("../helpers/tree-config.ts");
 
-    sandbox = await mkdtemp(join(tmpdir(), "arbor-bootstrap-route-"));
+    sandbox = await mkdtemp(join(tmpdir(), "story-bootstrap-route-"));
     home = join(sandbox, "home");
     treeDir = join(sandbox, "tree");
     await mkdir(home, { recursive: true });
@@ -313,25 +313,25 @@ describe("arborsync bootstrap and credential routes", () => {
     await writeFile(join(treeDir, "sub", "child.md"), "Child\n");
     await writeFile(join(treeDir, "sub", "data.bin"), new Uint8Array([9, 8, 7]));
 
-    canopy = await serveHost({
-      dataRoot: join(sandbox, "canopy"),
+    overstoryd = await serveHost({
+      dataRoot: join(sandbox, "overstoryd"),
       accounts: [testAccount("owner", token, { communityWriter: true })],
       publicOrigin: "http://127.0.0.1:0",
       hostname: "127.0.0.1",
       port: 0,
     });
-    const owner = await deviceClient(canopy.url, token);
+    const owner = await deviceClient(overstoryd.url, token);
     const account = await owner.account();
     const profile = account.account.profileTree!;
     const device = Object.values((await readTreeConfig(owner, profile, "person")).values.devices!).find(device => device.administrator)!.id;
     tree = await hostTree(owner, await resolveSnapshot(await snapshotDirectory(treeDir)), { parent: { tree: profile, name: "bootstrap", kind: "person" } });
 
-    previousHome = process.env.ARBOR_DATA_HOME;
+    previousHome = process.env.STORY_HOME;
     await installAccountHome(home, owner, device, testDevice(token).seed, { [treeDir]: tree });
     // A long fallback interval keeps the daemon from racing the stored-state tests below.
-    daemon = await serveArborSync(treeDir, { port: 0, syncIntervalMs: 60_000 });
+    daemon = await serveStorySync(treeDir, { port: 0, syncIntervalMs: 60_000 });
     placedBase = daemon.url;
-    placedClient = new ArborSyncRESTClient({ baseURL: placedBase });
+    placedClient = new StorySyncRESTClient({ baseURL: placedBase });
     await placedClient.synchronizeNow();
     const descriptor = (await placedClient.trees()).snapshot.find((item) => item.id === tree);
     if (!descriptor?.root || !descriptor.update) throw new Error("Placed tree did not record its accepted base");
@@ -340,15 +340,15 @@ describe("arborsync bootstrap and credential routes", () => {
   afterAll(async () => {
     daemon.server.stop(true);
     await daemon.service[Symbol.asyncDispose]();
-    canopy.server.stop(true);
-    await canopy.canopy[Symbol.asyncDispose]();
-    if (previousHome === undefined) delete process.env.ARBOR_DATA_HOME;
-    else process.env.ARBOR_DATA_HOME = previousHome;
+    overstoryd.server.stop(true);
+    await overstoryd.overstoryd[Symbol.asyncDispose]();
+    if (previousHome === undefined) delete process.env.STORY_HOME;
+    else process.env.STORY_HOME = previousHome;
     await rm(sandbox, { recursive: true, force: true });
   });
 
   test("bootstraps a clean placed tree with a sparse spine", async () => {
-    const { decodeSparseSnapshotBundle, decodeProtocolDirectory, hashObject } = await import("@overstory/protocol");
+    const { decodeSparseSnapshotBundle, decodeProtocolDirectory, hashObject } = await import("@ovst/protocol");
     const bootstrap = await placedClient.bootstrap(tree);
     // Page dates come from Canopy's entry metadata, never from the daemon's files.
     expect("modifiedAtByPath" in bootstrap).toBe(false);
@@ -380,7 +380,7 @@ describe("arborsync bootstrap and credential routes", () => {
   });
 
   test("bootstraps the accepted Canopy root while the folder has an unpublished edit", async () => {
-    const { decodeSparseSnapshotBundle, decodeProtocolDirectory } = await import("@overstory/protocol");
+    const { decodeSparseSnapshotBundle, decodeProtocolDirectory } = await import("@ovst/protocol");
     const accepted = (await placedClient.bootstrap(tree)).accepted;
     await writeFile(join(treeDir, "note.md"), "Daemon-only pending edit\n");
     try {
@@ -418,7 +418,7 @@ describe("arborsync bootstrap and credential routes", () => {
     const { token: session } = await placedClient.credential();
     expect(session).toStartWith("ars_");
     expect(session).not.toBe(testDevice(token).seed);
-    expect((await new ProtocolClient(canopy.url, session).account()).account.device?.id).toBe(testDevice(token).device);
+    expect((await new ProtocolClient(overstoryd.url, session).account()).account.device?.id).toBe(testDevice(token).device);
     const absent = await fetch(`${placedBase}/v1/credential?configurationTree=tr_${"c".repeat(26)}`);
     expect(absent.status).toBe(404);
     expect(await absent.json()).toMatchObject({ error: "not-found" });

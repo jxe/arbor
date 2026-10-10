@@ -1,4 +1,4 @@
-# @overstory/tree-merge
+# @ovst/tree-merge
 
 The three-way snapshot tree merge: `mergeProtocolTrees(base, candidate, current,
 load)` combines two directory trees against their common base, node by node,
@@ -10,10 +10,10 @@ engine, cache or process of its own.
 - `merge-rules.ts`: the representation rules it applies to one node changed on
   both sides: Markdown additive merging with frontmatter and fence checks, and
   keyed collection-file rows decoded and re-encoded through the declarative
-  schema of [`@overstory/collection-schema`](../collection-schema/README.md).
+  schema of [`@ovst/collection-schema`](../collection-schema/README.md).
 - `model-hash.ts`: the model hashes that let a node reformatted on one side
   take the other side's bytes without conflict.
 
-The [merge sidecar](../canopyd-merge/README.md) merges snapshot candidates
-with it, and the [Arbor Sync tree recovery](../arborsync/recovery/README.md)
+The [merge sidecar](../overstoryd-merge/README.md) merges snapshot candidates
+with it, and the [Story Sync tree recovery](../story-sync/recovery/README.md)
 tool merges recovery candidates with it.

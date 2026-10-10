@@ -7,12 +7,12 @@ contain only a version and hash-ordered object byte strings (raw files and
 canonical CBOR directories); the root stays in the request URL. Directory
 objects carry ordinary CSV, JSON, and JSONL source and schema entries plus a
 directory-level `childrenSource` descriptor that interprets them as one child
-set; canopyd validates those graphs, merges disjoint rows by stable identity,
+set; overstoryd validates those graphs, merges disjoint rows by stable identity,
 and projects logical rows at ordinary locators while keeping `_store.*` and
 `schema.cddl` out of child navigation. Collection-file descriptors have one
 version, 1, which names `schema.cddl`, in TypeScript and Swift.
 
-For an update string, canopyd derives one credential-scoped digest per
+For an update string, overstoryd derives one credential-scoped digest per
 element over `{ domain: "arbor-update/2", tree, base, change, trace,
 candidate, resolves, ifCurrent }`, with each later element using its
 predecessor's `{ requestDigest, candidate }` as `base`. Accepted rows store
@@ -30,14 +30,14 @@ request. Neither client strips operations.
 Source edits against an accepted basis may ship the edited file as an object
 delta when that is smaller; chained authored records always send the whole
 file, because `reconstructDeltas` resolves delta bases against the accepted
-base root before the request's own objects are stored. Arbor Sync's folder
+base root before the request's own objects are stored. Story Sync's folder
 changes follow the same rule through `transitionPayload`
-(`updates/transition-payload.ts`), which also builds canopyd's accepted
+(`updates/transition-payload.ts`), which also builds overstoryd's accepted
 transitions: each changed object is paired with the object at its path in the
 starting root by `walkTreeDiff` (`updates/tree-diff.ts`).
 
 **Net watch catch-up** is unconditional. A client requests
-`GET /.arbor/trees/{tree}/watch` with its confirmed cursor; canopyd captures
+`GET /.overstory/trees/{tree}/watch` with its confirmed cursor; overstoryd captures
 the accepted state at that cursor and the current destination and builds one
 sparse payload between their roots. `from: { id, root }` is the transport
 basis while `update.previous` stays the destination's real predecessor.
@@ -49,7 +49,7 @@ requests keep their exact retry procedure. Net frames may exceed the ordinary
 1 MiB frame target; the native SSE parser scans new bytes only.
 
 <a id="conflict-inspection"></a>
-**Conflict inspection.** `GET /.arbor/trees/{tree}/conflicts?state={acceptedUpdate}`
+**Conflict inspection.** `GET /.overstory/trees/{tree}/conflicts?state={acceptedUpdate}`
 returns the decisions retained at that accepted state. `after` and `conflict`
 are mutually exclusive; the reference page size is 32, with no cap of 32 on
 accepted decisions; historical pages keep their identities as current
@@ -64,12 +64,12 @@ synthetic filename.
 infrastructure, not a public mint endpoint; tokens are process-local and
 invalidated on restart while durable update identity survives independently,
 and possessing a token makes no SQLite connection safe. The internal
-`GET /.arbor/execution/authority-watch` authenticates an execution token and
+`GET /.overstory/execution/authority-watch` authenticates an execution token and
 sends `refresh` or `revoked` SSE events with empty payloads; it conservatively
 invalidates on accepted updates, revocation notifies immediately, and expiry
 and session changes are polled, so providers refresh authority after a
 disconnect. `GET /access` answers a tree's administrators with its safe
-`policy` and the `arbor://` `locators` of the profiles its rules name by
+`policy` and the `overstory://` `locators` of the profiles its rules name by
 TreeID; there is no separate whole-tree entry list. The supported scoped update subset: new files and
 directories need `create-child` at the logical parent, raw content changes
 `update-content`, file deletion `delete`; Markdown replacement conservatively

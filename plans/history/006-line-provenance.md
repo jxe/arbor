@@ -1,11 +1,11 @@
-# canopyd 006: Record who submitted each update and show line provenance
+# overstoryd 006: Record who submitted each update and show line provenance
 
-**Why and when:** parked, and after canopyd 007: who submitted each current line.
+**Why and when:** parked, and after overstoryd 007: who submitted each current line.
 
 Historical identifier: **Smaller project 006**. Rewritten 2026-09-24 for the current
-host: migration 016 squashed each tree's accepted history to its head, canopyd 016
+host: migration 016 squashed each tree's accepted history to its head, overstoryd 016
 made each accepted update an immutable log entry, and every editor is a direct
-Canopy client. The earlier version (walk accepted roots backward, Arbor Sync proxy
+Canopy client. The earlier version (walk accepted roots backward, Story Sync proxy
 route, full actor backfill) is in git history.
 
 ## Status
@@ -14,7 +14,7 @@ route, full actor backfill) is in git history.
 - **Risk:** HIGH. It adds durable identity metadata, a schema migration, a
   public protocol change, and a read route over private history.
 - **State:** PLANNED
-- **Depends on:** [canopyd 007](007-document-history-routes-and-restore.md). Its
+- **Depends on:** [overstoryd 007](007-document-history-routes-and-restore.md). Its
   history reader, key resolution and retention bound are what this plan walks.
   Execute after it.
 
@@ -30,17 +30,17 @@ acceptance time and a safe actor. It is like `git blame`, with narrower claims:
 - an automatic merge does not reattribute lines it kept from earlier updates;
 - public, access-link, system and unknown actors stay distinguishable, without
   exposing device IDs, account IDs, credentials or link digests; and
-- it exposes no deleted source beyond canopyd 007's History contract.
+- it exposes no deleted source beyond overstoryd 007's History contract.
 
 The first presentation is an optional read-only **Line provenance** view in the
-native Source and Properties inspector (`CanopySourceInspector`,
-`swift/CanopyApp/CanopyDailyDriverViews.swift`).
+native Source and Properties inspector (`StorySourceInspector`,
+`swift/StoryApp/StoryDailyDriverViews.swift`).
 
 ## What exists
 
 - **Per-document lineage.** `document_versions (tree_id, stable_key, update_id,
   entry_path, content_hash, accepted_at)` in
-  `packages/canopyd/src/updates/entry-metadata.ts` has one row per content change of
+  `packages/overstoryd/src/updates/entry-metadata.ts` has one row per content change of
   each Markdown document, in accepted order (rowid), keyed by frontmatter `id:` when
   unique so it follows moves. The retention definition keeps every row's body.
   This is exactly the sequence blame needs; there is no need to walk whole roots.
@@ -90,19 +90,19 @@ type LineProvenance = {
 ```
 
 ```text
-GET /.arbor/trees/{TreeID}/blame?path={logical-path}&at={accepted-update-id}
+GET /.overstory/trees/{TreeID}/blame?path={logical-path}&at={accepted-update-id}
 ```
 
 `at` must be the current update; otherwise `409 stale-update` with the current id.
-Access is the same as canopyd 007's history routes (a write-capable device
+Access is the same as overstoryd 007's history routes (a write-capable device
 credential), since blame reveals when deleted-then-restored lines existed. There is
-no Arbor Sync proxy: editors call canopyd directly.
+no Story Sync proxy: editors call overstoryd directly.
 
 ## Algorithm
 
-A pure module in `packages/canopyd/src/`, no HTTP or account lookups.
+A pure module in `packages/overstoryd/src/`, no HTTP or account lookups.
 
-1. Resolve `path` in the current root to its body, content hash and key (canopyd
+1. Resolve `path` in the current root to its body, content hash and key (overstoryd
    007's resolver). Tokenize exact source into lines, keeping each terminator; a
    final unterminated line is still a line.
 2. Read that key's `document_versions` rows newest first. Start every line at the
@@ -116,7 +116,7 @@ A pure module in `packages/canopyd/src/`, no HTTP or account lookups.
    attributed to the merge's submitter.
 6. Restores attribute reintroduced lines to the restoring update. No copy
    detection.
-7. Stop honestly at the first version, at canopyd 007's retention bound, or where
+7. Stop honestly at the first version, at overstoryd 007's retention bound, or where
    a path-keyed document was moved. Report `continuity: "path"` for path keys.
 
 Use a bounded-memory line matcher, with explicit limits on source bytes, lines,
@@ -149,7 +149,7 @@ it, and never on the acceptance path.
 
 `bun run typecheck`, `bun run test`, `bun run test:protocol`, the migration suite
 while the migration exists, `swift test` for `swift/Packages/Overstory` and
-`CanopyWorkingTree`, macOS and iOS builds through `swift/Canopy.local.xcworkspace`,
+`OverstoryWorkingTree`, macOS and iOS builds through `swift/Story.local.xcworkspace`,
 `bun run check:links` and `git diff --check`. Hands-on: two profiles editing
 alternate lines on two devices show the right profile per line after sync, and a
 merge keeps earlier lines' submitters.
@@ -157,12 +157,12 @@ merge keeps earlier lines' submitters.
 ## Out of scope
 
 Generic tree history, diffs, copy detection, database rows or generated results,
-binary files, per-update profile signatures, cross-canopyd history transfer.
+binary files, per-update profile signatures, cross-overstoryd history transfer.
 
 ## STOP conditions
 
 - Attribution would trust a caller-supplied TreeID.
-- Blame would need to enumerate history more widely than canopyd 007 allows, or
+- Blame would need to enumerate history more widely than overstoryd 007 allows, or
   expose device IDs, account IDs, credentials or link digests.
 - The only workable matcher would claim an older actor for a duplicate line
   without proof.

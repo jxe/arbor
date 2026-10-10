@@ -1,9 +1,9 @@
 # Reference implementation fixtures
 
-These fixtures test the current Arbor implementation rather than defining the portable specification:
+These fixtures test the current Story implementation rather than defining the portable specification:
 
-- `arborsync/` covers the reference control surface (status, bootstrap, credential, conflicts) and local event model;
-- `canopy/` covers Canopy's exact merge algorithm; and
+- `story-sync/` covers the reference control surface (status, bootstrap, credential, conflicts) and local event model;
+- `overstoryd/` covers Canopy's exact merge algorithm; and
 - `workspace/` contains authored files used by implementation tests.
 
 Portable language-neutral vectors live under [`conformance`](../../conformance).

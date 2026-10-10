@@ -394,10 +394,10 @@
       }
     },
     {
-      "name": "arbor locator naming a TreeID",
+      "name": "story locator naming a TreeID",
       "rule": {
         "who": {
-          "profile": "arbor://tr_club/"
+          "profile": "overstory://tr_club/"
         },
         "allow": [
           "read"
@@ -523,7 +523,7 @@
         },
         {
           "who": {
-            "profile": "arbor://club.example/~club/"
+            "profile": "overstory://club.example/~club/"
           },
           "allow": [
             "write"
@@ -626,12 +626,12 @@
       "origin": "https://club.example:8443"
     },
     {
-      "input": "arbor://club.example/~club",
+      "input": "overstory://club.example/~club",
       "locator": "https://club.example/~club",
       "origin": "https://club.example"
     },
     {
-      "input": "arbor://127.0.0.1:4000/~club",
+      "input": "overstory://127.0.0.1:4000/~club",
       "locator": "http://127.0.0.1:4000/~club",
       "origin": "http://127.0.0.1:4000"
     },
@@ -646,17 +646,17 @@
       "origin": "http://[::1]:4000"
     },
     {
-      "input": "arbor://Club.EXAMPLE/~club",
+      "input": "overstory://Club.EXAMPLE/~club",
       "locator": "https://club.example/~club",
       "origin": "https://club.example"
     },
     {
-      "input": "arbor://club.example:443/~club",
+      "input": "overstory://club.example:443/~club",
       "locator": "https://club.example/~club",
       "origin": "https://club.example"
     },
     {
-      "input": "arbor://club.example:8443/~club",
+      "input": "overstory://club.example:8443/~club",
       "locator": "https://club.example:8443/~club",
       "origin": "https://club.example:8443"
     },

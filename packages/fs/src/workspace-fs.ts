@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { access, lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import * as watcher from "@parcel/watcher";
-import type { Diagnostic, MarkdownDocument } from "@overstory/protocol";
+import type { Diagnostic, MarkdownDocument } from "@ovst/protocol";
 import {
   compareUTF8,
   canonicalNodePath,
@@ -15,9 +15,9 @@ import {
   revisionOf,
   sha256,
   siblingMarkdownTreePath,
-} from "@overstory/protocol";
-import { directoryPlacementDiagnostics, parseMarkdown } from "@overstory/protocol";
-import { pathExists } from "@overstory/protocol/file-ops";
+} from "@ovst/protocol";
+import { directoryPlacementDiagnostics, parseMarkdown } from "@ovst/protocol";
+import { pathExists } from "@ovst/protocol/file-ops";
 import { discoverWorkspace, type WorkspaceDiscovery, WORKSPACE_WATCHER_IGNORE_GLOBS } from "./discovery.ts";
 import { isIgnoreFileName, loadIgnorePolicy, type IgnorePolicy, type Membership } from "./ignore-policy.ts";
 import { iCloudPlaceholderLogicalName, iCloudPlaceholderPath } from "./materialization.ts";
@@ -28,7 +28,7 @@ import {
   type ResolvedFsNode,
   type WorkspaceFSOptions,
 } from "./types.ts";
-import { ensureContainedPath, resolveTreePath, toTreePath } from "@overstory/protocol/path";
+import { ensureContainedPath, resolveTreePath, toTreePath } from "@ovst/protocol/path";
 
 const RESERVED = new Set(["schema.cddl", "_store.csv", "_store.json", "_store.jsonl", "_store.postgres", "_store.sqlite3", "_index.md"]);
 const EMPTY_REVISION = revisionOf("");
@@ -49,7 +49,7 @@ function directoryContentRevision(storedSource: string, children: readonly FsDir
 }
 
 function isTransactionTemporary(path: string): boolean {
-  return basename(path).includes(".arbor-txn-") || basename(path).includes(".arbor-write-");
+  return basename(path).includes(".overstory-txn-") || basename(path).includes(".overstory-write-");
 }
 
 export class WorkspaceFS implements AsyncDisposable {

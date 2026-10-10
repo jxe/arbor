@@ -5,7 +5,7 @@ import { Database } from "bun:sqlite";
 
 const dataDirectory = join(import.meta.dir, "..", "data");
 const destination = join(dataDirectory, "_store.sqlite3");
-const temporaryDirectory = await mkdtemp(join(tmpdir(), "arbor-supplies-fixture-"));
+const temporaryDirectory = await mkdtemp(join(tmpdir(), "story-supplies-fixture-"));
 const temporaryDatabase = join(temporaryDirectory, "_store.sqlite3");
 const database = new Database(temporaryDatabase, { create: true, strict: true });
 

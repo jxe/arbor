@@ -1,0 +1,160 @@
+import { encodeCanonicalCBOR, encodeSSEFrame, ProtocolError } from "@ovst/protocol";
+import { ResyncRequiredError } from "./events.ts";
+import type { StorySyncDaemon } from "./service.ts";
+import { OBJECT_HASH_PATTERN } from "./object-cache.ts";
+import { json, errorResponse } from "./http.ts";
+import { isCloudPlaceholderError } from "./cloud-placeholders.ts";
+
+type SyncHTTPService = Pick<StorySyncDaemon,
+  "events" | "synchronizeNow" | "moveLocalPlacement" | "treeList" | "bootstrapTree" |
+  "objectBytes" | "declinedChanges" | "discardHeldChanges" | "restoreDeclined" | "resendDeclined" | "resolveLocator" | "pauseFolder" | "resumeFolder" | "pendingUpdate">;
+
+export function syncHandler(service: SyncHTTPService, options: {
+  instanceID: string;
+  runtimeKind: "persistent" | "foreground" | "cloud";
+}) {
+  const { instanceID } = options;
+  return async (request: Request, url: URL, server: { timeout(request: Request, seconds: number): void }): Promise<Response | undefined> => {
+    if (request.method === "GET" && url.pathname === "/v1/status") {
+      return json({
+        service: "story-sync",
+        version: "0.1.0",
+        protocolVersion: "v1",
+        instanceID,
+        runtimeKind: options.runtimeKind,
+      });
+    }
+    if (request.method === "POST" && url.pathname === "/v1/sync") {
+      const source = await request.text();
+      let body: { configurationTree?: unknown } = {};
+      try {
+        const decoded = source ? JSON.parse(source) as unknown : {};
+        if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) throw new Error("not an object");
+        body = decoded as { configurationTree?: unknown };
+      } catch {
+        throw new ProtocolError("invalid-request", "Sync body must be a JSON object", 400);
+      }
+      const unknown = Object.keys(body).filter((key) => key !== "configurationTree");
+      if (unknown.length) throw new ProtocolError("invalid-request", `Unknown sync fields: ${unknown.join(", ")}`, 400);
+      if (
+        body.configurationTree !== undefined
+        && (typeof body.configurationTree !== "string" || !/^tr_[a-z2-7]+$/.test(body.configurationTree))
+      ) throw new ProtocolError("invalid-request", "configurationTree must be a TreeID", 400);
+      server.timeout(request, 0);
+      await service.synchronizeNow(body.configurationTree as string | undefined);
+      return json({ synchronized: true });
+    }
+    if (request.method === "POST" && url.pathname === "/v1/placements/move") {
+      const body = await request.json() as { source?: unknown; destination?: unknown; check?: unknown };
+      if (
+        typeof body.source !== "string"
+        || typeof body.destination !== "string"
+        || (body.check !== undefined && typeof body.check !== "boolean")
+      ) throw new ProtocolError("invalid-request", "Placement move requires source and destination paths", 400);
+      return json(await service.moveLocalPlacement({
+        source: body.source,
+        destination: body.destination,
+        check: body.check === true,
+      }));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/trees") {
+      return json(await service.treeList());
+    }
+    if (request.method === "GET" && url.pathname === "/v1/bootstrap") {
+      const tree = url.searchParams.get("tree");
+      if (!tree) throw new ProtocolError("invalid-request", "bootstrap requires explicit tree scope", 400);
+      try {
+        // Canonical CBOR only, with `spine` as the bundle's bytes; the daemon and
+        // its clients are one install, so there is no JSON form. Errors stay JSON.
+        return new Response(encodeCanonicalCBOR(await service.bootstrapTree(tree)) as Uint8Array<ArrayBuffer>, {
+          headers: { "content-type": "application/cbor", "cache-control": "no-store" },
+        });
+      } catch (error) {
+        if (isCloudPlaceholderError(error)) {
+          throw new ProtocolError(
+            "internal-error",
+            "Story Sync could not read local file content while opening the tree. One or more files may be unavailable cloud placeholders; make them available locally, then reconnect.",
+            500,
+            { tree, retryable: true, kind: "local-content-unavailable", reason: error.code } as ProtocolError["details"],
+          );
+        }
+        throw error;
+      }
+    }
+    if (request.method === "GET" && url.pathname.startsWith("/v1/objects/")) {
+      const hash = decodeURIComponent(url.pathname.slice("/v1/objects/".length));
+      if (!OBJECT_HASH_PATTERN.test(hash)) throw new ProtocolError("invalid-request", "Object hashes are sha256:<64 hex>", 400);
+      const tree = url.searchParams.get("tree");
+      if (!tree) throw new ProtocolError("invalid-request", "objects requires explicit tree scope", 400);
+      const origin = url.searchParams.get("origin") ?? undefined;
+      if (origin !== undefined && !/^https?:\/\//.test(origin)) throw new ProtocolError("invalid-request", "origin must be an http(s) URL", 400);
+      const bytes = await service.objectBytes(tree, hash, origin);
+      if (!bytes) throw new ProtocolError("not-found", `Object is not available: ${hash}`, 404, { tree });
+      return new Response(Buffer.from(bytes), {
+        headers: {
+          "content-type": "application/octet-stream",
+          "content-length": String(bytes.byteLength),
+          etag: `"${hash}"`,
+          "cache-control": "private, immutable, max-age=31536000",
+        },
+      });
+    }
+    if (request.method === "POST" && url.pathname === "/v1/held/discard") {
+      const body = await request.json() as { tree?: unknown };
+      if (typeof body.tree !== "string" || !body.tree) throw new ProtocolError("invalid-request", "Discarding held changes requires a tree", 400);
+      await service.discardHeldChanges(body.tree);
+      return json({ tree: body.tree });
+    }
+    if (request.method === "GET" && url.pathname === "/v1/declined") {
+      const tree = url.searchParams.get("tree");
+      if (!tree) throw new ProtocolError("invalid-request", "declined requires explicit tree scope", 400);
+      return json({ declined: await service.declinedChanges(tree) });
+    }
+    if (request.method === "POST" && (url.pathname === "/v1/declined/restore" || url.pathname === "/v1/declined/resend")) {
+      const body = await request.json() as { tree?: unknown };
+      const restore = url.pathname === "/v1/declined/restore";
+      if (typeof body.tree !== "string" || !body.tree) throw new ProtocolError("invalid-request", `${restore ? "Restoring" : "Resending"} declined changes requires a tree`, 400);
+      await (restore ? service.restoreDeclined(body.tree) : service.resendDeclined(body.tree));
+      return json({ tree: body.tree });
+    }
+    if (request.method === "POST" && (url.pathname === "/v1/placements/pause" || url.pathname === "/v1/placements/resume")) {
+      const body = await request.json() as { tree?: unknown };
+      const pause = url.pathname === "/v1/placements/pause";
+      if (typeof body.tree !== "string" || !body.tree) throw new ProtocolError("invalid-request", `${pause ? "Pausing" : "Resuming"} a placement requires a tree`, 400);
+      return json(pause ? await service.pauseFolder(body.tree) : await service.resumeFolder(body.tree));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/pending") {
+      const tree = url.searchParams.get("tree");
+      if (!tree) throw new ProtocolError("invalid-request", "pending requires explicit tree scope", 400);
+      return json(await service.pendingUpdate(tree));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/resolve") {
+      const locator = url.searchParams.get("locator");
+      if (!locator) throw new ProtocolError("invalid-request", "resolve requires locator", 400);
+      return json(await service.resolveLocator(locator));
+    }
+    if (request.method === "GET" && url.pathname === "/v1/events") {
+      // `after` is the only resume cursor, as on a host's tree watch; `Last-Event-ID` is ignored.
+      const after = url.searchParams.get("after");
+      try {
+        service.events.validate(after);
+      } catch (error) {
+        if (!(error instanceof ResyncRequiredError)) throw error;
+        const cursor = service.events.currentCursor();
+        const event = { cursor, tree: "system", kind: "resync-required", change: { after } };
+        return new Response(encodeSSEFrame({ id: cursor, event: "resync-required", data: event }), {
+          headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache" },
+        });
+      }
+      // Event streams stay open indefinitely; lift Bun's per-connection idle timeout for them.
+      server.timeout(request, 0);
+      return new Response(service.events.stream(after, request.signal), {
+        headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" },
+      });
+    }
+    if (url.pathname.startsWith("/v/") || url.pathname.startsWith("/v1/")) {
+      return errorResponse("unsupported-operation", "Route or method is not part of REST v1", 405);
+    }
+    return undefined;
+  };
+}

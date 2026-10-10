@@ -69,9 +69,9 @@ export function isHomeHostOrigin(value: string): boolean {
 }
 /**
  * A profile named by its canonical locator at another host (locators §1):
- * `https://host/path`, `arbor://host/path`, or `http://` for a loopback host.
+ * `https://host/path`, `overstory://host/path`, or `http://` for a loopback host.
  * `locator` is its canonical spelling, the subject's merge key and pin key
- * (`arbor://` becomes the HTTP locator it resolves through); `origin` is
+ * (`overstory://` becomes the HTTP locator it resolves through); `origin` is
  * where the profile is read. Null for anything else, a TreeID included.
  */
 export function parseProfileLocator(value: unknown): { locator: string; origin: string } | null {
@@ -83,10 +83,10 @@ export function parseProfileLocator(value: unknown): { locator: string; origin: 
   const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
   const scheme = url.protocol === "https:" ? "https:"
     : url.protocol === "http:" && loopback ? "http:"
-    : url.protocol === "arbor:" ? (loopback ? "http:" : "https:")
+    : url.protocol === "story:" ? (loopback ? "http:" : "https:")
     : null;
   if (!scheme) return null;
-  // Spelled out rather than left to URL parsing, which leaves an arbor: host's
+  // Spelled out rather than left to URL parsing, which leaves an story: host's
   // case and port alone: a lowercase host, and no port the scheme implies.
   const port = url.port && url.port !== (scheme === "https:" ? "443" : "80") ? `:${url.port}` : "";
   const origin = `${scheme}//${url.hostname.toLowerCase()}${port}`;

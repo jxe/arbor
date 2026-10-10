@@ -3,7 +3,7 @@ import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { revisionOf, type QueryHandleRef, type QueryStreamEvent } from "@overstory/protocol";
+import { revisionOf, type QueryHandleRef, type QueryStreamEvent } from "@ovst/protocol";
 import {
   node,
   introspectStoreSchema,
@@ -23,7 +23,7 @@ const listeningList = "10000000-0000-4000-8000-000000000003";
 const ada = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 const lists = node("./data/lists").children;
-const arborProfiles = node("./data/arbor_profiles").children;
+const storyProfiles = node("./data/arbor_profiles").children;
 const topPublicList = query.many(lists, (list: any) => ({
   where: list.visibility.eq("public"),
   orderBy: list.updated_at.desc(),
@@ -34,7 +34,7 @@ const listOwner = query.one(lists, (list: any) => ({
   where: list.id.eq(careList),
   select: {
     id: list.id,
-    owner: list.owner(arborProfiles.pick("id", "name", "handle", "portrait")),
+    owner: list.owner(storyProfiles.pick("id", "name", "handle", "portrait")),
   },
 }));
 
@@ -57,7 +57,7 @@ function source(authoredPath: string, relation: string) {
 }
 
 beforeEach(async () => {
-  directory = await mkdtemp(join(tmpdir(), "arbor-live-query-"));
+  directory = await mkdtemp(join(tmpdir(), "story-live-query-"));
   await Promise.all(["_store.sqlite3", "schema.sql", "relationships.json"].map((name) => cp(join(fixture, name), join(directory, name))));
   const location = {
     directory,

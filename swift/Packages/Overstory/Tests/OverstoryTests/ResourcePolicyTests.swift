@@ -5,7 +5,7 @@ import Testing
 @Suite("Resource authority contract")
 struct ResourcePolicyTests {
     @Test func sharedVectors() throws {
-        let root = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
+        let root = ProcessInfo.processInfo.environment["STORY_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
             ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance").standardizedFileURL
         let data = try Data(contentsOf: root.appending(path: "resource-policy.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: [[String: Any]]])
@@ -62,7 +62,7 @@ struct ResourcePolicyTests {
 
     @Test func aProfileAnotherHostHoldsIsNamedByItsLocator() throws {
         // Decoding spells a locator canonically, which is its merge key.
-        let decoded = try JSONDecoder().decode(ProtocolResourceWho.self, from: Data(#"{"profile":"arbor://club.example/~club/"}"#.utf8))
+        let decoded = try JSONDecoder().decode(ProtocolResourceWho.self, from: Data(#"{"profile":"overstory://club.example/~club/"}"#.utf8))
         #expect(decoded == .profile("https://club.example/~club"))
         #expect(decoded.profileLocator?.origin == "https://club.example")
         #expect(ProtocolResourceWho.profile("tr_club").profileLocator == nil)
@@ -70,7 +70,7 @@ struct ResourcePolicyTests {
         #expect(read.sameMergeKey(as: try ProtocolResourceAccessRule(who: .profile("https://club.example/~club"), allow: [.write])))
         #expect(!read.sameMergeKey(as: try ProtocolResourceAccessRule(who: .profile("tr_club"), allow: [.write])))
         // A rule is built only from a subject in its canonical spelling.
-        #expect(throws: (any Error).self) { try ProtocolResourceAccessRule(who: .profile("arbor://club.example/~club"), allow: [.read]) }
+        #expect(throws: (any Error).self) { try ProtocolResourceAccessRule(who: .profile("overstory://club.example/~club"), allow: [.read]) }
         #expect(throws: (any Error).self) { try ProtocolResourceAccessRule(who: .profile("http://club.example/~club"), allow: [.read]) }
         #expect(throws: (any Error).self) { try ProtocolAppAccessRule(resource: "tr_notes", who: .profile("https://club.example/"), allow: [.read]) }
     }
@@ -79,7 +79,7 @@ struct ResourcePolicyTests {
 @Suite("Tree configuration contract")
 struct TreeConfigurationTests {
     @Test func derivedConfigurationTreeIDs() throws {
-        let root = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
+        let root = ProcessInfo.processInfo.environment["STORY_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
             ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance").standardizedFileURL
         let data = try Data(contentsOf: root.appending(path: "tree-configuration.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])

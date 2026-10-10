@@ -7,7 +7,7 @@ import Testing
 @Suite("CBOR and JSON request bodies")
 struct CBORTransportTests {
     private func vectors() throws -> [String: Any] {
-        let root = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
+        let root = ProcessInfo.processInfo.environment["STORY_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
             ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance").standardizedFileURL
         return try #require(JSONSerialization.jsonObject(with: Data(contentsOf: root.appending(path: "protocol-cbor-transport.json"))) as? [String: Any])
     }
@@ -92,7 +92,7 @@ struct CBORTransportTests {
         let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
         let snapshot = ProtocolSnapshot(root: root.hash, objects: [file, root])
         let base = ProtocolUpdateBase(root: "sha256:" + String(repeating: "0", count: 64), update: "up_base")
-        let origin = URL(string: "https://canopy.test")!
+        let origin = URL(string: "https://host.test")!
         let cbor = try await ProtocolClient(origin: origin).prepareUpdate(tree: "tr_encoded", base: base, snapshot: snapshot)
         let json = try await ProtocolClient(origin: origin, encoding: .json).prepareUpdate(tree: "tr_encoded", base: base, snapshot: snapshot)
         #expect(cbor.contentType == "application/cbor" && cbor.encoding == .cbor)

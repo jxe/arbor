@@ -1,5 +1,5 @@
 // Preloaded by bunfig.toml before every test file. The test suite must never
-// touch the developer's real ~/.arbor: preparing that home discards rebuildable
+// touch the developer's real ~/.story: preparing that home discards rebuildable
 // private state when its version stamp is missing. Every worker therefore gets
 // an isolated default data home, private-state code refuses the built-in
 // default while tests run, and each test starts with the variable verified.
@@ -14,16 +14,16 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const realDataHome = join(homedir(), ".arbor");
-const defaultTestDataHome = mkdtempSync(join(tmpdir(), "arbor-test-home-"));
+const realDataHome = join(homedir(), ".story");
+const defaultTestDataHome = mkdtempSync(join(tmpdir(), "story-test-home-"));
 
-process.env.ARBOR_DATA_HOME = defaultTestDataHome;
-process.env.ARBOR_REQUIRE_DATA_HOME = "1";
-process.env.ARBOR_CREDENTIAL_STORE = "file";
+process.env.STORY_HOME = defaultTestDataHome;
+process.env.STORY_REQUIRE_HOME = "1";
+process.env.STORY_CREDENTIAL_STORE = "file";
 
 const refuse = (operation: string) => async ({ service, name }: { service: string; name: string }): Promise<never> => {
   throw new Error(`A test reached the real OS credential store (Bun.secrets.${operation} ${service}/${name}); `
-    + "keep ARBOR_CREDENTIAL_STORE=file or mock Bun.secrets with spyOn");
+    + "keep STORY_CREDENTIAL_STORE=file or mock Bun.secrets with spyOn");
 };
 const refusingSecrets = { get: refuse("get"), set: refuse("set"), delete: refuse("delete") } as unknown as typeof Bun.secrets;
 // Declared read-only, but the runtime property is writable.
@@ -34,16 +34,16 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  const home = process.env.ARBOR_DATA_HOME;
+  const home = process.env.STORY_HOME;
   if (!home) {
-    throw new Error("ARBOR_DATA_HOME is unset at the start of a test; a previous test cleared it without restoring it");
+    throw new Error("STORY_HOME is unset at the start of a test; a previous test cleared it without restoring it");
   }
   const resolved = resolve(home);
   if (resolved === realDataHome || resolved.startsWith(`${realDataHome}/`)) {
-    throw new Error(`ARBOR_DATA_HOME points at the real Arbor data home (${home}); tests must use a temporary directory`);
+    throw new Error(`STORY_HOME points at the real Story data home (${home}); tests must use a temporary directory`);
   }
-  if (process.env.ARBOR_CREDENTIAL_STORE !== "file") {
-    throw new Error("ARBOR_CREDENTIAL_STORE is not \"file\" at the start of a test; a previous test changed it without restoring it");
+  if (process.env.STORY_CREDENTIAL_STORE !== "file") {
+    throw new Error("STORY_CREDENTIAL_STORE is not \"file\" at the start of a test; a previous test changed it without restoring it");
   }
   if (Bun.secrets !== refusingSecrets) {
     throw new Error("Bun.secrets was replaced; tests must mock it with spyOn so the refusing store is restored");

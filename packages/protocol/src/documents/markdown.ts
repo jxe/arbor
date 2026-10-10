@@ -1,6 +1,6 @@
 import { parseDocument, type Document as YamlDocument } from "yaml";
 import { sha256 } from "../model/hash.ts";
-import type { ArborBlock, MarkdownDocument } from "../index.ts";
+import type { OverstoryBlock, MarkdownDocument } from "../index.ts";
 
 interface SourceLine {
   text: string;
@@ -18,7 +18,7 @@ function linesOf(source: string): SourceLine[] {
     });
 }
 
-function semanticValue(block: ArborBlock): unknown {
+function semanticValue(block: OverstoryBlock): unknown {
   return {
     type: block.type,
     content: block.content ?? "",
@@ -27,19 +27,19 @@ function semanticValue(block: ArborBlock): unknown {
   };
 }
 
-export function blockFingerprint(block: ArborBlock): string {
+export function blockFingerprint(block: OverstoryBlock): string {
   return sha256(JSON.stringify(semanticValue(block)));
 }
 
 function makeBlock(
-  type: ArborBlock["type"],
+  type: OverstoryBlock["type"],
   source: string,
   content = "",
-  props: ArborBlock["props"] = {},
-  children: ArborBlock[] = [],
+  props: OverstoryBlock["props"] = {},
+  children: OverstoryBlock[] = [],
   ordinal = 0,
-): ArborBlock {
-  const block: ArborBlock = {
+): OverstoryBlock {
+  const block: OverstoryBlock = {
     id: `b-${sha256(`${ordinal}\0${source}`).slice(0, 12)}`,
     type,
     content,
@@ -139,9 +139,9 @@ function isBlockStart(text: string): boolean {
   );
 }
 
-function parseBlocks(source: string): ArborBlock[] {
+function parseBlocks(source: string): OverstoryBlock[] {
   const lines = linesOf(source);
-  const blocks: ArborBlock[] = [];
+  const blocks: OverstoryBlock[] = [];
   let index = 0;
   let ordinal = 0;
 
@@ -364,13 +364,13 @@ function indentSource(source: string, depth: number): string {
   return linesOf(source).map((line) => line.text.trim() ? `${prefix}${line.full}` : line.full).join("");
 }
 
-function serializeBlockAtDepth(block: ArborBlock, depth: number): string {
-  if (block.props?.arborGenerated === true) return "";
+function serializeBlockAtDepth(block: OverstoryBlock, depth: number): string {
+  if (block.props?.storyGenerated === true) return "";
   if (block.source && block.sourceHash === blockFingerprint(block)) return indentSource(block.source, depth);
   return serializeCanonical(block, depth);
 }
 
-function serializeCanonical(block: ArborBlock, depth = 0): string {
+function serializeCanonical(block: OverstoryBlock, depth = 0): string {
   const prefix = "  ".repeat(depth);
   const children = block.children.map((child) => serializeBlockAtDepth(child, depth + 1)).join("");
   switch (block.type) {
@@ -410,7 +410,7 @@ function serializeCanonical(block: ArborBlock, depth = 0): string {
   }
 }
 
-export function serializeBlocks(blocks: ArborBlock[]): string {
+export function serializeBlocks(blocks: OverstoryBlock[]): string {
   return blocks.map((block) => serializeBlockAtDepth(block, 0)).join("");
 }
 
@@ -455,7 +455,7 @@ export function replaceFrontmatter(
 
 export function serializeMarkdown(
   document: MarkdownDocument,
-  blocks: ArborBlock[],
+  blocks: OverstoryBlock[],
   frontmatterPatch: Record<string, unknown | null> = {},
 ): string {
   return `${patchFrontmatter(document.frontmatterSource, frontmatterPatch) ?? ""}${serializeBlocks(blocks)}`;

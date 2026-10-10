@@ -2,15 +2,15 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ProjectionProviderHost, type ConnectionStore } from "@overstory/arborsync/state";
+import { ProjectionProviderHost, type ConnectionStore } from "@ovst/story-sync/state";
 
-const dsn = process.env.ARBOR_TEST_POSTGRES_DSN;
+const dsn = process.env.OVERSTORYD_TEST_POSTGRES_DSN;
 
 test("Postgres collections stay live without exposing credentials", async () => {
   if (!dsn) return;
-  const directory = await mkdtemp(join(tmpdir(), "arbor-postgres-collection-"));
+  const directory = await mkdtemp(join(tmpdir(), "story-postgres-collection-"));
   const sql = new Bun.SQL(dsn);
-  const schema = `arbor_test_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const schema = `story_test_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
   try {
     await sql.unsafe(`create schema "${schema}"`);
     await sql.unsafe(`create table "${schema}".items (id integer primary key, title text not null, published boolean)`);

@@ -1,7 +1,7 @@
 import type { OverstoryErrorCode, NodeResponse } from "./protocol.ts";
 
 /**
- * One protocol-level failure with the Local Arbor REST status it maps to.
+ * One protocol-level failure with the Local Story REST status it maps to.
  * Raised by the daemon and by the Canopy client library it embeds, so both
  * share one type that the REST layer can turn into a response.
  */

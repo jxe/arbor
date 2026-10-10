@@ -2,7 +2,7 @@ import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, wri
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { Diagnostic } from "../index.ts";
-import { generateArborID, sha256 } from "../index.ts";
+import { generateOverstoryID, sha256 } from "../index.ts";
 
 export interface WorkspaceRegistryRecord {
   stateID: string;
@@ -30,24 +30,24 @@ export class AmbiguousWorkspaceIdentityError extends Error {
 type StoredWorkspaceRegistry = Record<string, WorkspaceRegistryRecord>;
 
 /**
- * Arbor's one default local state home. Tests and isolated runs may override
- * it; the test preload also sets ARBOR_REQUIRE_DATA_HOME so that a test which
+ * Story's one default local state home. Tests and isolated runs may override
+ * it; the test preload also sets STORY_REQUIRE_HOME so that a test which
  * loses its override fails instead of preparing the developer's real home.
  */
-export function arborDataRoot(): string {
-  const explicit = process.env.ARBOR_DATA_HOME;
-  const fallback = join(homedir(), ".arbor");
-  if (process.env.ARBOR_REQUIRE_DATA_HOME) {
-    if (!explicit) throw new Error("ARBOR_DATA_HOME is unset while ARBOR_REQUIRE_DATA_HOME forbids the default Arbor data home");
+export function storyDataRoot(): string {
+  const explicit = process.env.STORY_HOME;
+  const fallback = join(homedir(), ".story");
+  if (process.env.STORY_REQUIRE_HOME) {
+    if (!explicit) throw new Error("STORY_HOME is unset while STORY_REQUIRE_HOME forbids the default Story data home");
     if (explicit === fallback || explicit.startsWith(`${fallback}/`)) {
-      throw new Error(`ARBOR_DATA_HOME (${explicit}) is the real Arbor data home, which ARBOR_REQUIRE_DATA_HOME forbids`);
+      throw new Error(`STORY_HOME (${explicit}) is the real Story data home, which STORY_REQUIRE_HOME forbids`);
     }
   }
   return explicit || fallback;
 }
 
-export function arborPrivateRoot(): string {
-  return join(arborDataRoot(), ".state");
+export function overstoryPrivateRoot(): string {
+  return join(storyDataRoot(), ".state");
 }
 
 async function pathKind(path: string): Promise<"missing" | "directory" | "symlink" | "other"> {
@@ -62,18 +62,18 @@ async function pathKind(path: string): Promise<"missing" | "directory" | "symlin
 }
 
 /**
- * Prepare the selected data home. An explicit ARBOR_DATA_HOME is isolated:
+ * Prepare the selected data home. An explicit STORY_HOME is isolated:
  * it never consults the user's default state.
  */
-export async function prepareArborDataRoot(): Promise<Diagnostic[]> {
-  const target = arborDataRoot();
+export async function prepareStoryDataRoot(): Promise<Diagnostic[]> {
+  const target = storyDataRoot();
   await mkdir(target, { recursive: true, mode: 0o700 });
   await chmod(target, 0o700).catch(() => {});
-  await mkdir(arborPrivateRoot(), { recursive: true, mode: 0o700 });
-  if (await pathKind(join(arborPrivateRoot(), "migration.lock")) !== "missing") {
-    throw new Error(`Arbor data home is locked for an offline migration: ${target}`);
+  await mkdir(overstoryPrivateRoot(), { recursive: true, mode: 0o700 });
+  if (await pathKind(join(overstoryPrivateRoot(), "migration.lock")) !== "missing") {
+    throw new Error(`Story data home is locked for an offline migration: ${target}`);
   }
-  await reconcilePrivateStateVersion(arborPrivateRoot());
+  await reconcilePrivateStateVersion(overstoryPrivateRoot());
   return [];
 }
 
@@ -82,7 +82,7 @@ export async function prepareArborDataRoot(): Promise<Diagnostic[]> {
  * format or the daemon's rebuildable state changes shape, and is the client
  * half of the schema stamp Canopy asserts at startup.
  */
-export const ARBOR_SYNC_STATE_VERSION = "6";
+export const STORY_SYNC_STATE_VERSION = "6";
 
 const REBUILDABLE_PRIVATE_ENTRIES = ["sync", "refs"] as const;
 
@@ -96,7 +96,7 @@ const REBUILDABLE_PRIVATE_ENTRIES = ["sync", "refs"] as const;
 async function reconcilePrivateStateVersion(state: string): Promise<void> {
   const stampPath = join(state, "version");
   const stamp = await readFile(stampPath, "utf8").then((value) => value.trim()).catch(() => null);
-  if (stamp === ARBOR_SYNC_STATE_VERSION) return;
+  if (stamp === STORY_SYNC_STATE_VERSION) return;
   // An unstamped state that already holds placement refs was written by a build
   // before the stamp existed; an unstamped state without them is new.
   const olderBuild = stamp !== null || await pathKind(join(state, "refs")) !== "missing";
@@ -117,7 +117,7 @@ async function reconcilePrivateStateVersion(state: string): Promise<void> {
       }
     }
   }
-  await writeFile(stampPath, `${ARBOR_SYNC_STATE_VERSION}\n`, { mode: 0o600 });
+  await writeFile(stampPath, `${STORY_SYNC_STATE_VERSION}\n`, { mode: 0o600 });
 }
 
 async function directoryFingerprint(path: string): Promise<{ device?: string; inode?: string }> {
@@ -167,8 +167,8 @@ export async function loadWorkspaceRegistry(): Promise<{
   registry: Record<string, WorkspaceRegistryRecord>;
   changed: boolean;
 }> {
-  await prepareArborDataRoot();
-  const path = join(arborPrivateRoot(), "workspaces.json");
+  await prepareStoryDataRoot();
+  const path = join(overstoryPrivateRoot(), "workspaces.json");
   let stored: StoredWorkspaceRegistry = {};
   try {
     stored = JSON.parse(await readFile(path, "utf8")) as StoredWorkspaceRegistry;
@@ -182,7 +182,7 @@ async function saveWorkspaceRegistry(
   path: string,
   registry: Record<string, WorkspaceRegistryRecord>,
 ): Promise<void> {
-  const temporary = `${path}.arbor-write-${crypto.randomUUID()}`;
+  const temporary = `${path}.overstory-write-${crypto.randomUUID()}`;
   try {
     await writeFile(temporary, `${JSON.stringify(registry, null, 2)}\n`, { mode: 0o600 });
     await rename(temporary, path);
@@ -222,7 +222,7 @@ export async function workspaceIdentity(root: string): Promise<WorkspaceRegistry
       // New local roots enter the same global TreeID space as hosted trees.
       // The path-derived rt_ form is retained only while normalizing legacy
       // registry entries above; migration can replace those identities later.
-      rootID: generateArborID("tr"),
+      rootID: generateOverstoryID("tr"),
       path: canonical,
       ...fingerprint,
     };
@@ -266,7 +266,7 @@ export async function bindWorkspaceIdentity(root: string, rootID: string): Promi
 
 export async function workspaceState(root: string): Promise<WorkspaceState> {
   const identity = await workspaceIdentity(root);
-  const directory = join(arborPrivateRoot(), "workspaces", identity.stateID);
+  const directory = join(overstoryPrivateRoot(), "workspaces", identity.stateID);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700).catch(() => {});
   return { identity, directory };

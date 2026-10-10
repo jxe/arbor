@@ -2,14 +2,14 @@ import { expect } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Workspace } from "@overstory/arborsync";
-import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import { Workspace } from "@ovst/story-sync";
+import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 
-const root = await mkdtemp(join(tmpdir(), "arbor-performance-tree-"));
-const state = await mkdtemp(join(tmpdir(), "arbor-performance-state-"));
+const root = await mkdtemp(join(tmpdir(), "story-performance-tree-"));
+const state = await mkdtemp(join(tmpdir(), "story-performance-state-"));
 
 try {
-  process.env.ARBOR_DATA_HOME = state;
+  process.env.STORY_HOME = state;
   for (let directoryIndex = 0; directoryIndex < 200; directoryIndex += 1) {
     const directory = join(root, `directory-${directoryIndex}`);
     await mkdir(directory);

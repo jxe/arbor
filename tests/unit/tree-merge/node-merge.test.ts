@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mergeProtocolTrees } from "@overstory/tree-merge";
-import { encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry, type ProtocolDirectory } from "@overstory/protocol";
+import { mergeProtocolTrees } from "@ovst/tree-merge";
+import { encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry, type ProtocolDirectory } from "@ovst/protocol";
 
 const objects = new Map<string, Uint8Array>();
 const load = async (hash: ObjectHash) => {

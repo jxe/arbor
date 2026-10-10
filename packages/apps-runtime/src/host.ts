@@ -4,8 +4,8 @@ import type {
   QueryStreamEvent,
   QueryStreamRequest,
   QueryStreamRuntime,
-} from "@overstory/protocol";
-import { encodeSSEFrame } from "@overstory/protocol";
+} from "@ovst/protocol";
+import { encodeSSEFrame } from "@ovst/protocol";
 
 /** Stateless full-POST query execution encoded as a standard SSE response. */
 export function queryStreamResponse(

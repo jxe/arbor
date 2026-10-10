@@ -3,8 +3,8 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
-import { canonicalStableKey, type JSONValue } from "@overstory/protocol";
-import { ProjectionProviderHost, detectProjection } from "@overstory/arborsync/state";
+import { canonicalStableKey, type JSONValue } from "@ovst/protocol";
+import { ProjectionProviderHost, detectProjection } from "@ovst/story-sync/state";
 
 let root: string;
 const providerContext = { tree: "tr_test", observedThrough: "test:0", writable: true } as const;
@@ -63,7 +63,7 @@ async function prepareWrite(
 }
 
 beforeAll(async () => {
-  root = await mkdtemp(join(tmpdir(), "arbor-collections-"));
+  root = await mkdtemp(join(tmpdir(), "story-collections-"));
   await mkdir(join(root, "csv"));
   await writeFile(join(root, "csv", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr, count: number }\n');
   await writeFile(join(root, "csv", "_store.csv"), "id,title,count\none,One,1\ntwo,Two,nope\n");

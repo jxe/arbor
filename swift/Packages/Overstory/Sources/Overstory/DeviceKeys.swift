@@ -49,7 +49,7 @@ public struct ProtocolDeviceKey: Sendable, Equatable {
     /// The `devices.yaml` spelling.
     public var value: String { "\(algorithm.rawValue):\(encodeBase64URL(publicKey))" }
 
-    /// The DER SubjectPublicKeyInfo, as canopyd loads it.
+    /// The DER SubjectPublicKeyInfo, as overstoryd loads it.
     public var spki: Data { Data(Self.spkiPrefixes[algorithm]!) + publicKey }
 
     /// Whether `signature` (64 bytes, unpadded base64url) signs `message`.
@@ -136,7 +136,7 @@ public struct ProtocolDeviceSession: Codable, Sendable, Equatable {
     public var expiresAt: Int
 }
 
-/// Signed challenges carry exactly their own fields, as canopyd checks them;
+/// Signed challenges carry exactly their own fields, as overstoryd checks them;
 /// an unknown field would otherwise vanish from the signed bytes.
 private func requireExactFields<Keys: CodingKey & CaseIterable>(_ decoder: Decoder, _: Keys.Type) throws {
     let present = try decoder.container(keyedBy: ProtocolSemanticCodingKey.self).allKeys.map(\.stringValue)
@@ -152,7 +152,7 @@ private func isCanonicalOrigin(_ value: String) -> Bool {
 }
 
 /// `scheme://host[:port]` as a WHATWG URL's `origin` spells it, which is how
-/// canopyd names itself in a challenge: lowercase, default port omitted.
+/// overstoryd names itself in a challenge: lowercase, default port omitted.
 func webOrigin(_ url: URL) -> String? {
     guard let scheme = url.scheme?.lowercased(), let host = url.host()?.lowercased(), !host.isEmpty else { return nil }
     let defaultPort = ["http": 80, "https": 443][scheme]

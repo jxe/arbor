@@ -1,4 +1,4 @@
-import CanopyAppKit
+import StoryKit
 import Overstory
 import CryptoKit
 import Foundation
@@ -457,9 +457,9 @@ public actor AccountStoredCredentialProvider: ProtocolCredentialProvider {
     }
 }
 
-/// Generate a 128-bit lowercase base32 Arbor identity with the supplied stable prefix
-/// (`tr`, `dv`, …); it edits no file and reserves no server state, matching `generateArborID` in `@arbor/core`.
-public func generateArborID(prefix: String) throws -> String {
+/// Generate a 128-bit lowercase base32 Story identity with the supplied stable prefix
+/// (`tr`, `dv`, …); it edits no file and reserves no server state, matching `generateOverstoryID` in `@story/core`.
+public func generateOverstoryID(prefix: String) throws -> String {
     var bytes = [UInt8](repeating: 0, count: 16)
     guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
         throw ProtocolValidationError.invalidValue("Could not generate identity")
@@ -673,7 +673,7 @@ public actor NativeAccountService {
         do {
             result = try await wire.joinAccount(try request(pending))
         } catch let error as ProtocolHTTPError
-            // canopyd reports an expired challenge only as an invalid request with this message.
+            // overstoryd reports an expired challenge only as an invalid request with this message.
             where error.isExpiredChallenge {
             let challenge = try await wire.createAccountChallenge(
                 account: pending.account.absoluteString,
@@ -772,7 +772,7 @@ public actor NativeAccountService {
 
     /// Connect this home account to its placement account at another host
     /// (accounts §1.3), mirroring `connectPlacementAccount` in
-    /// `@overstory/client`. The host's community created the account by
+    /// `@ovst/client`. The host's community created the account by
     /// reserving the profile's locator at its home host; there is no claim.
     /// This device opens a session there with its own home device key, since
     /// the placement host accepts every device the home host lists, so any
@@ -867,12 +867,12 @@ public actor NativeAccountService {
         } else if let url = URL(string: value), url.scheme != nil {
             path = url.path
         } else {
-            throw ProtocolValidationError.invalidValue("Enter a person or group Arbor URL, handle, or TreeID")
+            throw ProtocolValidationError.invalidValue("Enter a person or group Story URL, handle, or TreeID")
         }
         return try await client.resolve(path: path).ref.tree
     }
 
-    private func generatedID(prefix: String) throws -> String { try generateArborID(prefix: prefix) }
+    private func generatedID(prefix: String) throws -> String { try generateOverstoryID(prefix: prefix) }
 
     private func initialProfileConfiguration(
         profileTree: String,

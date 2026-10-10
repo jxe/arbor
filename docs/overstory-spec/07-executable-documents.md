@@ -32,7 +32,7 @@ Relative resolution and extensionless canonicalization follow [format](02-direct
 The query string belongs to the addressed document, which receives it as an
 ordinary search-parameter value ([authoring API](08-authoring-api.md#2-documents)).
 
-The optional path-attached `;arbor-key=...` identity suffix is consumed before
+The optional path-attached `;overstory-key=...` identity suffix is consumed before
 document routing and never appears in `search`. It can therefore heal or
 redirect a renamed executable document without taking an application query
 parameter away from it. Healing preserves the complete query string unchanged.
@@ -277,14 +277,14 @@ ref.
 Authored source locators resolve by the ordinary [resolution rules](03-locators.md#4-resolution-rules);
 a host-backed source's accepted state comes from the ordinary
 [current-tree read](01-tree-operations.md#111-reading-the-current-tree), and provider
-bindings are private host configuration ([sidecar boundary](../architecture/canopyd/execution-sidecar.md#provider-bindings)).
+bindings are private host configuration ([sidecar boundary](../architecture/overstoryd/execution-sidecar.md#provider-bindings)).
 A host-authenticated runtime receives an [execution token](05-access-control.md#21-execution-tokens)
 binding the caller, executable and bounded authority; authored JavaScript receives
 handles rather than this token. The runtime presents it when resolving sources,
 reading or watching host data, or submitting ordinary guarded updates. Code and
 provider identity asserted in public input never establish execution authority.
 HTTP forwarding and process details belong to the
-[reference sidecar boundary](../architecture/canopyd/execution-sidecar.md). The sidecar may use the host and direct
+[reference sidecar boundary](../architecture/overstoryd/execution-sidecar.md). The sidecar may use the host and direct
 backing providers in the same invocation. Authority invalidation reaches provider
 operations and live output, not merely the initial HTTP request.
 
@@ -346,7 +346,7 @@ tree.
 ### 12.1 Evaluate and stream named queries
 
 ```text
-QUERY /.arbor/trees/{SourceTreeID}/queries
+QUERY /.overstory/trees/{SourceTreeID}/queries
 Content-Type: application/json
 Accept: text/event-stream
 ```
@@ -478,7 +478,7 @@ Mutation calls carry the reviewed handle identity and version, validated input,
 authenticated subject, and caller-stable mutation identity:
 
 ```text
-POST /.arbor/trees/{SourceTreeID}/mutate
+POST /.overstory/trees/{SourceTreeID}/mutate
 Content-Type: application/json
 ```
 

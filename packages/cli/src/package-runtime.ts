@@ -7,10 +7,10 @@ import { dirname, join } from "node:path";
 export async function persistPackageRuntime(script: string, home: string): Promise<string> {
   const packageRoot = dirname(dirname(script));
   const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
-  if (manifest.name !== "@overstory/cli") throw new Error("Expected a packaged Arbor CLI runtime");
-  const hash = createHash("sha256").update("arbor-runtime-2").update(await readFile(script)).digest("hex").slice(0, 16);
-  const destination = join(home, "Library", "Application Support", "Arbor", "CLI", `${manifest.version}-${hash}`);
-  const installed = join(destination, "bin", "arborsync.js");
+  if (manifest.name !== "@ovst/cli") throw new Error("Expected a packaged Story CLI runtime");
+  const hash = createHash("sha256").update("story-runtime-2").update(await readFile(script)).digest("hex").slice(0, 16);
+  const destination = join(home, "Library", "Application Support", "Story", "CLI", `${manifest.version}-${hash}`);
+  const installed = join(destination, "bin", "story-sync.js");
   if (await stat(installed).then(() => true, () => false)) return installed;
   const staging = `${destination}.${crypto.randomUUID()}.tmp`;
   await mkdir(staging, { recursive: true, mode: 0o700 });

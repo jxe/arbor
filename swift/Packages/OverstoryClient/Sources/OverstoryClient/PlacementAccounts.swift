@@ -6,7 +6,7 @@ import Foundation
 /// a host other than its home. It holds no key: the device signs in there
 /// with the DeviceID and key of its home connection, because a placement host
 /// accepts every device the home host lists (§5.4). Mirrors
-/// `HostPlacementRecord` in `@overstory/protocol`, field for field.
+/// `HostPlacementRecord` in `@ovst/protocol`, field for field.
 public struct NativePlacementAccount: Codable, Equatable, Hashable, Sendable, Identifiable {
     /// The profile's configuration TreeID; its home connection is the
     /// `NativeHostAccount` with this configuration tree.
@@ -111,7 +111,7 @@ func originString(_ url: URL?) -> String? {
 }
 
 /// A placement host URL: its origin and, when a path names one, the exact
-/// account URL. Mirrors `placementTarget` in `@overstory/client`.
+/// account URL. Mirrors `placementTarget` in `@ovst/client`.
 func placementTarget(_ input: String) throws -> (origin: String, account: String?) {
     guard let url = URL(string: input.trimmingCharacters(in: .whitespacesAndNewlines)),
           let origin = originString(url), isHomeHostOrigin(origin),
@@ -123,8 +123,8 @@ func placementTarget(_ input: String) throws -> (origin: String, account: String
     return (origin, path.isEmpty ? nil : origin + path)
 }
 
-/// The placement connections a data home holds, as the `arbor` command and
-/// Arbor Sync write them (`HostPlacementStore`):
+/// The placement connections a data home holds, as the `story` command and
+/// Story Sync write them (`HostPlacementStore`):
 /// `<data home>/.state/accounts/<ConfigurationTreeID>/placements/host-<digest>/connection.json`.
 /// The Mac reads and removes them here; claiming one needs the profile key,
 /// which only the data home's own tools hold.

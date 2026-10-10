@@ -6,8 +6,8 @@ import type {
   JSONValue,
   NodeSnapshot,
   TreeRef,
-} from "@overstory/protocol";
-import { revisionOf, semanticRequestDigest } from "@overstory/protocol";
+} from "@ovst/protocol";
+import { revisionOf, semanticRequestDigest } from "@ovst/protocol";
 export type ProjectionProviderKind = "csv" | "json" | "jsonl" | "markdown" | "sqlite" | "postgres";
 /** Provider discovery metadata, already expressed in the public backing vocabulary. */
 export interface ProjectionDescriptor {
@@ -44,7 +44,7 @@ export interface ProjectionProviderContext {
   writable: boolean;
   readPhysical?: (path: string) => Promise<NodeSnapshot>;
 }
-/** Opaque to Arbor Sync: only ProjectionProviderHost dispatches on provider. */
+/** Opaque to Story Sync: only ProjectionProviderHost dispatches on provider. */
 export interface ProjectionWriteTarget {
   directory: string;
   parentPath: string;

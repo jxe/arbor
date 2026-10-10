@@ -8,7 +8,7 @@
 > report — do not improvise. When done, update this plan's entry in
 > `plans/README.md`.
 >
-> **Drift check (run first)**: `git diff --stat b7141f61..HEAD -- packages/protocol/src/model/logical-path.ts packages/protocol/src/model/logical-url.ts packages/arborsync/src/browser-http.ts packages/arborsync/src/service.ts packages/arborsync/src/server.ts packages/fs/src/workspace-fs.ts`
+> **Drift check (run first)**: `git diff --stat b7141f61..HEAD -- packages/protocol/src/model/logical-path.ts packages/protocol/src/model/logical-url.ts packages/story-sync/src/browser-http.ts packages/story-sync/src/service.ts packages/story-sync/src/server.ts packages/fs/src/workspace-fs.ts`
 > Also run `git status --short` on those paths. If the excerpts under "Current
 > state" do not match the live code, treat it as a STOP condition.
 
@@ -17,7 +17,7 @@
 > `resolve` decodes locator segments and then calls `canonicalNodePath`, a second
 > double decode; the listing site is now `workspace-fs.ts:452`; and
 > `fs-service.ts` (the local-scope listing) is gone with the daemon's editor path.
-> [Web 025](../canopy-web/025-arbor-web.md) will delete the `browser-http.ts`
+> [Web 025](../story-web/025-story-web.md) will delete the `browser-http.ts`
 > file-serving and Referer paths, so fix the shared layer and `service.ts` first and
 > keep the `browser-http.ts` change small.
 
@@ -57,9 +57,9 @@ Files involved:
 
 - `packages/protocol/src/model/logical-path.ts` — `normalizeTreePath` / `canonicalNodePath`; the decode to remove.
 - `packages/protocol/src/model/logical-url.ts` — resolves authored links; calls the above.
-- `packages/arborsync/src/browser-http.ts` — HTTP boundary for file surfaces; already decodes before calling in.
-- `packages/arborsync/src/service.ts` — `resolve` decodes locator segments (`:257`, `:262`), then `canonicalNodePath` decodes again.
-- `packages/arborsync/src/server.ts` — maps `PathEscapeError` to a 400 `unsafe-path` (`:65`).
+- `packages/story-sync/src/browser-http.ts` — HTTP boundary for file surfaces; already decodes before calling in.
+- `packages/story-sync/src/service.ts` — `resolve` decodes locator segments (`:257`, `:262`), then `canonicalNodePath` decodes again.
+- `packages/story-sync/src/server.ts` — maps `PathEscapeError` to a 400 `unsafe-path` (`:65`).
 - `packages/fs/src/workspace-fs.ts` — directory listing; the 500 site.
 
 `packages/protocol/src/model/logical-path.ts:1-19`:
@@ -102,13 +102,13 @@ the `paths.add(...)` above it is unprotected. Here `entry.name` comes from
 `readdir`: it is a real on-disk filename, never percent-encoded, so decoding it
 is unambiguously wrong.
 
-The HTTP boundary that already decodes, `packages/arborsync/src/browser-http.ts:81`:
+The HTTP boundary that already decodes, `packages/story-sync/src/browser-http.ts:81`:
 
 ```ts
         let surface = await service.fileSurface(decodeURIComponent(logicalPath), raw).catch(() => null);
 ```
 
-and the referer-derived path just below it, `packages/arborsync/src/browser-http.ts:86-92`:
+and the referer-derived path just below it, `packages/story-sync/src/browser-http.ts:86-92`:
 
 ```ts
           const referer = request.headers.get("referer");
@@ -130,7 +130,7 @@ that test meaningful.
 Repo conventions:
 
 - `packages/protocol` is the browser-safe shared layer; the Swift client mirrors it
-  (`swift/CanopyApp/ArborSync`). Prefer keeping `normalizeTreePath`'s exported
+  (`swift/StoryApp/StorySync`). Prefer keeping `normalizeTreePath`'s exported
   signature unchanged.
 - Unit tests: `tests/unit/path.test.ts` and `tests/unit/logical-url.test.ts` are
   the existing exemplars for this area. `bun:test`, plain function calls.
@@ -152,7 +152,7 @@ Repo conventions:
 
 - `packages/protocol/src/model/logical-path.ts`
 - `packages/protocol/src/model/logical-url.ts` (only if it double-decodes — see step 2)
-- `packages/arborsync/src/browser-http.ts` and `packages/arborsync/src/service.ts` (boundary decode + `URIError` handling)
+- `packages/story-sync/src/browser-http.ts` and `packages/story-sync/src/service.ts` (boundary decode + `URIError` handling)
 - `tests/unit/path.test.ts` (add cases)
 - `tests/integration/server.test.ts` (add a case)
 
@@ -162,7 +162,7 @@ Repo conventions:
   its calls become correct as written.
 - `swift/` — the Swift mirror of this logic. If the TypeScript contract
   changes in a way Swift must follow, report it; do not edit Swift in this plan.
-- `packages/canopy-web/src/App.tsx` — the client also builds URLs; leave it unless
+- `packages/story-web/src/App.tsx` — the client also builds URLs; leave it unless
   typecheck forces a change, and report it if it does.
 
 ## Git workflow
@@ -225,7 +225,7 @@ is expected and is fixed in step 3.
 The security property from `tests/unit/path.test.ts:22` must still hold for
 requests arriving over HTTP.
 
-In `packages/arborsync/src/browser-http.ts`, the decode at `:81` and the two at
+In `packages/story-sync/src/browser-http.ts`, the decode at `:81` and the two at
 `:90-91` are the boundary, and so are the segment decodes in `service.ts` `resolve`
 (`:257`, `:262`). Introduce a single helper in that file, e.g.:
 
@@ -238,13 +238,13 @@ It must:
 - `decodeURIComponent` the value.
 - Catch `URIError` and throw the existing `ProtocolError` with code
   `"unsafe-path"` and status **400** — construct it as other
-  `ProtocolError`s in `packages/arborsync/src` are, so the error flows through
+  `ProtocolError`s in `packages/story-sync/src` are, so the error flows through
   the same envelope in `server.ts`. A malformed encoding currently falls
   through to a generic 500; 400 is correct.
 - Feed the decoded result through `normalizeTreePath` so traversal is rejected
   once, at the boundary, on the decoded value. `normalizeTreePath` throws
   `PathEscapeError`; the server already maps that to a 400
-  `unsafe-path` response (`packages/arborsync/src/server.ts:65`).
+  `unsafe-path` response (`packages/story-sync/src/server.ts:65`).
 
 Replace the three `browser-http.ts` call sites and the two `service.ts` segment
 decodes with this helper. Also guard the `new URL(referer)` call at
@@ -277,7 +277,7 @@ In `tests/unit/path.test.ts`, add:
 ### Step 5: Add an end-to-end test through the server
 
 In `tests/integration/server.test.ts`, add two cases. Read the file's existing
-setup first — it starts a real arborsync and issues `fetch` calls; follow that
+setup first — it starts a real story-sync and issues `fetch` calls; follow that
 harness exactly rather than building a new one.
 
 1. **The user-visible fix**: create a fixture file whose name contains `%`
@@ -340,7 +340,7 @@ Stop and report back (do not improvise) if:
 
 - The step 1 script already shows correct behavior.
 - After step 2, typecheck errors appear in files outside the In-scope list
-  (particularly `packages/canopy-web/` or `packages/cli/src/daemon-client.ts`) — that means another
+  (particularly `packages/story-web/` or `packages/cli/src/daemon-client.ts`) — that means another
   caller depends on the decoding behavior and the change needs re-scoping.
 - You find a **third** decode of the same path on any single request path that
   you cannot confidently attribute to one boundary. Report the call chain
@@ -353,12 +353,12 @@ Stop and report back (do not improvise) if:
 ## Maintenance notes
 
 - The new contract is: **URLs are decoded exactly once, at the
-  `packages/arborsync` HTTP and locator boundaries, and everything downstream of that receives
+  `packages/story-sync` HTTP and locator boundaries, and everything downstream of that receives
   decoded logical paths.** Any future entry point that accepts a URL-shaped
   path (a new route, a new CLI argument, a new client) must decode at its own
   boundary and must run traversal rejection there.
 - `packages/protocol/src/model/logical-path.ts` is mirrored in Swift under
-  `swift/CanopyApp/ArborSync`. If the Swift `normalizeTreePath` equivalent
+  `swift/StoryApp/StorySync`. If the Swift `normalizeTreePath` equivalent
   also decodes, it now diverges from TypeScript — flag that in your report as
   follow-up work; the conformance suite may or may not catch it.
 - A reviewer should scrutinize step 3 hardest: the traversal rejection moving

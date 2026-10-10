@@ -1,5 +1,5 @@
 import { encodeCanonicalCBOR } from "./cbor.ts";
-import { isGeneratedArborID, isPersonProfileTreeID } from "./identity.ts";
+import { isGeneratedOverstoryID, isPersonProfileTreeID } from "./identity.ts";
 import { treeConfigurationID } from "../config/tree-config.ts";
 import { isHomeHostOrigin } from "./resource-policy.ts";
 
@@ -22,7 +22,7 @@ export function validateAccountChallenge(value: unknown): AccountChallenge {
   const challenge = value as Partial<AccountChallenge>;
   if (
     challenge.version !== 1
-    || typeof challenge.id !== "string" || !isGeneratedArborID(challenge.id, "ax")
+    || typeof challenge.id !== "string" || !isGeneratedOverstoryID(challenge.id, "ax")
     || typeof challenge.origin !== "string"
     || typeof challenge.account !== "string"
     || typeof challenge.profileTree !== "string" || !isPersonProfileTreeID(challenge.profileTree)

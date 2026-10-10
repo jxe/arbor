@@ -1,8 +1,8 @@
 import CryptoKit
 import Foundation
 
-/// The segment parameter that addresses a tree's configuration: `tr_x;arbor-config`.
-public let treeConfigurationParameter = "arbor-config"
+/// The segment parameter that addresses a tree's configuration: `tr_x;overstory-config`.
+public let treeConfigurationParameter = "overstory-config"
 
 /// The TreeID of a tree's configuration: `tr_` and the unpadded lowercase
 /// base32 of `SHA-256("arbor-tree-config-v1\0" || TreeID)`. Anyone can derive
@@ -33,7 +33,7 @@ func lowercaseBase32(_ data: Data) -> String {
 
 public extension ProtocolClient {
     /// Declare a tree: the null-base first snapshot of its configuration,
-    /// addressed as `tr_x;arbor-config` and answered under the configuration's
+    /// addressed as `tr_x;overstory-config` and answered under the configuration's
     /// derived TreeID. The tree then awaits its own first snapshot.
     func declareTree(_ tree: String, configuration: ProtocolSnapshot) async throws -> ProtocolUpdateResult {
         _ = try ProtocolObjectGraph.validate(configuration)

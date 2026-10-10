@@ -8,7 +8,7 @@ meeting the previous one.
 
 ## 1. Create a profile identity and claim an account
 
-Joe runs `arbor me create`. Overstory creates a local profile folder whose root
+Joe runs `story me create`. Overstory creates a local profile folder whose root
 document says `type: person`, generates an Ed25519 identity key in operating-
 system credential storage, and derives the profile `TreeID` from the public
 key. The identity exists before any host account or canonical URL. Because
@@ -20,7 +20,7 @@ to the structured members list.
 The laptop requests a fresh account challenge and signs it with the profile
 private key. It then generates a `DeviceID` and a device key pair whose
 private key never leaves the machine, and derives his profile's configuration
-`TreeID` from the profile `TreeID`. It sends `PUT /.arbor/accounts` with the
+`TreeID` from the profile `TreeID`. It sends `PUT /.overstory/accounts` with the
 complete account locator, challenge, public key, profile signature, the
 device's public key,
 the already-existing profile `TreeID`, and the first snapshot of the profile's
@@ -42,9 +42,9 @@ identity now has the canonical URL `https://garden.example/~joe`.
 Joe also has an ordinary folder, `~/projects/atlas`. The laptop generates a fresh
 `tr_…` identifier and declares it: it submits the new tree's configuration
 (`access.yaml` granting Joe's profile `admin` and everyone `read`) with
-`base: null` to `/.arbor/trees/tr_…;arbor-config/updates`. It then adds
+`base: null` to `/.overstory/trees/tr_…;overstory-config/updates`. It then adds
 `atlas: tr_…` to his profile's `mounts.yaml`, and records the local folder
-separately in `~/.arbor/placements.yaml`. The server validates each candidate
+separately in `~/.story/placements.yaml`. The server validates each candidate
 under the `tree-config-v1` policy and reserves the tree; nothing is readable
 yet ([configuration YAML](04-accounts-and-devices.md#3-configuration-yaml),
 [accounts §7](04-accounts-and-devices.md#7-governed-configuration-trees),
@@ -54,13 +54,13 @@ yet ([configuration YAML](04-accounts-and-devices.md#3-configuration-yaml),
 
 The laptop encodes the folder as Overstory objects: one file object per file, one
 directory object per directory, each addressed by the SHA-256 of its canonical
-CBOR. It sends `POST /.arbor/trees/tr_…/updates` with `base: null` and a
+CBOR. It sends `POST /.overstory/trees/tr_…/updates` with `base: null` and a
 one-element `updates` string carrying the root hash as `candidate` and every
 object. The server verifies the graph, records
 the first accepted update, applies the declared ACL and canonical boundary,
 and makes the tree's descriptor and accepted snapshot readable in the same
 commit.
-`https://garden.example/~joe/atlas` and `arbor://tr_…/` now resolve to the
+`https://garden.example/~joe/atlas` and `overstory://tr_…/` now resolve to the
 same tree ([snapshot](01-tree-operations.md#112-reading-an-accepted-snapshot),
 [locator forms](03-locators.md#1-forms), [canonical lookup](03-locators.md#5-finding-trees)).
 
@@ -81,7 +81,7 @@ not touch is unchanged
 
 ## 5. Follow from a second device
 
-Alice reads `GET /.arbor/trees/tr_…`, which returns the current descriptor and an
+Alice reads `GET /.overstory/trees/tr_…`, which returns the current descriptor and an
 `observedThrough` cursor, then opens `GET .../watch?after=<cursor>`. Every
 later accepted update arrives as a `tree.update` frame carrying the transition
 from the previous root to the new one, as objects and deltas. She applies a
@@ -109,7 +109,7 @@ logical children. The authority recomputes both the schema fingerprint and the
 child-set hash
 ([accepted Overstory representation](06-child-backings.md#21-accepted-overstory-representation)).
 Each row has an ordinary public address such as
-`/~joe/atlas/practices/walking;arbor-key=…` ([public projection](03-locators.md#6-public-http-projection)).
+`/~joe/atlas/practices/walking;overstory-key=…` ([public projection](03-locators.md#6-public-http-projection)).
 
 ## 7. Query it from a page
 
@@ -131,7 +131,7 @@ manifest that binds the handle to `(tr_…, /practices, schema fingerprint)` and
 records its read prefix ([handles](07-executable-documents.md#3-modules-and-named-handles),
 [queries](07-executable-documents.md#4-queries), [compilation](07-executable-documents.md#7-compilation-and-hosting)).
 A visitor's browser receives the server-rendered page with the query's result
-embedded, then opens `QUERY /.arbor/trees/tr_…/queries` naming the document
+embedded, then opens `QUERY /.overstory/trees/tr_…/queries` naming the document
 version and the handle. The stream sends `result` and `ready`. When Joe edits
 the CSV, the tree advances, the provider reports which rows changed, the host
 re-evaluates, and a new `result` with a new `outputHash` follows
@@ -141,7 +141,7 @@ re-evaluates, and a new `result` with a new `outputHash` follows
 
 `handles.ts` also exports `addPractice = mutation(node("."), inputSchema, async ({ tx, user }, input) => …)`.
 A form on the page calls it as an action. The browser sends
-`POST /.arbor/trees/tr_…/mutate` with the handle reference, validated input,
+`POST /.overstory/trees/tr_…/mutate` with the handle reference, validated input,
 and a caller-chosen `mutationID`. The runner opens the CSV's whole-file
 transaction, validates keys and constraints, writes a complete replacement,
 and records the receipt with the same durability as the data. Because the
@@ -156,6 +156,6 @@ twice ([mutations](07-executable-documents.md#5-mutations),
 Joe renames the mount `atlas` to `atlas-2026` in his profile's `mounts.yaml`,
 moving the canonical URL to `https://garden.example/~joe/atlas-2026`. The
 `TreeID`, every stable key, every object, and the accepted history are
-unchanged; only the secondary lookup moved. `arbor://tr_…/practices/walking;arbor-key=…`
+unchanged; only the secondary lookup moved. `overstory://tr_…/practices/walking;overstory-key=…`
 still resolves, and Alice's placement keeps following the same tree
 ([canonical lookup](03-locators.md#5-finding-trees), [equality](01-tree-operations.md#representation-and-model-equality)).

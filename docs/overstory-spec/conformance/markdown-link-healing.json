@@ -6,25 +6,25 @@
     "writeFrom": "/b/c",
     "tree": "tr_same",
     "nodes": [{"path": "/Calendar", "body": "sibling", "stableKey": "[[\"id\",\"h31mlm\"]]"}],
-    "expected": "[C](../../Calendar.md#arbor-key=id:h31mlm)\n"
+    "expected": "[C](../../Calendar.md#overstory-key=id:h31mlm)\n"
   },
   {
     "name": "x.md becomes x/_index.md: its own links move down a level",
-    "source": "[C](Calendar.md#arbor-key=id:h31mlm)",
+    "source": "[C](Calendar.md#overstory-key=id:h31mlm)",
     "resolveFrom": "/",
     "writeFrom": "/x",
     "tree": "tr_same",
     "nodes": [{"path": "/Calendar", "body": "sibling", "stableKey": "[[\"id\",\"h31mlm\"]]"}],
-    "expected": "[C](../Calendar.md#arbor-key=id:h31mlm)"
+    "expected": "[C](../Calendar.md#overstory-key=id:h31mlm)"
   },
   {
     "name": "an inbound spelling of p.md after p becomes p/_index.md",
-    "source": "[P](p.md#arbor-key=id:p1)",
+    "source": "[P](p.md#overstory-key=id:p1)",
     "resolveFrom": "/",
     "writeFrom": "/",
     "tree": "tr_same",
     "nodes": [{"path": "/p", "body": "index", "stableKey": "[[\"id\",\"p1\"]]"}],
-    "expected": "[P](p/_index.md#arbor-key=id:p1)"
+    "expected": "[P](p/_index.md#overstory-key=id:p1)"
   },
   {
     "name": "a contentless directory materializes _index.md",
@@ -36,30 +36,30 @@
     "expected": "[X](x/_index.md)"
   },
   {
-    "name": "a same-tree arbor row becomes relative; a cross-tree row stays",
-    "source": "[Life](arbor://tr_same/Life;arbor-key=id:m98whi)\n[Other](arbor://tr_other/x;arbor-key=id:q)",
+    "name": "a same-tree story row becomes relative; a cross-tree row stays",
+    "source": "[Life](overstory://tr_same/Life;overstory-key=id:m98whi)\n[Other](overstory://tr_other/x;overstory-key=id:q)",
     "resolveFrom": "/",
     "writeFrom": "/",
     "tree": "tr_same",
     "nodes": [{"path": "/Life", "body": "sibling", "stableKey": "[[\"id\",\"m98whi\"]]"}],
-    "expected": "[Life](Life.md#arbor-key=id:m98whi)\n[Other](arbor://tr_other/x;arbor-key=id:q)"
+    "expected": "[Life](Life.md#overstory-key=id:m98whi)\n[Other](overstory://tr_other/x;overstory-key=id:q)"
   },
   {
     "name": "a stale path heals by key",
-    "source": "see [C](Old.md#arbor-key=id:h31mlm) today",
+    "source": "see [C](Old.md#overstory-key=id:h31mlm) today",
     "resolveFrom": "/",
     "writeFrom": "/",
     "tree": "tr_same",
     "nodes": [{"path": "/Calendar", "body": "sibling", "stableKey": "[[\"id\",\"h31mlm\"]]"}],
-    "expected": "see [C](Calendar.md#arbor-key=id:h31mlm) today"
+    "expected": "see [C](Calendar.md#overstory-key=id:h31mlm) today"
   },
   {
     "name": "only healed hrefs change",
-    "source": "﻿# T\r\n[C](Calendar)\r\n[W](https://example.com/a#b) [top](#top) ![i](Assets/p.png) [D](Missing.md) [K](Gone.md#arbor-key=id:zzz)\r\n",
+    "source": "﻿# T\r\n[C](Calendar)\r\n[W](https://example.com/a#b) [top](#top) ![i](Assets/p.png) [D](Missing.md) [K](Gone.md#overstory-key=id:zzz)\r\n",
     "resolveFrom": "/",
     "writeFrom": "/",
     "tree": "tr_same",
     "nodes": [{"path": "/Calendar", "body": "sibling", "stableKey": "[[\"id\",\"h31mlm\"]]"}],
-    "expected": "﻿# T\r\n[C](Calendar.md#arbor-key=id:h31mlm)\r\n[W](https://example.com/a#b) [top](#top) ![i](Assets/p.png) [D](Missing.md) [K](Gone.md#arbor-key=id:zzz)\r\n"
+    "expected": "﻿# T\r\n[C](Calendar.md#overstory-key=id:h31mlm)\r\n[W](https://example.com/a#b) [top](#top) ![i](Assets/p.png) [D](Missing.md) [K](Gone.md#overstory-key=id:zzz)\r\n"
   }
 ]

@@ -109,7 +109,7 @@ public actor ProtocolClient {
 
     /// The account descriptor as the host sent it, home or placement.
     public func anyAccount() async throws -> ProtocolAnyAccountSnapshot {
-        let value: ProtocolAnyAccountSnapshot = try await get(path: "/.arbor/account")
+        let value: ProtocolAnyAccountSnapshot = try await get(path: "/.overstory/account")
         switch value.account {
         case let .home(account):
             _ = try account.community.validated()
@@ -125,13 +125,13 @@ public actor ProtocolClient {
     }
 
     public func trees() async throws -> ProtocolRemoteSnapshot<[ProtocolTreeDescriptor]> {
-        let value: ProtocolRemoteSnapshot<[ProtocolTreeDescriptor]> = try await get(path: "/.arbor/trees")
+        let value: ProtocolRemoteSnapshot<[ProtocolTreeDescriptor]> = try await get(path: "/.overstory/trees")
         return ProtocolRemoteSnapshot(snapshot: try value.snapshot.map { try $0.validated() })
     }
 
     /// The tree resource itself: its current descriptor and the cursor to watch after.
     public func descriptor(tree: String) async throws -> ProtocolCurrentTree {
-        let value: ProtocolCurrentTree = try await get(path: "/.arbor/trees/\(component(tree))")
+        let value: ProtocolCurrentTree = try await get(path: "/.overstory/trees/\(component(tree))")
         return try value.validated(expectedTree: tree)
     }
 
@@ -141,16 +141,16 @@ public actor ProtocolClient {
         var query = "state=\(queryValue(state))"
         if let after { query += "&after=\(queryValue(after))" }
         if let conflict { query += "&conflict=\(queryValue(conflict))" }
-        let page: ProtocolDecisionPageContract = try await get(path: "/.arbor/trees/\(component(tree))/conflicts?\(query)")
+        let page: ProtocolDecisionPageContract = try await get(path: "/.overstory/trees/\(component(tree))/conflicts?\(query)")
         try page.validateContext(tree: tree, state: state, root: root)
         return page
     }
 
     /// The configuration of the tree whose canonical root is `path`
-    /// (`/~joe/todos;arbor-config`), answered only to the tree's administrators.
+    /// (`/~joe/todos;overstory-config`), answered only to the tree's administrators.
     public func resolveConfiguration(path: String) async throws -> ProtocolLocatorResolution {
         let encoded = "/" + path.split(separator: "/").map { component(String($0)) }.joined(separator: "/")
-        let value: ProtocolLocatorResolution = try await get(path: "/.well-known/arbor\(encoded);arbor-config")
+        let value: ProtocolLocatorResolution = try await get(path: "/.well-known/overstory\(encoded);overstory-config")
         _ = try value.enclosingTree.validated()
         guard value.ref.tree == value.enclosingTree.id, value.enclosingTree.kind == "tree-configuration", !value.observedThrough.isEmpty else {
             throw ProtocolValidationError.invalidValue("Malformed configuration resolution")
@@ -160,7 +160,7 @@ public actor ProtocolClient {
 
     public func resolve(path: String) async throws -> ProtocolLocatorResolution {
         let encoded = path == "/" ? "" : "/" + path.split(separator: "/").map { component(String($0)) }.joined(separator: "/")
-        let value: ProtocolLocatorResolution = try await get(path: "/.well-known/arbor\(encoded)")
+        let value: ProtocolLocatorResolution = try await get(path: "/.well-known/overstory\(encoded)")
         _ = try value.enclosingTree.validated()
         guard value.ref.tree == value.enclosingTree.id, !value.observedThrough.isEmpty else {
             throw ProtocolValidationError.invalidValue("Malformed locator resolution")
@@ -170,7 +170,7 @@ public actor ProtocolClient {
 
     public func object(tree: String, hash: String) async throws -> Data {
         try validateObjectHash(hash)
-        var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/objects/\(component(hash))")
+        var request = try await authorizedRequest(path: "/.overstory/trees/\(component(tree))/objects/\(component(hash))")
         request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
         let (data, response) = try await logged(request, kind: .read, name: "objects", tree: tree)
         let status = try statusCode(response)
@@ -183,7 +183,7 @@ public actor ProtocolClient {
     public func snapshot(tree: String, root: String) async throws -> ProtocolSnapshot {
         try validateObjectHash(root)
         var request = try await authorizedRequest(
-            path: "/.arbor/trees/\(component(tree))/snapshots/\(component(root))"
+            path: "/.overstory/trees/\(component(tree))/snapshots/\(component(root))"
         )
         request.setValue("application/cbor", forHTTPHeaderField: "Accept")
         let (data, response) = try await logged(request, kind: .read, name: "snapshot", tree: tree)
@@ -200,7 +200,7 @@ public actor ProtocolClient {
     /// any hash, and describing `update`, which may be newer than a snapshot
     /// just installed (the watch corrects that).
     public func entryMetadata(tree: String) async throws -> ProtocolEntryMetadata {
-        let value: ProtocolEntryMetadata = try await get(path: "/.arbor/trees/\(component(tree))/entry-metadata")
+        let value: ProtocolEntryMetadata = try await get(path: "/.overstory/trees/\(component(tree))/entry-metadata")
         guard !value.update.isEmpty, value.entries.keys.allSatisfy({ $0.hasPrefix("/") }) else {
             throw ProtocolValidationError.invalidValue("Malformed entry metadata")
         }
@@ -253,7 +253,7 @@ public actor ProtocolClient {
     }
 
     public func submitUpdateResponse(_ prepared: PreparedProtocolUpdate) async throws -> ProtocolUpdateResponse {
-        var request = try await authorizedRequest(path: "/.arbor/trees/\(component(prepared.tree))/updates")
+        var request = try await authorizedRequest(path: "/.overstory/trees/\(component(prepared.tree))/updates")
         request.httpMethod = "POST"
         // The body keeps the encoding it was prepared in; the success answers in the same one.
         request.setValue(prepared.encoding.mediaType, forHTTPHeaderField: "Content-Type")
@@ -311,7 +311,7 @@ public actor ProtocolClient {
     }
 
     public func createPairing() async throws -> ProtocolPairingOffer {
-        let value: ProtocolPairingOffer = try await post(path: "/.arbor/pairings", body: EmptyBody())
+        let value: ProtocolPairingOffer = try await post(path: "/.overstory/pairings", body: EmptyBody())
         return try value.validated()
     }
 
@@ -322,7 +322,7 @@ public actor ProtocolClient {
     ) async throws -> ProtocolPairingClaim {
         _ = try device.validated()
         let value: ProtocolPairingClaim = try await put(
-            path: "/.arbor/pairings/\(component(id))/claim",
+            path: "/.overstory/pairings/\(component(id))/claim",
             body: PairingClaimBody(secret: secret, device: device),
             authorized: false
         )
@@ -333,7 +333,7 @@ public actor ProtocolClient {
     /// §1.2). Placement accounts have none: they come from reservations (§1.3).
     public func createAccountChallenge(account: String? = nil, profileTree: String, configurationTree: String, inviteCode: String? = nil) async throws -> ProtocolAccountChallenge {
         let value: ProtocolAccountChallenge = try await post(
-            path: "/.arbor/account-challenges",
+            path: "/.overstory/account-challenges",
             body: AccountChallengeRequest(account: account, profileTree: profileTree, configurationTree: configurationTree, inviteCode: inviteCode),
             authorized: false
         )
@@ -348,7 +348,7 @@ public actor ProtocolClient {
             throw ProtocolValidationError.invalidValue("A claim's configuration is a snapshot activation element")
         }
         _ = try ProtocolObjectGraph.validate(ProtocolSnapshot(root: configuration.candidate, objects: configuration.objects))
-        let result: ProtocolAccountClaimResult = try await put(path: "/.arbor/accounts", body: value, authorized: false, encoding: wireEncoding)
+        let result: ProtocolAccountClaimResult = try await put(path: "/.overstory/accounts", body: value, authorized: false, encoding: wireEncoding)
         _ = try result.configuration.validated()
         return result
     }
@@ -356,7 +356,7 @@ public actor ProtocolClient {
     /// A single-use challenge for one of this profile's key devices (accounts §5.1).
     public func createDeviceSessionChallenge(profileTree: String, device: String) async throws -> ProtocolDeviceSessionChallenge {
         let value: ProtocolDeviceSessionChallenge = try await post(
-            path: "/.arbor/device-sessions/challenges",
+            path: "/.overstory/device-sessions/challenges",
             body: DeviceSessionChallengeRequest(profileTree: profileTree, device: device),
             authorized: false
         )
@@ -370,18 +370,18 @@ public actor ProtocolClient {
     /// Exchange a signed challenge for a session token at this host.
     public func openDeviceSession(challenge: ProtocolDeviceSessionChallenge, signature: String) async throws -> ProtocolDeviceSession {
         try await post(
-            path: "/.arbor/device-sessions",
+            path: "/.overstory/device-sessions",
             body: DeviceSessionRequest(challenge: challenge.validated(), signature: signature),
             authorized: false
         )
     }
 
     public func access(tree: String) async throws -> ProtocolTreeAccess {
-        try await get(path: "/.arbor/trees/\(component(tree))/access")
+        try await get(path: "/.overstory/trees/\(component(tree))/access")
     }
 
     public func directory() async throws -> ProtocolRemoteSnapshot<[ProtocolProfileDirectoryEntry]> {
-        try await get(path: "/.arbor/directory")
+        try await get(path: "/.overstory/directory")
     }
 
     /// How long a watch stream may go without a byte before it is taken for
@@ -401,7 +401,7 @@ public actor ProtocolClient {
         onOpen: (@Sendable () async -> Void)? = nil
     ) async throws -> AsyncThrowingStream<ProtocolWatchEvent, Error> {
         let query = after.map { "?after=\($0.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._~")))!)" } ?? ""
-        var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/watch\(query)")
+        var request = try await authorizedRequest(path: "/.overstory/trees/\(component(tree))/watch\(query)")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         let session = session
         let credentialProvider = credentialProvider
@@ -605,16 +605,16 @@ public actor ProtocolClient {
 
     private static func logName(_ request: URLRequest) -> String {
         guard let path = request.url?.path else { return "request" }
-        if path.hasPrefix("/.arbor/trees/") {
-            let rest = path.dropFirst("/.arbor/trees/".count).split(separator: "/", maxSplits: 1)
+        if path.hasPrefix("/.overstory/trees/") {
+            let rest = path.dropFirst("/.overstory/trees/".count).split(separator: "/", maxSplits: 1)
             return rest.count > 1 ? String(rest[1]) : "descriptor"
         }
         return path
     }
 
     private static func logTree(_ request: URLRequest) -> String? {
-        guard let path = request.url?.path, path.hasPrefix("/.arbor/trees/") else { return nil }
-        return path.dropFirst("/.arbor/trees/".count).split(separator: "/", maxSplits: 1).first.map(String.init)?.removingPercentEncoding
+        guard let path = request.url?.path, path.hasPrefix("/.overstory/trees/") else { return nil }
+        return path.dropFirst("/.overstory/trees/".count).split(separator: "/", maxSplits: 1).first.map(String.init)?.removingPercentEncoding
     }
 
     /// This client's origin as a challenge spells it: `scheme://host[:port]`.
@@ -626,7 +626,7 @@ public actor ProtocolClient {
 }
 
 /// The semantic identity of an update request as canonical CBOR bytes; the
-/// same encoding that addresses wire objects, so every Arbor identity uses one
+/// same encoding that addresses wire objects, so every Story identity uses one
 /// hash rule.
 public func canonicalUpdateIntent(
     tree: String,

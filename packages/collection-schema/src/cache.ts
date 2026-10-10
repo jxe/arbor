@@ -1,4 +1,4 @@
-import { revisionOf } from "@overstory/protocol";
+import { revisionOf } from "@ovst/protocol";
 import { compileCollectionSchema, type CollectionSchema } from "./compile.ts";
 
 /**

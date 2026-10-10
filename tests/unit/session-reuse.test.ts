@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { sessionUsable } from "@overstory/protocol";
+import { sessionUsable } from "@ovst/protocol";
 
 const MINUTE = 60_000;
 

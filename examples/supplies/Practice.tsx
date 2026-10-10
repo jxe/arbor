@@ -61,7 +61,7 @@ export const updatePractice = mutation(
     about: z.string().trim().min(1),
   }),
   async ({ user, tx, now }, input) => {
-    if (!user) throw publicError("user-required", "This operation requires an Arbor user")
+    if (!user) throw publicError("user-required", "This operation requires an Story user")
     const authors = await tx.many(practice_authors, { practice_id: input.practiceId })
     if (authors.length > 0 && !authors.some(row => row.author_profile === user.profile)) {
       throw publicError("permission-denied", "Only an author can edit this practice")

@@ -2,14 +2,14 @@ import { expect, test } from "bun:test";
 import { mkdtemp, realpath, mkdir, writeFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadIgnorePolicy, membershipSkip, snapshotDirectory, trackedEntries } from "@overstory/fs";
-import { decodeProtocolDirectory, hashObject, type ObjectHash } from "@overstory/protocol";
-import { FilesystemObjectSource, forTrackedLookup } from "../../packages/arborsync/src/filesystem-object-source.ts";
+import { loadIgnorePolicy, membershipSkip, snapshotDirectory, trackedEntries } from "@ovst/fs";
+import { decodeProtocolDirectory, hashObject, type ObjectHash } from "@ovst/protocol";
+import { FilesystemObjectSource, forTrackedLookup } from "../../packages/story-sync/src/filesystem-object-source.ts";
 
 const scope = { boundaries: new Map<string, string>(), exclusions: [] };
 
 test("filesystem source verifies reads, retries duplicate hashes and creates no file mirror", async () => {
-  const base = await realpath(await mkdtemp(join(tmpdir(), "arbor-source-")));
+  const base = await realpath(await mkdtemp(join(tmpdir(), "story-source-")));
   try {
     const root = join(base, "files");
     await mkdir(root);
@@ -30,7 +30,7 @@ test("filesystem source verifies reads, retries duplicate hashes and creates no 
 });
 
 test("uncached revalidation coalesces, reports changed files and prunes vanished rows", async () => {
-  const base = await realpath(await mkdtemp(join(tmpdir(), "arbor-source-")));
+  const base = await realpath(await mkdtemp(join(tmpdir(), "story-source-")));
   try {
     const root = join(base, "files");
     await mkdir(root);
@@ -58,7 +58,7 @@ test("uncached revalidation coalesces, reports changed files and prunes vanished
 });
 
 test("directories containing ignored files rebuild to the hash the folder scan produced", async () => {
-  const base = await realpath(await mkdtemp(join(tmpdir(), "arbor-source-ignored-")));
+  const base = await realpath(await mkdtemp(join(tmpdir(), "story-source-ignored-")));
   try {
     const root = join(base, "files");
     await mkdir(join(root, "nested", "cache"), { recursive: true });
@@ -94,7 +94,7 @@ test("directories containing ignored files rebuild to the hash the folder scan p
 });
 
 test("a changed ignore file drops directory rows beneath its directory", async () => {
-  const base = await realpath(await mkdtemp(join(tmpdir(), "arbor-source-rows-")));
+  const base = await realpath(await mkdtemp(join(tmpdir(), "story-source-rows-")));
   try {
     const root = join(base, "files");
     await mkdir(join(root, "a", "b"), { recursive: true });

@@ -6,12 +6,12 @@
 > gates from [DEVELOPMENT.md](../../DEVELOPMENT.md). Browser acceptance remains
 > required where this plan changes browser behavior: establish focused coverage
 > for available surfaces, and coordinate restored editor E2E with
-> [Web 025](../canopy-web/025-arbor-web.md) (formerly Web 023). Do not claim
+> [Web 025](../story-web/025-story-web.md) (formerly Web 023). Do not claim
 > browser verification from a passing build alone.
 
 > **Drift check:** inspect `packages/cli/src/index.ts`,
-> `packages/canopy-web/src/App.tsx`,
-> `packages/arborsync/src/service.ts`, `packages/arborsync/src/state/visits.ts`, the protocol
+> `packages/story-web/src/App.tsx`,
+> `packages/story-sync/src/service.ts`, `packages/story-sync/src/state/visits.ts`, the protocol
 > client request boundary, native URL handling, and `docs/implementing-editors/design.md`. Stop if
 > browser and native recipients can already traverse a protected multi-page tree
 > with protected assets, edit when granted write access, survive ordinary
@@ -27,8 +27,8 @@
 ## Problem
 
 The client contract says raw secrets never enter loopback URLs, browser history,
-visit records, logs, or diagnostics. canopyd's public bootstrap reads the link
-fragment in the remote origin and sends `Arbor-Access-Link` as a header for one
+visit records, logs, or diagnostics. overstoryd's public bootstrap reads the link
+fragment in the remote origin and sends `Overstory-Access-Link` as a header for one
 fetch. That proves the host accepts the credential, but it is not yet a
 complete recipient experience:
 
@@ -49,7 +49,7 @@ Local Overstory also lacks the equivalent out-of-band handoff:
 - the visit store derives its key from and persists that locator; and
 - `fetchRemoteProjection()` constructs a bearer-only `ProtocolClient`, then uses
   `ProtocolProjection` for object and boundary reads, so the link credential is not
-  available as `Arbor-Access-Link` anywhere along the current projection path.
+  available as `Overstory-Access-Link` anywhere along the current projection path.
 
 A link fragment must remain usable throughout an authorized recipient session
 without becoming durable navigation or cache state. The native private-link
@@ -58,10 +58,10 @@ its `Can edit` choice stays absent until linked editing meets them too.
 
 ## Required design
 
-1. At canopyd's public bootstrap, extract the fragment and immediately replace
+1. At overstoryd's public bootstrap, extract the fragment and immediately replace
    the visible/history URL with its credential-free canonical form before
    fetching protected content. Exchange the secret through
-   `Arbor-Access-Link` for a random, revocation-aware browser-session
+   `Overstory-Access-Link` for a random, revocation-aware browser-session
    capability. Store only an opaque session identifier in an `HttpOnly`,
    `Secure`, `SameSite=Strict` cookie; keep the raw secret out of cookies, DOM,
    browser storage, logs, errors, analytics, and subsequent URLs.
@@ -90,7 +90,7 @@ its `Can edit` choice stays absent until linked editing meets them too.
    inside the locator. Do not overload account bearer credentials.
 7. Pass that credential through `fetchRemoteProjection()` into its `ProtocolClient`
    and `ProtocolProjection` object/boundary reads, using the normative
-   `Arbor-Access-Link` header for resolve, node, children, and object requests
+   `Overstory-Access-Link` header for resolve, node, children, and object requests
    needed by the visit. Keep it in memory only for the active visit/session.
 8. Normalize and persist visit identity from the fragment-free locator.
    Existing visit records containing a fragment must be ignored or rewritten
@@ -112,17 +112,17 @@ its `Can edit` choice stays absent until linked editing meets them too.
 Expected files include:
 
 - `packages/cli/src/index.ts`;
-- `packages/canopy-web/src/App.tsx`;
+- `packages/story-web/src/App.tsx`;
 - `packages/cli/src/daemon-client.ts`;
-- `packages/arborsync/src/server.ts` and `service.ts`;
+- `packages/story-sync/src/server.ts` and `service.ts`;
 - `packages/protocol/src/client.ts` if its request helper needs a link header;
-- `packages/arborsync/src/state/visits.ts`;
-- canopyd's bootstrap/session handling and protected asset responses;
+- `packages/story-sync/src/state/visits.ts`;
+- overstoryd's bootstrap/session handling and protected asset responses;
 - native URL registration and open handling;
 - focused browser, native, and integration tests; and
 - `docs/implementing-editors/design.md` only if implementation details need clarification.
 
-Out of scope: changing the public `#arbor-access=` link format, storing raw link
+Out of scope: changing the public `#overstory-access=` link format, storing raw link
 secrets for later visits, account-token redesign, offline link access, or
 widening a link beyond its ACL tree.
 
@@ -136,7 +136,7 @@ Add tests proving:
 3. Browser history/storage, cookies, `VisitedTreeStore` JSON, visit properties,
    diagnostics, and test-visible request URLs contain no raw secret or encoded
    copy of it.
-4. canopyd receives the raw secret only through `Arbor-Access-Link`; later
+4. overstoryd receives the raw secret only through `Overstory-Access-Link`; later
    requests carry only an opaque browser-session identifier.
 5. Revoking or downgrading a link affects the next document, object, asset, and
    update request, including an already-open browser session.
@@ -151,17 +151,17 @@ Add tests proving:
 Run:
 
 ```sh
-bun test tests/integration/canopyd/update-host.test.ts tests/integration/system-trees.test.ts
+bun test tests/integration/overstoryd/update-host.test.ts tests/integration/system-trees.test.ts
 bun run typecheck
 swift test --package-path swift/Packages/OverstoryClient
-xcodebuild -workspace swift/Canopy.local.xcworkspace -scheme Canopy -destination 'generic/platform=iOS Simulator' build
-xcodebuild -workspace swift/Canopy.local.xcworkspace -scheme Canopy -destination 'platform=macOS' build
+xcodebuild -workspace swift/Story.local.xcworkspace -scheme Canopy -destination 'generic/platform=iOS Simulator' build
+xcodebuild -workspace swift/Story.local.xcworkspace -scheme Canopy -destination 'platform=macOS' build
 git diff --check
 ```
 
 ## Done criteria
 
-- [ ] canopyd browser recipients can traverse and reload protected pages and assets.
+- [ ] overstoryd browser recipients can traverse and reload protected pages and assets.
 - [ ] Public and local handoff scrub the raw fragment before protected content renders.
 - [ ] No raw access-link secret enters a cookie, loopback URL, or durable navigation state.
 - [ ] Durable visits contain only credential-free locators and snapshots.

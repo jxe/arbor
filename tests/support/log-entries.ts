@@ -2,15 +2,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 import { Database } from "bun:sqlite";
-import { decodeLogEntry, type LogEntry } from "@overstory/merge-protocol";
-import { Encoding, PACK_INDEX } from "@overstory/object-store";
+import { decodeLogEntry, type LogEntry } from "@ovst/merge-protocol";
+import { Encoding, PACK_INDEX } from "@ovst/object-store";
 
 /** Read one log entry from a data root's object store, loose or packed. */
 export function readLogEntry(dataRoot: string, hash: string): LogEntry {
   return decodeLogEntry(readObjectSync(join(dataRoot, "objects"), hash));
 }
 
-/** An object's bytes, loose or packed (canopyd 001), read synchronously. */
+/** An object's bytes, loose or packed (overstoryd 001), read synchronously. */
 function readObjectSync(objects: string, hash: string): Uint8Array {
   const loose = join(objects, hash.slice(7, 9), hash.slice(9));
   if (existsSync(loose)) return new Uint8Array(readFileSync(loose));
@@ -32,7 +32,7 @@ function readObjectSync(objects: string, hash: string): Uint8Array {
 
 /** Each accepted update of a tree with the log entry it recorded, in order. */
 export function acceptedEntries(dataRoot: string, tree?: string): Array<{ id: string; change: string | null; hash: string; entry: LogEntry }> {
-  const db = new Database(join(dataRoot, "canopy.sqlite3"), { readonly: true });
+  const db = new Database(join(dataRoot, "overstoryd.sqlite3"), { readonly: true });
   try {
     const rows = db.query(`SELECT ordinal, change_id, entry FROM accepted_updates ${tree ? "WHERE tree_id = ?" : ""} ORDER BY ordinal`)
       .all(...(tree ? [tree] : [])) as Array<{ ordinal: number; change_id: string | null; entry: string }>;

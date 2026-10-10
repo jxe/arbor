@@ -2,14 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { WorkspaceFS } from "@overstory/fs";
+import { WorkspaceFS } from "@ovst/fs";
 
 const opened: WorkspaceFS[] = [];
 const directories: string[] = [];
 
 async function workspace(files: Record<string, string> = {}) {
-  const root = await mkdtemp(join(tmpdir(), "arbor-fs-"));
-  const state = await mkdtemp(join(tmpdir(), "arbor-fs-state-"));
+  const root = await mkdtemp(join(tmpdir(), "story-fs-"));
+  const state = await mkdtemp(join(tmpdir(), "story-fs-state-"));
   directories.push(root, state);
   for (const [path, source] of Object.entries(files)) {
     await mkdir(join(root, path, ".."), { recursive: true });
@@ -25,7 +25,7 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-describe("@overstory/fs logical nodes", () => {
+describe("@ovst/fs logical nodes", () => {
   test("resolves sibling bodies, index fallbacks, implicit bodies, and duplicate bodies", async () => {
     const { fs } = await workspace({
       "sibling.md": "Sibling\n",
@@ -100,8 +100,8 @@ describe("@overstory/fs logical nodes", () => {
   });
 
   test("correlates an external Markdown rename by durable page ID", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-fs-rename-watch-"));
-    const state = await mkdtemp(join(tmpdir(), "arbor-fs-rename-watch-state-"));
+    const root = await mkdtemp(join(tmpdir(), "story-fs-rename-watch-"));
+    const state = await mkdtemp(join(tmpdir(), "story-fs-rename-watch-state-"));
     directories.push(root, state);
     await writeFile(join(root, "before.md"), "---\nid: abc123\n---\nBody\n");
     const fs = await WorkspaceFS.open(root, { stateDirectory: state });

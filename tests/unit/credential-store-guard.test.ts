@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 // developer's Keychain; these assertions fail if it stops doing so.
 describe("test credential store", () => {
   test("defaults to the file store, which spawned processes inherit", () => {
-    expect(process.env.ARBOR_CREDENTIAL_STORE).toBe("file");
+    expect(process.env.STORY_CREDENTIAL_STORE).toBe("file");
   });
 
   test("the OS credential store refuses every call", async () => {

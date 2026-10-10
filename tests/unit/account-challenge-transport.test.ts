@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createPublicKey, verify } from "node:crypto";
-import { accountChallengeBytes, personProfileTreeID, ProtocolClient, validateAccountChallenge, type AccountChallenge } from "@overstory/protocol";
+import { accountChallengeBytes, personProfileTreeID, ProtocolClient, validateAccountChallenge, type AccountChallenge } from "@ovst/protocol";
 import fixtures from "../../docs/overstory-spec/conformance/protocol-account-challenges.json";
 
 test("community, exact account and invitation requests retain their signed account target", async () => {

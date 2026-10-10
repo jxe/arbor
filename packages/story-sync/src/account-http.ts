@@ -1,0 +1,64 @@
+import type { LocalAccountService } from "./account-service.ts";
+import { ProtocolError } from "@ovst/protocol";
+import { json } from "./http.ts";
+
+export function accountHandler(service: LocalAccountService) {
+  return async (request: Request, url: URL): Promise<Response | undefined> => {
+    if (request.method === "GET" && url.pathname === "/v1/credential") {
+      // Deliberate loopback exposure (see docs/architecture/story-sync/data-home.md).
+      const configurationTree = url.searchParams.get("configurationTree") ?? undefined;
+      const origin = url.searchParams.get("origin") ?? undefined;
+      return json({ token: await service.credentialToken(configurationTree, origin) });
+    }
+    if (request.method === "GET" && url.pathname === "/v1/accounts") {
+      const [accounts, identity, pendingClaim, pendingPairing] = await Promise.all([service.accountList(), service.profileIdentity(), service.pendingClaim(), service.pendingPairing()]);
+      return json({ accounts, identity, pendingClaim, pendingPairing });
+    }
+    if (request.method === "POST" && url.pathname === "/v1/me") {
+      const body = await request.json() as { path?: unknown };
+      if (typeof body.path !== "string") throw new ProtocolError("invalid-request", "Identity creation requires a profile path", 400);
+      return json({ identity: await service.createProfileIdentity(body.path) }, 201);
+    }
+    if (request.method === "POST" && url.pathname === "/v1/me/restore") {
+      const body = await request.json() as { path?: unknown; backup?: unknown; passphrase?: unknown };
+      if (typeof body.path !== "string" || (body.passphrase !== undefined && typeof body.passphrase !== "string")) {
+        throw new ProtocolError("invalid-request", "Identity recovery requires a profile path", 400);
+      }
+      return json({ identity: await service.restoreProfileIdentity(body.backup, body.path, body.passphrase as string | undefined) }, 201);
+    }
+    if (request.method === "POST" && url.pathname === "/v1/me/backup") {
+      const body = await request.json() as { destination?: unknown; passphrase?: unknown };
+      if (typeof body.destination !== "string" || typeof body.passphrase !== "string") {
+        throw new ProtocolError("invalid-request", "Identity backup requires a destination and a passphrase", 400);
+      }
+      await service.backupProfileIdentity(body.destination, body.passphrase);
+      return json({ saved: true });
+    }
+    if (request.method === "POST" && url.pathname === "/v1/bootstrap/accounts/cancel") {
+      await service.cancelPendingClaim();
+      return json({ cancelled: true });
+    }
+    if (request.method === "POST" && url.pathname === "/v1/bootstrap/accounts") {
+      const body = await request.json() as { account?: unknown; path?: unknown; displayName?: unknown; inviteCode?: unknown };
+      if (
+        typeof body.account !== "string" || typeof body.path !== "string"
+        || (body.displayName !== undefined && typeof body.displayName !== "string")
+        || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")
+      ) throw new ProtocolError("invalid-request", "Account bootstrap requires an account locator and local profile path", 400);
+      return json(await service.claimHostAccount(body.account, body.path, body.displayName as string | undefined, body.inviteCode as string | undefined), 201);
+    }
+    if (request.method === "POST" && url.pathname === "/v1/bootstrap/placements") {
+      const body = await request.json() as { host?: unknown };
+      if (typeof body.host !== "string") {
+        throw new ProtocolError("invalid-request", "Placement requires the placement host's Canopy URL", 400);
+      }
+      return json(await service.connectPlacementAccount(body.host));
+    }
+    if (request.method === "POST" && url.pathname === "/v1/bootstrap/pairings/claim") {
+      const body = await request.json() as { payload?: unknown };
+      await service.claimPairing(body.payload);
+      return json({ paired: true });
+    }
+    return undefined;
+  };
+}

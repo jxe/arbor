@@ -4,7 +4,7 @@ import Testing
 @testable import Overstory
 
 private var fixtures: URL {
-    if let path = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"] {
+    if let path = ProcessInfo.processInfo.environment["STORY_PROTOCOL_FIXTURES"] {
         return URL(fileURLWithPath: path, isDirectory: true)
     }
     return URL(fileURLWithPath: #filePath)
@@ -333,7 +333,7 @@ struct UpdateProtocolTests {
         }
     }
 
-    /// Maps a JSONSerialization value onto Arbor's canonical CBOR subset.
+    /// Maps a JSONSerialization value onto Story's canonical CBOR subset.
     private func cborValue(_ value: Any) throws -> CanonicalCBORValue {
         if value is NSNull { return .null }
         if let number = value as? NSNumber {
@@ -577,10 +577,10 @@ struct UpdateProtocolTests {
         let profileTree = "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq"
         await HostURLProtocolStub.state.install { request, _ in
             switch (request.httpMethod, request.url?.path) {
-            case ("GET", "/.arbor/account"): (200, Data(#"{"account":\#(placementAccount),"observedThrough":"up_1"}"#.utf8))
-            case ("POST", "/.arbor/pairings"):
+            case ("GET", "/.overstory/account"): (200, Data(#"{"account":\#(placementAccount),"observedThrough":"up_1"}"#.utf8))
+            case ("POST", "/.overstory/pairings"):
                 (403, Data(#"{"error":"permission-denied","message":"Pairing is the home host's","retryable":false,"details":{"homeHost":"https://home.example"}}"#.utf8))
-            case ("POST", "/.arbor/device-sessions/challenges"):
+            case ("POST", "/.overstory/device-sessions/challenges"):
                 (503, Data(#"{"error":"internal-error","message":"home unreachable","retryable":true,"details":{"homeHost":"https://home.example"}}"#.utf8))
             default: (404, Data(#"{"error":"not-found","message":"missing","retryable":false}"#.utf8))
             }
@@ -619,7 +619,7 @@ struct UpdateProtocolTests {
         await HostURLProtocolStub.state.install { _, _ in
             (404, Data(#"{"status":"error","code":404,"message":"Application not found"}"#.utf8))
         }
-        let client = ProtocolClient(origin: URL(string: "https://canopy.test")!, credential: "token", session: protocolStubSession())
+        let client = ProtocolClient(origin: URL(string: "https://host.test")!, credential: "token", session: protocolStubSession())
         do {
             _ = try await client.trees()
             Issue.record("A gateway failure throws")
@@ -633,7 +633,7 @@ struct UpdateProtocolTests {
     @Test("Every shared error decodes, and only the placement errors name a home host")
     func sharedErrorsNameHomeHost() async throws {
         let values = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: fixtures.appending(path: "errors.json"))) as? [[String: Any]])
-        let client = ProtocolClient(origin: URL(string: "https://canopy.test")!, credential: "token", session: protocolStubSession())
+        let client = ProtocolClient(origin: URL(string: "https://host.test")!, credential: "token", session: protocolStubSession())
         var named = 0
         for value in values {
             let body = try JSONSerialization.data(withJSONObject: value)
@@ -660,7 +660,7 @@ struct UpdateProtocolTests {
         let snapshot = ProtocolSnapshot(root: root.hash, objects: [file, root])
         let baseHash = "sha256:" + String(repeating: "0", count: 64)
         let client = ProtocolClient(
-            origin: URL(string: "https://canopy.test")!,
+            origin: URL(string: "https://host.test")!,
             credential: "device-token",
             session: protocolStubSession(),
             retryDelay: { _ in }
@@ -694,7 +694,7 @@ struct UpdateProtocolTests {
         let baseHash = "sha256:" + String(repeating: "0", count: 64)
         let otherDigest = "sha256:" + String(repeating: "2", count: 64)
         let client = ProtocolClient(
-            origin: URL(string: "https://canopy.test")!,
+            origin: URL(string: "https://host.test")!,
             credential: "device-token",
             session: protocolStubSession(),
             retryDelay: { _ in }
@@ -725,7 +725,7 @@ struct UpdateProtocolTests {
         await HostURLProtocolStub.state.install { _, _ in
             (401, Data(#"{"error":"unauthenticated","message":"Authentication is required","retryable":false}"#.utf8))
         }
-        let client = ProtocolClient(origin: URL(string: "https://canopy.test")!, credentialProvider: provider, session: protocolStubSession())
+        let client = ProtocolClient(origin: URL(string: "https://host.test")!, credentialProvider: provider, session: protocolStubSession())
         await #expect(throws: ProtocolHTTPError.self) { _ = try await client.trees() }
         #expect(await provider.invalidations == 1)
     }
@@ -740,7 +740,7 @@ struct UpdateProtocolTests {
         """.utf8)
         await HostURLProtocolStub.state.install { _, _ in (409, response) }
         let client = ProtocolClient(
-            origin: URL(string: "https://canopy.test")!,
+            origin: URL(string: "https://host.test")!,
             credential: "device-token",
             session: protocolStubSession(),
             retryDelay: { _ in }
@@ -765,7 +765,7 @@ struct UpdateProtocolTests {
         await HostURLProtocolStub.state.install { _, _ in
             (422, Data(#"{"error":"unsupported-operation","message":"Operations require a server upgrade","retryable":false}"#.utf8))
         }
-        let client = ProtocolClient(origin: URL(string: "https://canopy.test")!, credential: "token", session: protocolStubSession(), retryDelay: { _ in })
+        let client = ProtocolClient(origin: URL(string: "https://host.test")!, credential: "token", session: protocolStubSession(), retryDelay: { _ in })
         let snapshot = try protocolTestSnapshot("text")
         let operation = try ProtocolSourceOperation(["kind": .string("editSource"), "key": .string("edit"),
             "source": .object(["material": .object(["kind": .string("basis"), "path": .string("/page.md"), "object": .string(snapshot.root)]),
@@ -796,13 +796,13 @@ struct UpdateProtocolTests {
         {"device":{"id":"\(deviceID)","account":"acct_1","label":"iPad","createdAt":1787529600000,"lastUsedAt":null,"revokedAt":null},"confirmationCode":"123456"}
         """.utf8)
         await HostURLProtocolStub.state.install { request, _ in
-            request.url?.path == "/.arbor/pairings/pair_1/claim"
+            request.url?.path == "/.overstory/pairings/pair_1/claim"
                 && request.value(forHTTPHeaderField: "Authorization") == nil
                 ? (201, response)
                 : (401, Data(#"{"error":"unauthenticated","message":"unexpected credentials"}"#.utf8))
         }
         let client = ProtocolClient(
-            origin: URL(string: "https://canopy.test")!,
+            origin: URL(string: "https://host.test")!,
             credential: "old-token",
             session: protocolStubSession()
         )
@@ -825,18 +825,18 @@ struct UpdateProtocolTests {
         let root = try #require(snapshot.objects.first { $0.hash == snapshot.root })
         let bundle = try ProtocolSnapshotBundleCodec.encode(snapshot)
         let descriptor = """
-        {"tree":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://canopy.test","parentTree":null},"root":"\(snapshot.root)","update":"up_1","conflicted":false},"observedThrough":"up_1"}
+        {"tree":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://host.test","parentTree":null},"root":"\(snapshot.root)","update":"up_1","conflicted":false},"observedThrough":"up_1"}
         """
         await HostURLProtocolStub.state.install { request, _ in
             switch (request.httpMethod, request.url?.path) {
-            case ("GET", "/.arbor/trees/tr_atlas"): (200, Data(descriptor.utf8))
-            case ("GET", "/.arbor/trees/tr_atlas/snapshots/\(snapshot.root)"): (200, bundle)
-            case ("GET", "/.arbor/trees/tr_atlas/objects/\(snapshot.root)"): (200, root.bytes)
+            case ("GET", "/.overstory/trees/tr_atlas"): (200, Data(descriptor.utf8))
+            case ("GET", "/.overstory/trees/tr_atlas/snapshots/\(snapshot.root)"): (200, bundle)
+            case ("GET", "/.overstory/trees/tr_atlas/objects/\(snapshot.root)"): (200, root.bytes)
             default: (404, Data(#"{"error":"not-found"}"#.utf8))
             }
         }
         let client = ProtocolClient(
-            origin: URL(string: "https://canopy.test")!,
+            origin: URL(string: "https://host.test")!,
             credential: "device-token",
             session: protocolStubSession()
         )
@@ -854,9 +854,9 @@ struct UpdateProtocolTests {
 struct LiveProtocolTests {
     @Test("Accepted conflict inspection and snapshot acknowledgement use the existing client contract")
     func liveConflicts() async throws {
-        guard let address = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_URL"], let origin = URL(string: address),
-              let token = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_TOKEN"],
-              let tree = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_TREE"] else { return }
+        guard let address = ProcessInfo.processInfo.environment["STORY_PROTOCOL_TEST_URL"], let origin = URL(string: address),
+              let token = ProcessInfo.processInfo.environment["STORY_PROTOCOL_TEST_TOKEN"],
+              let tree = ProcessInfo.processInfo.environment["STORY_PROTOCOL_TEST_TREE"] else { return }
         let client = ProtocolClient(origin: origin, credential: token)
         let current = try await client.descriptor(tree: tree)
         let page = try await client.conflicts(tree: tree, state: current.tree.update, root: current.tree.root)
@@ -871,9 +871,9 @@ struct LiveProtocolTests {
 
     @Test("Account snapshots, scoped objects, and locally credentialed pairing")
     func liveProtocol() async throws {
-        guard let originValue = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_URL"],
+        guard let originValue = ProcessInfo.processInfo.environment["STORY_PROTOCOL_TEST_URL"],
               let origin = URL(string: originValue),
-              let token = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_TOKEN"] else {
+              let token = ProcessInfo.processInfo.environment["STORY_PROTOCOL_TEST_TOKEN"] else {
             return
         }
         let client = ProtocolClient(origin: origin, credential: token, retryDelay: { _ in })
@@ -906,12 +906,12 @@ struct LiveProtocolTests {
         let paired = ProtocolClient(origin: origin, credential: pairedSession.token, retryDelay: { _ in })
         #expect(try await paired.trees().snapshot.contains { $0.id == configuration.id })
 
-        let historyURL = origin.appending(path: ".arbor/trees/\(configuration.id)/updates")
+        let historyURL = origin.appending(path: ".overstory/trees/\(configuration.id)/updates")
         var request = URLRequest(url: historyURL)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (_, response) = try await URLSession.shared.data(for: request)
         #expect((response as? HTTPURLResponse)?.statusCode == 405)
-        let historicalObject = origin.appending(path: ".arbor/objects/\(configuration.root)")
+        let historicalObject = origin.appending(path: ".overstory/objects/\(configuration.root)")
         let (_, historicalResponse) = try await URLSession.shared.data(for: URLRequest(url: historicalObject))
         #expect((historicalResponse as? HTTPURLResponse)?.statusCode == 404)
     }
@@ -1014,9 +1014,9 @@ struct ProtocolValueVectorTests {
 
         let remoteData = try JSONSerialization.data(withJSONObject: try #require(valid["remoteTreeDescriptor"]))
         let remote = try decoder.decode(ProtocolTreeDescriptor.self, from: remoteData).validated()
-        #expect(remote.canonical?.endpoint == "https://community.example/.arbor/trees/\(remote.id)")
+        #expect(remote.canonical?.endpoint == "https://community.example/.overstory/trees/\(remote.id)")
         #expect(remote.canonical?.httpURL == "https://community.example/~joe")
-        #expect(remote.canonical?.arborURL == "arbor://community.example/~joe")
+        #expect(remote.canonical?.overstoryURL == "overstory://community.example/~joe")
         #expect(remote.update == "up_aaaaaaaaaaaaaaaaaaaaaaaaaa")
         // TODO: `treeDescriptor`, `treeConfigurationDescriptor`, and `resolution.enclosingTree`
         // are plain `TreeDescriptor`s without `ref`/`update`. Overstory models only the remote
@@ -1025,7 +1025,7 @@ struct ProtocolValueVectorTests {
         let entriesData = try JSONSerialization.data(withJSONObject: try #require(valid["accessEntries"]))
         let entries = try decoder.decode([ProtocolAccessEntry].self, from: entriesData)
         #expect(entries.map(\.id) == ["everyone", "profile:joe", "opaque-link-entry"])
-        #expect(entries[1].subject == .profile(tree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", locator: "arbor://community.example/~joe"))
+        #expect(entries[1].subject == .profile(tree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", locator: "overstory://community.example/~joe"))
         #expect(entries[2].subject == .link)
 
         let resolution = try #require(valid["resolution"] as? [String: Any])

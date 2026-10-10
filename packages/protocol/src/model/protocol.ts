@@ -124,9 +124,9 @@ export function canonicalHTTPURL(canonical: Pick<CanonicalTreeDescriptor, "path"
   return `${new URL(canonical.endpoint).origin}${encodedCanonicalPath(canonical.path) || "/"}`;
 }
 
-/** The `arbor://` locator of a canonical tree: the endpoint's host followed by its encoded path. */
-export function canonicalArborLocator(canonical: Pick<CanonicalTreeDescriptor, "path" | "endpoint">): string {
-  return `arbor://${new URL(canonical.endpoint).host}${encodedCanonicalPath(canonical.path) || "/"}`;
+/** The `overstory://` locator of a canonical tree: the endpoint's host followed by its encoded path. */
+export function canonicalOverstoryLocator(canonical: Pick<CanonicalTreeDescriptor, "path" | "endpoint">): string {
+  return `overstory://${new URL(canonical.endpoint).host}${encodedCanonicalPath(canonical.path) || "/"}`;
 }
 
 /**
@@ -143,7 +143,7 @@ export interface RemoteTreeDescriptor extends TreeDescriptor {
 }
 
 /**
- * A tree as Arbor Sync holds it: the protocol descriptor plus what only a local
+ * A tree as Story Sync holds it: the protocol descriptor plus what only a local
  * daemon knows (placement on disk, display name, synchronization state).
  * `root` and `update` are the accepted Canopy base this placement derives
  * from and are absent until the first accepted state is installed.
@@ -167,7 +167,7 @@ export interface LocalTreeDescriptor extends TreeDescriptor {
   missing?: boolean;
 }
 
-/** A one-time device pairing offer; identical on the protocol and through Arbor Sync. */
+/** A one-time device pairing offer; identical on the protocol and through Story Sync. */
 export interface PairingOffer {
   id: string;
   secret: string;
@@ -179,7 +179,7 @@ export interface PairingOffer {
 export interface LocalAccountSummary {
   configurationTree: TreeID;
   /** The Canopy origin of the account's connection; null when it is unreadable. */
-  canopy: string | null;
+  host: string | null;
   handle: string | null;
   profileTree: TreeID | null;
   deviceID: string | null;
@@ -187,7 +187,7 @@ export interface LocalAccountSummary {
   diagnostics: Array<{ code: string; message: string; path: string; severity: string }>;
 }
 
-/** The local self-certifying person identity, as stored and as Arbor Sync reports it. */
+/** The local self-certifying person identity, as stored and as Story Sync reports it. */
 export interface ProfileIdentity {
   version: 1;
   profileTree: TreeID;
@@ -452,7 +452,7 @@ export interface PlainSourceEdit { offset: number; length: number; replacement: 
  * pieces. Copied pieces stay in original order, so the composed edits are
  * ascending, non-adjacent and never share an anchor.
  *
- * The same rule runs in `@overstory/working-tree` (`compactTrace`), in the Swift
+ * The same rule runs in `@ovst/working-tree` (`compactTrace`), in the Swift
  * queue and in Canopy's `composeFrames`, and `docs/overstory-spec/conformance/source-admission-queue.json`
  * holds the shared vectors. Only plain edits compose; lineage and copies name
  * the generation they were captured against and are never rebased here.

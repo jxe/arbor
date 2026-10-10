@@ -2,11 +2,11 @@ import { test, expect } from "bun:test";
 import { mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prepareSourceChange, type SourceIntent, type LocalChange } from "@overstory/working-tree";
-import { ChangeLog } from "@overstory/working-tree/node";
-import { decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type SourceOperation, type TreeSnapshot, decodeCandidateUpdateJSON, applySourceEdits, type SourceEdit } from "@overstory/protocol";
+import { prepareSourceChange, type SourceIntent, type LocalChange } from "@ovst/working-tree";
+import { ChangeLog } from "@ovst/working-tree/node";
+import { decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type SourceOperation, type TreeSnapshot, decodeCandidateUpdateJSON, applySourceEdits, type SourceEdit } from "@ovst/protocol";
 import { executeExactSourceEdits } from "../support/source-edits.ts";
-import { singleStep } from "./canopyd-merge/fixture.ts";
+import { singleStep } from "./overstoryd-merge/fixture.ts";
 import { evaluateIntent } from "../support/merge-engine.ts";
 
 const fixture = JSON.parse(await readFile(new URL("../../docs/overstory-spec/conformance/source-admission-queue.json", import.meta.url), "utf8"));
@@ -40,7 +40,7 @@ function records(): Prepared[] {
   return result;
 }
 async function withQueue(body: (q: ChangeLog, root: string) => Promise<void>) {
-  const root = await mkdtemp(join(tmpdir(), "arbor-source-queue-"));
+  const root = await mkdtemp(join(tmpdir(), "story-source-queue-"));
   try { await body(new ChangeLog(fixture.tree, root), root); } finally { await rm(root, { recursive: true, force: true }); }
 }
 
@@ -199,7 +199,7 @@ test("source preservation fixtures retain verified lineage across queue restart"
 });
 
 test("explicit entry moves and copies retain different intent through restart", async () => {
-  const {prepareEntryChange}=await import("@overstory/working-tree");
+  const {prepareEntryChange}=await import("@ovst/working-tree");
   const graph=initial();
   for(const kind of ["moveEntry","copyEntry"] as const) await withQueue(async(queue,root)=>{
     const record=prepareEntryChange({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"entry-basis"},graph,entryTransfer:{kind,source:"/nested/note.md",parent:"/",name:"moved.md"}});
@@ -214,11 +214,11 @@ test("explicit entry moves and copies retain different intent through restart", 
 });
 
 test("copy metadata edits bind to operation output and survive recovery", async () => withQueue(async(queue,root)=>{
-  const {prepareEntryChange,prepareEntryTransfer}=await import("@overstory/working-tree");
+  const {prepareEntryChange,prepareEntryTransfer}=await import("@ovst/working-tree");
   const graph=initial(),entryTransfer={kind:"copyEntry" as const,source:"/nested/note.md",parent:"/",name:"copy.md"};
   const pure=prepareEntryTransfer(graph,entryTransfer).candidate;
   const bytes=Buffer.from("New page identity\r\n"),file=hashObject(bytes);
-  const {decodeProtocolDirectory}=await import("@overstory/protocol");
+  const {decodeProtocolDirectory}=await import("@ovst/protocol");
   const directory=decodeProtocolDirectory(pure.objects.get(pure.root)!);directory.entries.find(e=>e.name==="copy.md")!.file=file;
   const encoded=encodeProtocolDirectory(directory),candidate={root:hashObject(encoded),objects:new Map([...pure.objects,[file,bytes],[hashObject(encoded),encoded]])};
   const record=prepareEntryChange({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,candidate,entryTransfer:{...entryTransfer,rewrites:{"":file}}});
@@ -231,7 +231,7 @@ test("copy metadata edits bind to operation output and survive recovery", async 
 
 test("compound entry fixtures retain one basis and execute atomically after restart",async()=>{
   const fixtures=await Bun.file(new URL("../../docs/overstory-spec/conformance/entry-actions.json",import.meta.url)).json();
-  const {prepareEntryChange}=await import("@overstory/working-tree");
+  const {prepareEntryChange}=await import("@ovst/working-tree");
   for(const value of fixtures.cases)await withQueue(async(queue,root)=>{
     const graph=decodeTreeSnapshotJSON(fixtures.graph);
     const record=prepareEntryChange({change:fixtures.change,tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,entryActions:value.actions});
@@ -247,8 +247,8 @@ test("compound entry fixtures retain one basis and execute atomically after rest
 
 test("compound move transports a concurrent child edit without changing the sibling body",async()=>withQueue(async(_queue,root)=>{
   const fixtures=await Bun.file(new URL("../../docs/overstory-spec/conformance/entry-actions.json",import.meta.url)).json();
-  const {prepareEntryChange}=await import("@overstory/working-tree");
-  const {decodeProtocolDirectory}=await import("@overstory/protocol");
+  const {prepareEntryChange}=await import("@ovst/working-tree");
+  const {decodeProtocolDirectory}=await import("@ovst/protocol");
   const graph=decodeTreeSnapshotJSON(fixtures.graph),basis={kind:"accepted" as const,root:graph.root,update:"basis"};
   const source="child é\r\n",text="Peer child é\r\n";
   const peer=prepareSourceChange({tree:fixture.tree,basis,graph,sourcePath:"/pair/child.md",intent:{basis:{tree:fixture.tree,path:"/pair/child",revision:"r",source},edits:[{offset:0,length:0,replacement:"Peer "}],source:text}});
@@ -296,7 +296,7 @@ test.each(["note.txt","note.md"])("source copy keeps a concurrent source edit un
   for(const [hash,bytes] of accepted.objects)objects.set(hash,bytes);
   const result=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:copy.change,object:incoming.root,trace:singleStep(graph.root,incoming.root,authored(decodeCandidateUpdateJSON(copy.update)))},rules},objects);
   for(const [hash,bytes] of result.objects)objects.set(hash,bytes);
-  const {decodeProtocolDirectory}=await import("@overstory/protocol");
+  const {decodeProtocolDirectory}=await import("@ovst/protocol");
   const hash=decodeProtocolDirectory(objects.get(result.response.result.object)!).entries[0]!.file!;
   if(!("decisions" in result.response))throw Error("Expected evaluated intent response");
   expect(result.response.decisions).toEqual([]);
@@ -354,7 +354,7 @@ test("shared cross-document fixture validates exact UTF-8 material", async () =>
 
 test("page creation records reproduce their original graph without an undo transaction",async()=>{
   const f=await Bun.file(new URL("../../docs/overstory-spec/conformance/page-conversion-undo.json",import.meta.url)).json();
-  const {preparePageCreation}=await import("@overstory/working-tree");
+  const {preparePageCreation}=await import("@ovst/working-tree");
   const source=Buffer.from(f.source),fileSource=hashObject(source);
   const nested=encodeProtocolDirectory({type:"directory",entries:[{name:"note.md",file:fileSource}]}),nestedHash=hashObject(nested);
   const rootBytes=encodeProtocolDirectory({type:"directory",entries:[{name:"nested",directory:nestedHash}]});
@@ -384,7 +384,7 @@ type TraceVector = {
   compacted: NonNullable<LocalChange["update"]["trace"]> | null;
 };
 test.each(fixture.traces as TraceVector[])("shared trace vector $name: generation frames and compaction agree", async (value) => {
-  const { compactTrace } = await import("@overstory/working-tree");
+  const { compactTrace } = await import("@ovst/working-tree");
   const { composeFrames, validateSourceTrace } = await import("../support/source-edits.ts");
   expect(fixture.traces.length).toBeGreaterThan(0);
   await withQueue(async (queue, root) => {
@@ -463,7 +463,7 @@ test("a generation list validates as a chain and drops generations that changed 
 });
 
 test("shared source moves execute exactly, refuse ambiguity, and publish as moves before edits", async () => {
-  const { arrangeSources, applySourceChange, UnsupportedSourceMove } = await import("@overstory/protocol");
+  const { arrangeSources, applySourceChange, UnsupportedSourceMove } = await import("@ovst/protocol");
   const moves = await Bun.file(new URL("../../docs/overstory-spec/conformance/source-moves.json", import.meta.url)).json();
   const encoder = new TextEncoder(), path = moves.path as string;
   for (const c of moves.cases) {
@@ -478,7 +478,7 @@ test("shared source moves execute exactly, refuse ambiguity, and publish as move
       continue;
     }
     expect(applySourceChange(c.source, c.edits, c.moves), c.name).toBe(c.result);
-    // The published frame states the moves, then the edits, and canopyd's
+    // The published frame states the moves, then the edits, and overstoryd's
     // exact executor reproduces the candidate from it.
     const file = encoder.encode(c.source), hash = hashObject(file);
     const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: path.slice(1), file: hash }] });

@@ -20,7 +20,7 @@ Historical identifiers: **Smaller project 003 / Native 003**. Moved into Apps as
 A native offline replica that already contains a synchronized CSV, JSON, or
 JSONL collection file and its exact `schema.cddl` presents the same logical row
 `NodeSnapshot`s and `ChildrenPage`s as local
-Arbor Sync and canopyd, without a network connection and without changing the
+Story Sync and overstoryd, without a network connection and without changing the
 synchronized tree.
 
 The logical results must agree on stable identity, readable path, properties,
@@ -48,7 +48,7 @@ children.
 ## Completion gate
 
 Use the shared Data 002 corpus, updated to the Data 011 encoding, to prove that
-native offline snapshots and child pages match local Arbor Sync and canopyd for
+native offline snapshots and child pages match local Story Sync and overstoryd for
 CSV, JSON, and JSONL, including child-name rules, invalid inputs, pagination,
 stale readable paths, and stable-key reopening. Then remove the temporary
 native capability limitation recorded by this plan and the

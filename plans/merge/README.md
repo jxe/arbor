@@ -8,11 +8,11 @@ keep their implementation boundaries explicit and share the end-to-end fixtures.
 | --- | --- | --- |
 | [008: Capture copies with changes and compound undo](008-copies-with-changes-and-compound-undo.md) | Capture what the user actually did in the editor and Quagmire bridge. | A command loses identity before publication or unnecessarily reaches review. |
 | [002: Identity-preserving coalescing](002-identity-preserving-coalescing.md) | Reduce already captured operations and intermediate objects in Swift and TypeScript clients. | Start with frequent typing/deletion bursts, then moves with edits; measure actual wire savings. |
-| [014: Handle more merge cases](014-merge-handles-many-cases.md) | Reconcile concurrent operations in canopyd, including format rules and merge notes. | A real edit reaches review although its contributions can be preserved. |
+| [014: Handle more merge cases](014-merge-handles-many-cases.md) | Reconcile concurrent operations in overstoryd, including format rules and merge notes. | A real edit reaches review although its contributions can be preserved. |
 | [015: Resolve reconciled choices](015-resolve-reconciled-choices.md) | Recognize when later work discharges an existing choice, record why, and explain the current result in clients. | After the page-transfer fixes prompted by the Psych conflict. |
 
 The numbers retain their previous identities: Clients 002, Native 008, and
-canopyd 014/015. They are identifiers, not an execution order.
+overstoryd 014/015. They are identifiers, not an execution order.
 
 ## How they fit together
 
@@ -35,7 +35,7 @@ a specific rule and its review flow on that foundation.
   attribution. They support explanation but do not improve merge decisions.
 - [Server refinements](../small-work.md#server-refinements) tracks installation,
   deployment and manual verification of already implemented merge rules.
-- [Web 025](../canopy-web/025-arbor-web.md) owns rebuilding the web reviewer;
+- [Web 025](../story-web/025-story-web.md) owns rebuilding the web reviewer;
   the plans here define the behavior and client evidence it consumes.
 
 - [Ideas](../ideas.md#speed) retains unplanned merge replay performance work;

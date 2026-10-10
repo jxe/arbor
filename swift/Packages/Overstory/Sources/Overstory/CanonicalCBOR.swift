@@ -1,6 +1,6 @@
 import Foundation
 
-/// Arbor's canonical CBOR subset: null, booleans, integers, other finite
+/// Story's canonical CBOR subset: null, booleans, integers, other finite
 /// numbers as 64-bit floats, UTF-8 text, byte strings, arrays, and text-keyed
 /// maps with byte-ordered keys and minimal lengths. `negative(n)` encodes the
 /// integer `-1 - n`, mirroring CBOR major type 1.

@@ -7,10 +7,10 @@ import {
   decodeProtocolDirectory,
   encodeProtocolDirectory,
   hashObject,
-} from "@overstory/protocol";
-import { canonicalCBORHash, decodeCBOR, encodeCanonicalCBOR } from "@overstory/protocol";
-import { ProjectionProviderHost, ObjectIndex } from "@overstory/arborsync/state";
-import { decodeProtocolCollectionFile } from "@overstory/collection-schema";
+} from "@ovst/protocol";
+import { canonicalCBORHash, decodeCBOR, encodeCanonicalCBOR } from "@ovst/protocol";
+import { ProjectionProviderHost, ObjectIndex } from "@ovst/story-sync/state";
+import { decodeProtocolCollectionFile } from "@ovst/collection-schema";
 import {
   loadIgnorePolicy,
   materializeTree,
@@ -20,7 +20,7 @@ import {
   trackedEntries,
   withoutPlatformMetadata,
   type SnapshotObjectIndex,
-} from "@overstory/fs";
+} from "@ovst/fs";
 
 function objectIndexOf(index: ObjectIndex): SnapshotObjectIndex {
   return {
@@ -41,7 +41,7 @@ describe("lazy snapshots and the object index", () => {
   }
 
   test("the lazy root equals the eager root and loads identical bytes", async () => {
-    const { root, index, exclusions } = await fixture("arbor-lazy-root-");
+    const { root, index, exclusions } = await fixture("story-lazy-root-");
     try {
       const lazy = await snapshotDirectory(root, new Map(), exclusions);
       const eager = await resolveSnapshot(await snapshotDirectory(root, new Map(), exclusions));
@@ -59,7 +59,7 @@ describe("lazy snapshots and the object index", () => {
   });
 
   test("a second walk with the index reads no non-Markdown file", async () => {
-    const { root, index, exclusions } = await fixture("arbor-lazy-index-");
+    const { root, index, exclusions } = await fixture("story-lazy-index-");
     try {
       const first = await snapshotDirectory(root, new Map(), exclusions, undefined, objectIndexOf(index));
       const photo = join(root, "nested", "photo.bin");
@@ -87,7 +87,7 @@ describe("lazy snapshots and the object index", () => {
   });
 
   test("a rewritten file with the same size and mtime but a new inode invalidates its row", async () => {
-    const { root, index, exclusions } = await fixture("arbor-lazy-tamper-");
+    const { root, index, exclusions } = await fixture("story-lazy-tamper-");
     try {
       const photo = join(root, "nested", "photo.bin");
       const fixed = new Date("2024-01-01T00:00:00.000Z");
@@ -113,7 +113,7 @@ describe("lazy snapshots and the object index", () => {
   });
 
   test("directory rows re-encode to the same hash from their children rows", async () => {
-    const { root, index, exclusions } = await fixture("arbor-lazy-dirs-");
+    const { root, index, exclusions } = await fixture("story-lazy-dirs-");
     try {
       const first = await snapshotDirectory(root, new Map(), exclusions, undefined, objectIndexOf(index));
       const rootObject = decodeProtocolDirectory(await first.objects.get(first.root)!.bytes());
@@ -146,8 +146,8 @@ describe("canonical tree objects", () => {
       objects: Array<{
         model: { type: "file"; bytesBase64: string } | {
           type: "directory";
-          entries: import("@overstory/protocol").ProtocolDirectoryEntry[];
-          childrenSource?: import("@overstory/protocol").CollectionFileDescriptor;
+          entries: import("@ovst/protocol").ProtocolDirectoryEntry[];
+          childrenSource?: import("@ovst/protocol").CollectionFileDescriptor;
         };
         bytesBase64: string;
         hash: string;
@@ -247,7 +247,7 @@ describe("canonical tree objects", () => {
   });
 
   test("snapshots files once and represents nested trees as boundaries", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-wire-objects-"));
+    const root = await mkdtemp(join(tmpdir(), "story-wire-objects-"));
     try {
       await mkdir(join(root, "nested"));
       await writeFile(join(root, "note.md"), "# Note\n");
@@ -268,8 +268,8 @@ describe("canonical tree objects", () => {
   });
 
   test("snapshots exact collection files as ordinary source-and-schema entries", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-wire-collection-file-"));
-    const destination = await mkdtemp(join(tmpdir(), "arbor-wire-collection-file-materialized-"));
+    const root = await mkdtemp(join(tmpdir(), "story-wire-collection-file-"));
+    const destination = await mkdtemp(join(tmpdir(), "story-wire-collection-file-materialized-"));
     try {
       const schemaSource = "overstory-schema-version = 1\noverstory-primary-key = [\"id\"]\nrow = { id: tstr }\n";
       const storeSource = "[{\"id\":\"one\"}]\n";
@@ -306,7 +306,7 @@ describe("canonical tree objects", () => {
       jsonl: '{"id":"one","title":"One"}\n{"id":"two","title":"Two"}\n',
     } as const;
     for (const [codec, source] of Object.entries(fixtures) as Array<[keyof typeof fixtures, string]>) {
-      const root = await mkdtemp(join(tmpdir(), `arbor-wire-${codec}-`));
+      const root = await mkdtemp(join(tmpdir(), `story-wire-${codec}-`));
       const collections = new ProjectionProviderHost();
       try {
         await writeFile(join(root, "schema.cddl"), [
@@ -338,7 +338,7 @@ describe("canonical tree objects", () => {
   });
 
   test("treats a schema.ts as an ordinary file, never as a collection schema", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-wire-schema-ts-"));
+    const root = await mkdtemp(join(tmpdir(), "story-wire-schema-ts-"));
     const collections = new ProjectionProviderHost();
     const describe = (directory: string, name: string) => collections.collectionFileDescriptor(directory, name);
     try {
@@ -362,8 +362,8 @@ describe("canonical tree objects", () => {
   });
 
   test("platform metadata is never snapshotted, written or removed", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-platform-metadata-"));
-    const destination = await mkdtemp(join(tmpdir(), "arbor-platform-metadata-out-"));
+    const root = await mkdtemp(join(tmpdir(), "story-platform-metadata-"));
+    const destination = await mkdtemp(join(tmpdir(), "story-platform-metadata-out-"));
     try {
       await mkdir(join(root, "notes"));
       await writeFile(join(root, "note.md"), "# Note\n");
@@ -395,7 +395,7 @@ describe("canonical tree objects", () => {
   });
 
   test("materialization leaves byte-identical authored files untouched", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-materialize-identical-"));
+    const root = await mkdtemp(join(tmpdir(), "story-materialize-identical-"));
     try {
       const path = join(root, "note.md");
       await writeFile(path, "same bytes\n");
@@ -415,8 +415,8 @@ describe("canonical tree objects", () => {
   });
 
   test("ignored, untracked content stays out of snapshots and is never deleted by materialization", async () => {
-    const source = await realpath(await mkdtemp(join(tmpdir(), "arbor-ignore-source-")));
-    const destination = await realpath(await mkdtemp(join(tmpdir(), "arbor-ignore-destination-")));
+    const source = await realpath(await mkdtemp(join(tmpdir(), "story-ignore-source-")));
+    const destination = await realpath(await mkdtemp(join(tmpdir(), "story-ignore-destination-")));
     try {
       await writeFile(join(source, ".gitignore"), "*.log\ncache/\n");
       await writeFile(join(source, "page.md"), "# Page\n");
@@ -457,7 +457,7 @@ describe("canonical tree objects", () => {
   });
 
   test("keeps reader-local mounts out of snapshots and pull deletion", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-reader-layout-"));
+    const root = await mkdtemp(join(tmpdir(), "story-reader-layout-"));
     try {
       const mounted = join(root, "friends");
       await mkdir(mounted, { recursive: true });

@@ -1,5 +1,5 @@
 {
-  "name": "@overstory/protocol",
+  "name": "@ovst/protocol",
   "version": "0.1.0",
   "description": "The Overstory protocol in code: identifiers, node model, canonical CBOR, hashing, logical paths and URLs, objects, snapshots, update contracts, resource policy, errors, HTTP/SSE transport, the Markdown and directory document format, and account, device, placement and resource configuration formats.",
   "type": "module",

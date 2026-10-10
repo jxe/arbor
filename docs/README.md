@@ -16,6 +16,6 @@ choices. [Status](../status.md) owns what is implemented, installed, deployed,
 or manually verified; [plans](../plans/README.md) contain remaining work only.
 
 Deployment and migration procedures live beside the host in
-[`packages/canopyd/deploy/`](../packages/canopyd/deploy/README.md) and
-[`packages/canopyd/migrations/`](../packages/canopyd/migrations/README.md).
+[`packages/overstoryd/deploy/`](../packages/overstoryd/deploy/README.md) and
+[`packages/overstoryd/migrations/`](../packages/overstoryd/migrations/README.md).
 Repository working rules remain in [DEVELOPMENT.md](../DEVELOPMENT.md).

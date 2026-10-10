@@ -36,7 +36,7 @@ keys are:
   asks the home host A for a **placement read token** for B: a random secret,
   scoped to reading this profile's published configuration, naming B's
   origin. A stores only its digest; the claim carries the token to B.
-- B fetches `GET https://A/.arbor/profiles/{ProfileTreeID}/configuration`
+- B fetches `GET https://A/.overstory/profiles/{ProfileTreeID}/configuration`
   with the token: the device keys as §5.4 lists them, plus the accepted
   `apps.yaml` value. The public device-keys route stays.
 - An administrator device lists and revokes a profile's read tokens at A.
@@ -57,7 +57,7 @@ removed lend reaches B within 60 s while A is up.
 
 - **Phase 1, spec:** accounts §1.3 (the token in the claim), a new §5.5 for
   the configuration route; access control §1.1.
-- **Phase 2, canopyd:** read tokens at the home (issue, list, revoke;
+- **Phase 2, overstoryd:** read tokens at the home (issue, list, revoke;
   digest-only storage, a batch step), the configuration route, fetching and
   indexing on the placement host. **Gate:** the two-host test: a lend at A
   indexed on B, a removed lend gone within the refresh, a revoked token ending

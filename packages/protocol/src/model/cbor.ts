@@ -71,7 +71,7 @@ function parts(value: unknown): Uint8Array[] {
 }
 
 /**
- * Arbor's canonical CBOR subset: null, booleans, safe integers, other finite
+ * Story's canonical CBOR subset: null, booleans, safe integers, other finite
  * numbers as 64-bit floats, UTF-8 text, byte strings, arrays, and string-keyed
  * maps with byte-ordered keys and minimal lengths. Object properties whose
  * value is `undefined` are omitted, as in JSON.
@@ -150,7 +150,7 @@ function decodeAt(bytes: Uint8Array, start: number, depth = 0): { value: unknown
       const key = decodeAt(bytes, offset, depth + 1);
       const encodedKey = bytes.slice(keyStart, key.offset);
       const item = decodeAt(bytes, key.offset, depth + 1);
-      if (typeof key.value !== "string") throw new Error("Arbor CBOR map keys must be strings");
+      if (typeof key.value !== "string") throw new Error("Story CBOR map keys must be strings");
       if (key.value in result) throw new Error("Duplicate CBOR map key");
       if (previousKey && compareBytes(previousKey, encodedKey) >= 0) throw new Error("Non-canonical CBOR map key order");
       result[key.value] = item.value;
@@ -182,7 +182,7 @@ export function decodeCanonicalCBOR(bytes: Uint8Array): unknown {
   return value;
 }
 
-/** SHA-256 of the canonical CBOR encoding: the one hash rule for every Arbor identity. */
+/** SHA-256 of the canonical CBOR encoding: the one hash rule for every Story identity. */
 export function canonicalCBORHash(value: unknown): Hash {
   return `sha256:${sha256(encodeCanonicalCBOR(value))}`;
 }

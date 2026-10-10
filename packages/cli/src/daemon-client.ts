@@ -8,9 +8,9 @@ import type {
   TreeRef,
   UpdateRequestJSON,
   WorkspaceEvent,
-} from "@overstory/protocol";
-import { parseSSEStream, reconnectingStream, type ParsedSSEFrame } from "@overstory/protocol/sse";
-import { decodeCanonicalCBOR } from "@overstory/protocol/cbor";
+} from "@ovst/protocol";
+import { parseSSEStream, reconnectingStream, type ParsedSSEFrame } from "@ovst/protocol/sse";
+import { decodeCanonicalCBOR } from "@ovst/protocol/cbor";
 
 export type {
   OverstoryErrorCode,
@@ -21,10 +21,10 @@ export type {
   TreeDescriptor,
   TreeRef,
   WorkspaceEvent,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 
 /**
- * The `arbor` command's client of the daemon's loopback surface: status,
+ * The `story` command's client of the daemon's loopback surface: status,
  * trees, accounts, resolution, synchronization, placement moves, and the
  * working-tree loopback services (bootstrap, credential, objects) and
  * observation that the disposable-daemon tests drive through it. It is CLI
@@ -33,7 +33,7 @@ export type {
  * same reduced surface.
  */
 
-export interface ArborSyncStatus {
+export interface StorySyncStatus {
   service: string;
   version: string;
   protocolVersion: string;
@@ -41,14 +41,14 @@ export interface ArborSyncStatus {
   runtimeKind: "persistent" | "foreground" | "cloud";
 }
 
-export class ArborSyncError extends Error {
+export class StorySyncError extends Error {
   readonly payload: OverstoryError;
   constructor(
     public status: number,
     public value: OverstoryError,
   ) {
     super(value.message);
-    this.name = "ArborSyncError";
+    this.name = "StorySyncError";
     this.payload = {
       error: value.error,
       message: value.message,
@@ -60,14 +60,14 @@ export class ArborSyncError extends Error {
   }
 }
 
-export interface ArborSyncRESTClientOptions {
+export interface StorySyncRESTClientOptions {
   baseURL?: string;
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
 
-// Account and identity values are the shared vocabulary in @overstory/protocol:
-// Arbor Sync reports exactly what the protocol and the data-home stores use.
-export type { LocalAccountSummary, ProfileIdentity } from "@overstory/protocol";
+// Account and identity values are the shared vocabulary in @ovst/protocol:
+// Story Sync reports exactly what the protocol and the data-home stores use.
+export type { LocalAccountSummary, ProfileIdentity } from "@ovst/protocol";
 
 /** `GET /v1/bootstrap?tree=`: what a loopback client needs to open a placed tree as its own working tree. */
 export type BootstrapTreeDescriptor = Pick<
@@ -120,11 +120,11 @@ export interface DeclinedChanges {
   request: { digest: string; base: { root: string; update: string }; candidate: string };
 }
 
-export class ArborSyncRESTClient {
+export class StorySyncRESTClient {
   private baseURL: string;
   private fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-  constructor(options: ArborSyncRESTClientOptions = {}) {
+  constructor(options: StorySyncRESTClientOptions = {}) {
     this.baseURL = options.baseURL?.replace(/\/$/, "") ?? "";
     this.fetcher = options.fetch ?? ((input, init) => fetch(input, init));
   }
@@ -167,7 +167,7 @@ export class ArborSyncRESTClient {
     return this.request(`/v1/resolve?locator=${encodeURIComponent(locator)}`);
   }
 
-  status(): Promise<ArborSyncStatus> {
+  status(): Promise<StorySyncStatus> {
     return this.request("/v1/status");
   }
 
@@ -260,7 +260,7 @@ export class ArborSyncRESTClient {
     }
     yield* reconnectingStream(connect, {
       ...(signal ? { signal } : {}),
-      fatal: (error) => error instanceof ArborSyncError,
+      fatal: (error) => error instanceof StorySyncError,
     });
   }
 
@@ -269,10 +269,10 @@ export class ArborSyncRESTClient {
     if (!data) return null;
     const decoded = JSON.parse(data) as { cursor?: unknown; tree?: unknown; kind?: unknown; change?: unknown };
     if (!id || !eventName || id !== decoded.cursor || eventName !== decoded.kind || !decoded.change) {
-      throw new TypeError("Malformed Arbor observation event");
+      throw new TypeError("Malformed Story observation event");
     }
     if (eventName === "resync-required") {
-      throw new ArborSyncError(409, {
+      throw new StorySyncError(409, {
         error: "resync-required",
         message: "The observation cursor is no longer retained",
         retryable: true,
@@ -281,7 +281,7 @@ export class ArborSyncRESTClient {
     }
     const event = decoded as WorkspaceEvent;
     if (typeof event.change.ref?.path !== "string" || typeof event.change.origin !== "string") {
-      throw new TypeError("Malformed Arbor workspace change");
+      throw new TypeError("Malformed Story workspace change");
     }
     return event;
   }
@@ -298,7 +298,7 @@ export class ArborSyncRESTClient {
     catch {
       envelope = { error: "internal-error", message: response.statusText, retryable: false };
     }
-    throw new ArborSyncError(response.status, {
+    throw new StorySyncError(response.status, {
       error: envelope.error,
       message: envelope.message,
       retryable: envelope.retryable,

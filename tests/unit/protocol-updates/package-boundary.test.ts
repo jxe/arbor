@@ -12,23 +12,23 @@ async function sourceFiles(directory: string): Promise<string[]> {
   return files;
 }
 
-describe("@overstory/protocol package boundary", () => {
+describe("@ovst/protocol package boundary", () => {
   test("does not acquire server implementation dependencies", async () => {
     const root = join(import.meta.dir, "../../../packages/protocol/src");
     for (const path of await sourceFiles(root)) {
       const source = await readFile(path, "utf8");
-      expect(source).not.toContain("@overstory/canopyd");
+      expect(source).not.toContain("@ovst/overstoryd");
       expect(source).not.toContain("bun:sqlite");
-      expect(source).not.toContain("@overstory/protocol");
+      expect(source).not.toContain("@ovst/protocol");
     }
   });
 });
 
 describe("client package boundary", () => {
-  test("the client stack never imports Arbor Sync, which imports it", async () => {
+  test("the client stack never imports Story Sync, which imports it", async () => {
     for (const name of ["client", "working-tree", "fs"]) {
       for (const path of await sourceFiles(join(import.meta.dir, "../../../packages", name, "src"))) {
-        expect(await readFile(path, "utf8"), path).not.toContain("@overstory/arborsync");
+        expect(await readFile(path, "utf8"), path).not.toContain("@ovst/story-sync");
       }
     }
   });

@@ -9,11 +9,11 @@ and undo capture". Status: PLANNED; in-page moves and Move to Document are done
 ## What this means
 
 When you copy blocks and change them, paste within a tree, inline a child page, or undo
-a command that touched two pages, the Native editor should send canopyd a record of what
-you did, not only the resulting text. That record is what lets canopyd combine your action
+a command that touched two pages, the Native editor should send overstoryd a record of what
+you did, not only the resulting text. That record is what lets overstoryd combine your action
 with another device's edits; final text alone cannot tell a copy from matching text typed
 independently. This plan covers capture in the editor and its Quagmire bridge. Merge
-policy is [canopyd 014](014-merge-handles-many-cases.md)'s.
+policy is [overstoryd 014](014-merge-handles-many-cases.md)'s.
 
 The change log, source publication, moves (`source-moves.json`) and Move to Document as
 one change already exist. Do not rebuild them.
@@ -26,7 +26,7 @@ one change already exist. Do not rebuild them.
 | Quagmire 0.9.0 | Paste and inline need Quagmire to report, generically, which host block each reminted block came from, and to carry host pasteboard data. The same release replaces today's convention (a move hands over the original block IDs) with an explicit move-to-document hook. |
 | Inline a child page | State the child's text as a cross-document `moveSource` into the parent. Retiring the child stays a separate change, because a change mixing moves and entry removals is not merged automatically. |
 | Undo of compound commands | Undoing an in-page rearrangement already publishes moves back, because Quagmire's undo restores the same block identities. Undoing Move to Document and inline-and-retire must publish the inverse over both documents (a move back; restoring the retired page as snapshot creation), using Quagmire's `TransactionEvidence`, which Canopy does not read yet. When the destination changed meanwhile, publish the origin's side as an ordinary edit and show that the blocks also remain there; never retarget to a newer basis. |
-| Move to Document of blocks apart from each other | Refused without changing either page today; separate copy/delete can conflict. State it as one change once canopyd reconciles a move anchored on material an earlier move carried into another page in both arrival orders (canopyd 014 item 1). |
+| Move to Document of blocks apart from each other | Refused without changing either page today; separate copy/delete can conflict. State it as one change once overstoryd reconciles a move anchored on material an earlier move carried into another page in both arrival orders (overstoryd 014 item 1). |
 | Creation, import and nested-tree boundaries | Check which existing actions can truthfully use supported operation forms and which must remain snapshots. Preserve TreeID and destination boundaries. |
 | Exact-text edge cases for copies | Verify multiple selections, equal-byte blocks, CRLF and combining characters for copies as `source-moves.json` does for moves. |
 
@@ -42,14 +42,14 @@ from retaining already-authored undo requests.
   requests stay immutable through offline use, restart and exact retries.
 - Do not retarget an old action to a newer basis, infer identity from equal bytes, or silently
   discard captured operations. Preserve local work and show a problem if it cannot be stated.
-- canopyd must execute every emitted form before a client that emits it is installed
+- overstoryd must execute every emitted form before a client that emits it is installed
   ([small work](../small-work.md)).
 
-Browser integration belongs to [Web 025](../canopy-web/025-arbor-web.md).
+Browser integration belongs to [Web 025](../story-web/025-story-web.md).
 
 ## Done for each command
 
-Use the real editor command with a disposable canopyd. Assert the captured operations and
+Use the real editor command with a disposable overstoryd. Assert the captured operations and
 exact bytes, including a concurrent peer edit in both arrival orders, offline work, restart,
 unavailable source material and continued editing. Ambiguity must preserve work rather than
 claim a false automatic merge. Keep TypeScript and Swift models and fixtures aligned; test

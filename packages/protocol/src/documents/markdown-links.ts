@@ -27,7 +27,7 @@ export interface MarkdownLinkHealing {
   resolveFrom: LogicalPath;
   /** The directory the source file is in now. */
   writeFrom: LogicalPath;
-  /** The source's tree: its `arbor://<tree>/…` links are same-tree links and become relative. */
+  /** The source's tree: its `overstory://<tree>/…` links are same-tree links and become relative. */
   tree: string | null;
   /**
    * The node a link names now, looked up by its stable key first and then by
@@ -61,7 +61,7 @@ export function healMarkdownLinks(source: string, healing: MarkdownLinkHealing):
 
 function healedHref(href: string, healing: MarkdownLinkHealing): string | null {
   const resolved = resolveLogicalURL(healing.resolveFrom, href);
-  if (resolved?.kind === "arbor") {
+  if (resolved?.kind === "overstory") {
     if (!("treeID" in resolved.authority) || resolved.authority.treeID !== healing.tree) return null;
   } else if (resolved?.kind !== "local") {
     return null;

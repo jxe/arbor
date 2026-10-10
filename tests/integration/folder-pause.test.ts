@@ -4,14 +4,14 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveArborSyncControl } from "@overstory/arborsync";
-import { serveHost } from "@overstory/canopyd";
-import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import { serveStorySyncControl } from "@ovst/story-sync";
+import { serveHost } from "@ovst/overstoryd";
+import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import {
   HostAccountStore, decodeProtocolDirectory, decodeUpdateRequestJSON, hashObject,
   type UpdateRequest,
-} from "@overstory/protocol";
-import { ArborSyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
+} from "@ovst/protocol";
+import { StorySyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 import { interceptedUpdateRequest } from "../support/wire-body.ts";
 
@@ -24,7 +24,7 @@ let host: Awaited<ReturnType<typeof serveHost>>;
 const large = (line: string) => `# Large\n\n${Array.from({ length: 2_000 }, (_, index) => index === 1_000 ? line : `Paragraph ${index} of a long page.`).join("\n")}\n`;
 
 beforeAll(async () => {
-  sandbox = await realpath(await mkdtemp(join(tmpdir(), "arbor-folder-pause-")));
+  sandbox = await realpath(await mkdtemp(join(tmpdir(), "story-folder-pause-")));
   state = join(sandbox, "home");
   folder = join(sandbox, "tree");
   await Promise.all([state, folder].map((path) => mkdir(path, { recursive: true })));
@@ -46,17 +46,17 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  process.env.ARBOR_DATA_HOME = state;
+  process.env.STORY_HOME = state;
   for (const account of await HostAccountStore.list()) await new HostAccountStore(account.configurationTree).remove();
   host.server.stop(true);
-  await host.canopy[Symbol.asyncDispose]();
+  await host.overstoryd[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });
 });
 
 async function launch() {
-  process.env.ARBOR_DATA_HOME = state;
-  const running = await serveArborSyncControl({ port: 0 });
-  const client = new ArborSyncRESTClient({ baseURL: running.url });
+  process.env.STORY_HOME = state;
+  const running = await serveStorySyncControl({ port: 0 });
+  const client = new StorySyncRESTClient({ baseURL: running.url });
   await client.synchronizeNow();
   return {
     client, url: running.url,
@@ -65,10 +65,10 @@ async function launch() {
   };
 }
 
-async function arbor(url: string, args: string[]): Promise<string> {
+async function story(url: string, args: string[]): Promise<string> {
   const child = Bun.spawn(["bun", "packages/cli/src/index.ts", ...args], {
     cwd: join(import.meta.dir, "../.."),
-    env: { ...Bun.env, ARBOR_DATA_HOME: state, ARBOR_SYNC_URL: url },
+    env: { ...Bun.env, STORY_HOME: state, STORY_SYNC_URL: url },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -98,7 +98,7 @@ test("a paused folder publishes nothing across a restart, pending shows the exac
   const requests: UpdateRequest[] = [];
   globalThis.fetch = (async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    const request = url.includes(`/.arbor/trees/${tree}/updates`) ? interceptedUpdateRequest(init) : undefined;
+    const request = url.includes(`/.overstory/trees/${tree}/updates`) ? interceptedUpdateRequest(init) : undefined;
     if (request) requests.push(request);
     return systemFetch(input, init);
   }) as typeof fetch;
@@ -107,16 +107,16 @@ test("a paused folder publishes nothing across a restart, pending shows the exac
   try {
     await waitFor(async () => await daemon.sync() === "idle");
     expect(await daemon.client.pending(tree)).toEqual({ tree, paused: false, base: null, request: null });
-    expect(await arbor(daemon.url, ["pending", folder])).toContain(`Nothing pending for ${folder}`);
+    expect(await story(daemon.url, ["pending", folder])).toContain(`Nothing pending for ${folder}`);
 
-    expect(await arbor(daemon.url, ["pause", folder])).toBe(`Paused ${folder} (${tree})\n`);
+    expect(await story(daemon.url, ["pause", folder])).toBe(`Paused ${folder} (${tree})\n`);
     expect(await daemon.sync()).toBe("paused");
     await writeFile(join(folder, "large.md"), edited);
     await daemon.client.synchronizeNow();
     await Bun.sleep(600);
     expect(requests).toHaveLength(0);
     expect(await daemon.sync()).toBe("paused");
-    expect(await arbor(daemon.url, ["status"])).toMatch(new RegExp(`paused +${folder}`));
+    expect(await story(daemon.url, ["status"])).toMatch(new RegExp(`paused +${folder}`));
 
     await daemon.close();
     daemon = await launch();
@@ -125,18 +125,18 @@ test("a paused folder publishes nothing across a restart, pending shows the exac
     expect(await daemon.sync()).toBe("paused");
     expect(await accepted()).toBe(original);
 
-    const view = await arbor(daemon.url, ["pending", folder]);
+    const view = await story(daemon.url, ["pending", folder]);
     expect(view).toContain(`Pending for ${folder} (${tree}, paused)`);
     expect(view).toContain("Update 1 of 1: folder-");
     expect(view).toMatch(/file \/large\.md \(delta from sha256:[0-9a-f]{12}…/);
     expect(view).toMatch(/ {2}- The original\n {2}\+ A paused\n/);
     expect((await daemon.client.pending(tree)).paused).toBe(true);
     // The last preview is the change resume publishes.
-    const body = decodeUpdateRequestJSON(JSON.parse(await arbor(daemon.url, ["pending", folder, "--json"])));
+    const body = decodeUpdateRequestJSON(JSON.parse(await story(daemon.url, ["pending", folder, "--json"])));
     expect(body.updates).toHaveLength(1);
     expect(body.updates[0]!.deltas.map((delta) => delta.result)).toContain(hashObject(new TextEncoder().encode(edited)));
 
-    expect(await arbor(daemon.url, ["resume", folder])).toBe(`Resumed ${folder} (${tree})\n`);
+    expect(await story(daemon.url, ["resume", folder])).toBe(`Resumed ${folder} (${tree})\n`);
     await daemon.client.synchronizeNow();
     await waitFor(async () => await accepted() === edited);
     // Resume sends exactly the pending body, once.

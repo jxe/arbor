@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { ObjectStore } from "../../packages/object-store/src/index.ts";
-import { encodeProtocolDirectory, hashObject, type ProtocolDirectoryEntry } from "@overstory/protocol";
+import { encodeProtocolDirectory, hashObject, type ProtocolDirectoryEntry } from "@ovst/protocol";
 
 class ReadTrace extends ObjectStore {
   objects = new Map<string, Uint8Array>();

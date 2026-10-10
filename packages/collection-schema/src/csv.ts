@@ -1,4 +1,4 @@
-import type { JSONValue } from "@overstory/protocol";
+import type { JSONValue } from "@ovst/protocol";
 import { pointer, type ValueDiagnostic } from "./diagnostics.ts";
 import type { CollectionSchema, CsvColumn } from "./compile.ts";
 import { validateRow, type ValidationBudget } from "./validate.ts";

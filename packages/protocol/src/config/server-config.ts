@@ -2,11 +2,11 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import { join } from "node:path";
 import { sha256 } from "../index.ts";
 import { deviceKeyFromSeed, openDeviceSession } from "./device-key.ts";
-import { arborDataRoot, arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
+import { storyDataRoot, overstoryPrivateRoot, prepareStoryDataRoot } from "./private-state.ts";
 
 const SERVICE = "org.arbor.community-account";
 
-export function accountCredentialName(configurationTree: string, dataRoot = arborDataRoot()): string {
+export function accountCredentialName(configurationTree: string, dataRoot = storyDataRoot()): string {
   return `account-${sha256(`${dataRoot}\0${configurationTree}`).slice(0, 24)}`;
 }
 
@@ -108,7 +108,7 @@ export class HostAccountStore {
   }
 
   private get directory(): string {
-    return join(arborPrivateRoot(), "accounts", this.configurationTree);
+    return join(overstoryPrivateRoot(), "accounts", this.configurationTree);
   }
 
   private get path(): string {
@@ -136,7 +136,7 @@ export class HostAccountStore {
   }
 
   private get usesFileCredentials(): boolean {
-    return process.env.ARBOR_CREDENTIAL_STORE === "file";
+    return process.env.STORY_CREDENTIAL_STORE === "file";
   }
 
   /** Durable pre-network slot for a new device's key seed while a claim or pairing is pending. */
@@ -163,7 +163,7 @@ export class HostAccountStore {
 
   /** Connect as a key device with its seed, as claiming and pairing do. */
   async setDeviceKey(seed: string, metadata: Omit<HostAccountRecord, "configurationTree" | "credential" | "tokenDigest" | "connected" | "deviceKey">): Promise<HostAccountRecord> {
-    await prepareArborDataRoot();
+    await prepareStoryDataRoot();
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     if (this.usesFileCredentials) await writeFile(this.keyPath, seed, { mode: 0o600 });
     else await Bun.secrets.set({ ...this.keyLocation(), value: seed });
@@ -280,7 +280,7 @@ export class HostAccountStore {
 
   static async list(): Promise<HostAccountRecord[]> {
     let names: string[];
-    try { names = await readdir(join(arborPrivateRoot(), "accounts")); }
+    try { names = await readdir(join(overstoryPrivateRoot(), "accounts")); }
     catch { return []; }
     const records = await Promise.all(names.filter((name) => /^tr_[a-z2-7]+$/.test(name)).map((name) => new HostAccountStore(name).safe()));
     return records.filter((record): record is HostAccountRecord => record !== null).sort((a, b) => a.configurationTree.localeCompare(b.configurationTree));
@@ -330,7 +330,7 @@ export class HostPlacementStore {
   }
 
   private static root(configurationTree: string): string {
-    return join(arborPrivateRoot(), "accounts", configurationTree, "placements");
+    return join(overstoryPrivateRoot(), "accounts", configurationTree, "placements");
   }
 
   private get directory(): string {
@@ -359,7 +359,7 @@ export class HostPlacementStore {
   }
 
   async set(record: Omit<HostPlacementRecord, "configurationTree" | "origin" | "placed">): Promise<HostPlacementRecord> {
-    await prepareArborDataRoot();
+    await prepareStoryDataRoot();
     const complete: HostPlacementRecord = { ...record, configurationTree: this.configurationTree, origin: this.origin, placed: true };
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     const temporary = `${this.path}.${crypto.randomUUID()}.tmp`;
@@ -397,7 +397,7 @@ export class HostPlacementStore {
     let trees: string[];
     if (configurationTree) trees = [configurationTree];
     else {
-      try { trees = (await readdir(join(arborPrivateRoot(), "accounts"))).filter((name) => /^tr_[a-z2-7]+$/.test(name)); }
+      try { trees = (await readdir(join(overstoryPrivateRoot(), "accounts"))).filter((name) => /^tr_[a-z2-7]+$/.test(name)); }
       catch { return []; }
     }
     const records: HostPlacementRecord[] = [];

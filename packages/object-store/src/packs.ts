@@ -396,7 +396,7 @@ export interface PackOptions {
  * alone (zstd, or raw when that does not help).
  *
  * Grouping by document is chosen from the 2026-10-09 measurement of a copy
- * of live data (canopyd 001): versions of one document compress against each
+ * of live data (overstoryd 001): versions of one document compress against each
  * other within a frame far better than a delta against only the previous
  * version, and a cold single read decompresses at most one frame.
  */

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalStableKey, markdownIDFromStableKey, markdownStableKey } from "@overstory/protocol";
+import { canonicalStableKey, markdownIDFromStableKey, markdownStableKey } from "@ovst/protocol";
 
 describe("Markdown identity codec", () => {
   test("a frontmatter id is the single-pair id key and back", () => {

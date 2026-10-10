@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { allowCloudPlaceholderDownloads, isCloudPlaceholderError } from "../../packages/arborsync/src/cloud-placeholders.ts";
-import { objectReadError } from "../../packages/arborsync/src/object-read-diagnostics.ts";
+import { allowCloudPlaceholderDownloads, isCloudPlaceholderError } from "../../packages/story-sync/src/cloud-placeholders.ts";
+import { objectReadError } from "../../packages/story-sync/src/object-read-diagnostics.ts";
 
 test("placeholder downloads are a process-wide macOS policy and inert elsewhere", async () => {
   const calls: number[][] = [];
@@ -18,7 +18,7 @@ test("placeholder downloads are a process-wide macOS policy and inert elsewhere"
 });
 
 test.skipIf(process.platform !== "darwin")("the daemon policy survives a process that starts with materialization off", async () => {
-  const module = join(import.meta.dir, "../../packages/arborsync/src/cloud-placeholders.ts");
+  const module = join(import.meta.dir, "../../packages/story-sync/src/cloud-placeholders.ts");
   // Model a launchd agent: start from the system default (off), then opt in and read it back.
   const script = `
     import { dlopen, FFIType } from "bun:ffi";

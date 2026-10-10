@@ -7,14 +7,14 @@
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { serveHost } from "@overstory/canopyd";
+import { serveHost } from "@ovst/overstoryd";
 import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
-  type CandidateUpdate, type ObjectHash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@overstory/protocol";
+  type CandidateUpdate, type ObjectHash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@ovst/protocol";
 import { executeExactSourceEdits } from "../support/source-edits.ts";
 import { deviceClient, testAccount } from "../helpers/devices.ts";
 
 const count = Number(process.env.FILES ?? 200);
-const dir = await mkdtemp(`${tmpdir()}/arbor-snapshot-cost-`);
+const dir = await mkdtemp(`${tmpdir()}/story-snapshot-cost-`);
 const running = await serveHost({ dataRoot: dir, accounts: [testAccount("owner", "cost", { communityWriter: true })],
   publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
 const client = await deviceClient(running.url, "cost");
@@ -82,6 +82,6 @@ await time("snapshot fast-forward beside an open choice", 20, async (index) => {
   ({ id: update, root } = await submit(snapshot(change(root, { [`page-${index % count}.md`]: { file: file(`# Page ${index}\n\nAgain\n`) } }))));
 });
 running.server.stop(true);
-await running.canopy[Symbol.asyncDispose]();
+await running.overstoryd[Symbol.asyncDispose]();
 await rm(dir, { recursive: true, force: true });
 process.exit(0);

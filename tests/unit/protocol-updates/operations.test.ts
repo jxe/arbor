@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import fixtures from "../../../docs/overstory-spec/conformance/protocol-authored-updates.json";
-import { canonicalUpdateIntent, decodeUpdateRequestJSON, encodeUpdateRequestJSON, updateRequestDigest, updateRequestDigests } from "@overstory/protocol";
-import type { UpdateIntentBase } from "@overstory/protocol";
+import { canonicalUpdateIntent, decodeUpdateRequestJSON, encodeUpdateRequestJSON, updateRequestDigest, updateRequestDigests } from "@ovst/protocol";
+import type { UpdateIntentBase } from "@ovst/protocol";
 
 for (const fixture of fixtures.cases) test(`active authored grammar: ${fixture.name}`, () => {
   const value = { ...fixture.value, updates: fixture.value.updates.map(u => ({...u,objects:[],deltas:[]})) };

@@ -1,0 +1,12 @@
+FROM oven/bun:1.4.2
+
+WORKDIR /app
+COPY package.json bun.lock tsconfig.json ./
+COPY packages ./packages
+# Every workspace the root package.json declares must be present for the frozen install.
+COPY examples/supplies/package.json ./examples/supplies/package.json
+RUN bun install --frozen-lockfile --production
+
+ENV OVERSTORYD_DATA=/data
+EXPOSE 4318
+CMD ["bun", "run", "overstoryd"]

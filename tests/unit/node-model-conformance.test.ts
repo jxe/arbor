@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { canonicalStableKey, rowPathSegment, stableKeyFromProperties } from "@overstory/protocol/node-key";
+import { canonicalStableKey, rowPathSegment, stableKeyFromProperties } from "@ovst/protocol/node-key";
 import {
   decodeChildrenPage,
   decodeIdentityRule,
   decodeNodeCapabilities,
   decodeNodeSnapshot,
   decodeCollectionFileDescriptor,
-} from "@overstory/protocol/node-model";
+} from "@ovst/protocol/node-model";
 
 const conformance = join(import.meta.dir, "../../docs/overstory-spec/conformance");
 
@@ -115,11 +115,11 @@ describe("unified node-model conformance", () => {
     expect(endpoints.version).toBe(8);
     expect(endpoints.cases.find((item) => item.name === "query-derived-model-state")?.request).toMatchObject({
       method: "QUERY",
-      path: "/.arbor/trees/tr_atlas/queries",
+      path: "/.overstory/trees/tr_atlas/queries",
     });
     expect(endpoints.cases.find((item) => item.name === "mutate-reviewed-model-intent")?.request).toMatchObject({
       method: "POST",
-      path: "/.arbor/trees/tr_atlas/mutate",
+      path: "/.overstory/trees/tr_atlas/mutate",
     });
   });
 });

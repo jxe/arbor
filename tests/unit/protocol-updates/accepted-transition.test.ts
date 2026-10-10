@@ -5,7 +5,7 @@ import {
   encodeProtocolDirectory,
   hashObject,
   type TransitionPayload,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 
 describe("accepted transition wire encoding", () => {
   test("round-trips complete objects and object deltas", () => {

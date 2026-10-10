@@ -1,9 +1,9 @@
-import { hashObject } from "@overstory/protocol";
-import { MergeRefusal } from "@overstory/merge-protocol";
-import { mergeIntent } from "../../packages/canopyd-merge/src/intent-engine.ts";
-import type { IntentRequest } from "../../packages/canopyd-merge/src/intent-model.ts";
-import type { IntentEvaluation } from "../../packages/canopyd-merge/src/engine-contract.ts";
-import type { RetainedState } from "../../packages/canopyd-merge/src/retained-state.ts";
+import { hashObject } from "@ovst/protocol";
+import { MergeRefusal } from "@ovst/merge-protocol";
+import { mergeIntent } from "../../packages/overstoryd-merge/src/intent-engine.ts";
+import type { IntentRequest } from "../../packages/overstoryd-merge/src/intent-model.ts";
+import type { IntentEvaluation } from "../../packages/overstoryd-merge/src/engine-contract.ts";
+import type { RetainedState } from "../../packages/overstoryd-merge/src/retained-state.ts";
 
 const recorded = new WeakMap<ReadonlyMap<string, Uint8Array>, Map<string, RetainedState>>();
 

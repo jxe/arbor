@@ -1,4 +1,4 @@
-import { objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, type CandidateUpdateJSON, type SourceOperation } from "@overstory/protocol";
+import { objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
 import { UpdateValidationError } from "./control.ts";
 import type { LocalChange } from "./local-change.ts";
 

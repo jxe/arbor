@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { decodeProtocolDirectory, type ProtocolClient } from "@overstory/protocol";
-import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import { decodeProtocolDirectory, type ProtocolClient } from "@ovst/protocol";
+import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { editTreeConfig } from "./tree-config.ts";
 
 /**
@@ -17,8 +17,8 @@ export async function reserveMembers(owner: ProtocolClient, scratch: string, mem
   const source = join(scratch, `community-${crypto.randomUUID()}`);
   await mkdir(source, { recursive: true });
   const lines = ["---", "type: group", "members:",
-    "  -", `    profile: "arbor://${account.account.profileTree!}/"`, `    handle: "${account.account.handle ?? "owner"}"`,
-    ...Object.entries(members).flatMap(([handle, profile]) => ["  -", `    profile: "${profile.startsWith("tr_") ? `arbor://${profile}/` : profile}"`, `    handle: "${handle}"`]),
+    "  -", `    profile: "overstory://${account.account.profileTree!}/"`, `    handle: "${account.account.handle ?? "owner"}"`,
+    ...Object.entries(members).flatMap(([handle, profile]) => ["  -", `    profile: "${profile.startsWith("tr_") ? `overstory://${profile}/` : profile}"`, `    handle: "${handle}"`]),
     "---", "", "# Community", ""];
   await writeFile(join(source, "_index.md"), lines.join("\n"));
   const head = await owner.snapshot(community.tree.id, community.tree.root);

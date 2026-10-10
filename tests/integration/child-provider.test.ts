@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { Workspace } from "@overstory/arborsync";
-import { canonicalStableKey } from "@overstory/protocol";
+import { Workspace } from "@ovst/story-sync";
+import { canonicalStableKey } from "@ovst/protocol";
 
 let root: string;
 let state: string;
@@ -15,7 +15,7 @@ const schema = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nro
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "arbor-child-provider-"));
   state = await mkdtemp(join(tmpdir(), "arbor-child-provider-state-"));
-  process.env.ARBOR_DATA_HOME = state;
+  process.env.STORY_HOME = state;
 
   await mkdir(join(root, "expanded"));
   await writeFile(join(root, "expanded", "one.md"), "---\ntitle: One\n---\nExpanded body.\n");

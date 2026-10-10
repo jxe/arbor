@@ -1,12 +1,12 @@
 import { createHash, createPrivateKey, sign } from "node:crypto";
-import type { HostBootstrapAccount, HostDaemon } from "@overstory/canopyd";
+import type { HostBootstrapAccount, HostDaemon } from "@ovst/overstoryd";
 import {
   deviceKeyFromSeed,
   deviceSessionChallengeBytes,
   encodeBase32,
   openDeviceSession,
   ProtocolClient,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 
 /**
  * A key device for tests, derived from a name: the same name always gives the
@@ -22,7 +22,7 @@ export interface TestDevice {
   key: string;
 }
 
-const derived = (name: string, purpose: string) => createHash("sha256").update(`arbor-test-device\0${purpose}\0${name}`).digest();
+const derived = (name: string, purpose: string) => createHash("sha256").update(`story-test-device\0${purpose}\0${name}`).digest();
 
 export function testDevice(name: string): TestDevice {
   const seed = derived(name, "seed").toString("base64url");
@@ -87,8 +87,8 @@ export function signAsDevice(name: string, bytes: Uint8Array): string {
 }
 
 /** A session token straight from a daemon, for tests that never serve HTTP. */
-export async function daemonSession(canopy: HostDaemon, name: string, origin = "http://127.0.0.1"): Promise<string> {
+export async function daemonSession(overstoryd: HostDaemon, name: string, origin = "http://127.0.0.1"): Promise<string> {
   const device = testDevice(name);
-  const challenge = await canopy.createDeviceSessionChallenge({ origin, profileTree: device.profileTree, device: device.device });
-  return (await canopy.openDeviceSession({ origin, challenge, signature: signAsDevice(name, deviceSessionChallengeBytes(challenge)) })).token;
+  const challenge = await overstoryd.createDeviceSessionChallenge({ origin, profileTree: device.profileTree, device: device.device });
+  return (await overstoryd.openDeviceSession({ origin, challenge, signature: signAsDevice(name, deviceSessionChallengeBytes(challenge)) })).token;
 }

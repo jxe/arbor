@@ -1,21 +1,21 @@
-import type { ArborBlock } from "../index.ts";
+import type { OverstoryBlock } from "../index.ts";
 import { blockFingerprint } from "./markdown.ts";
 
 export interface MergeConflict {
   index: number;
-  base?: ArborBlock;
-  local?: ArborBlock;
-  disk?: ArborBlock;
+  base?: OverstoryBlock;
+  local?: OverstoryBlock;
+  disk?: OverstoryBlock;
 }
 
 export interface MergeResult {
-  blocks: ArborBlock[];
+  blocks: OverstoryBlock[];
   conflicts: MergeConflict[];
 }
 
-export function mergeBlocks(base: ArborBlock[], local: ArborBlock[], disk: ArborBlock[]): MergeResult {
+export function mergeBlocks(base: OverstoryBlock[], local: OverstoryBlock[], disk: OverstoryBlock[]): MergeResult {
   const max = Math.max(base.length, local.length, disk.length);
-  const blocks: ArborBlock[] = [];
+  const blocks: OverstoryBlock[] = [];
   const conflicts: MergeConflict[] = [];
   for (let index = 0; index < max; index += 1) {
     const before = base[index];

@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { decodeMaterialRef, stableJSONString, type MaterialRef, type SourceOperation } from "@overstory/protocol";
+import { decodeMaterialRef, stableJSONString, type MaterialRef, type SourceOperation } from "@ovst/protocol";
 
-/** The contract between canopyd and a merge sidecar: the log entries canopyd
+/** The contract between overstoryd and a merge sidecar: the log entries overstoryd
  * writes into the object store, the one question it asks, and the answer.
  * No merge logic lives here. */
 
@@ -67,7 +67,7 @@ const logDecisions = z.array(logDecisionSchema).superRefine((decisions, context)
     context.addIssue({ code: "custom", message: "Duplicate decision key" });
 });
 
-/** One accepted update, stored by canopyd as a canonical JSON object. Its
+/** One accepted update, stored by overstoryd as a canonical JSON object. Its
  * hash is its identity; `previous` makes a tree's history a hash chain. */
 export interface LogEntry {
   format: typeof LOG_ENTRY_FORMAT;
@@ -86,7 +86,7 @@ export interface LogEntry {
   /** How the sidecar was asked, when it was: what a replay needs, beyond the
    * fields above, to ask the same question again with `previous` as its head. */
   asked?: Asked;
-  /** The sidecar's evidence, recorded and never interpreted by canopyd. */
+  /** The sidecar's evidence, recorded and never interpreted by overstoryd. */
   evidence?: unknown;
 }
 export interface Asked {
@@ -138,7 +138,7 @@ export function decodeLogEntry(bytes: Uint8Array): LogEntry {
 
 // ---- The merge question ----------------------------------------------------
 
-/** An alternative a client's operation names as material: canopyd resolves
+/** An alternative a client's operation names as material: overstoryd resolves
  * the client's public identities to the sidecar's decision key and index. */
 export interface AlternativeBinding {
   ref: MaterialRef;
@@ -159,7 +159,7 @@ export interface Candidate {
   root: ObjectHash;
   change: string;
   trace: Frame[] | null;
-  /** Decision keys whose guards canopyd checked. */
+  /** Decision keys whose guards overstoryd checked. */
   resolves: string[];
   alternatives?: AlternativeBinding[];
 }
@@ -186,7 +186,7 @@ const askedSchema = z
 
 export interface MergeRules { id: string; revision: number; config?: unknown }
 
-/** The one question canopyd asks. `base` is the entry the candidate was
+/** The one question overstoryd asks. `base` is the entry the candidate was
  * authored on, `head` the tree's current entry. `prefix` lists candidates
  * authored on `base` before this one (earlier elements of the same batch);
  * applied in order, they give the author's own basis. */
@@ -242,7 +242,7 @@ const answerSchema = z
 
 const REFUSAL_CODES = ["invalid", "missing-context", "unsupported", "limit"] as const;
 /** A typed inability to answer: neither a conflict resolution nor an
- * accepted receipt. canopyd decides admission and fallback. The reference
+ * accepted receipt. overstoryd decides admission and fallback. The reference
  * sidecar's engine throws it too, and the sidecar answers it as it is. */
 export class MergeRefusal extends Error {
   constructor(readonly code: (typeof REFUSAL_CODES)[number], message: string) {

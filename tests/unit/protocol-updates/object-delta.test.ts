@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyObjectDelta, encodeProtocolDirectory, hashObject, objectDelta, type ObjectDelta } from "@overstory/protocol";
+import { applyObjectDelta, encodeProtocolDirectory, hashObject, objectDelta, type ObjectDelta } from "@ovst/protocol";
 
 function pseudoRandom(length: number, seed: number): Uint8Array {
   const bytes = new Uint8Array(length);

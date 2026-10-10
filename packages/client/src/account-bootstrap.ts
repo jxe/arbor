@@ -1,9 +1,9 @@
 import { homedir, hostname } from "node:os";
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { MutationReceipt } from "@overstory/protocol";
-import { activationElement, configurationCheckoutPath, deviceKeyFromSeed, generateDeviceKeySeed, generateArborID, initialPersonConfig, isPersonProfileTreeID, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, arborDataRoot, arborPrivateRoot, loadProfileConfigurations, saveCurrentAccountDeviceID, ProtocolClient, ProtocolHTTPError, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
-import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import type { MutationReceipt } from "@ovst/protocol";
+import { activationElement, configurationCheckoutPath, deviceKeyFromSeed, generateDeviceKeySeed, generateOverstoryID, initialPersonConfig, isPersonProfileTreeID, treeConfigSources, treeConfigurationID, type AccountChallenge, HostAccountStore, storyDataRoot, overstoryPrivateRoot, loadProfileConfigurations, saveCurrentAccountDeviceID, ProtocolClient, ProtocolHTTPError, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@ovst/protocol";
+import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { withLocalStateLock } from "./local-state-lock.ts";
 import { ProfileIdentityStore } from "./profile-identity.ts";
 import { loadLocalPlacements } from "./placements.ts";
@@ -79,7 +79,7 @@ async function claimAccountProfileBootstrap(
   if (!isPersonProfileTreeID(profileTree)) {
     throw new ProtocolError(
       "conflict",
-      "This local profile is not bound to a self-certifying person identity; run `arbor me create` first",
+      "This local profile is not bound to a self-certifying person identity; run `story me create` first",
       409,
       { path },
     );
@@ -90,7 +90,7 @@ async function claimAccountProfileBootstrap(
     throw new ProtocolError("credential-unavailable", `The private identity key for ${profileTree} is unavailable`, 409, { path });
   }
 
-  const pendingPath = join(arborPrivateRoot(), "bootstrap-account-claim.json");
+  const pendingPath = join(overstoryPrivateRoot(), "bootstrap-account-claim.json");
   let pending: PendingAccountClaimBootstrap | undefined;
   try { pending = JSON.parse(await readFile(pendingPath, "utf8")) as PendingAccountClaimBootstrap; }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
@@ -130,7 +130,7 @@ async function claimAccountProfileBootstrap(
     if (existingAccounts.some((candidate) => candidate.configurationTree === configurationTree)) {
       throw new ProtocolError("conflict", "This profile already has an account in this data home; a profile has one home host", 409);
     }
-    const deviceID = generateArborID("dv");
+    const deviceID = generateOverstoryID("dv");
     // The device's key seed waits in the credential slot until the claim lands.
     credential = generateDeviceKeySeed();
     const key = deviceKeyFromSeed(credential);
@@ -139,7 +139,7 @@ async function claimAccountProfileBootstrap(
     const initial = initialPersonConfig(profileTree, { id: deviceID, label, key });
     const configuration = treeConfigSources({ ...initial, access: [...initial.access, { who: "everyone", allow: ["read"] }] });
     const files: Record<string, string> = { ...configuration, placements: "{}\n" };
-    const staging = join(arborPrivateRoot(), `bootstrap-account-config-${crypto.randomUUID()}`);
+    const staging = join(overstoryPrivateRoot(), `bootstrap-account-config-${crypto.randomUUID()}`);
     await mkdir(staging, { recursive: true, mode: 0o700 });
     try {
       for (const [name, source] of Object.entries(configuration)) await writeFile(join(staging, name), source, { mode: 0o600 });
@@ -159,7 +159,7 @@ async function claimAccountProfileBootstrap(
         configuration: persistableBootstrapSnapshot(await resolveSnapshot(await snapshotDirectory(staging))),
       };
       await new HostAccountStore(configurationTree).storeProvisionalCredential(credential);
-      await mkdir(arborPrivateRoot(), { recursive: true, mode: 0o700 });
+      await mkdir(overstoryPrivateRoot(), { recursive: true, mode: 0o700 });
       const temporary = `${pendingPath}.${crypto.randomUUID()}.tmp`;
       await writeFile(temporary, `${JSON.stringify(pending)}\n`, { mode: 0o600 });
       await rename(temporary, pendingPath);
@@ -244,7 +244,7 @@ async function claimAccountProfileBootstrap(
   for (const [name, source] of Object.entries(pending.files)) {
     if (name !== "placements") await install(join(accountPath, name), source);
   }
-  const placementsPath = join(arborDataRoot(), "placements.yaml");
+  const placementsPath = join(storyDataRoot(), "placements.yaml");
   if (!await stat(placementsPath).then(() => true).catch(() => false)) {
     await install(placementsPath, pending.files.placements ?? "{}\n");
   }
@@ -288,14 +288,14 @@ export async function claimHostAccountBootstrap(
   displayName?: string,
   inviteCode?: string,
 ): Promise<MutationReceipt["effects"]> {
-  return withLocalStateLock(join(arborPrivateRoot(), "account-bootstrap-lock.sqlite"),
+  return withLocalStateLock(join(overstoryPrivateRoot(), "account-bootstrap-lock.sqlite"),
     () => claimAccountProfileBootstrap(deps, accountLocator, inputPath, displayName, inviteCode));
 }
 
 /** Only preparations which have never been submitted can be abandoned. */
 export async function cancelPendingAccountClaim(): Promise<void> {
-  await withLocalStateLock(join(arborPrivateRoot(), "account-bootstrap-lock.sqlite"), async () => {
-    const path = join(arborPrivateRoot(), "bootstrap-account-claim.json");
+  await withLocalStateLock(join(overstoryPrivateRoot(), "account-bootstrap-lock.sqlite"), async () => {
+    const path = join(overstoryPrivateRoot(), "bootstrap-account-claim.json");
     let pending: PendingAccountClaimBootstrap;
     try { pending = JSON.parse(await readFile(path, "utf8")); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }

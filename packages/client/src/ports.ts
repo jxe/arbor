@@ -1,4 +1,4 @@
-import type { TreeID, WorkspaceChange, WorkspaceEvent } from "@overstory/protocol";
+import type { TreeID, WorkspaceChange, WorkspaceEvent } from "@ovst/protocol";
 
 /**
  * The daemon-owned objects the Canopy client needs, expressed as narrow ports

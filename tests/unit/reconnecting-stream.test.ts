@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { observationReconnectDelay, reconnectingStream } from "@overstory/protocol";
+import { observationReconnectDelay, reconnectingStream } from "@ovst/protocol";
 
 test("the reconnect schedule matches Swift's: 250 ms doubling, capped", () => {
   expect([0, 1, 2, 3, 4, 5, 9].map((failures) => observationReconnectDelay(failures))).toEqual([250, 500, 1_000, 2_000, 4_000, 5_000, 5_000]);

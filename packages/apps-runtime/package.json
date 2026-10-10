@@ -1,5 +1,5 @@
 {
-  "name": "@overstory/apps-runtime",
+  "name": "@ovst/apps-runtime",
   "version": "0.1.0",
   "description": "Executable-document runtime: query lowering and execution, live result streams, transactional mutations, the overstory/data authoring API, and the projection-provider contract types.",
   "type": "module",
@@ -9,7 +9,7 @@
     "./collections": "./src/collections/index.ts"
   },
   "dependencies": {
-    "@overstory/protocol": "workspace:*",
+    "@ovst/protocol": "workspace:*",
     "yaml": "2.8.2"
   }
 }

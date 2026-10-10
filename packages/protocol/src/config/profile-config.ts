@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Diagnostic, TreeID } from "../index.ts";
 import { writeAtomic } from "../model/file-ops.ts";
 import { parseDocument, type Document } from "yaml";
-import { arborDataRoot, arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
+import { storyDataRoot, overstoryPrivateRoot, prepareStoryDataRoot } from "./private-state.ts";
 import { HostAccountStore } from "./server-config.ts";
 import {
   checkTreeConfig,
@@ -27,7 +27,7 @@ export interface ProfileConfigurationSnapshot {
   configurationTree: TreeID;
   path: string;
   /** The Canopy origin of the account's connection. */
-  canopy?: string;
+  host?: string;
   /** The person profile whose configuration this is. */
   profile?: TreeID;
   configuration?: TreeConfigValues;
@@ -61,7 +61,7 @@ export function parseAccountDevicesConfiguration(source: string): Record<string,
 }
 
 export function configurationsRoot(): string {
-  return join(arborDataRoot(), "configurations");
+  return join(storyDataRoot(), "configurations");
 }
 
 export function configurationCheckoutPath(configurationTree: string): string {
@@ -83,7 +83,7 @@ export function configurationCheckoutPath(configurationTree: string): string {
  *   when it throws, the file on disk is untouched.
  * - The new source replaces the file atomically (temporary file + rename), so
  *   the daemon's checkout watcher only ever observes complete files.
- * - Nothing here talks to the daemon. The checkout is a placed folder: Arbor Sync
+ * - Nothing here talks to the daemon. The checkout is a placed folder: Story Sync
  *   watches it and pushes the edit like any other placement, and callers that
  *   need it pushed before they exit ask the daemon to synchronize afterwards.
  *
@@ -107,7 +107,7 @@ export async function editProfileConfigurationFile(
 }
 
 function currentDeviceStatePath(configurationTree: string): string {
-  return join(arborPrivateRoot(), "accounts", configurationTreeID(configurationTree), "device.json");
+  return join(overstoryPrivateRoot(), "accounts", configurationTreeID(configurationTree), "device.json");
 }
 
 export async function currentAccountDeviceID(configurationTree: string): Promise<string | undefined> {
@@ -121,10 +121,10 @@ export async function currentAccountDeviceID(configurationTree: string): Promise
 }
 
 export async function saveCurrentAccountDeviceID(configurationTree: string, idValue: string): Promise<void> {
-  await prepareArborDataRoot();
+  await prepareStoryDataRoot();
   const id = deviceID(idValue, "current account device");
   const destination = currentDeviceStatePath(configurationTree);
-  await mkdir(join(arborPrivateRoot(), "accounts", configurationTreeID(configurationTree)), { recursive: true, mode: 0o700 });
+  await mkdir(join(overstoryPrivateRoot(), "accounts", configurationTreeID(configurationTree)), { recursive: true, mode: 0o700 });
   const temporary = `${destination}.${crypto.randomUUID()}.tmp`;
   try {
     await writeFile(temporary, `${JSON.stringify({ id })}\n`, { mode: 0o600 });
@@ -138,7 +138,7 @@ export async function saveCurrentAccountDeviceID(configurationTree: string, idVa
 const ACCOUNT_FILES = ["access.yaml", "mounts.yaml", "apps.yaml", "devices.yaml"] as const;
 
 export async function loadProfileConfiguration(configurationTreeInput: string): Promise<ProfileConfigurationSnapshot> {
-  await prepareArborDataRoot();
+  await prepareStoryDataRoot();
   const configurationTree = configurationTreeID(configurationTreeInput);
   const path = configurationCheckoutPath(configurationTree);
   const diagnostics: Diagnostic[] = [];
@@ -192,7 +192,7 @@ export async function loadProfileConfiguration(configurationTreeInput: string): 
   return {
     configurationTree,
     path,
-    ...(connection ? { canopy: connection.origin, profile: connection.profileTree } : {}),
+    ...(connection ? { host: connection.origin, profile: connection.profileTree } : {}),
     ...(configuration ? { configuration } : {}),
     ...(devices ? { devices } : {}),
     ...(current && devices?.[current] ? { currentDevice: devices[current] } : {}),
@@ -202,7 +202,7 @@ export async function loadProfileConfiguration(configurationTreeInput: string): 
 }
 
 export async function loadProfileConfigurations(): Promise<ProfileConfigurationSnapshot[]> {
-  await prepareArborDataRoot();
+  await prepareStoryDataRoot();
   let names: string[];
   try { names = await readdir(configurationsRoot()); }
   catch (error) {

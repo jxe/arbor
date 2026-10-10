@@ -1,22 +1,22 @@
 [
   {
     "sourceDirectory": "/",
-    "href": "Nothing-w-o-self-contact-care-for-my-misgivings#arbor-key=id:x6baw0",
+    "href": "Nothing-w-o-self-contact-care-for-my-misgivings#overstory-key=id:x6baw0",
     "expected": {"tree": null, "path": "/Nothing-w-o-self-contact-care-for-my-misgivings", "stableKey": "[[\"id\",\"x6baw0\"]]"}
   },
   {
     "sourceDirectory": "/",
-    "href": "arbor://tr_owozr6aegt5z7x6qyllvzljl5u/node/Nothing-w-o-self-contact-care-for-my-misgivings?stableKey=%5B%5B%22id%22,%22x6baw0%22%5D%5D",
+    "href": "overstory://tr_owozr6aegt5z7x6qyllvzljl5u/node/Nothing-w-o-self-contact-care-for-my-misgivings?stableKey=%5B%5B%22id%22,%22x6baw0%22%5D%5D",
     "expected": {"tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "path": "/node/Nothing-w-o-self-contact-care-for-my-misgivings", "stableKey": null}
   },
   {
     "sourceDirectory": "/",
-    "href": "arbor://tr_owozr6aegt5z7x6qyllvzljl5u/Nothing-w-o-self-contact-care-for-my-misgivings;arbor-key=id:x6baw0",
+    "href": "overstory://tr_owozr6aegt5z7x6qyllvzljl5u/Nothing-w-o-self-contact-care-for-my-misgivings;overstory-key=id:x6baw0",
     "expected": {"tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "path": "/Nothing-w-o-self-contact-care-for-my-misgivings", "stableKey": "[[\"id\",\"x6baw0\"]]"}
   },
   {
     "sourceDirectory": "/",
-    "href": "arbor://tr_owozr6aegt5z7x6qyllvzljl5u/node?stableKey=%5B%5B%22id%22,%22341rcu%22%5D%5D",
+    "href": "overstory://tr_owozr6aegt5z7x6qyllvzljl5u/node?stableKey=%5B%5B%22id%22,%22341rcu%22%5D%5D",
     "expected": {"tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "path": "/node", "stableKey": null}
   },
   {
@@ -31,22 +31,22 @@
   },
   {
     "sourceDirectory": "/projects",
-    "href": "../roadmap;arbor-key=id:341rcu",
+    "href": "../roadmap;overstory-key=id:341rcu",
     "expected": {"tree": null, "path": "/roadmap", "stableKey": "[[\"id\",\"341rcu\"]]"}
   },
   {
     "sourceDirectory": "/",
-    "href": "arbor://tr_qtwuy4ugt2f4yifj2gyv5ry72a/shared/note;arbor-key=id:341rcu",
+    "href": "overstory://tr_qtwuy4ugt2f4yifj2gyv5ry72a/shared/note;overstory-key=id:341rcu",
     "expected": {"tree": "tr_qtwuy4ugt2f4yifj2gyv5ry72a", "path": "/shared/note", "stableKey": "[[\"id\",\"341rcu\"]]"}
   },
   {
     "sourceDirectory": "/",
-    "href": "arbor://tr_owozr6aegt5z7x6qyllvzljl5u/node/child",
+    "href": "overstory://tr_owozr6aegt5z7x6qyllvzljl5u/node/child",
     "expected": {"tree": "tr_owozr6aegt5z7x6qyllvzljl5u", "path": "/node/child", "stableKey": null}
   },
   {
     "sourceDirectory": "/",
-    "href": "arbor://example.com/shared/note",
+    "href": "overstory://example.com/shared/note",
     "expected": null
   },
   {
@@ -71,7 +71,7 @@
   },
   {
     "sourceDirectory": "/projects",
-    "href": "atlas.md#arbor-key=id:lvcmy6",
+    "href": "atlas.md#overstory-key=id:lvcmy6",
     "expected": {"tree": null, "path": "/projects/atlas", "stableKey": "[[\"id\",\"lvcmy6\"]]"}
   },
   {

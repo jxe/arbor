@@ -87,7 +87,7 @@ export interface RemoteAccountDescriptor {
  */
 export interface RemotePlacementRoot {
   id: TreeID;
-  /** The canonical path the host mounts it at (canopyd: `/~handle`). */
+  /** The canonical path the host mounts it at (overstoryd: `/~handle`). */
   path: string;
   /** Its descriptor once its first snapshot activated it; null until then. */
   tree: RemoteTreeDescriptor | null;
@@ -103,7 +103,7 @@ export interface RemotePlacementAccountDescriptor extends Omit<RemoteAccountDesc
   placementRoot: RemotePlacementRoot;
 }
 
-/** `/.arbor/account`. Like the tree and directory lists it carries no
+/** `/.overstory/account`. Like the tree and directory lists it carries no
  * observation cursor: a cursor spanning the whole host resumes no watch. */
 export interface RemoteAccountSnapshot {
   account: RemoteAccountDescriptor;
@@ -113,13 +113,13 @@ export interface RemotePlacementAccountSnapshot {
   account: RemotePlacementAccountDescriptor;
 }
 
-/** A host list read: `/.arbor/trees` and `/.arbor/directory`. */
+/** A host list read: `/.overstory/trees` and `/.overstory/directory`. */
 export interface RemoteSnapshot<T> {
   snapshot: T;
 }
 
-/** `/.arbor/trees/{TreeID}/access` (access control §4): the tree's rules, and
- * the `arbor://` locator of each profile a rule names by TreeID. */
+/** `/.overstory/trees/{TreeID}/access` (access control §4): the tree's rules, and
+ * the `overstory://` locator of each profile a rule names by TreeID. */
 export interface RemoteTreeAccess {
   policy: SafeResourceAccessRule[];
   locators: Record<TreeID, string>;
@@ -293,7 +293,7 @@ export class ProtocolClient {
         signal: init.signal ?? AbortSignal.timeout(this.timeoutMs),
       });
     } catch (error) {
-      throw new ProtocolTransportError(`Could not reach Arbor server at ${this.origin}`, error);
+      throw new ProtocolTransportError(`Could not reach Story server at ${this.origin}`, error);
     }
   }
 
@@ -315,12 +315,12 @@ export class ProtocolClient {
 
   /** The account descriptor as the host sent it, home or placement. */
   async anyAccount(): Promise<RemoteAccountSnapshot | RemotePlacementAccountSnapshot> {
-    const response = await this.checked(await this.request("/.arbor/account", { headers: this.headers() }));
+    const response = await this.checked(await this.request("/.overstory/account", { headers: this.headers() }));
     return response.json();
   }
 
   async createPairing(): Promise<PairingOffer> {
-    const response = await this.checked(await this.request("/.arbor/pairings", {
+    const response = await this.checked(await this.request("/.overstory/pairings", {
       method: "POST",
       headers: this.headers(true),
       body: "{}",
@@ -333,7 +333,7 @@ export class ProtocolClient {
     secret: string,
     device: DeviceEnrollment,
   ): Promise<PairingClaimResult> {
-    const response = await this.checked(await this.request(`/.arbor/pairings/${encodeURIComponent(id)}/claim`, {
+    const response = await this.checked(await this.request(`/.overstory/pairings/${encodeURIComponent(id)}/claim`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ secret, device }),
@@ -347,7 +347,7 @@ export class ProtocolClient {
     configurationTree: TreeID;
     inviteCode?: string;
   }): Promise<AccountChallenge> {
-    const response = await this.checked(await this.request("/.arbor/account-challenges", {
+    const response = await this.checked(await this.request("/.overstory/account-challenges", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
@@ -357,7 +357,7 @@ export class ProtocolClient {
 
   async joinAccount(input: ExistingProfileAccountRequest, options: { encoding?: WireEncoding } = {}): Promise<AccountClaimResult> {
     const encoding = options.encoding ?? this.encoding;
-    const response = await this.checked(await this.request("/.arbor/accounts", {
+    const response = await this.checked(await this.request("/.overstory/accounts", {
       method: "PUT",
       headers: { "content-type": WIRE_CONTENT_TYPE[encoding] },
       body: encodeWireBody({
@@ -377,12 +377,12 @@ export class ProtocolClient {
 
   /** A profile's key devices, as its home host publishes them for placement hosts (accounts §5.4). */
   async publishedDeviceKeys(profileTree: TreeID): Promise<PublishedDeviceKeys> {
-    const response = await this.checked(await this.request(`/.arbor/profiles/${encodeURIComponent(profileTree)}/device-keys`, {}));
+    const response = await this.checked(await this.request(`/.overstory/profiles/${encodeURIComponent(profileTree)}/device-keys`, {}));
     return decodePublishedDeviceKeys(await response.json(), profileTree);
   }
 
   async createDeviceSessionChallenge(input: { profileTree: TreeID; device: string }): Promise<DeviceSessionChallenge> {
-    const response = await this.checked(await this.request("/.arbor/device-sessions/challenges", {
+    const response = await this.checked(await this.request("/.overstory/device-sessions/challenges", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
@@ -392,7 +392,7 @@ export class ProtocolClient {
 
   /** Exchange a signed challenge for a session token at this host. */
   async openDeviceSession(challenge: DeviceSessionChallenge, signature: string): Promise<DeviceSession> {
-    const response = await this.checked(await this.request("/.arbor/device-sessions", {
+    const response = await this.checked(await this.request("/.overstory/device-sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ challenge, signature }),
@@ -401,18 +401,18 @@ export class ProtocolClient {
   }
 
   async list(): Promise<RemoteSnapshot<RemoteTreeDescriptor[]>> {
-    const response = await this.checked(await this.request("/.arbor/trees", { headers: this.headers() }));
+    const response = await this.checked(await this.request("/.overstory/trees", { headers: this.headers() }));
     return response.json();
   }
 
   async directory(): Promise<RemoteSnapshot<RemoteDirectoryEntry[]>> {
-    const response = await this.checked(await this.request("/.arbor/directory", { headers: this.headers() }));
+    const response = await this.checked(await this.request("/.overstory/directory", { headers: this.headers() }));
     return response.json();
   }
 
   /** The tree resource itself: its current descriptor and the cursor to watch after. */
   async descriptor(tree: string): Promise<CurrentTree> {
-    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}`, { headers: this.headers() }));
+    const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}`, { headers: this.headers() }));
     const value = await response.json() as { tree: RemoteTreeDescriptor; observedThrough: EventCursor };
     if (value.tree?.id !== tree || typeof value.tree.root !== "string" || !value.tree.update || typeof value.tree.conflicted !== "boolean" || typeof value.observedThrough !== "string" || !value.observedThrough) throw new Error("Tree descriptor does not match its tree");
     return { tree: value.tree, observedThrough: value.observedThrough };
@@ -421,7 +421,7 @@ export class ProtocolClient {
   async conflicts(tree: string, state: string, root: string, options: { after?: string; conflict?: string } = {}): Promise<DecisionPage> {
     if (options.after !== undefined && options.conflict !== undefined) throw new Error("Conflicting inspection options");
     const query = new URLSearchParams({ state, ...options });
-    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/conflicts?${query}`, { headers: this.headers() }));
+    const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/conflicts?${query}`, { headers: this.headers() }));
     return decodeDecisionPage(await response.json(), { tree, state, root });
   }
 
@@ -436,7 +436,7 @@ export class ProtocolClient {
     expectProgress();
     try {
       const response = await this.checked(await this.request(
-        `/.arbor/trees/${encodeURIComponent(tree)}/snapshots/${root}`,
+        `/.overstory/trees/${encodeURIComponent(tree)}/snapshots/${root}`,
         {
           headers: { ...this.headers(), accept: "application/cbor" },
           signal: controller.signal,
@@ -475,7 +475,7 @@ export class ProtocolClient {
 
 
   async resolve(path: string): Promise<LocatorResolution> {
-    const response = await this.checked(await this.request(`/.well-known/arbor${encodedCanonicalPath(path)}`, {
+    const response = await this.checked(await this.request(`/.well-known/overstory${encodedCanonicalPath(path)}`, {
       headers: this.headers(),
     }));
     return response.json();
@@ -483,11 +483,11 @@ export class ProtocolClient {
 
   /**
    * The configuration of the tree whose canonical root is `path`
-   * (`/~joe/todos;arbor-config`). Hosts answer only the tree's
+   * (`/~joe/todos;overstory-config`). Hosts answer only the tree's
    * administrators; anyone else gets the 404 of an unreadable tree.
    */
   async resolveConfiguration(path: string): Promise<LocatorResolution> {
-    const response = await this.checked(await this.request(`/.well-known/arbor${encodedCanonicalPath(path) || "/"};arbor-config`, {
+    const response = await this.checked(await this.request(`/.well-known/overstory${encodedCanonicalPath(path) || "/"};overstory-config`, {
       headers: this.headers(),
     }));
     return response.json();
@@ -515,7 +515,7 @@ export class ProtocolClient {
 
   /**
    * Declare a tree: the first snapshot of its configuration, addressed as
-   * `tr_x;arbor-config`. The tree stays awaiting initialization until an
+   * `tr_x;overstory-config`. The tree stays awaiting initialization until an
    * administrator submits its own first snapshot with a null base.
    */
   async declareTree(tree: string, configuration: TreeSnapshot, options: { change?: string } = {}): Promise<UpdateResult> {
@@ -536,10 +536,10 @@ export class ProtocolClient {
    */
   async submitUpdates(tree: string, request: UpdateRequest, options: { encoding?: WireEncoding } = {}): Promise<UpdateResponse> {
     const encoding = options.encoding ?? this.encoding;
-    // A `tr_x;arbor-config` reference is answered under the configuration's TreeID.
-    const reference = /^tr_[a-z2-7]+;arbor-config$/.test(tree) ? parseTreeReference(tree) : null;
+    // A `tr_x;overstory-config` reference is answered under the configuration's TreeID.
+    const reference = /^tr_[a-z2-7]+;overstory-config$/.test(tree) ? parseTreeReference(tree) : null;
     const expected = updateRequestDigests(reference ? treeConfigurationID(reference.tree) : tree, request);
-    const response = await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates`, {
+    const response = await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/updates`, {
       method: "POST",
       headers: { ...this.headers(), "content-type": WIRE_CONTENT_TYPE[encoding], accept: WIRE_CONTENT_TYPE[encoding] },
       body: encodeWireBody(encodeUpdateRequestJSON(request, encoding), encoding) as Uint8Array<ArrayBuffer>,
@@ -576,7 +576,7 @@ export class ProtocolClient {
 
   async access(tree: string): Promise<RemoteTreeAccess> {
     const response = await this.checked(await this.request(
-      `/.arbor/trees/${encodeURIComponent(tree)}/access`,
+      `/.overstory/trees/${encodeURIComponent(tree)}/access`,
       { headers: this.headers() },
     ));
     return response.json();
@@ -601,7 +601,7 @@ export class ProtocolClient {
     };
     expectBytes();
     try {
-      const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/watch${query}`, {
+      const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/watch${query}`, {
         headers: { ...this.headers(), accept: "text/event-stream" },
         signal: options.signal ? AbortSignal.any([options.signal, idle.signal]) : idle.signal,
       }));
@@ -625,24 +625,24 @@ export class ProtocolClient {
     for await (const frame of parseSSEStream(body)) {
       if (!frame.data) continue;
       if (frame.event === "tree.update") {
-        if (!frame.id) throw new Error("Malformed Arbor watch event: no cursor");
+        if (!frame.id) throw new Error("Malformed Story watch event: no cursor");
         let change: AcceptedWatchChange<NonNullable<RemoteTreeDescriptor["canonical"]>>;
         try { change = decodeAcceptedWatchChange(JSON.parse(frame.data), tree); }
-        catch (error) { throw new Error(`Malformed Arbor watch event: ${error instanceof Error ? error.message : String(error)}`); }
+        catch (error) { throw new Error(`Malformed Story watch event: ${error instanceof Error ? error.message : String(error)}`); }
         yield { kind: "tree.update", cursor: frame.id, tree, access: change.access, canonical: change.canonical, transition: change.transition };
       } else if (frame.event === "resync-required") {
         const reason = (JSON.parse(frame.data) as { reason?: unknown } | null)?.reason;
-        if (typeof reason !== "string") throw new Error("Malformed Arbor watch event: resync without a reason");
+        if (typeof reason !== "string") throw new Error("Malformed Story watch event: resync without a reason");
         yield { kind: "resync-required", tree, reason };
         return;
       } else {
-        throw new Error("Malformed Arbor watch event: unsupported kind");
+        throw new Error("Malformed Story watch event: unsupported kind");
       }
     }
   }
 
   async object(tree: TreeID, hash: string): Promise<Uint8Array> {
-    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/objects/${hash}`, {
+    const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/objects/${hash}`, {
       headers: this.headers(),
     }));
     const bytes = new Uint8Array(await response.arrayBuffer());

@@ -1,25 +1,25 @@
-# canopyd 007: Document history routes, restore, and the History view
+# overstoryd 007: Document history routes, restore, and the History view
 
-**Why and when:** parked. Seeing and restoring earlier versions of a page; it also decides how long document versions are kept, which is most of what canopyd retains.
+**Why and when:** parked. Seeing and restoring earlier versions of a page; it also decides how long document versions are kept, which is most of what overstoryd retains.
 
 Historical identifier: **Smaller project 007**, formerly "Surface accepted document
-history from canopyd". Its storage half shipped with canopyd 013
-([closeout](../../status.md#canopyd-011-012-and-013-closeout--2026-09-22)); this plan is
+history from overstoryd". Its storage half shipped with overstoryd 013
+([closeout](../../status.md#overstoryd-011-012-and-013-closeout--2026-09-22)); this plan is
 what remains.
 
 ## Status
 
 - **Effort:** L
-- **Risk:** HIGH — an authenticated canopyd route that enumerates deleted
+- **Risk:** HIGH — an authenticated overstoryd route that enumerates deleted
   source, and a visible restore action whose meaning changes
 - **State:** PLANNED. Refreshed 2026-09-24 after migration 016 and the working-tree redesign.
-- **Depends on:** nothing. Execute before [canopyd 006](006-line-provenance.md),
+- **Depends on:** nothing. Execute before [overstoryd 006](006-line-provenance.md),
   which reuses the same index.
 
 ## Target result
 
 **History** on a Markdown page lists that document's accepted versions, newest
-first, from canopyd. **Restore as New Change** fetches one version's exact
+first, from overstoryd. **Restore as New Change** fetches one version's exact
 source and submits it as an ordinary new edit through the change log, so every
 later accepted version stays in history. Trash recovery is a separate repair
 tool and never appears as History.
@@ -29,7 +29,7 @@ tool and never appears as History.
 - **The index.** `document_versions (tree_id, stable_key, update_id,
   entry_path, content_hash, accepted_at)` is written inside every accepted
   transaction by `EntryMetadataStore.apply`
-  (`packages/canopyd/src/updates/entry-metadata.ts`) and was backfilled from all
+  (`packages/overstoryd/src/updates/entry-metadata.ts`) and was backfilled from all
   retained history. The row order (rowid) is accepted order. Keys are
   `id:<PageID>` when the frontmatter names exactly one `id:`, otherwise
   `path:<entry path>`, so an unidentified page's history stops at its first
@@ -39,17 +39,17 @@ tool and never appears as History.
   not a version, and deleted documents keep their rows. Duplicate IDs share one
   key: the routes must fail on them, not the index.
   Nothing reads it yet; the routes add the reader.
-- **Objects.** The retention definition (`packages/canopyd/src/retention.ts`)
+- **Objects.** The retention definition (`packages/overstoryd/src/retention.ts`)
   keeps every `document_versions.content_hash`, so a version's body always
   resolves through the object store even though migration 016 squashed each
   tree's history to its head.
 - **Clients.** `WorkspaceDocumentSession.history()` / `recover(revision:)` is the
   UI seam. `WorkingTreeProvider` throws "Canopy history is not available yet", and
-  `CanopyDocumentBinding.history()` flushes and delegates to it, so History
+  `StoryDocumentBinding.history()` flushes and delegates to it, so History
   shows an empty state today (the editor recovery store that used to supply
-  local copies is gone). `CanopyHistoryView` already says **History** and **Restore as New
+  local copies is gone). `StoryHistoryView` already says **History** and **Restore as New
   Change**. Every editor is a direct Canopy client with its own credential, so
-  history comes from canopyd directly: no Arbor Sync proxy, no local copy.
+  history comes from overstoryd directly: no Story Sync proxy, no local copy.
 
 ## Decide first
 
@@ -79,8 +79,8 @@ type DocumentHistoryVersion = DocumentHistoryEntry & { source: string }; // exac
 ```
 
 ```text
-GET /.arbor/trees/{TreeID}/history?path={logical-path}&cursor={cursor}
-GET /.arbor/trees/{TreeID}/history/{update}?path={logical-path}
+GET /.overstory/trees/{TreeID}/history?path={logical-path}&cursor={cursor}
+GET /.overstory/trees/{TreeID}/history/{update}?path={logical-path}
 ```
 
 The server resolves `path` in the current accepted root to its body entry and
@@ -99,7 +99,7 @@ key (the same `documentKey` rule), then reads the index. Freeze in
    a limit returns a typed error, never a short page that looks complete.
 4. `source` is exact UTF-8, line endings and final newline included.
    Non-Markdown, invalid UTF-8, missing and duplicate-ID cases fail explicitly.
-5. Restore never rewinds canopyd: the client submits the fetched source as a new
+5. Restore never rewinds overstoryd: the client submits the fetched source as a new
    edit through the change log and the ordinary update and conflict handling.
 
 Changing who may enumerate history is a STOP for an explicit threat-model
@@ -109,14 +109,14 @@ decision.
 
 1. **Contract.** Spec text, strict TS and Swift models/decoders, and
    language-neutral fixtures that both accept and reject identically.
-2. **canopyd.** A history reader over `document_versions` (authorization, path
+2. **overstoryd.** A history reader over `document_versions` (authorization, path
    → key, pagination, exact-source fetch) separate from HTTP, then the two host
    routes. Tests: initial history, identical re-saves, edits, identified and
    unidentified moves, delete/recreate, duplicate IDs, merged updates,
    pagination and bounds, wrong tree, revoked credential, read-only/public/link
    denial.
 3. **Clients.** `ProtocolClient.history`/`historyVersion`;
-   `WorkingTreeProvider` sessions return canopyd history. `recover` verifies
+   `WorkingTreeProvider` sessions return overstoryd history. `recover` verifies
    tree, path and content hash, then appends the source to the change log as a
    new change. Cover
    stale/current races and a conflict that preserves live editor text.
@@ -129,8 +129,8 @@ decision.
 
 - `bun run typecheck`, `bun run test`, `bun run test:protocol`,
   `swift test --package-path swift/Packages/Overstory` and
-  `swift/Packages/CanopyWorkingTree`, `swift/scripts/test-canopy-editor-local.sh`,
-  and macOS and iOS app builds through `swift/Canopy.local.xcworkspace`.
+  `swift/Packages/OverstoryWorkingTree`, `swift/scripts/test-story-editor-local.sh`,
+  and macOS and iOS app builds through `swift/Story.local.xcworkspace`.
 - Manual on Mac and iPhone: restore an older version online and see the previous
   latest version still listed after acceptance; offline, History reports that
   Canopy is unreachable.

@@ -1,18 +1,18 @@
 {
-  "name": "@overstory/cli",
+  "name": "@ovst/cli",
   "version": "0.1.0",
-  "description": "The arbor command: daemon, identity, placement, cloud sessions, and tree operations.",
+  "description": "The story command: daemon, identity, placement, cloud sessions, and tree operations.",
   "type": "module",
   "dependencies": {
-    "@overstory/arborsync": "workspace:*",
-    "@overstory/canopyd": "workspace:*",
-    "@overstory/client": "workspace:*",
-    "@overstory/fs": "workspace:*",
-    "@overstory/protocol": "workspace:*",
+    "@ovst/story-sync": "workspace:*",
+    "@ovst/overstoryd": "workspace:*",
+    "@ovst/client": "workspace:*",
+    "@ovst/fs": "workspace:*",
+    "@ovst/protocol": "workspace:*",
     "yaml": "2.8.2"
   },
   "bin": {
-    "arbor": "./src/index.ts"
+    "story": "./src/index.ts"
   },
   "engines": {
     "bun": ">=1.4.2"

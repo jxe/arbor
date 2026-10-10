@@ -13,12 +13,12 @@ import {
   type CloudBundlePayload,
 } from "../../packages/cli/src/cloud.ts";
 
-const originalCloudHome = process.env.ARBOR_CLOUD_HOME;
+const originalCloudHome = process.env.STORY_CLOUD_HOME;
 const temporaryHomes: string[] = [];
 
 afterEach(async () => {
-  if (originalCloudHome === undefined) delete process.env.ARBOR_CLOUD_HOME;
-  else process.env.ARBOR_CLOUD_HOME = originalCloudHome;
+  if (originalCloudHome === undefined) delete process.env.STORY_CLOUD_HOME;
+  else process.env.STORY_CLOUD_HOME = originalCloudHome;
   await Promise.all(temporaryHomes.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -53,10 +53,10 @@ describe("cloud bundle strings", () => {
   });
 
   test("decodes a bundle Canopy's Share panel encoded", () => {
-    // The form `CanopyCloudBundle.encode` (swift/CanopyApp/CanopyAgentBundle.swift)
+    // The form `StoryCloudBundle.encode` (swift/StoryApp/StoryAgentBundle.swift)
     // makes: raw DEFLATE of sorted-key JSON, which must stay readable here.
-    const fromCanopy = "arbor-cloud-v2.cb_0123456789abcdefghij.nZHBT8MgFMb_lYWzXWnV6npb4sXowei8aMxC4bVlUqgUcHOZf7uv63QXXVTCgTx-7_HxfWvCODdeO5KT2rm2y-O4YlaAHsOSNa2C-H1hgBx9cpcXSO7OUYL1wmuhYFvmxZwm6fHJaXZ2PmEFF1BWtVwgxI0uZeUtc9LomQVA2tn5nnlWjTbti-2cD6_L1dsw5bv7fpoF5kBMe9EpTbOITiKazZI0pxT3mFL6gJiAIPmgTIQDb32hV7C6AxDIT3-_sFuxAlTfVYF2o9LYETei98xYWUn9o7VItIpxaLCtI_njmnCmjZacqfvb68OJxLsnLCg0NcANc3UfwVB1aPH242jy3y32gWyeUJs1pVSwj-sfaXkUE8B2GDvJ080H";
-    expect(decodeCloudBundle(fromCanopy)).toEqual(payload({
+    const fromOverstoryd = "arbor-cloud-v2.cb_0123456789abcdefghij.nZHBT8MgFMb_lYWzXWnV6npb4sXowei8aMxC4bVlUqgUcHOZf7uv63QXXVTCgTx-7_HxfWvCODdeO5KT2rm2y-O4YlaAHsOSNa2C-H1hgBx9cpcXSO7OUYL1wmuhYFvmxZwm6fHJaXZ2PmEFF1BWtVwgxI0uZeUtc9LomQVA2tn5nnlWjTbti-2cD6_L1dsw5bv7fpoF5kBMe9EpTbOITiKazZI0pxT3mFL6gJiAIPmgTIQDb32hV7C6AxDIT3-_sFuxAlTfVYF2o9LYETei98xYWUn9o7VItIpxaLCtI_njmnCmjZacqfvb68OJxLsnLCg0NcANc3UfwVB1aPH242jy3y32gWyeUJs1pVSwj-sfaXkUE8B2GDvJ080H";
+    expect(decodeCloudBundle(fromOverstoryd)).toEqual(payload({
       label: "Agent for code",
       placements: [{ ...payload().placements[0]!, relativePath: "code" }],
     }));
@@ -86,9 +86,9 @@ describe("cloud bundle strings", () => {
   });
 
   test("safe registry never stores the device key or placements", async () => {
-    const home = await mkdtemp(join(tmpdir(), "arbor-cloud-registry-"));
+    const home = await mkdtemp(join(tmpdir(), "story-cloud-registry-"));
     temporaryHomes.push(home);
-    process.env.ARBOR_CLOUD_HOME = home;
+    process.env.STORY_CLOUD_HOME = home;
     await saveCloudBundleRecord({
       bundleID: "cb_0123456789abcdefghij",
       label: "Cloud agent",
@@ -112,9 +112,9 @@ describe("cloud bundle strings", () => {
   });
 
   test("safe registry keeps the placed TreeIDs and rejects malformed ones", async () => {
-    const home = await mkdtemp(join(tmpdir(), "arbor-cloud-registry-trees-"));
+    const home = await mkdtemp(join(tmpdir(), "story-cloud-registry-trees-"));
     temporaryHomes.push(home);
-    process.env.ARBOR_CLOUD_HOME = home;
+    process.env.STORY_CLOUD_HOME = home;
     const record = {
       bundleID: "cb_0123456789abcdefghij",
       label: "Cloud agent",
@@ -132,9 +132,9 @@ describe("cloud bundle strings", () => {
   });
 
   test("rejects injected registry fields instead of echoing them", async () => {
-    const home = await mkdtemp(join(tmpdir(), "arbor-cloud-registry-corrupt-"));
+    const home = await mkdtemp(join(tmpdir(), "story-cloud-registry-corrupt-"));
     temporaryHomes.push(home);
-    process.env.ARBOR_CLOUD_HOME = home;
+    process.env.STORY_CLOUD_HOME = home;
     await writeFile(join(home, "bundles.json"), JSON.stringify([{
       bundleID: "cb_0123456789abcdefghij",
       label: "Cloud agent",

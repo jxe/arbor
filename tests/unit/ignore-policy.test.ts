@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadIgnorePolicy } from "@overstory/fs";
+import { loadIgnorePolicy } from "@ovst/fs";
 
 interface IgnoreCase {
   name: string;
@@ -30,7 +30,7 @@ async function place(root: string, path: string, bytes: string | Uint8Array): Pr
 describe("the shared ignore fixture", () => {
   for (const item of cases) {
     test(item.name, async () => {
-      const root = await mkdtemp(join(tmpdir(), "arbor-ignore-case-"));
+      const root = await mkdtemp(join(tmpdir(), "story-ignore-case-"));
       temporaryPaths.push(root);
       for (const [path, text] of Object.entries(item.files)) await place(root, path, text);
       for (const [path, base64] of Object.entries(item.bytes ?? {})) await place(root, path, Buffer.from(base64, "base64"));
@@ -41,7 +41,7 @@ describe("the shared ignore fixture", () => {
       const decision = await policy.decision(item.path, item.isDirectory);
       expect(decision.membership).toBe(item.decision);
       if (decision.membership === "ignored") {
-        expect(decision.source).toMatch(/\/\.(git|arbor)ignore$/);
+        expect(decision.source).toMatch(/\/\.(git|story)ignore$/);
         expect(decision.pattern).toBeString();
       }
       expect(policy.diagnostics.map((diagnostic) => diagnostic.path)).toEqual(item.diagnostics ?? []);
@@ -51,7 +51,7 @@ describe("the shared ignore fixture", () => {
 
 describe("ignore policy diagnostics", () => {
   test("an ignore file that is not UTF-8 is named without its contents", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-ignore-utf8-"));
+    const root = await mkdtemp(join(tmpdir(), "story-ignore-utf8-"));
     temporaryPaths.push(root);
     await place(root, "sub/.gitignore", Buffer.from([0xff, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x0a]));
     const policy = await loadIgnorePolicy(root);
@@ -66,8 +66,8 @@ describe("ignore policy diagnostics", () => {
   });
 
   test("machine-private Git sources have no effect", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-ignore-private-"));
-    const home = await mkdtemp(join(tmpdir(), "arbor-ignore-home-"));
+    const root = await mkdtemp(join(tmpdir(), "story-ignore-private-"));
+    const home = await mkdtemp(join(tmpdir(), "story-ignore-home-"));
     temporaryPaths.push(root, home);
     await place(root, ".git/info/exclude", "*.secret\n");
     await place(root, ".git/config", "[core]\n\texcludesFile = " + join(home, "global-ignore") + "\n");

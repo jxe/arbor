@@ -1,0 +1,36 @@
+services:
+  story:
+    build:
+      context: ../../..
+      dockerfile: packages/overstoryd/deploy/Dockerfile.overstoryd
+    restart: unless-stopped
+    env_file: .env
+    command: ["bun", "run", "overstoryd", "serve"]
+    environment:
+      OVERSTORYD_COMMUNITY_HANDLE: ${COMMUNITY_HANDLE}
+      OVERSTORYD_FIRST_WRITER_HANDLE: ${FIRST_WRITER_HANDLE}
+      OVERSTORYD_FIRST_WRITER_PROFILE: ${FIRST_WRITER_PROFILE}
+    volumes:
+      - story-data:/data
+    expose:
+      - "4318"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - story
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  story-data:
+  caddy-data:
+  caddy-config:

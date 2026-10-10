@@ -18,7 +18,7 @@ more files, each run by both implementations:
 
 `node-model.json` freezes the provider-neutral model-sampling values (refs,
 identity rules, snapshots, child pages, collection-file descriptors) that the
-`@overstory/protocol` node-model decoders and the native model types share. Positive
+`@ovst/protocol` node-model decoders and the native model types share. Positive
 and negative cases are decoded independently by TypeScript and Swift. Unknown
 fields are forward-compatible, but legacy identity/location fields and
 incomplete known capabilities are explicitly invalid and cannot grant
@@ -47,7 +47,7 @@ pairings.
 
 `client-state-machines.json` freezes the transition scenarios of the one
 client synchronization machine, `working-tree-updates` (`UpdateMachine` in
-`CanopyWorkingTree`, `reduceUpdate` in `@overstory/working-tree`): a working tree
+`OverstoryWorkingTree`, `reduceUpdate` in `@ovst/working-tree`): a working tree
 publishes the local changes in its change log, whether an editor or a folder
 appended them. Changes, roots, updates, cursors, and digests are tokens. The
 fixture pins the reducers only; the runners' shared vectors are an
@@ -103,13 +103,13 @@ authority for the implemented subset; the request grammar itself is in
   edits, all in basis coordinates: each case's result, or whether it is refused
   as invalid or as an order basis coordinates do not decide. The Swift and
   TypeScript executors, both change logs (moves publish as `moveSource` before the
-  frame's edits) and canopyd's fast path (`arrangeSources`) run it.
+  frame's edits) and overstoryd's fast path (`arrangeSources`) run it.
 - `page-conversion-undo.json` checks paired Swift/TypeScript page-creation
   receipts, historical removal and redo target identities through queue restart.
 
-- `resource-policy.json`: shared valid/invalid `who` / `app` / `allow` / `within` grammar, `admin` and `apps.yaml` rules, a profile subject named by its locator at another host ([access control §1](../05-access-control.md#1-subjects-and-rules)), the locators' canonical spelling and origin (`locators`, [locators §1](../03-locators.md#1-forms)), whole `access.yaml` and `apps.yaml` rule lists (`validFiles` / `invalidFiles`: merge keys, which compare a locator in its canonical spelling), and the safe projection, which redacts a link and keeps a locator; consumed by `@overstory/protocol` and Swift `Overstory`.
-- `tree-configuration.json`: derived configuration TreeIDs, the graph by tree kind, validation, invariants and merge, consumed by `@overstory/protocol` (derivation also by Swift `Overstory`).
-- `device-keys.json`: device `key` encodings and their DER public keys, and the device-session challenges ([accounts §5](../04-accounts-and-devices.md#5-device-pairing)) with their exact canonical CBOR and signatures. Ed25519 signatures are deterministic and must match; the P-256 signature is one valid signature, to verify rather than reproduce. Consumed by `@overstory/protocol`, canopyd and Swift `Overstory`.
+- `resource-policy.json`: shared valid/invalid `who` / `app` / `allow` / `within` grammar, `admin` and `apps.yaml` rules, a profile subject named by its locator at another host ([access control §1](../05-access-control.md#1-subjects-and-rules)), the locators' canonical spelling and origin (`locators`, [locators §1](../03-locators.md#1-forms)), whole `access.yaml` and `apps.yaml` rule lists (`validFiles` / `invalidFiles`: merge keys, which compare a locator in its canonical spelling), and the safe projection, which redacts a link and keeps a locator; consumed by `@ovst/protocol` and Swift `Overstory`.
+- `tree-configuration.json`: derived configuration TreeIDs, the graph by tree kind, validation, invariants and merge, consumed by `@ovst/protocol` (derivation also by Swift `Overstory`).
+- `device-keys.json`: device `key` encodings and their DER public keys, and the device-session challenges ([accounts §5](../04-accounts-and-devices.md#5-device-pairing)) with their exact canonical CBOR and signatures. Ed25519 signatures are deterministic and must match; the P-256 signature is one valid signature, to verify rather than reproduce. Consumed by `@ovst/protocol`, overstoryd and Swift `Overstory`.
 
 ## Index
 

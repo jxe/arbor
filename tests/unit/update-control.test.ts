@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { decodeUpdateRequestJSON, encodeBase64 } from "@overstory/protocol";
+import { decodeUpdateRequestJSON, encodeBase64 } from "@ovst/protocol";
 import { attemptEncoding, attemptRequest, decodeControl, encodeAttempt, UpdateStateError } from "../../packages/working-tree/src/control.ts";
 
 const transport = JSON.parse(await readFile(new URL("../../docs/overstory-spec/conformance/protocol-authored-transport.json", import.meta.url), "utf8"));

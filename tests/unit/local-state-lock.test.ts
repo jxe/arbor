@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { withLocalStateLock } from "../../packages/client/src/local-state-lock.ts";
 
 test("setup locks are released by process death", async () => {
-  const root = await mkdtemp(join(tmpdir(), "arbor-setup-lock-"));
+  const root = await mkdtemp(join(tmpdir(), "story-setup-lock-"));
   const lock = join(root, "setup.sqlite");
   const source = new URL("../../packages/client/src/local-state-lock.ts", import.meta.url).pathname;
   const script = `import { withLocalStateLock } from ${JSON.stringify(source)};

@@ -17,9 +17,9 @@ first. The points below are the ones that most often go wrong for an agent.
   code. Reserve the full gate in DEVELOPMENT.md for periodic releases,
   live migrations or installs, or Joe's explicit request. Add `bun run
   test:protocol` when an HTTP route or response shape changes.
-- Never `swift build` or `swift test` the `CanopyEditor` package standalone
+- Never `swift build` or `swift test` the `StoryEditor` package standalone
   while its Quagmire dependency is in editable mode; use
-  `swift/scripts/test-canopy-editor-local.sh`, which preserves the
+  `swift/scripts/test-story-editor-local.sh`, which preserves the
   tracked lock. Commits, including those pushed to main, may use Quagmire
   API that is not yet released; local builds take it from the sibling
   checkout. Quagmire is released, and both pins bumped to that exact release,
@@ -32,4 +32,4 @@ first. The points below are the ones that most often go wrong for an agent.
   worktree-isolated agent's git commands are refused when they are too
   complex to prove they stay inside the worktree.
 - Live data, installed apps, and the public host are never changed without
-  Joe's explicit go-ahead. `/.arbor/integrity` is a full audit, not a probe; call it once, never poll it.
+  Joe's explicit go-ahead. `/.overstory/integrity` is a full audit, not a probe; call it once, never poll it.

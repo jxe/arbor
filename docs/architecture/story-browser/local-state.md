@@ -1,0 +1,198 @@
+# Canopy local state
+
+What the Canopy app keeps on disk on macOS and iOS: working trees, their change
+logs and update control, and diagnostic streams. The daemon's
+data home is in [the Story data home](../story-sync/data-home.md).
+
+## Native working trees
+
+iOS keeps each placed tree as a durable working tree beneath the app's private
+support directory, keyed by the percent-encoded `TreeID`:
+
+```text
+<Application Support>/Story/
+  WorkingTrees/<key>/
+    wire-format               # format marker the tree was placed under
+    materialized/tree.json    # WorkingTreeState, schema 2
+    control/heads.json        # materialized, accepted, and pending roots
+    journals/pages/<key>/     # crash journal for in-flight page transactions
+    indexes/search.json       # search and backlink index (format 2), rebuilt when its format or generation differs
+    objects/<hash>            # the overlay: this tree's own unaccepted objects
+  Sync/<key>/
+    sync/update-control.json  # UpdateControl, schema 2: attempt, durable head, hold, conflict
+    sync/objects/<hash>       # head objects too large to carry inline
+```
+
+Schema 2 node records hold a content reference, inline bytes or a hash with
+its size and media type, instead of raw bytes. Markdown source stays inline;
+every other file is a hash resolved on demand through the layered object store
+(`objects/` first, then overstoryd), so whole-tree hashing touches only directories
+and Markdown and the tree neither fetches nor retains every object. The state
+files are not decoded leniently: an older layout is re-placed from overstoryd
+rather than migrated in place. The format marker is `4` (content references,
+the `WorkingTrees/` layout, `update-control.json`); a phone placed under an
+older marker re-places from overstoryd on its next launch, which discards edits
+overstoryd has not accepted yet, so the phone is synchronized before the build
+that carries the new marker is installed.
+
+The Mac keeps no content store. The app opens a tree the daemon has placed as
+an in-memory working tree seeded from `GET /v1/bootstrap` (the folder's
+directories and Markdown, every other file by hash) with an in-memory overlay,
+and its platform object store is the control-mode daemon's `/v1/objects` route
+over the placed folder. The working tree is its own replica: it publishes to
+overstoryd directly and follows the open tree's watch itself (`HostWatchRunner`,
+one watch for the selected tree), while the daemon keeps its own watch for the
+folder. Two connections to one tree are deliberate: the daemon has no route
+that relays a host watch, and an idle watch costs one keepalive comment every
+20 seconds. Only the coordinator's durable update control is written beneath
+the app's support directory:
+
+```text
+<Application Support>/Story/
+  Native Placement.json       # the placed trees the app has opened; the selected one is restored at launch
+  Visits.json                 # app-side visit history: origin, tree descriptor, locator, time
+  WorkingTrees/<key>/
+    sync/update-control.json  # UpdateControl: attempt (adopted or own), durable head, hold, conflict
+    sync/objects/<hash>       # head objects too large to carry inline
+```
+
+The daemon's per-tree state, the folder itself, and the configuration checkout
+stay under the data home; the app edits the profile configuration's files
+under `~/.story/configurations/<cfg>/` (`mounts.yaml`, `apps.yaml`, `devices.yaml`,
+and `access.yaml` for the profile tree itself) on disk exactly as the CLI does
+and asks the daemon to synchronize. Other trees' configurations are read and
+edited through the host (`TreeConfigurationClient`). The Mac's identity and device keys are data-home state
+shared with the CLI and the daemon (the profile identity, each account's
+connection record and device key in the operating-system store), not the
+iOS app's Keychain stores. The data home owns them (Native 011 chose it over
+moving them into the app), so the daemon and the `story` command see the same
+accounts as the app. The app reaches them through `HostAccountService`, the
+one account interface both platforms implement: on the Mac,
+`StorySyncAccountService` reads the daemon's `GET /v1/accounts` and
+`GET /v1/credential` and creates, recovers or backs up the identity and claims
+or pairs an account through the daemon's onboarding routes, which write those
+stores; on iOS, `KeychainAccountService` keeps them in the app's Keychain.
+Pairing offers for another device go to the host directly with a session on
+both platforms. The Mac cannot forget an account from the app,
+and iOS cannot restore or back up an identity file; the service declares both
+as missing capabilities.
+Every device signs in with the device key it claimed or paired with
+([accounts §5.1](../../overstory-spec/04-accounts-and-devices.md#51-device-sessions)):
+on the Mac Story Sync holds it and `GET /v1/credential` returns sessions; on
+iOS it is a Secure Enclave P-256 key (a software key in the simulator), kept
+as a tagged value in the account's Keychain slot, and
+`AccountStoredCredentialProvider` opens hour-long sessions with it. A slot
+holding anything else is not used.
+A placement account ([accounts §1.3](../../overstory-spec/04-accounts-and-devices.md#13-placement-accounts))
+is a connection per (profile, placement host) that holds no key: every device
+signs in there with its own home device key, because the placement host
+accepts the devices the home host lists. The account panel lists an account's
+placements, adds another host, and removes a connection from the device. On the Mac the connections are the data home's
+(`accounts/<cfg>/placements/host-<hash>/`, see [the data home](../story-sync/data-home.md)),
+which the app reads and removes on disk (`DataHomePlacementStore`); adding a
+host asks the daemon to connect with the data home's device key
+(`POST /v1/bootstrap/placements`), and an older daemon without that route
+answers 405, for which the app points to `story place`. On the iPhone,
+Add another host… connects with the iPhone's own device key
+(`connectPlacement(on:)`). Either way the host's community must first
+reserve the profile's URL at its home host (accounts §1.3).
+The Mac places new folders under a placement root as `story place` does.
+Making a folder an Overstory tree offers each placement account of an
+account this Mac administers as a destination beside the home host
+(`~joe · orchard.example`); a canonical URL there must be at or below the
+placement account's URL. The app declares and mounts the tree on the
+placement host with a protocol client whose session the daemon opened there
+(`GET /v1/credential?configurationTree=…&origin=…`), writes
+`{tree, host}` into `placements.yaml`, and asks the daemon to synchronize.
+The placement account's own URL declares nothing while its root is inactive:
+the app writes the placement root's TreeID with the host, and the daemon
+activates the root with the folder's content. A tree placed on a placement
+host names it as its descriptor's `canonical.endpoint`; opening it, editing
+its working tree, its access and app rules, and its sidebar group use that
+host and the session there (`StorySyncCredentialProvider` is shared per
+account and host, and refetches from the daemon after a 401), never the home
+session. Agent codes cover home-host trees only. On iOS, `NativeAccountService.placeAccount`
+keeps each connection as a Keychain item named
+`<cfg>/host-<hash>`, the same key. A paired iPhone holds no profile key (it is
+kept only on the device that created it), so it cannot claim: it connects
+with its own device key to a placement already claimed from the Mac, and says
+so when there is none.
+The control-mode daemon is the only launchd process: the app
+attaches to it or launches it, never a per-folder daemon. Visits are the app's
+own: a remote tree opened by locator is a read-only in-memory working tree
+following that tree's Overstory watch, anonymous unless an account at the same
+origin holds a device key (a home account there, or else a placement
+connection there, whose session the home device key opens), with file bytes served by `/v1/objects?origin=`
+when the daemon is running and by overstoryd's object route otherwise.
+
+## Editor recovery
+
+There is no separate editor recovery store. Each committed editor generation
+is appended to the working tree's change log and acknowledged once that append
+is durable, and a reopened document shows its newest unsettled change, so the
+change log is the recovery record ([editor sources](../../implementing-editors/editor-source.md#4-recovery)).
+Input Quagmire has not committed when the process stops can still be lost. A
+failed append stays visible and keeps the edit in the editor until a retry.
+Story Sync's filesystem journal is not a backup of unsubmitted editor text.
+The recovery store earlier builds kept under
+`<Application Support>/Story/EditorRecovery` is no longer read or written.
+
+## Change logs
+
+Each working tree keeps its change log at `sync/change-log.json` with its
+objects under `sync/change-log-objects/`, separate from update control and
+from editor recovery. The complete journal is written to a private temporary
+file, fsynced, renamed, and its directory fsynced before a write returns;
+Swift locks concurrent writers and TypeScript serializes within the owning
+process. One process must own a state directory; cross-process ownership is
+not enforced. Opening a corrupt journal fails without rewriting it. A journal
+written under its earlier name, `sync/source-admissions.json` with
+`sync/source-admission-objects/`, is moved to the new names on first open.
+
+Journal schemas: 2 stores roots, ordered object hashes, and authored metadata;
+3 stores the protocol element verbatim with a capture summary; 4 stores one
+frame per record, reading a schema-3 flat operation list once as a single
+frame and rewriting it. A schema-4 record may also carry `transfer`: the
+destination document (reference, path and basis revision) of a Move to
+Document, whose one frame moves source out of the record's `document` and into
+it. A reader that ignores the field still publishes the record exactly; it only
+serves the destination's hidden candidate from other records. A fully settled
+journal of any schema retires without decoding. The TypeScript publisher records settlements in
+`sync/source-settlements.json`, written atomically only after the host has
+durably installed the request. The Mac's conflict review keeps
+`sync/conflict-review.json` (schema 3, reading 1 and 2) with exact drafts and
+pinned decision and alternative evidence; a submitted resolution is a change
+in the change log, and the journal names the draft it came from.
+
+Local update-control schema 5 holds the exact persisted request, the change it
+ends at, the held reason, settled changes, and the original-to-published change
+and operation-result mappings for coalesced publications. Compaction retains every
+member of a batch while any member is still needed. A late disjoint source branch
+can have a continuation publication with different surrounding roots, so its
+original candidate is not a valid basis for the server's reconciliation payload.
+Schema 4 reads with
+no mappings. A schema-3 control that still
+holds a snapshot head, a next base, or an attempt outside the change log is
+refused without being rewritten; a clean one converts.
+
+Local Trash is absent from protocol snapshots. Structural records retain
+private Trash nodes and their file objects so deletion survives another action
+or a restart, and empty-Trash state is retained after a restore so older
+records cannot resurrect it. Trashing emits one `removeEntry` per physical
+entry; restore is an ordinary snapshot. The iOS replica store retains every
+accepted object, so an older captured basis stays resolvable; no lifecycle
+policy bounds that store yet.
+
+## Diagnostic streams
+
+Each working tree's `sync/events.jsonl` records every update-control write:
+the machine phase, the persisted request's digest, tip change and candidate,
+the held reason, and the number of settled changes. Editor appends are in the
+unified log (`EditorSource`, `ChangeLog` categories) and in the network log as
+`change-log-append` notes. The app's network log,
+`<Application Support>/Story/Logs/network-YYYY-MM-DD.jsonl`, records one JSON
+line per update POST, watch connect, disconnect and frame, and tree read; it
+is also shown under Sync Status. Correlate it with the host's per-request log
+line through the accepted update id. Object reads that go through the local
+daemon do not appear in it. None of these streams contains authored source or
+credentials, and successful saves do not erase them.

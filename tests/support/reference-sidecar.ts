@@ -6,7 +6,7 @@
  * file three ways against that entry's root, and keeps the head's version of
  * a file both sides changed as a whole-file choice. Traces are read as
  * snapshots: a sidecar need not use them. Not an example to copy; the real
- * sidecar is `packages/canopyd-merge`.
+ * sidecar is `packages/overstoryd-merge`.
  *
  *   reference-sidecar.ts serve --objects DIR --staging DIR [--cache DIR, unused]
  */
@@ -14,7 +14,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { compareProtocolNames, decodeProtocolDirectory, encodeProtocolDirectory, type ProtocolDirectoryEntry } from "@overstory/protocol";
+import { compareProtocolNames, decodeProtocolDirectory, encodeProtocolDirectory, type ProtocolDirectoryEntry } from "@ovst/protocol";
 
 const args = process.argv.slice(2), option = (name: string) => args[args.indexOf(name) + 1]!;
 const shared = option("--objects"), staging = option("--staging");

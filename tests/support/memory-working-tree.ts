@@ -1,7 +1,7 @@
-import { decodeTreeSnapshotJSON, decodeProtocolDirectory, protocolEntryObject, type TreeSnapshot } from "@overstory/protocol";
+import { decodeTreeSnapshotJSON, decodeProtocolDirectory, protocolEntryObject, type TreeSnapshot } from "@ovst/protocol";
 import { prepareSourceChange, type AcceptedBase, type AcceptedSource, type AcceptedTree, type LocalChange,
-  type UpdateCoordinator } from "@overstory/working-tree";
-import type { ChangeLog } from "@overstory/working-tree/node";
+  type UpdateCoordinator } from "@ovst/working-tree";
+import type { ChangeLog } from "@ovst/working-tree/node";
 
 /**
  * An editor's working tree held in memory: the accepted state the runner

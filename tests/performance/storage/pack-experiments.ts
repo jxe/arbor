@@ -1,6 +1,6 @@
-/** Grouping experiments for canopyd 001 (pack object storage), run on a
- * copied data root: never point it at a data root a canopyd serves. It reads
- * `objects/` and `canopy.sqlite3`, writes candidate layouts under a work
+/** Grouping experiments for overstoryd 001 (pack object storage), run on a
+ * copied data root: never point it at a data root a overstoryd serves. It reads
+ * `objects/` and `overstoryd.sqlite3`, writes candidate layouts under a work
  * directory, replays read workloads against each, and prints one report.
  *
  * Layouts compared, all holding every object once under its own hash:
@@ -28,8 +28,8 @@ import { closeSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSyn
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { constants, zstdCompressSync, zstdDecompressSync } from "node:zlib";
-import { decodeProtocolDirectory, hashObject } from "@overstory/protocol";
-import { decodeLogEntry } from "@overstory/merge-protocol";
+import { decodeProtocolDirectory, hashObject } from "@ovst/protocol";
+import { decodeLogEntry } from "@ovst/merge-protocol";
 
 // ---- Inventory --------------------------------------------------------------
 
@@ -79,7 +79,7 @@ async function inventory(root: string, hotDays: number, progress: (m: string) =>
     }
   }
   progress(`${objects.size} objects read`);
-  const db = new Database(join(root, "canopy.sqlite3"), { readonly: true });
+  const db = new Database(join(root, "overstoryd.sqlite3"), { readonly: true });
   const rows = (db.query("SELECT ordinal, tree_id AS tree, root, entry, accepted_at AS at FROM accepted_updates ORDER BY ordinal").all() as Row[]);
   const versions = db.query("SELECT tree_id AS tree, stable_key AS key, content_hash AS hash FROM document_versions ORDER BY rowid").all() as Array<{ tree: string; key: string; hash: string }>;
   db.close();
@@ -533,7 +533,7 @@ if (import.meta.main) {
   const cacheBytes = Number(flag("--cache-mb") ?? 8) * 1048576;
   const hotDays = Number(flag("--hot-days") ?? 7);
   const jsonOut = flag("--json");
-  if (!root || !statSync(join(root, "canopy.sqlite3"), { throwIfNoEntry: false })) {
+  if (!root || !statSync(join(root, "overstoryd.sqlite3"), { throwIfNoEntry: false })) {
     console.error("usage: pack-experiments.ts <copied-data-root> [--work DIR] [--policies ...] [--sizes ...] [--levels ...] [--cache-mb 8] [--hot-days 7] [--incremental] [--quick] [--json FILE]");
     process.exit(2);
   }

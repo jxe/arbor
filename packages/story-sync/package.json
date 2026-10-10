@@ -1,0 +1,21 @@
+{
+  "name": "@ovst/story-sync",
+  "version": "0.1.0",
+  "description": "Story Sync, the local daemon: workspace, tree manager, loopback HTTP service, events, daemon-local state, and the story-sync command.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./cli": "./src/cli.ts",
+    "./state": "./src/state/index.ts"
+  },
+  "dependencies": {
+    "@ovst/protocol": "workspace:*",
+    "@ovst/client": "workspace:*",
+    "@ovst/working-tree": "workspace:*",
+    "@ovst/fs": "workspace:*",
+    "@ovst/apps-runtime": "workspace:*",
+    "@ovst/collection-schema": "workspace:*",
+    "@ovst/tree-merge": "workspace:*",
+    "csv-parse": "6.1.0"
+  }
+}

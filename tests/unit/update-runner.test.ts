@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyTransitionPayload, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, updateRequestDigests, protocolEntryObject,
   ProtocolTransportError, ProtocolUnsupportedOperation, ProtocolUpdateConflict, type AcceptedUpdate, type CurrentTree, type TreeSnapshot,
-  decodeUpdateRequestJSON, decodeTreeSnapshotJSON, type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON, encodeTreeSnapshotJSON, encodeCandidateUpdateJSON } from "@overstory/protocol";
-import { prepareSourceChange, type LocalChange, UpdateCoordinator, type UpdateTransport } from "@overstory/working-tree";
+  decodeUpdateRequestJSON, decodeTreeSnapshotJSON, type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON, encodeTreeSnapshotJSON, encodeCandidateUpdateJSON } from "@ovst/protocol";
+import { prepareSourceChange, type LocalChange, UpdateCoordinator, type UpdateTransport } from "@ovst/working-tree";
 import { publication } from "../../packages/working-tree/src/publication.ts";
 import { attemptRequest, type UpdateAttempt } from "../../packages/working-tree/src/control.ts";
-import { ChangeLog, FileControlStore } from "@overstory/working-tree/node";
+import { ChangeLog, FileControlStore } from "@ovst/working-tree/node";
 import { appendSource, editorView, MemoryWorkingTree, readSource } from "../support/memory-working-tree.ts";
 
 /** Executes `tests/fixtures/update-runner.json` against the TypeScript runner, as `RunnerVectorTests` does for Swift. */
@@ -99,7 +99,7 @@ class VectorHost implements UpdateTransport {
 }
 
 for (const scenario of fixture.scenarios) test(`runner vector: ${scenario.name}`, async () => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "arbor-runner-vector-"));
+  const stateRoot = await mkdtemp(join(tmpdir(), "story-runner-vector-"));
   const initial = snapshot(scenario.document);
   const host = new VectorHost(initial, [...(scenario.responses ?? [])]);
   const working = new MemoryWorkingTree({ base: { root: initial.root, update: "up_initial", cursor: "up_initial" }, snapshot: initial });
@@ -173,7 +173,7 @@ class GatedHost extends VectorHost {
 }
 
 for (const lost of [false, true]) test(`watch acceptance reuses the in-flight POST${lost ? ", replaying only when its response is lost" : ""}`, async () => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "arbor-watch-before-post-"));
+  const stateRoot = await mkdtemp(join(tmpdir(), "story-watch-before-post-"));
   const initial = snapshot("# Note\n\nBase\n");
   const host = new GatedHost(initial, [lost ? "acceptThenFail" : "accept"]);
   const working = new MemoryWorkingTree({ base: { root: initial.root, update: "up_initial", cursor: "up_initial" }, snapshot: initial });
@@ -213,7 +213,7 @@ for (const lost of [false, true]) test(`watch acceptance reuses the in-flight PO
 
 
 test.each(["resolution", "guard", "ordinary"] as const)("unchanged-root %s preserves its publication semantics", async kind => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "arbor-unchanged-resolution-"));
+  const stateRoot = await mkdtemp(join(tmpdir(), "story-unchanged-resolution-"));
   const initial = snapshot("Already reconciled\r\n"), host = new VectorHost(initial, []);
   const working = new MemoryWorkingTree({ base: { root: initial.root, update: "up_initial" }, snapshot: initial });
   const log = new ChangeLog(TREE, stateRoot);
@@ -241,7 +241,7 @@ test.each(["resolution", "guard", "ordinary"] as const)("unchanged-root %s prese
 
 
 for (const frozen of [false, true]) test(`branched publication ${frozen ? "recovers a frozen interior basis after restart" : "ends batching at a known branch point"}`, async () => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "arbor-branch-batch-"));
+  const stateRoot = await mkdtemp(join(tmpdir(), "story-branch-batch-"));
   const objects = new Map<string, Uint8Array>();
   const entries = ["a", "b", "c"].map(name => { const bytes = new TextEncoder().encode(name), file = hashObject(bytes); objects.set(file, bytes); return {name: name + ".md", file}; });
   const bytes = encodeProtocolDirectory({type: "directory", entries}), root = hashObject(bytes); objects.set(root, bytes);
@@ -289,7 +289,7 @@ for (const frozen of [false, true]) test(`branched publication ${frozen ? "recov
 
 
 test("source activity holds automatic publication across slow admission and overlapping editors", async () => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "arbor-active-source-"));
+  const stateRoot = await mkdtemp(join(tmpdir(), "story-active-source-"));
   const initial = snapshot("Base\n"), host = new VectorHost(initial, []);
   const working = new MemoryWorkingTree({base: {root: initial.root, update: "up_initial"}, snapshot: initial});
   const log = new ChangeLog(TREE, stateRoot);
@@ -317,7 +317,7 @@ test("source activity holds automatic publication across slow admission and over
 
 
 test("a successor to an in-flight edit sends deltas against its settled candidate", async () => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "arbor-chained-deltas-"));
+  const stateRoot = await mkdtemp(join(tmpdir(), "story-chained-deltas-"));
   const initial = snapshot("a".repeat(70_000));
   const host = new GatedHost(initial, []);
   const working = new MemoryWorkingTree({base: {root: initial.root, update: "up_initial"}, snapshot: initial});

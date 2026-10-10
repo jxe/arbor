@@ -23,7 +23,7 @@ whole-state copying and growing history scans are candidates, not a diagnosis.
 The shared-cache benchmark measured two production-copy checkpoints at 60.7 MiB
 combined versus 707.6 MiB expanded JSON, with native cold restores of 1.55–1.66
 seconds locally. This did not bound old-basis replay. See
-[shared checkpoints](../../docs/architecture/canopyd/merge-cache.md) and
+[shared checkpoints](../../docs/architecture/overstoryd/merge-cache.md) and
 [implementation evidence](../../status.md#shared-merge-cache-and-iphone-replay-recovery--2026-10-09).
 
 Preserve original request/change identities, exact bytes, attribution, operation
@@ -86,7 +86,7 @@ that tradeoff before changing the contract.
    Do not promise a bound for every historical basis under finite storage.
 
 3. **Keep checkpoints useful as the tree advances.** Many plain head edits are
-   accepted by canopyd without invoking the sidecar. Measure how that affects
+   accepted by overstoryd without invoking the sidecar. Measure how that affects
    checkpoint coverage before relying on a save every 32 replayed entries.
    Choose bounded incremental advancement from accepted log entries, on demand
    or during idle time, only where it demonstrably reduces subsequent catch-up.
@@ -125,9 +125,9 @@ that tradeoff before changing the contract.
   restored and fully replayed execution. Cover source edits, moves/copies,
   snapshot barriers, delete/edit choices, root choices and guarded resolutions.
 - Extend the existing
-  [history differential tests](../../tests/unit/canopyd-merge/history-differential.test.ts),
-  [incremental tests](../../tests/unit/canopyd-merge/incremental.test.ts) and
-  [replay recovery tests](../../tests/unit/canopyd-merge/saved-states.test.ts).
+  [history differential tests](../../tests/unit/overstoryd-merge/history-differential.test.ts),
+  [incremental tests](../../tests/unit/overstoryd-merge/incremental.test.ts) and
+  [replay recovery tests](../../tests/unit/overstoryd-merge/saved-states.test.ts).
   Force restart/eviction at each retry boundary, several nested bases, corrupt
   or missing checkpoints, collection during another writer's work, and changing
   heads. Cache deletion must change performance only.

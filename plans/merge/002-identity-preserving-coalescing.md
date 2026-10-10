@@ -1,7 +1,7 @@
 # Clients 002: more identity-preserving coalescing
 
 Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
-with enough identity for canopyd to merge concurrent work correctly. After the
+with enough identity for overstoryd to merge concurrent work correctly. After the
 idle-based publication baseline, extend simplification beyond repeated moves of
 one unchanged span. Implement each case in the Swift and TypeScript clients,
 using shared examples and the host merge engine to prove the result.

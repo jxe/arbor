@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { EventBus, ResyncRequiredError } from "../../packages/arborsync/src/events.ts";
-import { encodeSSEFrame } from "@overstory/protocol";
+import { EventBus, ResyncRequiredError } from "../../packages/story-sync/src/events.ts";
+import { encodeSSEFrame } from "@ovst/protocol";
 
 describe("REST v1 event replay", () => {
   test("preserves accepted request digests for per-editor causal fences", () => {

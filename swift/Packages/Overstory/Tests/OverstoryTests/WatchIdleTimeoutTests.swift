@@ -27,7 +27,7 @@ struct WatchIdleTimeoutTests {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [QuietWatchURLProtocol.self]
         QuietWatchURLProtocol.keepalives.withLock { $0 = keepalives }
-        return ProtocolClient(origin: URL(string: "https://canopy.test")!, session: URLSession(configuration: configuration))
+        return ProtocolClient(origin: URL(string: "https://host.test")!, session: URLSession(configuration: configuration))
     }
 }
 

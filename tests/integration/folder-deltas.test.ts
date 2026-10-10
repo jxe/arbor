@@ -5,13 +5,13 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ArborSyncDaemon } from "@overstory/arborsync";
-import { serveHost } from "@overstory/canopyd";
-import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import { StorySyncDaemon } from "@ovst/story-sync";
+import { serveHost } from "@ovst/overstoryd";
+import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import {
   HostAccountStore, decodeProtocolDirectory, hashObject,
   type UpdateRequest,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 
 const token = "folder-deltas-owner";
@@ -23,7 +23,7 @@ let host: Awaited<ReturnType<typeof serveHost>>;
 const large = (line: string) => `# Large\n\n${Array.from({ length: 4_000 }, (_, index) => index === 2_000 ? line : `Paragraph ${index} of a long Markdown page.`).join("\n")}\n`;
 
 beforeAll(async () => {
-  sandbox = await mkdtemp(join(tmpdir(), "arbor-folder-deltas-"));
+  sandbox = await mkdtemp(join(tmpdir(), "story-folder-deltas-"));
   state = join(sandbox, "home");
   folder = join(sandbox, "tree");
   await Promise.all([state, folder].map((path) => mkdir(path, { recursive: true })));
@@ -45,10 +45,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  process.env.ARBOR_DATA_HOME = state;
+  process.env.STORY_HOME = state;
   for (const account of await HostAccountStore.list()) await new HostAccountStore(account.configurationTree).remove();
   host.server.stop(true);
-  await host.canopy[Symbol.asyncDispose]();
+  await host.overstoryd[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });
 });
 
@@ -59,7 +59,7 @@ async function recording<T>(body: (requests: UpdateRequest[], offline: (value: b
   let failing = false;
   globalThis.fetch = (async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    const request = url.includes(`/.arbor/trees/${tree}/updates`) ? interceptedUpdateRequest(init) : undefined;
+    const request = url.includes(`/.overstory/trees/${tree}/updates`) ? interceptedUpdateRequest(init) : undefined;
     if (request) {
       if (failing) throw new TypeError("connection lost");
       requests.push(request);
@@ -77,9 +77,9 @@ async function accepted(path: string): Promise<string> {
   return new TextDecoder().decode(await owner.object(tree, entry.file!));
 }
 
-test("a folder edit to a large Markdown file submits a delta against the accepted file, and canopyd accepts it", async () => {
-  process.env.ARBOR_DATA_HOME = state;
-  const daemon = await ArborSyncDaemon.openControl({ autoSync: false });
+test("a folder edit to a large Markdown file submits a delta against the accepted file, and overstoryd accepts it", async () => {
+  process.env.STORY_HOME = state;
+  const daemon = await StorySyncDaemon.openControl({ autoSync: false });
   try {
     await daemon.synchronizeNow();
     const source = large("An edited middle line.");
@@ -100,8 +100,8 @@ test("a folder edit to a large Markdown file submits a delta against the accepte
 }, 20_000);
 
 test("a change chained on an unsettled change sends deltas after exact retry", async () => {
-  process.env.ARBOR_DATA_HOME = state;
-  const daemon = await ArborSyncDaemon.openControl({ autoSync: false });
+  process.env.STORY_HOME = state;
+  const daemon = await StorySyncDaemon.openControl({ autoSync: false });
   try {
     await daemon.synchronizeNow();
     const first = large("First offline line."), second = large("Second chained line.");

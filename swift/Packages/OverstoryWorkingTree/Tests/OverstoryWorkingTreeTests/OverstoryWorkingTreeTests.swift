@@ -1,0 +1,878 @@
+import StoryKit
+import OverstoryObjectStore
+import Overstory
+import Foundation
+import Testing
+@testable import OverstoryWorkingTree
+
+/// The two state-store seams a working tree runs on.
+enum StoreKind: String, CaseIterable, Sendable {
+    case durable
+    case inMemory
+}
+
+func openWorkingTree(
+    _ kind: StoreKind,
+    at root: URL,
+    tree: TreeID,
+    platform: any ObjectStore = EmptyObjectStore(),
+    clock: @escaping WorkingTree.Clock = Date.init
+) async throws -> WorkingTree {
+    switch kind {
+    case .durable: try await WorkingTree.open(at: root, tree: tree, platform: platform, clock: clock)
+    case .inMemory: try await WorkingTree.inMemory(tree: tree, platform: platform, clock: clock)
+    }
+}
+
+/// A platform store that serves fixed bytes by hash, without verifying them.
+private struct FixedObjectStore: ObjectStore {
+    let objects: [String: Data]
+    func bytes(_ hash: String) async throws -> Data {
+        guard let bytes = objects[hash] else { throw ObjectStoreError.missing(hash) }
+        return bytes
+    }
+}
+
+@Suite("Working-tree object reads")
+struct WorkingTreeObjectReadTests {
+    @Test("An object the tree lacks is read through its platform store, verified")
+    func platformFallthrough() async throws {
+        let honest = try ProtocolObjectCodec.object(.file(Data("honest".utf8)))
+        let lied = try ProtocolObjectCodec.object(.file(Data("expected".utf8)))
+        let platform = FixedObjectStore(objects: [honest.hash: honest.bytes, lied.hash: Data("tampered".utf8)])
+        let tree = try await WorkingTree.inMemory(tree: TreeID(rawValue: "tr_objectreads"), platform: platform)
+        #expect(try await tree.objectBytes(hash: honest.hash) == honest.bytes)
+        await #expect(throws: ObjectStoreError.hashMismatch(expected: lied.hash, actual: ProtocolObjectCodec.hash(Data("tampered".utf8)))) {
+            _ = try await tree.objectBytes(hash: lied.hash)
+        }
+        let missing = "sha256:" + String(repeating: "0", count: 64)
+        await #expect(throws: ObjectStoreError.missing(missing)) { _ = try await tree.objectBytes(hash: missing) }
+    }
+}
+
+@Suite("Shared replica semantics")
+struct WorkingTreeFixtureTests {
+    @Test("Directory projection never materializes generated child links")
+    func directorySourceIsExact() throws {
+        let fixture = try JSONDecoder().decode(
+            DirectoryFixture.self,
+            from: Data(contentsOf: fixtureDirectory().appending(path: "directory-documents.json"))
+        )
+        for item in fixture.cases {
+            let root = WorkingTreeNode(
+                path: item.directory.path,
+                kind: .directory,
+                source: item.source.isEmpty ? nil : item.source,
+                directoryBodyPlacement: item.directory.body == .sibling ? .siblingMarkdown : nil
+            )
+            #expect((root.source ?? "") == item.source, Comment(rawValue: item.name))
+            #expect(root.markdownBody == item.directory.body, Comment(rawValue: item.name))
+            #expect(
+                WorkingTreeSemantics.sourceDirectory(for: root)
+                    == markdownSourceDirectory(nodePath: item.directory.path, body: item.directory.body),
+                Comment(rawValue: item.name)
+            )
+        }
+    }
+
+    @Test("Replica object bytes and hashes match Overstory vectors")
+    func protocolObjects() throws {
+        let fixture = try JSONDecoder().decode(
+            ProtocolFixture.self,
+            from: Data(contentsOf: fixtureDirectory().appending(path: "protocol-objects.json"))
+        )
+        for vector in fixture.objects {
+            let bytes: Data
+            switch vector.model.type {
+            case "file": bytes = Data(base64Encoded: vector.model.bytesBase64!)!
+            case "directory":
+                bytes = ProtocolObjectCodec.directoryBytes(
+                    vector.model.entries!.map { ProtocolDirectoryEntry(name: $0.name, file: $0.file, directory: $0.directory, tree: $0.tree) },
+                    childrenSource: vector.model.childrenSource
+                )
+            default: throw WorkingTreeError.corruptState("Unknown fixture object")
+            }
+            #expect(bytes.base64EncodedString() == vector.bytesBase64)
+            #expect(ProtocolObjectCodec.hash(bytes) == vector.hash)
+        }
+    }
+}
+
+@Suite("Offline provider")
+struct WorkingTreeProviderTests {
+    @Test("Working-tree failures have useful descriptions")
+    func localizedErrors() {
+        let reference = WorkspaceReference(tree: TreeID(rawValue: "tr_example"), path: "/group")
+        #expect(WorkingTreeError.notFound(reference).localizedDescription == "Nothing was found at /group in tr_example.")
+        #expect(WorkingTreeError.pendingLocalChanges.localizedDescription == "Local changes must finish before this operation can continue.")
+    }
+
+    @Test("Placed Markdown provenance names the materialized authored file")
+    func physicalMarkdownURLs() async throws {
+        try await withTemporaryReplica { root in
+            let physicalRoot = root.appending(path: "Placed", directoryHint: .isDirectory)
+            let indexedDirectory = physicalRoot.appending(path: "indexed", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: indexedDirectory, withIntermediateDirectories: true)
+            try "# Root\n".write(to: physicalRoot.appending(path: "_index.md"), atomically: true, encoding: .utf8)
+            try "# Note\n".write(to: physicalRoot.appending(path: "note.md"), atomically: true, encoding: .utf8)
+            try "# Folder\n".write(to: physicalRoot.appending(path: "folder.md"), atomically: true, encoding: .utf8)
+            try "# Indexed\n".write(to: indexedDirectory.appending(path: "_index.md"), atomically: true, encoding: .utf8)
+            // Both representations may exist, but `_index.md` is authoritative
+            // when the sibling source is recorded as shadowed.
+            try "# Shadowed\n".write(to: physicalRoot.appending(path: "indexed.md"), atomically: true, encoding: .utf8)
+
+            let tree: TreeID = "tr_physical"
+            let workingTree = try await WorkingTree.inMemory(tree: tree)
+            try await workingTree.initializeFromPreview([
+                .init(path: "/", content: .directory(source: "# Root\n")),
+                .init(path: "/note", content: .markdown(source: "# Note\n")),
+                .init(
+                    path: "/folder",
+                    content: .directory(source: "# Folder\n"),
+                    directoryBodyPlacement: .siblingMarkdown
+                ),
+                .init(
+                    path: "/indexed",
+                    content: .directory(source: "# Indexed\n"),
+                    shadowedSiblingMarkdownSource: "# Shadowed\n"
+                ),
+                .init(path: "/missing", content: .markdown(source: "# Missing\n"))
+            ])
+            let provider = WorkingTreeProvider(workingTree: workingTree, materializedRoot: physicalRoot)
+
+            let expected: [String: String] = [
+                "/": "_index.md",
+                "/note": "note.md",
+                "/folder": "folder.md",
+                "/indexed": "indexed/_index.md"
+            ]
+            for (path, relative) in expected {
+                let node = try await provider.resolve(.init(tree: tree, path: path))
+                #expect(node.provenance.physicalURL == physicalRoot.appending(path: relative).standardizedFileURL)
+                #expect(node.provenance.treeRootURL == physicalRoot.standardizedFileURL)
+            }
+            let missing = try await provider.resolve(.init(tree: tree, path: "/missing"))
+            #expect(missing.provenance.physicalURL == nil)
+            #expect(missing.provenance.treeRootURL == physicalRoot.standardizedFileURL)
+        }
+    }
+
+    @Test("Browsing, exact editing, structure, assets, collections, and indexes remain offline", arguments: StoreKind.allCases)
+    func completeProvider(kind: StoreKind) async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_offline"
+            let workingTree = try await openWorkingTree(kind, at: root, tree: tree, clock: { Date(timeIntervalSince1970: 1_800_000_000) })
+            let provider = WorkingTreeProvider(workingTree: workingTree)
+            let rootRef = WorkspaceReference(tree: tree, path: "/")
+
+            let initialHeads = try await workingTree.heads()
+            let initialRootNode = try await provider.resolve(rootRef)
+            guard case let .directoryDocument(initialSource, _, stored) = initialRootNode.surface else {
+                Issue.record("Expected the root directory document")
+                return
+            }
+            #expect(initialSource.isEmpty)
+            #expect(!stored)
+            #expect(try await workingTree.heads() == initialHeads)
+
+            let rootSession = try await provider.openDocument(rootRef)
+            let rootBase = try await rootSession.snapshot()
+            let notes = try #require(try await provider.perform(.createDirectory(parent: rootRef, name: "notes")))
+            await #expect(throws: WorkspaceDocumentConflict.self) {
+                _ = try await rootSession.admit(source: rootBase.source, baseContentRevision: rootBase.contentRevision)
+            }
+            await rootSession.close()
+            let created = try #require(try await provider.perform(.createMarkdown(
+                parent: notes.reference,
+                name: "today",
+                source: "# Today\n\nOffline first.\n"
+            )))
+            let pageID = try #require(created.reference.stableKey)
+            guard case let .markdown(createdSource, createdRevision) = created.surface else {
+                Issue.record("Expected Markdown")
+                return
+            }
+            #expect(WorkingTreeSemantics.pageID(in: createdSource) == markdownID(fromStableKey: pageID))
+
+            let notesNode = try await provider.resolve(notes.reference)
+            guard case let .directoryDocument(notesSource, _, notesStored) = notesNode.surface else {
+                Issue.record("Expected a complete directory document")
+                return
+            }
+            #expect(notesSource.isEmpty)
+            #expect(!notesStored)
+            let notesSession = try await provider.openDocument(notes.reference)
+            let notesSnapshot = try await notesSession.snapshot()
+            let admittedNotes = try await notesSession.admit(
+                source: notesSnapshot.source,
+                baseContentRevision: notesSnapshot.contentRevision
+            )
+            #expect(admittedNotes.reference.stableKey != nil)
+            #expect(WorkingTreeSemantics.pageID(in: admittedNotes.source) == markdownID(fromStableKey: admittedNotes.reference.stableKey))
+            guard case let .directoryDocument(_, _, admittedStored) = try await provider.resolve(admittedNotes.reference).surface else {
+                Issue.record("Expected the stored directory document")
+                return
+            }
+            #expect(admittedStored)
+            await notesSession.close()
+
+            let session = try await provider.openDocument(created.reference)
+            let editedSource = createdSource + "A durable edit.\n"
+            let edited = try await session.admit(source: editedSource, baseContentRevision: createdRevision)
+            #expect(edited.source == editedSource)
+            await #expect(throws: WorkspaceDocumentConflict.self) {
+                _ = try await session.admit(source: editedSource + "stale", baseContentRevision: createdRevision)
+            }
+
+            let renamed = try #require(try await provider.perform(.rename(reference: created.reference, name: "renamed")))
+            #expect(renamed.reference.stableKey == pageID)
+            #expect(renamed.reference.path == "/notes/renamed")
+            #expect(try await session.snapshot().reference.path == "/notes/renamed")
+
+            let archive = try #require(try await provider.perform(.createDirectory(parent: rootRef, name: "archive")))
+            let moved = try #require(try await provider.perform(.move(reference: renamed.reference, destination: archive.reference)))
+            #expect(moved.reference.stableKey == pageID)
+            #expect(moved.reference.path == "/archive/renamed")
+
+            let copied = try #require(try await provider.perform(.copy(reference: moved.reference, destination: notes.reference)))
+            #expect(copied.reference.path == "/notes/renamed")
+            #expect(copied.reference.stableKey != pageID)
+            await #expect(throws: WorkingTreeError.self) {
+                _ = try await provider.perform(.rename(reference: copied.reference, name: "renamed"))
+            }
+
+            let trashed = try #require(try await provider.perform(.trash(reference: moved.reference)))
+            #expect(trashed.reference.stableKey == pageID)
+            #expect(trashed.reference.path == "/Trash/archive/renamed")
+            let restored = try #require(try await provider.perform(.restore(reference: trashed.reference)))
+            #expect(restored.reference.stableKey == pageID)
+            #expect(restored.reference.path == "/archive/renamed")
+
+            let asset = WorkspaceAsset(name: "diagram.bin", mediaType: "application/octet-stream", bytes: Data([0, 1, 2, 3]))
+            let storedAsset = try await provider.store(asset: asset, in: archive.reference)
+            #expect(storedAsset.reference.path.contains("diagram.bin"))
+            #expect(storedAsset.markdownSource == storedAsset.reference.path)
+            #expect(try await provider.readFile(storedAsset.reference) == asset.bytes)
+            #expect(try await provider.store(asset: asset, in: archive.reference) == storedAsset)
+            await #expect(throws: WorkingTreeError.self) {
+                _ = try await provider.store(asset: WorkspaceAsset(name: "../escape", bytes: Data()), in: archive.reference)
+            }
+
+            let people = try #require(try await provider.perform(.createDirectory(parent: rootRef, name: "people")))
+            _ = try await provider.importFile(
+                name: "_store.csv",
+                bytes: Data("name,role\nAda,Researcher\nGrace,Engineer\n".utf8),
+                mediaType: "text/csv",
+                in: people.reference
+            )
+            let collection = try await provider.resolve(people.reference)
+            #expect(collection.surface == .collection(kind: "CSV", rowCount: 2))
+
+            let restoredLink = try #require(buildMarkdownLink(
+                from: "/",
+                to: MarkdownLinkTarget(path: "/archive/renamed", body: .sibling, stableKey: restored.reference.stableKey)
+            ))
+            let linker = try #require(try await provider.perform(.createMarkdown(
+                parent: rootRef,
+                name: "linker",
+                source: "# Linker\n\n[Today](\(restoredLink))\n"
+            )))
+            let linkedSearch = try await provider.search("durable edit", in: tree)
+            #expect(linkedSearch.first { $0.reference.stableKey == pageID }?.backlinkCount == 1)
+            #expect(linkedSearch.first { $0.reference.stableKey == pageID }?.modifiedAt
+                == Date(timeIntervalSince1970: 1_800_000_000))
+            #expect(try await provider.search("", in: tree).contains {
+                $0.reference.stableKey == pageID
+            })
+            #expect(try await provider.backlinks(to: restored.reference).contains { $0.reference == linker.reference })
+
+            await #expect(throws: WorkspaceProviderError.invalidAction("Canopy history is not available yet")) {
+                _ = try await session.history()
+            }
+            await #expect(throws: WorkspaceProviderError.invalidAction("Canopy history is not available yet")) {
+                _ = try await session.recover(revision: "local-0")
+            }
+
+            let beforeRebuild = try await provider.search("Offline first", in: tree)
+            try await workingTree.deleteRebuildableIndexes()
+            #expect(try await provider.search("Offline first", in: tree) == beforeRebuild)
+
+            let snapshot = try await workingTree.currentSnapshot()
+            let snapshotHeads = try await workingTree.heads()
+            #expect(snapshot.root == snapshotHeads.materializedRoot)
+            for object in snapshot.objects {
+                let text = String(decoding: object.bytes ?? Data(), as: UTF8.self)
+                #expect(!text.contains("journals/pages"))
+                #expect(!text.contains("history/"))
+                #expect(!text.contains("indexes/"))
+                #expect(!text.contains("heads.json"))
+            }
+            if kind == .durable {
+                let privateEntries = try FileManager.default.contentsOfDirectory(atPath: root.path)
+                #expect(Set(privateEntries).isSuperset(of: ["control", "indexes", "journals", "materialized", "objects"]))
+                #expect(!privateEntries.contains("history"))
+                // The node index carries no file bytes once a transaction has stored them.
+                let stateText = String(decoding: try Data(contentsOf: root.appending(path: "materialized/tree.json")), as: UTF8.self)
+                #expect(!stateText.contains("\"inline\""))
+            }
+            // Every file is held by hash and still readable through the overlay.
+            let storedNode = try await workingTree.resolve(storedAsset.reference)
+            #expect(storedNode.ref?.isInline == false)
+            #expect(try await workingTree.fileBytes(storedAsset.reference) == asset.bytes)
+            #expect(try await workingTree.diagnostics().isEmpty)
+
+            try await workingTree.recordAccepted(root: snapshot.root, update: "up_local")
+            #expect(try await workingTree.heads().pendingRoot == nil)
+            _ = try await provider.perform(.createDirectory(parent: rootRef, name: "pending"))
+            let pendingHeads = try await workingTree.heads()
+            #expect(pendingHeads.acceptedRoot == snapshot.root)
+            #expect(pendingHeads.pendingRoot == pendingHeads.materializedRoot)
+
+            await session.close()
+            await #expect(throws: WorkingTreeError.self) { _ = try await session.snapshot() }
+            await workingTree.close()
+
+            guard kind == .durable else { return }
+            let reopened = try await WorkingTree.open(at: root, tree: tree)
+            let reopenedProvider = WorkingTreeProvider(workingTree: reopened)
+            #expect(try await reopenedProvider.resolve(.init(tree: tree, path: "/stale", stableKey: pageID)).reference.path == "/archive/renamed")
+            #expect(try await reopenedProvider.search("Offline first", in: tree).contains { $0.reference.stableKey == pageID })
+            #expect(try await reopenedProvider.readFile(storedAsset.reference) == asset.bytes)
+        }
+    }
+
+    @Test("System replacement is root-checked and cannot overwrite pending local work", arguments: StoreKind.allCases)
+    func systemReplacementBoundary(kind: StoreKind) async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_system"
+            let workingTree = try await openWorkingTree(kind, at: root, tree: tree)
+            let initial = try await workingTree.currentSnapshot()
+            try await workingTree.recordAccepted(root: initial.root, update: "up_initial")
+
+            let source = "---\nid: pg_remote\n---\n\n# Remote\n"
+            let replacementState = WorkingTreeState(
+                tree: tree.rawValue,
+                nodes: [
+                    WorkingTreeNode(path: "/", kind: .directory),
+                    WorkingTreeNode(path: "/remote", pageID: "pg_remote", kind: .markdown, source: source),
+                    WorkingTreeNode(path: "/nested", kind: .boundary, boundaryTree: "tr_nested")
+                ]
+            )
+            let expected = try WorkingTreeProtocolCodec.snapshot(for: replacementState)
+            try await workingTree.replaceFromSystem(WorkingTreeSystemReplacement(
+                root: expected.root,
+                update: "up_remote",
+                cursor: "up_remote",
+                nodes: [
+                    WorkingTreeSystemNode(path: "/", content: .directory()),
+                    WorkingTreeSystemNode(path: "/remote", pageID: "pg_remote", content: .markdown(source: source)),
+                    WorkingTreeSystemNode(path: "/nested", content: .boundary(tree: "tr_nested"))
+                ]
+            ))
+            let replacedHeads = try await workingTree.heads()
+            #expect(replacedHeads.materializedRoot == expected.root)
+            #expect(replacedHeads.acceptedRoot == expected.root)
+            #expect(replacedHeads.acceptedUpdate == "up_remote")
+            #expect(replacedHeads.pendingRoot == nil)
+
+            let provider = WorkingTreeProvider(workingTree: workingTree)
+            let boundary = try await provider.resolve(.init(tree: tree, path: "/nested"))
+            #expect(boundary.reference == WorkspaceReference(tree: "tr_nested", path: "/"))
+            #expect(boundary.surface == .directory(summary: "Nested Overstory tree"))
+            #expect(!boundary.isWritable)
+            _ = try await provider.perform(.createDirectory(parent: .init(tree: tree, path: "/"), name: "local"))
+            await #expect(throws: WorkingTreeError.pendingLocalChanges) {
+                try await workingTree.replaceFromSystem(WorkingTreeSystemReplacement(
+                    root: initial.root,
+                    update: "up_stale",
+                    nodes: [WorkingTreeSystemNode(path: "/", content: .directory())]
+                ))
+            }
+        }
+    }
+
+    @Test("A read-only provider presents nodes as not writable and refuses every write", arguments: StoreKind.allCases)
+    func readOnlyProvider(kind: StoreKind) async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_readonly"
+            let workingTree = try await openWorkingTree(kind, at: root, tree: tree)
+            let source = "---\nid: pg_page\n---\n\n# Page\n"
+            let state = WorkingTreeState(
+                tree: tree.rawValue,
+                nodes: [
+                    WorkingTreeNode(path: "/", kind: .directory),
+                    WorkingTreeNode(path: "/page", pageID: "pg_page", kind: .markdown, source: source)
+                ]
+            )
+            let expected = try WorkingTreeProtocolCodec.snapshot(for: state)
+            try await workingTree.initializeFromSystem(WorkingTreeSystemReplacement(
+                root: expected.root,
+                update: "up_page",
+                nodes: [
+                    WorkingTreeSystemNode(path: "/", content: .directory()),
+                    WorkingTreeSystemNode(path: "/page", pageID: "pg_page", content: .markdown(source: source))
+                ]
+            ))
+            let provider = WorkingTreeProvider(workingTree: workingTree, readOnly: true)
+            #expect(await provider.capabilities() == .readOnly)
+            let page = try await provider.resolve(.init(tree: tree, path: "/page"))
+            #expect(!page.isWritable)
+            await #expect(throws: (any Error).self) {
+                _ = try await provider.perform(.createDirectory(parent: .init(tree: tree, path: "/"), name: "local"))
+            }
+            let session = try await provider.openDocument(page.reference)
+            let snapshot = try await session.snapshot()
+            #expect(snapshot.source == source)
+            await #expect(throws: (any Error).self) {
+                _ = try await session.admit(source: source + "more\n", baseContentRevision: snapshot.contentRevision)
+            }
+            #expect(try await workingTree.heads().materializedRoot == expected.root)
+        }
+    }
+
+    @Test("An open document session observes a system replacement", arguments: StoreKind.allCases)
+    func documentSessionObservesSystemReplacement(kind: StoreKind) async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_observation"
+            let workingTree = try await openWorkingTree(kind, at: root, tree: tree)
+            let provider = WorkingTreeProvider(workingTree: workingTree)
+            let home = WorkspaceReference(tree: tree, path: "/")
+            let created = try #require(try await provider.perform(.createMarkdown(
+                parent: home,
+                name: "note",
+                source: "---\nid: pg_note\n---\n\n# Before\n"
+            )))
+            let accepted = try await workingTree.currentSnapshot()
+            try await workingTree.recordAccepted(root: accepted.root, update: "up_before")
+            let session = try await provider.openDocument(created.reference)
+            let before = try await session.snapshot()
+            let updates = try await session.updates()
+            var iterator = updates.makeAsyncIterator()
+            _ = try await iterator.next()
+
+            let afterSource = "---\nid: pg_note\n---\n\n# After\n"
+            let replacementState = WorkingTreeState(
+                tree: tree.rawValue,
+                nodes: [
+                    WorkingTreeNode(path: "/", kind: .directory),
+                    WorkingTreeNode(path: "/note", pageID: "pg_note", kind: .markdown, source: afterSource)
+                ]
+            )
+            let replacement = try WorkingTreeProtocolCodec.snapshot(for: replacementState)
+            try await workingTree.replaceFromSystem(WorkingTreeSystemReplacement(
+                root: replacement.root,
+                update: "up_after",
+                cursor: "up_after",
+                nodes: [
+                    WorkingTreeSystemNode(path: "/", content: .directory()),
+                    WorkingTreeSystemNode(path: "/note", pageID: "pg_note", content: .markdown(source: afterSource))
+                ]
+            ))
+
+            let observed = try #require(try await iterator.next())
+            #expect(observed.source == afterSource)
+            #expect(observed.contentRevision != before.contentRevision)
+            await session.close()
+        }
+    }
+
+    @Test("Creating a child beneath Markdown preserves a sibling body", arguments: StoreKind.allCases)
+    func markdownLeafBecomesSiblingBodyDirectory(kind: StoreKind) async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_promoteleaf"
+            let workingTree = try await openWorkingTree(kind, at: root, tree: tree)
+            let leaf = try await workingTree.createMarkdown(
+                parent: .init(tree: tree, path: "/"),
+                name: "x",
+                source: "# X\n"
+            )
+            let leafReference = WorkspaceReference(
+                tree: tree,
+                path: leaf.path,
+                stableKey: leaf.pageID.map(markdownStableKey)
+            )
+            let child = try await workingTree.createMarkdown(
+                parent: leafReference,
+                name: "child",
+                source: "# Child\n"
+            )
+
+            let promoted = try await workingTree.resolve(leafReference)
+            #expect(promoted.kind == .directory)
+            #expect(promoted.directoryBodyPlacement == .siblingMarkdown)
+            #expect(promoted.source == leaf.source)
+            let expected = try WorkingTreeProtocolCodec.snapshot(for: WorkingTreeState(
+                tree: tree.rawValue,
+                nodes: [
+                    WorkingTreeNode(path: "/", kind: .directory),
+                    promoted,
+                    child,
+                ]
+            ))
+            #expect(try await workingTree.currentSnapshot().root == expected.root)
+
+            await workingTree.close()
+            guard kind == .durable else { return }
+            let reopened = try await WorkingTree.open(at: root, tree: tree)
+            #expect(try await reopened.currentSnapshot().root == expected.root)
+            #expect(try await reopened.resolve(leafReference).directoryBodyPlacement == .siblingMarkdown)
+        }
+    }
+
+    @Test("Old directory records decode as _index Markdown placement")
+    func legacyDirectoryBodyDecoding() throws {
+        let source = "---\nid: pg_legacy\n---\n\n# Legacy\n"
+        let data = try JSONSerialization.data(withJSONObject: [
+            "path": "/legacy",
+            "pageID": "pg_legacy",
+            "kind": "directory",
+            "source": source,
+        ])
+        let record = try JSONDecoder().decode(WorkingTreeNode.self, from: data)
+
+        #expect(record.directoryBodyPlacement == nil)
+        #expect(record.shadowedSiblingMarkdownSource == nil)
+        let snapshot = try WorkingTreeProtocolCodec.snapshot(for: WorkingTreeState(
+            tree: "tr_legacy",
+            nodes: [WorkingTreeNode(path: "/", kind: .directory), record]
+        ))
+        #expect(!snapshot.root.isEmpty)
+    }
+
+    @Test("Duplicate logical paths throw instead of trapping")
+    func duplicateLogicalPaths() {
+        let state = WorkingTreeState(
+            tree: "tr_duplicatepaths",
+            nodes: [
+                WorkingTreeNode(path: "/", kind: .directory),
+                WorkingTreeNode(path: "/same", kind: .directory),
+                WorkingTreeNode(path: "/same", kind: .markdown, source: "# Same\n"),
+            ]
+        )
+
+        #expect(throws: WorkingTreeError.self) {
+            _ = try WorkingTreeProtocolCodec.snapshot(for: state)
+        }
+    }
+
+    @Test("Repeated mutations and restarts preserve exact roots and unique identities")
+    func restartProperty() async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_property"
+            var workingTree = try await WorkingTree.open(at: root, tree: tree)
+            var provider = WorkingTreeProvider(workingTree: workingTree)
+            let rootRef = WorkspaceReference(tree: tree, path: "/")
+            let directory = try #require(try await provider.perform(.createDirectory(parent: rootRef, name: "many")))
+            let names = ["z", "ä", "A"] + (0..<32).map { "node-\(String(format: "%02d", $0))" }
+            var identities = Set<String>()
+            for name in names.reversed() {
+                let node = try #require(try await provider.perform(.createMarkdown(
+                    parent: directory.reference,
+                    name: name,
+                    source: "# \(name)\n"
+                )))
+                #expect(identities.insert(try #require(node.reference.stableKey)).inserted)
+            }
+            let before = try await workingTree.currentSnapshot()
+            let beforeHeads = try await workingTree.heads()
+            await workingTree.close()
+
+            workingTree = try await WorkingTree.open(at: root, tree: tree)
+            provider = WorkingTreeProvider(workingTree: workingTree)
+            #expect(try await workingTree.currentSnapshot() == before)
+            #expect(try await workingTree.heads() == beforeHeads)
+            let complete = try await provider.resolve(directory.reference)
+            guard case let .directoryDocument(source, _, _) = complete.surface else {
+                Issue.record("Expected directory document")
+                return
+            }
+            #expect(source.isEmpty)
+            let orderedNames = try await provider.children(of: directory.reference).map {
+                String($0.reference.path.split(separator: "/").last ?? "")
+            }
+            #expect(try #require(orderedNames.firstIndex(of: "A")) < #require(orderedNames.firstIndex(of: "z")))
+            #expect(try #require(orderedNames.firstIndex(of: "z")) < #require(orderedNames.firstIndex(of: "ä")))
+
+            let selected = try await provider.resolve(.init(tree: tree, path: "/many/node-00"))
+            let session = try await provider.openDocument(selected.reference)
+            for generation in 0..<10 {
+                let current = try await session.snapshot()
+                let next = current.source + "generation \(generation)\n"
+                _ = try await session.admit(source: next, baseContentRevision: current.contentRevision)
+            }
+            let final = try await workingTree.currentSnapshot()
+            await workingTree.close()
+            let reopened = try await WorkingTree.open(at: root, tree: tree)
+            #expect(try await reopened.currentSnapshot() == final)
+            #expect(try await reopened.heads().generation == beforeHeads.generation + 10)
+        }
+    }
+
+    @Test("Object-store damage is visible as a provider diagnostic")
+    func diagnostics() async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_diagnostic"
+            let workingTree = try await WorkingTree.open(at: root, tree: tree)
+            let snapshot = try await workingTree.currentSnapshot()
+            let rootObject = root.appending(path: "objects/\(snapshot.root.dropFirst("sha256:".count))")
+            try Data("damaged".utf8).write(to: rootObject)
+            let provider = WorkingTreeProvider(workingTree: workingTree)
+            let children = try await provider.children(of: .init(tree: tree, path: "/"))
+            let diagnostic = try #require(children.first { if case .diagnostic = $0.surface { true } else { false } })
+            #expect(!diagnostic.isWritable)
+            #expect(try await provider.resolve(diagnostic.reference).surface == diagnostic.surface)
+        }
+    }
+}
+
+@Suite("Crash recovery", .serialized)
+struct WorkingTreeCrashTests {
+    @Test("Every durable transaction boundary replays idempotently")
+    func transactionBoundaries() async throws {
+        for point in WorkingTreeFailurePoint.allCases {
+            try await withTemporaryReplica { root in
+                let tree = TreeID(rawValue: "tr_crash_\(point.rawValue)")
+                let workingTree = try await WorkingTree.open(at: root, tree: tree, faultInjector: OneShotFault(point))
+                let provider = WorkingTreeProvider(workingTree: workingTree)
+                await #expect(throws: WorkingTreeError.self) {
+                    _ = try await provider.perform(.createMarkdown(
+                        parent: WorkspaceReference(tree: tree, path: "/"),
+                        name: "survives",
+                        source: "# Survives\n"
+                    ))
+                }
+                let admittedJournals = try journalFiles(root)
+                #expect(admittedJournals.count == 1)
+                #expect(admittedJournals[0].deletingLastPathComponent().lastPathComponent != "X3RyZWU")
+
+                let recovered = try await WorkingTree.open(at: root, tree: tree)
+                let recoveredProvider = WorkingTreeProvider(workingTree: recovered)
+                let node = try await recoveredProvider.resolve(.init(tree: tree, path: "/survives"))
+                #expect(node.reference.stableKey != nil, Comment(rawValue: point.rawValue))
+                let heads = try await recovered.heads()
+                #expect(heads.generation == 1)
+                #expect(heads.materializedRoot == heads.pendingRoot)
+                #expect(try journalFiles(root).isEmpty)
+
+                await recovered.close()
+                let again = try await WorkingTree.open(at: root, tree: tree)
+                #expect(try await again.heads() == heads)
+            }
+        }
+    }
+
+    @Test("Move and Trash crashes retain PageID recovery identity")
+    func structuralRecovery() async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_structuralcrash"
+            let initial = try await WorkingTree.open(at: root, tree: tree)
+            let provider = WorkingTreeProvider(workingTree: initial)
+            let rootRef = WorkspaceReference(tree: tree, path: "/")
+            let note = try #require(try await provider.perform(.createMarkdown(parent: rootRef, name: "note", source: "# Note\n")))
+            let pageID = try #require(note.reference.stableKey)
+            let destination = try #require(try await provider.perform(.createDirectory(parent: rootRef, name: "destination")))
+            await initial.close()
+
+            let moving = try await WorkingTree.open(at: root, tree: tree, faultInjector: OneShotFault(.afterMaterialization))
+            let movingProvider = WorkingTreeProvider(workingTree: moving)
+            await #expect(throws: WorkingTreeError.self) {
+                _ = try await movingProvider.perform(.move(reference: note.reference, destination: destination.reference))
+            }
+            let moved = try await WorkingTree.open(at: root, tree: tree)
+            let movedProvider = WorkingTreeProvider(workingTree: moved)
+            let movedNode = try await movedProvider.resolve(.init(tree: tree, path: "/stale", stableKey: pageID))
+            #expect(movedNode.reference.path == "/destination/note")
+            await moved.close()
+
+            let trashing = try await WorkingTree.open(at: root, tree: tree, faultInjector: OneShotFault(.afterControl))
+            let trashingProvider = WorkingTreeProvider(workingTree: trashing)
+            await #expect(throws: WorkingTreeError.self) {
+                _ = try await trashingProvider.perform(.trash(reference: movedNode.reference))
+            }
+            let trashed = try await WorkingTree.open(at: root, tree: tree)
+            let trashedProvider = WorkingTreeProvider(workingTree: trashed)
+            let trashedNode = try await trashedProvider.resolve(.init(tree: tree, path: "/stale", stableKey: pageID))
+            #expect(trashedNode.reference.path == "/Trash/destination/note")
+            let restored = try #require(try await trashedProvider.perform(.restore(reference: trashedNode.reference)))
+            #expect(restored.reference.path == "/destination/note")
+            #expect(restored.reference.stableKey == pageID)
+        }
+    }
+}
+
+private final class OneShotFault: WorkingTreeFaultInjector, @unchecked Sendable {
+    private let lock = NSLock()
+    private let target: WorkingTreeFailurePoint
+    private var fired = false
+
+    init(_ target: WorkingTreeFailurePoint) { self.target = target }
+
+    func reached(_ point: WorkingTreeFailurePoint) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        if point == target, !fired {
+            fired = true
+            throw WorkingTreeError.simulatedCrash(point)
+        }
+    }
+}
+
+private func withTemporaryReplica(_ operation: (URL) async throws -> Void) async throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: "story-replica-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try await operation(root)
+}
+
+private func fixtureDirectory() -> URL {
+    if let configured = ProcessInfo.processInfo.environment["STORY_PROTOCOL_FIXTURES"] { return URL(filePath: configured) }
+    var current = URL(filePath: #filePath).deletingLastPathComponent()
+    while current.path != "/" {
+        let candidate = current.appending(path: "docs/overstory-spec/conformance", directoryHint: .isDirectory)
+        if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+        current.deleteLastPathComponent()
+    }
+    fatalError("Could not locate protocol fixtures")
+}
+
+@Suite("Links resolve from each body's source directory")
+struct WorkingTreeLinkSourceDirectoryTests {
+    static let tree: TreeID = "tr_links"
+
+    /// `/a/x` is linked from an `_index.md` by key, from another `_index.md` and a sibling
+    /// directory body by path, and by key alone from a stale path. A bare `#x1` fragment is only
+    /// a content fragment, so `/d` names a different node.
+    static let nodes: [WorkingTreeSystemNode] = [
+        WorkingTreeSystemNode(path: "/", content: .directory(source: "[X](a/x.md#overstory-key=id:x1)\n")),
+        WorkingTreeSystemNode(path: "/a", content: .directory(source: "[X](x.md)\n")),
+        WorkingTreeSystemNode(path: "/a/x", pageID: "x1", content: .markdown(source: "---\nid: x1\n---\n\n# X\n")),
+        WorkingTreeSystemNode(path: "/b", content: .directory(source: "[X](a/x.md)\n"), directoryBodyPlacement: .siblingMarkdown),
+        WorkingTreeSystemNode(path: "/b/child", content: .markdown(source: "# Child\n")),
+        WorkingTreeSystemNode(path: "/c", content: .markdown(source: "[Old](gone.md#overstory-key=id:x1)\n")),
+        WorkingTreeSystemNode(path: "/d", content: .markdown(source: "[L](elsewhere#x1)\n")),
+    ]
+
+    static func open(_ kind: StoreKind, at root: URL) async throws -> WorkingTree {
+        let workingTree = try await openWorkingTree(kind, at: root, tree: tree)
+        let state = try await workingTree.state(from: WorkingTreeSystemReplacement(root: "", update: "up_links", nodes: nodes))
+        let snapshot = try WorkingTreeProtocolCodec.snapshot(for: state)
+        try await workingTree.initializeFromSystem(WorkingTreeSystemReplacement(
+            root: snapshot.root,
+            update: "up_links",
+            cursor: "up_links",
+            nodes: nodes
+        ))
+        return workingTree
+    }
+
+    @Test("Sibling and index bodies resolve from different directories; backlinks match by key or path", arguments: StoreKind.allCases)
+    func sourceDirectoriesAndBacklinks(kind: StoreKind) async throws {
+        try await withTemporaryReplica { root in
+            let workingTree = try await Self.open(kind, at: root)
+            let provider = WorkingTreeProvider(workingTree: workingTree)
+
+            let index = try await provider.resolve(.init(tree: Self.tree, path: "/a"))
+            let sibling = try await provider.resolve(.init(tree: Self.tree, path: "/b"))
+            let leaf = try await provider.resolve(.init(tree: Self.tree, path: "/a/x"))
+            let bare = try await provider.resolve(.init(tree: Self.tree, path: "/b/child"))
+            #expect(index.markdownBody == .index)
+            #expect(index.sourceDirectory == "/a")
+            #expect(sibling.markdownBody == .sibling)
+            #expect(sibling.sourceDirectory == "/")
+            #expect(leaf.markdownBody == .sibling)
+            #expect(leaf.sourceDirectory == "/a")
+            #expect(bare.sourceDirectory == "/b")
+
+            let target = WorkspaceReference(tree: Self.tree, path: "/a/x", stableKey: markdownStableKey("x1"))
+            let sources = Set(try await provider.backlinks(to: target).map(\.reference.path))
+            #expect(sources == ["/", "/a", "/b", "/c"])
+            let results = try await provider.search("", in: Self.tree)
+            #expect(results.first { $0.reference.path == "/a/x" }?.backlinkCount == 4)
+            #expect(results.first { $0.reference.path == "/b" }?.markdownBody == .sibling)
+            #expect(results.first { $0.reference.path == "/a" }?.markdownBody == .index)
+            await workingTree.close()
+        }
+    }
+
+    @Test("An index of an older format is rebuilt even at the current generation")
+    func olderIndexFormatIsRebuilt() async throws {
+        try await withTemporaryReplica { root in
+            let target = WorkspaceReference(tree: Self.tree, path: "/a/x", stableKey: markdownStableKey("x1"))
+            let first = try await Self.open(.durable, at: root)
+            #expect(try await first.backlinks(to: target).count == 4)
+            await first.close()
+
+            // Blank every entry's links so a reused index is observable, then write it back
+            // both without a format (an index written before the field) and at the current format.
+            let indexURL = root.appending(path: "indexes/search.json")
+            var index = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: indexURL)) as? [String: Any])
+            #expect(index["format"] as? Int == WorkingTreeSearchIndex.currentFormat)
+            index["entries"] = (index["entries"] as? [[String: Any]] ?? []).map { entry in
+                var entry = entry
+                entry["links"] = [Any]()
+                return entry
+            }
+
+            index["format"] = WorkingTreeSearchIndex.currentFormat
+            try JSONSerialization.data(withJSONObject: index).write(to: indexURL)
+            let reused = try await WorkingTree.open(at: root, tree: Self.tree)
+            #expect(try await reused.backlinks(to: target).isEmpty)
+            await reused.close()
+
+            for format: Any? in [nil, 1] {
+                index["format"] = format
+                try JSONSerialization.data(withJSONObject: index).write(to: indexURL)
+                let reopened = try await WorkingTree.open(at: root, tree: Self.tree)
+                #expect(try await reopened.backlinks(to: target).count == 4)
+                await reopened.close()
+            }
+        }
+    }
+}
+
+private func journalFiles(_ root: URL) throws -> [URL] {
+    let directory = root.appending(path: "journals/pages", directoryHint: .isDirectory)
+    let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)
+    return (enumerator?.allObjects as? [URL] ?? []).filter { $0.pathExtension == "json" }
+}
+
+private struct DirectoryFixture: Decodable {
+    struct Case: Decodable {
+        struct Child: Decodable {
+            var name: String
+            var path: String
+            var stableKey: String?
+        }
+        struct Directory: Decodable {
+            var path: String
+            var body: MarkdownBodyOrigin?
+        }
+        var name: String
+        var directory: Directory
+        var source: String
+        var children: [Child]
+        var expectedGeneratedChildren: [String]
+    }
+    var cases: [Case]
+}
+
+private struct ProtocolFixture: Decodable {
+    struct Vector: Decodable {
+        struct Model: Decodable {
+            struct Entry: Decodable {
+                var name: String
+                var file: String?
+                var directory: String?
+                var tree: String?
+            }
+            var type: String
+            var bytesBase64: String?
+            var entries: [Entry]?
+            var childrenSource: ProtocolCollectionFileDescriptor?
+        }
+        var model: Model
+        var bytesBase64: String
+        var hash: String
+    }
+    var objects: [Vector]
+}

@@ -25,12 +25,12 @@ export type BlockType =
   | "standaloneLink"
   | "rawMarkdown";
 
-export interface ArborBlock {
+export interface OverstoryBlock {
   id: string;
   type: BlockType;
   content?: string;
   props?: Record<string, string | number | boolean>;
-  children: ArborBlock[];
+  children: OverstoryBlock[];
   source?: string;
   sourceHash?: string;
 }
@@ -41,7 +41,7 @@ export interface MarkdownDocument {
   frontmatter: Record<string, unknown>;
   frontmatterSource: string | null;
   bodySource: string;
-  blocks: ArborBlock[];
+  blocks: OverstoryBlock[];
 }
 
 export interface SearchResult {

@@ -114,7 +114,7 @@ function coalesceRowChanges(schema: StoreSchema, rows: LoggedChange[]): SQLiteRo
 }
 
 /**
- * Owns Arbor writes to one SQLite store. TEMP triggers make row observation
+ * Owns Story writes to one SQLite store. TEMP triggers make row observation
  * transactional: their log rows roll back with the write and are published
  * only after the outer commit succeeds.
  */
@@ -274,7 +274,7 @@ export class SQLiteStoreBroker implements AsyncDisposable {
   private publish(change: SQLiteStoreChange): void {
     for (const listener of [...this.listeners]) {
       try { listener(change); }
-      catch (error) { console.error("Arbor SQLite change listener failed", error); }
+      catch (error) { console.error("Story SQLite change listener failed", error); }
     }
   }
 

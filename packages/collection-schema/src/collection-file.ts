@@ -7,7 +7,7 @@ import {
   type Diagnostic,
   type Hash,
   type JSONValue,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 import { sharedCollectionSchemaCache, type CollectionSchemaCache } from "./cache.ts";
 import type { CollectionSchema } from "./compile.ts";
 import { CollectionSchemaError, type ValueDiagnostic } from "./diagnostics.ts";

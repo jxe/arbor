@@ -1,5 +1,5 @@
 /** Disposable, repeatable sidecar workloads the edit benchmark does not reach;
- * never opens Canopy data. Log entries are written in memory as canopyd writes
+ * never opens Canopy data. Log entries are written in memory as overstoryd writes
  * them, and an in-process sidecar answers.
  *
  * - `checkpoint`: a snapshot conflicting with the head in K files, answered
@@ -20,9 +20,9 @@ import {
   stableJSONString,
   type ProtocolDirectoryEntry,
   type SourceOperation,
-} from "@overstory/protocol";
-import { encodeLogEntry, LOG_ENTRY_FORMAT, type Candidate, type LogEntry, type MergeQuestion } from "@overstory/merge-protocol";
-import { Sidecar } from "../../packages/canopyd-merge/src/sidecar.ts";
+} from "@ovst/protocol";
+import { encodeLogEntry, LOG_ENTRY_FORMAT, type Candidate, type LogEntry, type MergeQuestion } from "@ovst/merge-protocol";
+import { Sidecar } from "../../packages/overstoryd-merge/src/sidecar.ts";
 import { executeExactSourceEdits } from "../support/source-edits.ts";
 
 const list = (name: string, fallback: number[]) => process.env[name]?.split(",").map(Number) ?? fallback;
@@ -55,7 +55,7 @@ function tree(files: Record<string, string>): string {
 function sidecar(): Sidecar {
   return new Sidecar({
     shared: { find: async (hash) => objects.get(hash) ?? null, has: async (hash) => objects.has(hash) },
-    // canopyd adopts an answer's objects into its store.
+    // overstoryd adopts an answer's objects into its store.
     staging: { find: async (hash) => objects.get(hash) ?? null, stage: async (values) => { for (const v of values) objects.set(v.hash, v.bytes); } },
   }, Number.MAX_SAFE_INTEGER, undefined, Number.POSITIVE_INFINITY);
 }
@@ -64,7 +64,7 @@ function writeEntry(entry: Omit<LogEntry, "format">): string {
   return put(encodeLogEntry({ format: LOG_ENTRY_FORMAT, ...entry }));
 }
 
-/** What canopyd records of a question (see `asked` in canopyd). */
+/** What overstoryd records of a question (see `asked` in overstoryd). */
 function asked(question: MergeQuestion, root: string) {
   const end = question.candidate.trace ? question.candidate.trace.at(-1)?.after ?? root : root;
   return {

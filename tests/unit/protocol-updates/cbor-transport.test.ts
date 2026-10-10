@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import {
   decodeCandidateUpdateJSON, decodeUpdateRequestJSON, decodeUpdateResponseJSON, decodeWireBody, encodeCandidateUpdateJSON,
   encodeUpdateRequestJSON, encodeUpdateResponseJSON, encodeWireBody, updateRequestDigests,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 
 /** `protocol-cbor-transport.json`: every request, response and claim vector through both encodings (tree operations §4.4). */
 interface Case { name: string; json: any; canonicalCBORBase64: string }

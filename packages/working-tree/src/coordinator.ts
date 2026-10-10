@@ -1,5 +1,5 @@
 import { applyTransitionPayload, decodeTreeSnapshotJSON, hashObject, ProtocolHTTPError, ProtocolUnsupportedOperation, ProtocolUpdateConflict,
-  type CurrentTree, type TreeSnapshot, type UpdateResponse, type WatchEvent, type ProtocolClient } from "@overstory/protocol";
+  type CurrentTree, type TreeSnapshot, type UpdateResponse, type WatchEvent, type ProtocolClient } from "@ovst/protocol";
 import { attemptEncoding, attemptRequest, emptyControl, encodeAttempt, verifyAttempt, UpdateStateError, UpdateValidationError,
   type ControlStore, type UpdateAttempt, type UpdateControl } from "./control.ts";
 import { compactTransport, branchPublications, publication, type ChangePublication } from "./publication.ts";

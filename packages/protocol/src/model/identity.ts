@@ -18,13 +18,13 @@ export function encodeBase32(bytes: Uint8Array): string {
   return result;
 }
 
-/** Generate a 128-bit lowercase base32 Arbor identity with the supplied stable prefix. */
-export function generateArborID(prefix: "tr" | "dv" | "ac" | "pa" | "pr" | "pp" | "ax" | "up" | "ob"): string {
+/** Generate a 128-bit lowercase base32 Story identity with the supplied stable prefix. */
+export function generateOverstoryID(prefix: "tr" | "dv" | "ac" | "pa" | "pr" | "pp" | "ax" | "up" | "ob"): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return `${prefix}_${encodeBase32(bytes)}`;
 }
 
-export function isGeneratedArborID(value: string, prefix: "tr" | "dv" | "pp" | "ax"): boolean {
+export function isGeneratedOverstoryID(value: string, prefix: "tr" | "dv" | "pp" | "ax"): boolean {
   return new RegExp(`^${prefix}_[a-z2-7]{26}$`).test(value);
 }
 

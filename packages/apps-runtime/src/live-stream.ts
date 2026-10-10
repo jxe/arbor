@@ -1,4 +1,4 @@
-import { semanticRequestDigest, type Hash, type QueryStreamEvent } from "@overstory/protocol";
+import { semanticRequestDigest, type Hash, type QueryStreamEvent } from "@ovst/protocol";
 import type { OverstoryUser, QueryHandle } from "./authoring.ts";
 
 export interface MountedQuery {

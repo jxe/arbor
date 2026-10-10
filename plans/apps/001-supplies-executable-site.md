@@ -1,6 +1,6 @@
 # Apps 001: Complete the Supplies executable site
 
-**Why and when:** later, the test of Overstory as a web framework: the Supplies site running locally and on canopyd, then deployed to a third-party host such as Vercel. After Apps 003, 005 and 006.
+**Why and when:** later, the test of Overstory as a web framework: the Supplies site running locally and on overstoryd, then deployed to a third-party host such as Vercel. After Apps 003, 005 and 006.
 
 > After the headless [Apps 005](005-source-resolution-and-sidecar.md) gate, this plan owns browser integration acceptance: document/action/asset forwarding, SSR and hydration without duplicate initial reads, navigation and JavaScript-free form actions, using the coherent compiler supplied by Apps 003. Apps 005 does not wait for this gate.
 
@@ -28,12 +28,12 @@
 
 The behavior-preserving updated Supplies tree runs over its private SQLite data tree:
 
-1. in local `arbor open`;
-2. in signed macOS Overstory through the same arborsync runtime; and
+1. in local `story open`;
+2. in signed macOS Overstory through the same story-sync runtime; and
 3. at its ordinary canonical HTTP locations after a host explicitly
    activates the shared tree.
 
-The canopyd supplies Overstory users, so Supplies has no login system or application
+The overstoryd supplies Overstory users, so Supplies has no login system or application
 `User` table. Queries stream authorized result states after related database or
 profile changes. The browser never receives raw SQLite, credentials, server
 handle implementations, or unrelated private rows.
@@ -74,7 +74,7 @@ and the implemented transactional runtime.
 
 Person values are stable Overstory ProfileIDs. Names, handles, portraits, and bios
 come from profile trees; email addresses, credentials, login codes, and
-canopyd-local account IDs never enter Supplies data. Before hosting, `data/` is
+overstoryd-local account IDs never enter Supplies data. Before hosting, `data/` is
 promoted as a private nested tree and only the reviewed execution principal can
 read it.
 
@@ -107,12 +107,12 @@ second compiler checklist or choose editor-specific typing semantics.
 
 Gate: Apps 003's completion gate passes for `examples/supplies`.
 
-## Remaining milestone 2 — local and canopyd execution
+## Remaining milestone 2 — local and overstoryd execution
 
 1. Add an executable-document surface to shared REST, TypeScript, Swift, and
-   CanopyAppKit models: source kind, coherent version, runnable/diagnostic state,
+   StoryKit models: source kind, coherent version, runnable/diagnostic state,
    and execution URL. Source access remains separate.
-2. Have arborsync render an addressed executable node through ordinary Overstory
+2. Have story-sync render an addressed executable node through ordinary Overstory
    tree/path/access resolution, SSR React with authorized initial results, and
    hydrate without duplicate reads.
 3. Bind the frozen `overstory/react` surface and React Actions to the implemented
@@ -120,26 +120,26 @@ Gate: Apps 003's completion gate passes for `examples/supplies`.
    a reader can invoke only explicitly permitted reviewed mutations without
    receiving whole-tree write access. Preserve JavaScript-free form submission,
    ordinary anchors, query strings, back/forward, reload, and copied URLs.
-4. Present the running document in local Canopy for the web with location, provenance,
+4. Present the running document in local Story for the web with location, provenance,
    diagnostics, and explicit source controls.
-5. Add explicit canopyd activation for a reviewed tree/ref, manifest, private
+5. Add explicit overstoryd activation for a reviewed tree/ref, manifest, private
    data grants, resource ceilings, and last-known-good version. Sharing source
    alone never executes it.
-6. Resolve canopyd sessions to `OverstoryUser`, serve enabled documents at ordinary
+6. Resolve overstoryd sessions to `OverstoryUser`, serve enabled documents at ordinary
    canonical paths, and invalidate affected subscriptions on identity changes
    or revocation.
 7. Add two-context browser tests covering SSR/hydration, disclosure, required
    users, every Action, related/unrelated changes, profile edits, reconnect,
    rollout, revocation, and absence of SQLite/server code in responses.
 
-Gate: local `arbor open` and the canopyd URL run the same updated seeded tree;
+Gate: local `story open` and the overstoryd URL run the same updated seeded tree;
 two clients converge live and every source/runtime error stays diagnosable.
 
 ## Remaining milestone 3 — signed native presentation
 
-1. Decode executable-document fixtures in the Mac app's daemon client (`swift/CanopyApp/ArborSync`) and add the matching
+1. Decode executable-document fixtures in the Mac app's daemon client (`swift/StoryApp/StorySync`) and add the matching
    `WorkspaceSurface` case without erasing source-only or unavailable states.
-2. In signed macOS Overstory, present the local arborsync execution URL in a
+2. In signed macOS Overstory, present the local story-sync execution URL in a
    constrained `WKWebView` while the native tab retains location, TreeID,
    provenance, navigation, and source controls.
 3. Route same-tree navigation through the native tab model, use normal external
@@ -149,7 +149,7 @@ two clients converge live and every source/runtime error stays diagnosable.
    through the shared protocol rather than native-only behavior.
 5. Verify Home, list navigation, one Action, a concurrent browser update,
    back/forward, reload, source view, and relaunch in the exact macOS artifact.
-6. After canopyd HTTP works, iOS may present that hosted surface under the same
+6. After overstoryd HTTP works, iOS may present that hosted surface under the same
    constraints. A fully offline iOS React/SQLite runtime is separate work.
 
 Gate: signed macOS Overstory runs local Supplies and observes browser mutations
@@ -173,16 +173,16 @@ without losing native tab identity or exact source access.
    freeze old writes for the final delta, and retain recoverable backups plus an
    exercised rollback before changing the public domain.
 7. Measure reruns, stream volume, SQLite contention, compilation, SSR latency,
-   and canopyd resource use. Add keyed result diffs, incremental maintenance,
+   and overstoryd resource use. Add keyed result diffs, incremental maintenance,
    another database driver, or production scaling only from those measurements.
 
-Gate: the real corpus runs on canopyd with reviewed identities, stable redirects,
+Gate: the real corpus runs on overstoryd with reviewed identities, stable redirects,
 matching content/access/order, recoverable backups, and a tested rollback.
 
 ## Completion gate
 
 The behavior-preserving updated source passes local web, signed macOS Overstory, and
-canonical canopyd presentation. Related database and profile changes reach two
+canonical overstoryd presentation. Related database and profile changes reach two
 clients without refresh; unrelated precise changes avoid reruns; reconnects
 cannot leave stale results; retries cannot duplicate mutations; private rows
 and raw store bytes remain private; component bundles contain no server
@@ -191,7 +191,7 @@ cutover has passed side-by-side staging and rollback.
 
 ## Then: deploy to a third-party host
 
-Once the site runs on local Overstory and canopyd, deploy the same compiled
+Once the site runs on local Overstory and overstoryd, deploy the same compiled
 application to a platform such as Vercel. Design it against that host's real
 requirements, not in advance.
 
@@ -203,8 +203,8 @@ requirements, not in advance.
 - Either form keeps each document's assets, initial results, live handlers,
   capabilities and schema requirements together rather than flattening the
   application into unrelated pages.
-- Deployed pages advertise their Overstory source through `<link rel="arbor">`
-  and `Arbor-Tree`.
+- Deployed pages advertise their Overstory source through `<link rel="story">`
+  and `Overstory-Tree`.
 
 ## Deliberate cuts
 

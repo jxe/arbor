@@ -9,14 +9,14 @@ describe("native dependency pins", () => {
   test("Quagmire uses one exact release in both manifests and the standalone lock", () => {
     const project = parse(readFileSync(`${root}/swift/project.yml`, "utf8"));
     const packageSource = readFileSync(
-      `${root}/swift/Packages/CanopyEditor/Package.swift`,
+      `${root}/swift/Packages/StoryEditor/Package.swift`,
       "utf8",
     );
     const packageVersion = packageSource.match(
       /\.package\(url: "https:\/\/github\.com\/jxe\/quagmire\.git", exact: "([^"]+)"\)/,
     )?.[1];
     const lock = JSON.parse(
-      readFileSync(`${root}/swift/Packages/CanopyEditor/Package.resolved`, "utf8"),
+      readFileSync(`${root}/swift/Packages/StoryEditor/Package.resolved`, "utf8"),
     );
     const lockedVersion = lock.pins.find(
       (pin: { identity: string }) => pin.identity === "quagmire",

@@ -1,9 +1,9 @@
-import { stableJSONString, type QueryHandleRef, type QueryStreamEvent, type QueryStreamRequest, type QueryStreamRuntime } from "@overstory/protocol";
+import { stableJSONString, type QueryHandleRef, type QueryStreamEvent, type QueryStreamRequest, type QueryStreamRuntime } from "@ovst/protocol";
 import { liveQueryStream, type LiveQueryAdapter, type LiveQueryContext, type MountedQuery } from "./live-stream.ts";
 
 export type { MountedQuery } from "./live-stream.ts";
 import type { OverstoryUser, PredicateExpression, QueryHandle, QueryPlan, SelectionPlan, ValueExpression } from "./authoring.ts";
-import type { ResolvedArborSource, StoreSchema } from "./schema.ts";
+import type { ResolvedStorySource, StoreSchema } from "./schema.ts";
 import { SQLiteQueryEngine, type QueryExecution } from "./sqlite.ts";
 import { SQLiteStoreBroker, type SQLiteRowChange, type SQLiteStoreChange } from "./observer.ts";
 import { evaluateQueryPredicate } from "./query-core.ts";
@@ -186,7 +186,7 @@ export class LiveQueryBroker implements AsyncDisposable {
   private nextCursor(): string { this.sequence += 1; return this.currentCursor(); }
   private publish(event: Invalidation): void { for (const listener of [...this.listeners]) listener(event); }
 
-  bind(handle: QueryHandle<unknown, unknown>, source?: ResolvedArborSource): void {
+  bind(handle: QueryHandle<unknown, unknown>, source?: ResolvedStorySource): void {
     if (!source) throw new Error("SQLite query handles require a resolved source binding");
     this.engine.bind(handle, source);
   }
@@ -204,7 +204,7 @@ export class RegisteredQueryRuntime implements QueryStreamRuntime {
   constructor(
     readonly document: QueryStreamRequest["document"],
     readonly broker: Pick<LiveQueryBroker, "bind" | "stream">,
-    entries: readonly { ref: QueryHandleRef; handle: QueryHandle<unknown, unknown>; source?: ResolvedArborSource }[],
+    entries: readonly { ref: QueryHandleRef; handle: QueryHandle<unknown, unknown>; source?: ResolvedStorySource }[],
   ) {
     for (const entry of entries) {
       this.broker.bind(entry.handle, entry.source);

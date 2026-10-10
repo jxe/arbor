@@ -33,7 +33,7 @@ test("complete and sparse requests reconstruct the same exact candidate with the
   expect(updateRequestIdentities(transport.tree,complete)[0]!.digest).toBe(updateRequestIdentities(transport.tree,sparse)[0]!.digest);
 });
 test("serialized request survives restart and append without rewriting the transmitted prefix", async () => {
-  const directory = await mkdtemp(join(tmpdir(),"arbor-authored-request-"));
+  const directory = await mkdtemp(join(tmpdir(),"story-authored-request-"));
   try {
     const path = join(directory,"pending.json");
     const full = decodeUpdateRequestJSON(transport.cases[5]!.value);

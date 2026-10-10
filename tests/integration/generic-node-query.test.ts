@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
-import { Workspace } from "@overstory/arborsync";
+import { Workspace } from "@ovst/story-sync";
 import { node, NodeLiveQueryBroker, NodeQueryEngine, query, RegisteredQueryRuntime, SQLiteQueryEngine, type ProfileResolver } from "overstory/data";
 
 let root: string;
@@ -49,9 +49,9 @@ function ordinaryNodes(): NodeQueryEngine {
 }
 
 beforeAll(async () => {
-  root = await mkdtemp(join(tmpdir(), "arbor-generic-query-"));
-  state = await mkdtemp(join(tmpdir(), "arbor-generic-query-state-"));
-  process.env.ARBOR_DATA_HOME = state;
+  root = await mkdtemp(join(tmpdir(), "story-generic-query-"));
+  state = await mkdtemp(join(tmpdir(), "story-generic-query-state-"));
+  process.env.STORY_HOME = state;
   const expanded = join(root, "records");
   await mkdir(expanded);
   await writeFile(join(expanded, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n');

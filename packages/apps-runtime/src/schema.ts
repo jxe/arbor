@@ -1,5 +1,5 @@
 import { readFile, realpath } from "node:fs/promises";
-import { canonicalCBORHash, stableJSONString } from "@overstory/protocol";
+import { canonicalCBORHash, stableJSONString } from "@ovst/protocol";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
 
@@ -21,7 +21,7 @@ export interface ForeignKeyMetadata {
 
 export interface RelationMetadata {
   name: string;
-  source: "sqlite" | "arbor-profile";
+  source: "sqlite" | "overstory-profile";
   fields: Record<string, FieldMetadata>;
   primaryKey: string[];
   uniqueKeys: string[][];
@@ -68,7 +68,7 @@ export interface StoreSchema {
 interface RelationshipDeclaration {
   version: 1;
   virtualRelations?: Record<string, {
-    source: "arbor-profile";
+    source: "overstory-profile";
     primaryKey: string[];
     fields: Record<string, { type: FieldType; nullable?: boolean }>;
   }>;
@@ -99,7 +99,7 @@ export interface ResolvedDatabaseLocation {
   path?: string;
 }
 
-export interface ResolvedArborSource {
+export interface ResolvedStorySource {
   authoredPath: string;
   tree: string;
   path: string;
@@ -138,14 +138,14 @@ export async function resolveDatabaseLocation(
   };
 }
 
-/** Resolve one compiler-authored Arbor source to a tree/path before provider activation. */
-export async function resolveArborSource(
+/** Resolve one compiler-authored Story source to a tree/path before provider activation. */
+export async function resolveStorySource(
   importingModulePath: string,
   specifier: string,
   boundaries: readonly TreeBoundary[],
   schemaFingerprint: string,
   options: { virtualLeaf?: boolean } = {},
-): Promise<ResolvedArborSource> {
+): Promise<ResolvedStorySource> {
   if (!isAbsolute(importingModulePath)) throw new Error("The importing module path must be absolute");
   if (!specifier.startsWith(".")) {
     throw new Error("This SQLite activation path requires a compiler-resolved local relative node() source");

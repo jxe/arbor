@@ -91,9 +91,9 @@ supported backing and prove:
   otherwise. It does not exclude reserved child names (`_store.csv`,
   `schema.cddl`) or non-NFC keys the way `childName` does, and a physical
   `foo.md` beside a row whose segment is `foo` silently shadows the row
-  (`canopyd/src/projection.ts`). Either prove the raw rule reversible and
+  (`overstoryd/src/projection.ts`). Either prove the raw rule reversible and
   collision-free, or make the segment uniform. `~row-` is also the last
-  base64url key surface: `;arbor-key=` and `#arbor-key=` use the readable
+  base64url key surface: `;overstory-key=` and `#overstory-key=` use the readable
   token (03 §2), so a uniform segment should probably use it too.
 - Preserve exact CSV/JSON/JSONL formatting through semantic merge where the
   authority's current source span remains identifiable. Canonical encoding is a

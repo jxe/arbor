@@ -1,7 +1,7 @@
 # Implementing sync services
 
 Overstory hosts accept and serve tree state. Synchronizing clients retain their
-own working trees and publish durable changes. Arbor Sync is the reference local
+own working trees and publish durable changes. Story Sync is the reference local
 filesystem synchronizer, with a separate loopback API for local clients.
 
 ## Shared contracts
@@ -18,11 +18,11 @@ filesystem synchronizer, with a separate loopback API for local clients.
 
 ## Reference services
 
-- [Arbor Sync REST API](arborsync-api.md): loopback status, trees, bootstrap, objects, accounts, held changes, and observation; includes reference fixture pointers.
-- [Arbor Sync architecture](../architecture/arborsync/README.md): placed-folder ownership, daemon services, and private state.
+- [Story Sync REST API](story-sync-api.md): loopback status, trees, bootstrap, objects, accounts, held changes, and observation; includes reference fixture pointers.
+- [Story Sync architecture](../architecture/story-sync/README.md): placed-folder ownership, daemon services, and private state.
 - [Client stack](../architecture/client-stack/README.md): retained requests and conflict recovery.
-- [canopyd architecture](../architecture/canopyd/README.md): authoritative acceptance, merge and execution sidecars, and durability.
-- [Deploying canopyd](../../packages/canopyd/deploy/README.md) and [migrations](../../packages/canopyd/migrations/README.md): operating the reference host.
+- [overstoryd architecture](../architecture/overstoryd/README.md): authoritative acceptance, merge and execution sidecars, and durability.
+- [Deploying overstoryd](../../packages/overstoryd/deploy/README.md) and [migrations](../../packages/overstoryd/migrations/README.md): operating the reference host.
 
 Use [status](../../status.md) for implementation coverage. Portable requirements
 belong in the specification; service internals belong in architecture.

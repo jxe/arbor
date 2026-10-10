@@ -156,7 +156,7 @@ from an ambiguous diff.
 
 - Specify a language-neutral canonical checkpoint and incremental transaction
   format, if checkpoints are selected.
-- Make canopyd validate schema, identities, constraints, authorization, and
+- Make overstoryd validate schema, identities, constraints, authorization, and
   transaction intent before acceptance.
 - Sync logical effects and accepted observation positions; never upload or
   merge live SQLite/Postgres storage bytes.

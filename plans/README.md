@@ -11,32 +11,32 @@ Related plans are grouped in [merge improvements](merge/README.md),
 
 ## Soon
 
-**[Rename 001: Arbor and Canopy names become Overstory and Story](rename/001-overstory-names.md).**
-The commands, daemons, dot directories, env vars, routes and the app still say Arbor
+**[Rename 001: Story and Canopy names become Overstory and Story](rename/001-overstory-names.md).**
+The commands, daemons, dot directories, env vars, routes and the app still say Story
 or Canopy. Joe settled the new names on 2026-10-07 and wants them applied in one
 cutover: `overstoryd`, `overstory://`, `.overstory`, `.overstoryignore`, and Story's
 `story`, `story-sync` and Story.app.
 
-**[Rename 002: remove the `arbor://` locator alias](rename/002-remove-arbor-locator-alias.md).**
-Rename 001 leaves the locator parsers accepting `arbor://` and `;arbor-*` parameters, because
+**[Rename 002: remove the `overstory://` locator alias](rename/002-remove-story-locator-alias.md).**
+Rename 001 leaves the locator parsers accepting `overstory://` and `;story-*` parameters, because
 authored content and shared links still carry them. Joe wants that tolerance to be temporary.
 
-**[canopyd 015: resolve choices that later work has reconciled](merge/015-resolve-reconciled-choices.md).**
+**[overstoryd 015: resolve choices that later work has reconciled](merge/015-resolve-reconciled-choices.md).**
 Joe encountered a whole-tree conflict after moving blocks into a new page. Later
 accepted edits already produced the intended contents, but the conflict remained
 and its cards showed only older alternatives. Address this after the page-transfer
-fixes: canopyd should clear choices it can prove reconciled, and Canopy should
+fixes: overstoryd should clear choices it can prove reconciled, and Canopy should
 explain the current result and make explicit resolution easy.
 
 **[Filesystem 024: disk editors for non-tree folders](filesystem/024-disk-editors-for-non-tree-folders.md).**
 Opening an ordinary folder in the Mac app, and making it into a tree from there, went away
-with the daemon's editor path; today a new tree needs `arbor place`. Joe wants this first,
+with the daemon's editor path; today a new tree needs `story place`. Joe wants this first,
 before the web editor. The web half follows Web 025.
 
 **[Apps 005: source resolution and the execution sidecar](apps/005-source-resolution-and-sidecar.md).**
 Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
 lending models against real code. This is the first step: a headless sidecar that runs them
-under canopyd's authorization.
+under overstoryd's authorization.
 
 **[Apps 006: durable query and mutation authoring](apps/006-durable-authoring.md).**
 Part of the same push, after Apps 005: the authoring API that declares author and user
@@ -59,7 +59,7 @@ Shared compressed checkpoints and resumable replay are implemented locally. Joe 
 
 **[Clients 002: more identity-preserving coalescing](merge/002-identity-preserving-coalescing.md).**
 Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
-with enough identity for canopyd to merge concurrent work correctly. After the
+with enough identity for overstoryd to merge concurrent work correctly. After the
 idle-based publication baseline, extend simplification beyond repeated moves of
 one unchanged span. Implement each case in the Swift and TypeScript clients,
 using shared examples and the host merge engine to prove the result.
@@ -70,11 +70,11 @@ executable documents everywhere, which the Supplies site needs. After the querie
 mutations work.
 
 **[Apps 001: the Supplies executable site](apps/001-supplies-executable-site.md).**
-Later, the web-framework test itself: the Supplies site running locally and on canopyd,
+Later, the web-framework test itself: the Supplies site running locally and on overstoryd,
 then deployed to a third-party host such as Vercel. After Apps 003, 005 and 006.
 
-**[Web 025: Canopy for the web](canopy-web/025-arbor-web.md)**, with its
-[surface inventory](canopy-web/surfaces.md). For sharing with others: people without the Mac
+**[Web 025: Story for the web](story-web/025-story-web.md)**, with its
+[surface inventory](story-web/surfaces.md). For sharing with others: people without the Mac
 or iPhone app need a way to read and edit a tree. After Filesystem 024 and the Native 022
 soak closeout.
 
@@ -83,7 +83,7 @@ When Joe shares by link, alongside Web 025: an access link must not leak its sec
 URLs, history or logs. Nothing is in production yet, so until then the spec carries the
 requirement.
 
-**[Apps 002: hosted agents](apps/002-canopy-hosted-agents.md).** After the Supplies site:
+**[Apps 002: hosted agents](apps/002-overstoryd-hosted-agents.md).** After the Supplies site:
 authored agents hosted beside an app, calling its own query and mutation handles. No timing
 yet.
 
@@ -92,7 +92,7 @@ After Apps 008, once apps span hosts. A design sketch; no timing yet.
 
 ## Parked
 
-**[canopyd 014: the merge handles many cases](merge/014-merge-handles-many-cases.md).**
+**[overstoryd 014: the merge handles many cases](merge/014-merge-handles-many-cases.md).**
 Prose already merges well. Take an item from its menu when a real edit reaches review that
 should have merged.
 
@@ -100,14 +100,14 @@ should have merged.
 When merges bite: a real concurrent edit reviews or loses a copy, paste or undo that should
 have merged. Needs Quagmire 0.9.0.
 
-**[canopyd 007: document history and restore](history/007-document-history-routes-and-restore.md).**
+**[overstoryd 007: document history and restore](history/007-document-history-routes-and-restore.md).**
 Parked. Seeing and restoring earlier versions of a page; it also decides how long document
-versions are kept, which is most of what canopyd retains.
+versions are kept, which is most of what overstoryd retains.
 
-**[canopyd 006: line provenance](history/006-line-provenance.md).** Parked, and after
-canopyd 007: who submitted each current line.
+**[overstoryd 006: line provenance](history/006-line-provenance.md).** Parked, and after
+overstoryd 007: who submitted each current line.
 
-**[canopyd 001: pack object storage](performance/001-pack-object-storage.md).** When size hurts:
+**[overstoryd 001: pack object storage](performance/001-pack-object-storage.md).** When size hurts:
 the live volume or backups grow until loose objects cost startup, audit or backup time.
 Space is not pressing. Built 2026-10-09 and off by default (document-grouped zstd frames); live
 measurement, rehearsal and rollout remain.
@@ -119,7 +119,7 @@ a tree too big to place on the iPhone in one download.
 When browsing collection rows offline on native becomes a real need.
 
 **[Security 002: decode URL paths once](security/002-path-decoding.md)** and
-**[Security 003: harden canopyd responses](security/003-canopy-host-responses.md).**
+**[Security 003: harden overstoryd responses](security/003-overstoryd-host-responses.md).**
 Nothing is in production, so these leaks are tolerable for now; what matters is that the
 spec states the requirement. Do them before a host serves people other than Joe.
 

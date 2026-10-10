@@ -3,14 +3,14 @@
 This is an informative layout for local synchronizers. The portable
 [placement requirements](../overstory-spec/04-accounts-and-devices.md#4-local-placements)
 keep local paths outside synchronized content. See [implementation status](../../status.md)
-for current coverage and [the data home](../architecture/arborsync/data-home.md)
+for current coverage and [the data home](../architecture/story-sync/data-home.md)
 for the daemon's storage.
 
 The reference layout groups local placements by configuration
 `TreeID`, then maps canonical absolute local paths directly to hosted `TreeID`s:
 
 ```yaml
-# ~/.arbor/placements.yaml (informative, not portable Overstory content)
+# ~/.story/placements.yaml (informative, not portable Overstory content)
 tr_config_a:
   "/Users/joe/Documents/Notes": "tr_notes"
 tr_config_b:

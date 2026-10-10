@@ -3,7 +3,7 @@ import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { revisionOf, semanticRequestDigest, type MutationHandleRef, type MutationResultReceipt, type QueryStreamEvent } from "@overstory/protocol";
+import { revisionOf, semanticRequestDigest, type MutationHandleRef, type MutationResultReceipt, type QueryStreamEvent } from "@ovst/protocol";
 import { z } from "zod";
 import {
   node,
@@ -71,7 +71,7 @@ function sourceBindings() {
 }
 
 beforeAll(async () => {
-  directory = await mkdtemp(join(tmpdir(), "arbor-supplies-mutations-"));
+  directory = await mkdtemp(join(tmpdir(), "story-supplies-mutations-"));
   await Promise.all(["_store.sqlite3", "schema.sql", "relationships.json"].map((name) => cp(join(fixture, name), join(directory, name))));
   databasePath = join(directory, "_store.sqlite3");
   const location = {

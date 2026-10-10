@@ -10,7 +10,7 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
 - **Claimed-member removal, restoration and access-history recovery.** Confirmation,
   revocation, historical visibility and restoration without a parallel group database.
 - **Claim disputes and recovery without the operator.** Operator recovery exists
-  (`canopyd recover`); recovery by the profile key or DNS across hosts keeps the same
+  (`overstoryd recover`); recovery by the profile key or DNS across hosts keeps the same
   Profile TreeID with auditable proof of control ([Security 010](security/010-signed-profile-statements.md)).
 - **Persistent-host administration.** Permanent domains, graceful restart,
   replacement-host restore and verification, keeping migration scripts procedural.
@@ -25,7 +25,7 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
 - **Explicit web-editor unload drain** (with Web 025). `beforeunload`/`pagehide` has no
   bounded drain or visible pending state.
 - **Commit native control text before flush** (reverify). If Quagmire can hold text
-  outside `CanopyDocumentBinding` at background, navigation or close, commit then flush.
+  outside `StoryDocumentBinding` at background, navigation or close, commit then flush.
 - **Per-key frontmatter conflicts** (reverify). Preserve independent key changes, detect
   same-key conflicts and deletions.
 - **Provider-specific materialization controls.** Only when one backing can report a
@@ -36,7 +36,7 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
 - **Validate directory-entry names on every client read path** (reverify). Reject empty,
   dot, parent and separator-bearing names before materialization.
 - **Typed authorization errors** (reverify) instead of matching English text; coordinate
-  with [Security 003](security/003-canopy-host-responses.md).
+  with [Security 003](security/003-overstoryd-host-responses.md).
 - **Upgrade the `yaml` dependency** (reverify) past the nested-collection stack-overflow fix.
 - **Safe ordinary-file metadata and previews.** Bounded size/type detection and inert
   previews; never parse binary or placeholder bytes as text.
@@ -46,7 +46,7 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
 ## Testing
 
 - **Browser smoke harness** and **accessibility/responsive audits** (with Web 025).
-- **canopyd authorization characterization** (reverify): revoked grants, read-link write
+- **overstoryd authorization characterization** (reverify): revoked grants, read-link write
   denial, non-admin access mutation, transitive group removal.
 - **Cross-client group workflow coverage**, once the first-party flow is designed.
 - **`mergeBlocks` characterization** and **Markdown/BlockNote round-trip fixtures**
@@ -67,8 +67,8 @@ Measure before promoting any of these.
 
 ## Cleanup
 
-- **Shared runtime protocol decoding.** When a second trusted boundary besides Arbor Sync
-  needs runtime decoding, colocate pure decoders in `@overstory/protocol`.
+- **Shared runtime protocol decoding.** When a second trusted boundary besides Story Sync
+  needs runtime decoding, colocate pure decoders in `@ovst/protocol`.
 - **Provider scalar normalization** and **bounded-placement conformance** belong to the
   Postgres plans and Native 003 when they start.
 
@@ -77,7 +77,7 @@ Measure before promoting any of these.
 1. **Shared-tree recovery and endpoint movement.** How can a stable TreeID refresh endpoint
    hints durably and verifiably without a central registry?
 2. **Identity and recovery UX.** How should device replacement, profile recovery and
-   disputes prove control without turning Arbor Sync into a multi-user account service?
+   disputes prove control without turning Story Sync into a multi-user account service?
 3. **Merge semantics.** What logical conflict semantics should structured collections and
    whole-database SQLite revisions use beyond text's three-way merge?
 4. **Determinism.** How should query and agent-tool runtimes isolate clock, randomness, I/O

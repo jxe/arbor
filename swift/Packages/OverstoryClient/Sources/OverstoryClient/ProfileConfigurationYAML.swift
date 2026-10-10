@@ -535,7 +535,7 @@ public extension ProfileConfigurationYAML {
 
     /// Edit one file of an account checkout on disk.
     ///
-    /// Swift twin of `editProfileConfigurationFile` in `@overstory/protocol`
+    /// Swift twin of `editProfileConfigurationFile` in `@ovst/protocol`
     /// (`packages/protocol/src/config/profile-config.ts`); the contract is shared:
     /// - The file lives at `checkoutURL(dataHome:configurationTree:)/<filename>`
     ///   and is read as strict UTF-8.
@@ -546,7 +546,7 @@ public extension ProfileConfigurationYAML {
     ///   when it throws, the file on disk is untouched.
     /// - The new source replaces the file atomically (temporary file + rename),
     ///   so the daemon's checkout watcher only ever observes complete files.
-    /// - Nothing here talks to the daemon. The checkout is a placed folder: Arbor
+    /// - Nothing here talks to the daemon. The checkout is a placed folder: Story
     ///   Sync watches it and pushes the edit like any other placement, and a
     ///   caller that needs it pushed promptly asks the daemon to synchronize
     ///   afterwards.
@@ -605,7 +605,7 @@ public struct LocalPlacementEntry: Hashable, Sendable, Codable {
             throw ProtocolValidationError.invalidValue("A placement mapping requires a tree")
         }
         if let host = fields["host"], !Self.isHostOrigin(host) {
-            throw ProtocolValidationError.invalidValue("A placement host must be an HTTPS origin such as https://canopy.example")
+            throw ProtocolValidationError.invalidValue("A placement host must be an HTTPS origin such as https://host.example")
         }
         self.init(tree: tree, host: fields["host"])
     }
@@ -661,7 +661,7 @@ public enum LocalPlacementsYAML {
         to source: String
     ) throws -> String {
         if let host, !LocalPlacementEntry.isHostOrigin(host) {
-            throw ProtocolValidationError.invalidValue("A placement host must be an HTTPS origin such as https://canopy.example")
+            throw ProtocolValidationError.invalidValue("A placement host must be an HTTPS origin such as https://host.example")
         }
         let entry = LocalPlacementEntry(tree: tree, host: host)
         var placements = try entries(from: source)

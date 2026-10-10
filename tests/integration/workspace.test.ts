@@ -4,17 +4,17 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
-import { Workspace } from "@overstory/arborsync";
-import { canonicalStableKey, markdownStableKey } from "@overstory/protocol";
+import { Workspace } from "@ovst/story-sync";
+import { canonicalStableKey, markdownStableKey } from "@ovst/protocol";
 
 let root: string;
 let state: string;
 let workspace: Workspace;
 
 beforeAll(async () => {
-  root = await mkdtemp(join(tmpdir(), "arbor-workspace-"));
-  state = await mkdtemp(join(tmpdir(), "arbor-state-"));
-  process.env.ARBOR_DATA_HOME = state;
+  root = await mkdtemp(join(tmpdir(), "story-workspace-"));
+  state = await mkdtemp(join(tmpdir(), "story-state-"));
+  process.env.STORY_HOME = state;
   await writeFile(join(root, "notes.md"), "---\ntitle: Notes\n---\n▸ Ideas\n  First\n");
   await mkdir(join(root, "folder"));
   await writeFile(join(root, "folder", "child.md"), "Child body\n");
@@ -46,8 +46,8 @@ describe("workspace service", () => {
   test("keeps generated collection types in private workspace state", async () => {
     const declarationPath = workspace.nodes.generatedTypeDeclarationPath();
     expect(relative(root, declarationPath).startsWith("..")).toBe(true);
-    expect(await readFile(declarationPath, "utf8")).toContain('declare module "arbor/runtime"');
-    await expect(stat(join(root, ".arbor"))).rejects.toThrow();
+    expect(await readFile(declarationPath, "utf8")).toContain('declare module "story/runtime"');
+    await expect(stat(join(root, ".overstory"))).rejects.toThrow();
 
     const collection = join(root, "typed");
     const schemaPath = join(collection, "schema.cddl");
@@ -191,9 +191,9 @@ describe("workspace service", () => {
   });
 
   test("uses a sibling Markdown body for a directory and prefers _index.md beside it", async () => {
-    const duplicateRoot = await mkdtemp(join(tmpdir(), "arbor-duplicate-"));
-    const duplicateState = await mkdtemp(join(tmpdir(), "arbor-duplicate-state-"));
-    process.env.ARBOR_DATA_HOME = duplicateState;
+    const duplicateRoot = await mkdtemp(join(tmpdir(), "story-duplicate-"));
+    const duplicateState = await mkdtemp(join(tmpdir(), "story-duplicate-state-"));
+    process.env.STORY_HOME = duplicateState;
     let duplicateWorkspace: Workspace | null = null;
     try {
       await writeFile(join(duplicateRoot, "same.md"), "Leaf\n");
@@ -215,7 +215,7 @@ describe("workspace service", () => {
       expect(duplicate.diagnostics.some((item) => item.code === "shadowed-body")).toBe(true);
     } finally {
       await duplicateWorkspace?.[Symbol.asyncDispose]();
-      process.env.ARBOR_DATA_HOME = state;
+      process.env.STORY_HOME = state;
       await rm(duplicateRoot, { recursive: true, force: true });
       await rm(duplicateState, { recursive: true, force: true });
     }
@@ -224,10 +224,10 @@ describe("workspace service", () => {
 
 describe("ignore rules in the workspace service", () => {
   test("a live rule edit takes a page out of browsing and the stable-key maps, and back", async () => {
-    const folder = await mkdtemp(join(tmpdir(), "arbor-workspace-ignore-"));
-    const home = await mkdtemp(join(tmpdir(), "arbor-workspace-ignore-state-"));
-    const previous = process.env.ARBOR_DATA_HOME;
-    process.env.ARBOR_DATA_HOME = home;
+    const folder = await mkdtemp(join(tmpdir(), "story-workspace-ignore-"));
+    const home = await mkdtemp(join(tmpdir(), "story-workspace-ignore-state-"));
+    const previous = process.env.STORY_HOME;
+    process.env.STORY_HOME = home;
     await writeFile(join(folder, "kept.md"), "---\nid: keptpage1\n---\nKept\n");
     await writeFile(join(folder, "draft.md"), "---\nid: draftpage1\n---\nDraft\n");
     const opened = await Workspace.open(folder);
@@ -243,15 +243,15 @@ describe("ignore rules in the workspace service", () => {
     try {
       expect(await names()).toContain("draft");
       expect(opened.nodes.mutationRef("/draft").stableKey).toBe(key);
-      await writeFile(join(folder, ".arborignore"), "draft.md\n");
+      await writeFile(join(folder, ".overstoryignore"), "draft.md\n");
       await until(async () => !(await names()).includes("draft") && opened.nodes.mutationRef("/draft").stableKey === null);
       await expect(opened.nodes.snapshot({ tree: opened.tree, path: "/", stableKey: key })).rejects.toThrow("No node owns stable key");
       expect(opened.nodes.mutationRef("/kept").stableKey).toBe(markdownStableKey("keptpage1"));
-      await writeFile(join(folder, ".arborignore"), "");
+      await writeFile(join(folder, ".overstoryignore"), "");
       await until(async () => (await names()).includes("draft") && opened.nodes.mutationRef("/draft").stableKey === key);
     } finally {
       await opened[Symbol.asyncDispose]();
-      process.env.ARBOR_DATA_HOME = previous;
+      process.env.STORY_HOME = previous;
       await rm(folder, { recursive: true, force: true });
       await rm(home, { recursive: true, force: true });
     }

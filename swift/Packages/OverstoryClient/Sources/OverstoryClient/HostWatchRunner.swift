@@ -1,5 +1,5 @@
 import Overstory
-import CanopyWorkingTree
+import OverstoryWorkingTree
 import Foundation
 import os
 

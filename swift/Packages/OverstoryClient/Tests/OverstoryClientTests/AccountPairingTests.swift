@@ -42,7 +42,7 @@ struct NativeAccountPairingTests {
     @Test("Pairing payload is versioned and server scoped")
     func pairingPayload() throws {
         let payload = PairingPayload(
-            origin: URL(string: "https://arbor.example")!,
+            origin: URL(string: "https://overstory.example")!,
             pairing: .init(id: "pa_test", secret: "secret")
         )
         #expect(try payload.validated() == payload)
@@ -110,7 +110,7 @@ struct NativeAccountPairingTests {
         let source = """
         - who: {profile: tr_joe}
           allow: [admin]
-        - who: {profile: "arbor://club.example/~club/"}
+        - who: {profile: "overstory://club.example/~club/"}
           allow: [read]
         - who: {profile: "https://club.example/~club"}
           app: tr_supplies
@@ -266,7 +266,7 @@ struct NativeAccountPairingTests {
     @Test("Account configuration files are edited on disk atomically and only after validation")
     func profileConfigurationFileEdit() throws {
         let dataHome = FileManager.default.temporaryDirectory
-            .appending(path: "ArborAccountFileEdit-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "StoryAccountFileEdit-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: dataHome) }
         let checkout = ProfileConfigurationYAML.checkoutURL(dataHome: dataHome, configurationTree: "tr_config")
         #expect(checkout.path.hasSuffix("/configurations/tr_config"))
@@ -377,7 +377,7 @@ struct NativeAccountPairingTests {
     @Test("Profile ACL labels prefer handles and protect the current user")
     func profileACLPresentation() throws {
         #expect(ProfileConfigurationYAML.profileDisplayName(
-            locator: "arbor://community.example/~alice"
+            locator: "overstory://community.example/~alice"
         ) == "~alice")
         #expect(ProfileConfigurationYAML.profileDisplayName(
             locator: nil,
@@ -406,7 +406,7 @@ struct NativeAccountPairingTests {
                 AccountAccessRule(subject: .profile(tree: "tr_alice"), access: "read"),
                 AccountAccessRule(subject: .everyone, access: "read"),
             ],
-            profileLocators: ["tr_alice": "arbor://community.example/~alice"],
+            profileLocators: ["tr_alice": "overstory://community.example/~alice"],
             currentProfileTree: "tr_joe",
             currentHandle: "joe"
         )
@@ -420,7 +420,7 @@ struct NativeAccountPairingTests {
     @Test("A failed account discovery retries the exact durable pairing claim")
     func exactClaimRetry() async throws {
         await PairingURLProtocol.state.reset()
-        let origin = URL(string: "https://canopy.test")!
+        let origin = URL(string: "https://host.test")!
         let payload = PairingPayload(origin: origin, pairing: .init(id: "pa_exact", secret: "pairing-secret"))
         let store = MemoryAccountCredentialStore()
         let session = pairingSession()
@@ -464,7 +464,7 @@ struct NativeAccountPairingTests {
         let enrolled = try #require(claimed["device"] as? [String: Any])
         #expect((enrolled["key"] as? String)?.hasPrefix("p256:") == true)
         #expect(enrolled["credentialDigest"] == nil)
-        let accountRequests = captured.filter { $0.path == "/.arbor/account" }
+        let accountRequests = captured.filter { $0.path == "/.overstory/account" }
         #expect(accountRequests.count == 2)
         #expect(accountRequests[0].authorization == accountRequests[1].authorization)
         #expect(accountRequests[1].authorization == "Bearer ars_exact")
@@ -516,25 +516,25 @@ private actor PairingURLProtocolState {
             }
             device = ["id": .string(id), "label": .string(label)]
             return (200, jsonData([
-                // Since canopyd 005 an account's id is its profile TreeID.
+                // Since overstoryd 005 an account's id is its profile TreeID.
                 "device": ["id": id, "account": "tr_profileexact", "label": label, "createdAt": 1_788_000_000_000],
                 "confirmationCode": "123456",
             ]))
         }
         // A key device signs in for a session (accounts §5.1).
-        if path == "/.arbor/device-sessions/challenges" {
+        if path == "/.overstory/device-sessions/challenges" {
             guard case let .string(id) = device["id"] else { return (404, Data(#"{"error":"not-found","message":"no device","retryable":false}"#.utf8)) }
             return (201, jsonData([
-                "version": 1, "purpose": "device-session", "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa", "origin": "https://canopy.test",
+                "version": 1, "purpose": "device-session", "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa", "origin": "https://host.test",
                 "profileTree": "tr_profileexact", "device": id, "nonce": String(repeating: "A", count: 43),
                 "issuedAt": 1_788_000_000_000, "expiresAt": 1_788_000_120_000,
             ]))
         }
-        if path == "/.arbor/device-sessions" {
+        if path == "/.overstory/device-sessions" {
             guard case let .string(id) = device["id"] else { return (404, Data(#"{"error":"not-found","message":"no device","retryable":false}"#.utf8)) }
             return (201, jsonData(["token": "ars_exact", "device": id, "expiresAt": Int(Date().timeIntervalSince1970 * 1000) + 3_600_000]))
         }
-        if path == "/.arbor/account" {
+        if path == "/.overstory/account" {
             accountReads += 1
             if accountReads == 1 {
                 return (500, Data(#"{"error":"server-busy","message":"lost after claim","retryable":true}"#.utf8))
@@ -549,10 +549,10 @@ private actor PairingURLProtocolState {
                     "id": "ac_exact",
                     "handle": "joe",
                     "profileTree": "tr_profileexact",
-                    "profileURL": "https://canopy.test/~joe",
+                    "profileURL": "https://host.test/~joe",
                     "community": [
                         "id": "tr_community", "kind": "ordinary", "access": "read", "root": zero, "update": "up_community", "conflicted": false,
-                        "canonical": ["path": "/", "endpoint": "https://canopy.test/.well-known/arbor"],
+                        "canonical": ["path": "/", "endpoint": "https://host.test/.well-known/overstory"],
                     ],
                     "configuration": [
                         "id": "tr_configexact", "kind": "tree-configuration", "access": "write", "root": one, "update": "up_config", "conflicted": false,

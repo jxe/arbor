@@ -1,6 +1,6 @@
-# `@overstory/fs`
+# `@ovst/fs`
 
-`@overstory/fs` reads a placed folder as logical nodes, watches it, and converts
+`@ovst/fs` reads a placed folder as logical nodes, watches it, and converts
 between the folder and protocol trees. `WorkspaceFS` reads, discovers and watches;
 it never writes. The update machine writes accepted trees into the folder with
 `materializeTree` (`protocol-tree.ts`), and editors write the folder as ordinary
@@ -13,7 +13,7 @@ files that the watcher then observes.
 - `x/_index.md` is the body only when `x.md` is absent. Having both body files produces a `duplicate-body-representation` diagnostic.
 - Every physical directory has complete operational Markdown. Reads append ordinary links for otherwise-unmentioned immediate children without materializing a body.
 - Directory content revisions cover exact stored body bytes plus canonically ordered immediate-child descriptors. Child-set changes change the revision; filesystem enumeration order does not.
-- Every physical path is containment-checked against the real workspace root. Atomic-write staging names (`.arbor-txn-`, `.arbor-write-`) are ignored by listing and the watcher.
+- Every physical path is containment-checked against the real workspace root. Atomic-write staging names (`.overstory-txn-`, `.overstory-write-`) are ignored by listing and the watcher.
 - Full-byte revisions and parsed body revisions are separate, so a frontmatter-only change still changes the byte revision.
 
 ## Membership
@@ -26,13 +26,13 @@ that policy (or a result it already filtered) and never keeps its own list of na
 
 - `policy.decision(treePath, isDirectory)` returns `included`, `mandatory`, or `ignored`,
   with the ignore file and rule that decided an `ignored` path.
-- Mandatory exclusions (`.git`, `node_modules`, `.arbor`, `Trash`, `.build`,
+- Mandatory exclusions (`.git`, `node_modules`, `.overstory`, `Trash`, `.build`,
   `DerivedData`, transaction temporaries, iCloud placeholders, nested mounts) cannot be
   negated. `IGNORED_WORKSPACE_DIRECTORIES` remains only for the watcher's static globs.
-- `.arborignore` and `.gitignore` use Git's grammar through a small matcher of our own.
+- `.overstoryignore` and `.gitignore` use Git's grammar through a small matcher of our own.
   Separate per-file instances of the `ignore` package cannot apply a deeper file's
   negation to an ancestor another file excluded, and it matches case-insensitively by
-  default. The TypeScript and Swift (`CanopyWorkingTree/IgnorePolicy.swift`) matchers
+  default. The TypeScript and Swift (`OverstoryWorkingTree/IgnorePolicy.swift`) matchers
   both run `tests/fixtures/ignore-policy/cases.json`. Unlike Git, `?` and bracket
   expressions match one Unicode character rather than one byte.
 - Git is never invoked. `.git/info/exclude`, `core.excludesFile` and global ignore files
@@ -56,7 +56,7 @@ Startup performs one symlink-safe discovery walk and shares its immutable result
 
 The watcher debounces each logical path, reads it, and emits one `FsEvent`: `created`, `updated`, `deleted`, `moved`, or a `diagnostic`. A Markdown page whose `id:` reappears at a new path within the delete window is reported as one `moved` event with `previousPath`, not as a delete plus a create.
 
-Events are filtered through the current policy. A change at an ignored path is never a node event; `subscribeIgnored` reports its physical tree path to a synchronizer that may still track it. An edit to any `.arborignore` or `.gitignore` reloads the policy and rediscovers once, then emits `updated` at `/` as a tree-level invalidation.
+Events are filtered through the current policy. A change at an ignored path is never a node event; `subscribeIgnored` reports its physical tree path to a synchronizer that may still track it. An edit to any `.overstoryignore` or `.gitignore` reloads the policy and rediscovers once, then emits `updated` at `/` as a tree-level invalidation.
 
 ## Public surface
 

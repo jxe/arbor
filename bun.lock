@@ -5,20 +5,20 @@
     "": {
       "name": "arbor",
       "dependencies": {
-        "@overstory/apps-runtime": "workspace:*",
-        "@overstory/arborsync": "workspace:*",
-        "@overstory/canopy-web": "workspace:*",
-        "@overstory/canopyd": "workspace:*",
-        "@overstory/canopyd-merge": "workspace:*",
-        "@overstory/cli": "workspace:*",
-        "@overstory/client": "workspace:*",
-        "@overstory/collection-schema": "workspace:*",
-        "@overstory/fs": "workspace:*",
-        "@overstory/merge-protocol": "workspace:*",
-        "@overstory/object-store": "workspace:*",
-        "@overstory/protocol": "workspace:*",
-        "@overstory/tree-merge": "workspace:*",
-        "@overstory/working-tree": "workspace:*",
+        "@ovst/apps-runtime": "workspace:*",
+        "@ovst/cli": "workspace:*",
+        "@ovst/client": "workspace:*",
+        "@ovst/collection-schema": "workspace:*",
+        "@ovst/fs": "workspace:*",
+        "@ovst/merge-protocol": "workspace:*",
+        "@ovst/object-store": "workspace:*",
+        "@ovst/overstoryd": "workspace:*",
+        "@ovst/overstoryd-merge": "workspace:*",
+        "@ovst/protocol": "workspace:*",
+        "@ovst/story-sync": "workspace:*",
+        "@ovst/story-web": "workspace:*",
+        "@ovst/tree-merge": "workspace:*",
+        "@ovst/working-tree": "workspace:*",
       },
       "devDependencies": {
         "@noble/hashes": "^2.2.0",
@@ -31,7 +31,7 @@
       },
     },
     "examples/supplies": {
-      "name": "@overstory/example-supplies",
+      "name": "@ovst/example-supplies",
       "version": "0.1.0",
       "dependencies": {
         "react": "19.2.4",
@@ -39,36 +39,125 @@
       },
     },
     "packages/apps-runtime": {
-      "name": "@overstory/apps-runtime",
+      "name": "@ovst/apps-runtime",
       "version": "0.1.0",
       "dependencies": {
-        "@overstory/protocol": "workspace:*",
+        "@ovst/protocol": "workspace:*",
         "yaml": "2.8.2",
       },
     },
-    "packages/arborsync": {
-      "name": "@overstory/arborsync",
+    "packages/cli": {
+      "name": "@ovst/cli",
+      "version": "0.1.0",
+      "bin": {
+        "story": "./src/index.ts",
+      },
+      "dependencies": {
+        "@ovst/client": "workspace:*",
+        "@ovst/fs": "workspace:*",
+        "@ovst/overstoryd": "workspace:*",
+        "@ovst/protocol": "workspace:*",
+        "@ovst/story-sync": "workspace:*",
+        "yaml": "2.8.2",
+      },
+    },
+    "packages/client": {
+      "name": "@ovst/client",
       "version": "0.1.0",
       "dependencies": {
-        "@overstory/apps-runtime": "workspace:*",
-        "@overstory/client": "workspace:*",
-        "@overstory/collection-schema": "workspace:*",
-        "@overstory/fs": "workspace:*",
-        "@overstory/protocol": "workspace:*",
-        "@overstory/tree-merge": "workspace:*",
-        "@overstory/working-tree": "workspace:*",
+        "@ovst/fs": "workspace:*",
+        "@ovst/protocol": "workspace:*",
+      },
+    },
+    "packages/collection-schema": {
+      "name": "@ovst/collection-schema",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ovst/protocol": "workspace:*",
         "csv-parse": "6.1.0",
       },
     },
-    "packages/canopy-web": {
-      "name": "@overstory/canopy-web",
+    "packages/fs": {
+      "name": "@ovst/fs",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ovst/protocol": "workspace:*",
+        "@parcel/watcher": "2.5.1",
+      },
+    },
+    "packages/merge-protocol": {
+      "name": "@ovst/merge-protocol",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ovst/protocol": "workspace:*",
+        "zod": "4.3.6",
+      },
+    },
+    "packages/object-store": {
+      "name": "@ovst/object-store",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ovst/protocol": "workspace:*",
+      },
+    },
+    "packages/overstoryd": {
+      "name": "@ovst/overstoryd",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ovst/apps-runtime": "workspace:*",
+        "@ovst/collection-schema": "workspace:*",
+        "@ovst/merge-protocol": "workspace:*",
+        "@ovst/object-store": "workspace:*",
+        "@ovst/protocol": "workspace:*",
+        "yaml": "2.8.2",
+      },
+    },
+    "packages/overstoryd-merge": {
+      "name": "@ovst/overstoryd-merge",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ovst/merge-protocol": "workspace:*",
+        "@ovst/object-store": "workspace:*",
+        "@ovst/protocol": "workspace:*",
+        "@ovst/tree-merge": "workspace:*",
+        "saxes": "6.0.0",
+        "tree-sitter-wasms": "0.1.13",
+        "web-tree-sitter": "0.20.8",
+        "yaml": "2.8.2",
+        "zod": "4.3.6",
+      },
+    },
+    "packages/protocol": {
+      "name": "@ovst/protocol",
+      "version": "0.1.0",
+      "dependencies": {
+        "@noble/hashes": "^2.2.0",
+        "yaml": "2.8.2",
+      },
+    },
+    "packages/story-sync": {
+      "name": "@ovst/story-sync",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ovst/apps-runtime": "workspace:*",
+        "@ovst/client": "workspace:*",
+        "@ovst/collection-schema": "workspace:*",
+        "@ovst/fs": "workspace:*",
+        "@ovst/protocol": "workspace:*",
+        "@ovst/tree-merge": "workspace:*",
+        "@ovst/working-tree": "workspace:*",
+        "csv-parse": "6.1.0",
+      },
+    },
+    "packages/story-web": {
+      "name": "@ovst/story-web",
       "version": "0.1.0",
       "dependencies": {
         "@blocknote/core": "0.52.1",
         "@blocknote/mantine": "0.52.1",
         "@blocknote/react": "0.52.1",
         "@mantine/core": "8.3.10",
-        "@overstory/protocol": "workspace:*",
+        "@ovst/protocol": "workspace:*",
         "@tiptap/pm": "3.28.0",
         "katex": "0.18.1",
         "lucide-react": "^1.31.0",
@@ -80,108 +169,19 @@
         "@types/react-dom": "19.2.3",
       },
     },
-    "packages/canopyd": {
-      "name": "@overstory/canopyd",
-      "version": "0.1.0",
-      "dependencies": {
-        "@overstory/apps-runtime": "workspace:*",
-        "@overstory/collection-schema": "workspace:*",
-        "@overstory/merge-protocol": "workspace:*",
-        "@overstory/object-store": "workspace:*",
-        "@overstory/protocol": "workspace:*",
-        "yaml": "2.8.2",
-      },
-    },
-    "packages/canopyd-merge": {
-      "name": "@overstory/canopyd-merge",
-      "version": "0.1.0",
-      "dependencies": {
-        "@overstory/merge-protocol": "workspace:*",
-        "@overstory/object-store": "workspace:*",
-        "@overstory/protocol": "workspace:*",
-        "@overstory/tree-merge": "workspace:*",
-        "saxes": "6.0.0",
-        "tree-sitter-wasms": "0.1.13",
-        "web-tree-sitter": "0.20.8",
-        "yaml": "2.8.2",
-        "zod": "4.3.6",
-      },
-    },
-    "packages/cli": {
-      "name": "@overstory/cli",
-      "version": "0.1.0",
-      "bin": {
-        "arbor": "./src/index.ts",
-      },
-      "dependencies": {
-        "@overstory/arborsync": "workspace:*",
-        "@overstory/canopyd": "workspace:*",
-        "@overstory/client": "workspace:*",
-        "@overstory/fs": "workspace:*",
-        "@overstory/protocol": "workspace:*",
-        "yaml": "2.8.2",
-      },
-    },
-    "packages/client": {
-      "name": "@overstory/client",
-      "version": "0.1.0",
-      "dependencies": {
-        "@overstory/fs": "workspace:*",
-        "@overstory/protocol": "workspace:*",
-      },
-    },
-    "packages/collection-schema": {
-      "name": "@overstory/collection-schema",
-      "version": "0.1.0",
-      "dependencies": {
-        "@overstory/protocol": "workspace:*",
-        "csv-parse": "6.1.0",
-      },
-    },
-    "packages/fs": {
-      "name": "@overstory/fs",
-      "version": "0.1.0",
-      "dependencies": {
-        "@overstory/protocol": "workspace:*",
-        "@parcel/watcher": "2.5.1",
-      },
-    },
-    "packages/merge-protocol": {
-      "name": "@overstory/merge-protocol",
-      "version": "0.1.0",
-      "dependencies": {
-        "@overstory/protocol": "workspace:*",
-        "zod": "4.3.6",
-      },
-    },
-    "packages/object-store": {
-      "name": "@overstory/object-store",
-      "version": "0.1.0",
-      "dependencies": {
-        "@overstory/protocol": "workspace:*",
-      },
-    },
-    "packages/protocol": {
-      "name": "@overstory/protocol",
-      "version": "0.1.0",
-      "dependencies": {
-        "@noble/hashes": "^2.2.0",
-        "yaml": "2.8.2",
-      },
-    },
     "packages/tree-merge": {
-      "name": "@overstory/tree-merge",
+      "name": "@ovst/tree-merge",
       "version": "0.1.0",
       "dependencies": {
-        "@overstory/collection-schema": "workspace:*",
-        "@overstory/protocol": "workspace:*",
+        "@ovst/collection-schema": "workspace:*",
+        "@ovst/protocol": "workspace:*",
       },
     },
     "packages/working-tree": {
-      "name": "@overstory/working-tree",
+      "name": "@ovst/working-tree",
       "version": "0.1.0",
       "dependencies": {
-        "@overstory/protocol": "workspace:*",
+        "@ovst/protocol": "workspace:*",
       },
     },
   },
@@ -314,35 +314,35 @@
 
     "@noble/hashes": ["@noble/hashes@2.2.0", "", {}, "sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg=="],
 
-    "@overstory/apps-runtime": ["@overstory/apps-runtime@workspace:packages/apps-runtime"],
+    "@ovst/apps-runtime": ["@ovst/apps-runtime@workspace:packages/apps-runtime"],
 
-    "@overstory/arborsync": ["@overstory/arborsync@workspace:packages/arborsync"],
+    "@ovst/cli": ["@ovst/cli@workspace:packages/cli"],
 
-    "@overstory/canopy-web": ["@overstory/canopy-web@workspace:packages/canopy-web"],
+    "@ovst/client": ["@ovst/client@workspace:packages/client"],
 
-    "@overstory/canopyd": ["@overstory/canopyd@workspace:packages/canopyd"],
+    "@ovst/collection-schema": ["@ovst/collection-schema@workspace:packages/collection-schema"],
 
-    "@overstory/canopyd-merge": ["@overstory/canopyd-merge@workspace:packages/canopyd-merge"],
+    "@ovst/example-supplies": ["@ovst/example-supplies@workspace:examples/supplies"],
 
-    "@overstory/cli": ["@overstory/cli@workspace:packages/cli"],
+    "@ovst/fs": ["@ovst/fs@workspace:packages/fs"],
 
-    "@overstory/client": ["@overstory/client@workspace:packages/client"],
+    "@ovst/merge-protocol": ["@ovst/merge-protocol@workspace:packages/merge-protocol"],
 
-    "@overstory/collection-schema": ["@overstory/collection-schema@workspace:packages/collection-schema"],
+    "@ovst/object-store": ["@ovst/object-store@workspace:packages/object-store"],
 
-    "@overstory/example-supplies": ["@overstory/example-supplies@workspace:examples/supplies"],
+    "@ovst/overstoryd": ["@ovst/overstoryd@workspace:packages/overstoryd"],
 
-    "@overstory/fs": ["@overstory/fs@workspace:packages/fs"],
+    "@ovst/overstoryd-merge": ["@ovst/overstoryd-merge@workspace:packages/overstoryd-merge"],
 
-    "@overstory/merge-protocol": ["@overstory/merge-protocol@workspace:packages/merge-protocol"],
+    "@ovst/protocol": ["@ovst/protocol@workspace:packages/protocol"],
 
-    "@overstory/object-store": ["@overstory/object-store@workspace:packages/object-store"],
+    "@ovst/story-sync": ["@ovst/story-sync@workspace:packages/story-sync"],
 
-    "@overstory/protocol": ["@overstory/protocol@workspace:packages/protocol"],
+    "@ovst/story-web": ["@ovst/story-web@workspace:packages/story-web"],
 
-    "@overstory/tree-merge": ["@overstory/tree-merge@workspace:packages/tree-merge"],
+    "@ovst/tree-merge": ["@ovst/tree-merge@workspace:packages/tree-merge"],
 
-    "@overstory/working-tree": ["@overstory/working-tree@workspace:packages/working-tree"],
+    "@ovst/working-tree": ["@ovst/working-tree@workspace:packages/working-tree"],
 
     "@parcel/watcher": ["@parcel/watcher@2.5.1", "", { "dependencies": { "detect-libc": "^1.0.3", "is-glob": "^4.0.3", "micromatch": "^4.0.5", "node-addon-api": "^7.0.0" }, "optionalDependencies": { "@parcel/watcher-android-arm64": "2.5.1", "@parcel/watcher-darwin-arm64": "2.5.1", "@parcel/watcher-darwin-x64": "2.5.1", "@parcel/watcher-freebsd-x64": "2.5.1", "@parcel/watcher-linux-arm-glibc": "2.5.1", "@parcel/watcher-linux-arm-musl": "2.5.1", "@parcel/watcher-linux-arm64-glibc": "2.5.1", "@parcel/watcher-linux-arm64-musl": "2.5.1", "@parcel/watcher-linux-x64-glibc": "2.5.1", "@parcel/watcher-linux-x64-musl": "2.5.1", "@parcel/watcher-win32-arm64": "2.5.1", "@parcel/watcher-win32-ia32": "2.5.1", "@parcel/watcher-win32-x64": "2.5.1" } }, "sha512-dfUnCxiN9H4ap84DvD2ubjw+3vUNpstxa0TneY/Paat8a3R4uQZDLSvWjmznAY/DoahqTHl9V46HF/Zs3F29pg=="],
 

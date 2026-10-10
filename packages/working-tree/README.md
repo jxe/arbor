@@ -1,9 +1,9 @@
-# @overstory/working-tree
+# @ovst/working-tree
 
 One working tree's synchronization: its local changes, the durable change log
 they are appended to, the update machine that decides when and how the log is
 published, and the runner that performs what the machine decides. The Swift
-twin is `CanopyWorkingTree`.
+twin is `OverstoryWorkingTree`.
 
 The root entry point is browser-safe:
 

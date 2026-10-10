@@ -111,7 +111,7 @@ from the stored sibling/index Markdown body, or an empty implicit body. Authored
 placement and child membership are distinct:
 
 1. Walk standalone links in source order. The first link that resolves to each immediate child represents that child at its authored position. Inline links never qualify, and later standalone links to the same child remain ordinary duplicate links.
-2. A standalone `<!-- arbor:children -->` marker represents every otherwise-unmentioned immediate child at that position. When source contains no marker, one implicit marker exists after the authored source. More than one marker is `duplicate-children-marker` and blocks authored placement edits until repaired.
+2. A standalone `<!-- overstory:children -->` marker represents every otherwise-unmentioned immediate child at that position. When source contains no marker, one implicit marker exists after the authored source. More than one marker is `duplicate-children-marker` and blocks authored placement edits until repaired.
 3. The provider enumerates the marker's remainder in canonical logical-path order and may page or virtualize it. The operational document retains the marker rather than expanding one literal source link per child. Reading, rendering, indexing, searching, backlinks, hosted output, and export consume the same placement model.
 
 Reading an implicit body or marker does not materialize it. The first authored
@@ -133,8 +133,8 @@ or child unless an explicit materialization operation creates one.
 Links use [Overstory locators](03-locators.md). Relative and tree-rooted logical
 paths are valid within a resolved tree; cross-tree links use canonical or raw
 TreeID locators; a document-link row naming a node in the same tree is a
-relative link, not an `arbor://` locator. A relative link names the target's
-body file and carries its stable key as `#arbor-key=<key-token>`, as
+relative link, not an `overstory://` locator. A relative link names the target's
+body file and carries its stable key as `#overstory-key=<key-token>`, as
 [locators §2.1](03-locators.md#21-links-written-in-markdown) defines. When its
 readable path and valid stable key disagree, the key selects the node within
 its declaring keyspace and the authored content may be healed through an
@@ -188,9 +188,9 @@ deletes it. It stays an opaque placement file: it remains on disk and
 local tools may open it, but it belongs to that placement, not to the tree.
 
 **Mandatory exclusions.** These are never tree content, whatever an ignore file
-says: directories named `.git`, `node_modules`, `.arbor`, `Trash`, `.build`, or
+says: directories named `.git`, `node_modules`, `.overstory`, `Trash`, `.build`, or
 `DerivedData` and everything beneath them; write and transaction temporaries
-(names containing `.arbor-write-` or `.arbor-txn-`); operating-system metadata
+(names containing `.overstory-write-` or `.overstory-txn-`); operating-system metadata
 the system rewrites on its own, namely macOS Finder's `.DS_Store` and
 AppleDouble `._name` files, at any depth; a cloud provider's
 placeholder for an evicted file, such as iCloud's `.name.icloud`, which stands
@@ -199,7 +199,7 @@ the directory, whose content belongs to that tree. A root accepted before an
 exclusion applied may still name such a path; a folder client neither writes
 nor removes the local file there, and publishes the root without it.
 
-**Ignore files.** `.arborignore` is the portable spelling of an ignore file.
+**Ignore files.** `.overstoryignore` is the portable spelling of an ignore file.
 `.gitignore` is read with the same meaning for compatibility. Each applies from
 the directory that contains it downward and uses Git's pattern grammar: blank
 lines, `#` comments, backslash escapes, unescaped trailing spaces removed, `!`
@@ -207,7 +207,7 @@ negation, a trailing `/` for directories only, a leading or inner `/` anchoring
 the pattern to the file's directory, and `*`, `?`, bracket expressions, and
 `**`. Paths are matched with `/` separators, case-sensitively, one Unicode
 character at a time. A rule in a deeper file overrides one in a shallower
-file, `.arborignore` overrides `.gitignore` beside it, and within a file the
+file, `.overstoryignore` overrides `.gitignore` beside it, and within a file the
 last matching rule decides. As in Git, an entry beneath an excluded directory
 cannot be re-included, and ignore files inside an excluded directory are not
 read. An ignore file that is not valid UTF-8 contributes no rules. An

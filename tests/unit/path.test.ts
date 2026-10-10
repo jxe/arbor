@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { canonicalNodePath, directoryIndexTreePath, siblingMarkdownTreePath, normalizeTreePath, nodePathFromPhysical } from "@overstory/protocol";
-import { ensureContainedPath, resolveTreePath } from "@overstory/protocol/path";
+import { canonicalNodePath, directoryIndexTreePath, siblingMarkdownTreePath, normalizeTreePath, nodePathFromPhysical } from "@ovst/protocol";
+import { ensureContainedPath, resolveTreePath } from "@ovst/protocol/path";
 
 const temporaryPaths: string[] = [];
 afterEach(async () => Promise.all(temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true }))));
@@ -25,8 +25,8 @@ describe("workspace paths", () => {
   });
 
   test("rejects a file reached through an external directory symlink", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-path-root-")); temporaryPaths.push(root);
-    const outside = await mkdtemp(join(tmpdir(), "arbor-path-outside-")); temporaryPaths.push(outside);
+    const root = await mkdtemp(join(tmpdir(), "story-path-root-")); temporaryPaths.push(root);
+    const outside = await mkdtemp(join(tmpdir(), "story-path-outside-")); temporaryPaths.push(outside);
     await writeFile(join(outside, "secret.md"), "outside");
     await mkdir(join(root, "safe"));
     await symlink(outside, join(root, "safe", "external"));

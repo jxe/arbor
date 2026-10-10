@@ -2,15 +2,15 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { encodeProtocolDirectory, hashObject, type CurrentTree, type TreeSnapshot, type UpdateResponse } from "@overstory/protocol";
-import { UpdateCoordinator, type UpdateTransport } from "@overstory/working-tree";
-import { ChangeLog, FileControlStore } from "@overstory/working-tree/node";
+import { encodeProtocolDirectory, hashObject, type CurrentTree, type TreeSnapshot, type UpdateResponse } from "@ovst/protocol";
+import { UpdateCoordinator, type UpdateTransport } from "@ovst/working-tree";
+import { ChangeLog, FileControlStore } from "@ovst/working-tree/node";
 import { MemoryWorkingTree } from "../support/memory-working-tree.ts";
 
 const TREE = "tr_coordinatorpollaaaaaaaaaaa";
 
 test("a clean tree polls the host only while its watch is not open", async () => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "arbor-coordinator-poll-"));
+  const stateRoot = await mkdtemp(join(tmpdir(), "story-coordinator-poll-"));
   const directory = encodeProtocolDirectory({ type: "directory", entries: [] });
   const initial: TreeSnapshot = { root: hashObject(directory), objects: new Map([[hashObject(directory), directory]]) };
   let descriptors = 0;

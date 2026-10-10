@@ -1,5 +1,5 @@
 {
-  "name": "@overstory/working-tree",
+  "name": "@ovst/working-tree",
   "version": "0.1.0",
   "description": "A working tree's one synchronization machine: local changes, the change log, and the update machine's runner. The core is browser-safe; ./node adds the file-backed change log and control store.",
   "type": "module",
@@ -8,6 +8,6 @@
     "./node": "./src/node/index.ts"
   },
   "dependencies": {
-    "@overstory/protocol": "workspace:*"
+    "@ovst/protocol": "workspace:*"
   }
 }

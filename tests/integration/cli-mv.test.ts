@@ -1,13 +1,13 @@
-import { HostAccountStore, loadProfileConfigurations } from "@overstory/protocol";
-import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
+import { HostAccountStore, loadProfileConfigurations } from "@ovst/protocol";
+import { LocalAccountService } from "../../packages/story-sync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ArborSyncDaemon } from "@overstory/arborsync";
-import { serveArborSyncControl } from "@overstory/arborsync";
-import { serveHost } from "@overstory/canopyd";
-import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/client";
+import { StorySyncDaemon } from "@ovst/story-sync";
+import { serveStorySyncControl } from "@ovst/story-sync";
+import { serveHost } from "@ovst/overstoryd";
+import { ProfileIdentityStore, loadLocalPlacements } from "@ovst/client";
 
 let sandbox: string;
 let state: string;
@@ -17,11 +17,11 @@ let destination: string;
 let tree: string;
 let running: Awaited<ReturnType<typeof serveHost>>;
 
-async function arbor(args: string[]): Promise<string> {
-  const daemon = await serveArborSyncControl({ port: 0 });
+async function story(args: string[]): Promise<string> {
+  const daemon = await serveStorySyncControl({ port: 0 });
   const child = Bun.spawn(["bun", "packages/cli/src/index.ts", ...args], {
     cwd: join(import.meta.dir, "../.."),
-    env: { ...Bun.env, ARBOR_DATA_HOME: state, ARBOR_SYNC_URL: daemon.url },
+    env: { ...Bun.env, STORY_HOME: state, STORY_SYNC_URL: daemon.url },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -37,49 +37,49 @@ async function arbor(args: string[]): Promise<string> {
 }
 
 beforeAll(async () => {
-  sandbox = await realpath(await mkdtemp(join(tmpdir(), "arbor-cli-mv-")));
+  sandbox = await realpath(await mkdtemp(join(tmpdir(), "story-cli-mv-")));
   state = join(sandbox, "state");
   profile = join(sandbox, "profile");
   source = join(sandbox, "todos-f");
   destination = join(sandbox, "moved", "todos");
   await Promise.all([state, profile, source, join(sandbox, "moved")].map((path) => mkdir(path, { recursive: true })));
   await writeFile(join(source, "todo.md"), "# Keep this\n");
-  process.env.ARBOR_DATA_HOME = state;
+  process.env.STORY_HOME = state;
   const identity = await new ProfileIdentityStore().create(profile);
   running = await serveHost({
-    dataRoot: join(sandbox, "canopy"),
+    dataRoot: join(sandbox, "overstoryd"),
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
     community: { handle: "garden", name: "Garden", firstWriter: { handle: "joe", profileTree: identity.profileTree } },
   });
-  const daemon = await ArborSyncDaemon.open(profile);
+  const daemon = await StorySyncDaemon.open(profile);
   try {
     await new LocalAccountService({ trees: daemon.trees, events: daemon.events }).claimHostAccount(`${running.url}/~joe`, profile, "Joe");
   } finally {
     await daemon[Symbol.asyncDispose]();
   }
-  await arbor(["place", source, `${running.url}/~joe/todos`]);
-  tree = running.canopy.boundary("/~joe/todos")!.id;
+  await story(["place", source, `${running.url}/~joe/todos`]);
+  tree = running.overstoryd.boundary("/~joe/todos")!.id;
 });
 
 afterAll(async () => {
-  process.env.ARBOR_DATA_HOME = state;
+  process.env.STORY_HOME = state;
   for (const account of await HostAccountStore.list()) await new HostAccountStore(account.configurationTree).remove();
   running.server.stop(true);
-  await running.canopy[Symbol.asyncDispose]();
+  await running.overstoryd[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });
 });
 
-describe("arbor mv", () => {
+describe("story mv", () => {
   test("preflights and moves one idle placed root without changing tree identity or content", async () => {
-    const beforeRoot = running.canopy.get(tree)!.ref;
-    const checked = await arbor(["mv", "--dry-run", source, destination]);
+    const beforeRoot = running.overstoryd.get(tree)!.ref;
+    const checked = await story(["mv", "--dry-run", source, destination]);
     expect(checked).toContain(`Would move ${tree}`);
     expect(await readFile(join(source, "todo.md"), "utf8")).toBe("# Keep this\n");
     expect(await stat(destination).then(() => true).catch(() => false)).toBe(false);
 
-    const moved = await arbor(["mv", source, destination]);
+    const moved = await story(["mv", source, destination]);
     expect(moved).toContain(`Moved ${tree}`);
     expect(await stat(source).then(() => true).catch(() => false)).toBe(false);
     expect(await readFile(join(destination, "todo.md"), "utf8")).toBe("# Keep this\n");
@@ -88,24 +88,24 @@ describe("arbor mv", () => {
       path: destination,
       tree,
     });
-    expect(running.canopy.get(tree)!.ref).toBe(beforeRoot);
+    expect(running.overstoryd.get(tree)!.ref).toBe(beforeRoot);
 
     const sourceCanonical = `${running.url}/~joe/todos`;
     const destinationCanonical = `${running.url}/~joe/tasks`;
     const account = (await loadProfileConfigurations())[0]!;
     const beforeConfiguration = await readFile(join(account.path, "mounts.yaml"), "utf8");
-    const canonicalDryRun = await arbor(["mv", "--dry-run", sourceCanonical, destinationCanonical]);
+    const canonicalDryRun = await story(["mv", "--dry-run", sourceCanonical, destinationCanonical]);
     expect(canonicalDryRun).toContain(`Would move ${tree}`);
     expect(await readFile(join(account.path, "mounts.yaml"), "utf8")).toBe(beforeConfiguration);
-    expect(running.canopy.get(tree)!.canonicalPath).toBe("/~joe/todos");
+    expect(running.overstoryd.get(tree)!.canonicalPath).toBe("/~joe/todos");
 
-    const canonicalMove = await arbor(["mv", sourceCanonical, destinationCanonical]);
+    const canonicalMove = await story(["mv", sourceCanonical, destinationCanonical]);
     expect(canonicalMove).toContain(`Moved ${tree}`);
-    expect(running.canopy.get(tree)!.canonicalPath).toBe("/~joe/tasks");
+    expect(running.overstoryd.get(tree)!.canonicalPath).toBe("/~joe/tasks");
     expect(await readFile(join(account.path, "mounts.yaml"), "utf8")).toContain(`tasks: ${tree}`);
     // Another Canopy is not a destination: a profile has one home host.
-    await expect(arbor(["mv", destinationCanonical, "https://elsewhere.example/~joe/tasks"])).rejects.toThrow("stays on the host that holds it");
-    expect(running.canopy.get(tree)!.ref).toBe(beforeRoot);
+    await expect(story(["mv", destinationCanonical, "https://elsewhere.example/~joe/tasks"])).rejects.toThrow("stays on the host that holds it");
+    expect(running.overstoryd.get(tree)!.ref).toBe(beforeRoot);
     expect((await loadLocalPlacements()).placements).toContainEqual({
       configurationTree: account.configurationTree,
       path: destination,

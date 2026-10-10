@@ -1,4 +1,4 @@
-// Lists Arbor Keychain records that the ordinary installation does not name:
+// Lists Story Keychain records that the ordinary installation does not name:
 // identity and account slots left behind by test runs and temporary data
 // homes. Read-only: it reads record attributes (never secret values) through
 // `security dump-keychain`, and with --print-delete-commands prints the
@@ -13,9 +13,9 @@ const SERVICES = ["org.arbor.person-profile", "org.arbor.community-account"];
 
 if (process.platform !== "darwin") throw new Error("This lists the macOS login Keychain");
 
-/** The `service/name` references the real ~/.arbor installation holds. */
+/** The `service/name` references the real ~/.story installation holds. */
 async function referenced(): Promise<Set<string>> {
-  const state = join(homedir(), ".arbor", ".state");
+  const state = join(homedir(), ".story", ".state");
   const references = new Set<string>();
   const add = async (path: string) => {
     try {
@@ -64,7 +64,7 @@ if (process.argv.includes("--print-delete-commands")) {
     if (record.created > group.last) group.last = record.created;
     groups.set(key, group);
   }
-  console.log(`Kept (named by ~/.arbor/.state): ${kept.map((record) => `${record.service}/${record.account}`).join(", ") || "none"}`);
+  console.log(`Kept (named by ~/.story/.state): ${kept.map((record) => `${record.service}/${record.account}`).join(", ") || "none"}`);
   for (const reference of keep) if (!kept.some((record) => `${record.service}/${record.account}` === reference)) console.log(`  missing from Keychain: ${reference}`);
   console.log(`Stray: ${stray.length}`);
   for (const [key, group] of [...groups].sort()) console.log(`  ${key}  ${group.count}  (${group.first} … ${group.last})`);

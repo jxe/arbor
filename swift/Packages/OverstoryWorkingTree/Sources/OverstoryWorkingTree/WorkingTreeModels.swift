@@ -1,0 +1,440 @@
+import StoryKit
+import Overstory
+import Foundation
+
+public enum WorkingTreeError: Error, Equatable, Sendable {
+    case invalidName(String)
+    case invalidPath(String)
+    case notFound(WorkspaceReference)
+    case notDirectory(WorkspaceReference)
+    case notDocument(WorkspaceReference)
+    case collision(String)
+    case readOnly(WorkspaceReference)
+    case staleRevision(expected: String, actual: String)
+    case pageIDChanged(expected: String, actual: String?)
+    case pendingLocalChanges
+    case corruptState(String)
+    case simulatedCrash(WorkingTreeFailurePoint)
+    case closed
+}
+
+extension WorkingTreeError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case let .invalidName(name): "Invalid name: \(name)"
+        case let .invalidPath(path): "Invalid path: \(path)"
+        case let .notFound(reference): "Nothing was found at \(reference.path) in \(reference.tree.rawValue)."
+        case let .notDirectory(reference): "\(reference.path) is not a folder."
+        case let .notDocument(reference): "\(reference.path) is not a document."
+        case let .collision(value): "An item already exists at \(value)."
+        case let .readOnly(reference): "\(reference.path) is read-only."
+        case .staleRevision: "The document changed before this edit could be applied."
+        case .pageIDChanged: "The document identity changed before this edit could be applied."
+        case .pendingLocalChanges: "Local changes must finish before this operation can continue."
+        case let .corruptState(message): "The working tree state is invalid: \(message)"
+        case let .simulatedCrash(point): "Simulated working tree failure at \(point.rawValue)."
+        case .closed: "The working tree is closed."
+        }
+    }
+}
+
+public enum WorkingTreeFailurePoint: String, Codable, CaseIterable, Sendable {
+    case afterJournal
+    case afterObjects
+    case afterMaterialization
+    case afterControl
+}
+
+public protocol WorkingTreeFaultInjector: Sendable {
+    func reached(_ point: WorkingTreeFailurePoint) throws
+}
+
+public struct NoReplicaFaults: WorkingTreeFaultInjector {
+    public init() {}
+    public func reached(_: WorkingTreeFailurePoint) throws {}
+}
+
+public struct WorkingTreeHeads: Codable, Equatable, Sendable {
+    public var materializedRoot: String
+    public var pendingRoot: String?
+    public var acceptedRoot: String?
+    public var acceptedUpdate: String?
+    public var acceptedCursor: String?
+    public var generation: Int
+}
+
+/// Where a file node's bytes are: carried in the record until the tree's next
+/// transaction stores them in its overlay, or named by hash and served by the
+/// object store on demand. Markdown and directory content never use this; their
+/// source stays inline on the node.
+public enum ContentRef: Codable, Equatable, Sendable {
+    case inline(Data)
+    case hash(String, size: Int?, mediaType: String?)
+
+    private enum CodingKeys: String, CodingKey { case inline, hash, size, mediaType }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let inline = try container.decodeIfPresent(Data.self, forKey: .inline) {
+            self = .inline(inline)
+        } else {
+            self = .hash(
+                try container.decode(String.self, forKey: .hash),
+                size: try container.decodeIfPresent(Int.self, forKey: .size),
+                mediaType: try container.decodeIfPresent(String.self, forKey: .mediaType)
+            )
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .inline(bytes):
+            try container.encode(bytes, forKey: .inline)
+        case let .hash(hash, size, mediaType):
+            try container.encode(hash, forKey: .hash)
+            try container.encodeIfPresent(size, forKey: .size)
+            try container.encodeIfPresent(mediaType, forKey: .mediaType)
+        }
+    }
+
+    /// The wire object hash: computed for inline bytes, carried for a hash ref.
+    public var objectHash: String {
+        switch self {
+        case let .inline(bytes): ProtocolObjectCodec.hash(bytes)
+        case let .hash(hash, _, _): hash
+        }
+    }
+
+    /// The payload length in bytes.
+    public var size: Int? {
+        switch self {
+        case let .inline(bytes): bytes.count
+        case let .hash(_, size, _): size
+        }
+    }
+
+    public var mediaType: String? {
+        switch self {
+        case .inline: nil
+        case let .hash(_, _, mediaType): mediaType
+        }
+    }
+
+    public var isInline: Bool {
+        if case .inline = self { return true }
+        return false
+    }
+}
+
+/// One object of a working-tree snapshot. `bytes` is `nil` for a file the tree
+/// only holds by reference; such an object's bytes come from the object store.
+public struct WorkingTreeStoredObject: Codable, Equatable, Sendable {
+    public var hash: String
+    public var bytes: Data?
+
+    public init(hash: String, bytes: Data?) {
+        self.hash = hash
+        self.bytes = bytes
+    }
+}
+
+/// The wire graph of a working-tree state. Directory and Markdown objects are
+/// always carried with bytes; file objects held by reference appear as hashes.
+public struct WorkingTreeSnapshot: Codable, Equatable, Sendable {
+    public var root: String
+    public var objects: [WorkingTreeStoredObject]
+
+    public init(root: String, objects: [WorkingTreeStoredObject]) {
+        self.root = root
+        self.objects = objects
+    }
+
+    /// Objects carried with bytes.
+    var inlineObjects: [WorkingTreeStoredObject] { objects.filter { $0.bytes != nil } }
+
+    /// Every hash in the graph, with or without bytes.
+    var hashes: Set<String> { Set(objects.map(\.hash)) }
+
+    /// Hashes the snapshot carries without bytes.
+    var sparseHashes: Set<String> { Set(objects.filter { $0.bytes == nil }.map(\.hash)) }
+
+    var inlineObjectsByHash: [String: Data] {
+        Dictionary(uniqueKeysWithValues: objects.compactMap { object in object.bytes.map { (object.hash, $0) } })
+    }
+}
+
+public struct WorkingTreeDiagnostic: Codable, Equatable, Sendable, Identifiable {
+    public var id: String
+    public var title: String
+    public var detail: String
+
+    public init(id: String, title: String, detail: String) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+    }
+}
+
+public enum WorkingTreeSystemNodeContent: Sendable, Equatable {
+    case directory(source: String? = nil)
+    case markdown(source: String)
+    case file(ref: ContentRef, mediaType: String? = nil)
+    case boundary(tree: TreeID)
+}
+
+public enum WorkingTreeDirectoryBodyPlacement: String, Codable, Sendable {
+    case siblingMarkdown
+}
+
+/// Descriptive metadata about an entry, kept outside every Overstory hash:
+/// presentation and history, never content. New fields are optional.
+public struct EntryMetadata: Codable, Equatable, Sendable {
+    /// When the entry last changed: the accepted time from Canopy, or the
+    /// local time of a change this replica made or observed.
+    public var modifiedAt: Date?
+    public init(modifiedAt: Date? = nil) { self.modifiedAt = modifiedAt }
+}
+
+public struct WorkingTreeSystemNode: Sendable, Equatable {
+    /// Excluded from the protocol snapshot.
+    public var metadata: EntryMetadata
+    public var path: String
+    public var pageID: String?
+    public var content: WorkingTreeSystemNodeContent
+    public var childrenSource: ProtocolCollectionFileDescriptor?
+    public var directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement?
+    public var shadowedSiblingMarkdownSource: String?
+
+    public init(
+        path: String,
+        metadata: EntryMetadata = EntryMetadata(),
+        pageID: String? = nil,
+        content: WorkingTreeSystemNodeContent,
+        childrenSource: ProtocolCollectionFileDescriptor? = nil,
+        directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
+        shadowedSiblingMarkdownSource: String? = nil
+    ) {
+        self.metadata = metadata
+        self.path = path
+        self.pageID = pageID
+        self.content = content
+        self.childrenSource = childrenSource
+        self.directoryBodyPlacement = directoryBodyPlacement
+        self.shadowedSiblingMarkdownSource = shadowedSiblingMarkdownSource
+    }
+}
+
+/// The directory entry holding a node's content, which is where entry
+/// metadata is keyed: a page's `<name>.md`, a directory's `_index.md` or its
+/// sibling `<name>.md`, a file's own entry. A directory without a body and a
+/// nested tree have none.
+func bodyEntryPath(path: String, kind: WorkingTreeNodeKind, hasBody: Bool, siblingBody: Bool) -> String? {
+    switch kind {
+    case .markdown: return path + ".md"
+    case .file: return path
+    case .boundary: return nil
+    case .directory:
+        guard hasBody else { return nil }
+        if siblingBody { return path + ".md" }
+        return (path == "/" ? "" : path) + "/_index.md"
+    }
+}
+
+extension WorkingTreeSystemNode {
+    var bodyEntryPath: String? {
+        switch content {
+        case .markdown: OverstoryWorkingTree.bodyEntryPath(path: path, kind: .markdown, hasBody: true, siblingBody: false)
+        case .file: OverstoryWorkingTree.bodyEntryPath(path: path, kind: .file, hasBody: true, siblingBody: false)
+        case .boundary: nil
+        case let .directory(source): OverstoryWorkingTree.bodyEntryPath(path: path, kind: .directory, hasBody: source != nil,
+            siblingBody: directoryBodyPlacement == .siblingMarkdown)
+        }
+    }
+}
+
+public struct WorkingTreeSystemReplacement: Sendable, Equatable {
+    public var root: String
+    public var update: String
+    public var cursor: String?
+    public var nodes: [WorkingTreeSystemNode]
+    /// When Canopy accepted this root. Nodes it changes are dated then rather
+    /// than when this replica happened to install it.
+    public var acceptedAt: Date?
+
+    public init(root: String, update: String, cursor: String? = nil, nodes: [WorkingTreeSystemNode], acceptedAt: Date? = nil) {
+        self.root = root
+        self.update = update
+        self.cursor = cursor
+        self.nodes = nodes
+        self.acceptedAt = acceptedAt
+    }
+}
+
+enum WorkingTreeNodeKind: String, Codable, Sendable {
+    case directory
+    case markdown
+    case file
+    case boundary
+}
+
+struct WorkingTreeNode: Codable, Equatable, Sendable {
+    var path: String
+    var pageID: String?
+    var kind: WorkingTreeNodeKind
+    var source: String?
+    /// Present exactly for `.file` nodes.
+    var ref: ContentRef?
+    var mediaType: String?
+    var trashedFrom: String?
+    var boundaryTree: String?
+    var childrenSource: ProtocolCollectionFileDescriptor?
+    // `nil` preserves the original encoding: a directory source is `_index.md`.
+    // Contentless legacy directory records also decode unchanged.
+    var directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement?
+    // Not logical content; retained only so a shadowed sibling round-trips exactly.
+    var shadowedSiblingMarkdownSource: String?
+    /// Descriptive metadata, deliberately omitted from Overstory object encoding.
+    var metadata: EntryMetadata?
+
+    var modifiedAt: Date? {
+        get { metadata?.modifiedAt }
+        set { var value = metadata ?? EntryMetadata(); value.modifiedAt = newValue; metadata = value }
+    }
+
+    var bodyEntryPath: String? {
+        OverstoryWorkingTree.bodyEntryPath(path: path, kind: kind, hasBody: source != nil,
+            siblingBody: directoryBodyPlacement == .siblingMarkdown)
+    }
+
+    /// Where the node's Markdown body lives: a leaf's `x.md`, or a directory's `_index.md` or
+    /// sibling `x.md`. A directory with no body, a file and a nested tree have none.
+    var markdownBody: MarkdownBodyOrigin? {
+        switch kind {
+        case .markdown: .sibling
+        case .directory where source != nil: directoryBodyPlacement == .siblingMarkdown ? .sibling : .index
+        case .directory, .file, .boundary: nil
+        }
+    }
+
+    /// The node's content and placement, without its descriptive metadata.
+    var withoutMetadata: WorkingTreeNode {
+        var node = self; node.metadata = nil; return node
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path, pageID, kind, source, ref, mediaType, trashedFrom, boundaryTree, childrenSource
+        case directoryBodyPlacement, shadowedSiblingMarkdownSource, metadata
+    }
+
+    init(
+        path: String,
+        pageID: String? = nil,
+        kind: WorkingTreeNodeKind,
+        source: String? = nil,
+        ref: ContentRef? = nil,
+        mediaType: String? = nil,
+        trashedFrom: String? = nil,
+        boundaryTree: String? = nil,
+        childrenSource: ProtocolCollectionFileDescriptor? = nil,
+        directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
+        shadowedSiblingMarkdownSource: String? = nil,
+        metadata: EntryMetadata? = nil
+    ) {
+        self.path = path
+        self.pageID = pageID
+        self.kind = kind
+        self.source = source
+        self.ref = ref
+        self.mediaType = mediaType
+        self.trashedFrom = trashedFrom
+        self.boundaryTree = boundaryTree
+        self.childrenSource = childrenSource
+        self.directoryBodyPlacement = directoryBodyPlacement
+        self.shadowedSiblingMarkdownSource = shadowedSiblingMarkdownSource
+        self.metadata = metadata
+    }
+}
+
+struct WorkingTreeState: Codable, Equatable, Sendable {
+    static let currentSchema = 2
+    var schema = WorkingTreeState.currentSchema
+    var tree: String
+    var nodes: [WorkingTreeNode]
+}
+
+struct WorkingTreeControl: Codable, Equatable, Sendable {
+    var schema = 1
+    var tree: String
+    var materializedRoot: String
+    var pendingRoot: String?
+    var acceptedRoot: String?
+    var acceptedUpdate: String?
+    var acceptedCursor: String?
+    var generation: Int
+
+    init(
+        tree: String,
+        materializedRoot: String,
+        pendingRoot: String? = nil,
+        acceptedRoot: String? = nil,
+        acceptedUpdate: String? = nil,
+        acceptedCursor: String? = nil,
+        generation: Int
+    ) {
+        self.tree = tree
+        self.materializedRoot = materializedRoot
+        self.pendingRoot = pendingRoot
+        self.acceptedRoot = acceptedRoot
+        self.acceptedUpdate = acceptedUpdate
+        self.acceptedCursor = acceptedCursor
+        self.generation = generation
+    }
+
+    var heads: WorkingTreeHeads {
+        WorkingTreeHeads(
+            materializedRoot: materializedRoot,
+            pendingRoot: pendingRoot,
+            acceptedRoot: acceptedRoot,
+            acceptedUpdate: acceptedUpdate,
+            acceptedCursor: acceptedCursor,
+            generation: generation
+        )
+    }
+}
+
+struct WorkingTreeMutationIntent: Codable, Equatable, Sendable {
+    var id: String
+    var pageKey: String
+    var generation: Int
+    var mutation: String
+    var changedAt: Date
+    var state: WorkingTreeState
+    var acceptedRoot: String?
+    var acceptedUpdate: String?
+    var acceptedCursor: String?
+    /// A conflict resolution may install a reviewed materialized root while
+    /// advancing its accepted base to a different authoritative root.
+    var retainsPendingAgainstAcceptedBase: Bool? = nil
+}
+
+struct WorkingTreeSearchIndex: Codable, Equatable, Sendable {
+    /// Bumped whenever an entry's derived content changes meaning. An index of another format, or
+    /// one written before this field existed (which fails to decode), is rebuilt on open.
+    /// Format 2: links resolve from each body's source directory with readable key tokens.
+    static let currentFormat = 2
+
+    struct Entry: Codable, Equatable, Sendable {
+        var path: String
+        var pageID: String?
+        var markdownBody: MarkdownBodyOrigin?
+        var title: String
+        var source: String
+        var links: [ResolvedNodeTarget]
+        var modifiedAt: Date?
+    }
+
+    var format: Int = WorkingTreeSearchIndex.currentFormat
+    var generation: Int
+    var entries: [Entry]
+}

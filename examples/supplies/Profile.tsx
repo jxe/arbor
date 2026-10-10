@@ -56,7 +56,7 @@ function ProfileContent({ id }: { id: string }) {
     return (
       <Shell title="Profile not found">
         <title>Profile unavailable</title>
-        <p>This Arbor profile is unavailable.</p>
+        <p>This Story profile is unavailable.</p>
       </Shell>
     )
   }

@@ -9,7 +9,7 @@ Person and group profiles are complete Overstory trees with ordinary root Markdo
 
 ```yaml
 type: person
-displayName: Alice Arbor
+displayName: Alice Story
 avatar: images/alice.webp
 description: Builds shared gardens.
 ```
@@ -17,9 +17,9 @@ description: Builds shared gardens.
 ```yaml
 type: group
 members:
-  - profile: arbor://tr_alice_profile/
-  - profile: arbor://tr_bob_profile/
-  - profile: arbor://tr_carol_profile/
+  - profile: overstory://tr_alice_profile/
+  - profile: overstory://tr_bob_profile/
+  - profile: overstory://tr_carol_profile/
 ```
 
 The profile tree's `TreeID`, not its mutable title, root `PageID`, handle, or
@@ -47,7 +47,7 @@ A **host account** is host state: the host's record that one profile
 used there. It has no authored tree of its own; the person's devices and app
 approvals live in the profile tree's own [tree configuration](#2-tree-configuration-graph).
 Its identity is the pair of host and profile TreeID. How a host allocates
-account locators is host policy, not Overstory identity. canopyd uses
+account locators is host policy, not Overstory identity. overstoryd uses
 `/~handle`, but neither `handle` nor that path shape is required by the
 portable graph.
 
@@ -74,19 +74,19 @@ in governing.
 Every claimed structured `members` entry requires the stable `profile` locator, and
 membership, including membership used by access rules, is decided by that
 Profile TreeID alone. A host may define further per-member fields for its own
-account allocation, such as [canopyd's](../architecture/canopyd/README.md#accounts-and-canonical-paths) `handle`, which
+account allocation, such as [overstoryd's](../architecture/overstoryd/README.md#accounts-and-canonical-paths) `handle`, which
 reserves an account for exactly that profile; they never establish identity or
 membership. The person can create the profile tree locally first and share its
 raw TreeID locator with the host's administrator. A scalar `members` entry
 names no member: readers ignore it.
 
-canopyd also accepts a pending community invitation with `handle` and
+overstoryd also accepts a pending community invitation with `handle` and
 `inviteDigest: sha256:<hex>` in place of `profile`. It reserves the account
 address but is not yet a member for access purposes. The administrator gives
 the prospective member a 22-character base64url code generated from 16 random
 bytes; the SHA-256 digest of its UTF-8 text is authored there. The invitation
 remains valid until claimed or removed from the community profile.
-On a successful signed claim, canopyd replaces that entry with the claimant's
+On a successful signed claim, overstoryd replaces that entry with the claimant's
 `profile` locator and retains its handle. This pending form is host allocation
 policy, not a group membership identity; other group profiles continue to name
 members by Profile TreeID.
@@ -132,13 +132,13 @@ at another host, though already-paired devices keep working.
 ### 1.2 Claiming an account with the profile key
 
 ```text
-POST /.arbor/account-challenges
-PUT /.arbor/accounts
+POST /.overstory/account-challenges
+PUT /.overstory/accounts
 ```
 
 The community administrator first records an exact structured member containing
 the person's public profile TreeID and the host's local allocation for it
-(canopyd's `handle`), or a pending invitation with a code digest and handle.
+(overstoryd's `handle`), or a pending invitation with a code digest and handle.
 A reservation that names a profile on another host by its locator there is a
 placement account instead, with no claim (§1.3).
 The person may send that public TreeID by any ordinary channel. An invited
@@ -229,7 +229,7 @@ profile-key signature proves control of that identity. Exact replay of one
 successful claim is idempotent; an altered, expired, already-consumed, or
 wrong-target challenge fails closed.
 
-The old `PUT /.arbor/claims/{handle}` operation, which creates and hosts a
+The old `PUT /.overstory/claims/{handle}` operation, which creates and hosts a
 profile from an uploaded snapshot, and the source-host profile-proof routes
 are removed rather than retained as new-account compatibility. A host using
 this generation accepts new person accounts only for self-certifying Profile
@@ -266,7 +266,7 @@ member is edited.
 The account is host state like a handle, not authored per-account data. The
 profile tree lives at the home host, so the host declares, on the placement
 host, the profile's **placement root**: an ordinary tree with a fresh random
-TreeID, mounted where the host allocates the account (canopyd: `/~handle`),
+TreeID, mounted where the host allocates the account (overstoryd: `/~handle`),
 whose configuration grants the profile `admin` and mounts nothing. It is the
 parent of the person's trees on that host. Every tree on the placement host
 has its tree configuration there, with rules that name the profile as on any
@@ -280,7 +280,7 @@ gives code on a placement host. Routes about the profile's own configuration,
 its devices and pairing, are the home host's: a placement host refuses them
 with `permission-denied`, naming the home host in `details.homeHost`.
 
-The authenticated account descriptor (`GET /.arbor/account`) on a placement
+The authenticated account descriptor (`GET /.overstory/account`) on a placement
 host carries two fields a home host's descriptor omits, and no
 `configuration`:
 
@@ -348,12 +348,12 @@ reveal that a TreeID names a configuration; only a host that knows the tree
 can tell. A derived TreeID has no configuration of its own.
 
 Every locator of a tree addresses its configuration with the segment
-parameter `arbor-config` ([locators §3](03-locators.md#3-parsing-and-canonicalization)):
+parameter `overstory-config` ([locators §3](03-locators.md#3-parsing-and-canonicalization)):
 
 ```text
-https://canopy.example/~joe/todos;arbor-config
-arbor://tr_todos;arbor-config
-/.arbor/trees/tr_todos;arbor-config
+https://host.example/~joe/todos;overstory-config
+overstory://tr_todos;overstory-config
+/.overstory/trees/tr_todos;overstory-config
 ```
 
 It follows renames and works for a tree with no canonical path. The host
@@ -468,9 +468,9 @@ loses its key is deleted and paired again.
 **Mounting** a tree additionally requires the submitting device's person to
 administer the child. Renaming or removing a mount needs only this tree's
 administrators: the parent controls its namespace. A host may reserve names
-in its root tree's `mounts.yaml`; canopyd mounts each claimed member's profile
+in its root tree's `mounts.yaml`; overstoryd mounts each claimed member's profile
 at `~handle` itself and refuses a root mount at a reserved or claimed
-`~handle` ([canopyd](../architecture/canopyd/README.md#accounts-and-canonical-paths)).
+`~handle` ([overstoryd](../architecture/overstoryd/README.md#accounts-and-canonical-paths)).
 
 ### 3.2 Invariants
 
@@ -504,7 +504,7 @@ The account tokens, and what each survives:
 
 | Token | Identifies | Minted by | Survives |
 |---|---|---|---|
-| person-profile `TreeID` | one person and one public identity key; with the host, one host account | `arbor me create` | all account, canonical-name, and hosting changes |
+| person-profile `TreeID` | one person and one public identity key; with the host, one host account | `story me create` | all account, canonical-name, and hosting changes |
 | configuration `TreeID` | one tree's configuration | derived from the tree's `TreeID` | everything the tree survives |
 | group-profile `TreeID` | one authored group | the first local workspace | canonical-name and hosting changes |
 | `DeviceID` | one device of one person, with its key | the device | everything except deletion of its `devices.yaml` entry, a recovery (§5.3) included |
@@ -530,8 +530,8 @@ working tree borrowing that folder's object store.
 ## 5. Device pairing
 
 ```text
-POST /.arbor/pairings
-PUT  /.arbor/pairings/{PairingID}/claim
+POST /.overstory/pairings
+PUT  /.overstory/pairings/{PairingID}/claim
 ```
 
 An authenticated device creates a short-lived, single-use pairing secret for
@@ -557,8 +557,8 @@ Local clients then never hold the key itself.
 ### 5.1 Device sessions
 
 ```text
-POST /.arbor/device-sessions/challenges
-POST /.arbor/device-sessions
+POST /.overstory/device-sessions/challenges
+POST /.overstory/device-sessions
 ```
 
 A device never sends a long-lived secret. It asks a host for a challenge,
@@ -570,7 +570,7 @@ challenge valid for at most two minutes:
   "version": 1,
   "purpose": "device-session",
   "id": "ax_…",
-  "origin": "https://canopy.example",
+  "origin": "https://host.example",
   "profileTree": "tr_…",
   "device": "dv_…",
   "nonce": "<32 random bytes, unpadded base64url>",
@@ -624,7 +624,7 @@ protocol, and it adds no trust: the operator already holds everything the
 account stores.
 
 The operator issues a **recovery pairing** for the account: a pairing secret
-as in §5, valid for longer (canopyd: a day, `canopyd recover <handle>`), passed
+as in §5, valid for longer (overstoryd: a day, `overstoryd recover <handle>`), passed
 to the person out of band. The person claims it from a new device exactly as an
 ordinary pairing, with a key. Claiming it advances the profile's configuration
 so that `devices.yaml` holds only the new device, an administrator, and
@@ -635,7 +635,7 @@ pairing expires like any other.
 ### 5.4 Published device keys
 
 ```text
-GET /.arbor/profiles/{ProfileTreeID}/device-keys
+GET /.overstory/profiles/{ProfileTreeID}/device-keys
 ```
 
 A home host serves, for each profile it is home to and to anyone without
@@ -659,7 +659,7 @@ other.
 A placement host opens a session (§5.1) for a device listed in its copy of
 the home host's device keys, treating the caller as that profile and device,
 an administrator device if listed as one. It serves a copy for at most a
-minute (canopyd: 60 seconds) before refetching it. It refreshes the copy of
+minute (overstoryd: 60 seconds) before refetching it. It refreshes the copy of
 every profile with open sessions at least once per lifetime, and ends the
 sessions and watches of any device no longer listed, or listed with another
 key, so while the home host is reachable a deletion there reaches the
@@ -690,7 +690,7 @@ Each step is an ordinary update of one tree.
    configuration's first snapshot, addressed through that TreeID:
 
    ```text
-   POST /.arbor/trees/{TreeID};arbor-config/updates
+   POST /.overstory/trees/{TreeID};overstory-config/updates
    { "base": null, "updates": [{ "change": <change-id>, "candidate": <root>, "operations": null, "resolves": [], "objects": [...], "deltas": [] }] }
    ```
 
@@ -703,7 +703,7 @@ Each step is an ordinary update of one tree.
    snapshot:
 
    ```text
-   POST /.arbor/trees/{TreeID}/updates
+   POST /.overstory/trees/{TreeID}/updates
    { "base": null, "updates": [ ... ] }
    ```
 

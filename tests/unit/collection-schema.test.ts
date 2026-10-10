@@ -18,8 +18,8 @@ import {
   ProtocolCollectionFileError,
   collectionChildSetHash,
   type CollectionSchema,
-} from "@overstory/collection-schema";
-import { revisionOf, type CollectionFileDescriptor, type Hash, type JSONValue } from "@overstory/protocol";
+} from "@ovst/collection-schema";
+import { revisionOf, type CollectionFileDescriptor, type Hash, type JSONValue } from "@ovst/protocol";
 
 type Diagnostic = { code: string; path: string; limit?: string };
 type Reject = { code: string; line?: number; column?: number; limit?: string };

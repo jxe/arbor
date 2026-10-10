@@ -1,4 +1,4 @@
-# @overstory/client
+# @ovst/client
 
 Client-side account plumbing against an Overstory host. The Swift twin is
 `OverstoryClient`.
@@ -8,5 +8,5 @@ Client-side account plumbing against an Overstory host. The Swift twin is
   implements.
 
 The update machine, the change log, and their runner are in
-[`@overstory/working-tree`](../working-tree/README.md); Arbor Sync runs them
+[`@ovst/working-tree`](../working-tree/README.md); Story Sync runs them
 for each placed folder.

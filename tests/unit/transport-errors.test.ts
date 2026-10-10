@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { encodeProtocolDirectory, hashObject, ProtocolClient, ProtocolHTTPError, ProtocolObjectHashMismatch, ProtocolTransportError } from "@overstory/protocol";
+import { encodeProtocolDirectory, hashObject, ProtocolClient, ProtocolHTTPError, ProtocolObjectHashMismatch, ProtocolTransportError } from "@ovst/protocol";
 
 async function withHost<T>(respond: () => Response, run: (client: ProtocolClient) => Promise<T>): Promise<T> {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: respond });

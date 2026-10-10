@@ -1,4 +1,4 @@
-import { revisionOf, type Hash } from "@overstory/protocol";
+import { revisionOf, type Hash } from "@ovst/protocol";
 import { COLLECTION_SCHEMA_LIMITS, COLLECTION_SCHEMA_PROFILE, schemaFailure } from "./diagnostics.ts";
 import { METADATA_RULES, parseProfileWithSize, type ChoiceNode, type MetadataValue, type RuleNode, type TypeNode } from "./parser.ts";
 

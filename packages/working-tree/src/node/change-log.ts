@@ -1,6 +1,6 @@
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { decodeCandidateUpdateJSON, decodeTreeSnapshotJSON, encodeObjectEnvelopes, hashObject, type CandidateUpdateJSON, type TreeSnapshotJSON } from "@overstory/protocol";
+import { decodeCandidateUpdateJSON, decodeTreeSnapshotJSON, encodeObjectEnvelopes, hashObject, type CandidateUpdateJSON, type TreeSnapshotJSON } from "@ovst/protocol";
 import { equal, localChangeRequest, requireOneChain, snapshotJSON, validateLocalChanges, type ChangeLogJournal, type ChangeLogObjectStore, type LocalChange,
   type StoredLocalChange, type StoredSnapshot } from "../local-change.ts";
 import { publicationTip } from "../update-machine.ts";

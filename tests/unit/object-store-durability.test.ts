@@ -2,8 +2,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { holdsObject, ObjectStore } from "@overstory/object-store";
-import { encodeProtocolDirectory, hashObject } from "@overstory/protocol";
+import { holdsObject, ObjectStore } from "@ovst/object-store";
+import { encodeProtocolDirectory, hashObject } from "@ovst/protocol";
 
 let directory: string;
 beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), "object-durability-")); });

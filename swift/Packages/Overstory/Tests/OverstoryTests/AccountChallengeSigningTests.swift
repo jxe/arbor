@@ -19,7 +19,7 @@ private struct AccountChallengeSigningVectors: Decodable {
 }
 
 private func signingVectors() throws -> AccountChallengeSigningVectors.Signing {
-    let root = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+    let root = ProcessInfo.processInfo.environment["STORY_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
         ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance").standardizedFileURL
     return try JSONDecoder().decode(
         AccountChallengeSigningVectors.self,

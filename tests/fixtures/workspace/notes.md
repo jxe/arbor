@@ -1,11 +1,11 @@
 ---
 title: Notes
-topic: arbor
+topic: story
 ---
 ▸ Research ideas
   - Read the CommonMark spec
   ▸ Nested thought
-    Arbor keeps plain files canonical.
+    Story keeps plain files canonical.
 
 Apple orchard notes are searchable.
 

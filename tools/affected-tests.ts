@@ -49,14 +49,14 @@ const global = [
 // The cross-language gate: the portable vectors, the reference fixtures, the
 // wire models, and the Swift code it runs against a live host. The Swift
 // packages it tests (and OverstoryObjectStore, which they depend on) and the
-// Mac app's daemon client belong here; CanopyEditor and the rest of the app
+// Mac app's daemon client belong here; StoryEditor and the rest of the app
 // have faster suites of their own.
 const protocolGate = [
   /^docs\/overstory-spec\/conformance\//, /^tests\/fixtures\//, /^tests\/protocol\//, /^packages\/protocol\//,
-  /^swift\/Packages\/(Overstory|OverstoryClient|OverstoryObjectStore|CanopyWorkingTree|CanopyAppKit)\//,
-  /^swift\/CanopyApp\/ArborSync\//, /^swift\/CanopyAppTests\/ArborSync/,
+  /^swift\/Packages\/(Overstory|OverstoryClient|OverstoryObjectStore|OverstoryWorkingTree|StoryKit)\//,
+  /^swift\/StoryApp\/StorySync\//, /^swift\/StoryAppTests\/StorySync/,
 ];
-const canopyEditor = /^swift\/(Packages\/CanopyEditor\/|scripts\/test-canopy-editor-local\.sh$)/;
+const overstorydEditor = /^swift\/(Packages\/StoryEditor\/|scripts\/test-story-editor-local\.sh$)/;
 const swiftDocumentation = /^swift\/.*\.md$/;
 const documentation = (path: string) => path.endsWith(".md") && !path.startsWith("tests/fixtures/") || /^(plans|status)\b/.test(path);
 const sourceExtensions = new Set([".ts", ".tsx"]);
@@ -146,13 +146,13 @@ for (const path of changed) {
     continue;
   }
   if (protocolGate.some(pattern => pattern.test(path))) protocol = true;
-  else if (canopyEditor.test(path)) editorSuite = appSuite = true;
+  else if (overstorydEditor.test(path)) editorSuite = appSuite = true;
   else if (path.startsWith("swift/") && !swiftDocumentation.test(path) && !path.startsWith("swift/scripts/")) appSuite = true;
-  if (path === "swift/scripts/test-canopy-app.sh") appSuite = true;
-  const migration = /^packages\/canopyd\/migrations\/([^/]+)\//.exec(path);
-  if (migration && migration[1] !== "tools") migrations.add(`packages/canopyd/migrations/${migration[1]}`);
+  if (path === "swift/scripts/test-story-app.sh") appSuite = true;
+  const migration = /^packages\/overstoryd\/migrations\/([^/]+)\//.exec(path);
+  if (migration && migration[1] !== "tools") migrations.add(`packages/overstoryd/migrations/${migration[1]}`);
   if (path.endsWith(".md")) links = true;
-  if (documentation(path) || path.startsWith("packages/canopy-web/")) continue;
+  if (documentation(path) || path.startsWith("packages/story-web/")) continue;
 
   const target = exists ? realpathSync(absolute) : absolute;
   let hits = 0;
@@ -177,9 +177,9 @@ else if (selected.size > 0) steps.push({ label: `product suite (${selected.size}
 for (const directory of migrations) steps.push({ label: `migration ${basename(directory)}`, command: ["bun", "run", "test:migration", directory] });
 if (build) steps.push({ label: "build", command: ["bun", "run", "build"] });
 if (protocol) steps.push({ label: "protocol gate (TypeScript + Swift)", command: ["bun", "run", "test:protocol"] });
-if (editorSuite) steps.push({ label: "CanopyEditor", command: ["swift/scripts/test-canopy-editor-local.sh"] });
+if (editorSuite) steps.push({ label: "StoryEditor", command: ["swift/scripts/test-story-editor-local.sh"] });
 // The gate already builds the app and runs its daemon-client suites.
-if (appSuite && !protocol) steps.push({ label: "CanopyAppTests", command: ["swift/scripts/test-canopy-app.sh"] });
+if (appSuite && !protocol) steps.push({ label: "StoryAppTests", command: ["swift/scripts/test-story-app.sh"] });
 if (performance) steps.push({ label: "performance", command: ["bun", "run", "test:performance"] });
 if (links) steps.push({ label: "links", command: ["bun", "run", "check:links"] });
 steps.push({ label: "whitespace", command: ["git", "diff", "--check"] });

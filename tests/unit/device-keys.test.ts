@@ -7,7 +7,7 @@ import {
   parseDeviceKey,
   validateDeviceSessionChallenge,
   type DeviceSessionChallenge,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 import vectors from "../../docs/overstory-spec/conformance/device-keys.json";
 
 const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");

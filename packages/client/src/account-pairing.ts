@@ -1,9 +1,9 @@
 import { hostname } from "node:os";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { configurationCheckoutPath, arborPrivateRoot, deviceKeyFromSeed, generateDeviceKeySeed, HostAccountStore, generateArborID,
-  openDeviceSession, ProtocolError, saveCurrentAccountDeviceID, ProtocolClient } from "@overstory/protocol";
-import { materializeTree, resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import { configurationCheckoutPath, overstoryPrivateRoot, deviceKeyFromSeed, generateDeviceKeySeed, HostAccountStore, generateOverstoryID,
+  openDeviceSession, ProtocolError, saveCurrentAccountDeviceID, ProtocolClient } from "@ovst/protocol";
+import { materializeTree, resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { withLocalStateLock } from "./local-state-lock.ts";
 import { ProfileIdentityStore } from "./profile-identity.ts";
 import type { AccountBootstrapDeps } from "./ports.ts";
@@ -21,7 +21,7 @@ interface PendingPairing {
 }
 /** A device pairs with a new key, whose seed is saved before the first request. */
 interface PairingSecrets { payload: LocalPairingPayload; device: { id: string; label: string; key: string }; seed: string }
-const pendingPath = () => join(arborPrivateRoot(), "bootstrap-pairing.json");
+const pendingPath = () => join(overstoryPrivateRoot(), "bootstrap-pairing.json");
 async function readPending(): Promise<PendingPairing | null> {
   try {
     const value = JSON.parse(await readFile(pendingPath(), "utf8"));
@@ -48,9 +48,9 @@ function validatePayload(input: unknown): LocalPairingPayload {
   return { version: 1, origin: url.origin, pairing: { id: value.pairing.id, secret: value.pairing.secret } };
 }
 
-/** Pair an already claimed account into the same account store used by Arbor Sync. */
+/** Pair an already claimed account into the same account store used by Story Sync. */
 export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unknown): Promise<void> {
-  await withLocalStateLock(join(arborPrivateRoot(), "account-bootstrap-lock.sqlite"), async () => {
+  await withLocalStateLock(join(overstoryPrivateRoot(), "account-bootstrap-lock.sqlite"), async () => {
     const identity = await new ProfileIdentityStore().status();
     if (!identity) throw new ProtocolError("conflict", "Recover your identity before pairing this Mac", 409);
     let pending = await readPending();
@@ -70,8 +70,8 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
     } else {
       if (!payload) throw new ProtocolError("invalid-request", "Paste a pairing code from an authorized device", 400);
       const seed = generateDeviceKeySeed();
-      secrets = { payload, seed, device: { id: generateArborID("dv"), label: hostname() || "Canopy Mac", key: deviceKeyFromSeed(seed) } };
-      pending = { version: 1, origin: payload.origin, pairingID: payload.pairing.id, credentialSlot: generateArborID("tr") };
+      secrets = { payload, seed, device: { id: generateOverstoryID("dv"), label: hostname() || "Canopy Mac", key: deviceKeyFromSeed(seed) } };
+      pending = { version: 1, origin: payload.origin, pairingID: payload.pairing.id, credentialSlot: generateOverstoryID("tr") };
       const store = new HostAccountStore(pending.credentialSlot);
       const source = JSON.stringify(secrets);
       await store.storeProvisionalCredential(source);
@@ -125,7 +125,7 @@ export async function connectDevice(
       throw new ProtocolError("conflict", "The existing account checkout has different contents. Preserve and reconcile it before connecting this device.", 409);
     }
   } else {
-    const staging = join(arborPrivateRoot(), `device-checkout-${crypto.randomUUID()}`);
+    const staging = join(overstoryPrivateRoot(), `device-checkout-${crypto.randomUUID()}`);
     try {
       await materializeTree(staging, snapshot.root, async (hash) => {
         const value = snapshot.objects.get(hash);

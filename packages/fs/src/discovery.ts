@@ -1,7 +1,7 @@
 import { readFile, readdir, realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { isPageID, nodePathFromPhysical, parseMarkdown, type Diagnostic } from "@overstory/protocol";
-import { toTreePath } from "@overstory/protocol/path";
+import { isPageID, nodePathFromPhysical, parseMarkdown, type Diagnostic } from "@ovst/protocol";
+import { toTreePath } from "@ovst/protocol/path";
 import { loadIgnorePolicy, MANDATORY_DIRECTORY_NAMES, type IgnorePolicy } from "./ignore-policy.ts";
 
 /**
@@ -13,8 +13,8 @@ export const IGNORED_WORKSPACE_DIRECTORIES: ReadonlySet<string> = MANDATORY_DIRE
 /** A watcher optimization only: queued events are still filtered through the policy. */
 export const WORKSPACE_WATCHER_IGNORE_GLOBS = [
   ...[...IGNORED_WORKSPACE_DIRECTORIES].map((name) => `**/${name}/**`),
-  "**/*.arbor-txn-*",
-  "**/*.arbor-write-*",
+  "**/*.overstory-txn-*",
+  "**/*.overstory-write-*",
   "**/.DS_Store",
   "**/._*",
 ];

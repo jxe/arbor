@@ -4,7 +4,7 @@ import Testing
 @testable import Overstory
 
 private var deviceKeyVectors: URL {
-    let root = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+    let root = ProcessInfo.processInfo.environment["STORY_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
         ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance").standardizedFileURL
     return root.appending(path: "device-keys.json")
 }
@@ -68,11 +68,11 @@ struct DeviceKeysTests {
 
     @Test func originsAreSpelledAsWebOrigins() throws {
         var challenge = try vectors().sessionChallenges[0].challenge
-        for origin in ["http://127.0.0.1:4317", "http://[::1]:4317", "https://canopy.example:8443"] {
+        for origin in ["http://127.0.0.1:4317", "http://[::1]:4317", "https://host.example:8443"] {
             challenge.origin = origin
             #expect(throws: Never.self, "\(origin)") { try challenge.validated() }
         }
-        for origin in ["https://canopy.example:443", "http://localhost:80", "HTTPS://canopy.example", "https://Canopy.example", "https://canopy.example/"] {
+        for origin in ["https://host.example:443", "http://localhost:80", "HTTPS://host.example", "https://Canopy.example", "https://host.example/"] {
             challenge.origin = origin
             #expect(throws: (any Error).self, "\(origin)") { try challenge.validated() }
         }

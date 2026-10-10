@@ -4,7 +4,7 @@ import {
   encodeSnapshotBundle,
   encodeProtocolDirectory,
   hashObject,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 
 function snapshotResponse(delays: readonly number[]) {
   const object = new TextEncoder().encode("slow snapshot\n");

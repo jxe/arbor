@@ -1,4 +1,4 @@
-/** Saved merge states for Performance 002 measurements (`packages/canopyd-merge/scripts/benchmark-cache.ts`), made by the reference
+/** Saved merge states for Performance 002 measurements (`packages/overstoryd-merge/scripts/benchmark-cache.ts`), made by the reference
  * sidecar over a disposable data root (such as `git-history-fixture.ts`
  * builds): never point it at Canopy data. For each tree it replays the log to
  * two heads and saves both, as the sidecar does after 32 replayed entries.
@@ -9,18 +9,18 @@
  */
 import { Database } from "bun:sqlite";
 import { join, resolve } from "node:path";
-import { ObjectStore, holdsObject } from "@overstory/object-store";
-import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, compareProtocolNames } from "@overstory/protocol";
-import { decodeLogEntry, encodeLogEntry, LOG_ENTRY_FORMAT } from "@overstory/merge-protocol";
-import { Sidecar } from "../../../packages/canopyd-merge/src/sidecar.ts";
-import { savedStatesIn } from "../../../packages/canopyd-merge/src/saved-states.ts";
+import { ObjectStore, holdsObject } from "@ovst/object-store";
+import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, compareProtocolNames } from "@ovst/protocol";
+import { decodeLogEntry, encodeLogEntry, LOG_ENTRY_FORMAT } from "@ovst/merge-protocol";
+import { Sidecar } from "../../../packages/overstoryd-merge/src/sidecar.ts";
+import { savedStatesIn } from "../../../packages/overstoryd-merge/src/saved-states.ts";
 
 const RULES = { id: "tree-default", revision: 1 };
 
 export async function buildMergeCacheFixture(dataRoot: string, saves: string, options: { choices?: number; progress?: (m: string) => void } = {}) {
   const progress = options.progress ?? (() => {});
   const store = new ObjectStore(join(dataRoot, "objects"), { cacheBytes: 256 * 1024 * 1024 });
-  const db = new Database(join(dataRoot, "canopy.sqlite3"), { readonly: true });
+  const db = new Database(join(dataRoot, "overstoryd.sqlite3"), { readonly: true });
   const rows = db.query("SELECT tree_id AS tree, entry FROM accepted_updates ORDER BY ordinal").all() as Array<{ tree: string; entry: string }>;
   db.close();
   const heads = new Map<string, string[]>();
@@ -28,7 +28,7 @@ export async function buildMergeCacheFixture(dataRoot: string, saves: string, op
   const generated = new Map<string, Uint8Array>();
   const sidecar = new Sidecar({
     shared: { find: async (hash) => generated.get(hash) ?? store.find(hash), has: async (hash) => generated.has(hash) || holdsObject(store, hash) },
-    // canopyd adopts an accepted answer's objects; the fixture keeps them in memory.
+    // overstoryd adopts an accepted answer's objects; the fixture keeps them in memory.
     staging: { find: async (hash) => generated.get(hash) ?? null, stage: async (values) => { for (const v of values) generated.set(v.hash, v.bytes); } },
     saved: savedStatesIn(saves),
   }, Number.MAX_SAFE_INTEGER, undefined, Number.POSITIVE_INFINITY);

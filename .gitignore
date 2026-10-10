@@ -1,8 +1,8 @@
 node_modules/
 dist/
-packages/canopy-web/dist/
+packages/story-web/dist/
 test-results/
-.arbor-lab/
+.story-lab/
 /.backups/
 .DS_Store
 .env

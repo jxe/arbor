@@ -23,14 +23,15 @@
     "packages/**/*.ts",
     "packages/**/*.tsx",
     "tests/**/*.ts",
-    "packages/canopyd/migrations/**/*.ts"
+    "packages/overstoryd/migrations/**/*.ts"
   ],
   "exclude": [
-    "packages/canopy-web/**",
-    "packages/canopyd/migrations/018-log-entries/**",
-    "packages/canopyd/migrations/019-one-access-store/**",
-    "packages/canopyd/migrations/020-profile-facts-per-tree/**",
-    "packages/canopyd/migrations/022-tree-configurations/**",
-    "packages/canopyd/migrations/023-device-keys/**"
+    "packages/story-web/**",
+    "packages/overstoryd/migrations/018-log-entries/**",
+    "packages/overstoryd/migrations/019-one-access-store/**",
+    "packages/overstoryd/migrations/020-profile-facts-per-tree/**",
+    "packages/overstoryd/migrations/021-file-relative-links/**",
+    "packages/overstoryd/migrations/022-tree-configurations/**",
+    "packages/overstoryd/migrations/023-device-keys/**"
   ]
 }

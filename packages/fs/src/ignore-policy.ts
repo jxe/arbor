@@ -1,6 +1,6 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
-import { decodeProtocolDirectory, type Diagnostic, type ObjectHash, type ProtocolDirectoryEntry } from "@overstory/protocol";
+import { decodeProtocolDirectory, type Diagnostic, type ObjectHash, type ProtocolDirectoryEntry } from "@ovst/protocol";
 
 /**
  * Filesystem membership: which local paths belong to a tree. Discovery,
@@ -8,7 +8,7 @@ import { decodeProtocolDirectory, type Diagnostic, type ObjectHash, type Protoco
  * policy, so a path is either tree content everywhere or nowhere.
  *
  * Mandatory exclusions are tooling and platform state that is never tree
- * content. User rules come from `.arborignore` (Overstory's portable
+ * content. User rules come from `.overstoryignore` (Overstory's portable
  * spelling) and `.gitignore` (read for compatibility) in the directory they
  * apply from; both use Git's pattern grammar. Git itself, its index,
  * `.git/info/exclude` and machine-global ignore files are never consulted, so
@@ -19,14 +19,14 @@ import { decodeProtocolDirectory, type Diagnostic, type ObjectHash, type Protoco
 export const MANDATORY_DIRECTORY_NAMES: ReadonlySet<string> = new Set([
   ".git",
   "node_modules",
-  ".arbor",
+  ".overstory",
   "Trash",
   ".build",
   "DerivedData",
 ]);
 
-/** Ignore-rule files, lowest precedence first: `.arborignore` wins over `.gitignore` beside it. */
-export const IGNORE_FILE_NAMES = [".gitignore", ".arborignore"] as const;
+/** Ignore-rule files, lowest precedence first: `.overstoryignore` wins over `.gitignore` beside it. */
+export const IGNORE_FILE_NAMES = [".gitignore", ".overstoryignore"] as const;
 
 export function isIgnoreFileName(name: string): boolean {
   return (IGNORE_FILE_NAMES as readonly string[]).includes(name);
@@ -34,7 +34,7 @@ export function isIgnoreFileName(name: string): boolean {
 
 /** An Overstory write or transaction temporary. */
 export function isTransactionTemporaryName(name: string): boolean {
-  return name.includes(".arbor-write-") || name.includes(".arbor-txn-");
+  return name.includes(".overstory-write-") || name.includes(".overstory-txn-");
 }
 
 /**

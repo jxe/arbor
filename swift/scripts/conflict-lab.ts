@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 /**
  * Conflict lab: a disposable local Canopy and tree for exercising the Mac
- * app's accepted-choice review against real canopyd merges.
+ * app's accepted-choice review against real overstoryd merges.
  *
- *   bun swift/scripts/conflict-lab.ts up            start canopyd, claim, place and seed
+ *   bun swift/scripts/conflict-lab.ts up            start overstoryd, claim, place and seed
  *   bun swift/scripts/conflict-lab.ts app [--build] launch the Debug app against the lab
  *   bun swift/scripts/conflict-lab.ts make <scenario>
  *   bun swift/scripts/conflict-lab.ts edit <page> <find> <replace>
@@ -13,8 +13,8 @@
  *   bun swift/scripts/conflict-lab.ts down | reset
  *
  * Every command prints one JSON object on stdout. Everything lives under
- * `.arbor-lab/conflicts` (gitignored). The app runs with a redirected
- * `ARBOR_DATA_HOME` (which also holds its Application Support state) and its
+ * `.story-lab/conflicts` (gitignored). The app runs with a redirected
+ * `STORY_HOME` (which also holds its Application Support state) and its
  * bundled helper on the test port, so it never reaches the user's daemon,
  * data or the live host.
  */
@@ -23,15 +23,15 @@ import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const repository = join(import.meta.dir, "../..");
-const lab = join(repository, ".arbor-lab/conflicts");
+const lab = join(repository, ".story-lab/conflicts");
 const dataHome = join(lab, "data-home");
 const folder = join(lab, "tree");
 const statePath = join(lab, "state.json");
 const port = 4390;
 const origin = `http://127.0.0.1:${port}`;
-process.env.ARBOR_DATA_HOME = dataHome;
+process.env.STORY_HOME = dataHome;
 
-interface LabState { tree: string; canopyPid: number; appPid?: number }
+interface LabState { tree: string; hostPid: number; appPid?: number }
 
 const pages: Record<string, string> = {
   "_index.md": "---\nid: pg_lab_index\n---\n\n# Conflict lab\n\nScenario pages live beside this one.\n",
@@ -115,18 +115,18 @@ async function run(command: string[], environment: Record<string, string> = {}, 
   const child = Bun.spawn(command, { cwd, env: { ...Bun.env, ...environment }, stdout: 2, stderr: "inherit" });
   if (await child.exited !== 0) throw new Error(`${command.join(" ")} failed`);
 }
-async function waitForCanopy(): Promise<void> {
+async function waitForStory(): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt++) {
-    try { await fetch(`${origin}/.arbor/`); return; } catch { await Bun.sleep(100); }
+    try { await fetch(`${origin}/.overstory/`); return; } catch { await Bun.sleep(100); }
   }
-  throw new Error("Lab canopyd did not start");
+  throw new Error("Lab overstoryd did not start");
 }
 
 async function client() {
-  const { ProtocolClient } = await import("@overstory/protocol");
-  const { listLocalAccounts } = await import("@overstory/arborsync/state");
-  const { HostAccountStore } = await import("@overstory/protocol");
-  const account = (await listLocalAccounts()).find((candidate) => candidate.canopy?.startsWith(origin));
+  const { ProtocolClient } = await import("@ovst/protocol");
+  const { listLocalAccounts } = await import("@ovst/story-sync/state");
+  const { HostAccountStore } = await import("@ovst/protocol");
+  const account = (await listLocalAccounts()).find((candidate) => candidate.host?.startsWith(origin));
   if (!account) throw new Error("No lab account is claimed");
   const credential = await new HostAccountStore(account.configurationTree).get();
   if (!credential) throw new Error("The lab account credential is unavailable");
@@ -141,7 +141,7 @@ async function current(wire: Awaited<ReturnType<typeof client>>, tree: string) {
 }
 
 async function fileHash(objects: Map<string, Uint8Array>, root: string, name: string) {
-  const { decodeProtocolDirectory } = await import("@overstory/protocol");
+  const { decodeProtocolDirectory } = await import("@ovst/protocol");
   const entry = decodeProtocolDirectory(objects.get(root)!).entries.find((candidate) => candidate.name === name);
   if (!entry?.file) throw new Error(`No page ${name}`);
   return entry.file;
@@ -175,7 +175,7 @@ async function candidate(base: { root: string; objects: Map<string, Uint8Array> 
     .map((operation) => operation.source.material.path.slice(1)));
   if (removed.size) {
     // Root-level removals only; the lab's pages all live at the root.
-    const { decodeProtocolDirectory, encodeProtocolDirectory, hashObject } = await import("@overstory/protocol");
+    const { decodeProtocolDirectory, encodeProtocolDirectory, hashObject } = await import("@ovst/protocol");
     const directory = decodeProtocolDirectory(generated.get(root) ?? base.objects.get(root)!);
     directory.entries = directory.entries.filter((entry) => !removed.has(entry.name));
     const bytes = encodeProtocolDirectory(directory);
@@ -191,7 +191,7 @@ async function candidate(base: { root: string; objects: Map<string, Uint8Array> 
 
 /** One snapshot candidate replacing whole root entries (no source trace). */
 async function entriesCandidate(base: { root: string; objects: Map<string, Uint8Array> }, entries: Record<string, EntryValue>) {
-  const { decodeProtocolDirectory, encodeProtocolDirectory, hashObject } = await import("@overstory/protocol");
+  const { decodeProtocolDirectory, encodeProtocolDirectory, hashObject } = await import("@ovst/protocol");
   const objects = new Map<string, Uint8Array>();
   const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
   const folder = (value: { type: "directory"; entries: any[] }) => {
@@ -232,22 +232,22 @@ async function inspect(wire: Awaited<ReturnType<typeof client>>, tree: string) {
 
 async function up() {
   await mkdir(lab, { recursive: true });
-  const fresh = !existsSync(join(lab, "canopy"));
-  if (!existsSync(statePath) || !alive((await loadState()).canopyPid)) {
+  const fresh = !existsSync(join(lab, "host"));
+  if (!existsSync(statePath) || !alive((await loadState()).hostPid)) {
     const child = Bun.spawn(["bun", import.meta.path, "serve", fresh ? "--fresh" : ""], {
-      cwd: repository, env: { ...process.env, ARBOR_DATA_HOME: dataHome }, stdout: Bun.file(join(lab, "canopyd.log")), stderr: Bun.file(join(lab, "canopyd.log")),
+      cwd: repository, env: { ...process.env, STORY_HOME: dataHome }, stdout: Bun.file(join(lab, "overstoryd.log")), stderr: Bun.file(join(lab, "overstoryd.log")),
     });
     child.unref();
-    await waitForCanopy();
+    await waitForStory();
     if (!fresh) {
       const state = await loadState();
-      await writeFile(statePath, JSON.stringify({ ...state, canopyPid: child.pid }));
-      return out({ canopy: origin, tree: state.tree, dataHome, restarted: true });
+      await writeFile(statePath, JSON.stringify({ ...state, hostPid: child.pid }));
+      return out({ host: origin, tree: state.tree, dataHome, restarted: true });
     }
-    await writeFile(statePath, JSON.stringify({ tree: "", canopyPid: child.pid }));
+    await writeFile(statePath, JSON.stringify({ tree: "", hostPid: child.pid }));
   } else {
     const state = await loadState();
-    return out({ canopy: origin, tree: state.tree, dataHome, running: true });
+    return out({ host: origin, tree: state.tree, dataHome, running: true });
   }
   // First run: claim `~joe` into the lab data home and place the seeded tree.
   await mkdir(folder, { recursive: true });
@@ -255,8 +255,8 @@ async function up() {
   const profile = join(lab, "profile");
   // A throwaway control daemon claims `~joe` and places the tree; the app's
   // bundled helper later finds both in the lab data home.
-  const { serveArborSyncControl } = await import("@overstory/arborsync");
-  const control = await serveArborSyncControl({ port: 0 });
+  const { serveStorySyncControl } = await import("@ovst/story-sync");
+  const control = await serveStorySyncControl({ port: 0 });
   try {
     const claimed = await fetch(`${control.url}/v1/bootstrap/accounts`, {
       method: "POST", headers: { "content-type": "application/json" },
@@ -264,39 +264,39 @@ async function up() {
     });
     if (!claimed.ok) throw new Error(`Claim failed: ${await claimed.text()}`);
     await run(["bun", "packages/cli/src/index.ts", "place", await realpath(folder), `${origin}/~joe/lab`],
-      { ARBOR_DATA_HOME: dataHome, ARBOR_SYNC_URL: control.url });
+      { STORY_HOME: dataHome, STORY_SYNC_URL: control.url });
   } finally {
     control.server.stop(true);
     await control.service[Symbol.asyncDispose]();
   }
-  const { loadLocalPlacements } = await import("@overstory/arborsync/state");
+  const { loadLocalPlacements } = await import("@ovst/story-sync/state");
   const placed = (await loadLocalPlacements()).placements.find((candidate) => candidate.path === folder || candidate.path.endsWith("/conflicts/tree"));
   if (!placed) throw new Error("The lab tree was not placed");
   const state = { ...(await loadState()), tree: placed.tree };
   await writeFile(statePath, JSON.stringify(state));
-  out({ canopy: origin, tree: placed.tree, dataHome, created: true });
+  out({ host: origin, tree: placed.tree, dataHome, created: true });
 }
 
 async function serve(fresh: boolean) {
-  const { serveHost } = await import("@overstory/canopyd");
+  const { serveHost } = await import("@ovst/overstoryd");
   let community;
   if (fresh) {
-    const { ProfileIdentityStore } = await import("@overstory/arborsync/state");
+    const { ProfileIdentityStore } = await import("@ovst/story-sync/state");
     const profile = join(lab, "profile");
     await mkdir(profile, { recursive: true });
     const identity = await new ProfileIdentityStore().create(profile);
     community = { handle: "lab", name: "Conflict lab", firstWriter: { handle: "joe", profileTree: identity.profileTree } };
   }
-  await serveHost({ dataRoot: join(lab, "canopy"), publicOrigin: origin, hostname: "127.0.0.1", port, ...(community ? { community } : {}) });
-  log(`conflict lab canopyd on ${origin}`);
+  await serveHost({ dataRoot: join(lab, "host"), publicOrigin: origin, hostname: "127.0.0.1", port, ...(community ? { community } : {}) });
+  log(`conflict lab overstoryd on ${origin}`);
   await new Promise(() => {});
 }
 
 async function app(build: boolean) {
   const state = await loadState();
   const derived = join(lab, "DerivedData");
-  const workspace = existsSync(join(repository, "swift/Canopy.local.xcworkspace")) ? ["-workspace", "Canopy.local.xcworkspace"] : ["-project", "Canopy.xcodeproj"];
-  const binary = join(derived, "Build/Products/Debug/Canopy.app/Contents/MacOS/Canopy");
+  const workspace = existsSync(join(repository, "swift/Story.local.xcworkspace")) ? ["-workspace", "Story.local.xcworkspace"] : ["-project", "Story.xcodeproj"];
+  const binary = join(derived, "Build/Products/Debug/Story.app/Contents/MacOS/Canopy");
   if (build || !existsSync(binary)) {
     await run(["xcodebuild", ...workspace, "-scheme", "Canopy", "-configuration", "Debug", "-destination", "platform=macOS",
       "-derivedDataPath", derived, "build", "-quiet",
@@ -306,9 +306,9 @@ async function app(build: boolean) {
   }
   if (alive(state.appPid)) process.kill(state.appPid!);
   // The bundled helper outlives its app; a new build must not reuse an old one.
-  Bun.spawnSync(["pkill", "-f", `${join(derived, "Build/Products/Debug/Canopy.app")}/Contents/MacOS/arborsync`]);
+  Bun.spawnSync(["pkill", "-f", `${join(derived, "Build/Products/Debug/Story.app")}/Contents/MacOS/story-sync`]);
   const child = Bun.spawn([binary], {
-    env: { ...Bun.env, ARBOR_DATA_HOME: dataHome, ARBOR_TEST_BUNDLED_HELPER: "1", ARBOR_DISABLE_PERSISTENT_DAEMON: "1", ARBOR_TEST_TREE: state.tree },
+    env: { ...Bun.env, STORY_HOME: dataHome, STORY_TEST_BUNDLED_HELPER: "1", STORY_DISABLE_PERSISTENT_DAEMON: "1", STORY_TEST_TREE: state.tree },
     stdout: Bun.file(join(lab, "app.log")), stderr: Bun.file(join(lab, "app.log")),
   });
   child.unref();
@@ -370,7 +370,7 @@ async function resolve(decision: string) {
 async function down() {
   if (!existsSync(statePath)) return out({ stopped: [] });
   const state = await loadState(), stopped = [];
-  for (const pid of [state.appPid, state.canopyPid]) if (alive(pid)) { process.kill(pid!); stopped.push(pid); }
+  for (const pid of [state.appPid, state.hostPid]) if (alive(pid)) { process.kill(pid!); stopped.push(pid); }
   out({ stopped });
 }
 

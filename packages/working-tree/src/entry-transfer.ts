@@ -1,4 +1,4 @@
-import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, verifyTreeSnapshotGraph, type TreeSnapshot, type SourceOperation } from "@overstory/protocol";
+import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, verifyTreeSnapshotGraph, type TreeSnapshot, type SourceOperation } from "@ovst/protocol";
 
 /** Exact editor-declared relocation. This constructs a candidate; it does not infer
  * moves from snapshots or reconcile concurrent trees. */

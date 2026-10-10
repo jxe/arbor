@@ -2,9 +2,9 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { arborPrivateRoot, HostAccountStore, HostPlacementStore, treeConfigurationID, type SharedTreePlacement } from "@overstory/protocol";
-import { accountProtocolClient } from "@overstory/client";
-import { forgetPlacementSession } from "../../packages/arborsync/src/sync-connections.ts";
+import { overstoryPrivateRoot, HostAccountStore, HostPlacementStore, treeConfigurationID, type SharedTreePlacement } from "@ovst/protocol";
+import { accountProtocolClient } from "@ovst/client";
+import { forgetPlacementSession } from "../../packages/story-sync/src/sync-connections.ts";
 
 /**
  * Security 007: a folder placed on a placement host speaks to that host with
@@ -12,20 +12,20 @@ import { forgetPlacementSession } from "../../packages/arborsync/src/sync-connec
  * alone, never the home account's.
  */
 
-const previousDataHome = process.env.ARBOR_DATA_HOME;
-const previousCredentialStore = process.env.ARBOR_CREDENTIAL_STORE;
+const previousDataHome = process.env.STORY_HOME;
+const previousCredentialStore = process.env.STORY_CREDENTIAL_STORE;
 const temporary: string[] = [];
 const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", cfg = treeConfigurationID(profile), device = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const home = "https://community.example", orchard = "https://orchard.example", seed = "A".repeat(43);
 
 async function dataHome(): Promise<{ homeSession: string; placementSession: string }> {
-  const root = await mkdtemp(join(tmpdir(), "arbor-sync-connections-"));
-  temporary.push(root); process.env.ARBOR_DATA_HOME = root; process.env.ARBOR_CREDENTIAL_STORE = "file";
+  const root = await mkdtemp(join(tmpdir(), "story-sync-connections-"));
+  temporary.push(root); process.env.STORY_HOME = root; process.env.STORY_CREDENTIAL_STORE = "file";
   await new HostAccountStore(cfg).setDeviceKey(seed, { origin: home, account: `${home}/~joe`, accountID: profile, profileTree: profile, deviceID: device });
   await new HostPlacementStore(cfg, orchard).set({ account: `${orchard}/~joe`, accountID: profile, profileTree: profile, homeHost: home, placementRoot: "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb" });
-  const placements = join(arborPrivateRoot(), "accounts", cfg, "placements");
+  const placements = join(overstoryPrivateRoot(), "accounts", cfg, "placements");
   const [directory] = await readdir(placements);
-  const homeSession = join(arborPrivateRoot(), "accounts", cfg, "session.json");
+  const homeSession = join(overstoryPrivateRoot(), "accounts", cfg, "session.json");
   const placementSession = join(placements, directory!, "session.json");
   for (const path of [homeSession, placementSession]) await writeFile(path, JSON.stringify({ token: "stale", expiresAt: new Date(Date.now() + 3_600_000).toISOString() }));
   return { homeSession, placementSession };
@@ -38,10 +38,10 @@ function placement(endpoint: string): SharedTreePlacement {
 const exists = (path: string) => stat(path).then(() => true, () => false);
 
 afterEach(async () => {
-  if (previousCredentialStore === undefined) delete process.env.ARBOR_CREDENTIAL_STORE;
-  else process.env.ARBOR_CREDENTIAL_STORE = previousCredentialStore;
-  if (previousDataHome === undefined) delete process.env.ARBOR_DATA_HOME;
-  else process.env.ARBOR_DATA_HOME = previousDataHome;
+  if (previousCredentialStore === undefined) delete process.env.STORY_CREDENTIAL_STORE;
+  else process.env.STORY_CREDENTIAL_STORE = previousCredentialStore;
+  if (previousDataHome === undefined) delete process.env.STORY_HOME;
+  else process.env.STORY_HOME = previousDataHome;
   await Promise.all(temporary.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import {
-  arborPrivateRoot,
+  overstoryPrivateRoot,
   HostAccountStore,
   HostPlacementStore,
   isHomeHostOrigin,
@@ -11,7 +11,7 @@ import {
   treeConfigurationID,
   type HostPlacementRecord,
   type RemotePlacementAccountDescriptor,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 import { withLocalStateLock } from "./local-state-lock.ts";
 
 export interface PlacementAccountResult {
@@ -38,7 +38,7 @@ export function placementOrigin(input: string): string {
  * reservation refuses the session, and the error says what to reserve.
  */
 export async function connectPlacementAccount(placementHost: string): Promise<PlacementAccountResult> {
-  return withLocalStateLock(join(arborPrivateRoot(), "account-bootstrap-lock.sqlite"), () => connect(placementHost));
+  return withLocalStateLock(join(overstoryPrivateRoot(), "account-bootstrap-lock.sqlite"), () => connect(placementHost));
 }
 
 async function connect(placementHost: string): Promise<PlacementAccountResult> {

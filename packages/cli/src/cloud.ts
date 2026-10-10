@@ -2,7 +2,7 @@ import { deflateRawSync, inflateRawSync } from "node:zlib";
 import { chmod, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { stableJSONString } from "@overstory/protocol";
+import { stableJSONString } from "@ovst/protocol";
 
 export const CLOUD_BUNDLE_PREFIX = "arbor-cloud-v2";
 export const MAX_CLOUD_BUNDLE_LENGTH = 32 * 1024;
@@ -13,7 +13,7 @@ export interface CloudBundlePlacement {
   relativePath: string;
 }
 
-/** What `arbor cloud start` needs to act as the bundle's own key device. */
+/** What `story cloud start` needs to act as the bundle's own key device. */
 export interface CloudBundlePayload {
   version: 2;
   bundleID: string;
@@ -214,7 +214,7 @@ export function decodeCloudBundle(input: string): CloudBundlePayload {
 }
 
 export function cloudHome(): string {
-  return resolve(process.env.ARBOR_CLOUD_HOME ?? join(homedir(), ".arbor", "cloud-sessions"));
+  return resolve(process.env.STORY_CLOUD_HOME ?? join(homedir(), ".story", "cloud-sessions"));
 }
 
 function bundlesPath(): string {

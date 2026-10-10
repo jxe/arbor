@@ -1,6 +1,6 @@
-const NODE = Symbol.for("arbor.data.node");
-const RELATION = Symbol.for("arbor.data.relation");
-const SOURCE = Symbol.for("arbor.data.source");
+const NODE = Symbol.for("story.data.node");
+const RELATION = Symbol.for("story.data.relation");
+const SOURCE = Symbol.for("story.data.source");
 
 export type QueryCardinality = "many" | "one" | "maybe";
 export type Direction = "asc" | "desc";
@@ -340,8 +340,8 @@ function relationFromPath(path: string): string {
 }
 
 export function node(path: string): NodeHandle {
-  if (!path || (!path.startsWith(".") && !path.startsWith("/") && !path.startsWith("arbor:"))) {
-    throw new Error("node() requires a relative, logical, or Arbor path");
+  if (!path || (!path.startsWith(".") && !path.startsWith("/") && !path.startsWith("story:"))) {
+    throw new Error("node() requires a relative, logical, or Story path");
   }
   const handle = { path } as NodeHandle;
   Object.assign(handle, { children: rowScope(relationFromPath(path), handle) });

@@ -2,11 +2,11 @@
 
 [Architecture overview](../README.md) · [Implementation status](../../../status.md)
 
-`@overstory/collection-schema` implements the declarative collection schema
+`@ovst/collection-schema` implements the declarative collection schema
 profile of [child backings §2.4](../../overstory-spec/06-child-backings.md#24-collection-schema-profile):
 a strict subset of CDDL, interpreted over JSON values, with three reserved
 metadata rules. Interpreting a collection is parsing and checking data. Nothing
-in canopyd, the merge worker or Arbor Sync evaluates JavaScript to read,
+in overstoryd, the merge worker or Story Sync evaluates JavaScript to read,
 accept, project or merge a collection, and QuickJS is no longer a dependency
 of any package.
 
@@ -36,11 +36,11 @@ of any package.
   the encoder appends undeclared members after the declared columns in order
   of first appearance and rejects any it could not read back unchanged.
 - `collection-file.ts`: source decoding for CSV, JSON and JSONL, the
-  descriptor decoder used by canopyd acceptance and projection and by the
+  descriptor decoder used by overstoryd acceptance and projection and by the
   merge rules, and the canonical child-set hash (keys ordered by UTF-8 bytes).
   Undeclared members are ordinary properties there: they enter the child-set
   hash and every re-encoding.
-- `typescript.ts`: static declarations for Arbor Sync's generated
+- `typescript.ts`: static declarations for Story Sync's generated
   `tree.gen.d.ts`; no authored module or Zod import is emitted. An open map,
   the row always, renders with the index signature `[member: string]: unknown`:
   it admits every declared member's type, keeps declared members' types and
@@ -77,11 +77,11 @@ vector is otherwise-valid CDDL; it does parse the control-operator, `/=`, `//`,
 
 | Consumer | Uses |
 |---|---|
-| canopyd acceptance (`Canopy.validateGraph`) | `decodeProtocolCollectionFile` with the host's `CollectionSchemaCache` |
-| canopyd projection and public pages (`ProtocolProjection`) | `decodeProtocolCollectionFile` |
+| overstoryd acceptance (`Canopy.validateGraph`) | `decodeProtocolCollectionFile` with the host's `CollectionSchemaCache` |
+| overstoryd projection and public pages (`ProtocolProjection`) | `decodeProtocolCollectionFile` |
 | `tree-merge` (`collection-file-rows-v1`) | decode and encode |
-| Arbor Sync providers and snapshots | `schema.cddl` discovery, CSV conversion, row validation and writes, collection descriptors |
-| Arbor Sync generated types | `collectionTypeDeclarations` |
+| Story Sync providers and snapshots | `schema.cddl` discovery, CSV conversion, row validation and writes, collection descriptors |
+| Story Sync generated types | `collectionTypeDeclarations` |
 
 Database backings keep their introspected schemas; `schema.cddl` beside
 `_store.sqlite3` or `_store.postgres` is a mixed-backing diagnostic. No
@@ -94,8 +94,8 @@ ordinary file, and beside a collection file it is one more entry that the
 collection-file directory contract rejects like any other.
 
 `tests/unit/collection-schema-boundary.test.ts` checks manifests and the
-lockfile, bundles each shipped entrypoint (canopyd, the merge worker,
-`tree-merge`, Arbor Sync, `arbor`) to inspect its resolved module closure, and
+lockfile, bundles each shipped entrypoint (overstoryd, the merge worker,
+`tree-merge`, Story Sync, `story`) to inspect its resolved module closure, and
 runs acceptance decoding, projection, merge and local reads in a disposable
 process where any QuickJS import fails.
 

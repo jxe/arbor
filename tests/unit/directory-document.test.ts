@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { parseMarkdown, placeDirectoryChildren, reorderChildLinks, serializeMarkdown, type DirectoryPlacementChild, type PlacementDirectory } from "@overstory/protocol";
+import { parseMarkdown, placeDirectoryChildren, reorderChildLinks, serializeMarkdown, type DirectoryPlacementChild, type PlacementDirectory } from "@ovst/protocol";
 
 describe("bounded directory child placement", () => {
   test("matches the language-neutral placement fixtures", async () => {
@@ -40,7 +40,7 @@ describe("bounded directory child placement", () => {
   });
 
   test("moving a generated child makes it an authored placement", () => {
-    const source = "# Directory\n\n<!-- arbor:children -->\n";
+    const source = "# Directory\n\n<!-- overstory:children -->\n";
     const placed = placeDirectoryChildren({ path: "/dir", body: "index" }, parseMarkdown(source), [{ name: "child", path: "/dir/child", body: "sibling" }]);
     const moved = reorderChildLinks(placed.document.blocks, {
       sourceDirectory: "/dir",

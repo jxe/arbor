@@ -12,8 +12,8 @@ and the generation is acknowledged once that append returns. The working
 tree's [update machine](../implementing-sync-services/update-machine.md)
 publishes the change log later; the editor never waits for the host.
 
-The reference implementation is `EditorSource` (`CanopyAppKit`, provider
-agnostic) with `CanopyDocumentBinding` (`CanopyEditor`) as its Quagmire
+The reference implementation is `EditorSource` (`StoryKit`, provider
+agnostic) with `StoryDocumentBinding` (`StoryEditor`) as its Quagmire
 plumbing. No TypeScript editor source exists yet; Web 025 adds one.
 
 ## 1. Three clocks
@@ -71,7 +71,7 @@ The Quagmire binding does what only the editor can:
   changed. A peer's concurrent edit to a moved block then follows it. The
   result must reparse to the editor's tree; anything else (new or edited
   blocks, tab indentation) is an ordinary edit. `source-moves.json` gives the
-  exact meaning shared with canopyd.
+  exact meaning shared with overstoryd.
 - **Move to Document is one change.** Moving blocks to another page of the same
   tree appends one record over both pages: the blocks' recorded source leaves
   one and lands after the other's last block, re-indented to its top level,
@@ -185,7 +185,7 @@ request's accepted graph. Later batch elements retain their envelopes until
 the client can prove the host retains their preceding candidate. Transport byte matching never supplies move or copy evidence.
 
 Accepted ancestry remains in a batch to preserve attribution, but its objects
-and deltas are omitted. canopyd uses the credential-bound receipt to avoid
+and deltas are omitted. overstoryd uses the credential-bound receipt to avoid
 reconstructing deltas for that already-accepted prefix. New suffix elements
 still undergo normal validation and reconciliation.
 
@@ -222,10 +222,10 @@ of 50, 200 and 500 paragraphs containing bold text and links. Mean synchronous
 transaction plus capture cost fell from 5.9/24.0/60.0 ms per move to
 1.2/4.4/11.2 ms. This excludes SwiftUI rendering and durable append work; it is
 not a measurement of installed-app key-to-screen latency. Reproduce with
-`CANOPY_MEASURE_MOVES=1 swift/scripts/test-canopy-editor-local.sh --filter measureMovePipeline`.
+`OVERSTORYD_MEASURE_MOVES=1 swift/scripts/test-story-editor-local.sh --filter measureMovePipeline`.
 
-The follow-up diagnostic (`CANOPY_MEASURE_MOVES=1
-swift/scripts/test-canopy-editor-local.sh --filter measureCacheReuse`) compares
+The follow-up diagnostic (`OVERSTORYD_MEASURE_MOVES=1
+swift/scripts/test-story-editor-local.sh --filter measureCacheReuse`) compares
 cold and cached parsing in one run over a 500-paragraph page. Mean capture cost
 for the first move after an edit was 60.0 ms cold and 11.0 ms cached; parsing a
 replacement with one added paragraph was 53.4 ms cold and 7.9 ms cached. Replacement

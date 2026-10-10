@@ -1,0 +1,20 @@
+{
+  "name": "@ovst/overstoryd-merge",
+  "version": "0.1.0",
+  "description": "overstoryd's merge sidecar: authored-operation evaluation, format rules, retained state and replay, checkpoints, and the overstoryd-merge command.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ovst/merge-protocol": "workspace:*",
+    "@ovst/object-store": "workspace:*",
+    "@ovst/protocol": "workspace:*",
+    "@ovst/tree-merge": "workspace:*",
+    "saxes": "6.0.0",
+    "tree-sitter-wasms": "0.1.13",
+    "web-tree-sitter": "0.20.8",
+    "yaml": "2.8.2",
+    "zod": "4.3.6"
+  }
+}

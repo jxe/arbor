@@ -1,6 +1,6 @@
 # Overstory data runtime
 
-`@overstory/apps-runtime` is the reference implementation behind the authored `overstory/data` package surface. It lowers the checked-in Meaning Supplies handles and executes the portable child-query subset across ordinary Overstory providers as well as SQLite.
+`@ovst/apps-runtime` is the reference implementation behind the authored `overstory/data` package surface. It lowers the checked-in Meaning Supplies handles and executes the portable child-query subset across ordinary Overstory providers as well as SQLite.
 
 The authoring layer builds a closed plan by invoking each query callback once with symbolic node properties, input, and Overstory-user values. One query-core module defines portable input validation, user requirements, filtering, picking, cardinality, and canonical stable-key ordering. `NodeQueryEngine` samples a resolved parent before paging and returns membership/schema/observation plus row dependencies. Activation binds each literal `node(path)` to its complete logical tree/path and schema fingerprint; SQLite rejects an unbound, stale, cross-tree, wrong-root, or wrong-relation source before data access. Its additional named, through, and ProfileID-backed relationships come from the store-adjacent `relationships.json` declaration and participate in the schema fingerprint.
 

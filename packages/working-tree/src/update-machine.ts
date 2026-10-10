@@ -1,12 +1,12 @@
 /**
- * Working-tree updates: the state machine a working tree runs against Arbor
+ * Working-tree updates: the state machine a working tree runs against Story
  * protocol to turn its local changes into accepted updates (docs/overstory-spec/09).
  *
  * The reducer is pure and language-neutral: roots, updates, cursors, change
  * identities and request digests are opaque tokens. A runner appends local
  * changes to its change log, persists what each state says it retains, and
  * executes every effect the reducer returns. The Swift twin is
- * `UpdateMachine` in `CanopyWorkingTree`; both execute `working-tree-updates`
+ * `UpdateMachine` in `OverstoryWorkingTree`; both execute `working-tree-updates`
  * in `docs/overstory-spec/conformance/client-state-machines.json`. The
  * runner is `UpdateCoordinator` in `coordinator.ts`.
  */

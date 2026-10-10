@@ -1,0 +1,730 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00CF3804F0A62172853CECBD /* StoryDirectoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A27A7EADF20AC6C392158935 /* StoryDirectoryView.swift */; };
+		0BB9637A4301F2BADA1719F2 /* AppIcon-crescent-v5-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = EA5E024E578860B5BCB6E8F4 /* AppIcon-crescent-v5-1024.png */; };
+		138AB71328EADD327DF05358 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0F57E1CDD14CFF64B73C4196 /* Assets.xcassets */; };
+		13C18A7BD2C4E9490309726D /* AppIcon-woodland-island-v5-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = DCBD25833940FE6FD06B1B03 /* AppIcon-woodland-island-v5-1024.png */; };
+		18B2099CB8B2E619C05D95C9 /* StoryAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44DCE9BA85E5A6914ED7A28A /* StoryAppTests.swift */; };
+		1AEF387DEDDCFEE7DB6AF3ED /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 4081ECDEDB562CFE6BC3A63B /* README.md */; };
+		2389F5B89ABF83893F8BFCED /* StoryOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B12A0A099353DC70B96556 /* StoryOnboarding.swift */; };
+		25A3618F79041C1CA3AF0706 /* StoryAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EDB49754CACAEB6EA0D809C /* StoryAppModel.swift */; };
+		25D14DC831AB83257FF4873C /* StorySaveDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF67517026BEB4C160F1B29 /* StorySaveDiagnostics.swift */; };
+		3070177B9658900053719FAA /* StoryDailyDriverViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBAC914250ADC60AB8330AF5 /* StoryDailyDriverViews.swift */; };
+		43B73395F5BC136A8F372B5B /* StorySyncProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DC1C9155C6415735EFB900D /* StorySyncProtocol.swift */; };
+		4DBBBC75E90C949DA011A17B /* StoryRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F061F4EB3A1DDA2E7D8C0AB2 /* StoryRootView.swift */; };
+		59689CDA70B7E65EB5053F64 /* StorySupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B3FAFCE4CBE59350772DC86 /* StorySupportDirectories.swift */; };
+		678D4AD72FDFF443A4356A01 /* StorySyncClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 013BFCA263291982C814C4C8 /* StorySyncClientTests.swift */; };
+		6A886DB15992427E3D306299 /* StorySyncProcessSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B8C17FDB69A068E8A9CECD2 /* StorySyncProcessSupervisor.swift */; };
+		706F84BAD07E9C3CC796ECF7 /* StorySyncLoopbackServicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5B1DB7105A6370E332021AC /* StorySyncLoopbackServicesTests.swift */; };
+		7B681248CC4ACE1EC5C86C79 /* StoryDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EABAB8FF89E2C8D008E7D54 /* StoryDirectory.swift */; };
+		7E28C9228D2AD90BA27BBCC8 /* StorySyncRESTClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570CA5BE42A3C7740713926E /* StorySyncRESTClient.swift */; };
+		80731DFD7207784658256DAD /* StoryAgentBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C801E1356B70DF981F10CE55 /* StoryAgentBundleTests.swift */; };
+		8D856512BD7DE6492C00A93E /* VoiceRecordingIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6B87FA2419E6805DE2A2DD2 /* VoiceRecordingIntents.swift */; };
+		8D88B8400395C24C848086F9 /* StorySyncAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 287F638B398B35FFB4041DD4 /* StorySyncAccountService.swift */; };
+		8DD71641C8A544EDA9AF2731 /* StoryNetworkLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50109D993611D59CF73FE0A4 /* StoryNetworkLogView.swift */; };
+		941674B9FAF05F1670ED6ECC /* StoryKit in Frameworks */ = {isa = PBXBuildFile; productRef = 481BCBFAE310A705AB27CE30 /* StoryKit */; };
+		9675DD1D697B0D1F28D21845 /* OverstoryClient in Frameworks */ = {isa = PBXBuildFile; productRef = 116133627870F3D2BF1962E0 /* OverstoryClient */; };
+		98964119B5AA433EF0AA397B /* QuagmireExtras in Frameworks */ = {isa = PBXBuildFile; productRef = B99F0DB13EA433FEA4FCD331 /* QuagmireExtras */; };
+		9C704388497EA12B9D978089 /* StoryApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63D9EA3BB99A535CFAB23B48 /* StoryApp.swift */; };
+		A4E6F18847B2453BAB914E79 /* OverstoryObjectStore in Frameworks */ = {isa = PBXBuildFile; productRef = 491E232029FB50606050C5E4 /* OverstoryObjectStore */; };
+		B7927EDF50F594B3EB1D11E5 /* StoryVisits.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */; };
+		C20D247C8BC789EA714ECA50 /* Overstory in Frameworks */ = {isa = PBXBuildFile; productRef = 3DE1482AFACF580E96254A07 /* Overstory */; };
+		C8A9FA9F81FECD5E612F0AA2 /* StoryAgentBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4988444CA00D5B4D30BFBF9 /* StoryAgentBundle.swift */; };
+		DA625B9BA72CFD7737DD5087 /* AppIcon-oblique-grove-v3-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = 55DBCA6ADD9B244E83EE46FA /* AppIcon-oblique-grove-v3-1024.png */; };
+		DC195F88AFB0BFE2E6B25729 /* StoryStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C14AB815B7145C5339991F4C /* StoryStyle.swift */; };
+		DCC019E4C3C32E31DC8542B1 /* AppIcon-perspective-trapezoid-v5-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = 93DD6B8D9A6F1CD692FCF433 /* AppIcon-perspective-trapezoid-v5-1024.png */; };
+		E4BF163FE09061A7048C47A2 /* StorySyncLoopbackServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2310FA6DF2AC58696C3C95AF /* StorySyncLoopbackServices.swift */; };
+		E8586D9D166C15FB4BF6F972 /* AppIcon-oblique-overstory-v4-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = 23AB73370E278D32DF495901 /* AppIcon-oblique-overstory-v4-1024.png */; };
+		F0D0D4EA48061940AE8B1FE4 /* OverstoryWorkingTree in Frameworks */ = {isa = PBXBuildFile; productRef = 8AE1991A365BDE555AEF9AD2 /* OverstoryWorkingTree */; };
+		F5A083DC712E9DDC2FB183A2 /* HostAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA3B5A57DFF35B1C2881F8B /* HostAccountService.swift */; };
+		F78F9916659D4F368857A707 /* StoryEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 067E5CB0830F8EDCB190E0A1 /* StoryEditor */; };
+		FDFA8D98B41CFA8447349913 /* StoryConflictReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEFC87D3C02AC6C37B8443A9 /* StoryConflictReview.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		0CD3FBF5CD6D52272E8C95E2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 98BE07E8D6AAE2D1A72D1951 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 51DAE09E7CE89C9DBEE17433;
+			remoteInfo = Story;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		013BFCA263291982C814C4C8 /* StorySyncClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncClientTests.swift; sourceTree = "<group>"; };
+		08DF6DD4D68F12688B37CB50 /* Story.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Story.entitlements; sourceTree = "<group>"; };
+		0DC1C9155C6415735EFB900D /* StorySyncProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncProtocol.swift; sourceTree = "<group>"; };
+		0F57E1CDD14CFF64B73C4196 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		2310FA6DF2AC58696C3C95AF /* StorySyncLoopbackServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncLoopbackServices.swift; sourceTree = "<group>"; };
+		23AB73370E278D32DF495901 /* AppIcon-oblique-overstory-v4-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-oblique-overstory-v4-1024.png"; sourceTree = "<group>"; };
+		2497A2CC0E8257903E8DD80B /* StoryKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = StoryKit; path = Packages/StoryKit; sourceTree = SOURCE_ROOT; };
+		287F638B398B35FFB4041DD4 /* StorySyncAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncAccountService.swift; sourceTree = "<group>"; };
+		28B12A0A099353DC70B96556 /* StoryOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryOnboarding.swift; sourceTree = "<group>"; };
+		3AA4F8BE45D7AEDC923DE7AF /* OverstoryWorkingTree */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OverstoryWorkingTree; path = Packages/OverstoryWorkingTree; sourceTree = SOURCE_ROOT; };
+		4081ECDEDB562CFE6BC3A63B /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		424024AA24CF8BB8FF279D58 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		44DCE9BA85E5A6914ED7A28A /* StoryAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAppTests.swift; sourceTree = "<group>"; };
+		4552C62CC6C5F2CF1B71CA52 /* OverstoryObjectStore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OverstoryObjectStore; path = Packages/OverstoryObjectStore; sourceTree = SOURCE_ROOT; };
+		50109D993611D59CF73FE0A4 /* StoryNetworkLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryNetworkLogView.swift; sourceTree = "<group>"; };
+		55DBCA6ADD9B244E83EE46FA /* AppIcon-oblique-grove-v3-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-oblique-grove-v3-1024.png"; sourceTree = "<group>"; };
+		570CA5BE42A3C7740713926E /* StorySyncRESTClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncRESTClient.swift; sourceTree = "<group>"; };
+		5CA3B5A57DFF35B1C2881F8B /* HostAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostAccountService.swift; sourceTree = "<group>"; };
+		63D9EA3BB99A535CFAB23B48 /* StoryApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryApp.swift; sourceTree = "<group>"; };
+		73B68E87641593E3050F1F40 /* StoryEditor */ = {isa = PBXFileReference; lastKnownFileType = folder; name = StoryEditor; path = Packages/StoryEditor; sourceTree = SOURCE_ROOT; };
+		7EDB49754CACAEB6EA0D809C /* StoryAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAppModel.swift; sourceTree = "<group>"; };
+		8B3FAFCE4CBE59350772DC86 /* StorySupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySupportDirectories.swift; sourceTree = "<group>"; };
+		8F8E080B1625156D56B841C2 /* Overstory */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Overstory; path = Packages/Overstory; sourceTree = SOURCE_ROOT; };
+		93DD6B8D9A6F1CD692FCF433 /* AppIcon-perspective-trapezoid-v5-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-perspective-trapezoid-v5-1024.png"; sourceTree = "<group>"; };
+		9B8C17FDB69A068E8A9CECD2 /* StorySyncProcessSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncProcessSupervisor.swift; sourceTree = "<group>"; };
+		9EABAB8FF89E2C8D008E7D54 /* StoryDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryDirectory.swift; sourceTree = "<group>"; };
+		A27A7EADF20AC6C392158935 /* StoryDirectoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryDirectoryView.swift; sourceTree = "<group>"; };
+		A3E2D99AB488FDB2DD0FDB76 /* story-sync.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "story-sync.entitlements"; sourceTree = "<group>"; };
+		B4988444CA00D5B4D30BFBF9 /* StoryAgentBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAgentBundle.swift; sourceTree = "<group>"; };
+		B5B1DB7105A6370E332021AC /* StorySyncLoopbackServicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncLoopbackServicesTests.swift; sourceTree = "<group>"; };
+		C14AB815B7145C5339991F4C /* StoryStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryStyle.swift; sourceTree = "<group>"; };
+		C801E1356B70DF981F10CE55 /* StoryAgentBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAgentBundleTests.swift; sourceTree = "<group>"; };
+		D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryVisits.swift; sourceTree = "<group>"; };
+		DCBD25833940FE6FD06B1B03 /* AppIcon-woodland-island-v5-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-woodland-island-v5-1024.png"; sourceTree = "<group>"; };
+		E264714074530EDE343A1F69 /* StoryAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = StoryAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E9187CADDF2479252C76C32D /* Story.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Story.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E9FED0EC54CF375211A91CCA /* OverstoryClient */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OverstoryClient; path = Packages/OverstoryClient; sourceTree = SOURCE_ROOT; };
+		EA5E024E578860B5BCB6E8F4 /* AppIcon-crescent-v5-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-crescent-v5-1024.png"; sourceTree = "<group>"; };
+		EBAC914250ADC60AB8330AF5 /* StoryDailyDriverViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryDailyDriverViews.swift; sourceTree = "<group>"; };
+		ECF67517026BEB4C160F1B29 /* StorySaveDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySaveDiagnostics.swift; sourceTree = "<group>"; };
+		EEFC87D3C02AC6C37B8443A9 /* StoryConflictReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryConflictReview.swift; sourceTree = "<group>"; };
+		F061F4EB3A1DDA2E7D8C0AB2 /* StoryRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryRootView.swift; sourceTree = "<group>"; };
+		F6B87FA2419E6805DE2A2DD2 /* VoiceRecordingIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecordingIntents.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5DA93DDBCB1D72B5A6843B70 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				941674B9FAF05F1670ED6ECC /* StoryKit in Frameworks */,
+				F0D0D4EA48061940AE8B1FE4 /* OverstoryWorkingTree in Frameworks */,
+				A4E6F18847B2453BAB914E79 /* OverstoryObjectStore in Frameworks */,
+				C20D247C8BC789EA714ECA50 /* Overstory in Frameworks */,
+				9675DD1D697B0D1F28D21845 /* OverstoryClient in Frameworks */,
+				F78F9916659D4F368857A707 /* StoryEditor in Frameworks */,
+				98964119B5AA433EF0AA397B /* QuagmireExtras in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5B08553E9C5B3D88DDCCAD39 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				8F8E080B1625156D56B841C2 /* Overstory */,
+				E9FED0EC54CF375211A91CCA /* OverstoryClient */,
+				4552C62CC6C5F2CF1B71CA52 /* OverstoryObjectStore */,
+				3AA4F8BE45D7AEDC923DE7AF /* OverstoryWorkingTree */,
+				73B68E87641593E3050F1F40 /* StoryEditor */,
+				2497A2CC0E8257903E8DD80B /* StoryKit */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
+		5E6022070C3F3F46BAD35E4B /* StorySync */ = {
+			isa = PBXGroup;
+			children = (
+				287F638B398B35FFB4041DD4 /* StorySyncAccountService.swift */,
+				2310FA6DF2AC58696C3C95AF /* StorySyncLoopbackServices.swift */,
+				9B8C17FDB69A068E8A9CECD2 /* StorySyncProcessSupervisor.swift */,
+				0DC1C9155C6415735EFB900D /* StorySyncProtocol.swift */,
+				570CA5BE42A3C7740713926E /* StorySyncRESTClient.swift */,
+			);
+			path = StorySync;
+			sourceTree = "<group>";
+		};
+		69286CC56C4C9595C02921AF /* StoryAppTests */ = {
+			isa = PBXGroup;
+			children = (
+				C801E1356B70DF981F10CE55 /* StoryAgentBundleTests.swift */,
+				44DCE9BA85E5A6914ED7A28A /* StoryAppTests.swift */,
+				013BFCA263291982C814C4C8 /* StorySyncClientTests.swift */,
+				B5B1DB7105A6370E332021AC /* StorySyncLoopbackServicesTests.swift */,
+			);
+			path = StoryAppTests;
+			sourceTree = "<group>";
+		};
+		E676D1D45CCE3D3648BAEF58 /* StoryApp */ = {
+			isa = PBXGroup;
+			children = (
+				F91CF404C8FB59976D104968 /* IconPreviews */,
+				5E6022070C3F3F46BAD35E4B /* StorySync */,
+				0F57E1CDD14CFF64B73C4196 /* Assets.xcassets */,
+				5CA3B5A57DFF35B1C2881F8B /* HostAccountService.swift */,
+				424024AA24CF8BB8FF279D58 /* Info.plist */,
+				A3E2D99AB488FDB2DD0FDB76 /* story-sync.entitlements */,
+				08DF6DD4D68F12688B37CB50 /* Story.entitlements */,
+				B4988444CA00D5B4D30BFBF9 /* StoryAgentBundle.swift */,
+				63D9EA3BB99A535CFAB23B48 /* StoryApp.swift */,
+				7EDB49754CACAEB6EA0D809C /* StoryAppModel.swift */,
+				EEFC87D3C02AC6C37B8443A9 /* StoryConflictReview.swift */,
+				EBAC914250ADC60AB8330AF5 /* StoryDailyDriverViews.swift */,
+				9EABAB8FF89E2C8D008E7D54 /* StoryDirectory.swift */,
+				A27A7EADF20AC6C392158935 /* StoryDirectoryView.swift */,
+				50109D993611D59CF73FE0A4 /* StoryNetworkLogView.swift */,
+				28B12A0A099353DC70B96556 /* StoryOnboarding.swift */,
+				F061F4EB3A1DDA2E7D8C0AB2 /* StoryRootView.swift */,
+				ECF67517026BEB4C160F1B29 /* StorySaveDiagnostics.swift */,
+				C14AB815B7145C5339991F4C /* StoryStyle.swift */,
+				8B3FAFCE4CBE59350772DC86 /* StorySupportDirectories.swift */,
+				D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */,
+				F6B87FA2419E6805DE2A2DD2 /* VoiceRecordingIntents.swift */,
+			);
+			path = StoryApp;
+			sourceTree = "<group>";
+		};
+		E68F02C5F863F5762B72B0D1 = {
+			isa = PBXGroup;
+			children = (
+				5B08553E9C5B3D88DDCCAD39 /* Packages */,
+				E676D1D45CCE3D3648BAEF58 /* StoryApp */,
+				69286CC56C4C9595C02921AF /* StoryAppTests */,
+				F852DA80C444992574335D66 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		F852DA80C444992574335D66 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E9187CADDF2479252C76C32D /* Story.app */,
+				E264714074530EDE343A1F69 /* StoryAppTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		F91CF404C8FB59976D104968 /* IconPreviews */ = {
+			isa = PBXGroup;
+			children = (
+				EA5E024E578860B5BCB6E8F4 /* AppIcon-crescent-v5-1024.png */,
+				55DBCA6ADD9B244E83EE46FA /* AppIcon-oblique-grove-v3-1024.png */,
+				23AB73370E278D32DF495901 /* AppIcon-oblique-overstory-v4-1024.png */,
+				93DD6B8D9A6F1CD692FCF433 /* AppIcon-perspective-trapezoid-v5-1024.png */,
+				DCBD25833940FE6FD06B1B03 /* AppIcon-woodland-island-v5-1024.png */,
+				4081ECDEDB562CFE6BC3A63B /* README.md */,
+			);
+			path = IconPreviews;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		51DAE09E7CE89C9DBEE17433 /* Story */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7D47DA68F9A0788DC7F1F88D /* Build configuration list for PBXNativeTarget "Story" */;
+			buildPhases = (
+				4BEA01F20D44999D2C862B81 /* Build story-sync helper */,
+				FC0EA8D723FFD5FF70E5D992 /* Sources */,
+				587DEAEAE43FCB01D94A97AD /* Resources */,
+				5DA93DDBCB1D72B5A6843B70 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Story;
+			packageProductDependencies = (
+				481BCBFAE310A705AB27CE30 /* StoryKit */,
+				8AE1991A365BDE555AEF9AD2 /* OverstoryWorkingTree */,
+				491E232029FB50606050C5E4 /* OverstoryObjectStore */,
+				3DE1482AFACF580E96254A07 /* Overstory */,
+				116133627870F3D2BF1962E0 /* OverstoryClient */,
+				067E5CB0830F8EDCB190E0A1 /* StoryEditor */,
+				B99F0DB13EA433FEA4FCD331 /* QuagmireExtras */,
+			);
+			productName = Story;
+			productReference = E9187CADDF2479252C76C32D /* Story.app */;
+			productType = "com.apple.product-type.application";
+		};
+		92DA4C6FD133CF021D731BB2 /* StoryAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6721AB696ACC227DC6DCBE51 /* Build configuration list for PBXNativeTarget "StoryAppTests" */;
+			buildPhases = (
+				69B977A7E8248CA1DCA0DDA5 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E968AC3D1A3F28F65E45E534 /* PBXTargetDependency */,
+			);
+			name = StoryAppTests;
+			packageProductDependencies = (
+			);
+			productName = StoryAppTests;
+			productReference = E264714074530EDE343A1F69 /* StoryAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		98BE07E8D6AAE2D1A72D1951 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					51DAE09E7CE89C9DBEE17433 = {
+						DevelopmentTeam = B7P78ULCXS;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 0C49FBA17E8D18629F0519AF /* Build configuration list for PBXProject "Story" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = E68F02C5F863F5762B72B0D1;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				5340E9AC008875B850777EA1 /* XCRemoteSwiftPackageReference "quagmire" */,
+				726EE8E3658FC4D19E59E61A /* XCLocalSwiftPackageReference "Packages/Overstory" */,
+				B03D01F2559EF5E7FA56DCE3 /* XCLocalSwiftPackageReference "Packages/OverstoryClient" */,
+				6F9EDF94FEE592679930577C /* XCLocalSwiftPackageReference "Packages/OverstoryObjectStore" */,
+				C4D69AB2CF747D1FD88F29B9 /* XCLocalSwiftPackageReference "Packages/OverstoryWorkingTree" */,
+				71764F80C6AC831AB3F4E92A /* XCLocalSwiftPackageReference "Packages/StoryEditor" */,
+				86AB0EE1D4335DD601C11F65 /* XCLocalSwiftPackageReference "Packages/StoryKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = F852DA80C444992574335D66 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				51DAE09E7CE89C9DBEE17433 /* Story */,
+				92DA4C6FD133CF021D731BB2 /* StoryAppTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		587DEAEAE43FCB01D94A97AD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0BB9637A4301F2BADA1719F2 /* AppIcon-crescent-v5-1024.png in Resources */,
+				DA625B9BA72CFD7737DD5087 /* AppIcon-oblique-grove-v3-1024.png in Resources */,
+				E8586D9D166C15FB4BF6F972 /* AppIcon-oblique-overstory-v4-1024.png in Resources */,
+				DCC019E4C3C32E31DC8542B1 /* AppIcon-perspective-trapezoid-v5-1024.png in Resources */,
+				13C18A7BD2C4E9490309726D /* AppIcon-woodland-island-v5-1024.png in Resources */,
+				138AB71328EADD327DF05358 /* Assets.xcassets in Resources */,
+				1AEF387DEDDCFEE7DB6AF3ED /* README.md in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		4BEA01F20D44999D2C862B81 /* Build story-sync helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build story-sync helper";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [[ \"$PLATFORM_NAME\" != \"macosx\" ]]; then\n  exit 0\nfi\nBUN_PATH=\"${BUN_EXECUTABLE:-$(command -v bun)}\"\nif [[ -z \"$BUN_PATH\" || ! -x \"$BUN_PATH\" ]]; then\n  echo \"error: Bun is required to build the bundled story-sync helper\"\n  exit 1\nfi\nHELPER_PATH=\"$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/story-sync\"\nSERVICE_PATH=\"$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/story-sync-service\"\nHELPER_RESOURCES=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/story-sync\"\nAGENT_DIRECTORY=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents\"\nMODULES_PATH=\"$HELPER_RESOURCES/node_modules/@parcel\"\nmkdir -p \"$(dirname \"$HELPER_PATH\")\" \"$MODULES_PATH\" \"$AGENT_DIRECTORY\"\n/usr/bin/ditto \"$BUN_PATH\" \"$HELPER_PATH\"\n\"$BUN_PATH\" build --target=bun --external @parcel/watcher \\\n  \"$SRCROOT/../packages/story-sync/src/cli.ts\" \\\n  --outfile \"$HELPER_RESOURCES/story-sync.js\"\nWATCHER_JS_SOURCE=\"$(cd \"$SRCROOT/../packages/fs/node_modules/@parcel/watcher\" && pwd -P)\"\n/usr/bin/ditto \"$WATCHER_JS_SOURCE\" \"$MODULES_PATH/watcher\"\n\"$BUN_PATH\" build --target=bun --format=cjs \\\n  \"$WATCHER_JS_SOURCE/wrapper.js\" \\\n  --outfile \"$MODULES_PATH/watcher/wrapper.js\"\nHELPER_ARCH=\"$CURRENT_ARCH\"\nif [[ -z \"$HELPER_ARCH\" || \"$HELPER_ARCH\" == \"undefined_arch\" ]]; then\n  HELPER_ARCH=\"$(uname -m)\"\nfi\ncase \"$HELPER_ARCH\" in\n  arm64) WATCHER_PACKAGE=\"watcher-darwin-arm64\" ;;\n  x86_64) WATCHER_PACKAGE=\"watcher-darwin-x64\" ;;\n  *) echo \"error: Unsupported story-sync helper architecture: $HELPER_ARCH\"; exit 1 ;;\nesac\nWATCHER_NATIVE_SOURCE=\"$(find \"$SRCROOT/../node_modules/.bun\" -type d -path \"*/node_modules/@parcel/$WATCHER_PACKAGE\" -print -quit)\"\nif [[ -z \"$WATCHER_NATIVE_SOURCE\" ]]; then\n  echo \"error: Missing @parcel/$WATCHER_PACKAGE; run bun install\"\n  exit 1\nfi\n/usr/bin/ditto \"$WATCHER_NATIVE_SOURCE\" \"$MODULES_PATH/$WATCHER_PACKAGE\"\n/usr/bin/xcrun --sdk macosx clang -Os -arch \"$HELPER_ARCH\" \\\n  -mmacosx-version-min=\"$MACOSX_DEPLOYMENT_TARGET\" \\\n  \"$SRCROOT/StoryApp/story-sync-service.c\" -o \"$SERVICE_PATH\"\n/usr/bin/ditto \"$SRCROOT/StoryApp/org.nxhx.story.sync.plist\" \\\n  \"$AGENT_DIRECTORY/org.nxhx.story.sync.plist\"\nSIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n/usr/bin/codesign --force --sign \"$SIGN_IDENTITY\" \\\n  \"$MODULES_PATH/$WATCHER_PACKAGE/watcher.node\"\n/usr/bin/codesign --force --sign \"$SIGN_IDENTITY\" \\\n  --entitlements \"$SRCROOT/StoryApp/story-sync.entitlements\" \\\n  \"$HELPER_PATH\"\n/usr/bin/codesign --force --sign \"$SIGN_IDENTITY\" \"$SERVICE_PATH\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		69B977A7E8248CA1DCA0DDA5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				80731DFD7207784658256DAD /* StoryAgentBundleTests.swift in Sources */,
+				18B2099CB8B2E619C05D95C9 /* StoryAppTests.swift in Sources */,
+				678D4AD72FDFF443A4356A01 /* StorySyncClientTests.swift in Sources */,
+				706F84BAD07E9C3CC796ECF7 /* StorySyncLoopbackServicesTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FC0EA8D723FFD5FF70E5D992 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F5A083DC712E9DDC2FB183A2 /* HostAccountService.swift in Sources */,
+				C8A9FA9F81FECD5E612F0AA2 /* StoryAgentBundle.swift in Sources */,
+				9C704388497EA12B9D978089 /* StoryApp.swift in Sources */,
+				25A3618F79041C1CA3AF0706 /* StoryAppModel.swift in Sources */,
+				FDFA8D98B41CFA8447349913 /* StoryConflictReview.swift in Sources */,
+				3070177B9658900053719FAA /* StoryDailyDriverViews.swift in Sources */,
+				7B681248CC4ACE1EC5C86C79 /* StoryDirectory.swift in Sources */,
+				00CF3804F0A62172853CECBD /* StoryDirectoryView.swift in Sources */,
+				8DD71641C8A544EDA9AF2731 /* StoryNetworkLogView.swift in Sources */,
+				2389F5B89ABF83893F8BFCED /* StoryOnboarding.swift in Sources */,
+				4DBBBC75E90C949DA011A17B /* StoryRootView.swift in Sources */,
+				25D14DC831AB83257FF4873C /* StorySaveDiagnostics.swift in Sources */,
+				DC195F88AFB0BFE2E6B25729 /* StoryStyle.swift in Sources */,
+				59689CDA70B7E65EB5053F64 /* StorySupportDirectories.swift in Sources */,
+				8D88B8400395C24C848086F9 /* StorySyncAccountService.swift in Sources */,
+				E4BF163FE09061A7048C47A2 /* StorySyncLoopbackServices.swift in Sources */,
+				6A886DB15992427E3D306299 /* StorySyncProcessSupervisor.swift in Sources */,
+				43B73395F5BC136A8F372B5B /* StorySyncProtocol.swift in Sources */,
+				7E28C9228D2AD90BA27BBCC8 /* StorySyncRESTClient.swift in Sources */,
+				B7927EDF50F594B3EB1D11E5 /* StoryVisits.swift in Sources */,
+				8D856512BD7DE6492C00A93E /* VoiceRecordingIntents.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		E968AC3D1A3F28F65E45E534 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 51DAE09E7CE89C9DBEE17433 /* Story */;
+			targetProxy = 0CD3FBF5CD6D52272E8C95E2 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0C9AD4BB872487D3C6E12A81 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				"BUNDLE_LOADER[sdk=macosx*]" = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.nxhx.ArborTests;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Story.app/Story";
+				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Story.app/Contents/MacOS/Story";
+			};
+			name = Release;
+		};
+		17BE8B39E81FDB4DE146193A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = StoryApp/Story.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = B7P78ULCXS;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = StoryApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.nxhx.Arbor;
+				PRODUCT_MODULE_NAME = StoryApp;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		2DA3D1C2C940A7F64972F89C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				"BUNDLE_LOADER[sdk=macosx*]" = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.nxhx.ArborTests;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Story.app/Story";
+				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Story.app/Contents/MacOS/Story";
+			};
+			name = Debug;
+		};
+		494BD061F72FE9C959FDD9C7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		9EED551C3DB228D72AD6D8EB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		A52BA58663741C732CE6D70E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = StoryApp/Story.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = B7P78ULCXS;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = StoryApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.nxhx.Arbor;
+				PRODUCT_MODULE_NAME = StoryApp;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0C49FBA17E8D18629F0519AF /* Build configuration list for PBXProject "Story" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9EED551C3DB228D72AD6D8EB /* Debug */,
+				494BD061F72FE9C959FDD9C7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		6721AB696ACC227DC6DCBE51 /* Build configuration list for PBXNativeTarget "StoryAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2DA3D1C2C940A7F64972F89C /* Debug */,
+				0C9AD4BB872487D3C6E12A81 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7D47DA68F9A0788DC7F1F88D /* Build configuration list for PBXNativeTarget "Story" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A52BA58663741C732CE6D70E /* Debug */,
+				17BE8B39E81FDB4DE146193A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		6F9EDF94FEE592679930577C /* XCLocalSwiftPackageReference "Packages/OverstoryObjectStore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/OverstoryObjectStore;
+		};
+		71764F80C6AC831AB3F4E92A /* XCLocalSwiftPackageReference "Packages/StoryEditor" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/StoryEditor;
+		};
+		726EE8E3658FC4D19E59E61A /* XCLocalSwiftPackageReference "Packages/Overstory" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/Overstory;
+		};
+		86AB0EE1D4335DD601C11F65 /* XCLocalSwiftPackageReference "Packages/StoryKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/StoryKit;
+		};
+		B03D01F2559EF5E7FA56DCE3 /* XCLocalSwiftPackageReference "Packages/OverstoryClient" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/OverstoryClient;
+		};
+		C4D69AB2CF747D1FD88F29B9 /* XCLocalSwiftPackageReference "Packages/OverstoryWorkingTree" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/OverstoryWorkingTree;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		5340E9AC008875B850777EA1 /* XCRemoteSwiftPackageReference "quagmire" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/jxe/quagmire.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.8.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		067E5CB0830F8EDCB190E0A1 /* StoryEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = StoryEditor;
+		};
+		116133627870F3D2BF1962E0 /* OverstoryClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = OverstoryClient;
+		};
+		3DE1482AFACF580E96254A07 /* Overstory */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Overstory;
+		};
+		481BCBFAE310A705AB27CE30 /* StoryKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = StoryKit;
+		};
+		491E232029FB50606050C5E4 /* OverstoryObjectStore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = OverstoryObjectStore;
+		};
+		8AE1991A365BDE555AEF9AD2 /* OverstoryWorkingTree */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = OverstoryWorkingTree;
+		};
+		B99F0DB13EA433FEA4FCD331 /* QuagmireExtras */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5340E9AC008875B850777EA1 /* XCRemoteSwiftPackageReference "quagmire" */;
+			productName = QuagmireExtras;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 98BE07E8D6AAE2D1A72D1951 /* Project object */;
+}

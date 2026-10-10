@@ -1,11 +1,11 @@
 {
-  "name": "@overstory/merge-protocol",
+  "name": "@ovst/merge-protocol",
   "version": "0.1.0",
-  "description": "The contract between canopyd and a merge sidecar: log entries in the object store, the merge question and its answer. No merge logic.",
+  "description": "The contract between overstoryd and a merge sidecar: log entries in the object store, the merge question and its answer. No merge logic.",
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@overstory/protocol": "workspace:*",
+    "@ovst/protocol": "workspace:*",
     "zod": "4.3.6"
   }
 }

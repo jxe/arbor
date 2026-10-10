@@ -1,4 +1,4 @@
-import { decodeUpdateRequestJSON, decodeWireBody, wireEncodingOf, type UpdateRequest, type WireEncoding } from "@overstory/protocol";
+import { decodeUpdateRequestJSON, decodeWireBody, wireEncodingOf, type UpdateRequest, type WireEncoding } from "@ovst/protocol";
 
 /**
  * An intercepted request's body as a wire value, whichever encoding carried it

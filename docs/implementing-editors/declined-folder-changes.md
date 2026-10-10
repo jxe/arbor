@@ -1,8 +1,8 @@
-# Declined folder changes for Arbor Sync clients
+# Declined folder changes for Story Sync clients
 
 How a client of the daemon presents a placed folder with changes the host
 declined. The daemon's routes are described in
-[the Arbor Sync REST API](../implementing-sync-services/arborsync-api.md#4-identity-account-bootstrap-and-declined-changes);
+[the Story Sync REST API](../implementing-sync-services/story-sync-api.md#4-identity-account-bootstrap-and-declined-changes);
 the Canopy app's review of accepted-state choices is a different surface,
 defined by the [accepted-state review contract](../overstory-spec/09-client-synchronization.md#accepted-state-review).
 
@@ -28,6 +28,6 @@ still means a request is held whole (an operation the host does not
 support, or edits in a read-only placement); `POST /v1/held/discard` is its
 way out and removes every change made on top of it.
 
-`arbor declined` is the reference client:
-`arbor declined <folder>`, `arbor declined --restore <folder>`,
-`arbor declined --resend <folder>`.
+`story declined` is the reference client:
+`story declined <folder>`, `story declined --restore <folder>`,
+`story declined --resend <folder>`.

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { checkPlainTrace, encodeProtocolDirectory, hashObject, type SourceOperation, type ProtocolDirectoryEntry } from "@overstory/protocol";
-import { decodeLogEntry, encodeLogEntry, LOG_ENTRY_FORMAT, type LogEntry } from "@overstory/merge-protocol";
+import { checkPlainTrace, encodeProtocolDirectory, hashObject, type SourceOperation, type ProtocolDirectoryEntry } from "@ovst/protocol";
+import { decodeLogEntry, encodeLogEntry, LOG_ENTRY_FORMAT, type LogEntry } from "@ovst/merge-protocol";
 
 const objects = new Map<string, Uint8Array>();
 const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };

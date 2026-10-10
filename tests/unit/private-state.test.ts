@@ -2,9 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ARBOR_SYNC_STATE_VERSION, AmbiguousWorkspaceIdentityError, arborDataRoot, prepareArborDataRoot, workspaceIdentity, workspaceState } from "@overstory/protocol";
+import { STORY_SYNC_STATE_VERSION, AmbiguousWorkspaceIdentityError, storyDataRoot, prepareStoryDataRoot, workspaceIdentity, workspaceState } from "@ovst/protocol";
 
-const previousDataHome = process.env.ARBOR_DATA_HOME;
+const previousDataHome = process.env.STORY_HOME;
 const temporary: string[] = [];
 
 async function temp(prefix: string): Promise<string> {
@@ -14,16 +14,16 @@ async function temp(prefix: string): Promise<string> {
 }
 
 afterEach(async () => {
-  if (previousDataHome === undefined) delete process.env.ARBOR_DATA_HOME;
-  else process.env.ARBOR_DATA_HOME = previousDataHome;
+  if (previousDataHome === undefined) delete process.env.STORY_HOME;
+  else process.env.STORY_HOME = previousDataHome;
   await Promise.all(temporary.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-describe("Arbor private state", () => {
+describe("Story private state", () => {
   test("a protocol format bump archives journals and rebuilds indexes", async () => {
-    const state = await temp("arbor-private-state-version-");
-    process.env.ARBOR_DATA_HOME = state;
-    await prepareArborDataRoot();
+    const state = await temp("story-private-state-version-");
+    process.env.STORY_HOME = state;
+    await prepareStoryDataRoot();
 
     const privateRoot = join(state, ".state");
     await mkdir(join(privateRoot, "refs"), { recursive: true });
@@ -35,25 +35,25 @@ describe("Arbor private state", () => {
     await writeFile(join(privateRoot, "device.json"), "keep\n");
     await writeFile(join(privateRoot, "version"), "2\n");
 
-    await prepareArborDataRoot();
+    await prepareStoryDataRoot();
 
     await expect(stat(join(privateRoot, "refs"))).rejects.toMatchObject({ code: "ENOENT" });
     await expect(stat(join(privateRoot, "sync"))).rejects.toMatchObject({ code: "ENOENT" });
     await expect(stat(join(privateRoot, "workspaces", "one", "index.json"))).rejects.toMatchObject({ code: "ENOENT" });
     expect(await readFile(join(privateRoot, "device.json"), "utf8")).toBe("keep\n");
-    expect(await readFile(join(privateRoot, "version"), "utf8")).toBe(`${ARBOR_SYNC_STATE_VERSION}\n`);
+    expect(await readFile(join(privateRoot, "version"), "utf8")).toBe(`${STORY_SYNC_STATE_VERSION}\n`);
     const archives = await readdir(join(privateRoot, "format-recovery"));
     expect(archives).toHaveLength(1);
     expect(await readFile(join(privateRoot, "format-recovery", archives[0]!, "sync", "tree.json"), "utf8")).toBe("{}\n");
-    await prepareArborDataRoot();
+    await prepareStoryDataRoot();
     expect(await readdir(join(privateRoot, "format-recovery"))).toEqual(archives);
   });
 
   test("an explicit data home preserves current registry identities and refreshes fingerprints", async () => {
-    const state = await temp("arbor-data-override-");
-    process.env.ARBOR_DATA_HOME = state;
-    await prepareArborDataRoot();
-    expect(arborDataRoot()).toBe(state);
+    const state = await temp("story-data-override-");
+    process.env.STORY_HOME = state;
+    await prepareStoryDataRoot();
+    expect(storyDataRoot()).toBe(state);
 
     const root = join(state, "root");
     const otherRoot = join(state, "other-root");
@@ -88,9 +88,9 @@ describe("Arbor private state", () => {
   });
 
   test("preserves private identity when a directory moves on one filesystem", async () => {
-    const state = await temp("arbor-data-move-state-");
-    const outer = await temp("arbor-data-move-root-");
-    process.env.ARBOR_DATA_HOME = state;
+    const state = await temp("story-data-move-state-");
+    const outer = await temp("story-data-move-root-");
+    process.env.STORY_HOME = state;
     const before = join(outer, "before");
     const after = join(outer, "after");
     await mkdir(before);
@@ -109,9 +109,9 @@ describe("Arbor private state", () => {
   });
 
   test("does not mint a new identity when several prior paths match one move", async () => {
-    const state = await temp("arbor-data-ambiguous-state-");
-    const outer = await temp("arbor-data-ambiguous-root-");
-    process.env.ARBOR_DATA_HOME = state;
+    const state = await temp("story-data-ambiguous-state-");
+    const outer = await temp("story-data-ambiguous-root-");
+    process.env.STORY_HOME = state;
     const moved = join(outer, "moved");
     await mkdir(moved);
     const info = await stat(moved);
@@ -138,8 +138,8 @@ describe("Arbor private state", () => {
   });
 
   test("does not replace a malformed private registry", async () => {
-    const state = await temp("arbor-data-malformed-state-");
-    process.env.ARBOR_DATA_HOME = state;
+    const state = await temp("story-data-malformed-state-");
+    process.env.STORY_HOME = state;
     const root = join(state, "root");
     await mkdir(root);
     const malformed = "{ this is not JSON";
@@ -152,9 +152,9 @@ describe("Arbor private state", () => {
 });
 
 test.each([["old-state"], [{ stateID: "old-state", path: "/missing" }], [null], [[]]])("rejects incomplete registry records without rewriting them (%j)", async value => {
-  const state = await temp("arbor-invalid-registry-");
-  process.env.ARBOR_DATA_HOME = state;
-  await prepareArborDataRoot();
+  const state = await temp("story-invalid-registry-");
+  process.env.STORY_HOME = state;
+  await prepareStoryDataRoot();
   const root = await realpath(state), path = join(state, ".state", "workspaces.json");
   const source = JSON.stringify({ [root]: value });
   await writeFile(path, source);

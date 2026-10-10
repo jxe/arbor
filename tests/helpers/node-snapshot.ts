@@ -1,5 +1,5 @@
-import type { MarkdownDocument, NodeSummary } from "@overstory/protocol";
-import { parseMarkdown } from "@overstory/protocol";
+import type { MarkdownDocument, NodeSummary } from "@ovst/protocol";
+import { parseMarkdown } from "@ovst/protocol";
 
 export function nodeDocument(node: (NodeSummary & { content?: { source: string } }) | { document?: MarkdownDocument }): MarkdownDocument | undefined {
   if (!("capabilities" in node)) return node.document;

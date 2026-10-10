@@ -1,4 +1,4 @@
-import { parentNodePath, type ChildrenPage, type NodeRef, type NodeSnapshot, type NodeSummary, type QueryStreamEvent, type WorkspaceEvent } from "@overstory/protocol";
+import { parentNodePath, type ChildrenPage, type NodeRef, type NodeSnapshot, type NodeSummary, type QueryStreamEvent, type WorkspaceEvent } from "@ovst/protocol";
 import { liveQueryStream, type LiveQueryAdapter, type LiveQueryContext, type MountedQuery } from "./live-stream.ts";
 import type {
   OverstoryUser,

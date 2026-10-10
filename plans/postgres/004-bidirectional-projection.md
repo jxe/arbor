@@ -68,7 +68,7 @@ crosses the authored/Overstory boundary.
 
 ## Completion gate
 
-The same application runs locally and on canopyd at one accepted logical state;
+The same application runs locally and on overstoryd at one accepted logical state;
 offline named mutations settle exactly once after reconnect; all physical
 materializations converge; constraints and public results agree; and crash
 recovery loses no acknowledged or provisional intent.

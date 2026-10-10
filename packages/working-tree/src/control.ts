@@ -1,5 +1,5 @@
 import { decodeBase64, decodeWireBody, encodeBase64, encodeUpdateRequestJSON, encodeWireBody, updateRequestDigests, decodeUpdateRequestJSON,
-  type UpdateRequest, type WireEncoding } from "@overstory/protocol";
+  type UpdateRequest, type WireEncoding } from "@ovst/protocol";
 import type { ChangePublication } from "./publication.ts";
 import type { HeldReason } from "./update-machine.ts";
 

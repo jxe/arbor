@@ -1,6 +1,6 @@
 import Foundation
 import Overstory
-import CanopyAppKit
+import StoryKit
 
 /// Reads and edits tree configurations through the host, as one of the
 /// tree's administrators: the sharing panel's rules, app consents, and
@@ -201,7 +201,7 @@ public struct TreeConfigurationClient: Sendable {
         } else if let url = URL(string: value), url.scheme != nil {
             path = url.path
         } else {
-            throw ProtocolValidationError.invalidValue("Enter a person or group Arbor URL, handle, or TreeID")
+            throw ProtocolValidationError.invalidValue("Enter a person or group Story URL, handle, or TreeID")
         }
         return try await wire.resolve(path: path).ref.tree
     }

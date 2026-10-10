@@ -3,7 +3,7 @@
 **Why and when:** Joe requested shared and compressed cache storage on 2026-10-07,
 and on 2026-10-09 requested implementation after the iPhone's queued update became
 stuck in repeated server history rebuilds. The implementation and local evidence
-are recorded in [shared merge checkpoints](../../docs/architecture/canopyd/merge-cache.md)
+are recorded in [shared merge checkpoints](../../docs/architecture/overstoryd/merge-cache.md)
 and [status](../../status.md). Joe intends to push the candidate himself.
 
 ## Remaining work

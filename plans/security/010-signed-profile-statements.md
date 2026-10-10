@@ -58,7 +58,7 @@ Device and app changes are rare, so no checkpoint is needed.
   host merged is signed by nobody. A change to `devices.yaml` or `apps.yaml` is
   accepted only with the next statement, as a fast-forward: a client whose
   statement is not the head's successor re-signs after rebasing. Other
-  configuration edits merge as now. Arbor Sync signs with the Mac's key; the
+  configuration edits merge as now. Story Sync signs with the Mac's key; the
   iPhone with its Secure Enclave key.
 - **Pairing:** the offering device signs a **pairing ticket** (profile,
   PairingID, secret digest, expiry) when it creates the offer; the claiming
@@ -91,7 +91,7 @@ passphrase-encrypted backup protects. The new home takes the configuration,
 verified against the chain.
 
 The profile tree must move too, keeping its TreeID: a transfer of a tree
-between hosts, which Overstory does not define (cross-host `arbor mv` refuses
+between hosts, which Overstory does not define (cross-host `story mv` refuses
 today). The placement root cannot become the profile tree, since their TreeIDs
 differ; when the home moves to a host with a placement account, the placement
 root's children move under the profile tree and it is retired.

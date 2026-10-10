@@ -81,6 +81,6 @@ ordered membership, external commits, schema change, cursor expiry, retries,
 and concurrent mutations.
 
 Delete all Postgres virtual-node and virtual-table branches only when managed,
-untracked/reference, canopyd, query, mutation, observation, and remote browsing
+untracked/reference, overstoryd, query, mutation, observation, and remote browsing
 all enter through `NodeProviderRouter` and the new fixture passes. Do not expose
 mutable Postgres rows before that gate.

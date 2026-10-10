@@ -3,8 +3,8 @@ import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hashObject } from "@overstory/protocol";
-import { Encoding, holdsObject, ObjectStore } from "@overstory/object-store";
+import { hashObject } from "@ovst/protocol";
+import { Encoding, holdsObject, ObjectStore } from "@ovst/object-store";
 
 const text = (value: string) => new TextEncoder().encode(value);
 const object = (value: string) => { const bytes = text(value); return { hash: hashObject(bytes), bytes }; };
@@ -20,7 +20,7 @@ function versions(count: number, key = "doc") {
 }
 
 function fresh() {
-  const root = mkdtempSync(join(tmpdir(), "arbor-packs-"));
+  const root = mkdtempSync(join(tmpdir(), "story-packs-"));
   return { root, store: new ObjectStore(root) };
 }
 

@@ -2,7 +2,7 @@
 
 id: 1
 event: tree.update
-data: {"transition":{"update":{"id":"1","tree":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","root":"sha256:0000000000000000000000000000000000000000000000000000000000000000","previous":{"id":"0","root":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"acceptedAt":1,"subject":null,"conflicted":false},"objects":[],"deltas":[]},"access":"read","canonical":{"path":"/~joe/shared","endpoint":"https://community.example/.arbor/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","parentTree":null}}
+data: {"transition":{"update":{"id":"1","tree":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","root":"sha256:0000000000000000000000000000000000000000000000000000000000000000","previous":{"id":"0","root":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"acceptedAt":1,"subject":null,"conflicted":false},"objects":[],"deltas":[]},"access":"read","canonical":{"path":"/~joe/shared","endpoint":"https://community.example/.overstory/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","parentTree":null}}
 
 event: resync-required
 data: {"reason":"The requested cursor is no longer retained"}

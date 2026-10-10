@@ -2,17 +2,17 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { deviceKeyFromSeed, HostAccountStore, HostPlacementStore, parseAccessYAML, parseAccountDevicesConfiguration, parseMountsYAML, saveCurrentAccountDeviceID, treeConfigurationID } from "@overstory/protocol";
-import { loadTreeRegistry, savePlacementSyncMetadata } from "@overstory/arborsync/state";
-import { addLocalPlacement, loadLocalPlacements, parseLocalPlacements, replaceLocalPlacement } from "@overstory/client";
-const previousDataHome = process.env.ARBOR_DATA_HOME;
-const previousCredentialStore = process.env.ARBOR_CREDENTIAL_STORE;
+import { deviceKeyFromSeed, HostAccountStore, HostPlacementStore, parseAccessYAML, parseAccountDevicesConfiguration, parseMountsYAML, saveCurrentAccountDeviceID, treeConfigurationID } from "@ovst/protocol";
+import { loadTreeRegistry, savePlacementSyncMetadata } from "@ovst/story-sync/state";
+import { addLocalPlacement, loadLocalPlacements, parseLocalPlacements, replaceLocalPlacement } from "@ovst/client";
+const previousDataHome = process.env.STORY_HOME;
+const previousCredentialStore = process.env.STORY_CREDENTIAL_STORE;
 const temporary: string[] = [];
 const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", shared = "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb", cfg = treeConfigurationID(profile), device = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const canopy = "https://community.example", seed = "A".repeat(43);
+const overstoryd = "https://community.example", seed = "A".repeat(43);
 async function dataHome() {
-  const home = await mkdtemp(join(tmpdir(), "arbor-account-config-"));
-  temporary.push(home); process.env.ARBOR_DATA_HOME = home; process.env.ARBOR_CREDENTIAL_STORE = "file"; return home;
+  const home = await mkdtemp(join(tmpdir(), "story-account-config-"));
+  temporary.push(home); process.env.STORY_HOME = home; process.env.STORY_CREDENTIAL_STORE = "file"; return home;
 }
 async function writeConfiguration(home: string, placementPath: string) {
   const checkout = join(home, "configurations", cfg);
@@ -22,13 +22,13 @@ async function writeConfiguration(home: string, placementPath: string) {
   await writeFile(join(checkout, "devices.yaml"), JSON.stringify({ [device]: { label: "Mac", administrator: true, key: deviceKeyFromSeed(seed) } }));
   await writeFile(join(home, "placements.yaml"), JSON.stringify({ [cfg]: { [placementPath]: shared } }));
   await saveCurrentAccountDeviceID(cfg, device);
-  await new HostAccountStore(cfg).setDeviceKey(seed, { origin: canopy, account: `${canopy}/~joe`, accountID: profile, profileTree: profile, deviceID: device });
+  await new HostAccountStore(cfg).setDeviceKey(seed, { origin: overstoryd, account: `${overstoryd}/~joe`, accountID: profile, profileTree: profile, deviceID: device });
 }
 afterEach(async () => {
-  if (previousCredentialStore === undefined) delete process.env.ARBOR_CREDENTIAL_STORE;
-  else process.env.ARBOR_CREDENTIAL_STORE = previousCredentialStore;
-  if (previousDataHome === undefined) delete process.env.ARBOR_DATA_HOME;
-  else process.env.ARBOR_DATA_HOME = previousDataHome;
+  if (previousCredentialStore === undefined) delete process.env.STORY_CREDENTIAL_STORE;
+  else process.env.STORY_CREDENTIAL_STORE = previousCredentialStore;
+  if (previousDataHome === undefined) delete process.env.STORY_HOME;
+  else process.env.STORY_HOME = previousDataHome;
   await Promise.all(temporary.splice(0).map(path => rm(path, { recursive: true, force: true })));
 });
 test("an empty data home has an empty current registry", async () => {
@@ -44,13 +44,13 @@ test("uses an explicit local placement and the profile configuration's checkout"
   expect(result.accounts[0]?.profile).toBe(profile);
   expect(result.placements).toEqual([
     expect.objectContaining({ tree: cfg, configurationTree: cfg, path: join(home, "configurations", cfg), kind: "tree-configuration" }),
-    expect.objectContaining({ tree: shared, configurationTree: cfg, path: placed, endpoint: canopy }),
+    expect.objectContaining({ tree: shared, configurationTree: cfg, path: placed, endpoint: overstoryd }),
   ]);
   // A placement's canonical path is the one the host last reported.
   expect(result.placements[1]!.canonical).toBeUndefined();
   await savePlacementSyncMetadata(shared, { canonicalPath: "/~joe/shared" }, cfg);
   const reported = await loadTreeRegistry();
-  expect(reported.placements[1]).toMatchObject({ canonicalPath: "/~joe/shared", canonical: "arbor://community.example/~joe/shared" });
+  expect(reported.placements[1]).toMatchObject({ canonicalPath: "/~joe/shared", canonical: "overstory://community.example/~joe/shared" });
 });
 test("strict YAML rejects duplicates, aliases, unknown fields, stored none and relative local paths", () => {
   expect(() => parseMountsYAML(`notes: ${shared}\nnotes: ${shared}\n`)).toThrow();
@@ -115,17 +115,17 @@ test("a placement on a placement host takes its endpoint from the placement conn
   expect(missing.diagnostics.map((diagnostic) => diagnostic.code)).toContain("unknown-placement-host");
   expect(missing.placements.some((placement) => placement.tree === shared)).toBe(false);
 
-  await new HostPlacementStore(cfg, orchard).set({ account: `${orchard}/~joe`, accountID: profile, profileTree: profile, homeHost: canopy, placementRoot: "tr_dddddddddddddddddddddddddd" });
+  await new HostPlacementStore(cfg, orchard).set({ account: `${orchard}/~joe`, accountID: profile, profileTree: profile, homeHost: overstoryd, placementRoot: "tr_dddddddddddddddddddddddddd" });
   await savePlacementSyncMetadata(shared, { canonicalPath: "/~joe/shared" }, cfg);
   const result = await loadTreeRegistry();
   expect(result.diagnostics).toEqual([]);
   const placement = result.placements.find((candidate) => candidate.tree === shared)!;
-  expect(placement).toMatchObject({ configurationTree: cfg, path: placed, endpoint: orchard, canonical: "arbor://orchard.example/~joe/shared" });
+  expect(placement).toMatchObject({ configurationTree: cfg, path: placed, endpoint: orchard, canonical: "overstory://orchard.example/~joe/shared" });
   expect(placement).not.toHaveProperty("host");
   // The configuration checkout stays at the home host.
-  expect(result.placements.find((candidate) => candidate.kind === "tree-configuration")?.endpoint).toBe(canopy);
+  expect(result.placements.find((candidate) => candidate.kind === "tree-configuration")?.endpoint).toBe(overstoryd);
 
   // A host naming the home is the home.
-  await writeFile(join(home, "placements.yaml"), `${cfg}:\n  ${placed}: {tree: ${shared}, host: "${canopy}"}\n`);
-  expect((await loadTreeRegistry()).placements.find((candidate) => candidate.tree === shared)?.endpoint).toBe(canopy);
+  await writeFile(join(home, "placements.yaml"), `${cfg}:\n  ${placed}: {tree: ${shared}, host: "${overstoryd}"}\n`);
+  expect((await loadTreeRegistry()).placements.find((candidate) => candidate.tree === shared)?.endpoint).toBe(overstoryd);
 });

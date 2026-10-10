@@ -2,9 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type ObjectHash } from "@overstory/protocol";
-import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries } from "@overstory/fs";
-import { FolderSync, type FolderSyncHost } from "../../packages/arborsync/src/folder-sync.ts";
+import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type ObjectHash } from "@ovst/protocol";
+import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries } from "@ovst/fs";
+import { FolderSync, type FolderSyncHost } from "../../packages/story-sync/src/folder-sync.ts";
 
 const tree = "tr_foldersyncinstalltestaaaaa";
 const cleanup: string[] = [];
@@ -16,13 +16,13 @@ afterEach(async () => { for (const path of cleanup.splice(0)) await rm(path, { r
  * a write, as another program writing the folder would.
  */
 async function fixture(beforeVerify?: (folder: string) => Promise<void>, options: { legacyFinderFile?: boolean } = {}) {
-  const folder = await realpath(await mkdtemp(join(tmpdir(), "arbor-install-folder-")));
-  const state = await realpath(await mkdtemp(join(tmpdir(), "arbor-install-state-")));
+  const folder = await realpath(await mkdtemp(join(tmpdir(), "story-install-folder-")));
+  const state = await realpath(await mkdtemp(join(tmpdir(), "story-install-state-")));
   cleanup.push(folder, state);
   await writeFile(join(folder, "a.md"), "v1\n");
   const known = await resolveSnapshot(await snapshotDirectory(folder));
   const objects = new Map<string, Uint8Array>(known.objects);
-  const scratch = await realpath(await mkdtemp(join(tmpdir(), "arbor-install-next-")));
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), "story-install-next-")));
   cleanup.push(scratch);
   await writeFile(join(scratch, "a.md"), "v2\n");
   if (options.legacyFinderFile) {

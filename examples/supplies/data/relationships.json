@@ -2,7 +2,7 @@
   "version": 1,
   "virtualRelations": {
     "arbor_profiles": {
-      "source": "arbor-profile",
+      "source": "overstory-profile",
       "primaryKey": ["id"],
       "fields": {
         "id": { "type": "string" },

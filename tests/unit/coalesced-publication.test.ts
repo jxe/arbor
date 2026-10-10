@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { applyTransitionPayload, decodeCandidateUpdateJSON, applySourceChange, decodeBase64, encodeBase64, decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type TreeSnapshot, type SourceMove, type SourceOperation } from "@overstory/protocol";
-import { prepareSourceChange, type LocalChange } from "@overstory/working-tree";
+import { applyTransitionPayload, decodeCandidateUpdateJSON, applySourceChange, decodeBase64, encodeBase64, decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type TreeSnapshot, type SourceMove, type SourceOperation } from "@ovst/protocol";
+import { prepareSourceChange, type LocalChange } from "@ovst/working-tree";
 import { encodeAttempt } from "../../packages/working-tree/src/control.ts";
 import { compactTransport, branchPublications, publication } from "../../packages/working-tree/src/publication.ts";
-import { Fixture } from "./canopyd-merge/fixture.ts";
+import { Fixture } from "./overstoryd-merge/fixture.ts";
 
 const vectors = JSON.parse(await readFile(new URL("../fixtures/coalesced-publication.json", import.meta.url), "utf8")) as { cases: Array<{
   name: string; source: string; frames: number; kinds: SourceOperation["kind"][];

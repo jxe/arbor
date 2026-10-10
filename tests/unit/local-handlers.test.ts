@@ -1,9 +1,9 @@
 import { expect, mock, spyOn, test } from "bun:test";
-import { HostAccountStore, HostPlacementStore, ProtocolHTTPError } from "@overstory/protocol";
-import { accountHandler } from "../../packages/arborsync/src/account-http.ts";
-import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
-import { browserHandler } from "../../packages/arborsync/src/browser-http.ts";
-import { syncHandler } from "../../packages/arborsync/src/sync-http.ts";
+import { HostAccountStore, HostPlacementStore, ProtocolHTTPError } from "@ovst/protocol";
+import { accountHandler } from "../../packages/story-sync/src/account-http.ts";
+import { LocalAccountService } from "../../packages/story-sync/src/account-service.ts";
+import { browserHandler } from "../../packages/story-sync/src/browser-http.ts";
+import { syncHandler } from "../../packages/story-sync/src/sync-http.ts";
 
 // Neither handler needs a running daemon, watcher, synchronizer or private index.
 test("browser handler preserves conditional/ranged bytes independently of sync", async () => {

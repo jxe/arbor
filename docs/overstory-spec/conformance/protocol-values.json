@@ -7,7 +7,7 @@
       "access": "write",
       "canonical": {
         "path": "/~joe",
-        "endpoint": "https://community.example/.arbor/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "endpoint": "https://community.example/.overstory/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "parentTree": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb"
       }
     },
@@ -29,7 +29,7 @@
       "access": "write",
       "canonical": {
         "path": "/~joe",
-        "endpoint": "https://community.example/.arbor/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "endpoint": "https://community.example/.overstory/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "parentTree": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb"
       },
       "update": "up_aaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -49,7 +49,7 @@
         "subject": {
           "kind": "profile",
           "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "locator": "arbor://community.example/~joe"
+          "locator": "overstory://community.example/~joe"
         },
         "access": "write"
       },
@@ -86,7 +86,7 @@
         "access": "read",
         "canonical": {
           "path": "/~joe",
-          "endpoint": "https://community.example/.arbor/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "endpoint": "https://community.example/.overstory/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
           "parentTree": null
         }
       },
@@ -111,8 +111,8 @@
         "kind": "tree-configuration",
         "access": "write",
         "canonical": {
-          "path": "/~joe;arbor-config",
-          "endpoint": "https://community.example/.arbor/trees/tr_cccccccccccccccccccccccccc",
+          "path": "/~joe;overstory-config",
+          "endpoint": "https://community.example/.overstory/trees/tr_cccccccccccccccccccccccccc",
           "parentTree": null
         }
       }

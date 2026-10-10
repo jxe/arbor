@@ -1,0 +1,53 @@
+import { expect, test } from "bun:test";
+import { encodeProtocolDirectory, hashObject, transitionPayload, TreeReader, walkTreeDiff, type ObjectHash, type ProtocolDirectoryEntry } from "@ovst/protocol";
+import { entryChanges } from "../../../packages/overstoryd/src/updates/entry-metadata.ts";
+
+function store() {
+  const objects = new Map<ObjectHash, Uint8Array>();
+  const put = (bytes: Uint8Array) => { const hash = hashObject(bytes) as ObjectHash; objects.set(hash, bytes); return hash; };
+  const file = (text: string) => put(new TextEncoder().encode(text));
+  const dir = (entries: ProtocolDirectoryEntry[]) => put(encodeProtocolDirectory({ type: "directory", entries: [...entries].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))) }));
+  const reads = new Map<ObjectHash, number>();
+  const load = async (hash: ObjectHash) => { reads.set(hash, (reads.get(hash) ?? 0) + 1); return objects.get(hash)!; };
+  return { file, dir, load, reads, objects };
+}
+
+test("a shared reader reads each object once across the transition and entry-change walks", async () => {
+  const s = store();
+  const before = s.dir([{ name: "a.md", file: s.file("A") }, { name: "gone", directory: s.dir([{ name: "x.md", file: s.file("X") }]) }]);
+  const after = s.dir([{ name: "a.md", file: s.file("A!") }, { name: "new", directory: s.dir([{ name: "y.md", file: s.file("Y") }]) }]);
+  const reader = new TreeReader(s.load);
+  const transition = await transitionPayload(before, after, reader);
+  const changes = await entryChanges(before, after, reader);
+  expect(changes.set.map((c) => c.path)).toEqual(["/a.md", "/new/y.md"]);
+  expect(changes.removed).toEqual(["/gone/x.md"]);
+  expect(transition.objects.length + transition.deltas.length).toBe(4);
+  expect([...s.reads.values()].every((count) => count === 1)).toBe(true);
+});
+
+test("entries are skipped only when name and target match exactly", async () => {
+  const s = store();
+  const leaf = s.file("L"), sub = s.dir([{ name: "x.md", file: leaf }]);
+  const before = s.dir([
+    { name: "same.md", file: leaf },
+    { name: "edited.md", file: s.file("old") },
+    { name: "kind", file: leaf },
+    { name: "nested", tree: "tr_a" },
+  ]);
+  const after = s.dir([
+    { name: "same.md", file: leaf },
+    { name: "edited.md", file: s.file("new") },
+    { name: "kind", directory: sub },
+    { name: "nested", tree: "tr_b" },
+  ]);
+  const visited: string[] = [];
+  await walkTreeDiff(before, after, s.load, { entry: ({ path }) => { visited.push(path); } });
+  expect(visited).toEqual(["/edited.md", "/kind", "/nested"]);
+});
+
+test("a reader refuses bytes whose hash does not match", async () => {
+  const s = store();
+  const root = s.dir([{ name: "a.md", file: s.file("A") }]);
+  const lying = new TreeReader(async () => new TextEncoder().encode("not it"));
+  await expect(walkTreeDiff(null, root, lying, { entry: () => true })).rejects.toThrow("hash mismatch");
+});

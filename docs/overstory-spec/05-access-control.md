@@ -24,7 +24,7 @@ type AccessRule = {
 ```
 
 ```yaml
-# /~joe/notebook;arbor-config  access.yaml
+# /~joe/notebook;overstory-config  access.yaml
 - who: {profile: tr_joe}
   allow: [admin]
 - who: {profile: tr_alice}
@@ -103,7 +103,7 @@ A profile's `apps.yaml` is keyed by app TreeID, and each entry is a rule with
 `resource` in place of the key:
 
 ```yaml
-# /~joe;arbor-config  apps.yaml
+# /~joe;overstory-config  apps.yaml
 tr_planner:
   - resource: tr_club_calendar   # Joe reads it as a club member
     allow: [read]
@@ -175,7 +175,7 @@ Authenticated ordinary requests use:
 
 ```text
 Authorization: Bearer <device session token>
-Arbor-Access-Link: <access-link secret>
+Overstory-Access-Link: <access-link secret>
 ```
 
 A session token, which a device opened at this host by signing its challenge
@@ -211,7 +211,7 @@ are implementation details, not authored data or a durable query-session protoco
 The runtime authenticates host calls with:
 
 ```http
-POST /.arbor/trees/tr_notebook/updates
+POST /.overstory/trees/tr_notebook/updates
 Authorization: Bearer <execution-token>
 Content-Type: application/json
 ```
@@ -322,12 +322,12 @@ the rule, including `admin` granted to a group, is as for a group B holds.
 ## 4. Reading access
 
 ```text
-GET /.arbor/trees/{TreeID}/access
+GET /.overstory/trees/{TreeID}/access
 ```
 
 Only a tree's administrators may read it; anyone else is answered as for a
 tree they cannot read. They receive a safe projection of resource rules with
-`who`, optional `app`, `allow`, and `within`, and the `arbor://` locator of
+`who`, optional `app`, `allow`, and `within`, and the `overstory://` locator of
 each profile a rule names by TreeID that the host holds at a canonical path,
 for display (a rule naming a profile by its locator already shows it):
 

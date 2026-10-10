@@ -6,12 +6,12 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { encodeLogEntry, LOG_ENTRY_FORMAT, type MergeQuestion } from "@overstory/merge-protocol";
-import { hashObject, stableJSONString, type SourceOperation } from "@overstory/protocol";
-import { Sidecar } from "../../packages/canopyd-merge/src/sidecar.ts";
-import { savedStatesIn } from "../../packages/canopyd-merge/src/saved-states.ts";
-import { historyMapDiagnostics, resetHistoryMapDiagnostics } from "../../packages/canopyd-merge/src/retained-state.ts";
-import { Fixture } from "../unit/canopyd-merge/fixture.ts";
+import { encodeLogEntry, LOG_ENTRY_FORMAT, type MergeQuestion } from "@ovst/merge-protocol";
+import { hashObject, stableJSONString, type SourceOperation } from "@ovst/protocol";
+import { Sidecar } from "../../packages/overstoryd-merge/src/sidecar.ts";
+import { savedStatesIn } from "../../packages/overstoryd-merge/src/saved-states.ts";
+import { historyMapDiagnostics, resetHistoryMapDiagnostics } from "../../packages/overstoryd-merge/src/retained-state.ts";
+import { Fixture } from "../unit/overstoryd-merge/fixture.ts";
 import { executeExactSourceEdits } from "../support/source-edits.ts";
 
 if (!process.argv.includes("--child")) {

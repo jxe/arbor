@@ -44,13 +44,13 @@ Imagine there was a thing with this kind of structure on your disk:
   library/               # a public tree, mounted from a domain name
 ```
 
-Everything is ordinary files. And imagine a background process — call it arborsync — that watches this tree and does two jobs.
+Everything is ordinary files. And imagine a background process — call it story-sync — that watches this tree and does two jobs.
 
-**It handles syncing and sharing.** Take `projects/atlas`, an ordinary folder. It starts as locally browsable files. But I can share it, and arborsync gives it a stable `TreeID` and a canonical URL, uploads its first revision, and begins synchronization. The folder is still at `projects/atlas`, but it now has an identity and a canonical home:
+**It handles syncing and sharing.** Take `projects/atlas`, an ordinary folder. It starts as locally browsable files. But I can share it, and story-sync gives it a stable `TreeID` and a canonical URL, uploads its first revision, and begins synchronization. The folder is still at `projects/atlas`, but it now has an identity and a canonical home:
 
 ```text
 https://garden.example.org/~joe/atlas
-arbor://tr_7k3m…               # identity fallback if it moves
+overstory://tr_7k3m…               # identity fallback if it moves
 ```
 
 I can share it as 'private' and use it to sync with my cloud agents. Or, I can give `everyone` read or write access, or share it with specific people or groups. If I share it with Alice, she places the tree wherever it makes sense in *her* workspace:
@@ -66,13 +66,13 @@ file they are written in, so any Markdown editor follows them. In
 `projects/atlas/_index.md` the links look like this:
 
 ```md
-[Notes](notes.md#arbor-key=id:k2m9xq)
+[Notes](notes.md#overstory-key=id:k2m9xq)
 [Plans](../plans/README.md)
-[Drift](arbor://notes.example.org/essays/drift;arbor-key=id:x7f3q2)
+[Drift](overstory://notes.example.org/essays/drift;overstory-key=id:x7f3q2)
 ```
 
 The first points to a child, the second to a sibling, and the third to another
-Overstory tree. `arbor-key` carries the target's durable stable key, here its
+Overstory tree. `overstory-key` carries the target's durable stable key, here its
 Markdown `id`, so links can heal after files and directories move, and
 searching for `k2m9xq` finds every link to that page.
 
@@ -80,10 +80,10 @@ I have a little CLI tool to manage all this:
 
 ```sh
 # Share Atlas.
-arbor place ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas
+story place ~/workspace/projects/atlas overstory://garden.example.org/~joe/atlas
 
 # Place Alice’s Atlas tree in my workspace.
-arbor place https://garden.example.org/~alice/atlas ~/workspace/work/atlas
+story place https://garden.example.org/~alice/atlas ~/workspace/work/atlas
 ```
 
 **It handles containment.** Firstly, the endless pool of project folders becomes one navigable tree, where everything has a place. You mount a collaborator's tree under `work/`, a public library under `reading/`, an archive off to the side. You can scope an agent to exactly the subtrees its job concerns, and it sees a small tree assembled for it.
@@ -94,15 +94,15 @@ That gets us to the level of plain filesystems, but we can do better. At this po
 
 Filesystems often get messy, whereas Notion, with the *same* hierarchical structure, doesn't so easily. Why? 
 
-* First, a directory in Notion isn't a bare listing; it's a document that *contains* its children, so you can group them under headings, fold the stale ones into a toggle, annotate the important ones. The folder explains itself and is malleable. Overstory does the same for local directories: arborsync always presents complete Markdown, treating the first standalone link to each immediate child as its position and appending ordinary links for children the stored body does not mention. An optional `_index.md` lets you author and persist that arrangement; merely browsing a bodyless directory creates no file.
+* First, a directory in Notion isn't a bare listing; it's a document that *contains* its children, so you can group them under headings, fold the stale ones into a toggle, annotate the important ones. The folder explains itself and is malleable. Overstory does the same for local directories: story-sync always presents complete Markdown, treating the first standalone link to each immediate child as its position and appending ordinary links for children the stored body does not mention. An optional `_index.md` lets you author and persist that arrangement; merely browsing a bodyless directory creates no file.
 * Second, page properties mean a subtree of similar pages can become a database: past meeting agendas, say, each with a date and attendees; here that's frontmatter, hardened by an optional `schema.cddl` to keep things orderly and allow queries.
 * Third, sharing works on subtrees, which nudges people to map subtrees onto human groups and teams and projects. That social mapping keeps hierarchies meaningful as they grow. The same dynamic will happen here.
 
-All this, and arborsync still materializes the workspace as ordinary files on disk, for the pleasure of your agents and editors. `ls` is browsing. `cat` is reading. Writing a file is editing. `grep -r` is search. Nothing about your existing tools breaks.
+All this, and story-sync still materializes the workspace as ordinary files on disk, for the pleasure of your agents and editors. `ls` is browsing. `cat` is reading. Writing a file is editing. `grep -r` is search. Nothing about your existing tools breaks.
 
 ## A browser that is also an editor
 
-Now, remember the second problem: humans have been reading all this in code editors. Canopy for the web is a browser that is also an editor — a lot like Obsidian or Notion — but instead of browsing only the HTML web, it browses this space, including local files and remote Overstory trees the reader can access. You can read, write, and edit in place, and the browser is aware of the underlying tree structure and permissions. Immutable revision locators are part of the specification, but the host does not currently expose accepted-history browsing or non-current objects.
+Now, remember the second problem: humans have been reading all this in code editors. Story for the web is a browser that is also an editor — a lot like Obsidian or Notion — but instead of browsing only the HTML web, it browses this space, including local files and remote Overstory trees the reader can access. You can read, write, and edit in place, and the browser is aware of the underlying tree structure and permissions. Immutable revision locators are part of the specification, but the host does not currently expose accepted-history browsing or non-current objects.
 
 This browser is a superset of a web browser, because sync is a superset of GET. The web's fundamental verb fetches a document once; if it changes, that's your problem — refresh, poll, or bolt on a websocket. Here the verb is *subscribe*. You can take any remote tree and **add to workspace** to make a durable placement on your own machine.
 
@@ -130,7 +130,7 @@ row = {
 
 Declared properties are checked; any others a page carries are kept as they are. This is how Notion turns page properties into a database.
 
-**Second: a real database.** Submissions pile up faster than essays — a few hundred a month, each with review state, notes, and an author to reply to. When frontmatter files stop being fun, drop `_store.sqlite3` into `submissions/`. Arbor Sync opens it, serves the folder's rows from it, introspects its tables to generate types, and watches changes. The folder keeps its path, its page, its schema, and every query pointed at it.
+**Second: a real database.** Submissions pile up faster than essays — a few hundred a month, each with review state, notes, and an author to reply to. When frontmatter files stop being fun, drop `_store.sqlite3` into `submissions/`. Story Sync opens it, serves the folder's rows from it, introspects its tables to generate types, and watches changes. The folder keeps its path, its page, its schema, and every query pointed at it.
 
 **Third: a connection to a database you already have.** In the specified
 Postgres model, an external database enters the tree as a small reference file:
@@ -193,28 +193,28 @@ export default function ReadingRoom() {
 
 In this model Overstory validates every call through the handle's schema, so
 `{ tag: string }` is enforced at the execution boundary. It also resolves the
-literal tree paths — `./essays`, `arbor://paxmachina.org/inbox` — into reviewed
+literal tree paths — `./essays`, `overstory://paxmachina.org/inbox` — into reviewed
 read and write capabilities so it can re-run affected queries, enforce
 permissions, and tell the user what the code can do. The current runtime
 implements this for its registered headless handles; compiler-generated
 manifests and consent surfaces remain future work.
 
 The design places queries near the data by default. Queries on synchronized
-data can run in the reader's Arbor Sync; queries on merely visited trees run at
+data can run in the reader's Story Sync; queries on merely visited trees run at
 the host. Authors may also require hosting for controlled egress or secrets.
 Stable versioned handles remove the need to hand-design an application REST
 API. Local and host-hosted placement of compiled handles is not complete yet.
 
 Once the compiler and presentation work lands, a paragraph linking to a `.tsx`
-script will render that component inline as a live island backed by Arbor Sync.
+script will render that component inline as a live island backed by Story Sync.
 Today the source remains browsable and the headless handles are testable, but
 the `ReadingRoom` does not yet simply appear in the page.
 
 This offers similar benefits to a modern web app, but with different tradeoffs:
 
 - **Live components, not pages.** The web's unit of delivery is the page — a finished document. Any actual data is either baked invisibly into markup at render time, or trapped behind the site's private API. Here, data and live components are first class: a typed projection of data can sit inside any page, next to prose. Components are stateful and interactive from the start, and are live against the data they declare: every component is a standing subscription.
-- **Security through declaration, not isolation.** The browser's answer to hostile code is the origin sandbox. Browsers isolate code *by site*. That means your data has to live on their site, with their code, under their account system. Here, code arrives with no network and no filesystem. It states what it reads and writes and the runtime enforces that. "this component reads `essays` and appends to `submissions`" -- the write set could just as well name a tree you don't own — `tree("arbor://paxmachina.org/inbox")` — and the consent statement would say so.
-- **Isomorphic by construction.** With Overstory, there's no server vs client. There's a tree that exists somewhere, and a component that runs against it. The same component can run in the host that owns the tree, or in a reader's arborsync if they have it synced.
+- **Security through declaration, not isolation.** The browser's answer to hostile code is the origin sandbox. Browsers isolate code *by site*. That means your data has to live on their site, with their code, under their account system. Here, code arrives with no network and no filesystem. It states what it reads and writes and the runtime enforces that. "this component reads `essays` and appends to `submissions`" -- the write set could just as well name a tree you don't own — `tree("overstory://paxmachina.org/inbox")` — and the consent statement would say so.
+- **Isomorphic by construction.** With Overstory, there's no server vs client. There's a tree that exists somewhere, and a component that runs against it. The same component can run in the host that owns the tree, or in a reader's story-sync if they have it synced.
 
 ## Agents and tools live in the tree
 
@@ -266,7 +266,7 @@ Thusly, agents are versioned via revisions; agents are shareable; agent capabili
 Put together, the intended system is kind of like the filesystem, kind of like
 Notion, and kind of like the web at once: an editable surface everywhere,
 agent-native plain files underneath, ordinary relative links nearby, absolute
-`arbor://` links across Overstory trees, and lazy access to trees you have not
+`overstory://` links across Overstory trees, and lazy access to trees you have not
 mounted. The end-state promise is that publishing becomes synchronization
 rather than a separate deployment ritual. The current reference
 implementation still needs compilation, activation, and hosting work before it
@@ -314,7 +314,7 @@ at how much glue that could remove:
 
 There is also a planned adoption bridge. A future portable-deployment tool can
 publish the same tree as an ordinary website and as an Overstory tree, crosslinked
-with a tag or header such as `<link rel="arbor" …>` or `Arbor-Tree:`. An
+with a tag or header such as `<link rel="story" …>` or `Overstory-Tree:`. An
 Overstory-aware browser could discover the live, editable version while every
 legacy browser sees HTML. Static baking and additional live deployment
 adapters are specified direction, not current commands.
@@ -336,18 +336,18 @@ I've avoided saying how synchronization actually works. Here's the sketch — an
 The protocol deals in two planes. **A ref** is one tiny live statement per tree: *TreeID → current root hash*. **Objects** are immutable, content-addressed nodes and blobs: each directory node lists its children by hash, so paths live inside one Merkle graph rather than becoming thousands of separately mutable refs. Four routes cover it:
 
 ```text
-GET  /.arbor/trees/{TreeID}         # where is the tip?
-POST /.arbor/trees/{TreeID}/updates # submit against an accepted base; the host accepts or merges
-GET  /.arbor/trees/{TreeID}/watch   # tell me when it moves
-GET  /.arbor/trees/{TreeID}/objects/{hash} # give me this immutable object
+GET  /.overstory/trees/{TreeID}         # where is the tip?
+POST /.overstory/trees/{TreeID}/updates # submit against an accepted base; the host accepts or merges
+GET  /.overstory/trees/{TreeID}/watch   # tell me when it moves
+GET  /.overstory/trees/{TreeID}/objects/{hash} # give me this immutable object
 ```
 
-When the tip moves, your arborsync fetches the new root and walks only the hashes needed for the subtree it is reading. Access is checked once at the shared-tree boundary; an update names its accepted base and candidate root before the host advances or merges the tip. If a subtree needs different access, it is a nested tree with its own tip. Merkle structure is why sync is cheap; recorded read sets are why the right queries re-run.
+When the tip moves, your story-sync fetches the new root and walks only the hashes needed for the subtree it is reading. Access is checked once at the shared-tree boundary; an update names its accepted base and candidate root before the host advances or merges the tip. If a subtree needs different access, it is a nested tree with its own tip. Merkle structure is why sync is cheap; recorded read sets are why the right queries re-run.
 
 This split unlocks the whole content-centric networking agenda, almost as a side effect:
 
 - **Anyone can cache objects, trustlessly.** An object is self-verifying — the hash is the name — so it can come from anywhere: your local store first, then LAN peers, then configured mirrors, then the origin. A classroom of students reading the same public tree fetches it from each other.
-- **Static publication becomes mechanical.** The proposed `arbor bake` emits a
+- **Static publication becomes mechanical.** The proposed `story bake` emits a
   tree's refs and objects as plain files for nginx, S3, or GitHub Pages. This is
   not implemented yet.
 - **Global caching beats a CDN.** Deploying doesn't exist, and yet cache behavior is *better* than the web's: immutable objects never need invalidation — no purges, no `Cache-Control` guesswork — and the only live data is refs, which are a few bytes. The CDN's hard problem was always invalidation; content addressing deletes the problem.

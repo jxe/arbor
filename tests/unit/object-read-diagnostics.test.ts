@@ -2,16 +2,16 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateArborID, ProtocolClient, hashObject } from "@overstory/protocol";
-import { snapshotDirectory } from "@overstory/fs";
-import { FilesystemObjectSource } from "../../packages/arborsync/src/filesystem-object-source.ts";
-import { TreeObjectCache } from "../../packages/arborsync/src/object-cache.ts";
-import { objectReadError, type ObjectReadDiagnostic } from "../../packages/arborsync/src/object-read-diagnostics.ts";
+import { generateOverstoryID, ProtocolClient, hashObject } from "@ovst/protocol";
+import { snapshotDirectory } from "@ovst/fs";
+import { FilesystemObjectSource } from "../../packages/story-sync/src/filesystem-object-source.ts";
+import { TreeObjectCache } from "../../packages/story-sync/src/object-cache.ts";
+import { objectReadError, type ObjectReadDiagnostic } from "../../packages/story-sync/src/object-read-diagnostics.ts";
 
 const scope = { boundaries: new Map<string, string>(), exclusions: [] };
 
 test("filesystem diagnostics distinguish missing files, changed bytes and failed reads", async () => {
-  const base = await realpath(await mkdtemp(join(tmpdir(), "arbor-read-evidence-")));
+  const base = await realpath(await mkdtemp(join(tmpdir(), "story-read-evidence-")));
   try {
     const root = join(base, "files");
     await mkdir(root);
@@ -51,12 +51,12 @@ test("permission diagnostics exclude arbitrary exception text and secrets", () =
 });
 
 test("object fallback survives a local failure and distinguishes remote missing, denied and corrupt bytes", async () => {
-  const state = await mkdtemp(join(tmpdir(), "arbor-read-fallback-"));
-  const previous = process.env.ARBOR_DATA_HOME;
-  process.env.ARBOR_DATA_HOME = state;
+  const state = await mkdtemp(join(tmpdir(), "story-read-fallback-"));
+  const previous = process.env.STORY_HOME;
+  process.env.STORY_HOME = state;
   const bytes = new TextEncoder().encode("verified fallback");
   const hash = hashObject(bytes);
-  const tree = generateArborID("tr");
+  const tree = generateOverstoryID("tr");
   let status = 200;
   let corrupt = false;
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(
@@ -80,18 +80,18 @@ test("object fallback survives a local failure and distinguishes remote missing,
       status = responseStatus;
       diagnostics.length = 0;
       expect(await cache.bytes(tree, hash)).toBeUndefined();
-      expect(diagnostics).toContainEqual({ source: "canopy", reason, tree, hash, status });
+      expect(diagnostics).toContainEqual({ source: "overstoryd", reason, tree, hash, status });
       expect(JSON.stringify(diagnostics)).not.toContain("private");
     }
     status = 200;
     corrupt = true;
     diagnostics.length = 0;
     expect(await cache.bytes(tree, hash)).toBeUndefined();
-    expect(diagnostics).toContainEqual({ source: "canopy", reason: "hash-mismatch", tree, hash });
+    expect(diagnostics).toContainEqual({ source: "overstoryd", reason: "hash-mismatch", tree, hash });
   } finally {
     server.stop(true);
-    if (previous === undefined) delete process.env.ARBOR_DATA_HOME;
-    else process.env.ARBOR_DATA_HOME = previous;
+    if (previous === undefined) delete process.env.STORY_HOME;
+    else process.env.STORY_HOME = previous;
     await rm(state, { recursive: true, force: true });
   }
 });

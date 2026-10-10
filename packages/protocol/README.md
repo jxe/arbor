@@ -1,4 +1,4 @@
-# @overstory/protocol
+# @ovst/protocol
 
 The Overstory protocol in code. Everything an independent implementation
 would have to reproduce lives here, and nothing else in the workspace is a

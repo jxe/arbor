@@ -1,5 +1,5 @@
 import { encodeCanonicalCBOR } from "./cbor.ts";
-import { isGeneratedArborID } from "./identity.ts";
+import { isGeneratedOverstoryID } from "./identity.ts";
 
 /**
  * A key device's public key as `devices.yaml` spells it: an algorithm tag and
@@ -113,7 +113,7 @@ export function validateDeviceSessionChallenge(value: unknown): DeviceSessionCha
   if (
     !exactKeys(challenge, ["version", "purpose", "id", "origin", "profileTree", "device", "nonce", "issuedAt", "expiresAt"])
     || challenge.version !== 1 || challenge.purpose !== "device-session"
-    || typeof challenge.id !== "string" || !isGeneratedArborID(challenge.id, "ax")
+    || typeof challenge.id !== "string" || !isGeneratedOverstoryID(challenge.id, "ax")
     || !originIsCanonical(challenge.origin)
     // Any person profile, including one whose TreeID predates self-certifying IDs.
     || typeof challenge.profileTree !== "string" || !/^tr_[a-z2-7]+$/.test(challenge.profileTree)
@@ -154,7 +154,7 @@ export function decodePublishedDeviceKeys(value: unknown, profileTree: string): 
   const body = value as Partial<PublishedDeviceKeys> | null;
   if (!body || body.profileTree !== profileTree || !Array.isArray(body.devices)) throw new Error("The home host's device keys name another profile");
   const devices = body.devices.map((entry): PublishedDeviceKey => {
-    if (!entry || typeof entry.id !== "string" || !isGeneratedArborID(entry.id, "dv") || typeof entry.key !== "string" || typeof entry.administrator !== "boolean") {
+    if (!entry || typeof entry.id !== "string" || !isGeneratedOverstoryID(entry.id, "dv") || typeof entry.key !== "string" || typeof entry.administrator !== "boolean") {
       throw new Error("The home host's device keys are malformed");
     }
     parseDeviceKey(entry.key);

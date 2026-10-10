@@ -121,15 +121,15 @@ acyclic). A payload-less entry the client cannot classify as a file fails the
 install.
 
 ```text
-GET /.arbor/trees/{TreeID}
-GET /.arbor/trees/{TreeID}/snapshots/{root}
-GET /.arbor/trees/{TreeID}/watch?after={cursor}
+GET /.overstory/trees/{TreeID}
+GET /.overstory/trees/{TreeID}/snapshots/{root}
+GET /.overstory/trees/{TreeID}/watch?after={cursor}
 ```
 
 ### 1.1.1 Reading the current tree
 
 ```text
-GET /.arbor/trees/{TreeID}
+GET /.overstory/trees/{TreeID}
 ```
 
 The response atomically identifies one current accepted root, the accepted
@@ -184,7 +184,7 @@ provider-backed sources are host configuration, not tree state.
 #### 1.1.2 Reading an accepted snapshot
 
 ```text
-GET /.arbor/trees/{TreeID}/snapshots/{root}
+GET /.overstory/trees/{TreeID}/snapshots/{root}
 ```
 
 An accepted snapshot is the self-contained transition from nothing to one
@@ -227,7 +227,7 @@ response, and no route enumerates historical roots or their accepted-update
 metadata.
 
 Snapshot responses carry
-`Vary: Authorization, Arbor-Access-Link`. A response to a request carrying
+`Vary: Authorization, Overstory-Access-Link`. A response to a request carrying
 neither header for a tree currently readable by `everyone` uses
 `Cache-Control: public, max-age=31536000, immutable`; a response to a request
 carrying either header uses
@@ -296,7 +296,7 @@ Section 4.1 defines the common encoding and hash rules.
 #### 1.1.2a Reading entry metadata
 
 ```text
-GET /.arbor/trees/{TreeID}/entry-metadata
+GET /.overstory/trees/{TreeID}/entry-metadata
 ```
 
 Descriptive metadata about the file entries of the tree's current accepted
@@ -323,7 +323,7 @@ watch correct.
 #### 1.1.3 Watching
 
 ```text
-GET /.arbor/trees/{TreeID}/watch?after={cursor}
+GET /.overstory/trees/{TreeID}/watch?after={cursor}
 ```
 
 The request carries `Accept: text/event-stream`. `after` is the only resume
@@ -508,7 +508,7 @@ Clients that do not retain a whole tree can use this endpoint to fetch files
 and directories on demand.
 
 ```text
-GET /.arbor/trees/{TreeID}/objects/{hash}
+GET /.overstory/trees/{TreeID}/objects/{hash}
 ```
 
 This route returns the same object bytes carried in a snapshot bundle
@@ -595,7 +595,7 @@ keys or symbols to exact source; it does not introduce a separate identity names
 
 #### 1.2.3 Reading conflicts
 
-`GET /.arbor/trees/{tree}/conflicts?state={acceptedUpdate}` lists decisions in an
+`GET /.overstory/trees/{tree}/conflicts?state={acceptedUpdate}` lists decisions in an
 exact retained accepted state. Optional `after` continues an opaque page token;
 optional `conflict` selects one decision. Each query field occurs at most once;
 `state` is required, nonempty and exact. `after` and `conflict` are mutually exclusive.
@@ -702,7 +702,7 @@ whole-tree read or bypasses governed account policy.
 ### 2.1 The update request
 
 ```text
-POST /.arbor/trees/{TreeID}/updates
+POST /.overstory/trees/{TreeID}/updates
 ```
 
 The client submits a nonempty, ordered string of candidate updates against the
@@ -1213,8 +1213,8 @@ reserved ambiguity. Directory entries are canonically ordered.
 
 ### 4.4 Request and response encodings
 
-A request that carries objects — `POST /.arbor/trees/{TreeID}/updates` and the
-account claim, `PUT /.arbor/accounts` ([accounts §1.2](04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key))
+A request that carries objects — `POST /.overstory/trees/{TreeID}/updates` and the
+account claim, `PUT /.overstory/accounts` ([accounts §1.2](04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key))
 — and the success response to it travel as JSON or as CBOR. The encoding is
 chosen by ordinary HTTP content negotiation, never required:
 

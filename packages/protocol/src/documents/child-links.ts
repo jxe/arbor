@@ -1,4 +1,4 @@
-import type { ArborBlock } from "../index.ts";
+import type { OverstoryBlock } from "../index.ts";
 import { canonicalNodePath, nodeDisplayName } from "../model/logical-path.ts";
 import { buildMarkdownLink, resolveLogicalURL, rewriteLocalLinkPath, type MarkdownBodyOrigin } from "../model/logical-url.ts";
 
@@ -26,7 +26,7 @@ export interface ChildLinkTransform {
 }
 
 export interface ChildLinkTransformResult {
-  blocks: ArborBlock[];
+  blocks: OverstoryBlock[];
   anchor: "not-requested" | "found" | "missing";
 }
 
@@ -37,14 +37,14 @@ export function resolveChildLinkPath(sourceDirectory: string, raw: string): stri
 }
 
 export function reorderChildLinks(
-  inputBlocks: readonly ArborBlock[],
+  inputBlocks: readonly OverstoryBlock[],
   transform: ChildLinkTransform,
 ): ChildLinkTransformResult {
   const directory = canonicalNodePath(transform.sourceDirectory);
   const remove = new Set(transform.removePaths.map(canonicalNodePath));
-  const existingByPath = new Map<string, ArborBlock>();
+  const existingByPath = new Map<string, OverstoryBlock>();
 
-  const collect = (blocks: readonly ArborBlock[]) => {
+  const collect = (blocks: readonly OverstoryBlock[]) => {
     for (const block of blocks) {
       const resolved = block.type === "standaloneLink"
         ? resolveChildLinkPath(directory, String(block.props?.path ?? ""))
@@ -55,7 +55,7 @@ export function reorderChildLinks(
   };
   collect(inputBlocks);
 
-  const strip = (blocks: readonly ArborBlock[]): ArborBlock[] => blocks.flatMap((block) => {
+  const strip = (blocks: readonly OverstoryBlock[]): OverstoryBlock[] => blocks.flatMap((block) => {
     const resolved = block.type === "standaloneLink"
       ? resolveChildLinkPath(directory, String(block.props?.path ?? ""))
       : null;
@@ -80,7 +80,7 @@ export function reorderChildLinks(
       content: existing.content === oldName ? newName : existing.content,
       props: {
         ...existing.props,
-        arborGenerated: false,
+        storyGenerated: false,
         path: rewriteLocalLinkPath(directory, String(existing.props?.path ?? ""), { path: newPath, body: move.newBody })
           ?? buildMarkdownLink(directory, { path: newPath, body: move.newBody }),
       },
@@ -90,15 +90,15 @@ export function reorderChildLinks(
       content: newName,
       props: { path: buildMarkdownLink(directory, { path: newPath, body: move.newBody }) },
       children: [],
-    } satisfies ArborBlock;
+    } satisfies OverstoryBlock;
   });
 
   const anchorPath = transform.beforePath ? canonicalNodePath(transform.beforePath) : null;
   const anchorRequested = Boolean(anchorPath || transform.beforeBlockId);
   if (!anchorRequested) return { blocks: [...remaining, ...inserted], anchor: "not-requested" };
 
-  const insertBefore = (blocks: readonly ArborBlock[]): [ArborBlock[], boolean] => {
-    const result: ArborBlock[] = [];
+  const insertBefore = (blocks: readonly OverstoryBlock[]): [OverstoryBlock[], boolean] => {
+    const result: OverstoryBlock[] = [];
     for (let index = 0; index < blocks.length; index += 1) {
       const block = blocks[index]!;
       const resolved = block.type === "standaloneLink"

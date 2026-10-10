@@ -7,8 +7,8 @@ import { parseProfileLocator, ruleLocators,
   parseResourceRules,
   rulesAllow,
   scopeContains,
-} from "@overstory/protocol";
-import { ExecutionAuthority } from "../../packages/canopyd/src/execution-authority.ts";
+} from "@ovst/protocol";
+import { ExecutionAuthority } from "../../packages/overstoryd/src/execution-authority.ts";
 import fixtures from "../../docs/overstory-spec/conformance/resource-policy.json";
 
 
@@ -45,15 +45,15 @@ describe("resource policy contract", () => {
   test("a profile another host holds is named by its locator there, which matches by the TreeID it is pinned to", () => {
     const remote = { who: { profile: "https://club.example/~club" }, allow: ["read"] };
     expect(parseResourceRule(remote)).toEqual(remote as any);
-    // arbor:// is spelled as the HTTP locator it resolves through; loopback hosts may be plain HTTP.
-    expect(parseResourceRule({ ...remote, who: { profile: "arbor://club.example/~club/" } }).who).toEqual({ profile: "https://club.example/~club" });
+    // overstory:// is spelled as the HTTP locator it resolves through; loopback hosts may be plain HTTP.
+    expect(parseResourceRule({ ...remote, who: { profile: "overstory://club.example/~club/" } }).who).toEqual({ profile: "https://club.example/~club" });
     expect(parseResourceRule({ ...remote, who: { profile: "http://127.0.0.1:4000/~club" } }).who).toEqual({ profile: "http://127.0.0.1:4000/~club" });
-    for (const profile of ["http://club.example/~club", "https://club.example/", "https://club.example", "https://club.example/~club?x=1", "https://club.example/~club#top", "club.example/~club", "arbor://tr_club/", 3]) {
+    for (const profile of ["http://club.example/~club", "https://club.example/", "https://club.example", "https://club.example/~club?x=1", "https://club.example/~club#top", "club.example/~club", "overstory://tr_club/", 3]) {
       expect(() => parseResourceRule({ ...remote, who: { profile } }), String(profile)).toThrow("Invalid rule subject");
     }
     expect(() => parseResourceRule({ ...remote, who: { profile: "https://club.example/~club", homeHost: "https://club.example" } })).toThrow("Invalid rule subject");
     // Its canonical spelling is the merge key.
-    expect(() => parseResourceRules([remote, { who: { profile: "arbor://club.example/~club" }, allow: ["write"] }])).toThrow("Duplicate resource rule");
+    expect(() => parseResourceRules([remote, { who: { profile: "overstory://club.example/~club" }, allow: ["write"] }])).toThrow("Duplicate resource rule");
     expect(ruleLocators([remote, { who: { profile: "tr_club" }, allow: ["read"] } as any])).toEqual(["https://club.example/~club"]);
     // It matches by its pin, and its host is handed to the membership check.
     const asked: unknown[] = [];
@@ -159,7 +159,7 @@ test("a lapsed lender's grant cannot borrow identical caller coverage", () => {
 });
 
 test("apps.yaml may lend to a profile another host holds, by its locator", async () => {
-  const { parseAppsYAML } = await import("@overstory/protocol");
+  const { parseAppsYAML } = await import("@ovst/protocol");
   const source = `tr_planner:\n  - resource: tr_calendar\n    who: { profile: "https://club.example/~club" }\n    allow: [read]\n`;
   expect(parseAppsYAML(source, "person").tr_planner![0]!.who).toEqual({ profile: "https://club.example/~club" });
   expect(() => parseAppsYAML(source.replace('"https://club.example/~club"', 'tr_club, homeHost: "https://club.example"'), "person")).toThrow();

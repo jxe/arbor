@@ -1,0 +1,334 @@
+import { expect, test } from "bun:test";
+import { arrangeSources, checkPlainTrace, type SourceOperation } from "@ovst/protocol";
+import { engineDiagnostics, mergeIntent } from "../../../packages/overstoryd-merge/src/intent-engine.ts";
+import type { IntentEvaluation } from "../../../packages/overstoryd-merge/src/engine-contract.ts";
+import type { IntentRequest } from "../../../packages/overstoryd-merge/src/intent-model.ts";
+import { Fixture } from "./fixture.ts";
+
+// The byte executor (`arrangeSources`, which overstoryd's own fast path runs) and
+// the merge engine (which the sidecar replays and merges with) must agree on
+// every move frame a client emits: the same bytes, on the engine's exact-basis
+// path as on its full and eager paths, and with a peer's edit to the moved
+// text following it.
+
+const encoder = new TextEncoder(), decoder = new TextDecoder();
+const at = (text: string, needle: string, from = 0): [number, number] => {
+  const index = text.indexOf(needle, from);
+  if (index < 0) throw Error(`missing ${JSON.stringify(needle)}`);
+  const start = encoder.encode(text.slice(0, index)).length;
+  return [start, start + encoder.encode(needle).length];
+};
+
+interface Shape {
+  name: string;
+  text: string;
+  moves: Array<{ source: string; anchor: string; side: "before" | "after" }>;
+  edits?: Array<{ range: [number, number]; text: string }>;
+  expected: string;
+  /** A word inside moved text a peer replaces concurrently. The Markdown
+   * transfer policy (overstoryd 014) merges moved prose; a moved list item
+   * changes protected list structure, so it becomes a choice that keeps both. */
+  peer?: { find: string; replace: string; choice?: true };
+}
+
+const list = "Intro\n\n- one\n- two\n  - child\n- three\n\nOutro\n";
+const shapes: Shape[] = [
+  {
+    name: "a block moves down past its sibling",
+    text: "A para\n\nB para\n\nC para\n",
+    moves: [{ source: "A para\n\n", anchor: "B para\n\n", side: "after" }],
+    expected: "B para\n\nA para\n\nC para\n",
+    peer: { find: "A para", replace: "A peer" },
+  },
+  {
+    name: "a block moves up to the top",
+    text: "A para\n\nB para\n\nC para\n\n",
+    moves: [{ source: "C para\n\n", anchor: "A para\n\n", side: "before" }],
+    expected: "C para\n\nA para\n\nB para\n\n",
+    peer: { find: "C para", replace: "C peer" },
+  },
+  {
+    name: "two blocks land one after another",
+    text: "A\n\nB\n\nC\n\nD\n\n",
+    moves: [
+      { source: "C\n\n", anchor: "A\n\n", side: "before" },
+      { source: "D\n\n", anchor: "C\n\n", side: "after" },
+    ],
+    expected: "C\n\nD\n\nA\n\nB\n\n",
+  },
+  {
+    name: "an item moves under a sibling and is re-indented",
+    text: list,
+    // "- one\n" becomes a child of "two", after "child".
+    moves: [{ source: "- one\n", anchor: "  - child\n", side: "after" }],
+    edits: [{ range: [0, 1], text: "  -" }],
+    expected: "Intro\n\n- two\n  - child\n  - one\n- three\n\nOutro\n",
+    peer: { find: "one", replace: "ONE", choice: true },
+  },
+  {
+    // An editor reports an outdented last child as moved to where it already
+    // is: the move changes nothing, so the outdent merges as an ordinary edit.
+    name: "an outdented last child is reported as moved where it is",
+    text: list,
+    moves: [{ source: "  - child\n", anchor: "- two\n", side: "after" }],
+    edits: [{ range: [0, 2], text: "" }],
+    expected: "Intro\n\n- one\n- two\n- child\n- three\n\nOutro\n",
+    peer: { find: "child", replace: "CHILD" },
+  },
+  {
+    name: "an item is indented in place",
+    text: list,
+    moves: [],
+    edits: [{ range: [0, 1], text: "  -" }],
+    expected: "Intro\n\n- one\n  - two\n  - child\n- three\n\nOutro\n",
+  },
+  {
+    name: "multibyte text with CRLF moves intact",
+    text: "Café\r\n\r\nnaïve ☕\r\n\r\né\r\n",
+    moves: [{ source: "naïve ☕\r\n\r\n", anchor: "Café\r\n\r\n", side: "before" }],
+    expected: "naïve ☕\r\n\r\nCafé\r\n\r\né\r\n",
+    peer: { find: "naïve", replace: "NAÏVE" },
+  },
+];
+
+/** Resolve a shape's text anchors, and edits relative to moved or stationary
+ * spans, into basis coordinates. Edits in "an item is indented in place" apply
+ * to "- two"; in "moves under a sibling" to the moved "- three". */
+function resolve(shape: Shape) {
+  const moves = shape.moves.map(m => ({ source: at(shape.text, m.source), anchor: at(shape.text, m.anchor), side: m.side }));
+  const base = shape.name.includes("in place") ? at(shape.text, "- two")[0] : moves[0]?.source[0] ?? 0;
+  const edits = (shape.edits ?? []).map(e => ({ range: [base + e.range[0], base + e.range[1]] as [number, number], text: e.text }));
+  return { moves, edits };
+}
+
+function operations(f: Fixture, shape: Shape): SourceOperation[] {
+  const { moves, edits } = resolve(shape);
+  return [
+    ...moves.map((m, i): SourceOperation => ({ key: `move-${i}`, kind: "moveSource", source: f.ref("/a.md", shape.text, m.source), at: f.ref("/a.md", shape.text, m.anchor), side: m.side })),
+    ...edits.map((e, i): SourceOperation => ({ key: `adjust-${i}`, kind: "editSource", source: f.ref("/a.md", shape.text, e.range), text: e.text })),
+  ];
+}
+
+async function differential(f: Fixture, request: IntentRequest) {
+  const objects = { read: async (hash: string) => f.objects.get(hash)!, states: f.states, store: async (values: Array<{ hash: string; bytes: Uint8Array }>) => { for (const v of values) f.objects.set(v.hash, v.bytes); } };
+  const shape = (r: IntentEvaluation) => ({ result: r.result, decisions: r.decisions, operations: r.evidence.operations });
+  const eager = await mergeIntent(request, objects, { incremental: false, eager: true });
+  const full = await mergeIntent(request, objects, { incremental: false });
+  const fast = await mergeIntent(request, objects);
+  expect(shape(full)).toEqual(shape(eager));
+  expect(shape(fast)).toEqual(shape(eager));
+  return fast;
+}
+
+/** An accepted, editable state holding `text`, as a head edit would leave it. */
+async function head(f: Fixture, text: string) {
+  const root = f.tree({ "a.md": text });
+  return (await f.run(f.request(root, root, [{ key: "start", kind: "editSource", source: f.ref("/a.md", text, [0, 0]), text: "" }], "start"))).result;
+}
+
+test.each(shapes)("the byte executor states $name exactly", (shape) => {
+  const { moves, edits } = resolve(shape);
+  const arranged = arrangeSources(
+    new Map([["/a.md", encoder.encode(shape.text)]]),
+    moves.map(m => ({ source: { path: "/a.md", range: m.source }, anchor: { path: "/a.md", range: m.anchor }, side: m.side })),
+    edits.map(e => ({ path: "/a.md", range: e.range, text: encoder.encode(e.text) })),
+  );
+  expect(decoder.decode(arranged.get("/a.md"))).toBe(shape.expected);
+});
+
+test.each(shapes)("overstoryd and the engine's exact-basis path accept $name with the same bytes", async (shape) => {
+  const f = new Fixture();
+  const basis = await head(f, shape.text);
+  const candidate = f.tree({ "a.md": shape.expected });
+  const request = f.request(basis, candidate, operations(f, shape), "arranged");
+  const plain = await checkPlainTrace(request.incoming.trace!, async hash => f.objects.get(hash)!);
+  expect(plain).toMatchObject({ plain: true, touched: ["/a.md"] });
+  const result = await differential(f, request);
+  expect(engineDiagnostics.path).toBe(1);
+  expect(result.result.object).toBe(candidate);
+});
+
+for (const shape of shapes.filter(s => s.peer))
+  for (const reverse of [false, true])
+    test(`a peer edit follows the moved text: ${shape.name}${reverse ? ", peer second" : ""}`, async () => {
+      const f = new Fixture();
+      const basis = await head(f, shape.text);
+      const { find, replace } = shape.peer!;
+      const arranged = f.request(basis, f.tree({ "a.md": shape.expected }), operations(f, shape), "arranged");
+      const peer = f.request(basis, f.tree({ "a.md": shape.text.replace(find, replace) }), [
+        { key: "peer", kind: "editSource", source: f.ref("/a.md", shape.text, at(shape.text, find)), text: replace },
+      ], "peer");
+      const first = await f.run(reverse ? arranged : peer);
+      const second = reverse ? peer : arranged;
+      second.current = first.result;
+      const result = await differential(f, second);
+      if (shape.peer!.choice) {
+        // Nothing is lost: each side's contribution is one alternative.
+        expect(result.decisions).toHaveLength(1);
+        const contributions = result.decisions[0]!.alternatives.flatMap(a => a.contributions.map(c => c.change));
+        expect(contributions).toContain(reverse ? "peer" : "arranged");
+        return;
+      }
+      expect(result.decisions).toEqual([]);
+      expect(f.content(result.result.object, "a.md")).toBe(shape.expected.replace(find, replace));
+    });
+
+test("ambiguous placements are declined for the full evaluator, not guessed", async () => {
+  const text = "A\n\nB\n\nC\n\n", files = new Map([["/a.md", encoder.encode(text)]]);
+  const span = (needle: string) => ({ path: "/a.md", range: at(text, needle) });
+  const cases = [
+    // Two moves beside one anchor on one side.
+    { moves: [{ source: span("B\n\n"), anchor: span("A\n\n"), side: "before" as const }, { source: span("C\n\n"), anchor: span("A\n\n"), side: "before" as const }], edits: [] },
+    // An insertion at the edge of moved material.
+    { moves: [{ source: span("C\n\n"), anchor: span("A\n\n"), side: "before" as const }], edits: [{ path: "/a.md", range: [at(text, "C\n\n")[0], at(text, "C\n\n")[0]] as [number, number], text: encoder.encode("x") }] },
+    // An edit across a moved span's edge.
+    { moves: [{ source: span("C\n\n"), anchor: span("A\n\n"), side: "before" as const }], edits: [{ path: "/a.md", range: [at(text, "B")[0], at(text, "C")[1]] as [number, number], text: encoder.encode("x") }] },
+  ];
+  for (const { moves, edits } of cases) expect(() => arrangeSources(files, moves, edits)).toThrow();
+  expect(() => arrangeSources(files, [{ source: span("A\n\n"), anchor: span("A\n\n"), side: "after" }], [])).toThrow("inside its source");
+});
+
+/** Move to Document as the Native client states it: one span leaves a page
+ * and lands after another page's last block, which gains the blank line it
+ * needs. With `chained`, a second span lands after the first, anchored on the
+ * material the first carried into the other page. */
+async function moveToDocument(f: Fixture, chained: boolean) {
+  const origin = "Stays\n\nFirst moved\n\nKept\n\nSecond moved\n\n", destination = "Target\n";
+  const root = f.tree({ "a.md": origin, "b.md": destination });
+  const basis = (await f.run(f.request(root, root, [{ key: "start", kind: "editSource", source: f.ref("/a.md", origin, [0, 0]), text: "" }], "start"))).result;
+  const first = at(origin, "First moved\n\n"), second = at(origin, "Second moved\n\n"), end = encoder.encode(destination).length;
+  const operations: SourceOperation[] = [
+    { key: "move-0-0", kind: "moveSource", source: f.ref("/a.md", origin, first), at: f.ref("/b.md", destination, [0, end]), side: "after" },
+    ...(chained ? [{ key: "move-0-1", kind: "moveSource" as const, source: f.ref("/a.md", origin, second), at: f.ref("/a.md", origin, first), side: "after" as const }] : []),
+    { key: "edit-0-0", kind: "editSource", source: f.ref("/b.md", destination, [end - 1, end]), text: "\n\n", lineage: [{ source: f.ref("/b.md", destination, [end - 1, end]), range: [0, 1] }] },
+  ];
+  const a = chained ? "Stays\n\nKept\n\n" : "Stays\n\nKept\n\nSecond moved\n\n";
+  const b = "Target\n\nFirst moved\n\n" + (chained ? "Second moved\n\n" : "");
+  const peer = f.request(basis, f.tree({ "a.md": origin.replace("First moved", "First PEER"), "b.md": destination }), [
+    { key: "peer", kind: "editSource", source: f.ref("/a.md", origin, at(origin, "moved")), text: "PEER" },
+  ], "peer");
+  return { basis, transfer: f.request(basis, f.tree({ "a.md": a, "b.md": b }), operations, "transfer"), peer, a, b };
+}
+
+test.each([false, true])("Move to Document takes both fast paths (chained %p)", async (chained) => {
+  const f = new Fixture();
+  const { transfer, a, b } = await moveToDocument(f, chained);
+  const plain = await checkPlainTrace(transfer.incoming.trace!, async hash => f.objects.get(hash)!);
+  expect(plain).toMatchObject({ plain: true });
+  expect([...(plain as { touched: string[] }).touched].sort()).toEqual(["/a.md", "/b.md"]);
+  const result = await differential(f, transfer);
+  expect(engineDiagnostics.path).toBe(1);
+  expect(f.content(result.result.object, "a.md")).toBe(a);
+  expect(f.content(result.result.object, "b.md")).toBe(b);
+});
+
+for (const reverse of [false, true])
+  test(`a peer edit follows paragraphs Move to Document carried into another page${reverse ? ", peer second" : ""}`, async () => {
+    for (const chained of [false, true]) {
+      const f = new Fixture();
+      const { transfer, peer, a, b } = await moveToDocument(f, chained);
+      const first = await f.run(reverse ? transfer : peer);
+      const second = reverse ? peer : transfer;
+      second.current = first.result;
+      const merged = await differential(f, second);
+      if (chained && !reverse) {
+        // Arriving after the peer, a second move anchored on carried material
+        // is executed but not reconciled (overstoryd 014): both sides are kept
+        // as a choice. Arriving first, the peer's edit follows it.
+        expect(merged.decisions).toHaveLength(1);
+        continue;
+      }
+      expect(merged.decisions).toEqual([]);
+      expect(f.content(merged.result.object, "b.md")).toBe(b.replace("First moved", "First PEER"));
+      expect(f.content(merged.result.object, "a.md")).toBe(a);
+    }
+  });
+
+/** Moves within one page that change its list structure, arriving after a
+ * peer edited only another page. No concurrent edit touched the moved page, so
+ * its result is exactly the author's and the peer's page merges beside it. */
+for (const reverse of [false, true])
+  test(`structural moves in one page merge with a peer's edit to another page${reverse ? ", peer second" : ""}`, async () => {
+    const f = new Fixture();
+    const shape = shapes.find(s => s.name === "an item moves under a sibling and is re-indented")!;
+    const other = "Other page\n";
+    const root = f.tree({ "a.md": shape.text, "b.md": other });
+    const basis = (await f.run(f.request(root, root, [{ key: "start", kind: "editSource", source: f.ref("/a.md", shape.text, [0, 0]), text: "" }], "start"))).result;
+    const arranged = f.request(basis, f.tree({ "a.md": shape.expected, "b.md": other }), operations(f, shape), "arranged");
+    const peer = f.request(basis, f.tree({ "a.md": shape.text, "b.md": "Other PEER\n" }), [
+      { key: "peer", kind: "editSource", source: f.ref("/b.md", other, at(other, "page")), text: "PEER" },
+    ], "peer");
+    const first = await f.run(reverse ? arranged : peer);
+    const second = reverse ? peer : arranged;
+    second.current = first.result;
+    const merged = await differential(f, second);
+    expect(merged.decisions).toEqual([]);
+    expect(f.content(merged.result.object, "a.md")).toBe(shape.expected);
+    expect(f.content(merged.result.object, "b.md")).toBe("Other PEER\n");
+  });
+
+/** When moves in one page cannot be reconciled with a peer's edit to that same
+ * page, the choice is about that page: a peer's edit to another page merges. */
+test("an unreconciled move is a choice about its page, not the whole tree", async () => {
+  const f = new Fixture();
+  const shape = shapes.find(s => s.name === "an item moves under a sibling and is re-indented")!;
+  const other = "Other page\n";
+  const root = f.tree({ "a.md": shape.text, "b.md": other });
+  const basis = (await f.run(f.request(root, root, [{ key: "start", kind: "editSource", source: f.ref("/a.md", shape.text, [0, 0]), text: "" }], "start"))).result;
+  const peerText = shape.text.replace("three", "THREE");
+  const peer = f.request(basis, f.tree({ "a.md": peerText, "b.md": "Other PEER\n" }), [
+    { key: "peer-a", kind: "editSource", source: f.ref("/a.md", shape.text, at(shape.text, "three")), text: "THREE" },
+    { key: "peer-b", kind: "editSource", source: f.ref("/b.md", other, at(other, "page")), text: "PEER" },
+  ], "peer");
+  const arranged = f.request(basis, f.tree({ "a.md": shape.expected, "b.md": other }), operations(f, shape), "arranged");
+  arranged.current = (await f.run(peer)).result;
+  const merged = await differential(f, arranged);
+  expect(merged.decisions).toHaveLength(1);
+  const [choice] = merged.decisions;
+  expect(choice!.kind).toBe("content");
+  expect(choice!.subject?.material).toMatchObject({ kind: "basis", path: "/a.md" });
+  // Nothing is lost: each side's contribution is one alternative.
+  const contributions = choice!.alternatives.flatMap(a => a.contributions.map(c => c.change));
+  expect(contributions).toContain("arranged");
+  expect(contributions).toContain("peer");
+  expect(f.content(merged.result.object, "b.md")).toBe("Other PEER\n");
+});
+
+/** A peer's Move to Document, with an edit beside where a later change
+ * inserts, arriving before that change. A later change that edited only the
+ * origin page (and another page) gets a choice about the origin page, and the
+ * other page merges; one that edited both pages the transfer joined still
+ * couples them as one whole-tree choice. Before this was narrowed, any
+ * concurrent transfer between files made the whole tree one choice (live
+ * update 8670). */
+for (const both of [false, true])
+  test(`a concurrent transfer between files couples only the pages it touched${both ? ": both edited" : ""}`, async () => {
+    const f = new Fixture();
+    const origin = "Stays here\n\nFirst moved\n\nKept\n\n", destination = "Target\n", other = "Other page\n";
+    const root = f.tree({ "a.md": origin, "b.md": destination, "c.md": other });
+    const basis = (await f.run(f.request(root, root, [{ key: "start", kind: "editSource", source: f.ref("/a.md", origin, [0, 0]), text: "" }], "start"))).result;
+    const end = encoder.encode(destination).length, here = at(origin, "here");
+    const target = "Target\n\nFirst moved\n\n";
+    const peer = f.request(basis, f.tree({ "a.md": "Stays HERE\n\nKept\n\n", "b.md": target, "c.md": other }), [
+      { key: "move-0-0", kind: "moveSource", source: f.ref("/a.md", origin, at(origin, "First moved\n\n")), at: f.ref("/b.md", destination, [0, end]), side: "after" },
+      { key: "edit-0-0", kind: "editSource", source: f.ref("/b.md", destination, [end - 1, end]), text: "\n\n", lineage: [{ source: f.ref("/b.md", destination, [end - 1, end]), range: [0, 1] }] },
+      { key: "edit-0-1", kind: "editSource", source: f.ref("/a.md", origin, here), text: "HERE" },
+    ], "peer");
+    const late = f.request(basis, f.tree({ "a.md": origin.replace("here", "here, inserted"), "b.md": both ? "TARGET\n" : destination, "c.md": "Other LATE\n" }), [
+      { key: "late-a", kind: "editSource", source: f.ref("/a.md", origin, [here[1], here[1]]), text: ", inserted" },
+      ...(both ? [{ key: "late-b", kind: "editSource" as const, source: f.ref("/b.md", destination, at(destination, "Target")), text: "TARGET" }] : []),
+      { key: "late-c", kind: "editSource", source: f.ref("/c.md", other, at(other, "page")), text: "LATE" },
+    ], "late");
+    late.current = (await f.run(peer)).result;
+    const merged = await differential(f, late);
+    expect(merged.decisions).toHaveLength(1);
+    const [choice] = merged.decisions;
+    if (both) {
+      expect(choice!.kind).toBe("directory");
+      return;
+    }
+    expect(choice!.kind).toBe("content");
+    expect(choice!.subject?.material).toMatchObject({ kind: "basis", path: "/a.md" });
+    expect(f.content(merged.result.object, "b.md")).toBe(target);
+    expect(f.content(merged.result.object, "c.md")).toBe("Other LATE\n");
+  });

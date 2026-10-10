@@ -52,7 +52,7 @@ struct ObjectStoreTests {
 }
 
 private func temporaryDirectory() -> URL {
-    FileManager.default.temporaryDirectory.appending(path: "arbor-object-store-\(UUID().uuidString)", directoryHint: .isDirectory)
+    FileManager.default.temporaryDirectory.appending(path: "story-object-store-\(UUID().uuidString)", directoryHint: .isDirectory)
 }
 
 private func withTemporaryDirectory(_ body: (URL) async throws -> Void) async throws {

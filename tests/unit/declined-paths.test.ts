@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { compareProtocolNames, encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "@overstory/protocol";
-import { differences, declinedPoint, maskDeclined, resolveDeclined } from "../../packages/arborsync/src/declined-paths.ts";
+import { compareProtocolNames, encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "@ovst/protocol";
+import { differences, declinedPoint, maskDeclined, resolveDeclined } from "../../packages/story-sync/src/declined-paths.ts";
 
 type Spec = { [name: string]: string | Spec | { tree: string } };
 const objects = new Map<ObjectHash, Uint8Array>();

@@ -63,7 +63,7 @@ function percentDecode(value: string): string | null {
 }
 
 /**
- * The readable key token carried by `;arbor-key=` and `#arbor-key=`: each pair
+ * The readable key token carried by `;overstory-key=` and `#overstory-key=`: each pair
  * as `name:value` for a string or `name=literal` for a number or boolean,
  * joined by `,`, with every byte outside the URI unreserved set
  * percent-encoded. `[["id","h31mlm"]]` is `id:h31mlm`.

@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { decodeCBOR, encodeCanonicalCBOR } from "@overstory/protocol";
+import { decodeCBOR, encodeCanonicalCBOR } from "@ovst/protocol";
 import {
   decodeSnapshotBundle,
   encodeSnapshotBundle,
   encodeProtocolDirectory,
   hashObject,
   type TreeSnapshot,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 
 function fixture(): TreeSnapshot {
   const file = new TextEncoder().encode("snapshot\n");

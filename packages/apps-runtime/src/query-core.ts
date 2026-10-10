@@ -1,4 +1,4 @@
-import { compareUTF8, stableKeyFromProperties } from "@overstory/protocol";
+import { compareUTF8, stableKeyFromProperties } from "@ovst/protocol";
 
 export { compareUTF8 };
 import type {
@@ -27,7 +27,7 @@ export class QueryInputError extends Error {
 
 export class QueryUserRequiredError extends Error {
   constructor() {
-    super("This query requires an Arbor user");
+    super("This query requires an Story user");
     this.name = "QueryUserRequiredError";
   }
 }

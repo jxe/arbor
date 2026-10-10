@@ -3,7 +3,7 @@ import { canonicalNodePath } from "./logical-path.ts";
 import { decodeStableKey, encodeStableKey } from "./node-key.ts";
 
 export interface ResolvedLocatorState {
-  /** `;arbor-config`: the locator names the configuration of the tree whose root it names. */
+  /** `;overstory-config`: the locator names the configuration of the tree whose root it names. */
   configuration?: true;
   stableKey: string | null;
   revision: string | null;
@@ -14,7 +14,7 @@ export interface ResolvedLocatorState {
 export type ResolvedLink =
   | ({ kind: "local"; path: LogicalPath } & ResolvedLocatorState)
   | ({
-    kind: "arbor";
+    kind: "overstory";
     authority: { dns: string } | { treeID: string };
     path: LogicalPath;
   } & ResolvedLocatorState)
@@ -25,11 +25,11 @@ export type ResolvedLink =
   | null;
 
 const SCHEME_PATTERN = /^([a-z][a-z0-9+.-]*):/i;
-const PARAMETER_MARKER = ";arbor-";
+const PARAMETER_MARKER = ";story-";
 const REVISION_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const TREE_ID_AUTHORITY = /^tr_[a-z2-7]+$/;
-const MARKDOWN_KEY_PREFIX = "arbor-key=";
-const CONFIGURATION_PARAMETER = "arbor-config";
+const MARKDOWN_KEY_PREFIX = "overstory-key=";
+const CONFIGURATION_PARAMETER = "overstory-config";
 
 function splitOnce(value: string, separator: string): [string, string | null] {
   const index = value.indexOf(separator);
@@ -39,9 +39,9 @@ function splitOnce(value: string, separator: string): [string, string | null] {
 }
 
 /**
- * Split the final raw segment's `;arbor-key=…;arbor-rev=…` parameter block from the path.
+ * Split the final raw segment's `;overstory-key=…;overstory-rev=…` parameter block from the path.
  * Parameters appear in that order at most once each; anything else after the first
- * `;arbor-` marker is invalid rather than path data. `;arbor-config` takes no value
+ * `;story-` marker is invalid rather than path data. `;overstory-config` takes no value
  * and stands alone.
  */
 function segmentParameters(rawPathWithParameters: string): {
@@ -62,11 +62,11 @@ function segmentParameters(rawPathWithParameters: string): {
   for (const parameter of rawPathWithParameters.slice(marker + 1).split(";")) {
     const [name, value] = splitOnce(parameter, "=");
     if (!value) return null;
-    if (name === "arbor-key" && stage === 0) {
+    if (name === "overstory-key" && stage === 0) {
       stableKey = decodeStableKey(value);
       if (!stableKey) return null;
       stage = 1;
-    } else if (name === "arbor-rev" && stage <= 1 && REVISION_PATTERN.test(value)) {
+    } else if (name === "overstory-rev" && stage <= 1 && REVISION_PATTERN.test(value)) {
       revision = value;
       stage = 2;
     } else {
@@ -154,8 +154,8 @@ function resolveTreePath(sourceDirectory: LogicalPath, rawDestination: string): 
   return canonicalDecodedNodePath(`/${stack.join("/")}`);
 }
 
-function parseArborURL(href: string): ResolvedLink {
-  const withoutScheme = href.slice("arbor://".length);
+function parseOverstoryURL(href: string): ResolvedLink {
+  const withoutScheme = href.slice("overstory://".length);
   const [destination, fragment] = splitOnce(withoutScheme, "#");
   const parsed = locatorState(destination, fragment);
   if (!parsed) return null;
@@ -169,9 +169,9 @@ function parseArborURL(href: string): ResolvedLink {
     : { dns: authorityPart };
   const path = resolveTreePath("/", pathParts.join("/"));
   if (path === null) return null;
-  // `arbor://<TreeID>;arbor-config` names the tree's root; any other path is invalid.
+  // `overstory://<TreeID>;overstory-config` names the tree's root; any other path is invalid.
   if (parsed.state.configuration && "treeID" in authority && path !== "/") return null;
-  return { kind: "arbor", authority, path, ...parsed.state };
+  return { kind: "overstory", authority, path, ...parsed.state };
 }
 
 /**
@@ -191,7 +191,7 @@ export function resolveLogicalURL(sourceDirectory: LogicalPath, href: string): R
   }
 
   const scheme = raw.match(SCHEME_PATTERN)?.[1]?.toLowerCase();
-  if (scheme === "arbor") return raw.startsWith("arbor://") ? parseArborURL(raw) : null;
+  if (scheme === "story") return raw.startsWith("overstory://") ? parseOverstoryURL(raw) : null;
   if (scheme === "system") return { kind: "system", raw };
   if (scheme === "local") return { kind: "overlay", raw };
   if (scheme) return { kind: "external", href: raw };
@@ -265,8 +265,8 @@ export interface MarkdownLinkTarget {
 /**
  * The href a Markdown writer emits for a node in the same tree: the target's
  * file relative to the source directory, so any Markdown reader follows it,
- * with the stable key as the `#arbor-key=` fragment. A key together with a
- * content fragment, or a revision, needs the `;arbor-key=`/`;arbor-rev=`
+ * with the stable key as the `#overstory-key=` fragment. A key together with a
+ * content fragment, or a revision, needs the `;overstory-key=`/`;overstory-rev=`
  * segment form.
  */
 export function buildMarkdownLink(sourceDirectory: LogicalPath, target: MarkdownLinkTarget): string {
@@ -287,20 +287,20 @@ export function buildNetworkLocator(
     contentFragment?: string | null;
   } = {},
 ): string {
-  const keyed = options.stableKey ? `${rawPath};arbor-key=${encodeStableKey(options.stableKey)}` : rawPath;
-  const pinned = options.revision ? `${keyed};arbor-rev=${options.revision}` : keyed;
+  const keyed = options.stableKey ? `${rawPath};overstory-key=${encodeStableKey(options.stableKey)}` : rawPath;
+  const pinned = options.revision ? `${keyed};overstory-rev=${options.revision}` : keyed;
   const fragment = options.contentFragment === null || options.contentFragment === undefined
     ? ""
     : `#${options.contentFragment}`;
   return `${pinned}${querySuffix(options.applicationQuery)}${fragment}`;
 }
 
-export function buildArborLocator(
+export function buildOverstoryLocator(
   tree: string,
   path: LogicalPath,
   stableKey?: string | null,
 ): string {
-  return `arbor://${tree}${buildNetworkLocator(canonicalNodePath(path), { stableKey })}`;
+  return `overstory://${tree}${buildNetworkLocator(canonicalNodePath(path), { stableKey })}`;
 }
 
 /**
@@ -314,22 +314,22 @@ export interface ResolvedNodeTarget {
 }
 
 /**
- * Resolve a markdown href to the node it points at, accepting both relative hrefs and `arbor://`
+ * Resolve a markdown href to the node it points at, accepting both relative hrefs and `overstory://`
  * locators. Returns null for anything that does not name a node: external, system and overlay URLs,
- * bare `#fragment` anchors, and `arbor://` URLs on a DNS authority (those name another workspace,
+ * bare `#fragment` anchors, and `overstory://` URLs on a DNS authority (those name another workspace,
  * not a node this tree can resolve).
  */
 export function resolveNodeTarget(sourceDirectory: LogicalPath, href: string): ResolvedNodeTarget | null {
   const resolved = resolveLogicalURL(sourceDirectory, href);
   if (resolved?.kind === "local") return { tree: null, path: resolved.path, stableKey: resolved.stableKey };
-  if (resolved?.kind !== "arbor" || !("treeID" in resolved.authority)) return null;
+  if (resolved?.kind !== "overstory" || !("treeID" in resolved.authority)) return null;
   return { tree: resolved.authority.treeID, path: resolved.path, stableKey: resolved.stableKey };
 }
 
 /**
  * Rewrite a node link to name `target`, retaining its key, revision, query and
  * content fragment. A relative href is rewritten against `sourceDirectory`; an
- * `arbor://` locator stays one.
+ * `overstory://` locator stays one.
  */
 export function rewriteLocalLinkPath(
   sourceDirectory: LogicalPath,
@@ -337,9 +337,9 @@ export function rewriteLocalLinkPath(
   target: { path: LogicalPath; body: MarkdownBodyOrigin | null },
 ): string | null {
   const resolved = resolveLogicalURL(sourceDirectory, href);
-  if (resolved?.kind === "arbor") {
+  if (resolved?.kind === "overstory") {
     if (!("treeID" in resolved.authority)) return null;
-    return buildArborLocator(resolved.authority.treeID, target.path, resolved.stableKey);
+    return buildOverstoryLocator(resolved.authority.treeID, target.path, resolved.stableKey);
   }
   if (resolved?.kind !== "local") return null;
   return buildMarkdownLink(sourceDirectory, { ...resolved, ...target });

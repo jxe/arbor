@@ -3,9 +3,9 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import { createPrivateKey, createPublicKey, sign } from "node:crypto";
-import { accountChallengeBytes, personProfileTreeID, treeConfigurationID, type AccountChallenge } from "@overstory/protocol";
-import { canonicalCBORHash, encodeCanonicalCBOR, canonicalUpdateIntent, encodeProtocolDirectory, hashObject, updateRequestDigest, updateRequestDigests } from "@overstory/protocol";
-import { activationElement, decodeUpdateRequestJSON, decodeUpdateResponseJSON, encodeCandidateUpdateJSON, encodeUpdateRequestJSON, encodeUpdateResponseJSON, initialPersonConfig, snapshotTreeConfig } from "@overstory/protocol";
+import { accountChallengeBytes, personProfileTreeID, treeConfigurationID, type AccountChallenge } from "@ovst/protocol";
+import { canonicalCBORHash, encodeCanonicalCBOR, canonicalUpdateIntent, encodeProtocolDirectory, hashObject, updateRequestDigest, updateRequestDigests } from "@ovst/protocol";
+import { activationElement, decodeUpdateRequestJSON, decodeUpdateResponseJSON, encodeCandidateUpdateJSON, encodeUpdateRequestJSON, encodeUpdateResponseJSON, initialPersonConfig, snapshotTreeConfig } from "@ovst/protocol";
 
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
 const emptyDirectory = encodeProtocolDirectory({ type: "directory", entries: [] });
@@ -31,7 +31,7 @@ const endpoints = JSON.parse(await readFile(endpointsPath,"utf8"));
 for (const c of endpoints.cases) {
   if (!c.request.body?.updates) continue;
   const previous = c.request.derivedRequestDigest;
-  const tree = decodeURIComponent(c.request.path.match(/^\/\.arbor\/trees\/([^/]+)\/updates$/)[1]);
+  const tree = decodeURIComponent(c.request.path.match(/^\/\.overstory\/trees\/([^/]+)\/updates$/)[1]);
   const digest = updateRequestDigests(tree,c.request.body)[0];
   if (previous) {
     const text = JSON.stringify(c).replaceAll(previous,digest);
@@ -41,7 +41,7 @@ for (const c of endpoints.cases) {
 await writeFile(endpointsPath,JSON.stringify(endpoints,null,2)+"\n");
 
 // Bootstrap pending requests preserve semantic identity after object rehashing.
-for (const path of ["tests/fixtures/arborsync/bootstrap.json", "tests/fixtures/arborsync/bootstrap-pending.json"]) {
+for (const path of ["tests/fixtures/story-sync/bootstrap.json", "tests/fixtures/story-sync/bootstrap-pending.json"]) {
   const value = JSON.parse(await readFile(path, "utf8"));
   if (value.pending) value.pending.requestDigests = updateRequestDigests(value.tree.id, value.pending);
   await writeFile(path, JSON.stringify(value, null, 2) + "\n");
@@ -145,7 +145,7 @@ console.log("Regenerated Wire vectors");
     ...authored.cases.filter((c: any) => c.valid).map((c: any) => ({ name: c.name, source: `protocol-authored-transport.json#${c.name}`, tree: authored.tree, value: c.value })),
     ...endpoints.cases.filter((c: any) => c.request.body?.updates).map((c: any) => ({
       name: c.name, source: `protocol-endpoints.json#${c.name}`,
-      tree: decodeURIComponent(c.request.path.match(/^\/\.arbor\/trees\/([^/]+)\/updates$/)[1]), value: c.request.body,
+      tree: decodeURIComponent(c.request.path.match(/^\/\.overstory\/trees\/([^/]+)\/updates$/)[1]), value: c.request.body,
     })),
   ].map(({ name, source, tree, value }) => {
     const request = decodeUpdateRequestJSON(value);

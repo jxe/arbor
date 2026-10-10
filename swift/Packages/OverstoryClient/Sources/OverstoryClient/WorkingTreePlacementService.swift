@@ -1,6 +1,6 @@
-import CanopyAppKit
+import StoryKit
 import OverstoryObjectStore
-import CanopyWorkingTree
+import OverstoryWorkingTree
 import Overstory
 import Foundation
 

@@ -1,9 +1,9 @@
-# canopyd 015: Resolve choices that later work has reconciled
+# overstoryd 015: Resolve choices that later work has reconciled
 
 **Why and when:** Joe encountered a whole-tree conflict after moving blocks into a
 new page. Later accepted edits already produced the intended contents, but the
 conflict remained and its cards showed only older alternatives. Address this after
-the page-transfer fixes: canopyd should clear choices it can prove reconciled,
+the page-transfer fixes: overstoryd should clear choices it can prove reconciled,
 and Canopy should explain the current result and make explicit resolution easy.
 
 ## What exists
@@ -43,7 +43,7 @@ hash, or a no-op save must not suffice. If evidence is incomplete, retain review
 
 ### 2. Record and accept an explicit authority resolution
 
-Implement the rule in canopyd's merge engine, with a stable rule identity and
+Implement the rule in overstoryd's merge engine, with a stable rule identity and
 revision. Record the accepted state, complete guarded alternatives, resulting
 root, provenance mapping, and a concise justification. Preserve independent
 choices and validate dependencies atomically. Recheck after concurrency; reject
@@ -54,7 +54,7 @@ Keep the resolution separate from the fact that a new edit was accepted. Decide
 and document how the host represents its authority authorship in the accepted log
 and how a client discovers the explanation. Update protocol models, Swift and
 TypeScript decoding, fixtures and conformance tests together if exposed shapes
-change. This builds on [canopyd 014](014-merge-handles-many-cases.md), especially
+change. This builds on [overstoryd 014](014-merge-handles-many-cases.md), especially
 its work on merge notes and rule revisions.
 
 ### 3. Explain and resolve current contents in clients
@@ -76,7 +76,7 @@ history access without leaving a blocking conflict card behind.
 
 - Synthetic engine tests demonstrate both automatic discharge and near misses
   that remain reviewable; byte equality without causal coverage remains unresolved.
-- Disposable canopyd integration tests include batching, concurrency, retry,
+- Disposable overstoryd integration tests include batching, concurrency, retry,
   restart and cold replay; authority resolutions leave a reproducible explanation.
 - Client tests preserve current CRLF/Unicode bytes, later edits, unrelated choices,
   dependency obligations, stale guards and durable drafts.

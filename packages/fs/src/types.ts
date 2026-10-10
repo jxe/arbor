@@ -1,4 +1,4 @@
-import type { Diagnostic, MarkdownDocument, Materialization } from "@overstory/protocol";
+import type { Diagnostic, MarkdownDocument, Materialization } from "@ovst/protocol";
 
 export type FsBodySource = "sibling" | "index" | null;
 export type FsNodeKind = "missing" | "file" | "markdown" | "directory";

@@ -18,22 +18,22 @@
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "../roadmap?view=board#arbor-key=id:x7f3q2",
+    "href": "../roadmap?view=board#overstory-key=id:x7f3q2",
     "rewriteTarget": {"path": "/projects/current-roadmap", "body": "sibling"},
-    "expectedRewritten": "../current-roadmap.md?view=board#arbor-key=id:x7f3q2",
+    "expectedRewritten": "../current-roadmap.md?view=board#overstory-key=id:x7f3q2",
     "expected": {"kind": "local", "path": "/projects/roadmap", "stableKey": "[[\"id\",\"x7f3q2\"]]", "revision": null, "applicationQuery": "view=board", "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "../roadmap;arbor-key=slug:walking?view=board#implementation",
+    "href": "../roadmap;overstory-key=slug:walking?view=board#implementation",
     "rewriteTarget": {"path": "/projects/current-roadmap", "body": "sibling"},
-    "expectedRewritten": "../current-roadmap.md;arbor-key=slug:walking?view=board#implementation",
+    "expectedRewritten": "../current-roadmap.md;overstory-key=slug:walking?view=board#implementation",
     "expected": {"kind": "local", "path": "/projects/roadmap", "stableKey": "[[\"slug\",\"walking\"]]", "revision": null, "applicationQuery": "view=board", "contentFragment": "implementation"}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "literal%3Barbor-key%3Dname",
-    "expected": {"kind": "local", "path": "/projects/atlas/literal;arbor-key=name", "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
+    "href": "literal%3Boverstory-key%3Dname",
+    "expected": {"kind": "local", "path": "/projects/atlas/literal;overstory-key=name", "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
@@ -62,17 +62,17 @@
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "roadmap;arbor-key=not-a-token",
+    "href": "roadmap;overstory-key=not-a-token",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "roadmap;arbor-key=id:x7f3q2#arbor-key=id:x7f3q2",
+    "href": "roadmap;overstory-key=id:x7f3q2#overstory-key=id:x7f3q2",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "#arbor-key=id:x7f3q2",
+    "href": "#overstory-key=id:x7f3q2",
     "expected": null
   },
   {
@@ -89,54 +89,54 @@
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m/essays/drift;arbor-key=id:x7f3q2?id=p_123#section",
-    "expected": {"kind": "arbor", "authority": {"treeID": "tr_7k3m"}, "path": "/essays/drift", "stableKey": "[[\"id\",\"x7f3q2\"]]", "revision": null, "applicationQuery": "id=p_123", "contentFragment": "section"}
+    "href": "overstory://tr_7k3m/essays/drift;overstory-key=id:x7f3q2?id=p_123#section",
+    "expected": {"kind": "overstory", "authority": {"treeID": "tr_7k3m"}, "path": "/essays/drift", "stableKey": "[[\"id\",\"x7f3q2\"]]", "revision": null, "applicationQuery": "id=p_123", "contentFragment": "section"}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m/essays/drift;arbor-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    "expected": {"kind": "arbor", "authority": {"treeID": "tr_7k3m"}, "path": "/essays/drift", "stableKey": null, "revision": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "applicationQuery": null, "contentFragment": null}
+    "href": "overstory://tr_7k3m/essays/drift;overstory-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "expected": {"kind": "overstory", "authority": {"treeID": "tr_7k3m"}, "path": "/essays/drift", "stableKey": null, "revision": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m/essays/drift;arbor-key=id:x7f3q2;arbor-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?id=p_123#section",
-    "expected": {"kind": "arbor", "authority": {"treeID": "tr_7k3m"}, "path": "/essays/drift", "stableKey": "[[\"id\",\"x7f3q2\"]]", "revision": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "applicationQuery": "id=p_123", "contentFragment": "section"}
+    "href": "overstory://tr_7k3m/essays/drift;overstory-key=id:x7f3q2;overstory-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?id=p_123#section",
+    "expected": {"kind": "overstory", "authority": {"treeID": "tr_7k3m"}, "path": "/essays/drift", "stableKey": "[[\"id\",\"x7f3q2\"]]", "revision": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "applicationQuery": "id=p_123", "contentFragment": "section"}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m",
-    "expected": {"kind": "arbor", "authority": {"treeID": "tr_7k3m"}, "path": "/", "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
+    "href": "overstory://tr_7k3m",
+    "expected": {"kind": "overstory", "authority": {"treeID": "tr_7k3m"}, "path": "/", "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "../roadmap;arbor-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef#implementation",
+    "href": "../roadmap;overstory-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef#implementation",
     "rewriteTarget": {"path": "/projects/current-roadmap", "body": "sibling"},
-    "expectedRewritten": "../current-roadmap.md;arbor-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef#implementation",
+    "expectedRewritten": "../current-roadmap.md;overstory-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef#implementation",
     "expected": {"kind": "local", "path": "/projects/roadmap", "stableKey": null, "revision": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "applicationQuery": null, "contentFragment": "implementation"}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m/essays/drift;arbor-rev=id:x7f3q2;arbor-key=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "href": "overstory://tr_7k3m/essays/drift;overstory-rev=id:x7f3q2;overstory-key=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m/essays/drift;arbor-rev=sha256:0123",
+    "href": "overstory://tr_7k3m/essays/drift;overstory-rev=sha256:0123",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m/essays/drift;arbor-key=id:x7f3q2;arbor-key=id:x7f3q2",
+    "href": "overstory://tr_7k3m/essays/drift;overstory-key=id:x7f3q2;overstory-key=id:x7f3q2",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m/essays/drift;arbor-tag=x",
+    "href": "overstory://tr_7k3m/essays/drift;story-tag=x",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/essays/drift",
+    "href": "overstory://tr_7k3m@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/essays/drift",
     "expected": null
   },
   {
@@ -146,12 +146,12 @@
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://library.meaningalignment.org/essays/drift?",
-    "expected": {"kind": "arbor", "authority": {"dns": "library.meaningalignment.org"}, "path": "/essays/drift", "stableKey": null, "revision": null, "applicationQuery": "", "contentFragment": null}
+    "href": "overstory://library.meaningalignment.org/essays/drift?",
+    "expected": {"kind": "overstory", "authority": {"dns": "library.meaningalignment.org"}, "path": "/essays/drift", "stableKey": null, "revision": null, "applicationQuery": "", "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://",
+    "href": "overstory://",
     "expected": null
   },
   {
@@ -191,52 +191,52 @@
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "../roadmap.md#arbor-key=id:x7f3q2",
+    "href": "../roadmap.md#overstory-key=id:x7f3q2",
     "expected": {"kind": "local", "path": "/projects/roadmap", "stableKey": "[[\"id\",\"x7f3q2\"]]", "revision": null, "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "Tasks/walking#arbor-key=slug:walking,lang:en",
+    "href": "Tasks/walking#overstory-key=slug:walking,lang:en",
     "expected": {"kind": "local", "path": "/projects/atlas/Tasks/walking", "stableKey": "[[\"slug\",\"walking\"],[\"lang\",\"en\"]]", "revision": null, "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "Tasks/row#arbor-key=id=42",
+    "href": "Tasks/row#overstory-key=id=42",
     "expected": {"kind": "local", "path": "/projects/atlas/Tasks/row", "stableKey": "[[\"id\",42]]", "revision": null, "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "Tasks/row;arbor-key=done=true",
+    "href": "Tasks/row;overstory-key=done=true",
     "expected": {"kind": "local", "path": "/projects/atlas/Tasks/row", "stableKey": "[[\"done\",true]]", "revision": null, "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "Tasks/row#arbor-key=t:a%20b%2Cc",
+    "href": "Tasks/row#overstory-key=t:a%20b%2Cc",
     "expected": {"kind": "local", "path": "/projects/atlas/Tasks/row", "stableKey": "[[\"t\",\"a b,c\"]]", "revision": null, "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "Tasks/row#arbor-key=t:a%2cb",
+    "href": "Tasks/row#overstory-key=t:a%2cb",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "Tasks/row#arbor-key=id=042",
+    "href": "Tasks/row#overstory-key=id=042",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "Tasks/row#arbor-key=id:",
+    "href": "Tasks/row#overstory-key=id:",
     "expected": {"kind": "local", "path": "/projects/atlas/Tasks/row", "stableKey": "[[\"id\",\"\"]]", "revision": null, "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "Tasks/row#arbor-key=id",
+    "href": "Tasks/row#overstory-key=id",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "Tasks/row#arbor-key=%69d:x",
+    "href": "Tasks/row#overstory-key=%69d:x",
     "expected": null
   },
   {
@@ -251,47 +251,47 @@
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m;arbor-config",
-    "expected": {"kind": "arbor", "authority": {"treeID": "tr_7k3m"}, "path": "/", "configuration": true, "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
+    "href": "overstory://tr_7k3m;overstory-config",
+    "expected": {"kind": "overstory", "authority": {"treeID": "tr_7k3m"}, "path": "/", "configuration": true, "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://canopy.example/~joe/todos;arbor-config",
-    "expected": {"kind": "arbor", "authority": {"dns": "canopy.example"}, "path": "/~joe/todos", "configuration": true, "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
+    "href": "overstory://host.example/~joe/todos;overstory-config",
+    "expected": {"kind": "overstory", "authority": {"dns": "host.example"}, "path": "/~joe/todos", "configuration": true, "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/",
-    "href": "/~joe/todos;arbor-config",
+    "href": "/~joe/todos;overstory-config",
     "expected": {"kind": "local", "path": "/~joe/todos", "configuration": true, "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null}
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m/essays;arbor-config",
+    "href": "overstory://tr_7k3m/essays;overstory-config",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m;arbor-config=yes",
+    "href": "overstory://tr_7k3m;overstory-config=yes",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m;arbor-config;arbor-config",
+    "href": "overstory://tr_7k3m;overstory-config;overstory-config",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m/essays;arbor-key=id:x7f3q2;arbor-config",
+    "href": "overstory://tr_7k3m/essays;overstory-key=id:x7f3q2;overstory-config",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m;arbor-config#section",
+    "href": "overstory://tr_7k3m;overstory-config#section",
     "expected": null
   },
   {
     "sourceDirectory": "/projects/atlas",
-    "href": "arbor://tr_7k3m;arbor-config?id=p_123",
+    "href": "overstory://tr_7k3m;overstory-config?id=p_123",
     "expected": null
   }
 ]

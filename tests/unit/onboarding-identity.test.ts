@@ -2,22 +2,22 @@ import { afterEach, beforeEach, describe, expect, test, spyOn } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile, rename, mkdir, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { arborPrivateRoot, loadWorkspaceRegistry, sha256 } from "@overstory/protocol";
+import { overstoryPrivateRoot, loadWorkspaceRegistry, sha256 } from "@ovst/protocol";
 import { ProfileIdentityStore } from "../../packages/client/src/profile-identity.ts";
 
 let root: string;
 let previousHome: string | undefined;
 let previousStore: string | undefined;
 beforeEach(async () => {
-  previousHome = process.env.ARBOR_DATA_HOME;
-  previousStore = process.env.ARBOR_CREDENTIAL_STORE;
-  root = await mkdtemp(join(tmpdir(), "canopy-identity-"));
-  process.env.ARBOR_DATA_HOME = join(root, "home");
-  process.env.ARBOR_CREDENTIAL_STORE = "file";
+  previousHome = process.env.STORY_HOME;
+  previousStore = process.env.STORY_CREDENTIAL_STORE;
+  root = await mkdtemp(join(tmpdir(), "overstoryd-identity-"));
+  process.env.STORY_HOME = join(root, "home");
+  process.env.STORY_CREDENTIAL_STORE = "file";
 });
 afterEach(async () => {
-  if (previousHome === undefined) delete process.env.ARBOR_DATA_HOME; else process.env.ARBOR_DATA_HOME = previousHome;
-  if (previousStore === undefined) delete process.env.ARBOR_CREDENTIAL_STORE; else process.env.ARBOR_CREDENTIAL_STORE = previousStore;
+  if (previousHome === undefined) delete process.env.STORY_HOME; else process.env.STORY_HOME = previousHome;
+  if (previousStore === undefined) delete process.env.STORY_CREDENTIAL_STORE; else process.env.STORY_CREDENTIAL_STORE = previousStore;
   await rm(root, { recursive: true, force: true });
 });
 
@@ -35,10 +35,10 @@ describe("onboarding identity preservation", () => {
     await store.backup(backup, passphrase);
     await expect(store.backup(backup, passphrase)).rejects.toThrow("EEXIST");
     const written = JSON.parse(await readFile(backup, "utf8"));
-    const { privateKey } = JSON.parse(await readFile(join(arborPrivateRoot(), "self.identity.json"), "utf8"));
+    const { privateKey } = JSON.parse(await readFile(join(overstoryPrivateRoot(), "self.identity.json"), "utf8"));
     expect(written).toMatchObject({ version: 2, profileTree: first.profileTree, publicKey: first.publicKey, encryption: { kdf: "scrypt", cipher: "aes-256-gcm" } });
     expect(JSON.stringify(written)).not.toContain(privateKey);
-    process.env.ARBOR_DATA_HOME = join(root, "recovered");
+    process.env.STORY_HOME = join(root, "recovered");
     await expect(store.restore(backup, join(root, "new-profile"))).rejects.toThrow("passphrase is required");
     await expect(store.restore(backup, join(root, "new-profile"), "not the passphrase")).rejects.toThrow("does not open");
     const restored = await store.restore(backup, join(root, "new-profile"), passphrase);
@@ -53,8 +53,8 @@ describe("onboarding identity preservation", () => {
     const backup = join(root, "backup.json");
     await store.backup(backup, passphrase);
     const written = JSON.parse(await readFile(backup, "utf8"));
-    const { privateKey } = JSON.parse(await readFile(join(arborPrivateRoot(), "self.identity.json"), "utf8"));
-    process.env.ARBOR_DATA_HOME = join(root, "recovered");
+    const { privateKey } = JSON.parse(await readFile(join(overstoryPrivateRoot(), "self.identity.json"), "utf8"));
+    process.env.STORY_HOME = join(root, "recovered");
     // The header is authenticated: naming other parameters breaks the seal.
     await expect(store.restoreValue({ ...written, encryption: { ...written.encryption, N: 2 ** 16 } }, join(root, "new-profile"), passphrase)).rejects.toThrow("does not open");
     const restored = await store.restoreValue({ version: 1, profileTree: first.profileTree, publicKey: first.publicKey, privateKey }, join(root, "new-profile"));
@@ -64,7 +64,7 @@ describe("onboarding identity preservation", () => {
   test("malformed metadata blocks creation and retains exact bytes", async () => {
     const store = new ProfileIdentityStore();
     await store.create(join(root, "profile"));
-    const path = join(arborPrivateRoot(), "self.json");
+    const path = join(overstoryPrivateRoot(), "self.json");
     await writeFile(path, "{broken");
     await expect(store.status()).rejects.toThrow();
     await expect(store.create(join(root, "profile"))).rejects.toThrow();
@@ -75,7 +75,7 @@ describe("onboarding identity preservation", () => {
     const store = new ProfileIdentityStore();
     const profile = join(root, "profile");
     const first = await store.create(profile);
-    const key = join(arborPrivateRoot(), "self.identity.json");
+    const key = join(overstoryPrivateRoot(), "self.identity.json");
     const record = JSON.parse(await readFile(key, "utf8"));
     await rm(key);
     expect(await store.status()).toMatchObject({ profileTree: first.profileTree, keyAvailable: false });
@@ -87,7 +87,7 @@ describe("onboarding identity preservation", () => {
   test("a locked keychain propagates failure", async () => {
     const store = new ProfileIdentityStore();
     await store.create(join(root, "profile"));
-    delete process.env.ARBOR_CREDENTIAL_STORE;
+    delete process.env.STORY_CREDENTIAL_STORE;
     const lookup = spyOn(Bun.secrets, "get").mockRejectedValue(new Error("Keychain locked"));
     try { await expect(store.status()).rejects.toThrow("Keychain locked"); }
     finally { lookup.mockRestore(); }
@@ -96,7 +96,7 @@ describe("onboarding identity preservation", () => {
   test("recovery rejects mismatched material without modifying the identity", async () => {
     const store = new ProfileIdentityStore();
     const first = await store.create(join(root, "profile"));
-    const { privateKey } = JSON.parse(await readFile(join(arborPrivateRoot(), "self.identity.json"), "utf8"));
+    const { privateKey } = JSON.parse(await readFile(join(overstoryPrivateRoot(), "self.identity.json"), "utf8"));
     const value = { version: 1, profileTree: first.profileTree, publicKey: first.publicKey, privateKey };
     value.publicKey = Buffer.alloc(32).toString("base64url");
     await expect(store.restoreValue(value, first.profilePath)).rejects.toThrow("does not match");
@@ -111,7 +111,7 @@ describe("onboarding identity preservation", () => {
   });
 
   test("Keychain write denial leaves the folder unbound and setup retryable", async () => {
-    delete process.env.ARBOR_CREDENTIAL_STORE;
+    delete process.env.STORY_CREDENTIAL_STORE;
     const records = new Map<string, string>();
     const get = spyOn(Bun.secrets, "get").mockImplementation(async ({ name }) => records.get(name) ?? null);
     const set = spyOn(Bun.secrets, "set").mockRejectedValueOnce(new Error("Keychain denied"))
@@ -127,35 +127,35 @@ describe("onboarding identity preservation", () => {
   });
 
   test("interruption after secure save resumes the same identity", async () => {
-    delete process.env.ARBOR_CREDENTIAL_STORE;
+    delete process.env.STORY_CREDENTIAL_STORE;
     const records = new Map<string, string>();
     const get = spyOn(Bun.secrets, "get").mockImplementation(async ({ name }) => records.get(name) ?? null);
     const set = spyOn(Bun.secrets, "set").mockImplementation(async ({ name, value }) => {
       records.set(name, String(value));
-      await mkdir(join(arborPrivateRoot(), "self.json")); // interrupt metadata publication
+      await mkdir(join(overstoryPrivateRoot(), "self.json")); // interrupt metadata publication
     });
     try {
       const store = new ProfileIdentityStore();
       await expect(store.create(join(root, "profile"))).rejects.toThrow();
       const saved = JSON.parse([...records.values()][0]!);
-      await rm(join(arborPrivateRoot(), "self.json"), { recursive: true });
+      await rm(join(overstoryPrivateRoot(), "self.json"), { recursive: true });
       expect((await store.status())?.profileTree).toBe(saved.profileTree);
       expect((await store.create(join(root, "profile"))).profileTree).toBe(saved.profileTree);
     } finally { get.mockRestore(); set.mockRestore(); }
   });
 
   test("missing metadata recovers the secure record and moved homes retain credential references", async () => {
-    delete process.env.ARBOR_CREDENTIAL_STORE;
+    delete process.env.STORY_CREDENTIAL_STORE;
     const records = new Map<string, string>();
     const get = spyOn(Bun.secrets, "get").mockImplementation(async ({ name }) => records.get(name) ?? null);
     const set = spyOn(Bun.secrets, "set").mockImplementation(async ({ name, value }) => { records.set(name, String(value)); });
     try {
       const store = new ProfileIdentityStore();
       const first = await store.create(join(root, "profile"));
-      await rm(join(arborPrivateRoot(), "self.json"));
+      await rm(join(overstoryPrivateRoot(), "self.json"));
       expect(await store.status()).toEqual(first);
-      await rename(process.env.ARBOR_DATA_HOME!, join(root, "moved-home"));
-      process.env.ARBOR_DATA_HOME = join(root, "moved-home");
+      await rename(process.env.STORY_HOME!, join(root, "moved-home"));
+      process.env.STORY_HOME = join(root, "moved-home");
       expect(await store.status()).toEqual(first);
       expect(records.size).toBe(1);
     } finally { get.mockRestore(); set.mockRestore(); }
@@ -164,16 +164,16 @@ describe("onboarding identity preservation", () => {
   test("legacy credentials migrate without deleting the original", async () => {
     const store = new ProfileIdentityStore();
     const first = await store.create(join(root, "profile"));
-    const recordPath = join(arborPrivateRoot(), "self.identity.json");
+    const recordPath = join(overstoryPrivateRoot(), "self.identity.json");
     const record = JSON.parse(await readFile(recordPath, "utf8"));
-    const metadataPath = join(arborPrivateRoot(), "self.json");
+    const metadataPath = join(overstoryPrivateRoot(), "self.json");
     const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
-    metadata.credential = `org.arbor.person-profile/self-${sha256(`${arborPrivateRoot()}\0${first.profileTree}`).slice(0, 24)}`;
+    metadata.credential = `org.arbor.person-profile/self-${sha256(`${overstoryPrivateRoot()}\0${first.profileTree}`).slice(0, 24)}`;
     await writeFile(metadataPath, JSON.stringify(metadata));
-    await writeFile(join(arborPrivateRoot(), "self.key"), record.privateKey);
+    await writeFile(join(overstoryPrivateRoot(), "self.key"), record.privateKey);
     await rm(recordPath);
     expect((await store.status())?.profileTree).toBe(first.profileTree);
-    expect(await readFile(join(arborPrivateRoot(), "self.key"), "utf8")).toBe(record.privateKey);
+    expect(await readFile(join(overstoryPrivateRoot(), "self.key"), "utf8")).toBe(record.privateKey);
   });
 
   test("explicit matching backup repairs metadata and preserves damaged bytes", async () => {
@@ -182,10 +182,10 @@ describe("onboarding identity preservation", () => {
     const first = await store.create(profile);
     const backup = join(root, "backup.json");
     await store.backup(backup, passphrase);
-    await writeFile(join(arborPrivateRoot(), "self.json"), "{damaged");
+    await writeFile(join(overstoryPrivateRoot(), "self.json"), "{damaged");
     expect(await store.restore(backup, profile, passphrase)).toEqual(first);
-    const retained = (await readdir(arborPrivateRoot())).find((name) => name.startsWith("self.json.damaged-"));
-    expect(await readFile(join(arborPrivateRoot(), retained!), "utf8")).toBe("{damaged");
+    const retained = (await readdir(overstoryPrivateRoot())).find((name) => name.startsWith("self.json.damaged-"));
+    expect(await readFile(join(overstoryPrivateRoot(), retained!), "utf8")).toBe("{damaged");
   });
 
   test("separate processes share one creation lock", async () => {

@@ -1,16 +1,16 @@
 #!/usr/bin/env bun
-import { decodeCandidateUpdateJSON, describeTransitionPayload, canonicalArborLocator, canonicalHTTPURL, deviceKeyFromSeed, generateArborID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, arborDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@overstory/protocol";
+import { decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { resolveUserPath } from "@overstory/arborsync";
-import { runArborSyncDaemon } from "@overstory/arborsync/cli";
-import { ArborSyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
-import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@overstory/fs";
-import { listLocalAccounts } from "@overstory/arborsync/state";
-import { addLocalPlacement, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@overstory/client";
+import { resolveUserPath } from "@ovst/story-sync";
+import { runStorySyncDaemon } from "@ovst/story-sync/cli";
+import { StorySyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
+import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@ovst/fs";
+import { listLocalAccounts } from "@ovst/story-sync/state";
+import { addLocalPlacement, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
 import type { Document } from "yaml";
-import { ARBOR_SYNC_PORT, arborDaemonSupervisor } from "./daemon.ts";
-import { validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@overstory/canopyd";
+import { STORY_SYNC_PORT, storyDaemonSupervisor } from "./daemon.ts";
+import { validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@ovst/overstoryd";
 import {
   cloudPlacementPath,
   cloudSessionDirectory,
@@ -83,43 +83,43 @@ let passphraseInput: Promise<string[]> | undefined;
 
 function usage(): never {
   console.error(`Usage:
-  arbor open [<locator>]
-  arbor me
-  arbor me create [<profile-folder>] [--name <display-name>]
-  arbor me set [--name <display-name>] [--avatar <relative-path>] [--description <text>]
-  arbor me backup <file>
-  arbor me restore <file> [<profile-folder>]
-  arbor device [--account <ConfigurationTreeID>]
-  arbor account
-  arbor daemon <install|uninstall|start|stop|restart|status|logs>
-  arbor status [<locator>] [--json]
-  arbor cloud bundle create [--name <label>] --place <canonical-url> <relative-path> [...]
-  arbor cloud bundle list [--json]
-  arbor cloud bundle revoke <bundle-id>
-  arbor cloud start [<bundle-string>] [--root <directory>] [--timeout <duration>] [--json]
-  arbor cloud finish [--root <directory>] [--timeout <duration>] [--json]
-  arbor place [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
+  story open [<locator>]
+  story me
+  story me create [<profile-folder>] [--name <display-name>]
+  story me set [--name <display-name>] [--avatar <relative-path>] [--description <text>]
+  story me backup <file>
+  story me restore <file> [<profile-folder>]
+  story device [--account <ConfigurationTreeID>]
+  story account
+  story daemon <install|uninstall|start|stop|restart|status|logs>
+  story status [<locator>] [--json]
+  story cloud bundle create [--name <label>] --place <canonical-url> <relative-path> [...]
+  story cloud bundle list [--json]
+  story cloud bundle revoke <bundle-id>
+  story cloud start [<bundle-string>] [--root <directory>] [--timeout <duration>] [--json]
+  story cloud finish [--root <directory>] [--timeout <duration>] [--json]
+  story place [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
     (the URL may be on the home host or under a placement root, such as https://<placement-host>/~<handle>/<name>)
-  arbor place <canonical-url> <local-path>
-  arbor mv [--dry-run] <placed-local-root> <new-local-path>
-  arbor mv [--dry-run] <source-canonical-url> <destination-canonical-url>
-  arbor pause <placed-path>
-  arbor resume <placed-path>
-  arbor pending <placed-path> [--json]
-  arbor declined <placed-path> [--json]
-  arbor declined --restore <placed-path>
-  arbor declined --resend <placed-path>
+  story place <canonical-url> <local-path>
+  story mv [--dry-run] <placed-local-root> <new-local-path>
+  story mv [--dry-run] <source-canonical-url> <destination-canonical-url>
+  story pause <placed-path>
+  story resume <placed-path>
+  story pending <placed-path> [--json]
+  story declined <placed-path> [--json]
+  story declined --restore <placed-path>
+  story declined --resend <placed-path>
 
 Notes:
-  arbor open  opens the daemon-hosted web editor, which is being rebuilt and may be unavailable.
-  arbor account  lists your home account and your placement accounts at other hosts.
-  arbor place / mv  edit the account checkout under accounts/<ConfigurationTreeID>/ on disk; Arbor Sync pushes it.
+  story open  opens the daemon-hosted web editor, which is being rebuilt and may be unavailable.
+  story account  lists your home account and your placement accounts at other hosts.
+  story place / mv  edit the account checkout under accounts/<ConfigurationTreeID>/ on disk; Story Sync pushes it.
     A URL on another host places the tree there, under your placement root, once that host's community reserves
     your profile by its URL at your home host (such as https://<home>/~<handle>); the first place connects this
     device there. Placing the placement root's own URL activates it with the folder. Trees never move between hosts.
-  arbor pause / resume  stop and restart publishing a placed folder's changes; accepted updates still arrive.
-  arbor pending  shows exactly what Arbor Sync would send next for a placed folder.
-  arbor declined  shows folder paths whose changes the host refused; the rest of the folder keeps syncing.
+  story pause / resume  stop and restart publishing a placed folder's changes; accepted updates still arrive.
+  story pending  shows exactly what Story Sync would send next for a placed folder.
+  story declined  shows folder paths whose changes the host refused; the rest of the folder keeps syncing.
     --restore puts back the host's version of those paths; --resend sends them again as they are.`);
   process.exit(2);
 }
@@ -129,11 +129,11 @@ async function openBrowser(url: string): Promise<void> {
   try { Bun.spawn(command, { stdout: "ignore", stderr: "ignore" }); } catch {}
 }
 
-export async function attachedArborSyncURL(target: OpenTarget, port: number, selectedOrigin?: string): Promise<URL | null> {
+export async function attachedStorySyncURL(target: OpenTarget, port: number, selectedOrigin?: string): Promise<URL | null> {
   const origin = selectedOrigin ?? `http://127.0.0.1:${port}`;
   try {
     const status = await fetch(`${origin}/v1/status`);
-    if (!status.ok || (await status.json() as { service?: string }).service !== "arborsync") return null;
+    if (!status.ok || (await status.json() as { service?: string }).service !== "story-sync") return null;
     if (target.path) return new URL(`${origin}/render${target.path}`);
     const browserURL = new URL(`${origin}/render`);
     if (target.remoteURL) browserURL.searchParams.set("browse", target.remoteURL);
@@ -151,13 +151,13 @@ interface CanonicalTarget {
 
 function canonicalTarget(input: string): CanonicalTarget {
   const url = new URL(input);
-  if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "arbor:") {
-    throw new Error("Use an HTTP or arbor:// canonical URL");
+  if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "story:") {
+    throw new Error("Use an HTTP or overstory:// canonical URL");
   }
-  if (url.protocol === "arbor:" && url.hostname === "tree") {
+  if (url.protocol === "story:" && url.hostname === "tree") {
     throw new Error("A raw TreeID is not a canonical community URL");
   }
-  const endpoint = url.protocol === "arbor:"
+  const endpoint = url.protocol === "story:"
     ? `${url.hostname === "localhost" || url.hostname === "127.0.0.1" ? "http" : "https"}://${url.host}`
     : url.origin;
   const canonicalPath = `/${url.pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`;
@@ -175,10 +175,10 @@ export interface OpenTarget {
 }
 
 export function openTarget(input: string, cwd = process.cwd()): OpenTarget {
-  if (!/^(?:https?|arbor):\/\//.test(input)) return { path: resolve(cwd, input) };
+  if (!/^(?:https?|story):\/\//.test(input)) return { path: resolve(cwd, input) };
   const target = canonicalTarget(input);
   const source = new URL(input);
-  const remoteURL = source.protocol === "arbor:"
+  const remoteURL = source.protocol === "story:"
     ? `${target.endpoint}${source.pathname}${source.search}${source.hash}`
     : source.toString();
   const profile = /^\/~([a-z0-9](?:[a-z0-9-]{0,62}))\/?$/.exec(target.canonicalPath);
@@ -192,13 +192,13 @@ export async function isReservedProfile(target: OpenTarget): Promise<boolean> {
   if (!target.profile || !target.remoteURL) return false;
   try {
     const response = await fetch(target.remoteURL, { headers: { accept: "text/html" } });
-    return response.ok && response.headers.get("x-arbor-profile-state") === "reserved";
+    return response.ok && response.headers.get("overstory-profile-state") === "reserved";
   } catch {
     return false;
   }
 }
 
-export async function placedRemotePath(target: OpenTarget, client: ArborSyncRESTClient): Promise<string | null> {
+export async function placedRemotePath(target: OpenTarget, client: StorySyncRESTClient): Promise<string | null> {
   if (!target.remoteURL) return null;
   try {
     const canonical = canonicalTarget(target.remoteURL);
@@ -288,25 +288,25 @@ function initialAudience(operations: CliAudienceOperation[], target: CanonicalTa
   };
 }
 
-async function withArborSync<T>(
+async function withStorySync<T>(
   path: string,
   run: (
-    client: ArborSyncRESTClient,
+    client: StorySyncRESTClient,
     service: { synchronizeNow(configurationTree?: string): Promise<void> },
   ) => Promise<T>,
 ): Promise<T> {
-  // The CLI never starts a private daemon: it attaches to the Arbor Sync that
+  // The CLI never starts a private daemon: it attaches to the Story Sync that
   // owns this data home (explicit URL, cloud session, or the well-known
   // loopback port) and fails clearly when none answers.
-  const cloud = !process.env.ARBOR_SYNC_URL ? await cloudSessionForPath(path) : null;
-  const baseURL = process.env.ARBOR_SYNC_URL ?? cloud?.origin ?? `http://127.0.0.1:${ARBOR_SYNC_PORT}`;
-  const client = new ArborSyncRESTClient({ baseURL });
+  const cloud = !process.env.STORY_SYNC_URL ? await cloudSessionForPath(path) : null;
+  const baseURL = process.env.STORY_SYNC_URL ?? cloud?.origin ?? `http://127.0.0.1:${STORY_SYNC_PORT}`;
+  const client = new StorySyncRESTClient({ baseURL });
   const compatible = await client.status().then(
-    (status) => status.service === "arborsync" && status.protocolVersion === "v1",
+    (status) => status.service === "story-sync" && status.protocolVersion === "v1",
     () => false,
   );
   if (!compatible) {
-    throw new Error(`A compatible Arbor Sync is not reachable at ${baseURL}; run \`arbor daemon install\` (first use) or \`arbor daemon start\` on macOS, or \`arborsync --control\`, or point ARBOR_SYNC_URL at it`);
+    throw new Error(`A compatible Story Sync is not reachable at ${baseURL}; run \`story daemon install\` (first use) or \`story daemon start\` on macOS, or \`story-sync --control\`, or point STORY_SYNC_URL at it`);
   }
   return run(client, {
     async synchronizeNow(configurationTree?: string) { await client.synchronizeNow(configurationTree); },
@@ -314,7 +314,7 @@ async function withArborSync<T>(
 }
 
 async function editProfileConfigurationYAML(
-  client: ArborSyncRESTClient,
+  client: StorySyncRESTClient,
   configurationTree: string,
   change: (document: Document) => void | Promise<void>,
   validate: (source: string) => void,
@@ -327,7 +327,7 @@ async function editProfileConfigurationYAML(
     candidate.id === configurationTree && candidate.configurationTree === configurationTree
   );
   if (descriptor?.sync === "conflict") {
-    throw new Error(`Account configuration ${configurationTree} has a synchronization conflict; resolve it (\`arbor status\`) before editing ${filename}`);
+    throw new Error(`Account configuration ${configurationTree} has a synchronization conflict; resolve it (\`story status\`) before editing ${filename}`);
   }
   await editProfileConfigurationFile(configurationTree, filename, change, validate);
 }
@@ -338,7 +338,7 @@ function sameOrDescendantPath(path: string, root: string): boolean {
 }
 
 interface SelectedHostAccount {
-  configuration: ProfileConfigurationSnapshot & Required<Pick<ProfileConfigurationSnapshot, "canopy" | "profile" | "configuration" | "currentDevice">>;
+  configuration: ProfileConfigurationSnapshot & Required<Pick<ProfileConfigurationSnapshot, "host" | "profile" | "configuration" | "currentDevice">>;
   /** The profile's home connection, which holds its configuration and this device's key. */
   connection: NonNullable<Awaited<ReturnType<HostAccountStore["get"]>>>;
   /**
@@ -389,7 +389,7 @@ async function accountForCanonicalTarget(
   if (configuration.diagnostics.length || !configuration.configuration || !configuration.profile || !configuration.currentDevice) {
     throw new Error(`Account ${record.configurationTree} is not valid: ${configuration.diagnostics[0]?.message ?? "incomplete checkout"}`);
   }
-  if (configuration.canopy !== record.origin) {
+  if (configuration.host !== record.origin) {
     throw new Error(`Account ${record.configurationTree} does not match its claimed Canopy connection`);
   }
   if (options.administrator && !configuration.currentDevice.administrator) {
@@ -411,7 +411,7 @@ async function accountForCanonicalTarget(
 }
 
 async function waitForCanonicalPlacement(
-  client: ArborSyncRESTClient,
+  client: StorySyncRESTClient,
   tree: string,
   configurationTree: string,
   endpoint: string,
@@ -424,11 +424,11 @@ async function waitForCanonicalPlacement(
     if (descriptor?.canonical?.endpoint === endpoint && descriptor.canonical.path === canonicalPath) return;
     await Bun.sleep(25);
   }
-  throw new Error("Arbor Sync did not adopt the destination placement");
+  throw new Error("Story Sync did not adopt the destination placement");
 }
 
 async function waitForLocalPlacement(
-  client: ArborSyncRESTClient,
+  client: StorySyncRESTClient,
   tree: string,
   configurationTree: string,
   path: string,
@@ -442,7 +442,7 @@ async function waitForLocalPlacement(
     if (descriptor) return;
     await Bun.sleep(25);
   }
-  throw new Error(`Arbor Sync did not adopt the placement at ${path}`);
+  throw new Error(`Story Sync did not adopt the placement at ${path}`);
 }
 
 async function mvCommand(args: string[]): Promise<void> {
@@ -455,10 +455,10 @@ async function mvCommand(args: string[]): Promise<void> {
   }
   if (operands.length !== 2) usage();
   const [sourceInput, destinationInput] = operands as [string, string];
-  const sourceIsCanonical = /^(?:https?|arbor):\/\//.test(sourceInput);
-  const destinationIsCanonical = /^(?:https?|arbor):\/\//.test(destinationInput);
+  const sourceIsCanonical = /^(?:https?|story):\/\//.test(sourceInput);
+  const destinationIsCanonical = /^(?:https?|story):\/\//.test(destinationInput);
   if (sourceIsCanonical !== destinationIsCanonical) {
-    throw new Error("arbor mv requires either two local paths or two canonical URLs; use arbor place to add a placement");
+    throw new Error("story mv requires either two local paths or two canonical URLs; use story place to add a placement");
   }
   if (sourceIsCanonical) {
     await moveCanonicalTree(sourceInput, destinationInput, dryRun);
@@ -466,7 +466,7 @@ async function mvCommand(args: string[]): Promise<void> {
   }
   const source = await realpath(resolve(sourceInput));
   const destination = resolve(destinationInput);
-  await withArborSync(source, async (client) => {
+  await withStorySync(source, async (client) => {
     const result = await client.movePlacement(source, destination, dryRun);
     console.log(`${result.check ? "Would move" : "Moved"} ${result.tree}`);
     console.log(`  from ${result.source}`);
@@ -475,7 +475,7 @@ async function mvCommand(args: string[]): Promise<void> {
 }
 
 /** The placed tree whose folder holds `input`, by the daemon's `osPath`s; the deepest placement wins. */
-async function placedTree(client: ArborSyncRESTClient, input: string) {
+async function placedTree(client: StorySyncRESTClient, input: string) {
   const path = await realpath(resolve(input)).catch(() => resolve(input));
   const tree = (await client.trees()).snapshot
     .filter((candidate) => candidate.osPath && candidate.placement === "placed" && sameOrDescendantPath(path, candidate.osPath))
@@ -486,7 +486,7 @@ async function placedTree(client: ArborSyncRESTClient, input: string) {
 
 async function pauseCommand(args: string[], action: "pause" | "resume"): Promise<void> {
   if (args.length !== 1 || args[0]!.startsWith("-")) usage();
-  await withArborSync(resolve(args[0]!), async (client) => {
+  await withStorySync(resolve(args[0]!), async (client) => {
     const tree = await placedTree(client, args[0]!);
     await (action === "pause" ? client.pauseFolder(tree.id) : client.resumeFolder(tree.id));
     console.log(`${action === "pause" ? "Paused" : "Resumed"} ${tree.osPath} (${tree.id})`);
@@ -497,7 +497,7 @@ async function pendingCommand(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const operands = args.filter((arg) => arg !== "--json");
   if (operands.length !== 1 || operands[0]!.startsWith("-")) usage();
-  await withArborSync(resolve(operands[0]!), async (client) => {
+  await withStorySync(resolve(operands[0]!), async (client) => {
     const tree = await placedTree(client, operands[0]!);
     const pending = await client.pending(tree.id);
     if (json) {
@@ -534,8 +534,8 @@ function printDeclined(declined: DeclinedChanges, osPath: string): void {
   console.log("Kept on this device and not published:");
   for (const point of declined.points) console.log(`  ${point}`);
   console.log("The rest of the folder keeps syncing. Make these match the host and they are released, or:");
-  console.log(`  arbor declined --restore ${JSON.stringify(osPath)}   put back the host's version`);
-  console.log(`  arbor declined --resend ${JSON.stringify(osPath)}    send them again as they are`);
+  console.log(`  story declined --restore ${JSON.stringify(osPath)}   put back the host's version`);
+  console.log(`  story declined --resend ${JSON.stringify(osPath)}    send them again as they are`);
 }
 
 async function declinedCommand(args: string[]): Promise<void> {
@@ -545,7 +545,7 @@ async function declinedCommand(args: string[]): Promise<void> {
   const json = flags.has("--json");
   if (operands.length !== 1 || [...flags].some((flag) => !["--restore", "--resend", "--json"].includes(flag))
     || (flags.has("--restore") && flags.has("--resend")) || (json && action !== "show")) usage();
-  await withArborSync(resolve(operands[0]!), async (client) => {
+  await withStorySync(resolve(operands[0]!), async (client) => {
     const tree = await placedTree(client, operands[0]!);
     const declined = await client.declined(tree.id);
     if (action === "show" && json) console.log(JSON.stringify(declined, null, 2));
@@ -571,11 +571,11 @@ async function mountPoint(wire: ProtocolClient, path: string): Promise<{ parent:
 
 /**
  * Change a tree's mounts: in the local account checkout when the parent is
- * the account's own profile (Arbor Sync pushes it), otherwise as an update of
+ * the account's own profile (Story Sync pushes it), otherwise as an update of
  * the parent's configuration, which only its administrators may make.
  */
 async function editMounts(
-  client: ArborSyncRESTClient,
+  client: StorySyncRESTClient,
   selected: SelectedHostAccount,
   wire: ProtocolClient,
   parent: string,
@@ -621,7 +621,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
     throw new Error("Moving a tree to another Canopy is not supported: a tree stays on the host that holds it");
   }
 
-  await withArborSync(arborDataRoot(), async (client, service) => {
+  await withStorySync(storyDataRoot(), async (client, service) => {
     let selected = await accountForCanonicalTarget(source, { administrator: true });
     await service.synchronizeNow(selected.configuration.configurationTree);
     selected = await accountForCanonicalTarget(source, { administrator: true });
@@ -629,7 +629,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
     if (local.diagnostics.length) throw new Error(`placements.yaml is invalid: ${local.diagnostics[0]!.message}`);
     const wire = new ProtocolClient(selected.host.origin, selected.host.token, { timeoutMs: REHOME_WIRE_TIMEOUT_MS });
     const resolved = await wire.resolve(source.canonicalPath);
-    const sourceRemote = resolved.enclosingTree as import("@overstory/protocol").RemoteTreeDescriptor | undefined;
+    const sourceRemote = resolved.enclosingTree as import("@ovst/protocol").RemoteTreeDescriptor | undefined;
     if (!sourceRemote?.canonical || sourceRemote.canonical.path !== source.canonicalPath) throw new Error(`No exact canonical tree matches ${sourceInput}`);
     const sourceTree = sourceRemote.id;
     const activePlacement = local.placements.find((placement) => placement.tree === sourceTree);
@@ -689,7 +689,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
   });
 }
 
-async function accessRulesFor(client: ProtocolClient, audience: ShareAudience): Promise<import("@overstory/protocol").AccessRule[]> {
+async function accessRulesFor(client: ProtocolClient, audience: ShareAudience): Promise<import("@ovst/protocol").AccessRule[]> {
   const raw = audience.kind === "private" ? [] : audience.kind === "everyone"
     ? [{ subject: { kind: "everyone" as const }, access: audience.access }]
     : audience.kind === "profile"
@@ -706,7 +706,7 @@ async function accessRulesFor(client: ProtocolClient, audience: ShareAudience): 
  * surfaced as before.
  */
 async function synchronizeOrDefer(
-  client: ArborSyncRESTClient,
+  client: StorySyncRESTClient,
   service: { synchronizeNow(configurationTree?: string): Promise<void> },
   configurationTree: string,
 ): Promise<boolean> {
@@ -730,7 +730,7 @@ async function placeLocal(
   const path = await realpath(resolve(first));
   if (!(await stat(path)).isDirectory()) throw new Error(`Not a directory: ${path}`);
   const target = canonicalTarget(second);
-  await withArborSync(path, async (client, service) => {
+  await withStorySync(path, async (client, service) => {
     let selected = await accountForCanonicalTarget(target, { administrator: true });
     await synchronizeOrDefer(client, service, selected.configuration.configurationTree);
     selected = await accountForCanonicalTarget(target, { administrator: true });
@@ -754,7 +754,7 @@ async function placeLocal(
       // The placement root: declared by the claim, activated here with the folder's content.
       const { account } = await wire.placementAccount();
       if (account.placementRoot.tree) {
-        throw new Error(`${target.supplied} is already active; place it with \`arbor place ${target.supplied} <local-path>\``);
+        throw new Error(`${target.supplied} is already active; place it with \`story place ${target.supplied} <local-path>\``);
       }
       if (audience.length) throw new Error("The placement root keeps its own access rules; edit them after placing it");
       tree = account.placementRoot.id;
@@ -766,11 +766,11 @@ async function placeLocal(
       if (rootPath !== null && !(await wire.placementAccount()).account.placementRoot.tree) {
         throw new Error(`Place a folder at ${selected.host.placement!.account} first; trees below it can be placed once it is active`);
       }
-      tree = generateArborID("tr");
+      tree = generateOverstoryID("tr");
       const rules = await accessRulesFor(wire, initialAudience(audience, target));
       const { parent, name } = await mountPoint(wire, target.canonicalPath);
       // Declare the tree with its configuration, mount it where the URL says,
-      // then let Arbor Sync activate it with the folder's content.
+      // then let Story Sync activate it with the folder's content.
       await wire.declareTree(tree, snapshotTreeConfig({
         access: [{ who: { profile: config.profile }, allow: ["admin"] }, ...rules.map(resourceRule)],
         mounts: {},
@@ -806,7 +806,7 @@ async function placeLocal(
       console.warn(`Warning: no audience options supplied; created ${target.supplied} with private access.`);
     }
     const pushed = await synchronizeOrDefer(client, service, config.configurationTree);
-    if (!pushed) console.warn(`Warning: ${selected.host.origin} is unreachable; the placement is saved and Arbor Sync will push it when the account reconnects.`);
+    if (!pushed) console.warn(`Warning: ${selected.host.origin} is unreachable; the placement is saved and Story Sync will push it when the account reconnects.`);
     console.log(`${target.supplied} ↔ ${path}`);
   });
 }
@@ -815,7 +815,7 @@ async function placeCommand(args: string[]): Promise<void> {
   const { operands, audience } = placeArguments(args);
   if (operands.length !== 2) usage();
   const [first, second] = operands as [string, string];
-  const firstIsURL = /^(?:https?|arbor):\/\//.test(first);
+  const firstIsURL = /^(?:https?|story):\/\//.test(first);
   if (!firstIsURL) {
     await placeLocal(first, second, audience);
     return;
@@ -827,7 +827,7 @@ async function placeCommand(args: string[]): Promise<void> {
   const destination = await realpath(requestedDestination).catch(async () =>
     join(await realpath(dirname(requestedDestination)), basename(requestedDestination))
   );
-  await withArborSync(dirname(destination), async (client, service) => {
+  await withStorySync(dirname(destination), async (client, service) => {
     let selected = await accountForCanonicalTarget(target, { administrator: false });
     await service.synchronizeNow(selected.configuration.configurationTree);
     selected = await accountForCanonicalTarget(target, { administrator: false });
@@ -847,7 +847,7 @@ async function placeCommand(args: string[]): Promise<void> {
     // Do not depend on delivery of a filesystem notification to adopt this write.
     await service.synchronizeNow(selected.configuration.configurationTree);
     await waitForLocalPlacement(client, descriptor.id, selected.configuration.configurationTree, destination);
-    console.log(`${canonicalArborLocator(descriptor.canonical)} ↔ ${destination} (${descriptor.access})`);
+    console.log(`${canonicalOverstoryLocator(descriptor.canonical)} ↔ ${destination} (${descriptor.access})`);
   });
 }
 
@@ -917,7 +917,7 @@ function cloudBundleCreateArguments(args: string[]): CloudBundleCreateArguments 
 
 async function createCloudBundle(args: string[]): Promise<void> {
   const requested = cloudBundleCreateArguments(args);
-  await withArborSync(process.cwd(), async (client, service) => {
+  await withStorySync(process.cwd(), async (client, service) => {
     let selected: SelectedHostAccount | undefined;
     const placements: CloudBundlePlacement[] = [];
     for (const requestedPlacement of requested.placements) {
@@ -927,7 +927,7 @@ async function createCloudBundle(args: string[]): Promise<void> {
         await service.synchronizeNow(candidate.configuration.configurationTree);
         selected = await accountForCanonicalTarget(target, { administrator: true });
       } else if (candidate.configuration.configurationTree !== selected.configuration.configurationTree) {
-        throw new Error("A cloud bundle may contain trees from only one Arbor account");
+        throw new Error("A cloud bundle may contain trees from only one Story account");
       }
       if (candidate.host.placement) throw new Error("A cloud bundle covers trees at the profile's home host only, not a placement host");
       if (target.endpoint !== selected.connection.record.origin) {
@@ -956,7 +956,7 @@ async function createCloudBundle(args: string[]): Promise<void> {
     const bundleID = `cb_${crypto.randomUUID().replaceAll("-", "")}`;
     const label = (requested.label ?? `Cloud bundle ${bundleID.slice(-8)}`).trim();
     if (!label || label.length > 100) throw new Error("Cloud bundle name must be from 1 through 100 characters");
-    const deviceID = generateArborID("dv");
+    const deviceID = generateOverstoryID("dv");
     const deviceKeySeed = generateDeviceKeySeed();
     const createdAt = new Date().toISOString();
     const payload: CloudBundlePayload = {
@@ -1018,7 +1018,7 @@ async function revokeCloudBundle(bundleID: string): Promise<void> {
     console.log(`Cloud bundle ${bundleID} was already revoked.`);
     return;
   }
-  await withArborSync(process.cwd(), async (client, service) => {
+  await withStorySync(process.cwd(), async (client, service) => {
     await service.synchronizeNow(record.configurationTree);
     const configuration = (await loadProfileConfigurations()).find((candidate) => candidate.configurationTree === record.configurationTree);
     if (!configuration?.configuration || !configuration.devices || !configuration.currentDevice) {
@@ -1058,13 +1058,13 @@ function cloudStartArguments(args: string[]): { bundle: string; root: string; ti
       index += 1;
     } else if (arg === "--json") json = true;
     else if (arg.startsWith("--")) usageError(`Unknown cloud start option: ${arg}`);
-    else if (bundleArgument) usageError("arbor cloud start accepts at most one bundle argument");
+    else if (bundleArgument) usageError("story cloud start accepts at most one bundle argument");
     else bundleArgument = arg;
   }
-  const environmentBundle = process.env.ARBOR_CLOUD_BUNDLE;
-  if (bundleArgument && environmentBundle) usageError("Supply the cloud bundle as an argument or ARBOR_CLOUD_BUNDLE, not both");
+  const environmentBundle = process.env.STORY_CLOUD_BUNDLE;
+  if (bundleArgument && environmentBundle) usageError("Supply the cloud bundle as an argument or STORY_CLOUD_BUNDLE, not both");
   const bundle = bundleArgument ?? environmentBundle;
-  if (!bundle) usageError("arbor cloud start requires a bundle argument or ARBOR_CLOUD_BUNDLE");
+  if (!bundle) usageError("story cloud start requires a bundle argument or STORY_CLOUD_BUNDLE");
   return { bundle, root: resolve(root), timeoutMs: parseDuration(timeout), json };
 }
 
@@ -1079,7 +1079,7 @@ async function directoryIsEmpty(path: string): Promise<boolean> {
 }
 
 async function prepareCloudDataHome(payload: CloudBundlePayload, session: CloudSessionRecord): Promise<void> {
-  await withEnvironment({ ARBOR_DATA_HOME: session.dataHome, ARBOR_CREDENTIAL_STORE: "file" }, async () => {
+  await withEnvironment({ STORY_HOME: session.dataHome, STORY_CREDENTIAL_STORE: "file" }, async () => {
     const opened = await openDeviceSession(payload.origin, payload.profileTree, payload.deviceID, payload.deviceKeySeed);
     const wire = new ProtocolClient(payload.origin, opened.token, { timeoutMs: 60_000 });
     const account = await wire.account();
@@ -1120,8 +1120,8 @@ async function prepareCloudDataHome(payload: CloudBundlePayload, session: CloudS
 async function liveCloudStatus(session: CloudSessionRecord) {
   if (!session.origin) return null;
   try {
-    const status = await new ArborSyncRESTClient({ baseURL: session.origin }).status();
-    return status.service === "arborsync" && status.protocolVersion === "v1" && status.instanceID === session.instanceID ? status : null;
+    const status = await new StorySyncRESTClient({ baseURL: session.origin }).status();
+    return status.service === "story-sync" && status.protocolVersion === "v1" && status.instanceID === session.instanceID ? status : null;
   } catch { return null; }
 }
 
@@ -1144,19 +1144,19 @@ async function stopOwnedProcess(pid: number): Promise<void> {
 }
 
 async function waitForCloudOrigin(session: CloudSessionRecord, deadline: number): Promise<string> {
-  const stdoutPath = join(cloudSessionDirectory(session.sessionID), "arborsync.stdout.log");
+  const stdoutPath = join(cloudSessionDirectory(session.sessionID), "story-sync.stdout.log");
   while (Date.now() < deadline) {
     const source = await readFile(stdoutPath, "utf8").catch(() => "");
     const url = source.match(/https?:\/\/127\.0\.0\.1:\d+/)?.[0];
     if (url) {
       try {
-        const status = await new ArborSyncRESTClient({ baseURL: url }).status();
+        const status = await new StorySyncRESTClient({ baseURL: url }).status();
         if (status.instanceID === session.instanceID && status.runtimeKind === "cloud") return url;
       } catch {}
     }
     await Bun.sleep(50);
   }
-  throw new Error("Cloud Arbor Sync did not become reachable before the timeout");
+  throw new Error("Cloud Story Sync did not become reachable before the timeout");
 }
 
 /** The cloud session's account at its Canopy: the session token its device key opened there. */
@@ -1165,7 +1165,7 @@ interface CloudAccountAccess { origin: string; token: string; configurationTree:
 /** The cloud session's account access, from the session's own data home. */
 async function cloudAccountAccess(session: CloudSessionRecord): Promise<CloudAccountAccess> {
   const connection = await withEnvironment(
-    { ARBOR_DATA_HOME: session.dataHome, ARBOR_CREDENTIAL_STORE: "file" },
+    { STORY_HOME: session.dataHome, STORY_CREDENTIAL_STORE: "file" },
     () => new HostAccountStore(session.configurationTree).get(),
   );
   if (!connection) throw new Error("Cloud session credential is unavailable");
@@ -1176,8 +1176,8 @@ async function cloudPlacementsReady(
   session: CloudSessionRecord,
   payload: CloudAccountAccess,
 ): Promise<{ ready: boolean; reason?: string }> {
-  if (!session.origin) return { ready: false, reason: "Arbor Sync has no recorded origin" };
-  const client = new ArborSyncRESTClient({ baseURL: session.origin });
+  if (!session.origin) return { ready: false, reason: "Story Sync has no recorded origin" };
+  const client = new StorySyncRESTClient({ baseURL: session.origin });
   const local = (await client.trees()).snapshot;
   const wire = new ProtocolClient(payload.origin, payload.token, { timeoutMs: 60_000 });
   for (const target of session.placements) {
@@ -1224,7 +1224,7 @@ async function waitForCloudPlacements(
 async function startCloud(args: string[]): Promise<void> {
   const options = cloudStartArguments(args);
   const payload = decodeCloudBundle(options.bundle);
-  delete process.env.ARBOR_CLOUD_BUNDLE;
+  delete process.env.STORY_CLOUD_BUNDLE;
   await mkdir(options.root, { recursive: true });
   const root = await realpath(options.root);
   let session = await cloudSessionForRoot(root);
@@ -1262,14 +1262,14 @@ async function startCloud(args: string[]): Promise<void> {
   try {
     const attached = await liveCloudStatus(session);
     if (!attached && processIsAlive(session.pid)) {
-      throw new Error("The recorded cloud Arbor Sync process is alive but its instance cannot be verified; refusing to start a second writer");
+      throw new Error("The recorded cloud Story Sync process is alive but its instance cannot be verified; refusing to start a second writer");
     }
     if (!attached) {
       await prepareCloudDataHome(payload, session);
       const directory = cloudSessionDirectory(session.sessionID);
       await mkdir(directory, { recursive: true, mode: 0o700 });
-      const stdoutPath = join(directory, "arborsync.stdout.log");
-      const stderrPath = join(directory, "arborsync.stderr.log");
+      const stdoutPath = join(directory, "story-sync.stdout.log");
+      const stderrPath = join(directory, "story-sync.stderr.log");
       await Promise.all([
         writeFile(stdoutPath, "", { mode: 0o600 }),
         writeFile(stderrPath, "", { mode: 0o600 }),
@@ -1277,18 +1277,18 @@ async function startCloud(args: string[]): Promise<void> {
       session = { ...session, instanceID: crypto.randomUUID(), phase: "preparing", updatedAt: new Date().toISOString(), origin: undefined, pid: undefined, lastError: undefined };
       await saveCloudSession(session);
       const cliEntryPoint = process.argv[1];
-      if (!cliEntryPoint) throw new Error("Cannot locate the Arbor CLI entry point");
+      if (!cliEntryPoint) throw new Error("Cannot locate the Story CLI entry point");
       const child = Bun.spawn([
         process.execPath,
         cliEntryPoint,
-        "__cloud-arborsync",
+        "__cloud-story-sync",
         "--control",
         "--port", "0",
         "--runtime-kind", "cloud",
         "--instance-id", session.instanceID,
       ], {
         cwd: root,
-        env: { ...process.env, ARBOR_DATA_HOME: session.dataHome, ARBOR_CREDENTIAL_STORE: "file" },
+        env: { ...process.env, STORY_HOME: session.dataHome, STORY_CREDENTIAL_STORE: "file" },
         stdout: Bun.file(stdoutPath),
         stderr: Bun.file(stderrPath),
       });
@@ -1298,8 +1298,8 @@ async function startCloud(args: string[]): Promise<void> {
       session = { ...session, origin, pid: child.pid, updatedAt: new Date().toISOString() };
       await saveCloudSession(session);
     }
-    if (!session.origin) throw new Error("Cloud Arbor Sync origin is unavailable");
-    const client = new ArborSyncRESTClient({ baseURL: session.origin });
+    if (!session.origin) throw new Error("Cloud Story Sync origin is unavailable");
+    const client = new StorySyncRESTClient({ baseURL: session.origin });
     await client.synchronizeNow(payload.configurationTree);
     await waitForCloudPlacements(session, await cloudAccountAccess(session), deadline);
     session = { ...session, phase: "ready", updatedAt: new Date().toISOString(), lastError: undefined };
@@ -1307,7 +1307,7 @@ async function startCloud(args: string[]): Promise<void> {
     const result = { schemaVersion: 1, ready: true, sessionID: session.sessionID, bundleID: session.bundleID, root, origin: session.origin, placements: session.placements };
     if (options.json) console.log(JSON.stringify(result, null, 2));
     else {
-      console.log(`Cloud Arbor Sync is ready at ${session.origin}.`);
+      console.log(`Cloud Story Sync is ready at ${session.origin}.`);
       for (const placement of session.placements) console.log(`${placement.canonicalURL} ↔ ${placement.path}`);
     }
   } catch (error) {
@@ -1342,23 +1342,23 @@ async function finishCloud(args: string[]): Promise<void> {
   let session = await cloudSessionForPath(options.root);
   if (!session || session.phase === "finished") throw new Error(`No active cloud session contains ${options.root}`);
   if (!session.origin || !session.pid || !await liveCloudStatus(session)) {
-    await saveCloudSession({ ...session, phase: "needs-sync", updatedAt: new Date().toISOString(), lastError: "Cloud Arbor Sync is not running" });
-    throw new Error("Cloud Arbor Sync is not running; retained session state requires recovery before it can finish");
+    await saveCloudSession({ ...session, phase: "needs-sync", updatedAt: new Date().toISOString(), lastError: "Cloud Story Sync is not running" });
+    throw new Error("Cloud Story Sync is not running; retained session state requires recovery before it can finish");
   }
   session = { ...session, phase: "draining", updatedAt: new Date().toISOString(), lastError: undefined };
   await saveCloudSession(session);
   try {
     const deadline = Date.now() + options.timeoutMs;
     const payload = await cloudAccountAccess(session);
-    const client = new ArborSyncRESTClient({ baseURL: session.origin });
+    const client = new StorySyncRESTClient({ baseURL: session.origin });
     await client.synchronizeNow(payload.configurationTree);
     await waitForCloudPlacements(session, payload, deadline);
-    if (!await liveCloudStatus(session)) throw new Error("Cloud Arbor Sync instance changed before shutdown");
+    if (!await liveCloudStatus(session)) throw new Error("Cloud Story Sync instance changed before shutdown");
     const pid = session.pid;
-    if (!pid) throw new Error("Cloud Arbor Sync PID is unavailable");
+    if (!pid) throw new Error("Cloud Story Sync PID is unavailable");
     process.kill(pid, "SIGTERM");
     while (Date.now() < deadline && await liveCloudStatus(session)) await Bun.sleep(50);
-    if (await liveCloudStatus(session)) throw new Error("Cloud Arbor Sync did not stop before the timeout");
+    if (await liveCloudStatus(session)) throw new Error("Cloud Story Sync did not stop before the timeout");
     await rm(session.dataHome, { recursive: true, force: true });
     session = { ...session, phase: "finished", updatedAt: new Date().toISOString(), lastError: undefined };
     await saveCloudSession(session);
@@ -1374,7 +1374,7 @@ async function finishCloud(args: string[]): Promise<void> {
 
 type StatusTreeCondition = "missing" | "conflict" | "declined" | "error" | "offline" | "paused" | "syncing" | "not-placed" | "up-to-date";
 
-function statusTreeCondition(tree: Awaited<ReturnType<ArborSyncRESTClient["trees"]>>["snapshot"][number]): StatusTreeCondition {
+function statusTreeCondition(tree: Awaited<ReturnType<StorySyncRESTClient["trees"]>>["snapshot"][number]): StatusTreeCondition {
   if (tree.missing) return "missing";
   if (tree.sync === "conflict") return "conflict";
   if (tree.declined) return "declined";
@@ -1392,7 +1392,7 @@ function statusArguments(args: string[]): { locator?: string; json: boolean } {
   for (const arg of args) {
     if (arg === "--json") json = true;
     else if (arg.startsWith("--")) usageError(`Unknown status option: ${arg}`);
-    else if (locator) usageError("arbor status accepts at most one locator");
+    else if (locator) usageError("story status accepts at most one locator");
     else locator = arg;
   }
   return { ...(locator ? { locator } : {}), json };
@@ -1400,33 +1400,33 @@ function statusArguments(args: string[]): { locator?: string; json: boolean } {
 
 async function statusCommand(args: string[]): Promise<void> {
   const options = statusArguments(args);
-  const selectionPath = options.locator && !/^(?:https?|arbor):\/\//.test(options.locator)
+  const selectionPath = options.locator && !/^(?:https?|story):\/\//.test(options.locator)
     ? resolve(options.locator)
     : process.cwd();
-  const cloud = !process.env.ARBOR_SYNC_URL && !process.env.ARBOR_DATA_HOME
+  const cloud = !process.env.STORY_SYNC_URL && !process.env.STORY_HOME
     ? await cloudSessionForPath(selectionPath)
     : null;
-  const contextKind = process.env.ARBOR_SYNC_URL
+  const contextKind = process.env.STORY_SYNC_URL
     ? "explicit-url"
-    : process.env.ARBOR_DATA_HOME
+    : process.env.STORY_HOME
       ? "foreground"
       : cloud
         ? "cloud"
         : "persistent";
-  const origin = process.env.ARBOR_SYNC_URL ?? cloud?.origin ?? `http://127.0.0.1:${ARBOR_SYNC_PORT}`;
-  let liveStatus: Awaited<ReturnType<ArborSyncRESTClient["status"]>> | null = null;
-  let accounts: Awaited<ReturnType<ArborSyncRESTClient["accounts"]>>["accounts"] = [];
-  let trees: Awaited<ReturnType<ArborSyncRESTClient["trees"]>>["snapshot"] = [];
+  const origin = process.env.STORY_SYNC_URL ?? cloud?.origin ?? `http://127.0.0.1:${STORY_SYNC_PORT}`;
+  let liveStatus: Awaited<ReturnType<StorySyncRESTClient["status"]>> | null = null;
+  let accounts: Awaited<ReturnType<StorySyncRESTClient["accounts"]>>["accounts"] = [];
+  let trees: Awaited<ReturnType<StorySyncRESTClient["trees"]>>["snapshot"] = [];
   let observedThrough: string | undefined;
   let runtimeState: "running" | "stopped" | "unreachable" | "incompatible" | "not-installed" = "unreachable";
-  let supervision: Awaited<ReturnType<ReturnType<typeof arborDaemonSupervisor>["status"]>> | undefined;
+  let supervision: Awaited<ReturnType<ReturnType<typeof storyDaemonSupervisor>["status"]>> | undefined;
   const diagnostics: Array<{ code: string; message: string }> = [];
   try {
-    const client = new ArborSyncRESTClient({ baseURL: origin });
+    const client = new StorySyncRESTClient({ baseURL: origin });
     const status = await client.status();
-    if (status.service !== "arborsync" || status.protocolVersion !== "v1" || (cloud && status.instanceID !== cloud.instanceID)) {
+    if (status.service !== "story-sync" || status.protocolVersion !== "v1" || (cloud && status.instanceID !== cloud.instanceID)) {
       runtimeState = "incompatible";
-      diagnostics.push({ code: "incompatible-runtime", message: "The selected endpoint is not the expected Arbor Sync instance" });
+      diagnostics.push({ code: "incompatible-runtime", message: "The selected endpoint is not the expected Story Sync instance" });
     } else {
       liveStatus = status;
       runtimeState = "running";
@@ -1438,10 +1438,10 @@ async function statusCommand(args: string[]): Promise<void> {
   } catch (error) {
     diagnostics.push({ code: "unreachable-runtime", message: error instanceof Error ? error.message : String(error) });
     // Accounts are durable configuration, not daemon state: report them from
-    // this data home even while its Arbor Sync is down.
+    // this data home even while its Story Sync is down.
     if (contextKind === "persistent" || contextKind === "foreground") accounts = await listLocalAccounts();
     if (contextKind === "persistent") {
-      supervision = await arborDaemonSupervisor().status();
+      supervision = await storyDaemonSupervisor().status();
       runtimeState = supervision.state === "not-installed"
         ? "not-installed"
         : supervision.state === "stopped"
@@ -1455,9 +1455,9 @@ async function statusCommand(args: string[]): Promise<void> {
   const decoratedTrees = trees.map((tree) => ({ ...tree, condition: statusTreeCondition(tree) }));
   let selection: Record<string, unknown> | undefined;
   if (options.locator) {
-    if (!liveStatus) throw new Error(`Cannot resolve ${options.locator} because the selected Arbor Sync is not running`);
-    const input = /^(?:https?|arbor):\/\//.test(options.locator) ? options.locator : resolve(options.locator);
-    const resolved = await new ArborSyncRESTClient({ baseURL: origin }).resolve(input);
+    if (!liveStatus) throw new Error(`Cannot resolve ${options.locator} because the selected Story Sync is not running`);
+    const input = /^(?:https?|story):\/\//.test(options.locator) ? options.locator : resolve(options.locator);
+    const resolved = await new StorySyncRESTClient({ baseURL: origin }).resolve(input);
     const tree = resolved.enclosingTree
       ? decoratedTrees.find((candidate) => candidate.id === resolved.enclosingTree!.id)
       : undefined;
@@ -1465,7 +1465,7 @@ async function statusCommand(args: string[]): Promise<void> {
       input: options.locator,
       ref: resolved.ref,
       historical: resolved.historical,
-      ...(tree ? { tree, condition: tree.condition } : { condition: /^(?:https?|arbor):\/\//.test(options.locator) ? "not-placed" : "not-applicable" }),
+      ...(tree ? { tree, condition: tree.condition } : { condition: /^(?:https?|story):\/\//.test(options.locator) ? "not-placed" : "not-applicable" }),
     };
   }
   const inScopeTrees = cloud
@@ -1480,7 +1480,7 @@ async function statusCommand(args: string[]): Promise<void> {
     ready,
     context: {
       kind: contextKind,
-      ...(process.env.ARBOR_DATA_HOME ? { dataHome: resolve(process.env.ARBOR_DATA_HOME) } : {}),
+      ...(process.env.STORY_HOME ? { dataHome: resolve(process.env.STORY_HOME) } : {}),
       origin,
     },
     runtime: {
@@ -1515,7 +1515,7 @@ async function statusCommand(args: string[]): Promise<void> {
     console.log(JSON.stringify(result, null, 2));
     return;
   }
-  console.log(`Arbor Sync: ${runtimeState} (${contextKind})`);
+  console.log(`Story Sync: ${runtimeState} (${contextKind})`);
   if (cloud) {
     console.log(`Cloud session: ${cloudPhase}`);
     console.log(`Workspace: ${cloud.root}`);
@@ -1537,17 +1537,17 @@ async function statusCommand(args: string[]): Promise<void> {
     console.log("Trees:");
     if (!decoratedTrees.length) console.log("  none");
     for (const tree of decoratedTrees) {
-      console.log(`  ${tree.condition.padEnd(11)} ${tree.osPath ?? (tree.canonical ? canonicalArborLocator(tree.canonical) : tree.id)} (${tree.access})`);
+      console.log(`  ${tree.condition.padEnd(11)} ${tree.osPath ?? (tree.canonical ? canonicalOverstoryLocator(tree.canonical) : tree.id)} (${tree.access})`);
     }
   }
   if (cloud && ["needs-sync", "interrupted"].includes(cloudPhase ?? "")) {
-    console.log(`Recovery: run arbor cloud finish --root ${JSON.stringify(cloud.root)}`);
+    console.log(`Recovery: run story cloud finish --root ${JSON.stringify(cloud.root)}`);
   }
 }
 
 /**
- * `arbor account` lists the profile's connections: its home account and its
- * placement accounts (accounts §1.3), which `arbor place` connects on first use.
+ * `story account` lists the profile's connections: its home account and its
+ * placement accounts (accounts §1.3), which `story place` connects on first use.
  */
 async function accountCommand(args: string[]): Promise<void> {
   const [action] = args;
@@ -1570,8 +1570,8 @@ async function accountCommand(args: string[]): Promise<void> {
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
-  if (command === "__cloud-arborsync") {
-    await runArborSyncDaemon(args);
+  if (command === "__cloud-story-sync") {
+    await runStorySyncDaemon(args);
     return;
   }
   if (command === "status") {
@@ -1607,7 +1607,7 @@ async function main(): Promise<void> {
     const [action, ...operands] = args;
     if (!action) {
       const status = await store.status();
-      if (!status) throw new Error("No person identity exists; run `arbor me create`");
+      if (!status) throw new Error("No person identity exists; run `story me create`");
       console.log(`Profile TreeID: ${status.profileTree}`);
       console.log(`Profile folder: ${status.profilePath}`);
       console.log(`Private key: ${status.keyAvailable ? "available" : "unavailable"}`);
@@ -1625,7 +1625,7 @@ async function main(): Promise<void> {
       if (operands.includes("--name") && name === undefined) usage();
       const displayName = name === undefined ? undefined : validateProfileDisplayName(name);
       if (name !== undefined && !displayName) usageError("--name must be 1-80 characters without line breaks");
-      const status = await store.create(resolveUserPath(profileFolder ?? `${arborDataRoot()}/profile`));
+      const status = await store.create(resolveUserPath(profileFolder ?? `${storyDataRoot()}/profile`));
       if (displayName) await store.updateProfile({ displayName });
       console.log(`Profile TreeID: ${status.profileTree}`);
       console.log(`Profile folder: ${status.profilePath}`);
@@ -1649,7 +1649,7 @@ async function main(): Promise<void> {
           const avatar = validateProfileAvatarPath(value);
           if (!avatar) usageError("--avatar must be a relative png, jpg, jpeg, gif, or webp path inside the profile tree");
           const status = await store.status();
-          if (!status) throw new Error("No person identity exists; run `arbor me create`");
+          if (!status) throw new Error("No person identity exists; run `story me create`");
           const avatarPath = resolve(status.profilePath, avatar);
           const isFile = await stat(avatarPath).then((value) => value.isFile()).catch(() => false);
           if (!avatarPath.startsWith(`${resolve(status.profilePath)}/`) || !isFile) {
@@ -1669,7 +1669,7 @@ async function main(): Promise<void> {
       const passphrase = await readPassphrase("Passphrase for the backup: ");
       if (process.stdin.isTTY && await readPassphrase("Repeat the passphrase: ") !== passphrase) throw new Error("The passphrases differ; nothing was written");
       await store.backup(destination, passphrase);
-      console.log(`Backed up Arbor identity to ${destination}`);
+      console.log(`Backed up Story identity to ${destination}`);
       return;
     }
     if (action === "restore") {
@@ -1678,7 +1678,7 @@ async function main(): Promise<void> {
       const encrypted = backupIsEncrypted(JSON.parse(await readFile(source, "utf8")));
       const status = await store.restore(
         source,
-        resolveUserPath(operands[1] ?? `${arborDataRoot()}/profile`),
+        resolveUserPath(operands[1] ?? `${storyDataRoot()}/profile`),
         encrypted ? await readPassphrase("Backup passphrase: ") : undefined,
       );
       console.log(`Restored ${status.profileTree}`);
@@ -1715,7 +1715,7 @@ async function main(): Promise<void> {
   }
   if (command === "daemon") {
     if (args.length !== 1) usage();
-    const supervisor = arborDaemonSupervisor();
+    const supervisor = storyDaemonSupervisor();
     const [action] = args;
     if (action === "install") console.log(await supervisor.install());
     else if (action === "uninstall") console.log(await supervisor.uninstall());
@@ -1725,7 +1725,7 @@ async function main(): Promise<void> {
     else if (action === "logs") console.log(await supervisor.logs());
     else if (action === "status") {
       const status = await supervisor.status();
-      console.log(`Arbor Sync: ${status.state}`);
+      console.log(`Story Sync: ${status.state}`);
       console.log(`Supervision: ${status.installed ? "installed" : "not installed"} (${status.platform})`);
       console.log(`Origin: ${status.origin}`);
       if (status.pid) console.log(`PID: ${status.pid}`);
@@ -1737,27 +1737,27 @@ async function main(): Promise<void> {
     if (args.length > 1 || args.some((arg) => arg.startsWith("-"))) usage();
     const input = args[0] ?? ".";
     const target = openTarget(input);
-    const cloud = !process.env.ARBOR_SYNC_URL && !process.env.ARBOR_DATA_HOME
+    const cloud = !process.env.STORY_SYNC_URL && !process.env.STORY_HOME
       ? await cloudSessionForPath(target.path ?? process.cwd())
       : null;
-    const selectedOrigin = process.env.ARBOR_SYNC_URL ?? cloud?.origin;
-    let attached = await attachedArborSyncURL(target, ARBOR_SYNC_PORT, selectedOrigin);
-    if (!attached && !process.env.ARBOR_DATA_HOME && !process.env.ARBOR_SYNC_URL && !cloud && process.platform === "darwin") {
-      const supervisor = arborDaemonSupervisor();
+    const selectedOrigin = process.env.STORY_SYNC_URL ?? cloud?.origin;
+    let attached = await attachedStorySyncURL(target, STORY_SYNC_PORT, selectedOrigin);
+    if (!attached && !process.env.STORY_HOME && !process.env.STORY_SYNC_URL && !cloud && process.platform === "darwin") {
+      const supervisor = storyDaemonSupervisor();
       const status = await supervisor.status();
-      if (!status.installed) throw new Error("Arbor Sync is not running; run `arbor daemon install` first");
+      if (!status.installed) throw new Error("Story Sync is not running; run `story daemon install` first");
       await supervisor.start();
-      attached = await attachedArborSyncURL(target, ARBOR_SYNC_PORT);
-      if (!attached) throw new Error(`Arbor Sync started but could not open ${input}`);
+      attached = await attachedStorySyncURL(target, STORY_SYNC_PORT);
+      if (!attached) throw new Error(`Story Sync started but could not open ${input}`);
     }
     if (attached) {
       if (target.remoteURL && await isReservedProfile(target)) attached.searchParams.set("claimable", "true");
-      console.log(`Attached to Arbor Sync at ${attached.origin}`);
+      console.log(`Attached to Story Sync at ${attached.origin}`);
       console.log("Note: the web editor is being rebuilt and may be unavailable until it returns.");
       await openBrowser(attached.toString());
       return;
     }
-    throw new Error(`A compatible Arbor Sync is not reachable at ${selectedOrigin ?? `http://127.0.0.1:${ARBOR_SYNC_PORT}`}; run \`arbor daemon status\` for details`);
+    throw new Error(`A compatible Story Sync is not reachable at ${selectedOrigin ?? `http://127.0.0.1:${STORY_SYNC_PORT}`}; run \`story daemon status\` for details`);
   }
   if (command === "place") {
     await placeCommand(args);

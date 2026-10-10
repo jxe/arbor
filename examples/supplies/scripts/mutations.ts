@@ -11,7 +11,7 @@ const practice_tags = node("../data/practice_tags").children
 export const booleanInput = z.union([z.boolean(), z.stringbool()])
 
 export async function requireListEditor(tx, listId: string, user) {
-  if (!user) throw publicError("user-required", "This operation requires an Arbor user")
+  if (!user) throw publicError("user-required", "This operation requires an Story user")
   const value = await tx.one(lists, { id: listId })
   if (!value) throw publicError("not-found", "List not found")
   if (value.owner_profile !== user.profile && !value.allow_arbor_user_edits) {

@@ -24,11 +24,11 @@ whole.
   Markdown present, every other file referenced by hash, provided every hash is
   resolvable on demand and the spine validates.
 - **Catch-up already does it.** `UpdateCoordinator.sparseDirectoryGraph`
-  (`swift/Packages/CanopyWorkingTree/Sources/CanopyWorkingTree/UpdateCoordinator.swift`)
+  (`swift/Packages/OverstoryWorkingTree/Sources/OverstoryWorkingTree/UpdateCoordinator.swift`)
   walks the spine from a root object by object, reuses local objects, fetches
   the rest through the tree-scoped object route, validates with
   `ProtocolObjectGraph.validate(_, mode: .sparseFiles)`, and installs it.
-- **iOS resolves absent files already.** `CanopyAppModel` opens each working tree
+- **iOS resolves absent files already.** `StoryAppModel` opens each working tree
   over `HostObjectStore`, which reads any object by hash from Canopy, and
   `WorkingTree.objectBytes` reads its own overlay first.
 - **Only placement is whole.** `WorkingTreePlacementService.place`
@@ -42,7 +42,7 @@ whole.
 ## Work
 
 1. **One spine walker.** Move the spine walk out of `UpdateCoordinator` into a
-   shared function in `CanopyWorkingTree` that takes a root, a local object
+   shared function in `OverstoryWorkingTree` that takes a root, a local object
    lookup and a fetch, and reports progress (objects and bytes fetched, directories
    still to visit). Catch-up and placement both call it.
 2. **Sparse placement.** `WorkingTreePlacementService.place` pins the descriptor,
@@ -70,15 +70,15 @@ whole.
 
 ## Verification
 
-- Focused `CanopyWorkingTree` and `OverstoryClient` tests: a placed tree's heads
+- Focused `OverstoryWorkingTree` and `OverstoryClient` tests: a placed tree's heads
   equal the pinned descriptor; non-Markdown files are absent and open through the
   platform store; an interruption at each object resumes without refetching stored
-  objects; a canopyd that advances during placement is caught up by the ordinary
+  objects; a overstoryd that advances during placement is caught up by the ordinary
   update machine afterwards; a corrupt object fails placement and leaves no placed
   tree.
-- `swift test --package-path swift/Packages/CanopyWorkingTree` and
-  `swift/Packages/OverstoryClient`, `swift/scripts/test-canopy-editor-local.sh`, and
-  an iOS build through `swift/Canopy.local.xcworkspace`.
+- `swift test --package-path swift/Packages/OverstoryWorkingTree` and
+  `swift/Packages/OverstoryClient`, `swift/scripts/test-story-editor-local.sh`, and
+  an iOS build through `swift/Story.local.xcworkspace`.
 - Hands-on on iPhone with Network Link Conditioner: time to first usable page on
   the largest tree before and after, interrupt mid-placement and relaunch, and open
   an unfetched image offline.

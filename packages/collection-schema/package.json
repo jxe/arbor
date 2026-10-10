@@ -1,5 +1,5 @@
 {
-  "name": "@overstory/collection-schema",
+  "name": "@ovst/collection-schema",
   "version": "0.1.0",
   "description": "Declarative collection schemas: the Overstory CDDL collection profile parser and validator, CSV cell conversion, generated type declarations, and the collection-file codec. Pure: no code execution, filesystem, or network access.",
   "type": "module",
@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@overstory/protocol": "workspace:*",
+    "@ovst/protocol": "workspace:*",
     "csv-parse": "6.1.0"
   }
 }

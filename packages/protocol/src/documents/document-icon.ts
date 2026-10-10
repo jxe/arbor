@@ -1,4 +1,4 @@
-import type { ArborBlock, MarkdownDocument } from "../index.ts";
+import type { OverstoryBlock, MarkdownDocument } from "../index.ts";
 import { serializeMarkdown } from "./markdown.ts";
 
 const emojiPattern = /(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[0-9#*]\uFE0F?\u20E3)/u;
@@ -42,7 +42,7 @@ export function sourceSettingDocumentIcon(
       content: `${icon} ${displayName}`,
       props: { level: 1 },
       children: [],
-    } satisfies ArborBlock);
+    } satisfies OverstoryBlock);
     return serializeMarkdown(document, blocks);
   }
 

@@ -8,46 +8,46 @@ behavior below is installed or deployed.
 ## By subcomponent
 
 - [Protocol and object stores](protocol/README.md): encoding, identity, transport, conflict inspection, and resource policy.
-- [Host: canopyd](canopyd/README.md): acceptance, durability, merge and execution sidecars.
+- [Host: overstoryd](overstoryd/README.md): acceptance, durability, merge and execution sidecars.
 - [Client stack](client-stack/README.md): working-tree synchronization, exact retries, and conflict recovery.
-- [Arbor Sync and local tools](arborsync/README.md): daemon ownership, placed folders, private state, and CLI.
-- [Canopy browsers](canopy-browser/README.md): editor runtime ownership, local state, and recovery.
+- [Story Sync and local tools](story-sync/README.md): daemon ownership, placed folders, private state, and CLI.
+- [Canopy browsers](story-browser/README.md): editor runtime ownership, local state, and recovery.
 - [Executable-document runtime](apps-runtime/README.md): queries and mutations.
 - [Collection schemas](collection-schema/README.md): the declarative `schema.cddl` parser, validator, and collection-file codec.
 
 ## Components
 
 Five components, two languages. Every TypeScript package lives under
-`packages/<name>` and is published as `@overstory/<name>`; every Swift
+`packages/<name>` and is published as `@ovst/<name>`; every Swift
 package lives under `swift/Packages/<Name>`.
 
 | Component | TypeScript | Swift | Owns |
 |---|---|---|---|
 | Overstory protocol | `protocol`, `object-store` | `Overstory`, `OverstoryObjectStore` | The specification in code: identifiers, node model, canonical CBOR, hashing, objects and snapshots, update contracts, resource policy, the document format, configuration formats, HTTP and SSE transport; the content-addressed object store |
-| Host | `canopyd`, `canopyd-merge`, `merge-protocol`, `tree-merge`, `collection-schema`, `apps-runtime` | | Communities, accounts, hosted trees, acceptance, public pages; the merge sidecar, its JSON contract and the snapshot tree merge; declarative collection schemas; the executable-document runtime |
-| Client stack | `client`, `fs` | `OverstoryClient`, `CanopyWorkingTree` | Synchronizing a working tree against a host: update machine, admission queue, account bootstrap, filesystem materialization |
-| Arbor local tools | `arborsync`, `cli` | the `Canopy` app target's `ArborSync/` (macOS) | The per-user daemon, its loopback REST API and clients, the `arbor` command |
-| Canopy browsers | `canopy-web` | `CanopyAppKit`, `CanopyEditor`, the `Canopy` app target | The human interface |
+| Host | `overstoryd`, `overstoryd-merge`, `merge-protocol`, `tree-merge`, `collection-schema`, `apps-runtime` | | Communities, accounts, hosted trees, acceptance, public pages; the merge sidecar, its JSON contract and the snapshot tree merge; declarative collection schemas; the executable-document runtime |
+| Client stack | `client`, `fs` | `OverstoryClient`, `OverstoryWorkingTree` | Synchronizing a working tree against a host: update machine, admission queue, account bootstrap, filesystem materialization |
+| Story local tools | `story-sync`, `cli` | the `Canopy` app target's `StorySync/` (macOS) | The per-user daemon, its loopback REST API and clients, the `story` command |
+| Canopy browsers | `story-web` | `StoryKit`, `StoryEditor`, the `Canopy` app target | The human interface |
 
 Layering: `protocol` depends on nothing in the workspace; `apps-runtime`
 and `collection-schema` depend only on `protocol`, and `tree-merge` only on
-`protocol` and `collection-schema`; `canopyd`
-and `canopyd-merge` share only `object-store` and `merge-protocol`, and
-neither imports the other (only the sidecar and Arbor Sync recovery use
+`protocol` and `collection-schema`; `overstoryd`
+and `overstoryd-merge` share only `object-store` and `merge-protocol`, and
+neither imports the other (only the sidecar and Story Sync recovery use
 `tree-merge`); the host
-and client packages never depend on `arborsync*`; `cli` and `canopy-web` may
+and client packages never depend on `story-sync*`; `cli` and `story-web` may
 depend on anything. Swift mirrors
 this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
-`CanopyWorkingTree` on both plus `CanopyAppKit`, and `OverstoryClient` and
-`CanopyEditor` sit above. Each daemon client lives with its only caller: the
+`OverstoryWorkingTree` on both plus `StoryKit`, and `OverstoryClient` and
+`StoryEditor` sit above. Each daemon client lives with its only caller: the
 TypeScript one in `packages/cli/src/daemon-client.ts`, the Swift one (REST
 client, loopback credential provider and object store, process supervisor,
-models) in `swift/CanopyApp/ArborSync/`, compiled for macOS only. The app's
-account operations go through one protocol, `CanopyAccountService`
-(`swift/CanopyApp/CanopyAccountService.swift`), with two implementations:
+models) in `swift/StoryApp/StorySync/`, compiled for macOS only. The app's
+account operations go through one protocol, `HostAccountService`
+(`swift/StoryApp/HostAccountService.swift`), with two implementations:
 iOS keeps accounts in `OverstoryClient`'s Keychain stores, and the Mac keeps
 them in the data home through the daemon's onboarding routes, so the daemon
-and the CLI share them ([local state](canopy-browser/local-state.md)).
+and the CLI share them ([local state](story-browser/local-state.md)).
 
 ### TypeScript packages
 
@@ -56,16 +56,16 @@ and the CLI share them ([local state](canopy-browser/local-state.md)).
 | `protocol` | `model/` (types, identifiers, CBOR, hashing, logical paths and URLs, resource policy, errors, SSE), `objects.ts` and `snapshots.ts`, `updates/` (request and accepted contracts, JSON, intent digests, deltas), `transport.ts` (the HTTP client), `documents/` (Markdown and directory documents, child links, titles, document merge), `config/` (account, device, placement, resource configuration and the private data home) | `@noble/hashes`, `yaml` |
 | `object-store` | Immutable hash-sharded storage with verified reads, durable writes, and reachability walks | protocol |
 | `fs` | `WorkspaceFS`: logical-node reads, discovery and watching; `materializeTree` ([README](../../packages/fs/README.md)) | protocol, `@parcel/watcher` |
-| `client` | Account bootstrap, pairing and wire, device keys, and the data home they share with the daemon: the profile identity, `placements.yaml`, and the setup lock; it never imports `arborsync` | protocol, fs |
-| `canopyd` | Access and claims, accounts and profiles, boundaries, the public page, resource effects and execution authority, schema and the SQLite authority, `updates/` (decision, reconcile, graph validation, stores, observations, watch frames, source edits), the merge sidecar adapter and log entries, account-configuration merging, projection, the `canopyd` CLI ([README](../../packages/canopyd/README.md)) | protocol, object-store, collection-schema, apps-runtime, merge-protocol |
-| `canopyd-merge` | The merge sidecar: the question loop and its in-memory cache replayed from log entries, snapshot choices, intent engine and model, format rules, Markdown and web formats, retained states in memory, log decisions and checkpoints, the `arbor-merge` CLI ([merge sidecar](canopyd/merge-tool.md)) | protocol, object-store, merge-protocol, tree-merge, tree-sitter, saxes |
-| `merge-protocol` | The contract between canopyd and a merge sidecar: log entries, the merge question and answer, refusal codes; no merge logic ([writing a sidecar](canopyd/writing-a-sidecar.md)) ([README](../../packages/merge-protocol/README.md)) | protocol, zod |
+| `client` | Account bootstrap, pairing and wire, device keys, and the data home they share with the daemon: the profile identity, `placements.yaml`, and the setup lock; it never imports `story-sync` | protocol, fs |
+| `overstoryd` | Access and claims, accounts and profiles, boundaries, the public page, resource effects and execution authority, schema and the SQLite authority, `updates/` (decision, reconcile, graph validation, stores, observations, watch frames, source edits), the merge sidecar adapter and log entries, account-configuration merging, projection, the `overstoryd` CLI ([README](../../packages/overstoryd/README.md)) | protocol, object-store, collection-schema, apps-runtime, merge-protocol |
+| `overstoryd-merge` | The merge sidecar: the question loop and its in-memory cache replayed from log entries, snapshot choices, intent engine and model, format rules, Markdown and web formats, retained states in memory, log decisions and checkpoints, the `overstoryd-merge` CLI ([merge sidecar](overstoryd/merge-tool.md)) | protocol, object-store, merge-protocol, tree-merge, tree-sitter, saxes |
+| `merge-protocol` | The contract between overstoryd and a merge sidecar: log entries, the merge question and answer, refusal codes; no merge logic ([writing a sidecar](overstoryd/writing-a-sidecar.md)) ([README](../../packages/merge-protocol/README.md)) | protocol, zod |
 | `tree-merge` | The three-way snapshot tree merge with its Markdown and collection-file rules and model hashes ([README](../../packages/tree-merge/README.md)) | protocol, collection-schema |
 | `collection-schema` | The Overstory CDDL collection profile: parser, profile checks, validator, CSV cell conversion, generated declarations, logical names, the bounded schema cache, and the collection-file codec; pure, with no code execution, filesystem, or network ([README](collection-schema/README.md)) | protocol, `csv-parse` |
 | `apps-runtime` | Query core and node queries, the SQLite engine, live streams and observers, mutations, authoring API, host integration, and `collections/` (the projection-provider contract types) ([README](../../packages/apps-runtime/README.md)) | protocol |
-| `arborsync` | The daemon: workspace and editor, tree manager, sync and account HTTP, browser routes, filesystem object source and node surfaces, events, and `state/` (tree registry and placement sync metadata, connections, local accounts, providers, object index); `recovery/`, the separate tree-recovery tool, which merges candidates with `tree-merge` | protocol, client, fs, apps-runtime, collection-schema, tree-merge |
-| `cli` | `arbor`: daemon supervision, identity, placement, moves, cloud sessions; `daemon-client.ts` is its `ArborSyncRESTClient` for the daemon's loopback surface | arborsync, protocol, fs |
-| `canopy-web` | The browser editor (React, BlockNote, Vite); out of the build and typecheck until [Web 025](../../plans/canopy-web/025-arbor-web.md) rebuilds it as a working-tree client; its stale imports of the deleted `@overstory/arborsync-client` are Web 025's to replace | protocol |
+| `story-sync` | The daemon: workspace and editor, tree manager, sync and account HTTP, browser routes, filesystem object source and node surfaces, events, and `state/` (tree registry and placement sync metadata, connections, local accounts, providers, object index); `recovery/`, the separate tree-recovery tool, which merges candidates with `tree-merge` | protocol, client, fs, apps-runtime, collection-schema, tree-merge |
+| `cli` | `story`: daemon supervision, identity, placement, moves, cloud sessions; `daemon-client.ts` is its `StorySyncRESTClient` for the daemon's loopback surface | story-sync, protocol, fs |
+| `story-web` | The browser editor (React, BlockNote, Vite); out of the build and typecheck until [Web 025](../../plans/story-web/025-story-web.md) rebuilds it as a working-tree client; its stale imports of the deleted `@ovst/story-sync-client` are Web 025's to replace | protocol |
 
 ### Swift packages
 
@@ -73,12 +73,12 @@ and the CLI share them ([local state](canopy-browser/local-state.md)).
 |---|---|---|
 | `Overstory` | Protocol models, canonical CBOR, the SSE parser, the HTTP client, authored and accepted contracts, operations, transitions, resource policy, the network log | |
 | `OverstoryObjectStore` | The `ObjectStore` protocol with overlay, directory, and host-backed stores; every store verifies bytes against their hash | Overstory |
-| `CanopyAppKit` | Workspace models and provider protocol, the workspace coordinator, logical URLs and display titles, the editor source, the browser tab controller | |
-| `CanopyWorkingTree` | `WorkingTree` and its state store, `UpdateMachine` and `UpdateCoordinator`, durability, the snapshot bridge, `SourceAdmissionQueue`, entry actions and transfer, conflict review | CanopyAppKit, OverstoryObjectStore, Overstory |
-| `OverstoryClient` | Credentials, the placement service, `HostWatchRunner`, tree configuration YAML, resource consent | CanopyAppKit, CanopyWorkingTree, OverstoryObjectStore, Overstory, Yams |
-| `CanopyEditor` | The Quagmire editor host and surface, document binding, the Markdown codec | CanopyAppKit, Quagmire |
+| `StoryKit` | Workspace models and provider protocol, the workspace coordinator, logical URLs and display titles, the editor source, the browser tab controller | |
+| `OverstoryWorkingTree` | `WorkingTree` and its state store, `UpdateMachine` and `UpdateCoordinator`, durability, the snapshot bridge, `SourceAdmissionQueue`, entry actions and transfer, conflict review | StoryKit, OverstoryObjectStore, Overstory |
+| `OverstoryClient` | Credentials, the placement service, `HostWatchRunner`, tree configuration YAML, resource consent | StoryKit, OverstoryWorkingTree, OverstoryObjectStore, Overstory, Yams |
+| `StoryEditor` | The Quagmire editor host and surface, document binding, the Markdown codec | StoryKit, Quagmire |
 
-`swift/Canopy.xcodeproj` is generated from `swift/project.yml`
+`swift/Story.xcodeproj` is generated from `swift/project.yml`
 by xcodegen and committed; see [swift/README.md](../../swift/README.md).
 
 ## Verification machinery

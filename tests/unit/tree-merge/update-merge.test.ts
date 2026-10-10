@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mergeProtocolTrees } from "@overstory/tree-merge";
-import { ProjectionProviderHost } from "@overstory/arborsync/state";
-import { decodeProtocolCollectionFile } from "@overstory/collection-schema";
+import { mergeProtocolTrees } from "@ovst/tree-merge";
+import { ProjectionProviderHost } from "@ovst/story-sync/state";
+import { decodeProtocolCollectionFile } from "@ovst/collection-schema";
 import {
   decodeProtocolDirectory,
   encodeProtocolDirectory,
@@ -13,8 +13,8 @@ import {
   type UpdateConflict,
   type ProtocolDirectoryEntry,
   type ProtocolDirectory,
-} from "@overstory/protocol";
-import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+} from "@ovst/protocol";
+import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 
 interface ExpectedMerge {
   conflicts: UpdateConflict[];
@@ -84,7 +84,7 @@ async function jsonCollectionFileSnapshot(rows: unknown[]): Promise<TreeSnapshot
 }
 
 async function collectionFileSnapshot(store: string, schema: string, source: string): Promise<TreeSnapshot> {
-  const directory = await mkdtemp(join(tmpdir(), "arbor-collection-file-merge-"));
+  const directory = await mkdtemp(join(tmpdir(), "story-collection-file-merge-"));
   const collections = new ProjectionProviderHost();
   try {
     await writeFile(join(directory, "schema.cddl"), schema);
@@ -173,7 +173,7 @@ function expectNoAddedLineOmitted(base: string, candidate: string, remote: strin
 }
 
 const fixtures = JSON.parse(
-  await readFile(join(import.meta.dir, "../../fixtures/canopy/merge.json"), "utf8"),
+  await readFile(join(import.meta.dir, "../../fixtures/overstoryd/merge.json"), "utf8"),
 ) as MergeFixtures;
 
 describe("reference Canopy merge fixtures", () => {
@@ -249,7 +249,7 @@ describe("reference Canopy merge fixtures", () => {
     const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
     const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
     expect(result.conflicts).toEqual([
-      expect.objectContaining({ reason: "collection-file-row-conflict", path: expect.stringMatching(/;arbor-key=id:a$/) }),
+      expect.objectContaining({ reason: "collection-file-row-conflict", path: expect.stringMatching(/;overstory-key=id:a$/) }),
     ]);
   });
 

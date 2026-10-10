@@ -1,4 +1,4 @@
-import { decodeProtocolDirectory, type ObjectHash, type ProtocolDirectoryEntry, canonicalCBORHash, type Hash } from "@overstory/protocol";
+import { decodeProtocolDirectory, type ObjectHash, type ProtocolDirectoryEntry, canonicalCBORHash, type Hash } from "@ovst/protocol";
 import { frontmatter } from "./merge-rules.ts";
 
 type Load = (hash: ObjectHash) => Promise<Uint8Array>;

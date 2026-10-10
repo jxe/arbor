@@ -1,4 +1,4 @@
-import { composeSourceEdits, validateSourceEditCandidate, UnsupportedSourceEdit, type PlainSourceEdit, type ObjectHash, type SourceFrame, type SourceOperation as AuthoredOperation } from "@overstory/protocol";
+import { composeSourceEdits, validateSourceEditCandidate, UnsupportedSourceEdit, type PlainSourceEdit, type ObjectHash, type SourceFrame, type SourceOperation as AuthoredOperation } from "@ovst/protocol";
 export {
   executeExactSourceEdits,
   validateSourceEditCandidate,
@@ -6,7 +6,7 @@ export {
   UnsupportedSourceEdit,
   type SourceEditEvidence,
   type SourceFrame,
-} from "@overstory/protocol";
+} from "@ovst/protocol";
 
 function invalid(message: string): never { throw new Error(`Invalid source edit: ${message}`); }
 
@@ -14,7 +14,7 @@ function invalid(message: string): never { throw new Error(`Invalid source edit:
  * the last `after`, by the same rule the clients' `compactTrace` applies:
  * every frame's operations must be lineage-free `editSource` operations over
  * `basis` material with a range; per path, the generations compose through
- * `composeSourceEdits` (`@overstory/protocol`), which needs no intermediate bytes; the
+ * `composeSourceEdits` (`@ovst/protocol`), which needs no intermediate bytes; the
  * composed operations are keyed `edit-0-<i>` in output order (paths in first
  * appearance order) and name each path's object in the first frame. The
  * composed frame is then executed and must reproduce the same result, so a
