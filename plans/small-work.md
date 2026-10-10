@@ -64,14 +64,6 @@ index with excerpts as marked ranges.
 - [ ] Confirm the native app's search renders excerpts as text with highlighted ranges,
   never as markup.
 
-### A flaky app test
-
-- [ ] The app test `newPageCreatedFromTitle` fails in about one run in three, at the
-  check that the new page appears among the parent's children. It was already flaky
-  before the 2026-10-10 rename.
-- [ ] Run the full `bun run test:protocol` gate once with Story closed; its app-hosted
-  stage has not run since the live-suite fix of 2026-10-10.
-
 ### Smaller candidates
 
 - **`story untrack`.** Ignore rules never untrack an already-published path; today the

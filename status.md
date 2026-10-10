@@ -29,9 +29,18 @@ expected sibling branches from before local work became one chain
 (2026-09-30); their unit-test twins had been updated then. Evidence: a host
 test that fails before the fix and passes after; `bun run test` 1793 pass; the
 "Live source admission" suite passes 7 of 7 against a local host, where it had
-failed 4 with 13 issues at every commit since 2026-10-06. The full protocol
-gate was not run, because Story was open and the app-hosted stage cannot
-launch beside it.
+failed 4 with 13 issues at every commit since 2026-10-06.
+
+The app test `newPageCreatedFromTitle` failed in about half of runs, before
+and after the rename. The sample `InMemoryWorkspaceProvider` holds an earlier
+version of Welcome at the page's own path, and resolved a path by the first
+match in dictionary order, which varies by process; when the earlier version
+won, the page had no children and edits by path could land on it. A path now
+names the current node. The test passed 10 of 10 afterwards, and a package
+test that failed in one process in three without the fix passes.
+
+With Story closed, `bun run test:protocol` passed end to end, its first full
+pass since 2026-10-06, and `swift/scripts/test-story-app.sh` passed.
 
 ## Chained candidate deltas — 2026-10-06
 

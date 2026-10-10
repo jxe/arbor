@@ -178,6 +178,18 @@ struct WorkspaceCoordinatorTests {
             _ = try await session.admit(source: "# Stale\n", baseContentRevision: "r1")
         }
     }
+
+    @Test("A path names the current page, not the earlier version kept at the same path")
+    func pathResolvesToCurrentPage() async throws {
+        // The sample holds a historical node at `/welcome` beside the page.
+        // Choosing by dictionary order made this fail in some processes only.
+        let provider = InMemoryWorkspaceProvider.sample()
+        let byPath = WorkspaceReference(tree: "tr_sample", path: "/welcome")
+        let resolved = try await provider.resolve(byPath)
+        #expect(resolved.reference.stableKey == markdownStableKey("pg_welcome"))
+        let created = try #require(try await provider.perform(.createMarkdown(parent: byPath, name: "child", source: "# Child\n")))
+        #expect(try await provider.children(of: byPath).map(\.reference.path) == [created.reference.path])
+    }
 }
 
 @Suite("Browser tabs", .serialized)

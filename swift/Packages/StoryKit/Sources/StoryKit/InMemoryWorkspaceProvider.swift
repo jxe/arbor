@@ -80,10 +80,16 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
            let node = nodesByIdentity.values.first(where: { $0.reference.tree == reference.tree && $0.reference.stableKey == stableKey }) {
             return node
         }
-        if let node = nodesByIdentity.values.first(where: { $0.reference.tree == reference.tree && $0.reference.path == reference.path }) {
-            return node
-        }
+        if let node = currentNode(tree: reference.tree, path: reference.path) { return node }
         throw WorkspaceProviderError.notFound(reference)
+    }
+
+    /// The node a path names. An earlier version of a page keeps the page's
+    /// path, so the current node wins; a dictionary's order must not decide.
+    private func currentNode(tree: TreeID, path: String) -> WorkspaceNode? {
+        let matches = nodesByIdentity.values.filter { $0.reference.tree == tree && $0.reference.path == path }
+        return matches.first { $0.provenance.authority != .historical }
+            ?? matches.min { String(describing: $0.id) < String(describing: $1.id) }
     }
 
     public func children(of reference: WorkspaceReference) async throws -> [WorkspaceNode] {
@@ -240,7 +246,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
 
     fileprivate func persist(_ snapshot: WorkspaceDocumentSnapshot) throws {
         guard var node = nodesByIdentity[snapshot.reference.identity]
-            ?? nodesByIdentity.values.first(where: { $0.reference.path == snapshot.reference.path }) else {
+            ?? currentNode(tree: snapshot.reference.tree, path: snapshot.reference.path) else {
             throw WorkspaceProviderError.notFound(snapshot.reference)
         }
         switch node.surface {
@@ -266,7 +272,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         baseContentRevision: String
     ) throws -> WorkspaceDocumentSnapshot {
         guard let node = nodesByIdentity[reference.identity]
-            ?? nodesByIdentity.values.first(where: { $0.reference.path == reference.path }) else {
+            ?? currentNode(tree: reference.tree, path: reference.path) else {
             throw WorkspaceProviderError.notFound(reference)
         }
         let currentSource: String
@@ -335,9 +341,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
             childrenByIdentity[key]?.removeAll { $0 == rootIdentity || $0 == movedRoot.id }
         }
         let parentPath = movedRoot.reference.parent?.path ?? "/"
-        if let parent = nodesByIdentity.values.first(where: {
-            $0.reference.tree == movedRoot.reference.tree && $0.reference.path == parentPath
-        }) {
+        if let parent = currentNode(tree: movedRoot.reference.tree, path: parentPath) {
             childrenByIdentity[parent.id, default: []].append(movedRoot.id)
         }
         return movedRoot
