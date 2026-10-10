@@ -1,3 +1,4 @@
+import { STORY_VERSION } from "./version.ts";
 import { encodeCanonicalCBOR, encodeSSEFrame, ProtocolError } from "@ovst/protocol";
 import { ResyncRequiredError } from "./events.ts";
 import type { StorySyncDaemon } from "./service.ts";
@@ -18,7 +19,7 @@ export function syncHandler(service: SyncHTTPService, options: {
     if (request.method === "GET" && url.pathname === "/v1/status") {
       return json({
         service: "story-sync",
-        version: "0.1.0",
+        version: STORY_VERSION,
         protocolVersion: "v1",
         instanceID,
         runtimeKind: options.runtimeKind,

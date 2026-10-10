@@ -326,7 +326,7 @@ class UnsupportedStoryDaemonSupervisor implements StoryDaemonSupervisor {
   constructor(private readonly platform: NodeJS.Platform) {}
 
   private unsupported(): never {
-    throw new Error(`Story daemon supervision is not implemented for ${this.platform} yet; run \`story-sync --control\` under your user service manager`);
+    throw new Error(`Story daemon supervision is not implemented for ${this.platform} yet; run \`story daemon run --control\` under your user service manager`);
   }
 
   async install(): Promise<string> { return this.unsupported(); }

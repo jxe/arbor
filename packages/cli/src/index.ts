@@ -2,7 +2,7 @@
 import { decodeCandidateUpdateJSON, describeTransitionPayload, normalizeLegacyLocator, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { resolveUserPath } from "@ovst/story-sync";
+import { resolveUserPath, STORY_VERSION } from "@ovst/story-sync";
 import { runStorySyncDaemon } from "@ovst/story-sync/cli";
 import { StorySyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
 import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@ovst/fs";
@@ -81,8 +81,8 @@ async function readPassphrase(prompt: string): Promise<string> {
 }
 let passphraseInput: Promise<string[]> | undefined;
 
-function usage(): never {
-  console.error(`Usage:
+const USAGE = `Usage:
+  story --help | --version
   story open [<locator>]
   story me
   story me create [<profile-folder>] [--name <display-name>]
@@ -92,6 +92,7 @@ function usage(): never {
   story device [--account <ConfigurationTreeID>]
   story account
   story daemon <install|uninstall|start|stop|restart|status|logs>
+  story daemon run [--control]
   story status [<locator>] [--json]
   story cloud bundle create [--name <label>] --place <canonical-url> <relative-path> [...]
   story cloud bundle list [--json]
@@ -120,7 +121,11 @@ Notes:
   story pause / resume  stop and restart publishing a placed folder's changes; accepted updates still arrive.
   story pending  shows exactly what Story Sync would send next for a placed folder.
   story declined  shows folder paths whose changes the host refused; the rest of the folder keeps syncing.
-    --restore puts back the host's version of those paths; --resend sends them again as they are.`);
+    --restore puts back the host's version of those paths; --resend sends them again as they are.
+  story daemon run  runs Story Sync in the foreground, for a service manager where \`story daemon install\` is unavailable.`;
+
+function usage(): never {
+  console.error(USAGE);
   process.exit(2);
 }
 
@@ -1296,6 +1301,8 @@ async function startCloud(args: string[]): Promise<void> {
         env: { ...process.env, STORY_HOME: session.dataHome, STORY_CREDENTIAL_STORE: "file" },
         stdout: Bun.file(stdoutPath),
         stderr: Bun.file(stderrPath),
+        // Its own process group: a caller that ends this command's group must not end the session's writer.
+        detached: true,
       });
       spawnedPID = child.pid;
       child.unref();
@@ -1579,6 +1586,14 @@ async function main(): Promise<void> {
     await runStorySyncDaemon(args);
     return;
   }
+  if (command === "--help" || command === "-h" || command === "help") {
+    console.log(USAGE);
+    return;
+  }
+  if (command === "--version" || command === "-V") {
+    console.log(STORY_VERSION);
+    return;
+  }
   if (command === "status") {
     await statusCommand(args);
     return;
@@ -1719,6 +1734,10 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "daemon") {
+    if (args[0] === "run") {
+      await runStorySyncDaemon(args.slice(1));
+      return;
+    }
     if (args.length !== 1) usage();
     const supervisor = storyDaemonSupervisor();
     const [action] = args;

@@ -158,7 +158,7 @@ bundle=$(story cloud bundle create --name "Coding agents" \
 ```
 
 The command creates a dedicated non-administrator account device and prints one
-`arbor-cloud-v1...` string to stdout. That string contains its credential and
+`arbor-cloud-v2...` string to stdout. That string contains its credential and
 the complete placement manifest. It is reusable, immutable, and secret. A
 bundle is limited to one claimed Overstory account on one host, every selected
 tree must be writable, and the encoded string may not exceed 32 KiB. Placement
@@ -182,7 +182,8 @@ story cloud finish --root /workspace
 ```
 
 `start` defaults to the current directory and a five-minute timeout. It creates
-an isolated owner-only data home and a detached loopback Story Sync. A new
+an isolated owner-only data home and a detached loopback Story Sync in its own
+process group, so it outlives a caller that ends the command's group. A new
 destination must be absent or empty. Failed preparation retains downloaded
 files and session state for another `start`, but stops the process it launched.
 
@@ -415,23 +416,25 @@ options. Railway/VPS deployment procedures belong in
 
 Install Bun first (the release is tested with Bun 1.4.2). The CLI package keeps
 Bun as a runtime prerequisite; it does not include another runtime or require Node.
-Version-pinned examples, once that package version is published:
+The package has one command, `story`, so `bunx @ovst/cli` runs it; `npx @ovst/cli`
+does the same when Bun is installed. Version-pinned examples, once that package
+version is published:
 
 ```sh
-bunx --bun --package @ovst/cli@0.1.0 story status --json
-bunx --bun --package @ovst/cli@0.1.0 story daemon install
-bunx --bun --package @ovst/cli@0.1.0 story cloud bundle create --name agent --place https://community.example/~you/notes notes
+bunx @ovst/cli@0.1.0 status --json
+bunx @ovst/cli@0.1.0 daemon install
+bunx @ovst/cli@0.1.0 cloud bundle create --name agent --place https://community.example/~you/notes notes
 # Set STORY_CLOUD_BUNDLE to the returned secret using your agent secret store.
-bunx --bun --package @ovst/cli@0.1.0 story cloud start --root ./agent-work --json
-bunx --bun --package @ovst/cli@0.1.0 story status ./agent-work --json
-bunx --bun --package @ovst/cli@0.1.0 story cloud finish --root ./agent-work --json
+bunx @ovst/cli@0.1.0 cloud start --root ./agent-work --json
+bunx @ovst/cli@0.1.0 status ./agent-work --json
+bunx @ovst/cli@0.1.0 cloud finish --root ./agent-work --json
 ```
 
 Ordinary synchronization commands attach to an existing service and report
 install/start instructions when unavailable. macOS daemon installation preserves
 packaged JavaScript and watcher dependencies under `~/Library/Application Support/Story/CLI/`,
 independently of the bunx cache. Bun itself remains an installed prerequisite.
-Linux users run `bunx --bun --package @ovst/cli@0.1.0 story-sync --control`
+Linux users run `bunx @ovst/cli@0.1.0 daemon run --control`
 under their service manager. Cloud sessions start their own isolated runtime
 without installing a persistent daemon. Headless identity operations can opt into
 `STORY_CREDENTIAL_STORE=file`; this stores the private key in the private data

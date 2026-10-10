@@ -177,6 +177,9 @@ describe("plural-account CLI place", () => {
       runtime: { state: "running", runtimeKind: "cloud" },
       cloudSession: { phase: "ready" },
     });
+    // The session's Story Sync leads its own process group, so ending the caller's group leaves it running.
+    const { pid } = (await cloudStatus(firstRoot)).runtime as { pid: number };
+    expect(Bun.spawnSync(["ps", "-o", "pgid=", "-p", String(pid)]).stdout.toString().trim()).toBe(String(pid));
     expect(await readFile(join(firstRoot, "checkout", "note.md"), "utf8")).toBe("# From the creator\n");
     await writeFile(join(firstRoot, "checkout", "note.md"), "# From cloud one\n");
     expect(JSON.parse((await storyOutput(["cloud", "finish", "--root", firstRoot, "--timeout", "15s", "--json"])).stdout))

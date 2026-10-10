@@ -17,6 +17,11 @@ try {
   const manifest = await Bun.file(join(artifact, "package.json")).json();
   await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", join(scratch, `ovst-cli-${manifest.version}.tgz`)], scratch);
   const cli = join(scratch, "node_modules/@ovst/cli/bin/story.js");
+  // The package's one command must resolve by package name alone, as `bunx @ovst/cli` does.
+  if (Object.keys(manifest.bin).join() !== "story") throw new Error("The package must declare exactly the story command");
+  const version = Bun.spawnSync([join(scratch, "node_modules/.bin/story"), "--version"], { env: environment });
+  if (version.stdout.toString().trim() !== manifest.version) throw new Error(`story --version printed ${version.stdout.toString().trim()}, expected ${manifest.version}`);
+  await run([join(scratch, "node_modules/.bin/story"), "--help"], scratch);
   // Runs the existing real-host lifecycle and ordinary command tests against the installed artifact.
   let lifecycleError: unknown;
   try {
