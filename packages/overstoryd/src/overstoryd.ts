@@ -480,11 +480,15 @@ export class HostDaemon implements AsyncDisposable {
       ...(config.firstWriter ? [{ profile: `overstory://${config.firstWriter.profileTree}/`, handle: config.firstWriter.handle }] : []),
     ];
     const community = await this.insertTree(directSnapshot(profileSource("group", config.name, members)), { root: true });
-    // The community's members administer it. Bootstrap accounts that
-    // opted out of writing the community leave it to the others, named one by one.
+    // The host's administrators are named one by one: the founder, whose
+    // profile need not be claimed yet, and each bootstrap account that did not
+    // opt out of writing the community. Membership confers no administration,
+    // so a person who joins later is a member and nothing more. Only a
+    // bootstrap that names nobody falls back to the group, which a
+    // configuration needs for its one required administrator.
     const writers = preparedAccounts.filter(({ account }) => account.communityWriter !== false).map(({ profileTree }) => profileTree);
-    const everyMemberWrites = writers.length === preparedAccounts.length;
-    const communityAdmins = everyMemberWrites || !writers.length ? [community.id] : writers;
+    const named = [...new Set([...(config.firstWriter ? [config.firstWriter.profileTree] : []), ...writers])];
+    const communityAdmins = named.length ? named : [community.id];
     const communityConfig = await this.prepareConfig(community.id, "group", snapshotTreeConfig({
       access: [...communityAdmins.map((profile) => ({ who: { profile }, allow: ["admin" as const] })), { who: "everyone", allow: ["read"] }],
       mounts: {},

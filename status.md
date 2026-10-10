@@ -99,6 +99,19 @@ unchanged.
   comments, a duplicate) and end to end in
   `tests/integration/overstoryd/community-hosting.test.ts` (a flow-style
   entry, a CRLF document, a duplicate refused).
+- **Members are not administrators.** A new host's root configuration no
+  longer grants `admin` to the community group. `bootstrap` names the
+  founder's profile (`firstWriter.profileTree`, which administers by TreeID
+  before the account is claimed) and each bootstrap account that did not opt
+  out of writing the community, one by one, and keeps `everyone: read`. Only a
+  bootstrap that names nobody still grants the root itself `admin`, since a
+  configuration needs one administrator. Tested in
+  `tests/integration/overstoryd/community-hosting.test.ts`: a second member
+  who joins by invitation cannot write the root tree, read or edit its
+  configuration; all-writer accounts are named individually; an opted-out
+  account administers nothing. **No existing host is changed**: there is no
+  migration, and the live host's stored rule still names the root itself
+  until Joe edits its `access.yaml` by hand.
 
 ## Chained candidate deltas — 2026-10-06
 

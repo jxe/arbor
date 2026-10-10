@@ -111,8 +111,10 @@ that shows it:
   "an edit cannot remove the last administrator").
 - **Emptying an administering group.** The garden club administers its plants
   tree; an update to the club's profile with no members is refused ("keep at
-  least one member", same file). The community root administers itself, so
-  the same check keeps its last member.
+  least one member", same file). A community root that administers itself
+  (a host created before 2026-10-10, or one bootstrapped with nobody to
+  name) keeps its last member by the same check; a newer host names its
+  administrators one by one and has no such dependence.
 - **Alice trying to lend Joe's access.** Alice cannot edit Joe's `apps.yaml`
   (only administrator devices of an administering person may edit a
   configuration), and an entry in her own `apps.yaml` for Joe's tree covers

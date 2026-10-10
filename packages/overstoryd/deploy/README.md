@@ -31,7 +31,7 @@ The repository already contains `packages/overstoryd/deploy/Dockerfile.overstory
    OVERSTORYD_FIRST_WRITER_PROFILE=tr_...
    ```
 
-   The community's display name starts as its handle; its writer can edit the profile later. (On your own machine the same step is `overstoryd init garden --founder joe=tr_...`.) With a Railway-provided domain, overstoryd derives the canonical URL from `RAILWAY_PUBLIC_DOMAIN`. For a custom domain, add one service variable containing the hostname (without a scheme):
+   The founder's profile alone administers the new host: people who join later are members, and administer nothing until the founder names them in the root's `access.yaml`. The community's display name starts as its handle; its writer can edit the profile later. (On your own machine the same step is `overstoryd init garden --founder joe=tr_...`.) With a Railway-provided domain, overstoryd derives the canonical URL from `RAILWAY_PUBLIC_DOMAIN`. For a custom domain, add one service variable containing the hostname (without a scheme):
 
    ```text
    OVERSTORYD_DOMAIN=garden.example.com
