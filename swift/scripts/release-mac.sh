@@ -81,12 +81,7 @@ sign --entitlements swift/StoryApp/Story.entitlements "$app"
 codesign --verify --deep --strict "$app"
 
 dmg="$output/Story-$version.dmg"
-staging="$work/dmg"
-mkdir -p "$staging"
-ditto "$app" "$staging/Story.app"
-ln -s /Applications "$staging/Applications"
-rm -f "$dmg"
-hdiutil create -quiet -volname "Story $version" -srcfolder "$staging" -format UDZO "$dmg"
+swift/scripts/make-dmg.sh "$app" "Story $version" "$dmg"
 codesign --force --sign "$identity" --timestamp "$dmg"
 
 if [ "${STORY_SKIP_NOTARIZE:-}" = "1" ]; then
