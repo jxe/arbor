@@ -28,7 +28,7 @@ import { tmpdir } from "node:os";
 import { serveStorySyncControl } from "@ovst/story-sync";
 import { serveHost } from "@ovst/overstoryd";
 import { overstoryPrivateRoot, sha256 } from "@ovst/protocol";
-import { ProfileIdentityStore, loadLocalPlacements } from "@ovst/story-sync/state";
+import { ProfileIdentityStore, loadLocalPlacements } from "@ovst/client";
 
 const repository = join(import.meta.dir, "../..");
 const dataHome = "/tmp/StoryNativeAppTests";
