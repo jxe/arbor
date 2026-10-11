@@ -64,7 +64,7 @@ struct StoryMacOnboarding: View {
     @State private var pasted: (account: String, code: String?)?
     @State private var displayName = ""
     @State private var pairingCode = ""
-    @State private var pairing = false
+    @State private var returning = false
     // After the join.
     @State private var joinedAccount: HostAccount?
     @State private var joinedURL: String?
@@ -87,131 +87,194 @@ struct StoryMacOnboarding: View {
     }
 
     var body: some View {
-        Form {
-            Section {
-                HStack {
-                    Text(addingAccount ? "Add Account" : "Welcome to Story").font(.largeTitle)
-                    Spacer()
-                    if addingAccount { Button("Done", action: complete) }
-                }
-            }
-            if let state {
-                if let joinedURL, let joined = Self.place(joinedURL) {
-                    firstSteps(host: joined.host, handle: joined.handle)
-                } else if let pending = state.pendingClaim {
-                    pendingSection(pending)
-                } else if let invited, let invitation = Self.place(invited.account) {
-                    joinSection(state, host: invitation.host, handle: invitation.handle)
-                } else {
-                    Section {
-                        TextField("Invitation link", text: $link, prompt: Text("https://host.example/~you#overstory-invite=…"))
-                    } header: {
-                        Text("Join with an invitation")
-                    } footer: {
-                        Text("Story is joined by invitation. Paste the link you were sent, or open it in your browser and choose Open in Story.")
+        ScrollView {
+            VStack(spacing: 22) {
+                header
+                if let state {
+                    if let joinedURL, let joined = Self.place(joinedURL) {
+                        firstSteps(host: joined.host, handle: joined.handle)
+                    } else if let pending = state.pendingClaim {
+                        pendingCard(pending)
+                    } else if let invited, let invitation = Self.place(invited.account) {
+                        joinCard(state, host: invitation.host, handle: invitation.handle)
+                    } else {
+                        linkCard
+                    }
+                    if joinedURL == nil {
+                        if let pendingOrigin = state.pendingPairingOrigin {
+                            card {
+                                Text("Adding this Mac to your account on \(pendingOrigin) did not finish.")
+                                Button("Finish") {
+                                    run { service in
+                                        try await service.resumePairing()
+                                        try await reload()
+                                        complete()
+                                    }
+                                }
+                            }
+                        } else {
+                            Button("I’ve used Story before…") { returning = true }
+                                .buttonStyle(.link)
+                        }
                     }
                 }
-                if joinedURL == nil { pairingSection(state) }
-            }
-            if busy { ProgressView() }
-            if let message {
-                Section {
+                if busy { ProgressView() }
+                if let message {
                     Text(message).foregroundStyle(.red).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     if state == nil { Button("Try Again") { Task { await load() } } }
                 }
             }
+            .frame(maxWidth: 460)
+            .padding(.horizontal, 32)
+            .padding(.vertical, 36)
+            .frame(maxWidth: .infinity)
         }
-        .formStyle(.grouped)
-        .frame(minWidth: 520, minHeight: 480)
+        .frame(minWidth: 540, minHeight: 540)
         .disabled(busy)
         .task { await load() }
         .onChange(of: link) { _, value in
             let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if case let .join(account, code)? = StoryIncomingLocator.pastedJoinLink(text) {
+            // A code is 22 characters; a shorter one is a link still being typed.
+            if case let .join(account, code)? = StoryIncomingLocator.pastedJoinLink(text), code.count == 22 {
                 pasted = (account, code)
             } else if state?.identity != nil, Self.place(text) != nil, text.hasPrefix("http"), !text.contains("#") {
                 // An account reserved for the identity already on this Mac needs no code.
                 pasted = (text, nil)
             }
         }
+        .sheet(isPresented: $returning) { returningSheet }
+    }
+
+    private var header: some View {
+        VStack(spacing: 10) {
+            if addingAccount {
+                HStack {
+                    Spacer()
+                    Button("Done", action: complete)
+                }
+            } else {
+                Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 84, height: 84)
+            }
+            Text(addingAccount ? "Add an Account" : joinedURL == nil ? "Welcome to Story" : "You’re in")
+                .font(.largeTitle.weight(.semibold))
+        }
+    }
+
+    /// A rounded panel: the one kind of block on these screens.
+    private func card(@ViewBuilder _ content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 12, content: content)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(18)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
     }
 
     // MARK: Joining
 
+    private var linkCard: some View {
+        VStack(spacing: 14) {
+            Text("Story is joined by invitation. Paste the link you were sent.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            TextField("Invitation link", text: $link, prompt: Text(verbatim: "https://host.example/~you#overstory-invite=…"))
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.large)
+            Text("Or open the link in your browser and choose Open in Story.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     @ViewBuilder
-    private func joinSection(_ state: HostAccountState, host: String, handle: String) -> some View {
-        Section("Join \(host)") {
-            Text("You were invited as ~\(handle).").foregroundStyle(.secondary)
+    private func joinCard(_ state: HostAccountState, host: String, handle: String) -> some View {
+        Text("You’ve been invited to **\(host)** as **~\(handle)**.")
+            .multilineTextAlignment(.center)
+        card {
             if let identity = state.identity {
                 if identity.keyAvailable {
-                    Text("You will join with the identity already on this Mac.")
-                    Button("Join") { join() }
+                    Text("You’ll join with the identity already on this Mac.").foregroundStyle(.secondary)
+                    joinButton(host, enabled: true)
                 } else {
                     Text("The identity on this Mac has lost its key. Recover it from its backup to join.")
                     Button("Recover Identity…") { recover() }
                 }
             } else {
-                TextField("Your name", text: $displayName)
-                Button("Join") { join() }
-                    .disabled(displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
-        if state.identity == nil {
-            Section {
-                Button("Recover an Identity Instead…") { recover() }
-            } footer: {
-                Text("If you have used Story before and kept an identity backup, recover it and join as the same person.")
+                Text("What should people call you?").foregroundStyle(.secondary)
+                TextField("Your name", text: $displayName, prompt: Text("Your name"))
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.large)
+                    .onSubmit { if !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { join() } }
+                joinButton(host, enabled: !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         if pasted != nil {
-            Button("Use a Different Link") { pasted = nil; link = "" }
+            Button("Use a different link") { pasted = nil; link = "" }.buttonStyle(.link)
         }
     }
 
-    @ViewBuilder
-    private func pendingSection(_ pending: PendingHostAccountClaim) -> some View {
-        Section("Joining \(Self.place(pending.account)?.host ?? pending.account)") {
-            Text(pending.account).font(.caption.monospaced()).textSelection(.enabled)
+    private func joinButton(_ host: String, enabled: Bool) -> some View {
+        Button { join() } label: { Text("Join \(host)").frame(maxWidth: .infinity) }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!enabled)
+    }
+
+    private func pendingCard(_ pending: PendingHostAccountClaim) -> some View {
+        card {
+            Text("Joining \(Self.place(pending.account)?.host ?? pending.account)").font(.headline)
             Text(pending.canCancel
-                ? "This join did not finish. Try it again, or cancel it to use another link."
-                : "This join may already have reached the host. Finish it to continue safely.")
+                ? "This did not finish. Try it again, or cancel it to use another link."
+                : "This may already have reached the host. Finish it to continue safely.")
                 .foregroundStyle(.secondary)
-            Button("Finish Joining") { join(resuming: pending.account) }
-            if pending.canCancel {
-                Button("Cancel") { run { service in try await service.cancelPendingClaim(); try await reload() } }
+            HStack {
+                Button("Finish Joining") { join(resuming: pending.account) }.buttonStyle(.borderedProminent)
+                if pending.canCancel {
+                    Button("Cancel") { run { service in try await service.cancelPendingClaim(); try await reload() } }
+                }
             }
         }
     }
 
-    @ViewBuilder
-    private func pairingSection(_ state: HostAccountState) -> some View {
-        Section {
-            if let pendingOrigin = state.pendingPairingOrigin {
-                Text("Pairing with \(pendingOrigin) did not finish.")
-                Button("Finish Pairing") {
+    /// For someone who has used Story before: add this Mac to an account, or bring an identity back.
+    private var returningSheet: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Used Story before?").font(.title2.weight(.semibold))
+            card {
+                Text("Add this Mac to your account").font(.headline)
+                Text("On a device that already uses the account, choose Sync & Accounts, then Pair another device, and paste its code here. With no such device, ask the host’s administrator for a recovery code.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                TextField("Pairing code", text: $pairingCode, prompt: Text("Pairing or recovery code"))
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                Button("Add This Mac") {
+                    returning = false
                     run { service in
-                        try await service.resumePairing()
+                        _ = try await service.claimPairing(Data(pairingCode.utf8), deviceLabel: Self.deviceLabel)
+                        pairingCode = ""
                         try await reload()
                         complete()
                     }
                 }
-            } else {
-                DisclosureGroup("Already have an account? Add this Mac to it", isExpanded: $pairing) {
-                    Text("On a device that already uses the account, choose Sync & Accounts, then Pair another device, and paste its pairing code here. With no such device, ask the host's administrator for a recovery code and paste that.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    TextField("Pairing code", text: $pairingCode)
-                    Button("Pair This Mac") {
-                        run { service in
-                            _ = try await service.claimPairing(Data(pairingCode.utf8), deviceLabel: Self.deviceLabel)
-                            pairingCode = ""
-                            try await reload()
-                            complete()
-                        }
-                    }
-                    .disabled(pairingCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(pairingCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            if state?.identity == nil {
+                card {
+                    Text("Join somewhere new as the same person").font(.headline)
+                    Text("Recover your identity from its backup file, then join with an invitation as usual.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Recover Identity…") { returning = false; recover() }
                 }
             }
+            HStack {
+                Spacer()
+                Button("Cancel") { returning = false }.keyboardShortcut(.cancelAction)
+            }
         }
+        .padding(24)
+        .frame(width: 460)
     }
 
     /// Create the identity if this Mac has none, then claim the invited account.
@@ -237,51 +300,53 @@ struct StoryMacOnboarding: View {
 
     @ViewBuilder
     private func firstSteps(host: String, handle: String) -> some View {
-        Section {
+        Text("You joined **\(host)** as **~\(handle)**. Three quick things before you start.")
+            .multilineTextAlignment(.center)
+        card {
             step(photo != nil, "Add a photo", "So people on \(host) recognize you.") {
                 if let photo {
                     Image(nsImage: photo).resizable().scaledToFill().frame(width: 28, height: 28).clipShape(Circle())
                 }
                 Button(photo == nil ? "Choose Photo…" : "Change…") { choosePhoto() }
             }
-            step(backedUp, "Back up your identity", "Your identity is a key kept on this Mac. The backup is the only way to recover it.") {
+            Divider()
+            step(backedUp, "Back up your identity", "Your identity is a key kept on this Mac. The backup file is the only way to get it back.") {
                 Button(backedUp ? "Back Up Again…" : "Back Up…") { backup() }
             }
+            Divider()
             step(folder != nil, folder.map { "Syncing \($0.name)" } ?? "Choose a folder to sync",
                  "Its pages are kept on \(host) and on this Mac, private until you share them. A new, empty folder for your notes is fine.") {
                 if folder == nil { Button("Choose Folder…") { chooseFolder() } }
             }
-        } header: {
-            Text("You joined \(host) as ~\(handle)")
         }
         let shared = treeChoices.filter(isShared)
         if !shared.isEmpty {
-            Section {
+            Text("Also on \(host), if you’d like a copy on this Mac")
+                .font(.callout).foregroundStyle(.secondary)
+            card {
                 ForEach(shared, id: \.id) { tree in
                     step(syncedTrees.contains(tree.id), Self.treeName(tree), tree.canonicalPath ?? "") {
                         if !syncedTrees.contains(tree.id) { Button("Sync to Documents") { syncExisting(tree) } }
                     }
                 }
-            } header: {
-                Text("Also on \(host)")
-            } footer: {
-                Text("Optional. Each is copied to a folder in Documents and kept in sync.")
             }
         }
-        Section {
-            Button(addingAccount ? "Done" : "Continue") { finish() }
-                .disabled(photo == nil || !backedUp || folder == nil)
-        }
+        Button { finish() } label: { Text(addingAccount ? "Done" : "Start Using Story").frame(maxWidth: .infinity) }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(photo == nil || !backedUp || folder == nil)
     }
 
     private func step(_ done: Bool, _ title: String, _ detail: String, @ViewBuilder action: () -> some View) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                .font(.title3)
+                .font(.title2)
                 .foregroundStyle(done ? Color.green : Color.secondary)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                if !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(.secondary) }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).fontWeight(.medium)
+                if !detail.isEmpty {
+                    Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 12)
             action()
@@ -422,8 +487,7 @@ struct StoryMacOnboarding: View {
                 try? await reload()
                 // An account can be claimed once; a second device joins it by pairing.
                 if failure.localizedCaseInsensitiveContains("already claimed") {
-                    failure += "\n\nIf this is your account, add this Mac to it with a pairing or recovery code, below."
-                    pairing = true
+                    failure += "\n\nIf this is your account, choose I’ve used Story before to add this Mac to it."
                 }
                 message = failure
             }
@@ -459,18 +523,19 @@ struct StoryMacOnboarding: View {
 /// passphrase, because the profile key it holds can reset every device of the
 /// profile; an older backup without one still restores.
 enum StoryIdentityBackupPrompt {
-    static let minimumPassphraseLength = 8
+    static let minimumPassphraseLength = 4
 
     /// A new backup file and its passphrase, entered twice; nil when cancelled.
     @MainActor static func chooseDestination() -> (URL, String)? {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "Story Identity.json"
-        panel.message = "This backup contains your private identity key, encrypted under a passphrase you choose. Choose a new file."
+        panel.message = "This backup contains your private identity key. Keep it somewhere safe, away from this Mac."
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
-        var message = "Choose a passphrase of at least \(minimumPassphraseLength) characters. Without it the backup cannot be restored."
+        var message = "A passphrase is optional. With one, the backup is encrypted and cannot be restored without it. Without one, anyone who gets the file can act as you."
         while true {
-            guard let entered = passphrase(title: "Encrypt the backup", message: message, confirm: true) else { return nil }
-            if entered.0.count < minimumPassphraseLength { message = "The passphrase needs at least \(minimumPassphraseLength) characters." }
+            guard let entered = passphrase(title: "Protect the backup?", message: message, confirm: true) else { return nil }
+            if entered.0.isEmpty, entered.1.isEmpty { return (url, "") }
+            if entered.0.count < minimumPassphraseLength { message = "A passphrase needs at least \(minimumPassphraseLength) characters. Leave both fields empty for none." }
             else if entered.0 != entered.1 { message = "The two passphrases differ. Enter them again." }
             else { return (url, entered.0) }
         }
@@ -496,7 +561,7 @@ enum StoryIdentityBackupPrompt {
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
         let first = NSSecureTextField(frame: NSRect(x: 0, y: confirm ? 30 : 0, width: 260, height: 24))
-        first.placeholderString = "Passphrase"
+        first.placeholderString = "Passphrase (optional)"
         let second = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         second.placeholderString = "Repeat the passphrase"
         let stack = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: confirm ? 54 : 24))

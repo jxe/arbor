@@ -1809,8 +1809,8 @@ async function main(): Promise<void> {
     if (action === "backup") {
       if (operands.length !== 1) usage();
       const destination = resolveUserPath(operands[0]!);
-      const passphrase = await readPassphrase("Passphrase for the backup: ");
-      if (process.stdin.isTTY && await readPassphrase("Repeat the passphrase: ") !== passphrase) throw new Error("The passphrases differ; nothing was written");
+      const passphrase = await readPassphrase("Passphrase for the backup (Return for none): ");
+      if (passphrase && process.stdin.isTTY && await readPassphrase("Repeat the passphrase: ") !== passphrase) throw new Error("The passphrases differ; nothing was written");
       await store.backup(destination, passphrase);
       console.log(`Backed up Story identity to ${destination}`);
       return;

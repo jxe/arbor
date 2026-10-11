@@ -121,7 +121,7 @@ export class LocalAccountService {
     return result;
   }
 
-  async backupProfileIdentity(destination: string, passphrase: string) {
+  async backupProfileIdentity(destination: string, passphrase?: string) {
     await identityOperation(() => new ProfileIdentityStore().backup(resolveUserPath(destination), passphrase));
   }
 

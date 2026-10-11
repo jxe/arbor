@@ -313,10 +313,13 @@ PNG, JPEG, GIF, or WebP file inside the profile folder. These fields are
 presentation only; the Profile TreeID remains the identity.
 
 `story me backup` writes a versioned backup of the same private key to a newly
-created owner-readable file, encrypted under a passphrase it asks for twice
-(or reads from standard input when that is not a terminal; never from an
-argument). It never prints the key and refuses to overwrite a path. The
-passphrase matters: the profile key claims accounts for the profile.
+created owner-readable file. It asks for a passphrase of at least four
+characters, twice (or reads one from standard input when that is not a
+terminal; never from an argument), and encrypts the backup under it; an empty
+answer writes the key unencrypted. It never prints the key and refuses to
+overwrite a path. The passphrase matters: the profile key claims accounts for
+the profile, so an unencrypted backup is as good as the identity to anyone who
+copies it.
 `story me restore`
 asks for the passphrase of an encrypted backup, still restores an older
 unencrypted one, and validates the backup's public key and Profile TreeID

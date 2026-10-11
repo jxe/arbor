@@ -121,12 +121,13 @@ accounts (§1.2, §1.3); it does not recover lost devices, which is the home
 host's help (§5.3).
 
 A backup contains the same private key, not another authority. Because that
-key claims accounts for the profile, a conforming backup operation encrypts it
-under a passphrase the person chooses, writes a versioned, profile-bound secret
+key claims accounts for the profile, a conforming backup operation offers to
+encrypt it under a passphrase the person chooses and encrypts it when one is
+given, writes a versioned, profile-bound secret
 file with owner-only permissions, refuses to overwrite an existing path, and
 never prints the key. Restore validates that the private key derives the
 recorded public key and Profile TreeID before storing it or binding a local
-profile folder, and still reads the earlier unencrypted format. Losing every
+profile folder, and reads the unencrypted format. Losing every
 copy of the private key permanently loses the ability to establish that profile
 at another host, though already-paired devices keep working.
 

@@ -31,7 +31,11 @@ describe("onboarding identity preservation", () => {
     const first = await store.create(profile);
     expect(await store.create(profile)).toEqual(first);
     const backup = join(root, "backup.json");
-    await expect(store.backup(backup, "short")).rejects.toThrow("at least 8 characters");
+    await expect(store.backup(backup, "abc")).rejects.toThrow("at least 4 characters");
+    // No passphrase writes the key in the clear, in the format restore has always read.
+    const open = join(root, "open-backup.json");
+    await store.backup(open, "");
+    expect(JSON.parse(await readFile(open, "utf8"))).toMatchObject({ version: 1, privateKey: expect.any(String) });
     await store.backup(backup, passphrase);
     await expect(store.backup(backup, passphrase)).rejects.toThrow("EEXIST");
     const written = JSON.parse(await readFile(backup, "utf8"));

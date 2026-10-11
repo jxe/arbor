@@ -233,20 +233,22 @@ retained during migration. An explicit matching backup can repair damaged public
 metadata when the secure record proves the same identity; the damaged bytes are
 preserved separately.
 
-A Mac is set up by invitation. Story opened without one asks for the
-invitation link; there is no step that creates an identity alone, shows a
+Setup is one centered column with a single kind of rounded panel. A Mac is
+set up by invitation. Story opened without one asks for the invitation link; there is no step that creates an identity alone, shows a
 public identity to send to an administrator, or connects to a host by address.
-Join creates the identity when the Mac has none. Someone who has used Story
-before can instead **Recover an Identity** from its backup on the join form and
-join as the same person. A join that did not finish is shown with **Finish
+Join creates the identity when the Mac has none. **I’ve used Story before…**
+opens the two things a returning person may want: add this Mac to an account
+with a pairing or recovery code, or recover an identity from its backup and
+then join as the same person. A join that did not finish is shown with **Finish
 Joining** and, while it can still be cancelled, **Cancel**. An account URL
 pasted without a code is accepted when the Mac already holds the identity the
 account is reserved for, which is how a host's founder claims theirs.
 
 An account is claimed once. A Mac joins an account that already exists by
-pairing: **Already have an account? Add this Mac to it** takes a pairing code
-from a device that uses the account, or a recovery code from the host's
-administrator. Pairing resumes after a lost response using the same device
+pairing, with a pairing code from a device that uses the account or a recovery
+code from the host's administrator. An identity backup is encrypted when the
+person gives a passphrase of at least four characters, and written in the
+clear when they give none. Pairing resumes after a lost response using the same device
 credential. Existing configured users resume their workspace without requiring
 the host to be reachable.
 

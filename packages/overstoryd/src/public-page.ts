@@ -334,7 +334,7 @@ if (location.hash.startsWith("#overstory-invite=")) {
  */
 export function renderReservedPage(handle: string, host: string, downloads: StoryDownloads = {}): string {
   const download = (label: string, url: string | undefined) => url ? `<p><a href="${escapeHTML(url)}">${label}</a></p>` : "";
-  return renderNoticePage(`~${handle}`, `<h1>~${escapeHTML(handle)}</h1><p>This address on ${escapeHTML(host)} is reserved and has not been claimed yet.</p><p>If someone sent you an invitation to it, open the invitation in Story.</p><div id="invitation" hidden><p><a id="open-in-story" href="#">Open in Story</a></p>${download("Get Story for Mac", downloads.mac)}${download("Get Story for iPhone", downloads.iphone)}</div><script>${RESERVED_PAGE_SCRIPT}</script>`);
+  return renderNoticePage(`~${handle}`, `<h1>~${escapeHTML(handle)}</h1><p>This address on ${escapeHTML(host)} is reserved and has not been claimed yet.</p><p>If someone sent you an invitation to it, open the invitation in Story.</p><div id="invitation" hidden><p><a id="open-in-story" href="#">Open in Story</a></p><p>If Story opens and asks for your invitation, which can happen the first time you run it, choose Open in Story again, or copy this page's address and paste it into Story.</p>${download("Get Story for Mac", downloads.mac)}${download("Get Story for iPhone", downloads.iphone)}</div><script>${RESERVED_PAGE_SCRIPT}</script>`);
 }
 
 const NOTICE_STYLES = "body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}";

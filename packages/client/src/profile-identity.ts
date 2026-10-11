@@ -56,7 +56,7 @@ interface EncryptedProfileIdentityBackup {
 const BACKUP_KDF = { N: 2 ** 17, r: 8, p: 1 } as const;
 /** Parameters a backup may name: at least the ones written here, and not so large that restoring exhausts memory. */
 const BACKUP_KDF_LIMITS = { minN: 2 ** 15, maxN: 2 ** 20, maxR: 16, maxP: 4 } as const;
-export const MINIMUM_BACKUP_PASSPHRASE_LENGTH = 8;
+export const MINIMUM_BACKUP_PASSPHRASE_LENGTH = 4;
 
 function passphraseBytes(passphrase: string): Buffer {
   const normalized = passphrase.normalize("NFC");
@@ -380,18 +380,22 @@ export class ProfileIdentityStore {
     };
   }
 
-  /** Write the private key, encrypted under `passphrase`, to a new owner-only file. */
-  async backup(destinationInput: string, passphrase: string): Promise<void> {
-    passphraseBytes(passphrase);
+  /**
+   * Write the private key to a new owner-only file: encrypted under
+   * `passphrase` when one is given, in the clear when it is empty or absent.
+   */
+  async backup(destinationInput: string, passphrase?: string): Promise<void> {
+    if (passphrase) passphraseBytes(passphrase);
     const material = await this.keyMaterial();
     const destination = resolve(destinationInput);
     await mkdir(dirname(destination), { recursive: true });
-    const backup = await encryptBackup({
+    const plain: ProfileIdentityBackup = {
       version: 1,
       profileTree: material.metadata.profileTree,
       publicKey: material.metadata.publicKey,
       privateKey: base64url(material.seed),
-    }, passphrase);
+    };
+    const backup = passphrase ? await encryptBackup(plain, passphrase) : plain;
     await writeFile(destination, `${JSON.stringify(backup, null, 2)}\n`, { mode: 0o600, flag: "wx" });
     await chmod(destination, 0o600);
   }
