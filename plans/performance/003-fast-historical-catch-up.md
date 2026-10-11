@@ -10,10 +10,9 @@ reconstructing it when no useful checkpoint survives.
 ## Baseline and boundaries
 
 Revision `c0a68ebf` stores shared compressed checkpoints and durably preserves
-interrupted replay. The deployed host accepted the phone's original request as
-update 8670 and its successor as 8671 on October 9; the phone reported current
-with unresolved conflicts, and its durable attempt and hold were cleared. Joe
-confirmed it caught up. The initial recovery took approximately five minutes,
+interrupted replay; its deployment and the phone's catch-up on October 9 are in
+[status](../../status.md#shared-merge-cache-deployed--2026-10-09), and the first
+improvements from this plan are deployed too. The initial recovery took approximately five minutes,
 reconstructing about 4,200 entries for an older authored basis. Ten-second replay
 budgets, checkpoint work and client retry delays contributed to elapsed time.
 Later ten-second attempts replayed roughly 90–150 entries, versus about 1,190

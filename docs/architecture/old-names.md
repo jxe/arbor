@@ -30,7 +30,7 @@ Persisted on devices and never shown to people. Changing them costs a keychain m
 
 ## Read old, write new
 
-These spellings are inside authored content or in links already shared. Readers accept both; writers emit only the new one. The spec describes only the new spellings. [Rename 002](../../plans/rename/002-remove-arbor-locator-alias.md) rewrites live content and removes the aliases. Every alias site carries the comment marker `Rename 002` so they can be found.
+These spellings are inside authored content or in links already shared. Readers accept both; writers emit only the new one. The spec describes only the new spellings. [Rename 002](../../plans/cleanups/rename-002-remove-old-spelling-aliases.md) rewrites live content and removes the aliases. Every alias site carries the comment marker `Rename 002` so they can be found.
 
 | Old spelling | Where it is read |
 |---|---|

@@ -8,7 +8,7 @@
 
 - **Effort**: L
 - **Risk**: MEDIUM. The identity key would live on a phone, so losing the phone must not lose the identity.
-- **Depends on**: Release 002 (a TestFlight build to install)
+- **Depends on**: Release 001 (a TestFlight build to install)
 - **Category**: product completion
 
 ## What exists
@@ -37,12 +37,13 @@
 
 1. **Spec.** Accounts §5: adding a device by its public key from an administrator device, beside pairing; the QR payload and the confirmation code derived from it. A conformance vector for the payload.
 2. **Identity backup on the iPhone.** Export to Files in the format `story me backup` writes, restore from it, and a shared vector so Mac and iPhone read each other's backups.
-3. **Join on the iPhone.** Handle `overstory://` and pasted invitation links; a join form as on the Mac (name, Join); activate the profile after the claim; first steps (photo, backup, and the answer to the open decision). Update `docs/implementing-editors/design.md`, which says iPhone setup is pairing-only.
+3. **Join on the iPhone.** Handle invitation links, opened as `overstory://` or pasted. This plan owns what an invitation link does on the iPhone; the iPhone's handler for opens from the OS, and every other kind of link, is [Links 001](../links/001-tree-id-links.md) phase 3. Whichever lands first adds `.onOpenURL` with the pending-open handoff, and the other adds its case to it. A join form as on the Mac (name, Join); activate the profile after the claim; first steps (photo, backup, and the answer to the open decision). Update `docs/implementing-editors/design.md`, which says iPhone setup is pairing-only.
 4. **Add a Mac.** The Mac's "this account is already claimed" state shows the QR code and waits; the iPhone gets **Add a Mac** with the scanner it already has. The Mac needs the camera for nothing.
 5. **Check by hand** with a fresh iPhone and a fresh Mac account: join on the phone from a link in Messages, back up, add the Mac by scanning, share from the Mac. Then lose the phone on purpose (delete the app) and recover the identity on a new install from the backup.
 6. **Close out.** Record the evidence in `status.md` and delete this plan.
 
 ## Related
 
-- [Security 012](../security/012-rejoin-with-the-profile-key.md) asks whether an identity alone may add a device. If yes, restoring a backup on the Mac becomes a second way to add it.
-- [Release 003](../release/003-app-store.md) needs a way in for an App Store reviewer; joining on the iPhone from an invitation is one.
+- [Security 012](../security/012-get-back-in-with-the-admins-help.md): Joe decided on 2026-10-11 that an identity alone does not add a device, so restoring a backup on the Mac is not a second way to add it. A person who loses the phone restores the backup on a new one and asks the host's administrator to let them back in.
+- [Release 003](../release/003-app-store.md): Look Around First is the App Store reviewer's way in today; joining on the iPhone from an invitation is the fallback if sample pages are not enough. This plan replaces Joe's 2026-10-10 decision, recorded there until 2026-10-11, not to build joining on the iPhone.
+- [Links 001](../links/001-tree-id-links.md) phase 3 owns the iPhone's other link opens; see step 3.

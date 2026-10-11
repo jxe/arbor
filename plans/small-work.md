@@ -143,25 +143,31 @@ passes its Swift tests on a Mac.
 
 ## Server refinements
 
-Owner: [overstoryd 014](merge/014-merge-handles-many-cases.md).
+Owner: [overstoryd 014](merge/014-merge-handles-many-cases.md). Everything here is on main
+and so deployed (the host builds from main; Joe pushed on 2026-10-11): independent
+source-range inspection, the Markdown transfer and list-insertion refinements, the transfer
+extensions (list items, table rows and contextual links; same-anchor ordering; keyed
+JSON/YAML members; TS/JS function moves) and the fast-path acceptance of basis moves. The
+server step for block moves and Move to Document is therefore done, and a Native build that
+publishes them may be installed. None of it has been tried by hand.
 
-- [ ] Rehearse, deploy and verify independent source-range inspection and the Markdown
-  transfer/list-insertion refinements (deployed with `5ef1fe20`, not hand-verified). Record
-  the revision and packaged worker together.
-- [ ] Deploy the transfer extensions (Markdown list items, table rows and contextual links;
-  same-anchor ordering; keyed JSON/YAML members; TS/JS function moves) with the sidecar.
-  First run `bun test tests/unit/overstoryd-merge tests/integration/overstoryd-merge` and
-  `bun test tests/integration/overstoryd/source-acceptance.test.ts` on that revision.
-- [ ] Then verify by hand in both arrival orders on disposable trees: a list item moved
+- [ ] Verify by hand in both arrival orders on disposable trees: a list item moved
   between lists beside an edit to another item; a table row copied beside a cell edit; a
   paragraph with a relative link moved within one directory (merges) and into another
   (reviews); a paragraph moved to where another device appended one; a JSON member moved
   beside an edit to its value; a TS function moved beside a literal edit to it. Record each
   result and that the replayed history check still passes.
-- [ ] Deploy the fast-path acceptance of basis moves (`arrangeSources`, exact-basis moves
-  and anchors on carried material) before installing a Native build that publishes block
-  moves or Move to Document. No client emits a new transfer form before its server step is
-  recorded.
+- No client emits a new transfer form before its server step is on main and recorded in
+  status.
+
+## Aged migration directories and backups
+
+- [ ] With Joe's go-ahead, delete the migration directories and local backups whose keep
+  dates have passed: `packages/overstoryd/migrations/021-file-relative-links` and `022-tree-configurations`
+  ([status](../status.md#known-gaps) gives 2026-10-10 for 022's `legacy.ts`), then `026`,
+  `027` and `029` after 2026-10-12, and the matching directories under `.backups/railway/`.
+  Check each directory's README for its own date first, and that `bun run typecheck` does
+  not depend on any of them.
 
 ## Placement hosts
 
@@ -170,8 +176,8 @@ A live second overstoryd is Joe's decision.
 
 - [ ] Once a live placement host exists, try by hand the iPhone opening a tree there
   (Place a Tree lists the account's other hosts). The iPhone pairs only with an HTTPS host.
-- Making a folder into a tree from the Mac app, onto any host, is
-  [Filesystem 024](filesystem/024-disk-editors-for-non-tree-folders.md).
+- Making a folder into a tree from the Mac app after setup, onto any host, is
+  [Filesystem 024](filesystem/024-open-plain-folders-on-the-mac.md).
 
 ## Observation and soak closeout
 

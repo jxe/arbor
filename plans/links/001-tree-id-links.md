@@ -4,6 +4,8 @@
 
 > **Executor instructions**: Do the phases in order and stop after each for Joe's hands-on check; each is useful alone. Each phase lists the spec and doc text that becomes true with it; change that text in the same phase, not earlier or later. The lookup talks to live hosts only when a person activates a link, never in tests against `arb.nxhx.org`.
 >
+> **Refresh first (2026-10-11)**: the drift check below shows 1,127 changed lines in eight of the nine files since this plan was written: the 2026-10-11 setup and invitation work rewrote `StoryOnboarding.swift` (where the Mac's `onOpenURL` now is) and `StoryRootView.swift`, the `story` commands were regrouped, and `03-locators.md` changed. The sentence in locators §4 that phase 1 replaces is still there. Reread "What happens today" against the source and correct it before phase 1.
+>
 > **Drift check**: `git diff --stat 7d541bf6..HEAD -- docs/overstory-spec/03-locators.md docs/overstory-spec/02-directory-format.md swift/StoryApp/StoryAppModel.swift swift/StoryApp/StoryVisits.swift swift/StoryApp/StoryOnboarding.swift swift/StoryApp/StoryRootView.swift swift/Packages/StoryKit/Sources/StoryKit/LogicalURL.swift packages/story-sync/src/service.ts packages/cli/src/index.ts`. Stop if `openNestedTree` already asks hosts for a tree by ID.
 
 ## Status
@@ -105,12 +107,12 @@ Two rules are enforced by the types, not by convention:
 
 - `.onOpenURL` on the iPhone's launch view, with the same pending-open handoff.
 - `locateTree` on iPhone uses step 2 through `nativePlacementStore` and opens `.host` with `place(tree:from:configurationTree:)`. It therefore opens only trees on hosts where the phone has an account.
-- A host-form URL opens when the phone has an account at that host; otherwise it says so. An invite URL starts the join flow, which the iPhone has never handled.
+- A host-form URL opens when the phone has an account at that host; otherwise it says so. An invitation URL is [Sharing 001](../sharing/001-join-on-iphone-first.md)'s: until that plan lands, the handler says that joining needs a Mac for now and offers pairing; after it, the handler hands the URL to the join flow. If Sharing 001 lands first, this phase adds its cases to the handler that plan made.
 - Open Location on iPhone accepts a locator, not only a path in the current tree.
 
 **Docs:** `design.md` and `status.md`. State the limit: the iPhone cannot visit a tree anonymously or without an account, because visits and the read-only object store are Mac-only.
 
-**Verification:** simulator tests for the handler and the account limit. By hand on the phone: an invite link, a host-form link, and a raw link from Notes.
+**Verification:** simulator tests for the handler and the account limit. By hand on the phone: a host-form link and a raw link from Notes, and an invitation link giving whichever answer Sharing 001's state calls for.
 
 ## Phase 4: the command line
 

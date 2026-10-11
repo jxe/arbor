@@ -181,7 +181,7 @@ written and synced before any index row names it.
 
 Loose objects older than an hour and outside every tree's current files are
 packed in the background into zstd frames of one document's versions under
-`objects/packs/` (see [overstoryd 001](../../../plans/performance/001-pack-object-storage.md));
+`objects/packs/` (see [status](../../../status.md#object-packing-deployed--2026-10-09));
 reads, presence checks and the collector see packed and loose objects alike.
 A pass runs at startup, after acceptances pass 4,000 loose objects or 64 MiB,
 and on a 30-minute idle check; it removes loose files only after reading every

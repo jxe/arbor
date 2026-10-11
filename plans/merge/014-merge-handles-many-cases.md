@@ -10,9 +10,9 @@ numbers are separate from migration numbers: this is not migration 014.)
 
 - **State:** IDEAS AND CANDIDATES. The first round (Markdown list, table and
   link transfers, same-anchor ordering, keyed JSON/YAML moves, TS/JS function
-  moves) is implemented and not deployed; see [status](../../status.md), the
+  moves) is deployed and not yet tried by hand; see [status](../../status.md), the
   [transfer rules](../../docs/architecture/overstoryd/merge-tool.md#transfers) and
-  the [release gate](../small-work.md#server-refinements).
+  the [hand checks](../small-work.md#server-refinements).
   Everything below is a menu. Take an item when a real edit has asked for it.
 
 ## What a good merge does
@@ -61,28 +61,17 @@ syntax, and would become merges or merges with a note.
 
 ## Before the candidates
 
-- **Notes need a home.** [Source intent §7](../../docs/overstory-spec/10-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution)
-  already requires an automatic resolution to record its justification, and lets
-  each rule define extra evidence fields. A note needs a portable shape that
-  clients can show without knowing the rule: a short message, the affected range
-  or path, and whether someone has seen it. Specify it in §7, carry it in the
-  log entry's decision evidence, and show it in the editor's margin beside
-  choices from the portable [accepted-state review contract](../../docs/overstory-spec/09-client-synchronization.md#accepted-state-review). Until clients
-  show notes, a merge with a note behaves as a plain merge.
-- **Say the three outcomes in the spec.** Add the three constraints and three
-  outcomes to source intent §7 as what any merge tool may do. The spec should
-  permit all three and require only the first two constraints for an automatic
-  outcome. How eagerly a tool merges is its own choice.
+- **The foundation is [overstoryd 015](015-resolve-reconciled-choices.md)'s first
+  step**: a portable shape for a merge note, the three outcomes in the spec, and
+  rule revisions that are bumped when a rule's decisions change. It moved there on
+  2026-10-11 because 015 is the active plan and cannot land without it. A candidate
+  whose outcome is **note** waits for it; until clients show notes, a merge with a
+  note behaves as a plain merge.
 - **Count what reaches review.** Accepted history records each decision's rule
   and policy reason. Add an overstoryd report (counts only, no content) of
   unresolved decisions by format, rule and reason, over a tree or the whole host.
   Run it on the live host with Joe's go-ahead, and rank the candidates by what
   users actually hit.
-- **Rule revisions.** §7 requires evidence to name a rule's identity and
-  revision, so a change to what a rule decides bumps its revision. **Open:** the
-  first round changed the Markdown, JSON, YAML and TS/JS rules' decisions
-  without bumping them from `revision: 1`. Replay aligns to recorded decisions,
-  so history is not reinterpreted either way.
 
 ## Rules for every candidate
 
@@ -229,6 +218,6 @@ merge with a note) or **review**.
 Per candidate: tests in both arrival orders giving one result, a case that must
 still go to review, a replay check, the rule's revision bumped, the
 [format support contract](../../docs/architecture/overstoryd/merge-tool.md#format-support-contract)
-updated, and the release gate recorded in
+updated, and the change on main (which deploys it) with its hand check listed in
 [small work](../small-work.md#server-refinements)
 before any client relies on it.

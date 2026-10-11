@@ -1,10 +1,15 @@
-# overstoryd 015: Resolve choices that later work has reconciled
+# overstoryd 015: Explain automatic resolutions and clear reconciled choices
 
 **Why and when:** Joe encountered a whole-tree conflict after moving blocks into a
 new page. Later accepted edits already produced the intended contents, but the
-conflict remained and its cards showed only older alternatives. Address this after
-the page-transfer fixes: overstoryd should clear choices it can prove reconciled,
-and Story should explain the current result and make explicit resolution easy.
+conflict remained and its cards showed only older alternatives. overstoryd should
+clear choices it can prove reconciled, and Story should explain the current result
+and make explicit resolution easy. The page-transfer fixes this waited for are
+deployed, so it can start. It is the active merge plan: its first step is the
+foundation every automatic outcome needs, moved here from
+[overstoryd 014](014-merge-handles-many-cases.md) on 2026-10-11.
+
+Formerly "Resolve choices that later work has reconciled".
 
 ## What exists
 
@@ -27,6 +32,38 @@ whole-tree choice. It uses the existing guarded review publication path. Extend
 this to smaller scopes and coupled groups only after their obligations are checked.
 
 ## Remaining work
+
+### 0. Give automatic outcomes a portable explanation
+
+Steps 2 and 3 record why the host resolved something and show it in clients. That
+needs three things first, which [overstoryd 014](014-merge-handles-many-cases.md)'s
+candidates reuse:
+
+- **The three outcomes in the spec.** Add 014's three constraints (lose nothing,
+  keep the syntax, keep the meaning as far as possible) and three outcomes (merge,
+  merge with a note, review) to
+  [source intent §7](../../docs/overstory-spec/10-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution)
+  as what any merge tool may do. The spec permits all three and requires only the
+  first two constraints for an automatic outcome. How eagerly a tool merges is its
+  own choice.
+- **A portable note.** §7 already requires an automatic resolution to record its
+  justification, and lets each rule define extra evidence fields. A note needs a
+  shape clients can show without knowing the rule: a short message, the affected
+  range or path, and whether someone has seen it. Specify it in §7, carry it in the
+  log entry's decision evidence, and show it in the editor's margin beside choices
+  from the portable
+  [accepted-state review contract](../../docs/overstory-spec/09-client-synchronization.md#accepted-state-review).
+  An authority resolution of a reconciled choice (step 2) is the first thing that
+  writes one.
+- **Rule revisions.** §7 requires evidence to name a rule's identity and revision,
+  so a change to what a rule decides bumps its revision. **Open:** the first round
+  of 014 changed the Markdown, JSON, YAML and TS/JS rules' decisions without bumping
+  them from `revision: 1`, and it is deployed. Replay aligns to recorded decisions,
+  so history is not reinterpreted either way; decide whether to bump them now, and
+  add a test that fails when a rule's decisions change without a bump.
+
+Update the protocol models, Swift and TypeScript decoding, fixtures and
+conformance vectors together.
 
 ### 1. Establish the automatic rule with a regression matrix
 
@@ -54,8 +91,7 @@ Keep the resolution separate from the fact that a new edit was accepted. Decide
 and document how the host represents its authority authorship in the accepted log
 and how a client discovers the explanation. Update protocol models, Swift and
 TypeScript decoding, fixtures and conformance tests together if exposed shapes
-change. This builds on [overstoryd 014](014-merge-handles-many-cases.md), especially
-its work on merge notes and rule revisions.
+change. The explanation is step 0's note.
 
 ### 3. Explain and resolve current contents in clients
 
@@ -82,6 +118,7 @@ history access without leaving a blocking conflict card behind.
   dependency obligations, stale guards and durable drafts.
 - Check the UI against a conflict whose current result differs from both old
   alternatives. A person can understand and keep that result without losing it.
-- Run the full repository gate before closing this plan; record implemented,
-  installed and deployed evidence separately in status. Live resolutions and
-  deployment require Joe's go-ahead.
+- Run `bun run test:affected` on the changed paths, and `bun run test:protocol`
+  when an exposed shape changes. Record implemented and installed evidence
+  separately in status; the host change is deployed when it reaches main. Resolving
+  a live conflict requires Joe's go-ahead.

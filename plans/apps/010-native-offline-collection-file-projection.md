@@ -52,6 +52,6 @@ native offline snapshots and child pages match local Story Sync and overstoryd f
 CSV, JSON, and JSONL, including child-name rules, invalid inputs, pagination,
 stale readable paths, and stable-key reopening. Then remove the temporary
 native capability limitation recorded by this plan and the
-[bounded-placement conformance item](../README.md#cleanups).
+[bounded-placement conformance item](../ideas.md#cleanup).
 
 This plan deliberately does not choose an implementation mechanism.

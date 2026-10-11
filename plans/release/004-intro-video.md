@@ -1,6 +1,6 @@
 # Release 004: an intro video for invited friends
 
-**Why and when:** Joe wants a short video to send with an invitation: getting set up, a tour of the iPhone gestures, and using a folder with an agent. He performs and narrates; an agent session prepares the demo and assembles the cut. After the first release (Release 001, 002) is out and the host is redeployed, since the script shows the download, TestFlight and agent links working.
+**Why and when:** Joe wants a short video to send with an invitation: getting set up, a tour of the iPhone gestures, and using a folder with an agent. He performs and narrates; an agent session prepares the demo and assembles the cut. After the first release ([Release 001](001-publish-the-first-release.md)) is out and the host is redeployed, since the script shows the download, TestFlight and agent links working.
 
 > **Executor instructions**: Joe records; do not try to perform takes by driving the app. The demo uses a throwaway account on arb.nxhx.org, made and removed with Joe's go-ahead. Keep recordings out of the repository: `dist/` is ignored, so takes go in `dist/video/takes/` and cuts in `dist/video/`.
 
@@ -8,7 +8,7 @@
 
 - **Effort**: M
 - **Risk**: LOW
-- **Depends on**: Release 001 and 002 published; the host deployed with agent links; `@ovst/cli` at a version with `agent` commands
+- **Depends on**: Release 001 published, Mac and TestFlight; the host deployed with agent links; `@ovst/cli` at a version with `agent` commands
 - **Category**: release
 
 ## Before recording

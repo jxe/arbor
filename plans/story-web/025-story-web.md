@@ -1,6 +1,6 @@
 # Web 025: Story for the web: one browser editor for `story open` and overstoryd
 
-**Why and when:** for sharing with others: people without the Mac or iPhone app need a way to read and edit a tree. After Filesystem 024 and the Native 022 soak closeout.
+**Why and when:** for sharing with others: people without the Mac or iPhone app need a way to read and edit a tree. After the Native 022 soak closeout; Joe wants [Filesystem 024](../filesystem/024-open-plain-folders-on-the-mac.md) first, though nothing here depends on it.
 
 > **Executor instructions**: Build Story for the web as one browser bundle that is the TypeScript twin of the native app: the same working tree, change log and update machine as the Mac app ([the update machine](../../docs/implementing-sync-services/update-machine.md)), the same information architecture and vocabulary, served by two hosts. The **local host** is Story Sync on loopback, opened by `story open`. The **overstoryd host** is a host serving the bundle at a tree's canonical URL for a browser that holds a paired device credential. Nobody edits through the daemon; the browser publishes to overstoryd itself. Port surfaces, not chrome: no menu bar, sheets, gestures, audio or camera. Clean breaks over shims. Nothing live (Railway, `~/.story`, the iPhone) flips without Joe's go-ahead.
 >
@@ -108,6 +108,16 @@ One writable working tree per tree per browser profile through `navigator.locks`
 
 The native shortcut map ports except where the browser owns the key. Reassignments are fixed in [surfaces.md §9](surfaces.md#9-keyboard-map) and documented in `docs/implementing-editors/design.md` under the phase that implements each surface.
 
+### Open: plain folders in the browser
+
+Until Native 022, `story open` on a folder that was not a tree edited it through the daemon. [Filesystem 024](../filesystem/024-open-plain-folders-on-the-mac.md) once planned to bring that back with `/v1/fs/*` routes on Story Sync (list, read, write with an etag, move, delete, events) and an `FsSession` in this bundle; Joe cut it to the Mac on 2026-10-11 and left the browser half as a question here. It is not part of B1 to B3.
+
+Those routes break the add-on rule above, and they would let any caller of the loopback port read and write files under `$HOME`, which [Security 011](../security/011-story-sync-local-callers.md) has not yet closed. So decide, after B1 and after Security 011:
+
+- **Not at all.** `story open` on a plain folder says to place it first, or to open it in the Mac app. This is the default until someone misses it.
+- **In the browser alone**, through the File System Access API where the browser has it: no daemon route, no credential, Chromium only.
+- **Through Story Sync**, as an explicit exception to the add-on rule, behind Security 011's caller check and limited to folders the person opened from the command line.
+
 ## Projects and phases
 
 Each project ends with the listed gates, a `status.md` entry and a soak on Joe's Mac before the next starts.
@@ -149,16 +159,16 @@ Each project ends with the listed gates, a `status.md` entry and a soak on Joe's
 
 ## Verification (every project)
 
+`bun run test:affected` on the changed paths while working, and `bun run test:protocol` whenever a route or response shape changes. At the end of each project:
+
 ```sh
-bun run typecheck
-bun run test
-bun run test:protocol
 bun run build
 bun run build:web
 bun run test:e2e
 swift test --package-path swift/Packages/OverstoryWorkingTree
-git diff --check
 ```
+
+`test:e2e` does not exist today and `build:web` fails; Phase 1 repairs the build and Phase 4 restores the browser suite. A project that changes browser behaviour is not verified by a passing build alone.
 
 ## Done criteria
 
@@ -166,7 +176,7 @@ git diff --check
 - A browser with no daemon opens a tree's canonical URL on overstoryd, pairs once, and edits with the same surfaces; deauthorizing it from the Mac ends that.
 - `@ovst/working-tree` and `OverstoryWorkingTree` pass the same fixture; `WorkspaceState`/`AppModel` have React-free tests.
 - Every surface in [surfaces.md](surfaces.md) marked B1/B2/B3 is implemented with the listed labels, states and actions, and every item marked *not ported* is absent by decision, not omission.
-- `POST /v1/me`, `GET /v1/resolve` and filesystem-path byte serving are gone with their callers (`POST /v1/local/forget` already is); `POST /v1/bootstrap/accounts` remains.
+- `GET /v1/resolve` and filesystem-path byte serving are gone with their callers (`POST /v1/local/forget` already is); `POST /v1/me`, the other identity and claim routes and `POST /v1/bootstrap/accounts` remain, as Phase 2 says.
 - Docs and `status.md` describe the browser as the third working-tree client; the superseded plans are deleted (git history) and this plan carries their pointers.
 
 ## Boundaries and stop conditions

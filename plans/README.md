@@ -11,30 +11,23 @@ Related plans are grouped in [merge improvements](merge/README.md),
 
 ## Soon
 
-**[Rename 002: remove the old-spelling read aliases](rename/002-remove-arbor-locator-alias.md).**
-The 2026-10-10 rename left readers accepting six old spellings, among them `arbor://` and the
-`;arbor-*` locator parameters, because authored content and shared links still carry
-them. Joe wants that tolerance to be temporary.
-
 **[Security 011: Story Sync answers only its own user](security/011-story-sync-local-callers.md).**
 Trying the Mac download from a second account on his Mac, Joe found the app about to attach
 to his own account's sync helper: it listens on a fixed loopback port and does not ask who is
 calling. Before the download goes beyond a few friends who each have their own Mac.
 
-**[Release 001: a Mac download that updates itself](release/001-mac-release.md).**
-So friends can install Story from a link on nxhx.org: a notarized DMG and a Sparkle feed on
-GitHub Releases. Joe has the Developer ID certificate and notarization credentials.
+**[Release 001: publish the first Mac and iPhone builds](release/001-publish-the-first-release.md).**
+So friends can install Story from a link on nxhx.org and from TestFlight. The Mac DMG is
+notarized and the iPhone build is in beta review; publishing, a clean-machine walkthrough
+and one delivered update remain, mostly Joe's. It absorbed Release 002.
 
-**[Release 002: the iPhone app on TestFlight](release/002-testflight.md).**
-Friends join on a Mac and pair an iPhone; TestFlight is how they get the iPhone app. Once
-Joe has created the app record.
-
-**[overstoryd 015: resolve choices that later work has reconciled](merge/015-resolve-reconciled-choices.md).**
+**[overstoryd 015: explain automatic resolutions and clear reconciled choices](merge/015-resolve-reconciled-choices.md).**
 Joe encountered a whole-tree conflict after moving blocks into a new page. Later
 accepted edits already produced the intended contents, but the conflict remained
-and its cards showed only older alternatives. Address this after the page-transfer
-fixes: overstoryd should clear choices it can prove reconciled, and Story should
-explain the current result and make explicit resolution easy.
+and its cards showed only older alternatives. overstoryd should clear choices it can
+prove reconciled, and Story should explain the current result and make explicit
+resolution easy. It starts with the portable explanation every automatic outcome
+needs (merge notes, rule revisions), which overstoryd 014's menu reuses.
 
 **[Links 001: follow a link that names a tree by its ID](links/001-tree-id-links.md).**
 Story writes `overstory://tr_…` links between trees but can follow one only when the tree
@@ -42,10 +35,10 @@ is already placed or was just visited, and ignores them when the OS opens one. J
 them honored wherever the device can find the tree. The plan starts by making the spec
 say how such a link resolves, with the host form as the hint.
 
-**[Filesystem 024: disk editors for non-tree folders](filesystem/024-disk-editors-for-non-tree-folders.md).**
+**[Filesystem 024: open plain folders on the Mac](filesystem/024-open-plain-folders-on-the-mac.md).**
 Opening an ordinary folder in the Mac app, and making it into a tree from there, went away
-with the daemon's editor path; today a new tree needs `story place`. Joe wants this first,
-before the web editor. The web half follows Web 025.
+with the daemon's editor path; after setup a new tree needs `story place`. Joe wants this
+before the web editor. Mac only; the browser half is an open question in Web 025.
 
 **[Apps 005: source resolution and the execution sidecar](apps/005-source-resolution-and-sidecar.md).**
 Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
@@ -68,9 +61,6 @@ of server history reconstruction. Retain useful historical checkpoints within a 
 budget, reduce replay work as history grows, and measure end-to-end catch-up after
 restart and with an empty cache. Preserve exact authored and conflict semantics.
 
-**[Performance 002: verify the shared merge cache rollout](performance/002-shared-merge-cache.md).**
-Shared compressed checkpoints and resumable replay are implemented locally. Joe intends to push the candidate; verify deployment and the iPhone's original queued request, then record live convergence.
-
 **[Clients 002: more identity-preserving coalescing](merge/002-identity-preserving-coalescing.md).**
 Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
 with enough identity for overstoryd to merge concurrent work correctly. After the
@@ -89,8 +79,7 @@ then deployed to a third-party host such as Vercel. After Apps 003, 005 and 006.
 
 **[Web 025: Story for the web](story-web/025-story-web.md)**, with its
 [surface inventory](story-web/surfaces.md). For sharing with others: people without the Mac
-or iPhone app need a way to read and edit a tree. After Filesystem 024 and the Native 022
-soak closeout.
+or iPhone app need a way to read and edit a tree. After the Native 022 soak closeout.
 
 **[Security 004: access links without leaking secrets](security/004-access-link-secrets.md).**
 When Joe shares by link, alongside Web 025: an access link must not leak its secret into
@@ -100,16 +89,23 @@ requirement.
 **[Release 004: an intro video for invited friends](release/004-intro-video.md).**
 Joe wants a short video to send with an invitation: getting set up, the iPhone gestures, and
 agents. He records and narrates; the plan holds the shot list, the demo setup and how the
-cut is assembled. After the first release is out.
+cut is assembled. After Release 001.
 
 **[Sharing 001: join on an iPhone first, add a Mac later](sharing/001-join-on-iphone-first.md).**
 An invitation link is usually tapped on a phone, where today it ends at an app that can only
 pair with a Mac. Join from the iPhone with the same link, then add a Mac by scanning a code
-the Mac shows. After the first Mac and TestFlight releases.
+the Mac shows. After Release 001. It owns what an invitation link does on the iPhone;
+Links 001 owns the iPhone's other link opens.
+
+**[Security 012: get back into an account with the admin's help](security/012-get-back-in-with-the-admins-help.md).**
+A person who has lost every device gets back in through the host's administrator, as the
+spec has it; Joe wants that to be as easy as possible for both. The administrator makes a
+link from Story, or approves a request the person sends from the new Mac. Before people
+depend on Story enough to lose a Mac.
 
 **[Release 003: the iPhone app on the App Store](release/003-app-store.md).** After friends
-are using the TestFlight build. A sketch of what review requires: a way in for the reviewer,
-account deletion, report and block, and policy pages.
+are using the TestFlight build. A sketch of what review requires: account deletion, report
+and block, and policy pages. The sample pages are the reviewer's way in.
 
 **[Apps 002: hosted agents](apps/002-overstoryd-hosted-agents.md).** After the Supplies site:
 authored agents hosted beside an app, calling its own query and mutation handles. No timing
@@ -117,6 +113,25 @@ yet.
 
 **[Apps 009: code on one host using access held on another](apps/009-cross-host-delegation.md).**
 After Apps 008, once apps span hosts. A design sketch; no timing yet.
+
+## Cleanups
+
+What a finished project left behind: old readers to delete, notes to write. Each is small
+and lives in `cleanups/`, named by the plan it came from. Smaller leftovers still are in
+[small work](small-work.md).
+
+**[Rename 002: remove the old-spelling read aliases](cleanups/rename-002-remove-old-spelling-aliases.md).**
+The 2026-10-10 rename left readers accepting six old spellings, among them `arbor://` and the
+`;arbor-*` locator parameters, because authored content and shared links still carry
+them. Joe wants that tolerance to be temporary: once the rename has been live a few weeks.
+
+**[Performance 002: retire the earlier merge-cache formats](cleanups/performance-002-retire-old-merge-cache-formats.md).**
+The shared cache is live and the iPhone's stuck request went through it. Look at the
+host's cache directory once, then delete the two older readers.
+
+**[overstoryd 001: pack storage follow-ups](cleanups/overstoryd-001-pack-storage-follow-ups.md).**
+Packing is live since 2026-10-09. Architecture notes, a periodic check of pack files and
+packed bytes in the reports remain; take them when the store is next worked on.
 
 ## Parked
 
@@ -135,21 +150,11 @@ versions are kept, which is most of what overstoryd retains.
 **[overstoryd 006: line provenance](history/006-line-provenance.md).** Parked, and after
 overstoryd 007: who submitted each current line.
 
-**[overstoryd 001: pack object storage](performance/001-pack-object-storage.md).** When size hurts:
-the live volume or backups grow until loose objects cost startup, audit or backup time.
-Space is not pressing. Built 2026-10-09 and off by default (document-grouped zstd frames); live
-measurement, rehearsal and rollout remain.
-
 **[Native 006: sparse iOS placement](performance/006-sparse-ios-placement.md).** When size hurts:
 a tree too big to place on the iPhone in one download.
 
 **[Apps 010: collection rows in native offline replicas](apps/010-native-offline-collection-file-projection.md).**
 When browsing collection rows offline on native becomes a real need.
-
-**[Security 012: rejoin an account with the profile key](security/012-rejoin-with-the-profile-key.md).**
-Joe wants to get back into an account from a new Mac with the identity alone. The spec
-refuses that on purpose, so the plan starts with the decision: whether the profile key may
-enrol a device.
 
 **[Security 010: signed profile statements](security/010-signed-profile-statements.md).**
 When a host Joe does not control is involved, or a home host must be left behind.

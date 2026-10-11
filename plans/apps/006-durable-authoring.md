@@ -120,5 +120,5 @@ changed wire models, executable-document browser gates, relative links and
 Done: all three scenarios execute and recover over the real HTTP bridge; consent
 expansion/revocation and private-data non-disclosure pass; authored common cases
 need no hand-written outbox/receipt bookkeeping; unsupported arbitrary continuation
-or cross-store atomicity fails explicitly. Update spec, status, reference docs and
-move this plan to completed history only when those gates pass.
+or cross-store atomicity fails explicitly. Update spec, status and reference docs,
+and delete this plan only when those gates pass.
