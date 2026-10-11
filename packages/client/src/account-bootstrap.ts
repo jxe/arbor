@@ -91,7 +91,12 @@ async function claimAccountProfileBootstrap(
   }
   // A name given with the claim fills a profile that has none: the directory lists people by it.
   const name = displayName?.trim();
-  if (name && !/^displayName:/m.test(await readFile(index, "utf8"))) await identity.updateProfile({ displayName: name });
+  if (name && !/^displayName:/m.test(await readFile(index, "utf8"))) {
+    await identity.updateProfile({ displayName: name });
+    // The page a new identity starts with is headed "Profile"; the name is the better heading.
+    const source = await readFile(index, "utf8");
+    if (/^# Profile$/m.test(source)) await writeFile(index, source.replace(/^# Profile$/m, () => `# ${name}`));
+  }
 
   const pendingPath = join(overstoryPrivateRoot(), "bootstrap-account-claim.json");
   let pending: PendingAccountClaimBootstrap | undefined;

@@ -58,6 +58,10 @@ struct StorySyncAccountService: HostAccountService {
         try await connect().backupIdentity(destination: destination.path, passphrase: passphrase)
     }
 
+    func profileFolder() async throws -> URL? {
+        URL(fileURLWithPath: Self.profilePath(try await connect().onboardingState()), isDirectory: true)
+    }
+
     func claimAccount(_ account: String, deviceLabel _: String, inviteCode: String?, displayName: String?) async throws {
         let client = try await connect()
         let envelope = try await client.onboardingState()

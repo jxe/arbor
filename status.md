@@ -42,6 +42,14 @@ the bundle ID stays `org.nxhx.Arbor`. The code is under the MIT license.
   A name given with a claim fills a profile that has none (`story-sync-claim-sync.test.ts`).
   Evidence: `swift/scripts/test-story-app.sh` and `bun run test:protocol` pass
   end to end with Story closed. Nothing here has been exercised by hand.
+- **After joining.** The Mac join form ends in a getting-started list (photo,
+  sync or create a folder, open something shared, backup), and a pasted link
+  gets the same short form as an opened one. Against a disposable host on
+  2026-10-11: the invitation page ran in a browser under its
+  Content-Security-Policy and built the `overstory:` link; a claim through
+  Story Sync with a name wrote it to the profile; and a folder became a private
+  tree under the account straight after the claim and synced to idle. The Mac
+  screen itself is compiled, not exercised.
 - **Live host, read-only check.** arb.nxhx.org answers `/.overstory/health`;
   Joe pushed main on 2026-10-11. Its root access rule, read with Joe's
   account, still grants `admin` to the root group itself

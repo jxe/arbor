@@ -122,8 +122,12 @@ get Story. Opened in Story on a Mac, or pasted into its host address field, it
 starts a short join form: the host, the invited handle, a field for the
 person's name and **Join**. Join creates a local identity when the Mac has
 none, claims the account, and writes the name into a profile that has none.
-The form then offers an identity backup and the trees the account can open,
-by name. **Other Options…** shows the full setup form.
+The form then becomes a getting-started list: add a profile photo; start a
+folder, either **Sync a Folder from This Mac…** or a new one created in
+Documents, which becomes a private tree at `/~<handle>/<folder name>` and
+opens; open something the account can already read, by name; and back up the
+identity. Each part can be skipped with **Continue**. **Other Options…** shows
+the full setup form.
 
 The **People** view is the account-scoped directory for name-based sharing. It
 combines community members, members of readable groups, and profiles already

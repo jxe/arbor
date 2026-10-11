@@ -2,7 +2,9 @@
 import AppKit
 import Overstory
 import OverstoryClient
+import StoryKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct StoryMacLaunchView: View {
     let workspace: StoryWorkspaceState
@@ -62,13 +64,23 @@ struct StoryMacOnboarding: View {
     @State private var treeOrigin: URL?
     @State private var displayName = ""
     @State private var joined = false
+    @State private var joinedAccount: HostAccount?
+    @State private var photo: NSImage?
+    @State private var newFolderName = ""
     @State private var showingAllOptions = false
+    /// An invitation link pasted into the host address field.
+    @State private var pasted: (account: String, code: String)?
 
-    /// The host and handle of the invitation link this form was opened with.
+    /// The account and code of the invitation this form was opened with, or was given by paste.
+    private var invited: (account: String, code: String)? {
+        if let initialCommunity, let initialCode { return (initialCommunity, initialCode) }
+        return pasted
+    }
+
+    /// The host and handle that invitation names.
     private var invitation: (host: String, handle: String)? {
-        guard initialCode != nil, let initialCommunity, let url = URL(string: initialCommunity), let host = url.host(),
-              url.path.hasPrefix("/~") else { return nil }
-        return (host, String(url.path.dropFirst(2)))
+        guard let invited, let url = URL(string: invited.account), let host = url.host(), url.path.hasPrefix("/~") else { return nil }
+        return (url.port.map { "\(host):\($0)" } ?? host, String(url.path.dropFirst(2)))
     }
 
     var body: some View {
@@ -84,11 +96,38 @@ struct StoryMacOnboarding: View {
             }
             if let state, let invitation, !showingAllOptions, state.pendingClaim == nil {
                 if joined {
+                    Section {
+                        HStack(spacing: 12) {
+                            Group {
+                                if let photo { Image(nsImage: photo).resizable().scaledToFill() }
+                                else { Image(systemName: "person.crop.circle").resizable().scaledToFit().foregroundStyle(.secondary) }
+                            }
+                            .frame(width: 48, height: 48)
+                            .clipShape(Circle())
+                            Text(photo == nil ? "A photo helps people on \(invitation.host) recognize you." : "Your photo is on your profile.")
+                            Spacer()
+                            Button(photo == nil ? "Choose Photo…" : "Change…") { choosePhoto() }
+                        }
+                    } header: {
+                        Text("You joined as ~\(invitation.handle)")
+                    }
+                    Section {
+                        Button("Sync a Folder from This Mac…", systemImage: "folder") { chooseFolder() }
+                        HStack {
+                            TextField("New folder name", text: $newFolderName, prompt: Text("Notes"))
+                            Button("Create in Documents") { createFolder() }
+                                .disabled(newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    } header: {
+                        Text("Start a folder")
+                    } footer: {
+                        Text("Its pages are kept on \(invitation.host) and on this Mac, and stay private until you share them.")
+                    }
+                    treeSection
                     Section("Back up your identity") {
                         Text("Your identity is a key kept on this Mac. A backup lets you recover it if this Mac is lost.")
                         Button("Back Up Identity…") { backup() }
                     }
-                    treeSection
                     Button(addingAccount ? "Done" : "Continue", action: complete)
                 } else {
                     Section("Join \(invitation.host)") {
@@ -235,13 +274,15 @@ struct StoryMacOnboarding: View {
             guard case let .join(account, code)? = StoryIncomingLocator.pastedJoinLink(value) else { return }
             community = account
             inviteCode = code
+            pasted = (account, code)
+            showingAllOptions = false
         }
         .onChange(of: initialCode) { _, value in if let value { inviteCode = value } }
     }
 
     @ViewBuilder private var treeSection: some View {
         if !treeChoices.isEmpty {
-            Section("Open") {
+            Section(joined ? "Or open what is already there" : "Open") {
                 ForEach(treeChoices, id: \.id) { tree in
                     Button {
                         guard let origin = treeOrigin, let path = tree.canonicalPath else { return }
@@ -269,18 +310,96 @@ struct StoryMacOnboarding: View {
 
     /// Create the identity if this Mac has none, then claim the invited handle.
     private func join() {
-        guard let initialCommunity, let initialCode else { return }
+        guard let invited else { return }
         let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let hadIdentity = state?.identity != nil
         let known = Set(state?.accounts.filter(\.credentialAvailable).map(\.configurationTree) ?? [])
         run { service in
             if !hadIdentity { try await service.createIdentity() }
-            try await service.claimAccount(initialCommunity, deviceLabel: Self.deviceLabel, inviteCode: initialCode, displayName: name)
+            try await service.claimAccount(invited.account, deviceLabel: Self.deviceLabel, inviteCode: invited.code, displayName: name)
             try await reload()
             joined = true
             if let account = self.state?.accounts.first(where: { !known.contains($0.configurationTree) && $0.credentialAvailable }) {
+                joinedAccount = account
                 try await chooseTrees(account)
             }
+        }
+    }
+
+    /// Put a photo in the profile folder and name it in the profile page; Story Sync publishes both.
+    private func choosePhoto() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        run { service in
+            guard let folder = try await service.profileFolder() else {
+                throw ProtocolValidationError.invalidValue("This Mac keeps no profile folder to put a photo in")
+            }
+            let asset = try StoryProfilePhotoImport.load(from: url)
+            let index = folder.appending(path: "_index.md")
+            let source = try String(contentsOf: index, encoding: .utf8)
+            let profile = StoryProfileDocument.parse(source)
+            let updated = try StoryProfileDocument.updatingPerson(
+                source, displayName: profile?.displayName ?? "", description: profile?.description ?? "", avatarPath: asset.name
+            )
+            try asset.bytes.write(to: folder.appending(path: asset.name), options: .atomic)
+            try updated.write(to: index, atomically: true, encoding: .utf8)
+            photo = NSImage(data: asset.bytes)
+        }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder to keep in sync. Everything in it is sent to the host."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        sync(folder: url, starter: nil)
+    }
+
+    private func createFolder() {
+        let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let folder = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Documents/\(name)", directoryHint: .isDirectory)
+        guard !FileManager.default.fileExists(atPath: folder.path) else {
+            message = "Documents already has \(name). Choose it with Sync a Folder from This Mac, or pick another name."
+            return
+        }
+        sync(folder: folder, starter: "# \(name)\n")
+    }
+
+    /// Make `folder` a private tree under the joined account, named after the folder, and open it.
+    /// `starter` is the home page of a folder this creates.
+    private func sync(folder: URL, starter: String?) {
+        guard let joinedAccount, let origin = joinedAccount.origin else { return }
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        let path = folder.standardizedFileURL.path
+        guard path != home, !["Documents", "Desktop", "Downloads", "Library"].map({ home + "/" + $0 }).contains(path) else {
+            message = "Choose a folder inside \(folder.lastPathComponent), not the whole of it."
+            return
+        }
+        let slug = StoryGroupSlug.make(from: folder.lastPathComponent)
+        guard StoryGroupSlug.isValid(slug) else {
+            message = "Give the folder a name with letters or numbers, so it can have an address."
+            return
+        }
+        let account = StoryShareAccount(
+            configurationTree: joinedAccount.configurationTree,
+            origin: origin.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
+            handle: joinedAccount.handle
+        )
+        let canonical = account.accountURL + "/" + slug
+        run { _ in
+            if let starter {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try starter.write(to: folder.appending(path: "_index.md"), atomically: true, encoding: .utf8)
+            }
+            try await workspace.promoteLocalFolder(path: path, account: account, canonical: canonical, publicAccess: .noAccess)
+            await workspace.restoreLocalWorkspaceIfAvailable()
+            try await workspace.openRemoteLocator(canonical)
+            complete()
         }
     }
 

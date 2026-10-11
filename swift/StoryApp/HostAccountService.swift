@@ -152,6 +152,8 @@ protocol HostAccountService: Sendable {
     func credentialProvider(configurationTree: String, placementOrigin origin: String) async throws -> any ProtocolCredentialProvider
 
     func createIdentity() async throws
+    /// The folder holding this device's own profile page, where its store keeps one on disk.
+    func profileFolder() async throws -> URL?
     /// A version-2 backup is encrypted and needs its passphrase.
     func restoreIdentity(backup: Data, passphrase: String?) async throws
     func backupIdentity(to destination: URL, passphrase: String) async throws
@@ -185,6 +187,7 @@ extension HostAccountService {
         try await claimAccount(account, deviceLabel: deviceLabel, inviteCode: inviteCode, displayName: nil)
     }
     func accounts() async throws -> [HostAccount] { try await state().accounts }
+    func profileFolder() async throws -> URL? { nil }
 
     /// A protocol client for `account`'s host with its credential.
     func client(for account: HostAccount) async throws -> ProtocolClient {

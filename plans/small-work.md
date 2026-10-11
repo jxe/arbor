@@ -53,8 +53,14 @@ Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-peop
 - [ ] Show pending invitations in the People list itself, not only in the host's member sheet.
 - [ ] Tell the person when their profile failed to activate after a claim; today
   `packages/client/src/account-bootstrap.ts` only logs it.
-- [ ] Open the invitation page in a real browser against a disposable host and confirm its
-  script runs under the page's Content-Security-Policy; only the header and hash are tested.
+- [ ] Go through the Mac getting-started list by hand after a join: photo, Sync a Folder,
+  a new folder in Documents, opening a shared tree. The host side is checked (a folder
+  becomes a tree under a just-claimed account); the screen itself has only been compiled.
+- [ ] Offer the `story` command from the Mac app: an Install Command Line Tool item that
+  links a `story` shim running the app's bundled Bun, which needs the CLI bundle added to
+  the app. Until then the command needs Bun and `bunx @ovst/cli`.
+- A wrong invitation code leaves a pending claim that refuses the right code until it is
+  cancelled; the short join form should cancel it or say so.
 - [ ] Hide the sample-pages bar on the iPhone while the keyboard is up, or move it.
 - Editing a group's members without opening its page needs a second writable working tree
   on the device; it is a design question, not small work.

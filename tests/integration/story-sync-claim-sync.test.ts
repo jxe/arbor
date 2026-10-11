@@ -39,6 +39,7 @@ test("a running daemon syncs the configuration an account claim places, and reso
     });
     expect(claim.status).toBe(201);
     expect(await readFile(join(profile, "_index.md"), "utf8")).toContain("displayName: Tess's Mac\n");
+    expect(await readFile(join(profile, "_index.md"), "utf8")).toContain("\n# Tess's Mac\n");
     // Nothing else asks for a sync: the claim alone must start the placement's update machine.
     const configuration = treeConfigurationID(identity.profileTree);
     let sync: string | undefined;
