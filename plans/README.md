@@ -111,7 +111,7 @@ should have merged.
 
 **[Native 008: copies with changes and compound undo](merge/008-copies-with-changes-and-compound-undo.md).**
 When merges bite: a real concurrent edit reviews or loses a copy, paste or undo that should
-have merged. Needs Quagmire 0.9.0.
+have merged. Needs a new Quagmire release.
 
 **[overstoryd 007: document history and restore](history/007-document-history-routes-and-restore.md).**
 Parked. Seeing and restoring earlier versions of a page; it also decides how long document

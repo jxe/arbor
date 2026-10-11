@@ -392,9 +392,8 @@ mapping. Original local records and editor undo remain independent.
 
 The native codec consumes actual moved-block evidence from the sibling Quagmire
 checkout, avoiding attribution to the stationary neighbor when moving a block
-down. This uses an additive Quagmire API that is **not released**; the committed
-pins remain 0.8.0. Integration has been tested with the local override. A Quagmire
-release and matching pin updates are still needed before a portable release.
+down. This uses an additive Quagmire API, released in Quagmire 0.9.0 on
+2026-10-11; both pins name it, and the app builds from `Story.xcodeproj` alone.
 Nothing from this change has been installed or deployed.
 
 Evidence: shared compiler and state-machine fixtures, real merge-engine tests

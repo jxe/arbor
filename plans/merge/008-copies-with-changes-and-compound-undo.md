@@ -1,6 +1,6 @@
 # Native 008: Capture copies with changes and compound undo
 
-**Why and when:** when merges bite: a real concurrent edit reviews or loses a copy, paste or undo that should have merged. Needs Quagmire 0.9.0.
+**Why and when:** when merges bite: a real concurrent edit reviews or loses a copy, paste or undo that should have merged. Needs a new Quagmire release (0.9.0, released 2026-10-11, does not have this).
 
 Historical identifier: **Reliability 008 / Sync 008**; formerly "Complete native move, copy,
 and undo capture". Status: PLANNED; in-page moves and Move to Document are done
@@ -23,7 +23,7 @@ one change already exist. Do not rebuild them.
 | Action or case | What remains |
 |---|---|
 | Copies whose text or depth changes | A duplicate at a new depth, paste within a tree, and inlining a child page. State the copy and its edits faithfully (`copySource`, then edits addressed to its result); never identify a source by matching text. |
-| Quagmire 0.9.0 | Paste and inline need Quagmire to report, generically, which host block each reminted block came from, and to carry host pasteboard data. The same release replaces today's convention (a move hands over the original block IDs) with an explicit move-to-document hook. |
+| A new Quagmire release | Paste and inline need Quagmire to report, generically, which host block each reminted block came from, and to carry host pasteboard data. The same release replaces today's convention (a move hands over the original block IDs) with an explicit move-to-document hook. |
 | Inline a child page | State the child's text as a cross-document `moveSource` into the parent. Retiring the child stays a separate change, because a change mixing moves and entry removals is not merged automatically. |
 | Undo of compound commands | Undoing an in-page rearrangement already publishes moves back, because Quagmire's undo restores the same block identities. Undoing Move to Document and inline-and-retire must publish the inverse over both documents (a move back; restoring the retired page as snapshot creation), using Quagmire's `TransactionEvidence`, which Story does not read yet. When the destination changed meanwhile, publish the origin's side as an ordinary edit and show that the blocks also remain there; never retarget to a newer basis. |
 | Move to Document of blocks apart from each other | Refused without changing either page today; separate copy/delete can conflict. State it as one change once overstoryd reconciles a move anchored on material an earlier move carried into another page in both arrival orders (overstoryd 014 item 1). |
