@@ -1,6 +1,6 @@
 # Release 001: a Mac download that updates itself
 
-**Why and when:** Joe wants friends to install Story on a Mac from a link on nxhx.org, and to keep getting updates without rebuilding from Xcode. Nothing in the repo builds a distributable app today. Joe has the Developer ID certificate and notarization credentials (keychain profile `story-notary`); the release Xcode is the last Apple item.
+**Why and when:** Joe wants friends to install Story on a Mac from a link on nxhx.org, and to keep getting updates without rebuilding from Xcode. Nothing in the repo builds a distributable app today. Joe has the Developer ID certificate, notarization credentials (keychain profile `story-notary`) and the release Xcode.
 
 > **Executor instructions**: Notarizing, publishing a GitHub Release and installing on Joe's Mac each wait for Joe's go-ahead.
 
@@ -17,7 +17,8 @@
 - The hardened runtime is on for Release builds only: its library validation refuses the hosted test bundle.
 - The helper's only entitlement is `com.apple.security.cs.allow-jit`. Bun also runs with none, without its JIT.
 - The app reads its version and build from the build settings, stamps them into the helper, and restarts a persistent helper whose stamp differs from its own (`StorySyncProcessSupervisor.isStaleHelper`).
-- There is no update mechanism, and nothing has been sent to Apple's notary service.
+- The first DMG, `0.1.0` build 1, was built with the release Xcode 27 on 2026-10-11, accepted by the notary service and stapled; Gatekeeper reports "Notarized Developer ID" for the DMG and the app. It is in `dist/mac/`, unpublished.
+- There is no update mechanism.
 - Quagmire 0.9.0 is released and pinned, so the app builds from `Story.xcodeproj` alone; the release script still builds through `Story.local.xcworkspace` when it exists.
 
 ## Decisions
@@ -30,8 +31,6 @@
 
 ## Steps
 
-1. **Release Xcode (Joe).** Install the release Xcode 27 and select it; the first builds used the beta.
-3. **Notarize (Joe's go-ahead).** Run the release script without `STORY_SKIP_NOTARIZE`. If the notary service refuses the build, its log names the binary and the reason.
 4. **Updates.** Add Sparkle as a macOS-only dependency with `SUFeedURL` set to `https://github.com/jxe/arbor/releases/latest/download/appcast.xml`, a Check for Updates menu item, and the public key in `Info.plist`; Joe generates the signing key and keeps the private half in his keychain. The release script signs Sparkle's nested helpers and writes the signed appcast.
 5. **Acknowledgements.** Add an acknowledgements file for Bun, `@parcel/watcher`, Quagmire, Yams and Sparkle.
 6. **Clean-machine walkthrough (Joe).** On a Mac account that has never run Story: download, pass Gatekeeper, approve the login item, join from an invitation link, and pair an iPhone. Then publish a second release and confirm the update installs and the helper restarts.
@@ -40,7 +39,6 @@
 
 ## Not verified
 
-- Whether the notary service accepts the build, and a build made with a beta Xcode.
 - Whether keychain items created under the development signature prompt once the helper is signed with Developer ID.
 - Friends need macOS 27. Lowering the deployment target is out of scope.
 

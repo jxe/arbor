@@ -46,7 +46,12 @@ the bundle ID stays `org.nxhx.Arbor`. The code is under the MIT license.
   Joe pushed main on 2026-10-11. Its root access rule, read with Joe's
   account, still grants `admin` to the root group itself
   (`tr_2y2grqksa3klhhv6aziplhl2ha`), so anyone who joined would administer the
-  host. It must name Joe's profile instead before the first invitation.
+  host. Joe decided on 2026-10-11 to leave it: the first people he invites
+  are trusted.
+- **Mac release.** `swift/scripts/release-mac.sh 0.1.0 1` produced a DMG
+  signed with Developer ID under the hardened runtime, with Bun 1.4.2 as the
+  helper; Apple's notary service accepted it and Gatekeeper reports "Notarized
+  Developer ID". Not published or installed, and not opened on a clean Mac.
 
 ## A chain that returns to an earlier state is accepted — 2026-10-10
 
