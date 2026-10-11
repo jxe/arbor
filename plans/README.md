@@ -136,6 +136,11 @@ a tree too big to place on the iPhone in one download.
 **[Apps 010: collection rows in native offline replicas](apps/010-native-offline-collection-file-projection.md).**
 When browsing collection rows offline on native becomes a real need.
 
+**[Security 012: rejoin an account with the profile key](security/012-rejoin-with-the-profile-key.md).**
+Joe wants to get back into an account from a new Mac with the identity alone. The spec
+refuses that on purpose, so the plan starts with the decision: whether the profile key may
+enrol a device.
+
 **[Security 010: signed profile statements](security/010-signed-profile-statements.md).**
 When a host Joe does not control is involved, or a home host must be left behind.
 

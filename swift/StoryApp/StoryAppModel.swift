@@ -866,8 +866,8 @@ final class StoryWorkspaceState {
             .sorted { $0.createdAt > $1.createdAt }
     }
 
-    /// Make an `story cloud start` bundle that places only `tree`, as
-    /// `story cloud bundle create` does: a new non-administrator device on the
+    /// Make a `story agent start` bundle that places only `tree`, as
+    /// `story agent create` does: a new non-administrator device on the
     /// tree's account whose credential exists only in the returned string.
     func createAgentBundle(tree: String, label requestedLabel: String) async throws -> (record: StoryCloudBundleRecord, bundle: String) {
         let label = requestedLabel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -884,7 +884,7 @@ final class StoryWorkspaceState {
               let handle = account.handle, let profileTree = account.profileTree else {
             throw ProtocolValidationError.invalidValue("The current tree has no connected host account on this Mac")
         }
-        // As `story cloud bundle create`: an agent code pairs a device at the home host only.
+        // As `story agent create`: an agent code pairs a device at the home host only.
         if let endpoint = overview.trees.first(where: { $0.id == tree })?.canonicalEndpoint.flatMap(URL.init(string:)),
            !Self.sameOrigin(endpoint, origin) {
             throw ProtocolValidationError.invalidValue("An agent code covers trees at your home host only, not a tree on \(endpoint.host() ?? endpoint.absoluteString)")
@@ -952,8 +952,8 @@ final class StoryWorkspaceState {
         return (record, bundle)
     }
 
-    /// Remove an agent bundle's device from its account, as `story cloud
-    /// bundle revoke` does, then record the revocation in the registry.
+    /// Remove an agent bundle's device from its account, as `story agent
+    /// revoke` does, then record the revocation in the registry.
     func revokeAgentBundle(_ record: StoryCloudBundleRecord) async throws {
         if let storySync = storySyncClient {
             try await storySync.synchronize(configurationTree: record.configurationTree)
@@ -1070,6 +1070,19 @@ final class StoryWorkspaceState {
             try? FileManager.default.removeItem(at: folder)
             throw error
         }
+    }
+
+    /// Place a tree the account can already open at `folder` on this Mac:
+    /// Story Sync fills the folder and keeps it in step, as `story place <url> <folder>` does.
+    func placeExistingTree(_ tree: String, configurationTree: String, folder: String) async throws {
+        let placementsURL = StorySupportDirectories.dataHome.appending(path: "placements.yaml")
+        let source = (try? String(contentsOf: placementsURL, encoding: .utf8)) ?? "{}\n"
+        let placements = try LocalPlacementsYAML.adding(configurationTree: configurationTree, path: folder, tree: tree, to: source)
+        try placements.write(to: placementsURL, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: placementsURL.path)
+        guard let client = storySyncClient else { throw StorySyncSupervisorError.serviceUnavailable }
+        try await client.synchronize(configurationTree: configurationTree)
+        await refreshLocalStorySyncOverview()
     }
 
     /// Declare a new tree at `canonical` with `rules` and place it at `folder`.

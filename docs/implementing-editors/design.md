@@ -122,12 +122,13 @@ get Story. Opened in Story on a Mac, or pasted into its host address field, it
 starts a short join form: the host, the invited handle, a field for the
 person's name and **Join**. Join creates a local identity when the Mac has
 none, claims the account, and writes the name into a profile that has none.
-The form then becomes a getting-started list: add a profile photo; start a
-folder, either **Sync a Folder from This Mac…** or a new one created in
-Documents, which becomes a private tree at `/~<handle>/<folder name>` and
-opens; open something the account can already read, by name; and back up the
-identity. Each part can be skipped with **Continue**. **Other Options…** shows
-the full setup form.
+The form then becomes a checklist of three first steps, all required before
+**Continue**: add a profile photo; back up the identity; and choose a folder
+from the Mac to sync, which becomes a private tree at
+`/~<handle>/<folder name>` (a new, empty folder is fine). Below it, trees the
+account can already open on the host, other than the host's home and people's
+profiles, can each be synced to a folder in Documents. Continue opens the
+chosen folder.
 
 The **People** view is the account-scoped directory for name-based sharing. It
 combines community members, members of readable groups, and profiles already
@@ -232,15 +233,22 @@ retained during migration. An explicit matching backup can repair damaged public
 metadata when the secure record proves the same identity; the damaged bytes are
 preserved separately.
 
-Users can share their public identity, enter a community address (or exact account
-URL), resume an interrupted claim, choose an accessible tree, or continue with local
-files after identity setup. Unsubmitted connections can be cancelled and their
-address corrected; possibly submitted claims must be resumed. A recovered identity
-can authorize this Mac on an already-claimed account by pasting a pairing code from
-an authorized device. Pairing also resumes after a lost response using the same
-device credential. Accounts includes Identity and Community Setup for
-later connections and backups. Existing configured users resume their workspace
-without requiring the remote community to be reachable.
+A Mac is set up by invitation. Story opened without one asks for the
+invitation link; there is no step that creates an identity alone, shows a
+public identity to send to an administrator, or connects to a host by address.
+Join creates the identity when the Mac has none. Someone who has used Story
+before can instead **Recover an Identity** from its backup on the join form and
+join as the same person. A join that did not finish is shown with **Finish
+Joining** and, while it can still be cancelled, **Cancel**. An account URL
+pasted without a code is accepted when the Mac already holds the identity the
+account is reserved for, which is how a host's founder claims theirs.
+
+An account is claimed once. A Mac joins an account that already exists by
+pairing: **Already have an account? Add this Mac to it** takes a pairing code
+from a device that uses the account, or a recovery code from the host's
+administrator. Pairing resumes after a lost response using the same device
+credential. Existing configured users resume their workspace without requiring
+the host to be reachable.
 
 On iOS, setup is pairing-only: scan a pairing QR code from an existing administrator
 device, or paste that same pairing payload when scanning is unavailable. Identity
