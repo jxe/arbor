@@ -241,10 +241,12 @@ sync, but only `finish`, or the end of `run`, provides the complete
 verification contract.
 
 On a Mac, Story's Share panel makes the same bundle for the tree it shows:
-**Use with an agent…** places that one tree at its canonical name, shows the
-string once with Copy and Share, and lists the tree's bundles with **Revoke**.
-Like every bundle, its credential is an account device, so the string reaches
-everything the account can; the placement only chooses what is checked out.
+**Use with an agent…** makes one at once, placing that one tree at its
+canonical name, and shows the whole start command with the string in it, once,
+with Copy Command and Share. The panel lists the tree's bundles with
+**Revoke**. Like every bundle, its credential is an account device, so the
+string reaches everything the account can; the placement only chooses what is
+checked out.
 
 Bundles remain active until revoked. Their safe local registry, shared by the
 CLI and Story, contains labels, device IDs, and placed TreeIDs, never

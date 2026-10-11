@@ -2590,6 +2590,7 @@ struct StoryRootView: View {
                     .popover(isPresented: $sharePresented, arrowEdge: .top) {
                         StorySharePanel(workspace: workspace, currentNode: model.node)
                             .onExitCommand { sharePresented = false }
+                            .background(MacPopoverKeyWindow())
                     }
                     Button {
                         showAccountsPanel()
@@ -3207,13 +3208,15 @@ private struct StorySharePanel: View {
                 .disabled(busy)
             }
         }
-        Section {
-            ForEach(Array(access.resourceRules.enumerated()), id: \.offset) { _, rule in
-                Text(rule.consentDescription).font(.callout).textSelection(.enabled)
-            }
-            Button("Manage app permissions…") { permissionEditor = true }
-                .disabled(busy || !access.canEdit)
-        } header: { Text("Scoped and app permissions") }
+        // Whole-tree rules are the rows above; only rules for an app or part of the tree are listed here.
+        let scoped = access.resourceRules.filter { $0.app != nil || ($0.within ?? "/") != "/" }
+        if !scoped.isEmpty {
+            Section {
+                ForEach(Array(scoped.enumerated()), id: \.offset) { _, rule in
+                    Text(rule.consentDescription).font(.callout).textSelection(.enabled)
+                }
+            } header: { Text("Scoped and app permissions") }
+        }
 #if os(macOS)
         Section {
             ForEach(agentBundles) { record in
@@ -3600,33 +3603,33 @@ private struct StoryAgentBundlePage: View {
             Form {
                 if let bundle {
                     code(bundle)
-                } else {
-                    request
+                } else if message == nil {
+                    Section { ProgressView("Creating agent code…") }
                 }
                 if let message {
-                    Section { Text(message).foregroundStyle(.red) }
+                    Section {
+                        Text(message).foregroundStyle(.red)
+                        Button("Try Again") { Task { await create() } }.disabled(busy)
+                    }
                 }
             }
             Divider()
             HStack {
                 Spacer()
-                if bundle == nil {
-                    Button("Create Agent Code") { Task { await create() } }
-                        .buttonStyle(.borderedProminent)
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(busy || label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                } else {
-                    Button("Done") { dismiss() }
-                        .keyboardShortcut(.defaultAction)
-                }
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(busy)
             }
             .padding(12)
         }
         .navigationBarBackButtonHidden(true)
         // Escape goes back to Share rather than closing the popover.
         .onExitCommand { if !busy { dismiss() } }
-        .onAppear {
+        // Opening the page makes the code: there is nothing to decide first.
+        .task {
+            guard bundle == nil, !busy else { return }
             if label.isEmpty { label = "Agent for \(treeName)" }
+            await create()
         }
         .onDisappear { showsCode = false }
     }
@@ -3635,55 +3638,32 @@ private struct StoryAgentBundlePage: View {
         URL(string: access.canonical).map(\.lastPathComponent).flatMap { $0.isEmpty || $0 == "/" ? nil : $0 } ?? "this tree"
     }
 
-    @ViewBuilder private var request: some View {
-        Section {
-            TextField("Name", text: $label)
-                .disabled(busy)
-        } footer: {
-            Text("The name appears in this panel and in your account's devices, so you can tell agent codes apart and revoke the right one.")
-        }
-        Section {
-            Label {
-                Text("The code places only \(treeName) on the agent's machine, but it signs in as a device of your account. Anyone who has it can read and change everything your account can until you revoke it.")
-            } icon: {
-                Image(systemName: "key.fill").foregroundStyle(.orange)
-            }
-            if busy { ProgressView("Creating agent code…") }
-        }
-    }
-
     @ViewBuilder private func code(_ bundle: String) -> some View {
+        let command = "bunx @ovst/cli agent start \(bundle) --root /workspace"
         Section {
-            Label {
-                Text("This code is a secret. Keep it in your agent's secret store, never in a repository, prompt, or chat. Story shows it only this once.")
-            } icon: {
-                Image(systemName: "key.fill").foregroundStyle(.orange)
-            }
             ScrollView {
-                Text(bundle)
+                Text(command)
                     .font(.caption.monospaced())
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 72)
+            .frame(height: 96)
             HStack {
-                Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") { copy(bundle) }
-                ShareLink(item: bundle) { Label("Share…", systemImage: "square.and.arrow.up") }
+                Button(copied ? "Copied" : "Copy Command", systemImage: copied ? "checkmark" : "doc.on.doc") { copy(command) }
+                ShareLink(item: command) { Label("Share…", systemImage: "square.and.arrow.up") }
                 Spacer()
             }
         } header: {
-            Text("Agent code")
+            Text("Run this on the agent’s machine")
+        } footer: {
+            Text("The tree appears at `/workspace/\(relativePath)`. When the agent has stopped writing, `bunx @ovst/cli agent finish --root /workspace` syncs its last changes.")
         }
         Section {
-            Text("On the agent's machine, set `STORY_CLOUD_BUNDLE` to the code, then:")
-            Text(verbatim: "bunx @ovst/cli agent start --root /workspace")
-                .font(.callout.monospaced())
-                .textSelection(.enabled)
-            Text("The tree appears at `/workspace/\(relativePath)`. When the agent has stopped writing, `bunx @ovst/cli agent finish --root /workspace` syncs its last changes.")
-        } header: {
-            Text("How to use it")
-        } footer: {
-            Text("Revoke the code from the Share panel when the agent no longer needs it.")
+            Label {
+                Text("Story shows this only once. It signs in as a device of your account, so anyone who has it can read and change everything your account can, until you revoke it from the Share panel.")
+            } icon: {
+                Image(systemName: "key.fill").foregroundStyle(.orange)
+            }
         }
     }
 
@@ -5034,6 +5014,23 @@ private struct WorkspaceSurfaceView: View {
         .foregroundStyle(.secondary)
     }
 }
+
+#if os(macOS)
+/// Makes the popover it sits in the key window. A popover opened from a
+/// toolbar item does not always become key, and then draws its controls as
+/// inactive and gives its text fields no focus.
+private struct MacPopoverKeyWindow: NSViewRepresentable {
+    final class Probe: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            DispatchQueue.main.async { [weak self] in self?.window?.makeKey() }
+        }
+    }
+
+    func makeNSView(context _: Context) -> Probe { Probe() }
+    func updateNSView(_: Probe, context _: Context) {}
+}
+#endif
 
 private struct StoryProfileWidget: View {
     let profile: StoryProfileDocument
