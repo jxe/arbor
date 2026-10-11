@@ -1,0 +1,2 @@
+# sha256 of Bun release archives, from each release's SHASUMS256.txt: <version>  <archive>  <sha256>
+1.4.2  bun-darwin-aarch64.zip  90987a3a16d7db556d886ac3d551e7b6d3edf0a1cf43acaed622e8676be1d12f

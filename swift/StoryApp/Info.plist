@@ -17,7 +17,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -30,13 +30,15 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>LSMultipleInstancesProhibited</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan one-time Story device-pairing QR codes.</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 Joe Edelman. MIT license.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Record voice notes to add to Overstory pages.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

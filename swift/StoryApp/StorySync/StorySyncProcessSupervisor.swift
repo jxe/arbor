@@ -126,7 +126,18 @@ actor StorySyncProcessSupervisor {
 
     private func connect(explicitExecutable: URL?, preferredPort: Int) async throws -> StorySyncControlRuntime {
         if let attached = try await attachIfCompatible(port: preferredPort) {
-            return attached
+            // The launch agent outlives the app, so an updated app finds the helper of the build it replaced.
+            guard explicitExecutable == nil, preferredPort == Self.defaultPort, shouldUsePersistentService,
+                  attached.status.runtimeKind == "persistent",
+                  Self.isStaleHelper(running: attached.status.version, bundled: Self.bundledHelperVersion),
+                  await installedServiceExists() else { return attached }
+            _ = await launchctl(["kickstart", "-k", serviceTarget()])
+            for _ in 0..<100 {
+                if let restarted = try await attachIfCompatible(port: preferredPort),
+                   restarted.status.instanceID != attached.status.instanceID { return restarted }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            throw StorySyncSupervisorError.readinessTimedOut(canonicalServiceLog())
         }
 
         guard launchPolicy == .automatic else {
@@ -180,6 +191,21 @@ actor StorySyncProcessSupervisor {
         }
 
         throw StorySyncSupervisorError.readinessTimedOut(lastFailure)
+    }
+
+    /// The stamp this app's bundled helper reports: `<version>+<build>`, as the build script defines it.
+    static var bundledHelperVersion: String? {
+        let info = Bundle.main.infoDictionary
+        guard let version = info?["CFBundleShortVersionString"] as? String,
+              let build = info?["CFBundleVersion"] as? String else { return nil }
+        return "\(version)+\(build)"
+    }
+
+    /// Whether a running helper shipped in another build of the app. A helper
+    /// without a build stamp was started from a checkout or by the CLI, and is left alone.
+    static func isStaleHelper(running: String, bundled: String?) -> Bool {
+        guard let bundled, running.contains("+") else { return false }
+        return running != bundled
     }
 
     private func attachIfCompatible(port: Int) async throws -> StorySyncControlRuntime? {

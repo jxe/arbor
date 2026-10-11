@@ -309,6 +309,14 @@ struct LoopbackServicesTests {
     // MARK: Control-mode supervisor
 
 #if os(macOS)
+    @Test("A helper from another app build is stale; one without a build stamp is left alone")
+    func staleHelperStamp() {
+        #expect(StorySyncProcessSupervisor.isStaleHelper(running: "0.1.0+3", bundled: "0.1.0+4"))
+        #expect(!StorySyncProcessSupervisor.isStaleHelper(running: "0.1.0+4", bundled: "0.1.0+4"))
+        #expect(!StorySyncProcessSupervisor.isStaleHelper(running: "0.1.0", bundled: "0.1.0+4"))
+        #expect(!StorySyncProcessSupervisor.isStaleHelper(running: "0.1.0+3", bundled: nil))
+    }
+
     @Test("Attach-only control supervisor never launches a helper")
     func attachOnlyControlSupervisor() async throws {
         let supervisor = StorySyncProcessSupervisor(launchPolicy: .attachOnly)
