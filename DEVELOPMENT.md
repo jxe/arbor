@@ -233,10 +233,12 @@ build number is the commit count. It pushes `main`, which deploys the host.
 
 It runs on Joe's Mac: it needs the Developer ID certificate, the
 `story-notary` keychain profile, the Sparkle signing key, Xcode signed in to
-the team, and `gh` and `npm` logged in. Two steps stay manual: adding the new
-TestFlight build to its tester group, and approving the npm publish when npm
-stages it. The pieces are `swift/scripts/release-mac.sh`,
-`swift/scripts/release-ios.sh` and `bun run build:cli:package`.
+the team, and `gh` and `npm` logged in. With an App Store Connect API key named
+in `~/.appstoreconnect/story.env`, `tools/testflight.ts` waits for the uploaded
+build to process, adds it to the TestFlight group and submits it for beta
+review. Approving the npm publish, when npm stages it, stays manual. The pieces
+are `swift/scripts/release-mac.sh`, `swift/scripts/release-ios.sh`,
+`tools/testflight.ts` and `bun run build:cli:package`.
 
 ## Disposable browser smoke test
 

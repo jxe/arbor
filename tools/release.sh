@@ -15,9 +15,11 @@ set -eu
 #
 # Needs: a clean main, the Developer ID certificate and the story-notary
 # keychain profile (swift/scripts/release-mac.sh), Xcode signed in to the team
-# (swift/scripts/release-ios.sh), `gh` and `npm` logged in. Afterwards, by
-# hand: add the TestFlight build to its tester group, and approve the npm
-# publish if npm stages it.
+# (swift/scripts/release-ios.sh), `gh` and `npm` logged in. With an App Store
+# Connect API key named in ~/.appstoreconnect/story.env (STORY_ASC_KEY_ID and
+# STORY_ASC_ISSUER_ID), the uploaded build is also added to the TestFlight group
+# STORY_TESTFLIGHT_GROUP (default Friends) and submitted for beta review;
+# without it, do that by hand. Approve the npm publish if npm stages it.
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repository_root"
 
@@ -69,7 +71,7 @@ fi
 echo
 echo "Ready to publish $version (build $build): $parts"
 wants mac && echo "  - push main and $tag (deploys the host); GitHub release with Story-$version.dmg, Story.dmg, appcast.xml"
-wants ios && echo "  - archive and upload the iPhone app to App Store Connect"
+wants ios && echo "  - archive and upload the iPhone app to App Store Connect, then add it to its TestFlight group"
 wants npm && echo "  - npm publish @ovst/cli@$version"
 printf 'Publish? Type yes: '
 read answer
@@ -85,6 +87,19 @@ fi
 if wants ios; then
   echo "== Uploading the iPhone app"
   swift/scripts/release-ios.sh "$version" "$build"
+  if [ -f "$HOME/.appstoreconnect/story.env" ]; then
+    # In a subshell: the key is for this step, and the upload above signs in through Xcode.
+    (
+      set -a
+      . "$HOME/.appstoreconnect/story.env"
+      set +a
+      bun tools/testflight.ts distribute "$version" "$build" \
+        --group "${STORY_TESTFLIGHT_GROUP:-Friends}" \
+        --notes "${STORY_TESTFLIGHT_NOTES:-Story $version. Pair with your Mac from Sync & Accounts, or tap Look Around First to try the editor on sample pages.}"
+    ) || { testflight_failed=1; echo "warning: the build is uploaded but was not added to its TestFlight group; do that in App Store Connect" >&2; }
+  else
+    testflight_failed=1
+  fi
 fi
 if wants npm; then
   echo "== Publishing the story command"
@@ -94,6 +109,9 @@ fi
 echo
 echo "Released $version."
 wants mac && echo "  Mac: https://github.com/jxe/arbor/releases/tag/$tag  (stable link: https://github.com/jxe/arbor/releases/latest/download/Story.dmg)"
-wants ios && echo "  iPhone: add build $build to its group in App Store Connect > TestFlight once it has processed."
+if wants ios; then
+  if [ "${testflight_failed:-}" = "1" ]; then echo "  iPhone: add build $build to its group in App Store Connect > TestFlight once it has processed."
+  else echo "  iPhone: build $build is in its TestFlight group."; fi
+fi
 wants npm && echo "  npm: if the publish was staged, approve it on npmjs.com; then bunx @ovst/cli@$version --version"
 exit 0
