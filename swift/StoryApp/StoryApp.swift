@@ -30,6 +30,7 @@ struct StoryApplication: App {
             StoryNavigationCommands()
 #if os(macOS)
             StoryUpdateCommands(updates: updates)
+            StoryCommandLineToolCommands()
 #endif
         }
     }

@@ -50,6 +50,10 @@ the bundle ID stays `org.nxhx.Arbor`. The code is under the MIT license.
   Story Sync with a name wrote it to the profile; and a folder became a private
   tree under the account straight after the claim and synced to idle. The Mac
   screen itself is compiled, not exercised.
+- **`story` from the Mac app.** The app bundles the CLI beside its Bun, with
+  Install Command Line Tool… linking `/usr/local/bin/story` to it. In the
+  notarized build 4 the command runs through a link and reports `0.1.0+4`; the
+  menu item itself has not been tried.
 - **Live host, read-only check.** arb.nxhx.org answers `/.overstory/health`;
   Joe pushed main on 2026-10-11. Its root access rule, read with Joe's
   account, still grants `admin` to the root group itself

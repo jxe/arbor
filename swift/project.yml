@@ -43,6 +43,7 @@ targets:
         excludes:
           - story-sync-service.c
           - org.nxhx.story.sync.plist
+          - story-command.sh
           - IconPreviews
     dependencies:
       - package: StoryKit
@@ -127,6 +128,13 @@ targets:
             --define "STORY_PACKAGE_VERSION=\"$MARKETING_VERSION+$CURRENT_PROJECT_VERSION\"" \
             "$SRCROOT/../packages/story-sync/src/cli.ts" \
             --outfile "$HELPER_RESOURCES/story-sync.js"
+          # The story command, run by the same Bun; its launcher is what Install Command Line Tool links.
+          "$BUN_PATH" build --target=bun --external @parcel/watcher \
+            --define "STORY_PACKAGE_VERSION=\"$MARKETING_VERSION+$CURRENT_PROJECT_VERSION\"" \
+            "$SRCROOT/../packages/cli/src/index.ts" \
+            --outfile "$HELPER_RESOURCES/story.js"
+          /usr/bin/ditto "$SRCROOT/StoryApp/story-command.sh" "$HELPER_RESOURCES/story"
+          /bin/chmod 755 "$HELPER_RESOURCES/story"
           WATCHER_JS_SOURCE="$(cd "$SRCROOT/../packages/fs/node_modules/@parcel/watcher" && pwd -P)"
           /usr/bin/ditto "$WATCHER_JS_SOURCE" "$MODULES_PATH/watcher"
           "$BUN_PATH" build --target=bun --format=cjs \

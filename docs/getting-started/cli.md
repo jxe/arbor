@@ -412,6 +412,14 @@ story declined --restore ~/Documents/notes
 options. Railway/VPS deployment procedures belong in
 [`packages/overstoryd/deploy/README.md`](../../packages/overstoryd/deploy/README.md), not in this command reference.
 
+## From the Mac app
+
+Story for the Mac carries the `story` command and the Bun that runs it. Choose
+**Story → Install Command Line Tool…** to link it at `/usr/local/bin/story`;
+macOS asks for an administrator's password when that folder needs one. The
+link points into the app, so the command updates with it. No separate Bun is
+needed.
+
 ## Running with bunx
 
 Install Bun first (the release is tested with Bun 1.4.2). The CLI package keeps

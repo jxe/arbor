@@ -56,9 +56,10 @@ Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-peop
 - [ ] Go through the Mac getting-started list by hand after a join: photo, Sync a Folder,
   a new folder in Documents, opening a shared tree. The host side is checked (a folder
   becomes a tree under a just-claimed account); the screen itself has only been compiled.
-- [ ] Offer the `story` command from the Mac app: an Install Command Line Tool item that
-  links a `story` shim running the app's bundled Bun, which needs the CLI bundle added to
-  the app. Until then the command needs Bun and `bunx @ovst/cli`.
+- [ ] Try **Install Command Line Tool…** from the released Mac app: the link at
+  `/usr/local/bin/story`, the administrator prompt when that folder needs one, and `story
+  --help` in a new Terminal window. The bundled command runs through a link; the menu item
+  and the prompt have not been tried.
 - A wrong invitation code leaves a pending claim that refuses the right code until it is
   cancelled; the short join form should cancel it or say so.
 - [ ] Hide the sample-pages bar on the iPhone while the keyboard is up, or move it.
