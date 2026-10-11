@@ -81,7 +81,7 @@ With `ffmpeg`, from `dist/video/takes/`:
 2. For hand-filmed takes with a separate voice take, lay the voice over the picture.
 3. Add a title card before each section: Getting set up, Feature tour, Agents.
 4. Join in take order, with the same frame size and rate throughout; letterbox the iPhone and hand clips beside or inside a plain background.
-5. Burn in captions from the narration column, and also write them as a subtitle file.
+5. Write captions from the narration column as a subtitle file beside the video; do not burn them in.
 6. Write `dist/video/story-intro.mp4`, show Joe, and recut from his notes. Keep the assembly as a script under `dist/video/` so a retake only needs a rerun.
 
 ## Close out
