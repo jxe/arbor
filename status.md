@@ -15,8 +15,8 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 ## CLI package, People and joining by invitation — 2026-10-11
 
 Implemented. The CLI is published and the host is deployed; the app changes are not installed. The Apple-dependent work
-(bundle identifiers, the Mac download, TestFlight, the App Store) is planned as
-Rename 003 and Release 001 to 003. The code is under the MIT license.
+(the Mac download, TestFlight, the App Store) is planned as Release 001 to 003;
+the bundle ID stays `org.nxhx.Arbor`. The code is under the MIT license.
 
 - **`@ovst/cli`.** The package declares one command, `story`, so `bunx
   @ovst/cli` and `npx @ovst/cli` resolve it by package name; `story-sync.js`

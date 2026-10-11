@@ -16,18 +16,13 @@ The 2026-10-10 rename left readers accepting six old spellings, among them `arbo
 `;arbor-*` locator parameters, because authored content and shared links still carry
 them. Joe wants that tolerance to be temporary.
 
-**[Rename 003: bundle and keychain identifiers](rename/003-bundle-and-keychain-identifiers.md).**
-A bundle ID is permanent once an App Store record or an update feed names it. Joe decided on
-2026-10-10 to move to `org.nxhx.Story` before any build leaves his machines. It costs a
-keychain migration on his Mac and a re-pair of his iPhone, so it waits for him.
-
 **[Release 001: a Mac download that updates itself](release/001-mac-release.md).**
 So friends can install Story from a link on nxhx.org: a notarized DMG and a Sparkle feed on
-GitHub Releases. After Rename 003, once Joe has a Developer ID certificate.
+GitHub Releases. Joe has the Developer ID certificate and notarization credentials.
 
 **[Release 002: the iPhone app on TestFlight](release/002-testflight.md).**
-Friends join on a Mac and pair an iPhone; TestFlight is how they get the iPhone app. After
-Rename 003, once Joe has created the app record.
+Friends join on a Mac and pair an iPhone; TestFlight is how they get the iPhone app. Once
+Joe has created the app record.
 
 **[overstoryd 015: resolve choices that later work has reconciled](merge/015-resolve-reconciled-choices.md).**
 Joe encountered a whole-tree conflict after moving blocks into a new page. Later

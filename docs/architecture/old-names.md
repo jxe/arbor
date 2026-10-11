@@ -20,9 +20,9 @@ Opaque tags and names. Some are hashed into identifiers or authenticate artifact
 - Completed migrations 018–023 under `packages/overstoryd/migrations/`, kept verbatim as history and excluded from typecheck
 - Outside the repo: the lab's hcloud context and Hetzner key `arbor-lab`, the Tailscale tag `tag:arbor-lab`, and `~/.ssh/arbor_hetzner`
 
-## Deferred
+## Kept
 
-Persisted on devices and never shown to people. Changing them costs a keychain migration, an iPhone reinstall and re-pairing, so they wait for [Rename 003](../../plans/rename/003-bundle-and-keychain-identifiers.md).
+Persisted on devices and never shown to people. Changing them costs a keychain migration, an iPhone reinstall and re-pairing. Joe decided on 2026-10-11 to release with them as they are, so the App Store record and the Mac update feed carry `org.nxhx.Arbor`.
 
 - Bundle id `org.nxhx.Arbor` and its suffixes, including the test and lab ids
 - Keychain services `org.arbor.person-profile`, `org.arbor.community-account`, `org.arbor.connections` (CLI and daemon) and `org.nxhx.Arbor.profile`, `org.nxhx.Arbor.device…` (iPhone)

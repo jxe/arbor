@@ -1,6 +1,6 @@
 # Release 001: a Mac download that updates itself
 
-**Why and when:** Joe wants friends to install Story on a Mac from a link on nxhx.org, and to keep getting updates without rebuilding from Xcode. Nothing in the repo builds a distributable app today. Do this after [Rename 003](../rename/003-bundle-and-keychain-identifiers.md), once Joe has the Apple items in step 1.
+**Why and when:** Joe wants friends to install Story on a Mac from a link on nxhx.org, and to keep getting updates without rebuilding from Xcode. Nothing in the repo builds a distributable app today. Joe has the Developer ID certificate and notarization credentials (keychain profile `story-notary`); the release Xcode is the last Apple item.
 
 > **Executor instructions**: Steps 2 to 6 are repo work and need nothing from Apple. Notarizing, publishing a GitHub Release and installing on Joe's Mac each wait for Joe's go-ahead. Tagging Quagmire is Joe's step.
 
@@ -8,7 +8,7 @@
 
 - **Effort**: L
 - **Risk**: MEDIUM. The bundled Bun helper has never run under the hardened runtime.
-- **Depends on**: Rename 003
+- **Depends on**: nothing
 - **Category**: release
 
 ## What exists
@@ -26,15 +26,11 @@
 - **GitHub Releases on `jxe/arbor`** hosts the DMG and the appcast. nxhx.org gets a link, which Joe adds.
 - **Sparkle** for updates, as a macOS-only dependency.
 - **arm64 only.** The deployment target is macOS 27.
-- **License**: MIT, added by the CLI publish work.
+- **Bundle ID stays `org.nxhx.Arbor`.** Joe decided on 2026-10-11 not to rename it; see [old names](../../docs/architecture/old-names.md).
 
 ## Steps
 
-1. **Apple account (Joe).**
-   - developer.apple.com/account: membership active, no pending agreement.
-   - Xcode → Settings → Accounts → Manage Certificates: add "Developer ID Application".
-   - App Store Connect → Users and Access → Integrations: an API key for `notarytool`.
-   - Install the release Xcode 27 and select it.
+1. **Apple account (Joe).** Done 2026-10-11: the "Developer ID Application" certificate is on the Mac, and an App Store Connect API key is stored for `notarytool` as the keychain profile `story-notary`. Remaining: install the release Xcode 27 and select it.
 2. **Portable build.** Release Quagmire and bump both pins by the procedure in DEVELOPMENT.md. Make `Info.plist` read `$(MARKETING_VERSION)` and `$(CURRENT_PROJECT_VERSION)`. Add a copyright string and an acknowledgements file for Bun, `@parcel/watcher`, Quagmire, Yams and Sparkle.
 3. **Pinned helper.** The pre-build script takes Bun at the `.bun-version` version from a checked download (checksum in the repo) for Release builds, not from `command -v bun`.
 4. **Hardened runtime.** Enable it for the app. Sign `watcher.node`, `story-sync` and `story-sync-service` with `--options runtime --timestamp`, inside out. `story-sync.entitlements` starts with `com.apple.security.cs.allow-jit` alone; add `allow-unsigned-executable-memory` only if the helper fails to start. A script starts the signed helper and exercises the file watcher, and that script decides the set.
