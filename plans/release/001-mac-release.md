@@ -17,8 +17,8 @@
 - The hardened runtime is on for Release builds only: its library validation refuses the hosted test bundle.
 - The helper's only entitlement is `com.apple.security.cs.allow-jit`. Bun also runs with none, without its JIT.
 - The app reads its version and build from the build settings, stamps them into the helper, and restarts a persistent helper whose stamp differs from its own (`StorySyncProcessSupervisor.isStaleHelper`).
-- The first DMG, `0.1.0` build 1, was built with the release Xcode 27 on 2026-10-11, accepted by the notary service and stapled; Gatekeeper reports "Notarized Developer ID" for the DMG and the app. It is in `dist/mac/`, unpublished.
-- There is no update mechanism.
+- The current DMG, `0.1.0` build 2, was built with the release Xcode 27 on 2026-10-11, accepted by the notary service and stapled; Gatekeeper reports "Notarized Developer ID" for the DMG and the app. It is in `dist/mac/`, unpublished.
+- Release builds carry Sparkle 2.10.0 with a Check for Updates menu item, reading `https://github.com/jxe/arbor/releases/latest/download/appcast.xml`; Debug builds have no updater. The signing key is in Joe's login keychain and its public half is `SUPublicEDKey` in `swift/project.yml`. The release script signs Sparkle's helpers and writes `dist/mac/appcast.xml` for the release tagged `v<version>`. No update has been delivered yet: that needs two published releases.
 - Quagmire 0.9.0 is released and pinned, so the app builds from `Story.xcodeproj` alone; the release script still builds through `Story.local.xcworkspace` when it exists.
 
 ## Decisions
@@ -31,11 +31,10 @@
 
 ## Steps
 
-1. **Updates.** Add Sparkle as a macOS-only dependency with `SUFeedURL` set to `https://github.com/jxe/arbor/releases/latest/download/appcast.xml`, a Check for Updates menu item, and the public key in `Info.plist`; Joe generates the signing key and keeps the private half in his keychain. The release script signs Sparkle's nested helpers and writes the signed appcast.
-2. **Acknowledgements.** Add an acknowledgements file for Bun, `@parcel/watcher`, Quagmire, Yams and Sparkle.
-3. **Clean-machine walkthrough (Joe).** On a Mac account that has never run Story: download, pass Gatekeeper, approve the login item, join from an invitation link, and pair an iPhone. Then publish a second release and confirm the update installs and the helper restarts.
-4. **Publish (Joe's go-ahead).** Create the GitHub Release. Set `OVERSTORYD_STORY_MAC_URL` on the host so the invitation page offers the download, and add the link on nxhx.org. Replace the symlink procedure in `packages/overstoryd/deploy/README.md` with the DMG install.
-5. **Close out.** Record the evidence in `status.md` and delete this plan.
+1. **Acknowledgements.** Add an acknowledgements file for Bun, `@parcel/watcher`, Quagmire, Yams and Sparkle.
+2. **Clean-machine walkthrough (Joe).** On a Mac account that has never run Story: download, pass Gatekeeper, approve the login item, join from an invitation link, and pair an iPhone. Then publish a second release and confirm the update installs and the helper restarts.
+3. **Publish (Joe's go-ahead).** Create the GitHub Release tagged `v<version>` with the DMG and `appcast.xml`. Set `OVERSTORYD_STORY_MAC_URL` on the host so the invitation page offers the download, and add the link on nxhx.org. Replace the symlink procedure in `packages/overstoryd/deploy/README.md` with the DMG install.
+4. **Close out.** Record the evidence in `status.md` and delete this plan.
 
 ## Not verified
 

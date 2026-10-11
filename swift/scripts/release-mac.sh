@@ -3,14 +3,19 @@ set -eu
 
 # Builds the Mac app for download: a Release archive with the pinned Bun as
 # its sync helper, signed with Developer ID under the hardened runtime, packed
-# in a DMG, notarized and stapled. Output goes to dist/mac/.
+# in a DMG, notarized and stapled, with the Sparkle appcast that offers it as
+# an update. Output goes to dist/mac/: upload Story-<version>.dmg and
+# appcast.xml to the GitHub release tagged v<version>.
 #
 #   swift/scripts/release-mac.sh <version> <build>      e.g. 0.1.0 7
 #
 # Needs a "Developer ID Application" certificate and notarization credentials
 # stored as the keychain profile named by STORY_NOTARY_PROFILE (default
-# story-notary; see `xcrun notarytool store-credentials`). STORY_SKIP_NOTARIZE=1
-# stops after signing, to check the build without sending it to Apple.
+# story-notary; see `xcrun notarytool store-credentials`), and the Sparkle
+# signing key in the login keychain (Sparkle's generate_keys; its public half
+# is SUPublicEDKey in swift/project.yml). The build number must be higher than
+# every released one: Sparkle compares it. STORY_SKIP_NOTARIZE=1 stops after
+# signing, to check the build without sending it to Apple.
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$repository_root"
 [ $# -eq 2 ] || { echo "usage: $0 <version> <build>" >&2; exit 2; }
@@ -48,6 +53,7 @@ else
 fi
 xcodebuild archive -quiet "$@" -scheme Story -configuration Release \
   -destination "generic/platform=macOS" -archivePath "$work/Story.xcarchive" \
+  -clonedSourcePackagesDirPath "$output/cache/packages" \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=NO MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$build"
 
 app="$work/Story.app"
@@ -55,6 +61,12 @@ ditto "$work/Story.xcarchive/Products/Applications/Story.app" "$app"
 
 # Inside out: each nested binary, then the app that seals them.
 sign() { codesign --force --sign "$identity" --options runtime --timestamp "$@"; }
+sparkle="$app/Contents/Frameworks/Sparkle.framework"
+sign "$sparkle/Versions/B/XPCServices/Installer.xpc"
+sign --preserve-metadata=entitlements "$sparkle/Versions/B/XPCServices/Downloader.xpc"
+sign "$sparkle/Versions/B/Autoupdate"
+sign "$sparkle/Versions/B/Updater.app"
+sign "$sparkle"
 find "$app/Contents/Resources/story-sync" -name "*.node" -exec codesign --force --sign "$identity" --options runtime --timestamp {} \;
 sign --entitlements swift/StoryApp/story-sync.entitlements "$app/Contents/MacOS/story-sync"
 sign "$app/Contents/MacOS/story-sync-service"
@@ -77,4 +89,13 @@ fi
 xcrun notarytool submit "$dmg" --keychain-profile "$profile" --wait
 xcrun stapler staple "$dmg"
 spctl --assess --type open --context context:primary-signature "$dmg"
+
+# The feed names only this release; Sparkle needs no more to offer it.
+feed="$work/feed"
+mkdir -p "$feed"
+cp "$dmg" "$feed/"
+"$output/cache/packages/artifacts/sparkle/Sparkle/bin/generate_appcast" \
+  --download-url-prefix "https://github.com/jxe/arbor/releases/download/v$version/" \
+  -o "$output/appcast.xml" "$feed"
 echo "$dmg"
+echo "$output/appcast.xml"

@@ -43,6 +43,12 @@
 	<string>Record voice notes to add to Overstory pages.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Transcribe voice notes into Overstory pages.</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/jxe/arbor/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>lJDABVKiW2teXts6nuugM1ka04lQs6rFkoqYAy3edlw=</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>

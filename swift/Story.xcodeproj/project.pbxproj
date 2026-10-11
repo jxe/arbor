@@ -26,12 +26,14 @@
 		7B681248CC4ACE1EC5C86C79 /* StoryDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EABAB8FF89E2C8D008E7D54 /* StoryDirectory.swift */; };
 		7E28C9228D2AD90BA27BBCC8 /* StorySyncRESTClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570CA5BE42A3C7740713926E /* StorySyncRESTClient.swift */; };
 		80731DFD7207784658256DAD /* StoryAgentBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C801E1356B70DF981F10CE55 /* StoryAgentBundleTests.swift */; };
+		8CF6047DEF5BA88ECC6EB660 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = BD4D163D7F48A48BBE141405 /* Sparkle */; };
 		8D856512BD7DE6492C00A93E /* VoiceRecordingIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6B87FA2419E6805DE2A2DD2 /* VoiceRecordingIntents.swift */; };
 		8D88B8400395C24C848086F9 /* StorySyncAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 287F638B398B35FFB4041DD4 /* StorySyncAccountService.swift */; };
 		8DD71641C8A544EDA9AF2731 /* StoryNetworkLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50109D993611D59CF73FE0A4 /* StoryNetworkLogView.swift */; };
 		941674B9FAF05F1670ED6ECC /* StoryKit in Frameworks */ = {isa = PBXBuildFile; productRef = 481BCBFAE310A705AB27CE30 /* StoryKit */; };
 		9675DD1D697B0D1F28D21845 /* OverstoryClient in Frameworks */ = {isa = PBXBuildFile; productRef = 116133627870F3D2BF1962E0 /* OverstoryClient */; };
 		98964119B5AA433EF0AA397B /* QuagmireExtras in Frameworks */ = {isa = PBXBuildFile; productRef = B99F0DB13EA433FEA4FCD331 /* QuagmireExtras */; };
+		9BD579B02F3143195AFB5663 /* StoryUpdates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FDE2E5423C22378EE9EAC6B /* StoryUpdates.swift */; };
 		9C704388497EA12B9D978089 /* StoryApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63D9EA3BB99A535CFAB23B48 /* StoryApp.swift */; };
 		A4E6F18847B2453BAB914E79 /* OverstoryObjectStore in Frameworks */ = {isa = PBXBuildFile; productRef = 491E232029FB50606050C5E4 /* OverstoryObjectStore */; };
 		B7927EDF50F594B3EB1D11E5 /* StoryVisits.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */; };
@@ -63,6 +65,7 @@
 		08DF6DD4D68F12688B37CB50 /* Story.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Story.entitlements; sourceTree = "<group>"; };
 		0DC1C9155C6415735EFB900D /* StorySyncProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncProtocol.swift; sourceTree = "<group>"; };
 		0F57E1CDD14CFF64B73C4196 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		0FDE2E5423C22378EE9EAC6B /* StoryUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryUpdates.swift; sourceTree = "<group>"; };
 		2310FA6DF2AC58696C3C95AF /* StorySyncLoopbackServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncLoopbackServices.swift; sourceTree = "<group>"; };
 		23AB73370E278D32DF495901 /* AppIcon-oblique-overstory-v4-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-oblique-overstory-v4-1024.png"; sourceTree = "<group>"; };
 		2497A2CC0E8257903E8DD80B /* StoryKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = StoryKit; path = Packages/StoryKit; sourceTree = SOURCE_ROOT; };
@@ -116,6 +119,7 @@
 				9675DD1D697B0D1F28D21845 /* OverstoryClient in Frameworks */,
 				F78F9916659D4F368857A707 /* StoryEditor in Frameworks */,
 				98964119B5AA433EF0AA397B /* QuagmireExtras in Frameworks */,
+				8CF6047DEF5BA88ECC6EB660 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -181,6 +185,7 @@
 				ECF67517026BEB4C160F1B29 /* StorySaveDiagnostics.swift */,
 				C14AB815B7145C5339991F4C /* StoryStyle.swift */,
 				8B3FAFCE4CBE59350772DC86 /* StorySupportDirectories.swift */,
+				0FDE2E5423C22378EE9EAC6B /* StoryUpdates.swift */,
 				D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */,
 				F6B87FA2419E6805DE2A2DD2 /* VoiceRecordingIntents.swift */,
 			);
@@ -244,6 +249,7 @@
 				116133627870F3D2BF1962E0 /* OverstoryClient */,
 				067E5CB0830F8EDCB190E0A1 /* StoryEditor */,
 				B99F0DB13EA433FEA4FCD331 /* QuagmireExtras */,
+				BD4D163D7F48A48BBE141405 /* Sparkle */,
 			);
 			productName = Story;
 			productReference = E9187CADDF2479252C76C32D /* Story.app */;
@@ -293,6 +299,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				5340E9AC008875B850777EA1 /* XCRemoteSwiftPackageReference "quagmire" */,
+				97E52E48EF9329B6E13CFB4D /* XCRemoteSwiftPackageReference "Sparkle" */,
 				726EE8E3658FC4D19E59E61A /* XCLocalSwiftPackageReference "Packages/Overstory" */,
 				B03D01F2559EF5E7FA56DCE3 /* XCLocalSwiftPackageReference "Packages/OverstoryClient" */,
 				6F9EDF94FEE592679930577C /* XCLocalSwiftPackageReference "Packages/OverstoryObjectStore" */,
@@ -385,6 +392,7 @@
 				6A886DB15992427E3D306299 /* StorySyncProcessSupervisor.swift in Sources */,
 				43B73395F5BC136A8F372B5B /* StorySyncProtocol.swift in Sources */,
 				7E28C9228D2AD90BA27BBCC8 /* StorySyncRESTClient.swift in Sources */,
+				9BD579B02F3143195AFB5663 /* StoryUpdates.swift in Sources */,
 				B7927EDF50F594B3EB1D11E5 /* StoryVisits.swift in Sources */,
 				8D856512BD7DE6492C00A93E /* VoiceRecordingIntents.swift in Sources */,
 			);
@@ -693,6 +701,14 @@
 				version = 0.9.0;
 			};
 		};
+		97E52E48EF9329B6E13CFB4D /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -724,6 +740,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5340E9AC008875B850777EA1 /* XCRemoteSwiftPackageReference "quagmire" */;
 			productName = QuagmireExtras;
+		};
+		BD4D163D7F48A48BBE141405 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 97E52E48EF9329B6E13CFB4D /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

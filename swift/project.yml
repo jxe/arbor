@@ -30,6 +30,9 @@ packages:
   Quagmire:
     url: https://github.com/jxe/quagmire.git
     exactVersion: 0.9.0
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle.git
+    exactVersion: 2.10.0
 
 targets:
   Story:
@@ -49,6 +52,8 @@ targets:
       - package: StoryEditor
       - package: Quagmire
         product: QuagmireExtras
+      - package: Sparkle
+        destinationFilters: [macOS]
     info:
       path: StoryApp/Info.plist
       properties:
@@ -56,6 +61,10 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSHumanReadableCopyright: Copyright © 2026 Joe Edelman. MIT license.
+        # Sparkle, in the downloaded Mac app: the feed swift/scripts/release-mac.sh writes, and the key it signs with.
+        SUFeedURL: https://github.com/jxe/arbor/releases/latest/download/appcast.xml
+        SUPublicEDKey: lJDABVKiW2teXts6nuugM1ka04lQs6rFkoqYAy3edlw=
+        SUEnableAutomaticChecks: true
         CFBundleURLTypes:
           - CFBundleURLName: org.nxhx.Arbor.join
             CFBundleURLSchemes: [overstory]

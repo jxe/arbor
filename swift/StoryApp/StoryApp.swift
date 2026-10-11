@@ -14,6 +14,7 @@ struct StoryApplication: App {
     }
 #if os(macOS)
     @NSApplicationDelegateAdaptor(StoryApplicationDelegate.self) private var appDelegate
+    private let updates = StoryUpdates()
 #endif
 
     var body: some Scene {
@@ -27,6 +28,9 @@ struct StoryApplication: App {
         }
         .commands {
             StoryNavigationCommands()
+#if os(macOS)
+            StoryUpdateCommands(updates: updates)
+#endif
         }
     }
 }
