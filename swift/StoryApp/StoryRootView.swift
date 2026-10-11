@@ -1287,6 +1287,9 @@ struct StoryRootView: View {
             }
         }
         .focusedSceneValue(\.storyWindowCommands, windowCommands)
+#if os(macOS)
+        .background(StoryMenuBarBridge(commands: windowCommands))
+#endif
     }
 
     @ViewBuilder

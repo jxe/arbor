@@ -42,6 +42,7 @@
 		DC195F88AFB0BFE2E6B25729 /* StoryStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C14AB815B7145C5339991F4C /* StoryStyle.swift */; };
 		E4481610264F1B4CAAB5BAE9 /* StoryCommandLineTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008227DF4607F9664CCB42A5 /* StoryCommandLineTool.swift */; };
 		E4BF163FE09061A7048C47A2 /* StorySyncLoopbackServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2310FA6DF2AC58696C3C95AF /* StorySyncLoopbackServices.swift */; };
+		E87B9ECB8BFADFF66D64855D /* StoryMenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E461AB2FE619EC60E92149F0 /* StoryMenuBar.swift */; };
 		F0D0D4EA48061940AE8B1FE4 /* OverstoryWorkingTree in Frameworks */ = {isa = PBXBuildFile; productRef = 8AE1991A365BDE555AEF9AD2 /* OverstoryWorkingTree */; };
 		F5A083DC712E9DDC2FB183A2 /* HostAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA3B5A57DFF35B1C2881F8B /* HostAccountService.swift */; };
 		F78F9916659D4F368857A707 /* StoryEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 067E5CB0830F8EDCB190E0A1 /* StoryEditor */; };
@@ -94,6 +95,7 @@
 		C801E1356B70DF981F10CE55 /* StoryAgentBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAgentBundleTests.swift; sourceTree = "<group>"; };
 		D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryVisits.swift; sourceTree = "<group>"; };
 		E264714074530EDE343A1F69 /* StoryAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = StoryAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E461AB2FE619EC60E92149F0 /* StoryMenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryMenuBar.swift; sourceTree = "<group>"; };
 		E9187CADDF2479252C76C32D /* Story.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Story.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E9FED0EC54CF375211A91CCA /* OverstoryClient */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OverstoryClient; path = Packages/OverstoryClient; sourceTree = SOURCE_ROOT; };
 		EBAC914250ADC60AB8330AF5 /* StoryDailyDriverViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryDailyDriverViews.swift; sourceTree = "<group>"; };
@@ -177,6 +179,7 @@
 				9EABAB8FF89E2C8D008E7D54 /* StoryDirectory.swift */,
 				A27A7EADF20AC6C392158935 /* StoryDirectoryView.swift */,
 				AE70BB2343F0C606EBDF1758 /* StoryKeyboardShortcuts.swift */,
+				E461AB2FE619EC60E92149F0 /* StoryMenuBar.swift */,
 				50109D993611D59CF73FE0A4 /* StoryNetworkLogView.swift */,
 				28B12A0A099353DC70B96556 /* StoryOnboarding.swift */,
 				F061F4EB3A1DDA2E7D8C0AB2 /* StoryRootView.swift */,
@@ -364,6 +367,7 @@
 				7B681248CC4ACE1EC5C86C79 /* StoryDirectory.swift in Sources */,
 				00CF3804F0A62172853CECBD /* StoryDirectoryView.swift in Sources */,
 				CA85B46BB61B308F925E9604 /* StoryKeyboardShortcuts.swift in Sources */,
+				E87B9ECB8BFADFF66D64855D /* StoryMenuBar.swift in Sources */,
 				8DD71641C8A544EDA9AF2731 /* StoryNetworkLogView.swift in Sources */,
 				2389F5B89ABF83893F8BFCED /* StoryOnboarding.swift in Sources */,
 				4DBBBC75E90C949DA011A17B /* StoryRootView.swift in Sources */,

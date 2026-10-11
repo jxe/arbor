@@ -21,16 +21,4 @@ struct StoryUpdates {
 
     func check() { controller?.checkForUpdates(nil) }
 }
-
-struct StoryUpdateCommands: Commands {
-    let updates: StoryUpdates
-
-    var body: some Commands {
-        CommandGroup(after: .appInfo) {
-            if updates.isAvailable {
-                Button("Check for Updates…") { updates.check() }
-            }
-        }
-    }
-}
 #endif

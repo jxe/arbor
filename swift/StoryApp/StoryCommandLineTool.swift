@@ -85,14 +85,4 @@ enum StoryCommandLineTool {
         alert.runModal()
     }
 }
-
-struct StoryCommandLineToolCommands: Commands {
-    var body: some Commands {
-        CommandGroup(after: .appSettings) {
-            if StoryCommandLineTool.launcher != nil {
-                Button("Install Command Line Tool…") { Task { await StoryCommandLineTool.installAndReport() } }
-            }
-        }
-    }
-}
 #endif
