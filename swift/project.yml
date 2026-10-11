@@ -43,6 +43,7 @@ targets:
         excludes:
           - story-sync-service.c
           - org.nxhx.story.sync.plist
+          - IconPreviews
     dependencies:
       - package: StoryKit
       - package: OverstoryWorkingTree
@@ -74,6 +75,17 @@ targets:
         NSMicrophoneUsageDescription: Record voice notes to add to Overstory pages.
         NSSpeechRecognitionUsageDescription: Transcribe voice notes into Overstory pages.
         UILaunchScreen: {}
+        # Only the system's standard cryptography (CryptoKit, TLS), which is exempt from export documentation.
+        ITSAppUsesNonExemptEncryption: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.nxhx.Arbor

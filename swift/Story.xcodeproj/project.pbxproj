@@ -8,16 +8,14 @@
 
 /* Begin PBXBuildFile section */
 		00CF3804F0A62172853CECBD /* StoryDirectoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A27A7EADF20AC6C392158935 /* StoryDirectoryView.swift */; };
-		0BB9637A4301F2BADA1719F2 /* AppIcon-crescent-v5-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = EA5E024E578860B5BCB6E8F4 /* AppIcon-crescent-v5-1024.png */; };
 		138AB71328EADD327DF05358 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0F57E1CDD14CFF64B73C4196 /* Assets.xcassets */; };
-		13C18A7BD2C4E9490309726D /* AppIcon-woodland-island-v5-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = DCBD25833940FE6FD06B1B03 /* AppIcon-woodland-island-v5-1024.png */; };
 		18B2099CB8B2E619C05D95C9 /* StoryAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44DCE9BA85E5A6914ED7A28A /* StoryAppTests.swift */; };
-		1AEF387DEDDCFEE7DB6AF3ED /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 4081ECDEDB562CFE6BC3A63B /* README.md */; };
 		2389F5B89ABF83893F8BFCED /* StoryOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B12A0A099353DC70B96556 /* StoryOnboarding.swift */; };
 		25A3618F79041C1CA3AF0706 /* StoryAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EDB49754CACAEB6EA0D809C /* StoryAppModel.swift */; };
 		25D14DC831AB83257FF4873C /* StorySaveDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF67517026BEB4C160F1B29 /* StorySaveDiagnostics.swift */; };
 		3070177B9658900053719FAA /* StoryDailyDriverViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBAC914250ADC60AB8330AF5 /* StoryDailyDriverViews.swift */; };
 		43B73395F5BC136A8F372B5B /* StorySyncProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DC1C9155C6415735EFB900D /* StorySyncProtocol.swift */; };
+		4BB7FFC47B9602F5F4F43F15 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 1EBBD6708255637AC1839184 /* PrivacyInfo.xcprivacy */; };
 		4DBBBC75E90C949DA011A17B /* StoryRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F061F4EB3A1DDA2E7D8C0AB2 /* StoryRootView.swift */; };
 		59689CDA70B7E65EB5053F64 /* StorySupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B3FAFCE4CBE59350772DC86 /* StorySupportDirectories.swift */; };
 		678D4AD72FDFF443A4356A01 /* StorySyncClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 013BFCA263291982C814C4C8 /* StorySyncClientTests.swift */; };
@@ -39,11 +37,8 @@
 		B7927EDF50F594B3EB1D11E5 /* StoryVisits.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */; };
 		C20D247C8BC789EA714ECA50 /* Overstory in Frameworks */ = {isa = PBXBuildFile; productRef = 3DE1482AFACF580E96254A07 /* Overstory */; };
 		C8A9FA9F81FECD5E612F0AA2 /* StoryAgentBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4988444CA00D5B4D30BFBF9 /* StoryAgentBundle.swift */; };
-		DA625B9BA72CFD7737DD5087 /* AppIcon-oblique-grove-v3-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = 55DBCA6ADD9B244E83EE46FA /* AppIcon-oblique-grove-v3-1024.png */; };
 		DC195F88AFB0BFE2E6B25729 /* StoryStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C14AB815B7145C5339991F4C /* StoryStyle.swift */; };
-		DCC019E4C3C32E31DC8542B1 /* AppIcon-perspective-trapezoid-v5-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = 93DD6B8D9A6F1CD692FCF433 /* AppIcon-perspective-trapezoid-v5-1024.png */; };
 		E4BF163FE09061A7048C47A2 /* StorySyncLoopbackServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2310FA6DF2AC58696C3C95AF /* StorySyncLoopbackServices.swift */; };
-		E8586D9D166C15FB4BF6F972 /* AppIcon-oblique-overstory-v4-1024.png in Resources */ = {isa = PBXBuildFile; fileRef = 23AB73370E278D32DF495901 /* AppIcon-oblique-overstory-v4-1024.png */; };
 		F0D0D4EA48061940AE8B1FE4 /* OverstoryWorkingTree in Frameworks */ = {isa = PBXBuildFile; productRef = 8AE1991A365BDE555AEF9AD2 /* OverstoryWorkingTree */; };
 		F5A083DC712E9DDC2FB183A2 /* HostAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA3B5A57DFF35B1C2881F8B /* HostAccountService.swift */; };
 		F78F9916659D4F368857A707 /* StoryEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 067E5CB0830F8EDCB190E0A1 /* StoryEditor */; };
@@ -66,18 +61,16 @@
 		0DC1C9155C6415735EFB900D /* StorySyncProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncProtocol.swift; sourceTree = "<group>"; };
 		0F57E1CDD14CFF64B73C4196 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		0FDE2E5423C22378EE9EAC6B /* StoryUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryUpdates.swift; sourceTree = "<group>"; };
+		1EBBD6708255637AC1839184 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		2310FA6DF2AC58696C3C95AF /* StorySyncLoopbackServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncLoopbackServices.swift; sourceTree = "<group>"; };
-		23AB73370E278D32DF495901 /* AppIcon-oblique-overstory-v4-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-oblique-overstory-v4-1024.png"; sourceTree = "<group>"; };
 		2497A2CC0E8257903E8DD80B /* StoryKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = StoryKit; path = Packages/StoryKit; sourceTree = SOURCE_ROOT; };
 		287F638B398B35FFB4041DD4 /* StorySyncAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncAccountService.swift; sourceTree = "<group>"; };
 		28B12A0A099353DC70B96556 /* StoryOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryOnboarding.swift; sourceTree = "<group>"; };
 		3AA4F8BE45D7AEDC923DE7AF /* OverstoryWorkingTree */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OverstoryWorkingTree; path = Packages/OverstoryWorkingTree; sourceTree = SOURCE_ROOT; };
-		4081ECDEDB562CFE6BC3A63B /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		424024AA24CF8BB8FF279D58 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		44DCE9BA85E5A6914ED7A28A /* StoryAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAppTests.swift; sourceTree = "<group>"; };
 		4552C62CC6C5F2CF1B71CA52 /* OverstoryObjectStore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OverstoryObjectStore; path = Packages/OverstoryObjectStore; sourceTree = SOURCE_ROOT; };
 		50109D993611D59CF73FE0A4 /* StoryNetworkLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryNetworkLogView.swift; sourceTree = "<group>"; };
-		55DBCA6ADD9B244E83EE46FA /* AppIcon-oblique-grove-v3-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-oblique-grove-v3-1024.png"; sourceTree = "<group>"; };
 		570CA5BE42A3C7740713926E /* StorySyncRESTClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncRESTClient.swift; sourceTree = "<group>"; };
 		5CA3B5A57DFF35B1C2881F8B /* HostAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostAccountService.swift; sourceTree = "<group>"; };
 		63D9EA3BB99A535CFAB23B48 /* StoryApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryApp.swift; sourceTree = "<group>"; };
@@ -85,7 +78,6 @@
 		7EDB49754CACAEB6EA0D809C /* StoryAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAppModel.swift; sourceTree = "<group>"; };
 		8B3FAFCE4CBE59350772DC86 /* StorySupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySupportDirectories.swift; sourceTree = "<group>"; };
 		8F8E080B1625156D56B841C2 /* Overstory */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Overstory; path = Packages/Overstory; sourceTree = SOURCE_ROOT; };
-		93DD6B8D9A6F1CD692FCF433 /* AppIcon-perspective-trapezoid-v5-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-perspective-trapezoid-v5-1024.png"; sourceTree = "<group>"; };
 		9B8C17FDB69A068E8A9CECD2 /* StorySyncProcessSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncProcessSupervisor.swift; sourceTree = "<group>"; };
 		9EABAB8FF89E2C8D008E7D54 /* StoryDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryDirectory.swift; sourceTree = "<group>"; };
 		A27A7EADF20AC6C392158935 /* StoryDirectoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryDirectoryView.swift; sourceTree = "<group>"; };
@@ -95,11 +87,9 @@
 		C14AB815B7145C5339991F4C /* StoryStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryStyle.swift; sourceTree = "<group>"; };
 		C801E1356B70DF981F10CE55 /* StoryAgentBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAgentBundleTests.swift; sourceTree = "<group>"; };
 		D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryVisits.swift; sourceTree = "<group>"; };
-		DCBD25833940FE6FD06B1B03 /* AppIcon-woodland-island-v5-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-woodland-island-v5-1024.png"; sourceTree = "<group>"; };
 		E264714074530EDE343A1F69 /* StoryAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = StoryAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E9187CADDF2479252C76C32D /* Story.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Story.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E9FED0EC54CF375211A91CCA /* OverstoryClient */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OverstoryClient; path = Packages/OverstoryClient; sourceTree = SOURCE_ROOT; };
-		EA5E024E578860B5BCB6E8F4 /* AppIcon-crescent-v5-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-crescent-v5-1024.png"; sourceTree = "<group>"; };
 		EBAC914250ADC60AB8330AF5 /* StoryDailyDriverViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryDailyDriverViews.swift; sourceTree = "<group>"; };
 		ECF67517026BEB4C160F1B29 /* StorySaveDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySaveDiagnostics.swift; sourceTree = "<group>"; };
 		EEFC87D3C02AC6C37B8443A9 /* StoryConflictReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryConflictReview.swift; sourceTree = "<group>"; };
@@ -165,11 +155,11 @@
 		E676D1D45CCE3D3648BAEF58 /* StoryApp */ = {
 			isa = PBXGroup;
 			children = (
-				F91CF404C8FB59976D104968 /* IconPreviews */,
 				5E6022070C3F3F46BAD35E4B /* StorySync */,
 				0F57E1CDD14CFF64B73C4196 /* Assets.xcassets */,
 				5CA3B5A57DFF35B1C2881F8B /* HostAccountService.swift */,
 				424024AA24CF8BB8FF279D58 /* Info.plist */,
+				1EBBD6708255637AC1839184 /* PrivacyInfo.xcprivacy */,
 				A3E2D99AB488FDB2DD0FDB76 /* story-sync.entitlements */,
 				08DF6DD4D68F12688B37CB50 /* Story.entitlements */,
 				B4988444CA00D5B4D30BFBF9 /* StoryAgentBundle.swift */,
@@ -209,19 +199,6 @@
 				E264714074530EDE343A1F69 /* StoryAppTests.xctest */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		F91CF404C8FB59976D104968 /* IconPreviews */ = {
-			isa = PBXGroup;
-			children = (
-				EA5E024E578860B5BCB6E8F4 /* AppIcon-crescent-v5-1024.png */,
-				55DBCA6ADD9B244E83EE46FA /* AppIcon-oblique-grove-v3-1024.png */,
-				23AB73370E278D32DF495901 /* AppIcon-oblique-overstory-v4-1024.png */,
-				93DD6B8D9A6F1CD692FCF433 /* AppIcon-perspective-trapezoid-v5-1024.png */,
-				DCBD25833940FE6FD06B1B03 /* AppIcon-woodland-island-v5-1024.png */,
-				4081ECDEDB562CFE6BC3A63B /* README.md */,
-			);
-			path = IconPreviews;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -323,13 +300,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0BB9637A4301F2BADA1719F2 /* AppIcon-crescent-v5-1024.png in Resources */,
-				DA625B9BA72CFD7737DD5087 /* AppIcon-oblique-grove-v3-1024.png in Resources */,
-				E8586D9D166C15FB4BF6F972 /* AppIcon-oblique-overstory-v4-1024.png in Resources */,
-				DCC019E4C3C32E31DC8542B1 /* AppIcon-perspective-trapezoid-v5-1024.png in Resources */,
-				13C18A7BD2C4E9490309726D /* AppIcon-woodland-island-v5-1024.png in Resources */,
 				138AB71328EADD327DF05358 /* Assets.xcassets in Resources */,
-				1AEF387DEDDCFEE7DB6AF3ED /* README.md in Resources */,
+				4BB7FFC47B9602F5F4F43F15 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
