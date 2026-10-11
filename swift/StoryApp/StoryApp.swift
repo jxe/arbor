@@ -53,11 +53,13 @@ private struct StoryNavigationCommands: Commands {
             Button("People…") { commands?.showPeople() }
                 .disabled(commands == nil)
         }
-        CommandGroup(replacing: .newItem) {
-            Button("New Page") { commands?.newPage() }
-                .keyboardShortcut("n", modifiers: .command)
-                .disabled(commands?.canCreatePage != true)
-            Divider()
+        // Story has no File menu: its commands live under Tree and Page, and
+        // SwiftUI drops a File menu whose groups are all empty.
+        CommandGroup(replacing: .newItem) {}
+        CommandGroup(replacing: .saveItem) {}
+        CommandGroup(replacing: .importExport) {}
+        CommandGroup(replacing: .printItem) {}
+        CommandMenu("Tree") {
             Menu("Jump to Local Tree") {
                 if let commands, !commands.localTrees.isEmpty {
                     ForEach(commands.localTrees) { tree in
@@ -79,16 +81,26 @@ private struct StoryNavigationCommands: Commands {
             Button("Open Location…") { commands?.openLocation() }
                 .keyboardShortcut("l", modifiers: .command)
                 .disabled(commands == nil)
+            Divider()
+            Button("Jump to Page…") { commands?.focusSidebarSearch() }
+                .keyboardShortcut("p", modifiers: .command)
+                .disabled(commands == nil)
             Button("Search Contents…") { commands?.showSearch() }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
                 .disabled(commands == nil)
-            Button("Reveal Page in Finder") { commands?.revealPageInFinder() }
-                .disabled(commands?.canRevealPageInFinder != true)
             Divider()
             historyNavigationItems
             Divider()
-            Button("Restore Page") { commands?.restorePage() }
-                .disabled(commands?.canRestorePage != true)
+            Button("Sync Status…") { commands?.showSyncStatus() }
+                .disabled(commands == nil)
+            Button(reviewChoicesTitle) { commands?.reviewChoices() }
+                .disabled(commands?.reviewChoiceCount == nil)
+        }
+        CommandMenu("Page") {
+            Button("New Page") { commands?.newPage() }
+                .keyboardShortcut("n", modifiers: .command)
+                .disabled(commands?.canCreatePage != true)
+            Divider()
             Button("Rename Page…") { commands?.renamePage() }
                 .disabled(commands?.canRenamePage != true)
             Button("Move Page…") { commands?.movePage() }
@@ -96,18 +108,35 @@ private struct StoryNavigationCommands: Commands {
                 .disabled(commands?.canMovePage != true)
             Button("Trash Page…") { commands?.movePageToTrash() }
                 .disabled(commands?.canMovePageToTrash != true)
+            Button("Restore Page") { commands?.restorePage() }
+                .disabled(commands?.canRestorePage != true)
             Divider()
+            sourceAndPropertiesItem
+            Button("Reveal Page in Finder") { commands?.revealPageInFinder() }
+                .disabled(commands?.canRevealPageInFinder != true)
             Button("Recover…") { commands?.showHistory() }
                 .keyboardShortcut("\\", modifiers: [.command, .shift])
                 .disabled(commands?.hasDocument != true)
-            Button("Sync Status…") { commands?.showSyncStatus() }
-                .disabled(commands == nil)
-            Button(reviewChoicesTitle) { commands?.reviewChoices() }
-                .disabled(commands?.reviewChoiceCount == nil)
             Divider()
+            Button(commands?.recordAudioLabel ?? "Record Audio") {
+                commands?.recordAudio(editorCommands)
+            }
+            .keyboardShortcut("r", modifiers: [.command, .option])
+            .disabled(commands?.canRecordAudio != true)
+            Button("Share…") { commands?.share() }
+                .keyboardShortcut("s", modifiers: [.command, .option])
+                .disabled(commands?.canShare != true)
+        }
+        CommandGroup(replacing: .help) {
+            Button("Keyboard Shortcuts") { commands?.showKeyboardShortcuts() }
+                .keyboardShortcut("?", modifiers: .command)
+                .disabled(commands == nil)
+        }
+        CommandGroup(before: .windowSize) {
             Button("Close Tab") { commands?.closeTab() }
                 .keyboardShortcut("w", modifiers: .command)
                 .disabled(commands?.canCloseTab != true)
+            Divider()
         }
 #else
         CommandGroup(after: .newItem) {
@@ -134,9 +163,6 @@ private struct StoryNavigationCommands: Commands {
             Button("Toggle Sidebar") { commands?.toggleSidebar() }
                 .keyboardShortcut("\\", modifiers: .command)
                 .disabled(commands == nil)
-            Button("Jump to Page…") { commands?.focusSidebarSearch() }
-                .keyboardShortcut("p", modifiers: .command)
-                .disabled(commands == nil)
             Toggle("Alphabetical Pages", isOn: sidebarPageOrderBinding(.alphabetical))
                 .keyboardShortcut("1", modifiers: [.command, .option])
                 .disabled(commands == nil)
@@ -149,24 +175,6 @@ private struct StoryNavigationCommands: Commands {
             Toggle("Trees", isOn: sidebarPageOrderBinding(.trees))
                 .keyboardShortcut("4", modifiers: [.command, .option])
                 .disabled(commands == nil)
-            Divider()
-#endif
-#if os(iOS)
-            historyNavigationItems
-#endif
-            Button("Source and Properties…") { commands?.showSource() }
-                .keyboardShortcut("i", modifiers: .command)
-                .disabled(commands?.hasNode != true)
-#if os(macOS)
-            Divider()
-            Button(commands?.recordAudioLabel ?? "Record Audio") {
-                commands?.recordAudio(editorCommands)
-            }
-            .keyboardShortcut("r", modifiers: [.command, .option])
-            .disabled(commands?.canRecordAudio != true)
-            Button("Share…") { commands?.share() }
-                .keyboardShortcut("s", modifiers: [.command, .option])
-                .disabled(commands?.canShare != true)
             Divider()
             StoryEditorCommandButton(
                 title: "Fold All Headings",
@@ -182,6 +190,9 @@ private struct StoryNavigationCommands: Commands {
                 requires: .canUnfoldAllHeadings,
                 action: .unfoldAllHeadings
             )
+#else
+            historyNavigationItems
+            sourceAndPropertiesItem
 #endif
         }
         CommandGroup(after: .pasteboard) {
@@ -203,7 +214,14 @@ private struct StoryNavigationCommands: Commands {
 #endif
     }
 
-    /// Back, Forward, Go to Parent, and Home: under File on macOS and View on iOS.
+    /// Under Page on macOS and View on iOS.
+    private var sourceAndPropertiesItem: some View {
+        Button("Source and Properties…") { commands?.showSource() }
+            .keyboardShortcut("i", modifiers: .command)
+            .disabled(commands?.hasNode != true)
+    }
+
+    /// Back, Forward, Go to Parent, and Home: under Tree on macOS and View on iOS.
     @ViewBuilder private var historyNavigationItems: some View {
         Button("Back") { commands?.goBack() }
             .keyboardShortcut("[", modifiers: .command)
@@ -318,6 +336,26 @@ private struct StoryEditorFormatMenuItems: View {
 final class StoryApplicationDelegate: NSObject, NSApplicationDelegate {
     var workspace: StoryWorkspaceState?
     private var terminationPending = false
+
+    /// The menu bar's order after the application menu. SwiftUI puts every
+    /// `CommandMenu` between View and Window, so the delegate reorders.
+    private static let menuOrder = ["Tree", "Page", "Edit", "Format", "View", "Window", "Help"]
+
+    /// SwiftUI may rebuild the menu bar on any update, so restore the order
+    /// each pass; the check is a comparison of a handful of titles.
+    func applicationWillUpdate(_ notification: Notification) {
+        guard let menu = NSApp.mainMenu, menu.items.count > 1 else { return }
+        let items = Array(menu.items.dropFirst())
+        // A menu this list does not name stays just before Window.
+        let unnamed = Self.menuOrder.firstIndex(of: "Window")!
+        let rank = { (item: NSMenuItem) in Self.menuOrder.firstIndex(of: item.title).map { $0 * 2 } ?? unnamed * 2 - 1 }
+        let ordered = items.enumerated()
+            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
+            .map(\.element)
+        guard ordered != items else { return }
+        for item in items { menu.removeItem(item) }
+        for item in ordered { menu.addItem(item) }
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let workspace, !terminationPending else { return terminationPending ? .terminateLater : .terminateNow }

@@ -1667,7 +1667,7 @@ struct StoryRootView: View {
     private var sidebarReviewContent: some View {
         ZStack {
             VStack(spacing: 0) {
-                // With nothing to review the entry lives only in File ▸ Review Choices….
+                // With nothing to review the entry lives only in Tree ▸ Review Choices….
                 if let review = workspace.conflictReview, !review.decisions.isEmpty || review.pending {
                     Button(action: showChoiceReview) {
                         HStack {
@@ -2235,6 +2235,7 @@ struct StoryRootView: View {
             reviewChoiceCount: workspace.conflictReview.map(\.decisions.count),
             showAccounts: showAccountsPanel,
             showPeople: showPeoplePanel,
+            showKeyboardShortcuts: { presentedSheet = .keyboardShortcuts },
             movePage: { Task { _ = await model.editorHost?.moveCurrentDocument() } },
             renamePage: beginPageRename,
             movePageToTrash: { trashConfirmationPresented = true },
@@ -2815,6 +2816,12 @@ struct StoryRootView: View {
 #endif
         case .networkLog:
             StoryNetworkLogView()
+        case .keyboardShortcuts:
+#if os(macOS)
+            StoryKeyboardShortcutsView()
+#else
+            EmptyView()
+#endif
         case .openLocation:
             StoryOpenLocationForm { value in
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)

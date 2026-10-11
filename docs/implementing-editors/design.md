@@ -47,7 +47,7 @@ heading's chevron to unfold all headings. Tapping the chevron still affects only
 that section. An individual heading's block action menu also offers **Fold
 Section** or **Unfold Section**.
 
-**New Page** (Command-N) is how pages are made from the File menu. It opens an
+**New Page** (Command-N) is how pages are made, from the Page menu on macOS. It opens an
 empty child of the current page with the caret in an empty H1. On an iPad the
 menu needs a hardware keyboard. Until that H1 has a title, the page exists only in
 memory. Nothing is written, and leaving it untitled discards it along with its
@@ -210,7 +210,7 @@ Overstory clients favor user-facing nouns and effects:
 - **Recover** restores a selected recoverable item; **Trash** does not imply immediate destruction.
 - mounted child rows show their own tree/profile provenance rather than appearing to belong to the parent graph.
 
-File menus provide ordinary rename, move, copy, Trash, restore, and asset import where the resolved node permits them. Actions on child links resolve an explicit child reference and retain its tree scope; deleting an ordinary link never implies Trash.
+Page menus provide ordinary rename, move, copy, Trash, restore, and asset import where the resolved node permits them. Actions on child links resolve an explicit child reference and retain its tree scope; deleting an ordinary link never implies Trash.
 
 **Rename Page** changes the current page's logical path without changing its authored title. A corresponding directory, sibling Markdown body, and all descendant pages move as one node. Rename and Move proactively rewrite readable paths in links to the moved subtree and links authored by moved pages; stable page identity remains the resolution fallback if healing loses a concurrent-edit race.
 

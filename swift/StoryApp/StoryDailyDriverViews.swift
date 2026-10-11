@@ -11,6 +11,7 @@ enum StoryPresentedSheet: String, Identifiable {
     case history
     case storySyncLogs
     case networkLog
+    case keyboardShortcuts
 
     var id: String { rawValue }
 }
@@ -43,6 +44,7 @@ struct StoryWindowCommands {
     var reviewChoiceCount: Int?
     var showAccounts: () -> Void
     var showPeople: () -> Void
+    var showKeyboardShortcuts: () -> Void
     var movePage: () -> Void
     var renamePage: () -> Void
     var movePageToTrash: () -> Void
