@@ -2591,6 +2591,8 @@ struct StoryRootView: View {
                         StorySharePanel(workspace: workspace, currentNode: model.node)
                             .onExitCommand { sharePresented = false }
                             .background(MacPopoverKeyWindow())
+                            // A popover inherits its anchor's environment, and the toolbar's icons are muted.
+                            .foregroundStyle(.primary)
                     }
                     Button {
                         showAccountsPanel()
