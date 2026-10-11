@@ -97,6 +97,11 @@ When Joe shares by link, alongside Web 025: an access link must not leak its sec
 URLs, history or logs. Nothing is in production yet, so until then the spec carries the
 requirement.
 
+**[Sharing 001: join on an iPhone first, add a Mac later](sharing/001-join-on-iphone-first.md).**
+An invitation link is usually tapped on a phone, where today it ends at an app that can only
+pair with a Mac. Join from the iPhone with the same link, then add a Mac by scanning a code
+the Mac shows. After the first Mac and TestFlight releases.
+
 **[Release 003: the iPhone app on the App Store](release/003-app-store.md).** After friends
 are using the TestFlight build. A sketch of what review requires: a way in for the reviewer,
 account deletion, report and block, and policy pages.
