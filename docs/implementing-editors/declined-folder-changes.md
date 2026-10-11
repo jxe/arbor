@@ -28,6 +28,6 @@ still means a request is held whole (an operation the host does not
 support, or edits in a read-only placement); `POST /v1/held/discard` is its
 way out and removes every change made on top of it.
 
-`story declined` is the reference client:
-`story declined <folder>`, `story declined --restore <folder>`,
-`story declined --resend <folder>`.
+`story sync declined` is the reference client:
+`story sync declined <folder>`, `story sync declined restore <folder>`,
+`story sync declined resend <folder>`.

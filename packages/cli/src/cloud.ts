@@ -13,7 +13,7 @@ export interface CloudBundlePlacement {
   relativePath: string;
 }
 
-/** What `story cloud start` needs to act as the bundle's own key device. */
+/** What `story agent start` needs to act as the bundle's own key device. */
 export interface CloudBundlePayload {
   version: 2;
   bundleID: string;
@@ -83,8 +83,8 @@ function nonempty(value: unknown, label: string): string {
 }
 
 function cloudBundleID(value: unknown): string {
-  const result = nonempty(value, "cloud bundle ID");
-  if (!/^cb_[a-z0-9]{20,64}$/.test(result)) throw new Error("Cloud bundle ID is invalid");
+  const result = nonempty(value, "agent bundle ID");
+  if (!/^cb_[a-z0-9]{20,64}$/.test(result)) throw new Error("Agent bundle ID is invalid");
   return result;
 }
 
@@ -139,47 +139,47 @@ export function cloudPlacementPath(rootInput: string, relativePathInput: string)
 }
 
 function validateCloudBundlePayload(value: unknown): CloudBundlePayload {
-  const payload = record(value, "cloud bundle");
+  const payload = record(value, "agent bundle");
   exactFields(payload, [
     "version", "bundleID", "label", "createdAt", "origin", "account", "accountID",
     "configurationTree", "profileTree", "deviceID", "deviceKeySeed", "placements",
-  ], "cloud bundle");
-  if (payload.version !== 2) throw new Error("Cloud bundle version is unsupported");
+  ], "agent bundle");
+  if (payload.version !== 2) throw new Error("Agent bundle version is unsupported");
   const bundleID = cloudBundleID(payload.bundleID);
-  const origin = normalizedOrigin(payload.origin, "cloud bundle origin");
-  const account = nonempty(payload.account, "cloud bundle account");
-  if (new URL(account).origin !== origin) throw new Error("Cloud bundle account belongs to another host");
-  const configurationTree = treeID(payload.configurationTree, "cloud bundle configuration tree");
-  const profileTree = treeID(payload.profileTree, "cloud bundle profile tree");
-  const deviceID = nonempty(payload.deviceID, "cloud bundle device ID");
-  if (!/^dv_[a-z2-7]{26}$/.test(deviceID)) throw new Error("Cloud bundle device ID is invalid");
-  const deviceKeySeed = nonempty(payload.deviceKeySeed, "cloud bundle device key");
-  if (!/^[A-Za-z0-9_-]{43}$/.test(deviceKeySeed)) throw new Error("Cloud bundle device key is invalid");
-  if (!Array.isArray(payload.placements) || !payload.placements.length) throw new Error("Cloud bundle requires at least one placement");
+  const origin = normalizedOrigin(payload.origin, "agent bundle origin");
+  const account = nonempty(payload.account, "agent bundle account");
+  if (new URL(account).origin !== origin) throw new Error("Agent bundle account belongs to another host");
+  const configurationTree = treeID(payload.configurationTree, "agent bundle configuration tree");
+  const profileTree = treeID(payload.profileTree, "agent bundle profile tree");
+  const deviceID = nonempty(payload.deviceID, "agent bundle device ID");
+  if (!/^dv_[a-z2-7]{26}$/.test(deviceID)) throw new Error("Agent bundle device ID is invalid");
+  const deviceKeySeed = nonempty(payload.deviceKeySeed, "agent bundle device key");
+  if (!/^[A-Za-z0-9_-]{43}$/.test(deviceKeySeed)) throw new Error("Agent bundle device key is invalid");
+  if (!Array.isArray(payload.placements) || !payload.placements.length) throw new Error("Agent bundle requires at least one placement");
   const placements = payload.placements.map((candidate, index): CloudBundlePlacement => {
-    const placement = record(candidate, `cloud bundle placement ${index + 1}`);
-    exactFields(placement, ["treeID", "canonicalURL", "relativePath"], `cloud bundle placement ${index + 1}`);
-    const canonicalURL = nonempty(placement.canonicalURL, `cloud bundle placement ${index + 1} URL`);
+    const placement = record(candidate, `agent bundle placement ${index + 1}`);
+    exactFields(placement, ["treeID", "canonicalURL", "relativePath"], `agent bundle placement ${index + 1}`);
+    const canonicalURL = nonempty(placement.canonicalURL, `agent bundle placement ${index + 1} URL`);
     const url = new URL(canonicalURL);
-    if (url.origin !== origin || url.search || url.hash) throw new Error(`Cloud bundle placement ${index + 1} belongs to another host`);
+    if (url.origin !== origin || url.search || url.hash) throw new Error(`Agent bundle placement ${index + 1} belongs to another host`);
     return {
-      treeID: treeID(placement.treeID, `cloud bundle placement ${index + 1} tree`),
+      treeID: treeID(placement.treeID, `agent bundle placement ${index + 1} tree`),
       canonicalURL,
-      relativePath: portableRelativePath(placement.relativePath, `cloud bundle placement ${index + 1} path`),
+      relativePath: portableRelativePath(placement.relativePath, `agent bundle placement ${index + 1} path`),
     };
   });
   validateCloudPlacementPaths(placements.map((placement) => placement.relativePath));
   if (new Set(placements.map((placement) => placement.treeID)).size !== placements.length) {
-    throw new Error("Cloud bundle places the same tree more than once");
+    throw new Error("Agent bundle places the same tree more than once");
   }
   return {
     version: 2,
     bundleID,
-    label: nonempty(payload.label, "cloud bundle label"),
-    createdAt: nonempty(payload.createdAt, "cloud bundle creation time"),
+    label: nonempty(payload.label, "agent bundle label"),
+    createdAt: nonempty(payload.createdAt, "agent bundle creation time"),
     origin,
     account,
-    accountID: nonempty(payload.accountID, "cloud bundle account ID"),
+    accountID: nonempty(payload.accountID, "agent bundle account ID"),
     configurationTree,
     profileTree,
     deviceID,
@@ -193,23 +193,23 @@ export function encodeCloudBundle(payloadInput: CloudBundlePayload): string {
   const compressed = deflateRawSync(Buffer.from(stableJSONString(payload)));
   const encoded = `${CLOUD_BUNDLE_PREFIX}.${payload.bundleID}.${compressed.toString("base64url")}`;
   if (encoded.length > MAX_CLOUD_BUNDLE_LENGTH) {
-    throw new Error(`Cloud bundle exceeds the ${MAX_CLOUD_BUNDLE_LENGTH}-character limit; use fewer or shorter placements`);
+    throw new Error(`Agent bundle exceeds the ${MAX_CLOUD_BUNDLE_LENGTH}-character limit; use fewer or shorter placements`);
   }
   return encoded;
 }
 
 export function decodeCloudBundle(input: string): CloudBundlePayload {
-  if (input.length > MAX_CLOUD_BUNDLE_LENGTH) throw new Error("Cloud bundle exceeds the supported size limit");
+  if (input.length > MAX_CLOUD_BUNDLE_LENGTH) throw new Error("Agent bundle exceeds the supported size limit");
   const match = /^arbor-cloud-v2\.(cb_[a-z0-9]{20,64})\.([A-Za-z0-9_-]+)$/.exec(input);
-  if (!match) throw new Error("Cloud bundle is malformed or uses an unsupported version");
+  if (!match) throw new Error("Agent bundle is malformed or uses an unsupported version");
   let decoded: unknown;
   try {
     decoded = JSON.parse(inflateRawSync(Buffer.from(match[2]!, "base64url")).toString("utf8"));
   } catch {
-    throw new Error("Cloud bundle payload is corrupt");
+    throw new Error("Agent bundle payload is corrupt");
   }
   const payload = validateCloudBundlePayload(decoded);
-  if (payload.bundleID !== match[1]) throw new Error("Cloud bundle ID does not match its payload");
+  if (payload.bundleID !== match[1]) throw new Error("Agent bundle ID does not match its payload");
   return payload;
 }
 
@@ -245,24 +245,24 @@ async function atomicJSON(path: string, value: unknown): Promise<void> {
 export async function loadCloudBundles(): Promise<SafeCloudBundleRecord[]> {
   try {
     const value = JSON.parse(await readFile(bundlesPath(), "utf8")) as unknown;
-    if (!Array.isArray(value)) throw new Error("Cloud bundle registry must be a list");
+    if (!Array.isArray(value)) throw new Error("Agent bundle registry must be a list");
     return value.map((candidate, index): SafeCloudBundleRecord => {
-      const item = record(candidate, `cloud bundle registry entry ${index + 1}`);
-      exactFields(item, ["bundleID", "label", "createdAt", "origin", "account", "configurationTree", "deviceID", "trees", "revokedAt"], `cloud bundle registry entry ${index + 1}`);
-      if (item.trees !== undefined && !Array.isArray(item.trees)) throw new Error(`Cloud bundle registry entry ${index + 1} trees must be a list`);
-      const origin = normalizedOrigin(item.origin, `cloud bundle registry entry ${index + 1} origin`);
-      const account = nonempty(item.account, `cloud bundle registry entry ${index + 1} account`);
-      if (new URL(account).origin !== origin) throw new Error(`Cloud bundle registry entry ${index + 1} account belongs to another host`);
+      const item = record(candidate, `agent bundle registry entry ${index + 1}`);
+      exactFields(item, ["bundleID", "label", "createdAt", "origin", "account", "configurationTree", "deviceID", "trees", "revokedAt"], `agent bundle registry entry ${index + 1}`);
+      if (item.trees !== undefined && !Array.isArray(item.trees)) throw new Error(`Agent bundle registry entry ${index + 1} trees must be a list`);
+      const origin = normalizedOrigin(item.origin, `agent bundle registry entry ${index + 1} origin`);
+      const account = nonempty(item.account, `agent bundle registry entry ${index + 1} account`);
+      if (new URL(account).origin !== origin) throw new Error(`Agent bundle registry entry ${index + 1} account belongs to another host`);
       return {
         bundleID: cloudBundleID(item.bundleID),
-        label: nonempty(item.label, `cloud bundle registry entry ${index + 1} label`),
-        createdAt: nonempty(item.createdAt, `cloud bundle registry entry ${index + 1} creation time`),
+        label: nonempty(item.label, `agent bundle registry entry ${index + 1} label`),
+        createdAt: nonempty(item.createdAt, `agent bundle registry entry ${index + 1} creation time`),
         origin,
         account,
-        configurationTree: treeID(item.configurationTree, `cloud bundle registry entry ${index + 1} configuration tree`),
-        deviceID: nonempty(item.deviceID, `cloud bundle registry entry ${index + 1} device ID`),
-        ...(item.trees === undefined ? {} : { trees: (item.trees as unknown[]).map((tree, treeIndex) => treeID(tree, `cloud bundle registry entry ${index + 1} tree ${treeIndex + 1}`)) }),
-        ...(item.revokedAt === undefined ? {} : { revokedAt: nonempty(item.revokedAt, `cloud bundle registry entry ${index + 1} revocation time`) }),
+        configurationTree: treeID(item.configurationTree, `agent bundle registry entry ${index + 1} configuration tree`),
+        deviceID: nonempty(item.deviceID, `agent bundle registry entry ${index + 1} device ID`),
+        ...(item.trees === undefined ? {} : { trees: (item.trees as unknown[]).map((tree, treeIndex) => treeID(tree, `agent bundle registry entry ${index + 1} tree ${treeIndex + 1}`)) }),
+        ...(item.revokedAt === undefined ? {} : { revokedAt: nonempty(item.revokedAt, `agent bundle registry entry ${index + 1} revocation time`) }),
       };
     });
   } catch (error) {
@@ -281,7 +281,7 @@ export async function saveCloudBundleRecord(record: SafeCloudBundleRecord): Prom
 export async function updateCloudBundleRecord(bundleID: string, change: Partial<SafeCloudBundleRecord>): Promise<SafeCloudBundleRecord> {
   const existing = await loadCloudBundles();
   const record = existing.find((candidate) => candidate.bundleID === bundleID);
-  if (!record) throw new Error(`Unknown local cloud bundle: ${bundleID}`);
+  if (!record) throw new Error(`Unknown local agent bundle: ${bundleID}`);
   const next = { ...record, ...change, bundleID: record.bundleID };
   await atomicJSON(bundlesPath(), existing.map((candidate) => candidate.bundleID === bundleID ? next : candidate));
   return next;

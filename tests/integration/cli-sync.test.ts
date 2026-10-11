@@ -40,6 +40,18 @@ async function storyOutput(args: string[]): Promise<{ stdout: string; stderr: st
   return { stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
+/** One CLI run with no daemon of its own: its exit status and both streams, whatever the status. */
+async function storyResult(args: string[], env: Record<string, string> = {}): Promise<{ exit: number; stdout: string; stderr: string }> {
+  const child = Bun.spawn([bunExecutable, cliEntry, ...args], {
+    cwd: Bun.env.STORY_TEST_CLI_ENTRY ? sandbox : join(import.meta.dir, "../.."),
+    env: { ...Bun.env, STORY_HOME: state, ...env },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  return { exit, stdout, stderr };
+}
+
 async function story(args: string[]): Promise<string> {
   return (await storyOutput(args)).stdout;
 }
@@ -48,7 +60,7 @@ async function cloudStatus(path: string): Promise<Record<string, unknown>> {
   const environment: Record<string, string | undefined> = { ...Bun.env };
   delete environment.STORY_HOME;
   delete environment.STORY_SYNC_URL;
-  const process = Bun.spawn([bunExecutable, cliEntry, "status", "--json"], {
+  const process = Bun.spawn([bunExecutable, cliEntry, "sync", "status", "--json"], {
     cwd: path,
     env: environment,
     stdout: "pipe",
@@ -149,27 +161,27 @@ afterAll(async () => {
 });
 
 describe("plural-account CLI place", () => {
-  test("reuses and revokes a cloud bundle across complete start and finish sessions", async () => {
+  test("reuses and revokes an agent bundle across complete start and finish sessions", async () => {
     const original = await source("cloud-source", "# From the creator\n");
     const canonical = `${firstHost.url}/~alice/cloud-source`;
     await story(["place", original, canonical]);
     const created = await storyOutput([
-      "cloud", "bundle", "create", "--name", "Integration cloud bundle",
+      "agent", "create", "--name", "Integration agent bundle",
       "--place", canonical, "checkout",
     ]);
-    expect(created.stderr).toContain("Created reusable cloud bundle");
+    expect(created.stderr).toContain("Created reusable agent bundle");
     expect(created.stdout).toStartWith("arbor-cloud-v2.cb_");
     expect(created.stdout).not.toContain("From the creator");
 
     const firstRoot = join(sandbox, "cloud-run-one");
-    expect(await storyFailure(["cloud", "start", created.stdout, "--root", firstRoot, "--timeout", "1ms"]))
+    expect(await storyFailure(["agent", "start", created.stdout, "--root", firstRoot, "--timeout", "1ms"]))
       .toContain("retained for retry");
     expect(await cloudStatus(firstRoot)).toMatchObject({
       ready: false,
       context: { kind: "cloud" },
       cloudSession: { phase: "interrupted" },
     });
-    const started = await storyOutput(["cloud", "start", created.stdout, "--root", firstRoot, "--timeout", "15s", "--json"]);
+    const started = await storyOutput(["agent", "start", created.stdout, "--root", firstRoot, "--timeout", "15s", "--json"]);
     expect(JSON.parse(started.stdout)).toMatchObject({ ready: true, root: await realpath(firstRoot) });
     expect(await cloudStatus(firstRoot)).toMatchObject({
       ready: true,
@@ -182,7 +194,7 @@ describe("plural-account CLI place", () => {
     expect(Bun.spawnSync(["ps", "-o", "pgid=", "-p", String(pid)]).stdout.toString().trim()).toBe(String(pid));
     expect(await readFile(join(firstRoot, "checkout", "note.md"), "utf8")).toBe("# From the creator\n");
     await writeFile(join(firstRoot, "checkout", "note.md"), "# From cloud one\n");
-    expect(JSON.parse((await storyOutput(["cloud", "finish", "--root", firstRoot, "--timeout", "15s", "--json"])).stdout))
+    expect(JSON.parse((await storyOutput(["agent", "finish", "--root", firstRoot, "--timeout", "15s", "--json"])).stdout))
       .toMatchObject({ finished: true, root: await realpath(firstRoot) });
     expect(await cloudStatus(firstRoot)).toMatchObject({
       ready: false,
@@ -192,18 +204,58 @@ describe("plural-account CLI place", () => {
     });
 
     const secondRoot = join(sandbox, "cloud-run-two");
-    await storyOutput(["cloud", "start", created.stdout, "--root", secondRoot, "--timeout", "15s"]);
+    await storyOutput(["agent", "start", created.stdout, "--root", secondRoot, "--timeout", "15s"]);
     expect(await readFile(join(secondRoot, "checkout", "note.md"), "utf8")).toBe("# From cloud one\n");
-    await storyOutput(["cloud", "finish", "--root", secondRoot, "--timeout", "15s"]);
+    await storyOutput(["agent", "finish", "--root", secondRoot, "--timeout", "15s"]);
 
     const bundleID = created.stdout.split(".")[1]!;
-    await storyOutput(["cloud", "bundle", "revoke", bundleID]);
-    const listed = JSON.parse((await storyOutput(["cloud", "bundle", "list", "--json"])).stdout);
+    await storyOutput(["agent", "revoke", bundleID]);
+    const listed = JSON.parse((await storyOutput(["agent", "list", "--json"])).stdout);
     expect(listed.bundles).toContainEqual(expect.objectContaining({ bundleID, revokedAt: expect.any(String) }));
     expect(JSON.stringify(listed)).not.toContain(created.stdout);
-    expect(await storyFailure(["cloud", "start", created.stdout, "--root", join(sandbox, "cloud-run-revoked"), "--timeout", "2s"]))
+    expect(await storyFailure(["agent", "start", created.stdout, "--root", join(sandbox, "cloud-run-revoked"), "--timeout", "2s"]))
       .toContain("No such key device");
   }, 45_000);
+
+  test("agent run checks the folders out, runs one command there, and sends its work when it exits", async () => {
+    const original = await source("run-source", "# Before the run\n");
+    const canonical = `${firstHost.url}/~alice/run-source`;
+    await story(["place", original, canonical]);
+    const bundle = (await storyOutput(["agent", "create", "--place", canonical, "checkout"])).stdout;
+    const read = ["--", "cat", "checkout/note.md"];
+
+    // The command's exit status is passed through, its work is sent, and it never sees the bundle.
+    const first = join(sandbox, "agent-run-one");
+    const ran = await storyResult(
+      ["agent", "run", "--root", first, "--timeout", "15s", "--", "sh", "-c",
+        'printf "%s" "${STORY_CLOUD_BUNDLE-unset}"; printf "# From agent run\\n" > checkout/note.md; exit 7'],
+      { STORY_CLOUD_BUNDLE: bundle },
+    );
+    expect(ran.stderr).toContain("synchronized and stopped");
+    expect(ran).toMatchObject({ exit: 7, stdout: "unset" });
+    expect(await cloudStatus(first)).toMatchObject({ runtime: { state: "stopped" }, cloudSession: { phase: "finished" } });
+    expect(await storyResult(["agent", "run", bundle, "--root", join(sandbox, "agent-run-two"), "--timeout", "15s", ...read]))
+      .toMatchObject({ exit: 0, stdout: "# From agent run\n" });
+
+    // Ending the run ends its command, and what the command wrote is still sent.
+    const third = join(sandbox, "agent-run-three");
+    const interrupted = Bun.spawn([bunExecutable, cliEntry, "agent", "run", bundle, "--root", third, "--timeout", "15s", "--",
+      "sh", "-c", 'printf "# Interrupted\\n" > checkout/note.md; exec sleep 60'], {
+      cwd: Bun.env.STORY_TEST_CLI_ENTRY ? sandbox : join(import.meta.dir, "../.."),
+      env: { ...Bun.env, STORY_HOME: state },
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline && await readFile(join(third, "checkout", "note.md"), "utf8").catch(() => "") !== "# Interrupted\n") await Bun.sleep(50);
+    await Bun.sleep(200);
+    interrupted.kill("SIGTERM");
+    const [exit, stderr] = await Promise.all([interrupted.exited, new Response(interrupted.stderr).text()]);
+    expect(stderr).toContain("synchronized and stopped");
+    expect(exit).toBe(143);
+    expect(await storyResult(["agent", "run", bundle, "--root", join(sandbox, "agent-run-four"), "--timeout", "15s", ...read]))
+      .toMatchObject({ exit: 0, stdout: "# Interrupted\n" });
+  }, 90_000);
 
   test("declares, mounts and activates a placed tree below the profile, publicly readable when asked", async () => {
     const firstSource = await source("first-source", "# First\n");

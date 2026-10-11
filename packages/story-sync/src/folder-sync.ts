@@ -93,7 +93,7 @@ export interface DeclinedFolder {
   request: { digest: string; base: { root: string; update: string }; candidate: string };
 }
 
-/** What `story declined` shows: the record, and where declined work is on disk now. */
+/** What `story sync declined` shows: the record, and where declined work is on disk now. */
 export interface DeclinedReport extends DeclinedFolder {
   tree: string;
   /** Where the declined paths are now, including content a declined path moved elsewhere. */

@@ -2,6 +2,7 @@
 import { decodeCandidateUpdateJSON, describeTransitionPayload, normalizeLegacyLocator, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import { constants as osConstants } from "node:os";
 import { resolveUserPath, STORY_VERSION } from "@ovst/story-sync";
 import { runStorySyncDaemon } from "@ovst/story-sync/cli";
 import { StorySyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
@@ -81,48 +82,77 @@ async function readPassphrase(prompt: string): Promise<string> {
 }
 let passphraseInput: Promise<string[]> | undefined;
 
+/** `story agent run` exits with this when the command succeeded but the drain did not (EX_TEMPFAIL). */
+const AGENT_RUN_UNSENT_EXIT = 75;
+
 const USAGE = `Usage:
   story --help | --version
+
+Folders
+  story place [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
+  story place <canonical-url> <local-path>
+      Put a local folder at a URL, or check a URL out to a local folder.
+      (the URL may be on the home host or under a placement root, such as https://<placement-host>/~<handle>/<name>)
+  story mv [--dry-run] <placed-local-root> <new-local-path>
+  story mv [--dry-run] <source-canonical-url> <destination-canonical-url>
+      Move a placed folder on this device, or rename it on its host.
+
+Agents
+  story agent create [--name <label>] --place <canonical-url> <relative-path> [...]
+      Make an agent bundle: a revocable string that lets an agent work in the chosen folders and nothing else.
+  story agent list [--json]
+  story agent revoke <bundle-id>
+  story agent run [<bundle-string>] [--root <directory>] [--timeout <duration>] [-- <command> [<argument>...]]
+      In the agent's workspace: check those folders out, run the command there, then send what is left and stop.
+  story agent start [<bundle-string>] [--root <directory>] [--timeout <duration>] [--json]
+      Check those folders out and keep them syncing, for a harness that starts the agent itself.
+  story agent finish [--root <directory>] [--timeout <duration>] [--json]
+      Send what is left and stop.
+
+Browser
   story open [<locator>]
+
+Identity
   story me
   story me create [<profile-folder>] [--name <display-name>]
   story me set [--name <display-name>] [--avatar <relative-path>] [--description <text>]
   story me backup <file>
   story me restore <file> [<profile-folder>]
-  story device [--account <ConfigurationTreeID>]
-  story account
-  story daemon <install|uninstall|start|stop|restart|status|logs>
+  story me accounts
+  story me device [--account <ConfigurationTreeID>]
+
+Sync state
+  story sync status [<locator>] [--json]
+  story sync pause <placed-path>
+  story sync resume <placed-path>
+  story sync pending <placed-path> [--json]
+  story sync declined <placed-path> [--json]
+  story sync declined restore <placed-path>
+  story sync declined resend <placed-path>
+
+Daemon
+  story daemon <install|uninstall|start|stop|restart|logs>
   story daemon run [--control]
-  story status [<locator>] [--json]
-  story cloud bundle create [--name <label>] --place <canonical-url> <relative-path> [...]
-  story cloud bundle list [--json]
-  story cloud bundle revoke <bundle-id>
-  story cloud start [<bundle-string>] [--root <directory>] [--timeout <duration>] [--json]
-  story cloud finish [--root <directory>] [--timeout <duration>] [--json]
-  story place [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
-    (the URL may be on the home host or under a placement root, such as https://<placement-host>/~<handle>/<name>)
-  story place <canonical-url> <local-path>
-  story mv [--dry-run] <placed-local-root> <new-local-path>
-  story mv [--dry-run] <source-canonical-url> <destination-canonical-url>
-  story pause <placed-path>
-  story resume <placed-path>
-  story pending <placed-path> [--json]
-  story declined <placed-path> [--json]
-  story declined --restore <placed-path>
-  story declined --resend <placed-path>
 
 Notes:
-  story open  opens the daemon-hosted web editor, which is being rebuilt and may be unavailable.
-  story account  lists your home account and your placement accounts at other hosts.
   story place / mv  edit the account checkout under accounts/<ConfigurationTreeID>/ on disk; Story Sync pushes it.
     A URL on another host places the tree there, under your placement root, once that host's community reserves
     your profile by its URL at your home host (such as https://<home>/~<handle>); the first place connects this
     device there. Placing the placement root's own URL activates it with the folder. Trees never move between hosts.
-  story pause / resume  stop and restart publishing a placed folder's changes; accepted updates still arrive.
-  story pending  shows exactly what Story Sync would send next for a placed folder.
-  story declined  shows folder paths whose changes the host refused; the rest of the folder keeps syncing.
-    --restore puts back the host's version of those paths; --resend sends them again as they are.
-  story daemon run  runs Story Sync in the foreground, for a service manager where \`story daemon install\` is unavailable.`;
+    --access may also be written --access=<subject>=<read|write|none>[,...].
+  story agent run / start  take the bundle as an argument or from STORY_CLOUD_BUNDLE, never both. run removes it
+    from the command's environment, passes the command's exit status through, and exits ${AGENT_RUN_UNSENT_EXIT} when the command
+    succeeded but its last changes could not be sent. With no command it runs $SHELL, on a terminal only.
+  story open  opens the daemon-hosted web editor, which is being rebuilt and may be unavailable.
+  story me accounts  lists your home account and your placement accounts at other hosts.
+  story sync status  reports Story Sync itself (state, supervision, origin) and every placed folder.
+    story status is short for it.
+  story sync pause / resume  stop and restart publishing a placed folder's changes; accepted updates still arrive.
+  story sync pending  shows exactly what Story Sync would send next for a placed folder.
+  story sync declined  shows folder paths whose changes the host refused; the rest of the folder keeps syncing.
+    restore puts back the host's version of those paths; resend sends them again as they are.
+  story daemon run  runs Story Sync in the foreground, for a service manager where \`story daemon install\` is unavailable.
+  story help, -h and -V are also accepted.`;
 
 function usage(): never {
   console.error(USAGE);
@@ -337,7 +367,7 @@ async function editProfileConfigurationYAML(
     candidate.id === configurationTree && candidate.configurationTree === configurationTree
   );
   if (descriptor?.sync === "conflict") {
-    throw new Error(`Account configuration ${configurationTree} has a synchronization conflict; resolve it (\`story status\`) before editing ${filename}`);
+    throw new Error(`Account configuration ${configurationTree} has a synchronization conflict; resolve it (\`story sync status\`) before editing ${filename}`);
   }
   await editProfileConfigurationFile(configurationTree, filename, change, validate);
 }
@@ -544,19 +574,21 @@ function printDeclined(declined: DeclinedChanges, osPath: string): void {
   console.log("Kept on this device and not published:");
   for (const point of declined.points) console.log(`  ${point}`);
   console.log("The rest of the folder keeps syncing. Make these match the host and they are released, or:");
-  console.log(`  story declined --restore ${JSON.stringify(osPath)}   put back the host's version`);
-  console.log(`  story declined --resend ${JSON.stringify(osPath)}    send them again as they are`);
+  console.log(`  story sync declined restore ${JSON.stringify(osPath)}   put back the host's version`);
+  console.log(`  story sync declined resend ${JSON.stringify(osPath)}    send them again as they are`);
 }
 
 async function declinedCommand(args: string[]): Promise<void> {
-  const flags = new Set(args.filter((arg) => arg.startsWith("-")));
+  const flags = args.filter((arg) => arg.startsWith("-"));
   const operands = args.filter((arg) => !arg.startsWith("-"));
-  const action = flags.has("--restore") ? "restore" : flags.has("--resend") ? "resend" : "show";
-  const json = flags.has("--json");
-  if (operands.length !== 1 || [...flags].some((flag) => !["--restore", "--resend", "--json"].includes(flag))
-    || (flags.has("--restore") && flags.has("--resend")) || (json && action !== "show")) usage();
-  await withStorySync(resolve(operands[0]!), async (client) => {
-    const tree = await placedTree(client, operands[0]!);
+  const json = flags.includes("--json");
+  // One operand is the path to show; two are a verb and its path.
+  const action = operands.length === 2 && (operands[0] === "restore" || operands[0] === "resend") ? operands[0] : "show";
+  const path = operands[action === "show" ? 0 : 1];
+  if (!path || operands.length !== (action === "show" ? 1 : 2) || flags.some((flag) => flag !== "--json")
+    || (json && action !== "show")) usage();
+  await withStorySync(resolve(path), async (client) => {
+    const tree = await placedTree(client, path);
     const declined = await client.declined(tree.id);
     if (action === "show" && json) console.log(JSON.stringify(declined, null, 2));
     else if (!declined) console.log(`Nothing declined in ${tree.osPath} (${tree.id})`);
@@ -914,10 +946,10 @@ function cloudBundleCreateArguments(args: string[]): CloudBundleCreateArguments 
       placements.push({ canonicalURL, relativePath });
       index += 3;
     } else {
-      usageError(`Unknown cloud bundle option: ${arg}`);
+      usageError(`Unknown agent create option: ${arg}`);
     }
   }
-  if (!placements.length) usageError("Cloud bundle creation requires at least one --place URL path pair");
+  if (!placements.length) usageError("Agent bundle creation requires at least one --place URL path pair");
   const normalizedPaths = validateCloudPlacementPaths(placements.map((placement) => placement.relativePath));
   return {
     ...(label ? { label } : {}),
@@ -937,11 +969,11 @@ async function createCloudBundle(args: string[]): Promise<void> {
         await service.synchronizeNow(candidate.configuration.configurationTree);
         selected = await accountForCanonicalTarget(target, { administrator: true });
       } else if (candidate.configuration.configurationTree !== selected.configuration.configurationTree) {
-        throw new Error("A cloud bundle may contain trees from only one Story account");
+        throw new Error("An agent bundle may contain trees from only one Story account");
       }
-      if (candidate.host.placement) throw new Error("A cloud bundle covers trees at the profile's home host only, not a placement host");
+      if (candidate.host.placement) throw new Error("An agent bundle covers trees at the profile's home host only, not a placement host");
       if (target.endpoint !== selected.connection.record.origin) {
-        throw new Error("A cloud bundle may target only one host");
+        throw new Error("An agent bundle may target only one host");
       }
       const wire = new ProtocolClient(selected.connection.record.origin, selected.connection.accountToken);
       const resolution = await wire.resolve(target.canonicalPath);
@@ -959,13 +991,13 @@ async function createCloudBundle(args: string[]): Promise<void> {
         relativePath: requestedPlacement.relativePath,
       });
     }
-    if (!selected) throw new Error("Cloud bundle has no account");
+    if (!selected) throw new Error("Agent bundle has no account");
     if (new Set(placements.map((placement) => placement.treeID)).size !== placements.length) {
-      throw new Error("A cloud bundle may not place the same tree more than once");
+      throw new Error("An agent bundle may not place the same tree more than once");
     }
     const bundleID = `cb_${crypto.randomUUID().replaceAll("-", "")}`;
-    const label = (requested.label ?? `Cloud bundle ${bundleID.slice(-8)}`).trim();
-    if (!label || label.length > 100) throw new Error("Cloud bundle name must be from 1 through 100 characters");
+    const label = (requested.label ?? `Agent bundle ${bundleID.slice(-8)}`).trim();
+    if (!label || label.length > 100) throw new Error("Agent bundle name must be from 1 through 100 characters");
     const deviceID = generateOverstoryID("dv");
     const deviceKeySeed = generateDeviceKeySeed();
     const createdAt = new Date().toISOString();
@@ -1001,7 +1033,7 @@ async function createCloudBundle(args: string[]): Promise<void> {
       deviceID,
       trees: placements.map((placement) => placement.treeID),
     });
-    console.error(`Created reusable cloud bundle ${bundleID} (${placements.length} placement${placements.length === 1 ? "" : "s"}).`);
+    console.error(`Created reusable agent bundle ${bundleID} (${placements.length} placement${placements.length === 1 ? "" : "s"}).`);
     console.log(encoded);
   });
 }
@@ -1013,7 +1045,7 @@ async function listCloudBundles(json: boolean): Promise<void> {
     return;
   }
   if (!bundles.length) {
-    console.log("No cloud bundles have been created on this device.");
+    console.log("No agent bundles have been created on this device.");
     return;
   }
   for (const bundle of bundles) {
@@ -1023,9 +1055,9 @@ async function listCloudBundles(json: boolean): Promise<void> {
 
 async function revokeCloudBundle(bundleID: string): Promise<void> {
   const record = (await loadCloudBundles()).find((candidate) => candidate.bundleID === bundleID);
-  if (!record) throw new Error(`Unknown local cloud bundle: ${bundleID}`);
+  if (!record) throw new Error(`Unknown local agent bundle: ${bundleID}`);
   if (record.revokedAt) {
-    console.log(`Cloud bundle ${bundleID} was already revoked.`);
+    console.log(`Agent bundle ${bundleID} was already revoked.`);
     return;
   }
   await withStorySync(process.cwd(), async (client, service) => {
@@ -1049,11 +1081,13 @@ async function revokeCloudBundle(bundleID: string): Promise<void> {
     }
     const revokedAt = new Date().toISOString();
     await updateCloudBundleRecord(bundleID, { revokedAt });
-    console.log(`Revoked cloud bundle ${bundleID}.`);
+    console.log(`Revoked agent bundle ${bundleID}.`);
   });
 }
 
-function cloudStartArguments(args: string[]): { bundle: string; root: string; timeoutMs: number; json: boolean } {
+interface CloudStartOptions { bundle: string; root: string; timeoutMs: number; json: boolean }
+
+function cloudStartArguments(args: string[], verb: "start" | "run" = "start"): CloudStartOptions {
   let bundleArgument: string | undefined;
   let root = process.cwd();
   let timeout: string | undefined;
@@ -1066,15 +1100,15 @@ function cloudStartArguments(args: string[]): { bundle: string; root: string; ti
       if (arg === "--root") root = value;
       else timeout = value;
       index += 1;
-    } else if (arg === "--json") json = true;
-    else if (arg.startsWith("--")) usageError(`Unknown cloud start option: ${arg}`);
-    else if (bundleArgument) usageError("story cloud start accepts at most one bundle argument");
+    } else if (arg === "--json" && verb === "start") json = true;
+    else if (arg.startsWith("--")) usageError(`Unknown agent ${verb} option: ${arg}`);
+    else if (bundleArgument) usageError(`story agent ${verb} accepts at most one bundle argument`);
     else bundleArgument = arg;
   }
   const environmentBundle = process.env.STORY_CLOUD_BUNDLE;
-  if (bundleArgument && environmentBundle) usageError("Supply the cloud bundle as an argument or STORY_CLOUD_BUNDLE, not both");
+  if (bundleArgument && environmentBundle) usageError("Supply the agent bundle as an argument or STORY_CLOUD_BUNDLE, not both");
   const bundle = bundleArgument ?? environmentBundle;
-  if (!bundle) usageError("story cloud start requires a bundle argument or STORY_CLOUD_BUNDLE");
+  if (!bundle) usageError(`story agent ${verb} requires a bundle argument or STORY_CLOUD_BUNDLE`);
   return { bundle, root: resolve(root), timeoutMs: parseDuration(timeout), json };
 }
 
@@ -1098,7 +1132,7 @@ async function prepareCloudDataHome(payload: CloudBundlePayload, session: CloudS
       || account.account.configuration.id !== payload.configurationTree
       || account.account.profileTree !== payload.profileTree
       || account.account.device?.id !== payload.deviceID
-    ) throw new Error("Cloud bundle authorization does not match its account identity");
+    ) throw new Error("Agent bundle authorization does not match its account identity");
     const configuration = (await wire.descriptor(payload.configurationTree)).tree;
     const snapshot = await wire.snapshot(payload.configurationTree, configuration.root);
     const checkout = configurationCheckoutPath(payload.configurationTree);
@@ -1231,8 +1265,27 @@ async function waitForCloudPlacements(
   throw new Error(`Cloud placements did not become ready before the timeout: ${reason}`);
 }
 
+interface CloudStartResult {
+  schemaVersion: 1;
+  ready: true;
+  sessionID: string;
+  bundleID: string;
+  root: string;
+  origin: string;
+  placements: CloudSessionRecord["placements"];
+}
+
 async function startCloud(args: string[]): Promise<void> {
   const options = cloudStartArguments(args);
+  const result = await startCloudSession(options);
+  if (options.json) console.log(JSON.stringify(result, null, 2));
+  else {
+    console.log(`Cloud Story Sync is ready at ${result.origin}.`);
+    for (const placement of result.placements) console.log(`${placement.canonicalURL} ↔ ${placement.path}`);
+  }
+}
+
+async function startCloudSession(options: CloudStartOptions): Promise<CloudStartResult> {
   const payload = decodeCloudBundle(options.bundle);
   delete process.env.STORY_CLOUD_BUNDLE;
   await mkdir(options.root, { recursive: true });
@@ -1240,7 +1293,7 @@ async function startCloud(args: string[]): Promise<void> {
   let session = await cloudSessionForRoot(root);
   const existing = Boolean(session);
   if (session && session.bundleID !== payload.bundleID) {
-    throw new Error(`${root} already belongs to cloud bundle ${session.bundleID}`);
+    throw new Error(`${root} already belongs to agent bundle ${session.bundleID}`);
   }
   if (!session) {
     for (const placement of payload.placements) {
@@ -1310,18 +1363,14 @@ async function startCloud(args: string[]): Promise<void> {
       session = { ...session, origin, pid: child.pid, updatedAt: new Date().toISOString() };
       await saveCloudSession(session);
     }
-    if (!session.origin) throw new Error("Cloud Story Sync origin is unavailable");
-    const client = new StorySyncRESTClient({ baseURL: session.origin });
+    const origin = session.origin;
+    if (!origin) throw new Error("Cloud Story Sync origin is unavailable");
+    const client = new StorySyncRESTClient({ baseURL: origin });
     await client.synchronizeNow(payload.configurationTree);
     await waitForCloudPlacements(session, await cloudAccountAccess(session), deadline);
     session = { ...session, phase: "ready", updatedAt: new Date().toISOString(), lastError: undefined };
     await saveCloudSession(session);
-    const result = { schemaVersion: 1, ready: true, sessionID: session.sessionID, bundleID: session.bundleID, root, origin: session.origin, placements: session.placements };
-    if (options.json) console.log(JSON.stringify(result, null, 2));
-    else {
-      console.log(`Cloud Story Sync is ready at ${session.origin}.`);
-      for (const placement of session.placements) console.log(`${placement.canonicalURL} ↔ ${placement.path}`);
-    }
+    return { schemaVersion: 1, ready: true, sessionID: session.sessionID, bundleID: session.bundleID, root, origin, placements: session.placements };
   } catch (error) {
     if (spawnedPID) await stopOwnedProcess(spawnedPID);
     const message = error instanceof Error ? error.message : String(error);
@@ -1344,13 +1393,19 @@ function cloudFinishArguments(args: string[]): { root: string; timeoutMs: number
       else timeout = value;
       index += 1;
     } else if (arg === "--json") json = true;
-    else usageError(`Unknown cloud finish option: ${arg}`);
+    else usageError(`Unknown agent finish option: ${arg}`);
   }
   return { root: resolve(root), timeoutMs: parseDuration(timeout), json };
 }
 
 async function finishCloud(args: string[]): Promise<void> {
   const options = cloudFinishArguments(args);
+  const result = await finishCloudSession(options);
+  if (options.json) console.log(JSON.stringify(result, null, 2));
+  else console.log(`Cloud session ${result.sessionID} synchronized and stopped.`);
+}
+
+async function finishCloudSession(options: { root: string; timeoutMs: number }) {
   let session = await cloudSessionForPath(options.root);
   if (!session || session.phase === "finished") throw new Error(`No active cloud session contains ${options.root}`);
   if (!session.origin || !session.pid || !await liveCloudStatus(session)) {
@@ -1374,14 +1429,61 @@ async function finishCloud(args: string[]): Promise<void> {
     await rm(session.dataHome, { recursive: true, force: true });
     session = { ...session, phase: "finished", updatedAt: new Date().toISOString(), lastError: undefined };
     await saveCloudSession(session);
-    const result = { schemaVersion: 1, finished: true, sessionID: session.sessionID, root: session.root, placements: session.placements };
-    if (options.json) console.log(JSON.stringify(result, null, 2));
-    else console.log(`Cloud session ${session.sessionID} synchronized and stopped.`);
+    return { schemaVersion: 1, finished: true, sessionID: session.sessionID, root: session.root, placements: session.placements };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await saveCloudSession({ ...session, phase: "needs-sync", updatedAt: new Date().toISOString(), lastError: message });
     throw error;
   }
+}
+
+/**
+ * `story agent run`: a cloud session around one command. The folders are
+ * checked out before the command starts and drained after it exits, however
+ * it exits, so a command that ends cannot leave its work behind unsent.
+ */
+async function runAgent(args: string[]): Promise<never> {
+  const separator = args.indexOf("--");
+  const options = cloudStartArguments(separator === -1 ? args : args.slice(0, separator), "run");
+  let command = separator === -1 ? [] : args.slice(separator + 1);
+  if (!command.length) {
+    if (!process.stdin.isTTY) usageError("story agent run requires -- <command> when standard input is not a terminal");
+    command = [process.env.SHELL || "/bin/sh"];
+  }
+  // Standard output belongs to the command; everything this command says goes to standard error.
+  const started = await startCloudSession(options);
+  console.error(`Story Sync is ready in ${started.root}; running ${command[0]}.`);
+  let status = 1;
+  let launched = false;
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  // A signal sent to this command ends the command it runs; the drain below still happens.
+  const forward = (signal: NodeJS.Signals) => { try { child?.kill(signal); } catch {} };
+  const onInterrupt = () => forward("SIGINT");
+  const onTerminate = () => forward("SIGTERM");
+  process.on("SIGINT", onInterrupt);
+  process.on("SIGTERM", onTerminate);
+  try {
+    // startCloudSession removed STORY_CLOUD_BUNDLE from this environment, so the command does not inherit it.
+    child = Bun.spawn(command, { cwd: started.root, env: process.env, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+    launched = true;
+    const code = await child.exited;
+    status = child.signalCode ? 128 + (osConstants.signals[child.signalCode] ?? 0) : code;
+  } catch (error) {
+    console.error(`Could not run ${command[0]}: ${error instanceof Error ? error.message : String(error)}`);
+    status = 127;
+  }
+  try {
+    await finishCloudSession({ root: started.root, timeoutMs: options.timeoutMs });
+    console.error(`Cloud session ${started.sessionID} synchronized and stopped.`);
+  } catch (error) {
+    console.error(`The last changes in ${started.root} were not sent: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`Run \`story agent finish --root ${JSON.stringify(started.root)}\` to send them.`);
+    if (launched && status === 0) status = AGENT_RUN_UNSENT_EXIT;
+  } finally {
+    process.off("SIGINT", onInterrupt);
+    process.off("SIGTERM", onTerminate);
+  }
+  process.exit(status);
 }
 
 type StatusTreeCondition = "missing" | "conflict" | "declined" | "error" | "offline" | "paused" | "syncing" | "not-placed" | "up-to-date";
@@ -1404,7 +1506,7 @@ function statusArguments(args: string[]): { locator?: string; json: boolean } {
   for (const arg of args) {
     if (arg === "--json") json = true;
     else if (arg.startsWith("--")) usageError(`Unknown status option: ${arg}`);
-    else if (locator) usageError("story status accepts at most one locator");
+    else if (locator) usageError("story sync status accepts at most one locator");
     else locator = arg;
   }
   return { ...(locator ? { locator } : {}), json };
@@ -1461,6 +1563,7 @@ async function statusCommand(args: string[]): Promise<void> {
           : "unreachable";
     } else if (cloud?.phase === "finished") runtimeState = "stopped";
   }
+  if (contextKind === "persistent") supervision ??= await storyDaemonSupervisor().status().catch(() => undefined);
   const cloudPhase = cloud && runtimeState !== "running" && ["preparing", "ready", "draining"].includes(cloud.phase)
     ? "interrupted"
     : cloud?.phase;
@@ -1532,7 +1635,10 @@ async function statusCommand(args: string[]): Promise<void> {
     console.log(`Cloud session: ${cloudPhase}`);
     console.log(`Workspace: ${cloud.root}`);
   }
+  if (supervision) console.log(`Supervision: ${supervision.installed ? "installed" : "not installed"} (${supervision.platform})`);
   console.log(`Origin: ${origin}`);
+  if (supervision?.pid) console.log(`PID: ${supervision.pid}`);
+  if (supervision && runtimeState !== "running") console.log(supervision.detail);
   if (selection) {
     const selected = selection.tree as (typeof decoratedTrees)[number] | undefined;
     console.log(`Selection: ${options.locator}`);
@@ -1553,31 +1659,48 @@ async function statusCommand(args: string[]): Promise<void> {
     }
   }
   if (cloud && ["needs-sync", "interrupted"].includes(cloudPhase ?? "")) {
-    console.log(`Recovery: run story cloud finish --root ${JSON.stringify(cloud.root)}`);
+    console.log(`Recovery: run story agent finish --root ${JSON.stringify(cloud.root)}`);
   }
 }
 
 /**
- * `story account` lists the profile's connections: its home account and its
+ * `story me accounts` lists the profile's connections: its home account and its
  * placement accounts (accounts §1.3), which `story place` connects on first use.
  */
-async function accountCommand(args: string[]): Promise<void> {
-  const [action] = args;
-  if (action === undefined) {
-    const [homes, placements, local] = await Promise.all([HostAccountStore.list(), HostPlacementStore.list(), loadLocalPlacements()]);
-    if (!homes.length) console.log("No connected account");
-    for (const home of homes) {
-      console.log(`Home: ${home.account} (device ${home.deviceID})`);
-      for (const placement of placements.filter((candidate) => candidate.configurationTree === home.configurationTree)) {
-        console.log(`  Placement: ${placement.account} (root ${placement.placementRoot})`);
-        for (const folder of local.placements.filter((candidate) => candidate.configurationTree === home.configurationTree && candidate.host === placement.origin)) {
-          console.log(`    ${folder.path} (${folder.tree})`);
-        }
+async function accountsCommand(args: string[]): Promise<void> {
+  if (args.length) usage();
+  const [homes, placements, local] = await Promise.all([HostAccountStore.list(), HostPlacementStore.list(), loadLocalPlacements()]);
+  if (!homes.length) console.log("No connected account");
+  for (const home of homes) {
+    console.log(`Home: ${home.account} (device ${home.deviceID})`);
+    for (const placement of placements.filter((candidate) => candidate.configurationTree === home.configurationTree)) {
+      console.log(`  Placement: ${placement.account} (root ${placement.placementRoot})`);
+      for (const folder of local.placements.filter((candidate) => candidate.configurationTree === home.configurationTree && candidate.host === placement.origin)) {
+        console.log(`    ${folder.path} (${folder.tree})`);
       }
     }
-    return;
   }
-  usage();
+}
+
+/** `story me device` prints this installation's device for one home account. */
+async function deviceCommand(args: string[]): Promise<void> {
+  let configurationTree: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "--account" && args[index + 1]) configurationTree = args[++index];
+    else usage();
+  }
+  const accounts = await HostAccountStore.list();
+  const record = configurationTree
+    ? accounts.find((candidate) => candidate.configurationTree === configurationTree)
+    : accounts.length === 1 ? accounts[0] : undefined;
+  if (!record) {
+    throw new Error(accounts.length > 1 && !configurationTree
+      ? `Several accounts are connected; name one with --account: ${accounts.map((candidate) => candidate.configurationTree).join(", ")}`
+      : "No connected account matches");
+  }
+  console.log(`Account: ${record.account}`);
+  console.log(`Device: ${record.deviceID}`);
+  console.log(`Signs in with key: ${record.deviceKey}`);
 }
 
 async function main(): Promise<void> {
@@ -1594,33 +1717,33 @@ async function main(): Promise<void> {
     console.log(STORY_VERSION);
     return;
   }
+  if (command === "agent") {
+    const [action, ...operands] = args;
+    if (action === "create") await createCloudBundle(operands);
+    else if (action === "list") {
+      if (operands.length > 1 || (operands.length === 1 && operands[0] !== "--json")) usage();
+      await listCloudBundles(operands[0] === "--json");
+    } else if (action === "revoke") {
+      if (operands.length !== 1) usage();
+      await revokeCloudBundle(operands[0]!);
+    } else if (action === "run") await runAgent(operands);
+    else if (action === "start") await startCloud(operands);
+    else if (action === "finish") await finishCloud(operands);
+    else usage();
+    return;
+  }
   if (command === "status") {
     await statusCommand(args);
     return;
   }
-  if (command === "cloud") {
+  if (command === "sync") {
     const [action, ...operands] = args;
-    if (action === "bundle") {
-      const [bundleAction, ...bundleOperands] = operands;
-      if (bundleAction === "create") await createCloudBundle(bundleOperands);
-      else if (bundleAction === "list") {
-        if (bundleOperands.length > 1 || (bundleOperands.length === 1 && bundleOperands[0] !== "--json")) usage();
-        await listCloudBundles(bundleOperands[0] === "--json");
-      } else if (bundleAction === "revoke") {
-        if (bundleOperands.length !== 1) usage();
-        await revokeCloudBundle(bundleOperands[0]!);
-      } else usage();
-      return;
-    }
-    if (action === "start") {
-      await startCloud(operands);
-      return;
-    }
-    if (action === "finish") {
-      await finishCloud(operands);
-      return;
-    }
-    usage();
+    if (action === "status") await statusCommand(operands);
+    else if (action === "pause" || action === "resume") await pauseCommand(operands, action);
+    else if (action === "pending") await pendingCommand(operands);
+    else if (action === "declined") await declinedCommand(operands);
+    else usage();
+    return;
   }
   if (command === "me") {
     const store = new ProfileIdentityStore();
@@ -1692,6 +1815,14 @@ async function main(): Promise<void> {
       console.log(`Backed up Story identity to ${destination}`);
       return;
     }
+    if (action === "accounts") {
+      await accountsCommand(operands);
+      return;
+    }
+    if (action === "device") {
+      await deviceCommand(operands);
+      return;
+    }
     if (action === "restore") {
       if (operands.length < 1 || operands.length > 2) usage();
       const source = resolveUserPath(operands[0]!);
@@ -1707,32 +1838,6 @@ async function main(): Promise<void> {
     }
     usage();
   }
-  if (command === "device") {
-    const [action, ...rest] = args[0]?.startsWith("-") ? [undefined, ...args] : args;
-    if (action !== undefined) usage();
-    let configurationTree: string | undefined;
-    for (let index = 0; index < rest.length; index += 1) {
-      if (rest[index] === "--account" && rest[index + 1]) configurationTree = rest[++index];
-      else usage();
-    }
-    const accounts = await HostAccountStore.list();
-    const record = configurationTree
-      ? accounts.find((candidate) => candidate.configurationTree === configurationTree)
-      : accounts.length === 1 ? accounts[0] : undefined;
-    if (!record) {
-      throw new Error(accounts.length > 1 && !configurationTree
-        ? `Several accounts are connected; name one with --account: ${accounts.map((candidate) => candidate.configurationTree).join(", ")}`
-        : "No connected account matches");
-    }
-    console.log(`Account: ${record.account}`);
-    console.log(`Device: ${record.deviceID}`);
-    console.log(`Signs in with key: ${record.deviceKey}`);
-    return;
-  }
-  if (command === "account") {
-    await accountCommand(args);
-    return;
-  }
   if (command === "daemon") {
     if (args[0] === "run") {
       await runStorySyncDaemon(args.slice(1));
@@ -1747,14 +1852,7 @@ async function main(): Promise<void> {
     else if (action === "stop") console.log(await supervisor.stop());
     else if (action === "restart") console.log(await supervisor.restart());
     else if (action === "logs") console.log(await supervisor.logs());
-    else if (action === "status") {
-      const status = await supervisor.status();
-      console.log(`Story Sync: ${status.state}`);
-      console.log(`Supervision: ${status.installed ? "installed" : "not installed"} (${status.platform})`);
-      console.log(`Origin: ${status.origin}`);
-      if (status.pid) console.log(`PID: ${status.pid}`);
-      console.log(status.detail);
-    } else usage();
+    else usage();
     return;
   }
   if (command === "open") {
@@ -1781,7 +1879,7 @@ async function main(): Promise<void> {
       await openBrowser(attached.toString());
       return;
     }
-    throw new Error(`A compatible Story Sync is not reachable at ${selectedOrigin ?? `http://127.0.0.1:${STORY_SYNC_PORT}`}; run \`story daemon status\` for details`);
+    throw new Error(`A compatible Story Sync is not reachable at ${selectedOrigin ?? `http://127.0.0.1:${STORY_SYNC_PORT}`}; run \`story sync status\` for details`);
   }
   if (command === "place") {
     await placeCommand(args);
@@ -1790,18 +1888,6 @@ async function main(): Promise<void> {
   if (command === "mv") {
     await mvCommand(args);
     process.exit(0);
-  }
-  if (command === "pause" || command === "resume") {
-    await pauseCommand(args, command);
-    return;
-  }
-  if (command === "pending") {
-    await pendingCommand(args);
-    return;
-  }
-  if (command === "declined") {
-    await declinedCommand(args);
-    return;
   }
   usage();
 }

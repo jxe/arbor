@@ -198,7 +198,7 @@ describe("Story Sync places folders under a placement root", () => {
     expect(await atB(token, research)).toBe("# Research\n");
     // The tree is B's alone: A has never heard of it.
     await expect(new ProtocolClient(a.url, await credential(mac.url, new URL(a.url).origin)).descriptor(research)).rejects.toThrow();
-    const listing = await story(stateMac, mac.url, ["account"]);
+    const listing = await story(stateMac, mac.url, ["me", "accounts"]);
     expect(listing).toContain(`Placement: ${bOrigin}/~joe`);
     expect(listing).toContain(`${researchMac} (${research})`);
     // A tree never moves between hosts.

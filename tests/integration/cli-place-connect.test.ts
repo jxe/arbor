@@ -99,7 +99,10 @@ describe("story place onto a placement host", () => {
     expect(record).toMatchObject({ configurationTree, origin: placement.url, account: `${placement.url}/~joe`, profileTree, homeHost: home.url, handle: "joe" });
     expect(placement.overstoryd.account(profileTree)).toMatchObject({ handle: "joe", homeHost: home.url });
     expect(await readdir(join(overstoryPrivateRoot(), "accounts", configurationTree, "placements"))).toHaveLength(1);
-    expect(await story(["account"])).toContain(`Placement: ${placement.url}/~joe (root ${record!.placementRoot})`);
+    expect(await story(["me", "accounts"])).toContain(`Placement: ${placement.url}/~joe (root ${record!.placementRoot})`);
+    const { deviceID } = (await new HostAccountStore(configurationTree).safe())!;
+    expect(await story(["me", "device"])).toContain(`Device: ${deviceID}\n`);
+    expect(await story(["me", "device", "--account", configurationTree])).toContain(`Device: ${deviceID}\n`);
   });
 
   test("the home device key opens a session there, and reads the activated placement root", async () => {
@@ -117,7 +120,8 @@ describe("story place onto a placement host", () => {
     expect(account).toMatchObject({ profileTree, homeHost: home.url, device: { id: deviceID } });
   });
 
-  test("story account place is gone", async () => {
-    await expect(story(["account", "place", placement.url])).rejects.toThrow();
+  test("story account and story me accounts place are gone", async () => {
+    await expect(story(["account"])).rejects.toThrow();
+    await expect(story(["me", "accounts", "place", placement.url])).rejects.toThrow();
   });
 });

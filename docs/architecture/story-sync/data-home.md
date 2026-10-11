@@ -111,7 +111,7 @@ belongs in synchronized configuration or authored trees.
 
 ## Daemon supervision
 
-The reference CLI exposes `story daemon install|uninstall|start|stop|restart|status|logs` independently of the host service manager. The default data home has exactly one supervised local daemon and all native and command-line clients attach to its Story Sync REST origin. An explicit `STORY_HOME` remains an isolated foreground run instead of accidentally becoming a second default service.
+The reference CLI exposes `story daemon install|uninstall|start|stop|restart|logs` independently of the host service manager. The default data home has exactly one supervised local daemon and all native and command-line clients attach to its Story Sync REST origin. An explicit `STORY_HOME` remains an isolated foreground run instead of accidentally becoming a second default service.
 
 macOS implements this contract as the per-user launchd label `org.nxhx.story.sync`. A signed Story app registers its relocatable bundled agent with `SMAppService`; a CLI-only installation writes a user LaunchAgent pointing at that CLI installation. Both paths use the same label, port, control-mode daemon, and log location, so launchd cannot load competing owners. Future Linux and Windows adapters should preserve the commands and one-daemon-per-data-home invariant while translating them to the native user-service manager.
 
@@ -125,7 +125,7 @@ placement file likewise retains the last valid placement projection. Both
 produce safe diagnostics.
 
 The configuration checkout is edited on disk, not through the daemon. The CLI
-(`story place`, `story mv`, cloud bundle revocation) and, later, the Mac app
+(`story place`, `story mv`, agent bundle revocation) and, later, the Mac app
 rewrite `access.yaml`, `mounts.yaml`, `apps.yaml` or `devices.yaml` in place under
 `configurations/<ConfigurationTreeID>/` with an atomic temporary-file-and-rename
 write, then ask Story Sync to synchronize that account. The checkout is a placed

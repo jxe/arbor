@@ -12,6 +12,36 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## `story` commands regrouped, and `story agent run` — 2026-10-11
+
+Implemented; not published and not installed. `@ovst/cli@0.1.0` on npm still
+has the old names, so the Mac app's "How to use it" text (`bunx @ovst/cli agent
+start`) and the docs are ahead of it until the next version is published.
+
+- **Names.** The help leads with `story place`, `story mv` and `story agent`.
+  `story agent create|list|revoke|start|finish` replace `story cloud bundle
+  create|list|revoke` and `story cloud start|finish`; the string is an "agent
+  bundle" in help and messages. `story me accounts` and `story me device`
+  replace `story account` and `story device`. `story sync
+  status|pause|resume|pending|declined` replace the five top-level commands
+  (`story status` stays as a short form of `story sync status`), and `story sync declined restore|resend <path>` replace the `--restore` and
+  `--resend` flags. `story daemon status` is gone: `story sync status` prints
+  supervision, PID and the reason the daemon is not running. No aliases.
+  `STORY_CLOUD_BUNDLE`, the `arbor-cloud-v2` string, `bundles.json` and the
+  `cloudSession` key of `sync status --json` keep their names.
+- **`story agent run [<bundle>] [--root] [--timeout] [-- <command>]`.** One
+  session around one command: checkout, the command in the root, then the
+  same drain `finish` does, on any exit. It passes the command's status
+  through (128 plus the signal number), exits 75 when the command succeeded
+  but the drain did not, forwards SIGINT and SIGTERM, removes the bundle from
+  the command's environment, and runs `$SHELL` with no command on a terminal.
+- Evidence: `tests/unit/cli.test.ts` (removed names and forms exit 2 with the
+  usage, help sections, `agent run` usage errors),
+  `tests/integration/cli-sync.test.ts` (a run's work reaches the host with
+  exit 7 passed through and with SIGTERM, exit 143),
+  `tests/integration/folder-pause.test.ts` (`sync` verbs),
+  `tests/integration/cli-place-connect.test.ts` (`me accounts`, `me device`).
+
 ## CLI package, People and joining by invitation — 2026-10-11
 
 Implemented. The CLI is published and the host is deployed; the app changes are not installed. The Apple-dependent work

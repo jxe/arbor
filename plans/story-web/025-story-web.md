@@ -54,7 +54,7 @@ interface WebHost {
 | Credential | `GET /v1/credential` (daemon's device credential) | browser device credential from pairing, stored in IndexedDB for that origin |
 | Publish/watch | directly to overstoryd from the browser (needs CORS on Overstory routes) | same origin |
 | Accounts, devices, share, app permissions | The same on both hosts: the browser opens the profile's tree configuration as an ordinary working tree (bootstrap by its derived TreeID) and edits `devices.yaml`, `mounts.yaml` and `apps.yaml`, and other trees' `access.yaml` through `;overstory-config`, exactly as `StoryAppModel` does; pairing offers and claims go to overstoryd's existing pairing routes with the bearer. `GET /v1/accounts` (exists) only lists which configuration trees the local host knows. The Web 008 idea of an account-scoped daemon REST boundary is dropped | |
-| Daemon diagnostics | none; `story daemon status` stays a CLI surface | none |
+| Daemon diagnostics | none; `story sync status` stays a CLI surface | none |
 
 Invariant, enforced by types: the app model imports only `WebHost`; `LocalHost` and `OverstorydHost` are the only modules that know a route. A surface that needs something one host cannot provide gets an `undefined` capability and hides itself; it never branches on `host.kind` for behaviour.
 

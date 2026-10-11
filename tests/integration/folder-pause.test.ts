@@ -107,16 +107,20 @@ test("a paused folder publishes nothing across a restart, pending shows the exac
   try {
     await waitFor(async () => await daemon.sync() === "idle");
     expect(await daemon.client.pending(tree)).toEqual({ tree, paused: false, base: null, request: null });
-    expect(await story(daemon.url, ["pending", folder])).toContain(`Nothing pending for ${folder}`);
+    expect(await story(daemon.url, ["sync", "pending", folder])).toContain(`Nothing pending for ${folder}`);
+    // The declined verbs reach the daemon for this folder; with nothing declined they change nothing.
+    for (const args of [["declined", folder], ["declined", "restore", folder], ["declined", "resend", folder]]) {
+      expect(await story(daemon.url, ["sync", ...args])).toBe(`Nothing declined in ${folder} (${tree})\n`);
+    }
 
-    expect(await story(daemon.url, ["pause", folder])).toBe(`Paused ${folder} (${tree})\n`);
+    expect(await story(daemon.url, ["sync", "pause", folder])).toBe(`Paused ${folder} (${tree})\n`);
     expect(await daemon.sync()).toBe("paused");
     await writeFile(join(folder, "large.md"), edited);
     await daemon.client.synchronizeNow();
     await Bun.sleep(600);
     expect(requests).toHaveLength(0);
     expect(await daemon.sync()).toBe("paused");
-    expect(await story(daemon.url, ["status"])).toMatch(new RegExp(`paused +${folder}`));
+    expect(await story(daemon.url, ["sync", "status"])).toMatch(new RegExp(`paused +${folder}`));
 
     await daemon.close();
     daemon = await launch();
@@ -125,18 +129,18 @@ test("a paused folder publishes nothing across a restart, pending shows the exac
     expect(await daemon.sync()).toBe("paused");
     expect(await accepted()).toBe(original);
 
-    const view = await story(daemon.url, ["pending", folder]);
+    const view = await story(daemon.url, ["sync", "pending", folder]);
     expect(view).toContain(`Pending for ${folder} (${tree}, paused)`);
     expect(view).toContain("Update 1 of 1: folder-");
     expect(view).toMatch(/file \/large\.md \(delta from sha256:[0-9a-f]{12}…/);
     expect(view).toMatch(/ {2}- The original\n {2}\+ A paused\n/);
     expect((await daemon.client.pending(tree)).paused).toBe(true);
     // The last preview is the change resume publishes.
-    const body = decodeUpdateRequestJSON(JSON.parse(await story(daemon.url, ["pending", folder, "--json"])));
+    const body = decodeUpdateRequestJSON(JSON.parse(await story(daemon.url, ["sync", "pending", folder, "--json"])));
     expect(body.updates).toHaveLength(1);
     expect(body.updates[0]!.deltas.map((delta) => delta.result)).toContain(hashObject(new TextEncoder().encode(edited)));
 
-    expect(await story(daemon.url, ["resume", folder])).toBe(`Resumed ${folder} (${tree})\n`);
+    expect(await story(daemon.url, ["sync", "resume", folder])).toBe(`Resumed ${folder} (${tree})\n`);
     await daemon.client.synchronizeNow();
     await waitFor(async () => await accepted() === edited);
     // Resume sends exactly the pending body, once.

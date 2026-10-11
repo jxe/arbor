@@ -13,7 +13,7 @@ Formerly Native 012. Story Sync keeps a folder's declined paths unpublished whil
 syncs and serves `GET /v1/declined`, `POST /v1/declined/restore` and
 `POST /v1/declined/resend` ([API](../docs/implementing-sync-services/story-sync-api.md#4-identity-account-bootstrap-and-declined-changes),
 [declined folder changes](../docs/implementing-editors/declined-folder-changes.md));
-`story declined` is the reference client. The Mac app reads none of it.
+`story sync declined` is the reference client. The Mac app reads none of it.
 
 - [ ] Decode `declined` on daemon trees (`LocalStorySyncTreePresentation`) and list each
   placed folder that has it in Sync Status: name, path, declined paths, the host's reason,
@@ -32,14 +32,14 @@ syncs and serves `GET /v1/declined`, `POST /v1/declined/restore` and
 
 ### Teach external agents to work in placed folders
 
-Formerly CLI 004. Agents edit placed folders with their own tools; `story status [<locator>]
+Formerly CLI 004. Agents edit placed folders with their own tools; `story sync status [<locator>]
 --json` already reports readiness and resolves locators. No new read/mutation commands, no
 MCP server, no new story-sync routes.
 
-- [ ] Check whether `story status --json` shows that a local edit reached the host; if not,
-  add `story status --wait [--timeout <s>]` (exit 0 when every in-scope tree is up to date,
+- [ ] Check whether `story sync status --json` shows that a local edit reached the host; if not,
+  add `story sync status --wait [--timeout <s>]` (exit 0 when every in-scope tree is up to date,
   non-zero with the condition if one is held).
-- [ ] Write one short skill for Claude Code and Codex from one source: check `story status`
+- [ ] Write one short skill for Claude Code and Codex from one source: check `story sync status`
   first; resolve a locator before assuming its tree or writability; edit only the placed
   folder; keep frontmatter `id:` values and links; wait for publication and report changed
   paths; treat a held tree as a stop.
@@ -187,7 +187,7 @@ Dated evidence closes these; elapsed time alone does not.
   error before retrying. Phone foreground refresh is expected.
 - [ ] **Declined folder paths (Filesystem 011):** after Story Sync restarts on it, record one
   real rejection (a `LinkPreviews/` directory in the account checkout is easiest), that
-  other edits still publish, `story declined` lists the path, and `story declined --restore`
+  other edits still publish, `story sync declined` lists the path, and `story sync declined restore`
   removes it.
 - [ ] **Hetzner sync lab:** run `packages/overstoryd/deploy/hcloud-sync-lab` against the
   update-machine daemon. Its runner was rewritten on 2026-09-27 and typechecks but has not

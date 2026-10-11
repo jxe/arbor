@@ -21,7 +21,7 @@
 
 ## What a second user can do, as read from the source
 
-Read the first user's pages and account list, create a pairing offer or a cloud bundle for their account, and write to their placed folders through the helper. None of this has been tried; step 1 does.
+Read the first user's pages and account list, create a pairing offer or an agent bundle for their account, and write to their placed folders through the helper. None of this has been tried; step 1 does.
 
 ## Decisions to make
 

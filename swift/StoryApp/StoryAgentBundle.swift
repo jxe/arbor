@@ -4,8 +4,8 @@ import Foundation
 import Overstory
 
 /// What an agent's cloud machine starts from: the `arbor-cloud-v2` bundle that
-/// `story cloud start` accepts. The Share panel makes the same bundle that
-/// `story cloud bundle create` does; `packages/cli/src/cloud.ts` owns the
+/// `story agent start` accepts. The Share panel makes the same bundle that
+/// `story agent create` does; `packages/cli/src/cloud.ts` owns the
 /// format, and this encoding must stay decodable by it.
 struct StoryCloudBundlePayload: Codable, Equatable, Sendable {
     struct Placement: Codable, Equatable, Sendable {
@@ -100,7 +100,7 @@ struct StoryCloudBundleRecord: Codable, Equatable, Sendable, Identifiable {
     var created: Date? { ISO8601DateFormatter.cloudBundle.date(from: createdAt) }
 }
 
-/// The CLI's `bundles.json`, shared so `story cloud bundle list` and `revoke`
+/// The CLI's `bundles.json`, shared so `story agent list` and `revoke`
 /// see the bundles the app makes and the app sees the CLI's.
 struct StoryCloudBundleRegistry: Sendable {
     let home: URL
@@ -131,7 +131,7 @@ struct StoryCloudBundleRegistry: Sendable {
     func markRevoked(bundleID: String, at date: Date) throws {
         var records = try load()
         guard let index = records.firstIndex(where: { $0.bundleID == bundleID }) else {
-            throw ProtocolValidationError.invalidValue("Unknown local cloud bundle: \(bundleID)")
+            throw ProtocolValidationError.invalidValue("Unknown local agent bundle: \(bundleID)")
         }
         records[index].revokedAt = ISO8601DateFormatter.cloudBundle.string(from: date)
         try write(records)

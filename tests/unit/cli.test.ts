@@ -23,8 +23,9 @@ describe("story open operands", () => {
   });
 
   test("does not dispatch removed legacy and unfinished commands", async () => {
-    for (const command of ["connect", "unsync", "connection", "sync", "rehome"]) {
-      const child = Bun.spawn(["bun", "packages/cli/src/index.ts", command], {
+    // The later ones moved under `story me`, `story sync` and `story agent`, with no aliases.
+    for (const command of ["connect", "unsync", "connection", "rehome", "cloud", "device", "account", "pause", "resume", "pending", "declined"]) {
+      const child = Bun.spawn(["bun", "packages/cli/src/index.ts", command, "--help"], {
         cwd: join(import.meta.dir, "../.."),
         stdout: "pipe",
         stderr: "pipe",
@@ -34,7 +35,53 @@ describe("story open operands", () => {
         new Response(child.stderr).text(),
       ]);
       expect(exit).toBe(2);
+      expect(stderr).toStartWith("Usage:");
       expect(stderr).not.toContain(`story ${command}`);
+    }
+  });
+
+  test("does not dispatch the removed forms of commands that remain", async () => {
+    for (const args of [["daemon", "status"], ["sync", "declined", "--restore", "/tmp/notes"], ["agent", "bundle", "list"]]) {
+      const child = Bun.spawn(["bun", "packages/cli/src/index.ts", ...args], {
+        cwd: join(import.meta.dir, "../.."),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+      expect(exit).toBe(2);
+      expect(stderr).toStartWith("Usage:");
+    }
+  });
+
+  test("leads the help with place, mv and agent", async () => {
+    const child = Bun.spawn(["bun", "packages/cli/src/index.ts", "--help"], {
+      cwd: join(import.meta.dir, "../.."),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exit, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
+    expect(exit).toBe(0);
+    const sections = [...stdout.matchAll(/^(\S[^\n:]*)$/gm)].map((match) => match[1]);
+    expect(sections).toEqual(["Folders", "Agents", "Browser", "Identity", "Sync state", "Daemon"]);
+    for (const line of ["story agent run [<bundle-string>]", "story me accounts", "story me device", "story sync status [<locator>] [--json]", "story sync declined restore <placed-path>"]) {
+      expect(stdout).toContain(line);
+    }
+  });
+
+  test("agent run needs a command when standard input is not a terminal, and never takes --json", async () => {
+    for (const [args, message] of [
+      [["agent", "run", "some-bundle"], "requires -- <command>"],
+      [["agent", "run", "some-bundle", "--json", "--", "true"], "Unknown agent run option: --json"],
+    ] as const) {
+      const child = Bun.spawn(["bun", "packages/cli/src/index.ts", ...args], {
+        cwd: join(import.meta.dir, "../.."),
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+      expect(exit).toBe(2);
+      expect(stderr).toContain(message);
     }
   });
 
@@ -134,7 +181,7 @@ describe("story open operands", () => {
     try {
       const childEnvironment: Record<string, string | undefined> = { ...process.env, STORY_SYNC_URL: running.url };
       delete childEnvironment.STORY_HOME;
-      const child = Bun.spawn(["bun", "packages/cli/src/index.ts", "status", "--json"], {
+      const child = Bun.spawn(["bun", "packages/cli/src/index.ts", "sync", "status", "--json"], {
         cwd: join(import.meta.dir, "../.."),
         env: childEnvironment,
         stdout: "pipe",
@@ -157,8 +204,8 @@ describe("story open operands", () => {
     }
   });
 
-  test("rejects simultaneous cloud bundle argument and environment input", async () => {
-    const child = Bun.spawn(["bun", "packages/cli/src/index.ts", "cloud", "start", "argument-bundle"], {
+  test("rejects simultaneous agent bundle argument and environment input", async () => {
+    const child = Bun.spawn(["bun", "packages/cli/src/index.ts", "agent", "start", "argument-bundle"], {
       cwd: join(import.meta.dir, "../.."),
       env: { ...process.env, STORY_CLOUD_BUNDLE: "environment-bundle" },
       stdout: "pipe",
@@ -170,14 +217,16 @@ describe("story open operands", () => {
     expect(stderr).not.toContain("environment-bundle");
   });
 
-  test("uses exit 2 for malformed general status arguments", async () => {
-    const child = Bun.spawn(["bun", "packages/cli/src/index.ts", "status", "--unknown"], {
-      cwd: join(import.meta.dir, "../.."),
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-    expect(exit).toBe(2);
-    expect(stderr).toContain("Unknown status option: --unknown");
+  test("uses exit 2 for malformed general status arguments, as story sync status and as story status", async () => {
+    for (const command of [["sync", "status"], ["status"]]) {
+      const child = Bun.spawn(["bun", "packages/cli/src/index.ts", ...command, "--unknown"], {
+        cwd: join(import.meta.dir, "../.."),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+      expect(exit).toBe(2);
+      expect(stderr).toContain("Unknown status option: --unknown");
+    }
   });
 });

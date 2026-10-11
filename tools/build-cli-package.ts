@@ -41,12 +41,18 @@ The \`story\` command for [Overstory](https://github.com/jxe/arbor). Requires Bu
 bunx @ovst/cli@${source.version} --help
 \`\`\`
 
-For an isolated agent session, put a cloud bundle string in \`STORY_CLOUD_BUNDLE\`, then:
+For an isolated agent session, put an agent bundle string in \`STORY_CLOUD_BUNDLE\`, then:
 
 \`\`\`sh
-bunx @ovst/cli@${source.version} cloud start --root ./work --json
+bunx @ovst/cli@${source.version} agent run --root ./work -- <agent command>
+\`\`\`
+
+Where the harness starts the agent itself, use the two steps:
+
+\`\`\`sh
+bunx @ovst/cli@${source.version} agent start --root ./work --json
 # edit files under ./work
-bunx @ovst/cli@${source.version} cloud finish --root ./work --json
+bunx @ovst/cli@${source.version} agent finish --root ./work --json
 \`\`\`
 
 Ordinary sync commands need a running Story Sync: \`story daemon install\` on macOS, or \`story daemon run --control\` under a Linux service manager.

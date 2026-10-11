@@ -142,7 +142,7 @@ story place ./notes https://garden.example/~joe/notes
 
 The folder stays where it is and becomes a synchronized tree: the daemon
 pushes your edits, materializes everyone else's, and the app edits it in
-place. `story status` shows every placement; the [CLI reference](docs/getting-started/cli.md)
+place. `story sync status` shows every placement; the [CLI reference](docs/getting-started/cli.md)
 covers moves, sharing, identity backup and restore, cloud sessions, and the
 command safety rules. Linux and Windows daemon supervision are not
 implemented yet.

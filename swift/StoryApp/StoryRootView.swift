@@ -3224,7 +3224,7 @@ private struct StorySharePanel: View {
         } header: {
             Text("Agents")
         } footer: {
-            Text("An agent code lets a coding agent's cloud machine check out this tree with `story cloud start`.")
+            Text("An agent code lets a coding agent's cloud machine check out this tree with `story agent start`.")
         }
 #endif
     }
@@ -3676,10 +3676,10 @@ private struct StoryAgentBundlePage: View {
         }
         Section {
             Text("On the agent's machine, set `STORY_CLOUD_BUNDLE` to the code, then:")
-            Text(verbatim: "bunx @ovst/cli cloud start --root /workspace")
+            Text(verbatim: "bunx @ovst/cli agent start --root /workspace")
                 .font(.callout.monospaced())
                 .textSelection(.enabled)
-            Text("The tree appears at `/workspace/\(relativePath)`. When the agent has stopped writing, `bunx @ovst/cli cloud finish --root /workspace` syncs its last changes.")
+            Text("The tree appears at `/workspace/\(relativePath)`. When the agent has stopped writing, `bunx @ovst/cli agent finish --root /workspace` syncs its last changes.")
         } header: {
             Text("How to use it")
         } footer: {

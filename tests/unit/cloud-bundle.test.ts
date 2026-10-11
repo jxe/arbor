@@ -44,7 +44,7 @@ function payload(overrides: Partial<CloudBundlePayload> = {}): CloudBundlePayloa
   };
 }
 
-describe("cloud bundle strings", () => {
+describe("agent bundle strings", () => {
   test("round-trip authorization and placements in a versioned opaque string", () => {
     const original = payload();
     const encoded = encodeCloudBundle(original);

@@ -206,5 +206,5 @@ provenance in the underlying directory data.
 | Keychain stores, `terminateLater` flush | `StoryRootView.swift`, `StoryApp.swift:311` | IndexedDB; `beforeunload` waits on the admission flush |
 | Finder reveal, full-size image window | `StoryNetworkLogView.swift`, `ImageBlockView.swift:223` | `Copy`; lightbox |
 | In-app tab strip | `StoryDailyDriverViews.swift:1176` | browser tabs |
-| Reconnect / view story-sync logs | `StoryDailyDriverViews.swift:992` | not ported; `story daemon status` and the native app keep them |
+| Reconnect / view story-sync logs | `StoryDailyDriverViews.swift:992` | not ported; `story sync status` and the native app keep them |
 | Placing a tree from the app | `StoryRootView.swift:3670` | `story place`; the overstoryd host has no placement |

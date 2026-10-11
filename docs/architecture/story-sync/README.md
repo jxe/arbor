@@ -38,7 +38,7 @@ and objects over 64 MiB always go whole. A change chained on an unsettled
 change sends its objects whole, because overstoryd resolves delta bases against
 the request's accepted base root.
 
-A placed folder can be paused (`POST /v1/placements/pause`, `story pause`):
+A placed folder can be paused (`POST /v1/placements/pause`, `story sync pause`):
 the flag is the file `sync/paused.json` in the tree's state directory, so it
 survives a restart, and while it is set a scan prepares and retains nothing
 and the descriptor reports `sync: "paused"`. `GET /v1/pending` (`story
