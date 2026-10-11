@@ -16,6 +16,7 @@ let package = Package(
             name: "StoryEditor",
             dependencies: [
                 "StoryKit",
+                "Overstory",
                 .product(name: "Quagmire", package: "quagmire"),
                 .product(name: "QuagmireExtras", package: "quagmire")
             ]

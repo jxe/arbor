@@ -786,7 +786,7 @@ struct StoryChoiceVersionCard: View {
                     Text("Same entries as the other version").font(.caption).foregroundStyle(.secondary)
                 } else if baselineEntries != nil {
                     ForEach(differences.prefix(12), id: \.name) { difference in
-                        Label { Text(difference.name) + Text(" · \(difference.state)").foregroundStyle(.secondary) }
+                        Label { Text("\(difference.name)\(Text(" · \(difference.state)").foregroundStyle(.secondary))") }
                             icon: { Image(systemName: difference.symbol) }
                     }
                     if differences.count > 12 { Text("and \(differences.count - 12) more").font(.caption).foregroundStyle(.secondary) }
