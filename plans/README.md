@@ -16,6 +16,11 @@ The 2026-10-10 rename left readers accepting six old spellings, among them `arbo
 `;arbor-*` locator parameters, because authored content and shared links still carry
 them. Joe wants that tolerance to be temporary.
 
+**[Security 011: Story Sync answers only its own user](security/011-story-sync-local-callers.md).**
+Trying the Mac download from a second account on his Mac, Joe found the app about to attach
+to his own account's sync helper: it listens on a fixed loopback port and does not ask who is
+calling. Before the download goes beyond a few friends who each have their own Mac.
+
 **[Release 001: a Mac download that updates itself](release/001-mac-release.md).**
 So friends can install Story from a link on nxhx.org: a notarized DMG and a Sparkle feed on
 GitHub Releases. Joe has the Developer ID certificate and notarization credentials.
