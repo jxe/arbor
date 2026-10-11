@@ -1192,6 +1192,20 @@ struct StoryRootView: View {
             IOSPlaceTreePanel(workspace: workspace)
         }
 #else
+        // Share hangs from a point under its toolbar button, not from the button:
+        // a popover takes its anchor's environment, and a toolbar item's makes
+        // every label inside look inactive.
+        .overlay(alignment: .topTrailing) {
+            Color.clear
+                .frame(width: 32, height: 1)
+                .padding(.trailing, 56)
+                .allowsHitTesting(false)
+                .popover(isPresented: $sharePresented, arrowEdge: .top) {
+                    StorySharePanel(workspace: workspace, currentNode: model.node)
+                        .onExitCommand { sharePresented = false }
+                        .background(MacPopoverKeyWindow())
+                }
+        }
         .sheet(isPresented: $managementPresented, onDismiss: finishManagementDismissal) {
             macManagementPanel
         }
@@ -2587,13 +2601,6 @@ struct StoryRootView: View {
                     .accessibilityLabel("Share")
                     .frame(width: 32, height: 32)
                     .mutedMacToolbarHover()
-                    .popover(isPresented: $sharePresented, arrowEdge: .top) {
-                        StorySharePanel(workspace: workspace, currentNode: model.node)
-                            .onExitCommand { sharePresented = false }
-                            .background(MacPopoverKeyWindow())
-                            // A popover inherits its anchor's environment, and the toolbar's icons are muted.
-                            .foregroundStyle(.primary)
-                    }
                     Button {
                         showAccountsPanel()
                     } label: {
