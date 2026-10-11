@@ -46,6 +46,19 @@ MCP server, no new story-sync routes.
 - [ ] From outside the checkout, have both agents do a research task over two placed trees
   and one edit, wait for publication and report the changed locator; revise the skill.
 
+### Inviting and joining follow-ups
+
+Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-people-and-joining-by-invitation--2026-10-11)).
+
+- [ ] Show pending invitations in the People list itself, not only in the host's member sheet.
+- [ ] Tell the person when their profile failed to activate after a claim; today
+  `packages/client/src/account-bootstrap.ts` only logs it.
+- [ ] Open the invitation page in a real browser against a disposable host and confirm its
+  script runs under the page's Content-Security-Policy; only the header and hash are tested.
+- [ ] Hide the sample-pages bar on the iPhone while the keyboard is up, or move it.
+- Editing a group's members without opening its page needs a second writable working tree
+  on the device; it is a design question, not small work.
+
 ### Schedule the object collector
 
 Formerly overstoryd 017; the first live run is recorded in
@@ -79,30 +92,22 @@ index with excerpts as marked ranges.
 
 - [ ] Install the tested rejected-update retirement, broader operation capture and
   accepted-choice review when Joe can quit both apps. Verify the exact revision and
-  destination server support first. Quagmire 0.8.0 is already pinned.
+  destination server support first. Quagmire 0.9.0 is pinned.
 - [ ] Verify opening existing state, automatic publication, cross-device propagation and
   restart without losing drafts, pending requests or newer editor work. Do not overwrite
   active source journals with an older snapshot-only build.
 - [ ] macOS/iPhone hands-on: layout, typing, focus, selection, scrolling, keyboard routing,
   VoiceOver, large text and installed review-draft recovery.
 
-## Native 011 Mac gates
+## Native 011 hand checks
 
-The client folds, route removals and shared account service were made on Linux without a
-Swift toolchain ([status](../status.md#native-011-account-service--2026-09-25)); none has run.
+The client folds, route removals and shared account service
+([status](../status.md#native-011-account-service--2026-09-25)) build and pass their suites
+on a Mac; these have not been tried by hand.
 
-- [ ] Regenerate `swift/Story.xcodeproj` with `xcodegen generate --spec swift/project.yml --project swift`
-  and commit it if it differs from the hand-edited project.
-- [ ] Build the `Story` scheme for macOS and iOS.
-- [ ] Run `swift/scripts/test-story-editor-local.sh` and `swift package resolve` for
-  `StoryEditor` after dropping its unused `StorySyncClient` dependency; commit
-  `Package.resolved` only if SwiftPM rewrites it.
-- [ ] `bun run test:protocol` on a Mac (including `StoryAppTests/StorySyncClientTests`,
-  `LoopbackServicesTests` and `ProviderContractTests`), then `swift/scripts/hosted-smoke.ts`.
+- [ ] Run `swift/scripts/hosted-smoke.ts`.
 - [ ] From the Mac app against a disposable host, create a pairing offer and pair a second
   device with it.
-- [ ] Run the two new `StoryAppTests` cases for `HostAccountService` (account lookups
-  through a fake service; the iPhone store's unsupported capabilities).
 - [ ] Mac onboarding through `StorySyncAccountService` against a disposable data home and
   host: create an identity, back it up, recover it, adopt a legacy keychain identity, claim
   an account, cancel and resume a claim, pair from another device's code and resume an
@@ -113,35 +118,19 @@ Swift toolchain ([status](../status.md#native-011-account-service--2026-09-25));
   Place a Tree and Sync & Accounts panels, a People profile and avatar, Disconnect and Pair
   Again; no keychain entry moves.
 
-## Overstory identifier rename Mac gates
+## Overstory identifier rename hand check
 
 The 2026-09-24 rename ([status](../status.md#overstory-identifiers-and-ui-copy--2026-09-24))
-touched 31 Swift files without a Swift toolchain.
+builds and passes its suites on a Mac.
 
-- [ ] Regenerate the Xcode project and build the `Story` scheme for macOS and iOS.
-- [ ] Run every Swift package suite (`swift/scripts/test-story-editor-local.sh` for
-  `StoryEditor`) and `bun run test:protocol` on a Mac.
 - [ ] Install the Mac app and check the renamed copy: Make This an Overstory Tree, Story is
   up to date, and the camera, microphone and speech permission prompts.
 
-## Collection schema Mac gates
-
-Declarative collection schemas ([status](../status.md#declarative-collection-schemas--2026-09-24))
-changed `ProtocolObjects.swift`, `OverstoryTests.swift` and `UpdateCoordinatorTests.swift`
-without a Swift toolchain.
-
-- [ ] `swift test --package-path swift/Packages/Overstory` and
-  `swift test --package-path swift/Packages/OverstoryWorkingTree`, then `bun run test:protocol`
-  on a Mac; fix compile errors without changing the contract.
-
-## Ignore policy Mac gate
+## Ignore policy restart check
 
 Filesystem 005 ([status](../status.md#ignored-filesystem-content-filesystem-005--2026-09-25))
-changed `LocalFolderPreview.swift` and `IgnorePolicyTests.swift`, which import Apple-only
-modules and did not compile on Linux.
+passes its Swift tests on a Mac.
 
-- [ ] `swift test --package-path swift/Packages/OverstoryWorkingTree --filter "IgnorePolicyTests|LocalFolderPreviewTests"`
-  passes on a Mac.
 - [ ] Restart the installed Story Sync on this build and confirm each placed folder returns
   to idle without publishing a change.
 

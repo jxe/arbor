@@ -53,6 +53,15 @@ the bundle ID stays `org.nxhx.Arbor`. The code is under the MIT license.
   helper; Apple's notary service accepted it and Gatekeeper reports "Notarized
   Developer ID". Not published or installed, and not opened on a clean Mac.
   Build 2 adds Sparkle updates from a feed on GitHub Releases.
+- **Mac gates left by Linux-made changes.** The Swift changes of Native 011, the
+  2026-09-24 identifier rename, declarative collection schemas and Filesystem
+  005 were made without a Swift toolchain. On 2026-10-11 the project
+  regenerates cleanly, the `Story` scheme builds for macOS and iOS, the
+  package suites pass (Overstory 73, OverstoryWorkingTree 134 including
+  `IgnorePolicyTests` and `LocalFolderPreviewTests`, StoryEditor 90 through
+  `test-story-editor-local.sh` with the lock unchanged), and `bun run
+  test:protocol` and `swift/scripts/test-story-app.sh` pass. Their hand checks
+  remain in small work.
 - **iPhone on TestFlight.** `swift/scripts/release-ios.sh` uploaded builds 1
   and 2 of 0.1.0 to the App Store Connect record "Story Docs". Build 2 has Look
   Around First, sample pages for a phone with no account, checked in the
