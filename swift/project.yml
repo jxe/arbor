@@ -72,11 +72,14 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: B7P78ULCXS
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": StoryApp/Story.entitlements
-        "ENABLE_HARDENED_RUNTIME[sdk=macosx*]": YES
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         TARGETED_DEVICE_FAMILY: "1,2"
         ENABLE_PREVIEWS: YES
+      configs:
+        # Library validation refuses the hosted test bundle, which carries no team; releases need it.
+        Release:
+          "ENABLE_HARDENED_RUNTIME[sdk=macosx*]": YES
     preBuildScripts:
       - name: Build story-sync helper
         basedOnDependencyAnalysis: false
