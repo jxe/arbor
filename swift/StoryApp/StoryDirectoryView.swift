@@ -68,32 +68,53 @@ struct StoryPeoplePicker: View {
         Array(DirectoryMatcher.matches(query: query, in: people).filter { !excluding.contains($0.id) }.prefix(8))
     }
 
+    private var trimmed: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            TextField("Add people or groups", text: $query, prompt: Text("Name, ~handle, or Overstory profile URL"))
-                .textFieldStyle(.roundedBorder)
-                .disabled(disabled)
-                .onSubmit {
-                    if matches.indices.contains(selected) { onPick(matches[selected]) }
-                    else { onRawSubmit() }
-                }
 #if os(macOS)
-                .onMoveCommand { direction in
-                    if direction == .down { selected = min(selected + 1, max(0, matches.count - 1)) }
-                    if direction == .up { selected = max(0, selected - 1) }
+        // The system's own suggestion list, as a combo box shows.
+        field
+            .textInputSuggestions {
+                ForEach(Array(matches.enumerated()), id: \.element.id) { index, person in
+                    Label {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(person.entry.kind == "group" ? "\(person.title) (group)" : person.title)
+                            Text(person.subtitle).font(.caption).foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        StoryAvatarView(person: person, workspace: workspace, size: 22)
+                    }
+                    .textInputCompletion(Self.completion(person.title, choice: index))
                 }
+                if matches.isEmpty, !trimmed.isEmpty, onCreateGroup != nil {
+                    Label("New Group “\(trimmed)”…", systemImage: "person.2.badge.plus")
+                        .textInputCompletion(Self.completion(trimmed, choice: Self.newGroupChoice))
+                }
+            }
+            .onChange(of: query) { previous, value in
+                // Choosing a suggestion puts its marked completion in the field; typing never does.
+                guard let choice = Self.choice(in: value) else { return }
+                let candidates = Array(DirectoryMatcher.matches(query: previous, in: people).filter { !excluding.contains($0.id) }.prefix(8))
+                if choice == Self.newGroupChoice {
+                    let name = previous.trimmingCharacters(in: .whitespacesAndNewlines)
+                    query = ""
+                    onCreateGroup?(name)
+                } else if candidates.indices.contains(choice) {
+                    query = ""
+                    onPick(candidates[choice])
+                } else {
+                    query = previous
+                }
+            }
 #else
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-#endif
-            if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        VStack(alignment: .leading, spacing: 6) {
+            field
+            if !trimmed.isEmpty {
                 if matches.isEmpty {
                     Button("Add \(query)", action: onRawSubmit).disabled(disabled)
                     if let onCreateGroup {
-                        Button("New Group “\(query.trimmingCharacters(in: .whitespacesAndNewlines))”…", systemImage: "person.2.badge.plus") {
-                            onCreateGroup(query.trimmingCharacters(in: .whitespacesAndNewlines))
-                        }
-                        .disabled(disabled)
+                        Button("New Group “\(trimmed)”…", systemImage: "person.2.badge.plus") { onCreateGroup(trimmed) }
+                            .disabled(disabled)
                     }
                 } else {
                     ForEach(Array(matches.enumerated()), id: \.element.id) { index, person in
@@ -117,7 +138,37 @@ struct StoryPeoplePicker: View {
             }
         }
         .onChange(of: query) { _, _ in selected = 0 }
+#endif
     }
+
+    private var field: some View {
+        TextField("Add people or groups", text: $query, prompt: Text("Name, ~handle, or Overstory profile URL"))
+            .textFieldStyle(.roundedBorder)
+            .disabled(disabled)
+            .onSubmit {
+                if matches.indices.contains(selected) { onPick(matches[selected]) }
+                else { onRawSubmit() }
+            }
+#if os(iOS)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+#endif
+    }
+
+#if os(macOS)
+    /// A suggestion's completion: its text, then invisible marks counting which choice it is.
+    private static let mark: Character = "\u{2063}"
+    private static let newGroupChoice = 99
+
+    private static func completion(_ text: String, choice: Int) -> String {
+        text + String(repeating: mark, count: choice + 1)
+    }
+
+    private static func choice(in value: String) -> Int? {
+        let marks = value.reversed().prefix { $0 == mark }.count
+        return marks > 0 ? marks - 1 : nil
+    }
+#endif
 }
 
 /// Shared identity presentation for the directory and account management.
