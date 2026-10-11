@@ -13,15 +13,15 @@
 
 ## What exists
 
-- `swift/scripts/release-ios.sh <version> <build>` archives the iPhone and iPad app, signs it with the team's managed distribution identity and uploads it to App Store Connect. Build 1 of `0.1.0` was uploaded on 2026-10-11 with the account signed in to Xcode.
-- The build carries `ITSAppUsesNonExemptEncryption` (false), orientation keys for both device families, and `PrivacyInfo.xcprivacy` (UserDefaults and file timestamps; nothing collected or tracked). The icon preview masters are out of the bundle.
-- The app record exists for bundle ID `org.nxhx.Arbor`, which stays (see [old names](../../docs/architecture/old-names.md)).
-- The iPhone app pairs with an account that already exists; each friend has a Mac. With no account it also offers sample pages held in memory, which is the reviewer's way in. That is in the source, not yet in an uploaded build.
+- `swift/scripts/release-ios.sh <version> <build>` archives the iPhone and iPad app, signs it with the team's managed distribution identity and uploads it to App Store Connect, as the account signed in to Xcode.
+- The app record is "Story Docs", bundle ID `org.nxhx.Arbor`, which stays (see [old names](../../docs/architecture/old-names.md)).
+- Build 2 of `0.1.0`, uploaded 2026-10-11, has Look Around First: sample pages for a phone with no account, which is the reviewer's way in. It is in the external group "Friends", submitted for beta review that day and waiting. The internal group "Story Testers" can install it without review.
+- Test Information is filled in: description, feedback and review contact, and review notes that point the reviewer at Look Around First.
 
 ## Steps
 
-1. **Test information (Joe, in App Store Connect → TestFlight).** Beta app description, feedback email, and the review contact. Friends are external testers, which needs a short beta review of the first build; the review note says the app pairs with an account made on a Mac and how the reviewer can be given one.
-2. **Testers (Joe).** Create the external group, add the build, and add friends by email or public link.
+1. **Beta review.** If the reviewer needs more than the sample pages, answer in App Store Connect; a rejection names the reason.
+2. **Testers (Joe).** Add friends to the Friends group by email or public link.
 3. **Hand check (Joe).** Install from TestFlight on his own iPhone, then with one friend. Set `OVERSTORYD_STORY_IPHONE_URL` on the host so the invitation page offers the TestFlight link.
 4. **Close out.** Record the evidence in `status.md` and delete this plan.
 

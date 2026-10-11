@@ -52,6 +52,12 @@ the bundle ID stays `org.nxhx.Arbor`. The code is under the MIT license.
   signed with Developer ID under the hardened runtime, with Bun 1.4.2 as the
   helper; Apple's notary service accepted it and Gatekeeper reports "Notarized
   Developer ID". Not published or installed, and not opened on a clean Mac.
+  Build 2 adds Sparkle updates from a feed on GitHub Releases.
+- **iPhone on TestFlight.** `swift/scripts/release-ios.sh` uploaded builds 1
+  and 2 of 0.1.0 to the App Store Connect record "Story Docs". Build 2 has Look
+  Around First, sample pages for a phone with no account, checked in the
+  simulator. It is in the external group "Friends" and was submitted for beta
+  review on 2026-10-11.
 
 ## A chain that returns to an earlier state is accepted — 2026-10-10
 
