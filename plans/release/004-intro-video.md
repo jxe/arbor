@@ -27,7 +27,7 @@ Each of these must be true, or the script says something the screen cannot show:
 - A photo to choose, and a small `Notes` folder in Documents with three or four short pages, so the app is not empty after the join.
 - A second member with a name and photo (Joe himself is enough), so the Share menu has someone to pick.
 - The demo iPhone signed out of Story, with the TestFlight email in its inbox.
-- A Claude Code cloud session ready to paste the agent prompt into, and something cute for it to do that shows on screen at a glance: a page in `Notes` called "This weekend" with four plain items (water the plants, call Mum, fix the bike, buy bread), and the task "write a haiku under each thing on my weekend list". Short to run, obviously the agent's work, and it reads well on the iPhone too.
+- A Claude Code cloud session ready to paste the agent prompt into, and something cute for it to do that shows on screen at a glance: a page in `Notes` called "Groceries" with a dozen items in the order they came to mind (milk, basil, bin bags, apples, yoghurt, pasta, toothpaste, onions, butter, rice, lemons, olive oil), and the task "sort my grocery list by aisle". Short to run, the before and after are obvious, and it reads well on the iPhone too.
 
 ## How to record
 
@@ -69,7 +69,7 @@ The narration is Joe's script, split by take.
 |---|---|---|
 | 20 | Mac, the `Notes` folder; glance at the iPhone showing the same page. | "Another cool thing is that the same files you edit on your mac or iphone, you can use in a temporary agent session in the cloud." |
 | 21 | Share menu, Use with an agent…; the prompt appears; Copy Prompt. | "Just go back to that share sheet, and you can also share it with an agent!" |
-| 22 | Claude Code cloud: paste the prompt, add "write a haiku under each thing on my weekend list", run. Cut to it finishing; then the Mac, where a haiku has appeared under each item, and the iPhone showing the same. | "Then over here in claude code cloud, I can just tell it to run in the cloud. Once it's done, it will sync things back to my machine." |
+| 22 | Claude Code cloud: paste the prompt, add "sort my grocery list by aisle", run. Cut to it finishing; then the Mac, where the list is now grouped under aisle headings, and the iPhone showing the same. | "Then over here in claude code cloud, I can just tell it to run in the cloud. Once it's done, it will sync things back to my machine." |
 
 Take 22 has a wait in the middle. Record the paste and start, stop, then record the result arriving on the Mac; the cut hides the wait.
 

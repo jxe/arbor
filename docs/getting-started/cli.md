@@ -230,6 +230,12 @@ story sync status
 story agent finish --root /workspace
 ```
 
+When it is ready, `start` prints where each tree is checked out and the rules
+for working there: edit the files in place, keep each page's `id:` line and
+its links, and run `story agent finish` when done. `--json` carries the same
+text as `instructions`. A prompt for an agent therefore needs only the start
+command.
+
 `start` defaults to the current directory and a five-minute timeout. It creates
 an isolated owner-only data home and a detached loopback Story Sync in its own
 process group, so it outlives a caller that ends the command's group. A new

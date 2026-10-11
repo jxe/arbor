@@ -3647,24 +3647,16 @@ private struct StoryAgentBundlePage: View {
         URL(string: access.canonical).map(\.lastPathComponent).flatMap { $0.isEmpty || $0 == "/" ? nil : $0 } ?? "this tree"
     }
 
-    /// What to hand an agent: both commands and what they do, with the link in place.
+    /// What to hand an agent: the start command with the link in place. Start prints the rest.
     private func prompt(_ bundle: String) -> String {
         """
         You can work in a Story folder: Markdown pages kept in sync with \(access.canonical).
 
-        1. Check it out (needs Bun, https://bun.sh):
+        Check it out (needs Bun, https://bun.sh), then follow the instructions it prints:
 
-           bunx @ovst/cli agent start '\(bundle)' --root /workspace
+          bunx @ovst/cli agent start '\(bundle)' --root /workspace
 
-           The pages appear as files in /workspace/\(relativePath). Read and edit them there.
-
-        2. When you have finished writing, publish your changes:
-
-           bunx @ovst/cli agent finish --root /workspace
-
-           Wait for it to succeed before you stop. Until then your edits are only on this machine.
-
-        Keep the link in step 1 private: it signs in as the owner's account.
+        Keep that link private: it signs in as the owner's account.
         """
     }
 
@@ -3677,7 +3669,7 @@ private struct StoryAgentBundlePage: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 190)
+            .frame(height: 120)
             HStack {
                 Button(copied ? "Copied" : "Copy Prompt", systemImage: copied ? "checkmark" : "doc.on.doc") { copy(prompt) }
                 ShareLink(item: prompt) { Label("Share…", systemImage: "square.and.arrow.up") }

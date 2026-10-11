@@ -1275,6 +1275,32 @@ interface CloudStartResult {
   root: string;
   origin: string;
   placements: CloudSessionRecord["placements"];
+  /** What an agent needs to know to work in the checkout, as `story agent start` prints it. */
+  instructions: string;
+}
+
+/** How this command was run, so the instructions name a command that works where they are read. */
+function storyInvocation(): string {
+  return /[\\/]@ovst[\\/]cli[\\/]/.test(process.argv[1] ?? "") ? "bunx @ovst/cli" : "story";
+}
+
+/** The working rules for an agent session, said once where the agent will read them: start's output. */
+function agentInstructions(root: string, placements: CloudSessionRecord["placements"]): string {
+  const story = storyInvocation();
+  const folders = placements.map((placement) => `  ${placement.path}  (${placement.canonicalURL})`).join("\n");
+  return [
+    `Checked out and syncing:`,
+    folders,
+    ``,
+    `Working here:`,
+    `- Read and edit the Markdown files in ${placements.length === 1 ? "that folder" : "those folders"} with your own tools. Changes sync while the session runs.`,
+    `- Keep the "id:" line in each page's frontmatter, and leave links between pages as they are written.`,
+    `- Files outside ${placements.length === 1 ? "that folder" : "those folders"} are not synced.`,
+    `- When you have finished writing, run:`,
+    `    ${story} agent finish --root ${root}`,
+    `  and wait for it to succeed. Until then your last edits may exist only on this machine.`,
+    `- If something seems stuck, "${story} status ${root}" says what is held back.`,
+  ].join("\n");
 }
 
 async function startCloud(args: string[]): Promise<void> {
@@ -1282,8 +1308,7 @@ async function startCloud(args: string[]): Promise<void> {
   const result = await startCloudSession(options);
   if (options.json) console.log(JSON.stringify(result, null, 2));
   else {
-    console.log(`Cloud Story Sync is ready at ${result.origin}.`);
-    for (const placement of result.placements) console.log(`${placement.canonicalURL} ↔ ${placement.path}`);
+    console.log(result.instructions);
   }
 }
 
@@ -1411,7 +1436,10 @@ async function startCloudSession(options: CloudStartOptions): Promise<CloudStart
     await waitForCloudPlacements(session, await cloudAccountAccess(session), deadline);
     session = { ...session, phase: "ready", updatedAt: new Date().toISOString(), lastError: undefined };
     await saveCloudSession(session);
-    return { schemaVersion: 1, ready: true, sessionID: session.sessionID, bundleID: session.bundleID, root, origin, placements: session.placements };
+    return {
+      schemaVersion: 1, ready: true, sessionID: session.sessionID, bundleID: session.bundleID, root, origin,
+      placements: session.placements, instructions: agentInstructions(root, session.placements),
+    };
   } catch (error) {
     if (spawnedPID) await stopOwnedProcess(spawnedPID);
     const message = error instanceof Error ? error.message : String(error);
