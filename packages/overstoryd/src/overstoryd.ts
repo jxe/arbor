@@ -1005,15 +1005,19 @@ export class HostDaemon implements AsyncDisposable {
     return { profileTree, devices };
   }
 
-  async createDeviceSessionChallenge(input: { origin: string; profileTree: string; device: string }): Promise<DeviceSessionChallenge> {
-    await this.keyDevice(input.profileTree, input.device);
+  async createDeviceSessionChallenge(input: { origin: string; profileTree?: string; device: string }): Promise<DeviceSessionChallenge> {
+    // Without a profile, the device's own account says whose it is: only a
+    // home host binds a device before its first session.
+    const profileTree = input.profileTree ?? this.accounts.device(input.device)?.account;
+    if (!profileTree) throw new NotFoundError("No such key device");
+    await this.keyDevice(profileTree, input.device);
     const issuedAt = Date.now();
     const challenge: DeviceSessionChallenge = {
       version: 1,
       purpose: "device-session",
       id: generateOverstoryID("ax"),
       origin: input.origin,
-      profileTree: input.profileTree,
+      profileTree,
       device: input.device,
       nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
       issuedAt,

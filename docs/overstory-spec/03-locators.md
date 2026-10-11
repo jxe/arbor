@@ -233,6 +233,20 @@ navigation. The code is a secret: writers put it in no other locator form and
 never in authored content. There is no segment-parameter form:
 `;overstory-invite=` is an unknown parameter (§3).
 
+### 2.3 Agent links
+
+```text
+https://community.example/~alice/notes#overstory-agent=<code>
+```
+
+An agent link is a tree's canonical HTTPS URL carrying an agent code
+([accounts §5.5](04-accounts-and-devices.md#55-agent-codes)) as the fragment
+`overstory-agent=<code>`, where the code is 22 characters of unpadded
+base64url. `http` is accepted only at a loopback host. It is handed to a
+command that checks the tree out, not written in pages or opened by an
+editor: a locator parser that meets one reads an ordinary content fragment,
+and a browser that opens one reaches the tree's page without sending the code.
+
 ## 3. Parsing and canonicalization
 
 An external URL parser separates the final raw segment's parameter block,

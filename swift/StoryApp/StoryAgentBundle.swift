@@ -29,6 +29,62 @@ struct StoryCloudBundlePayload: Codable, Equatable, Sendable {
     var placements: [Placement]
 }
 
+/// An agent code (accounts §5.5): 16 random bytes in unpadded base64url. The
+/// agent device's ID and key are derived from it, so a link to a tree that
+/// carries the code is all `story agent start` needs. `packages/protocol`
+/// owns the derivation, and `conformance/agent-code.json` pins it.
+struct StoryAgentCode: Equatable, Sendable {
+    let code: String
+
+    init() {
+        code = StoryCloudBundle.base64URL(Data((0..<16).map { _ in UInt8.random(in: .min ... .max) }))
+    }
+
+    init?(_ code: String) {
+        guard code.range(of: #"^[A-Za-z0-9_-]{22}$"#, options: .regularExpression) != nil else { return nil }
+        self.code = code
+    }
+
+    private func derive(_ info: String, count: Int) -> Data {
+        HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: SymmetricKey(data: Data(code.utf8)),
+            salt: Data("overstory-agent-v1".utf8),
+            info: Data(info.utf8),
+            outputByteCount: count
+        ).withUnsafeBytes { Data($0) }
+    }
+
+    var deviceID: String { "dv_" + Self.base32(derive("device-id", count: 16)) }
+
+    /// Lowercase RFC 4648 base32 without padding, as Overstory IDs are written.
+    private static func base32(_ data: Data) -> String {
+        let alphabet = Array("abcdefghijklmnopqrstuvwxyz234567")
+        var output = "", buffer = 0, bits = 0
+        for byte in data {
+            buffer = (buffer << 8) | Int(byte)
+            bits += 8
+            while bits >= 5 {
+                bits -= 5
+                output.append(alphabet[(buffer >> bits) & 31])
+            }
+        }
+        if bits > 0 { output.append(alphabet[(buffer << (5 - bits)) & 31]) }
+        return output
+    }
+
+    /// The Ed25519 seed of the device's key, in unpadded base64url.
+    var deviceKeySeed: String { StoryCloudBundle.base64URL(derive("device-key", count: 32)) }
+    /// The bundle ID local registries file this device under.
+    var bundleID: String {
+        "cb_" + SHA256.hash(data: Data(deviceID.utf8)).map { String(format: "%02x", $0) }.joined().prefix(32)
+    }
+
+    /// `canonicalURL` with the code as its fragment: what `story agent start` takes.
+    func link(canonicalURL: String) -> String {
+        canonicalURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "#overstory-agent=" + code
+    }
+}
+
 enum StoryCloudBundle {
     static let prefix = "arbor-cloud-v2"
     static let maximumLength = 32 * 1024
@@ -75,7 +131,7 @@ enum StoryCloudBundle {
         return decoded
     }
 
-    private static func base64URL(_ data: Data) -> String {
+    static func base64URL(_ data: Data) -> String {
         data.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")

@@ -905,14 +905,19 @@ final class StoryWorkspaceState {
             throw ProtocolValidationError.invalidValue("The tree has no canonical URL to place it by")
         }
         let accountID = try await client.account().account.id
-        let bundleID = StoryCloudBundle.newBundleID()
-        let deviceID = try generateOverstoryID(prefix: "dv")
-        let deviceKeySeed = StoryCloudBundle.newDeviceKeySeed()
+        // The link says one tree at its own name, which is what this places; the code is the device.
+        let agentCode = StoryAgentCode()
+        let bundleID = agentCode.bundleID
+        let deviceID = agentCode.deviceID
+        let deviceKeySeed = agentCode.deviceKeySeed
         let createdAt = ISO8601DateFormatter.cloudBundle.string(from: Date())
         // The CLI accepts only a normalized origin, which the stored spelling need not be.
         let hostOrigin = "\(scheme)://\(host)" + (origin.port.map { ":\($0)" } ?? "")
         let accountURL = hostOrigin + "/~" + handle
-        let bundle = try StoryCloudBundle.encode(StoryCloudBundlePayload(
+        let relativePath = StoryCloudBundle.relativePath(canonicalPath: canonicalPath)
+        let lastName = canonicalPath.split(separator: "/").last.map { String($0).removingPercentEncoding ?? String($0) }
+        // A name that is not a portable folder name needs the long form, which carries its own path.
+        let bundle = relativePath == lastName ? agentCode.link(canonicalURL: canonicalURL) : try StoryCloudBundle.encode(StoryCloudBundlePayload(
             bundleID: bundleID,
             label: label,
             createdAt: createdAt,

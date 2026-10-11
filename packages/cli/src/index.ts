@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { decodeCandidateUpdateJSON, describeTransitionPayload, normalizeLegacyLocator, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
+import { agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, normalizeLegacyLocator, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { constants as osConstants } from "node:os";
@@ -995,11 +995,13 @@ async function createCloudBundle(args: string[]): Promise<void> {
     if (new Set(placements.map((placement) => placement.treeID)).size !== placements.length) {
       throw new Error("An agent bundle may not place the same tree more than once");
     }
-    const bundleID = `cb_${crypto.randomUUID().replaceAll("-", "")}`;
+    // One tree placed at its own name is all an agent link can say, and then the link is the whole bundle.
+    const only = placements.length === 1 ? placements[0]! : undefined;
+    const code = only && only.relativePath === agentLinkPath(new URL(only.canonicalURL).pathname) ? generateAgentCode() : undefined;
+    const { deviceID, deviceKeySeed } = code ? agentDevice(code) : { deviceID: generateOverstoryID("dv"), deviceKeySeed: generateDeviceKeySeed() };
+    const bundleID = code ? agentBundleID(deviceID) : `cb_${crypto.randomUUID().replaceAll("-", "")}`;
     const label = (requested.label ?? `Agent bundle ${bundleID.slice(-8)}`).trim();
     if (!label || label.length > 100) throw new Error("Agent bundle name must be from 1 through 100 characters");
-    const deviceID = generateOverstoryID("dv");
-    const deviceKeySeed = generateDeviceKeySeed();
     const createdAt = new Date().toISOString();
     const payload: CloudBundlePayload = {
       version: 2,
@@ -1015,7 +1017,7 @@ async function createCloudBundle(args: string[]): Promise<void> {
       deviceKeySeed,
       placements,
     };
-    const encoded = encodeCloudBundle(payload);
+    const encoded = code ? buildAgentLink(only!.canonicalURL, code) : encodeCloudBundle(payload);
     const wire = new ProtocolClient(selected.connection.record.origin, selected.connection.accountToken);
     const pairing = await wire.createPairing();
     await new ProtocolClient(selected.connection.record.origin).claimPairing(pairing.id, pairing.secret, {
@@ -1285,8 +1287,47 @@ async function startCloud(args: string[]): Promise<void> {
   }
 }
 
+/** Where an agent link places its tree under the root: the last name of its address. */
+function agentLinkPath(canonicalPath: string): string {
+  return decodeURIComponent(canonicalPath).split("/").filter(Boolean).at(-1) ?? "";
+}
+
+/**
+ * What a bundle argument stands for. An agent link carries only a code: its
+ * device signs in by its own ID, and the host says whose it is and what the
+ * link's address names.
+ */
+async function resolveAgentBundle(input: string): Promise<CloudBundlePayload> {
+  const link = parseAgentLink(input);
+  if (!link) return decodeCloudBundle(input);
+  const { deviceID, deviceKeySeed } = agentDevice(link.code);
+  const { session, profileTree } = await openDeviceSessionByDevice(link.origin, deviceID, deviceKeySeed);
+  const wire = new ProtocolClient(link.origin, session.token, { timeoutMs: 60_000 });
+  const { account } = await wire.account();
+  if (!account.handle) throw new Error("The agent link's account has no address on its host");
+  const resolution = await wire.resolve(link.canonicalPath);
+  const descriptor = resolution.enclosingTree;
+  if (!descriptor || resolution.ref.tree !== descriptor.id || resolution.ref.path !== "/") {
+    throw new Error(`${link.canonicalURL} must identify the root of a tree`);
+  }
+  return {
+    version: 2,
+    bundleID: agentBundleID(deviceID),
+    label: account.device?.label ?? "Agent",
+    createdAt: new Date(0).toISOString(),
+    origin: link.origin,
+    account: `${link.origin}/~${account.handle}`,
+    accountID: account.id,
+    configurationTree: account.configuration.id,
+    profileTree,
+    deviceID,
+    deviceKeySeed,
+    placements: [{ treeID: descriptor.id, canonicalURL: link.canonicalURL, relativePath: agentLinkPath(link.canonicalPath) }],
+  };
+}
+
 async function startCloudSession(options: CloudStartOptions): Promise<CloudStartResult> {
-  const payload = decodeCloudBundle(options.bundle);
+  const payload = await resolveAgentBundle(options.bundle);
   delete process.env.STORY_CLOUD_BUNDLE;
   await mkdir(options.root, { recursive: true });
   const root = await realpath(options.root);

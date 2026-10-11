@@ -48,4 +48,5 @@ export * from "./config/tree-config.ts";
 export * from "./config/profile-config.ts";
 export * from "./config/server-config.ts";
 export * from "./config/device-key.ts";
+export * from "./config/agent-code.ts";
 export * from "./config/placement.ts";

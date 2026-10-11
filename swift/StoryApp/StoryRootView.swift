@@ -3647,29 +3647,48 @@ private struct StoryAgentBundlePage: View {
         URL(string: access.canonical).map(\.lastPathComponent).flatMap { $0.isEmpty || $0 == "/" ? nil : $0 } ?? "this tree"
     }
 
+    /// What to hand an agent: both commands and what they do, with the link in place.
+    private func prompt(_ bundle: String) -> String {
+        """
+        You can work in a Story folder: Markdown pages kept in sync with \(access.canonical).
+
+        1. Check it out (needs Bun, https://bun.sh):
+
+           bunx @ovst/cli agent start '\(bundle)' --root /workspace
+
+           The pages appear as files in /workspace/\(relativePath). Read and edit them there.
+
+        2. When you have finished writing, publish your changes:
+
+           bunx @ovst/cli agent finish --root /workspace
+
+           Wait for it to succeed before you stop. Until then your edits are only on this machine.
+
+        Keep the link in step 1 private: it signs in as the owner's account.
+        """
+    }
+
     @ViewBuilder private func code(_ bundle: String) -> some View {
-        let command = "bunx @ovst/cli agent start \(bundle) --root /workspace"
+        let prompt = prompt(bundle)
         Section {
             ScrollView {
-                Text(command)
+                Text(prompt)
                     .font(.caption.monospaced())
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 96)
+            .frame(height: 190)
             HStack {
-                Button(copied ? "Copied" : "Copy Command", systemImage: copied ? "checkmark" : "doc.on.doc") { copy(command) }
-                ShareLink(item: command) { Label("Share…", systemImage: "square.and.arrow.up") }
+                Button(copied ? "Copied" : "Copy Prompt", systemImage: copied ? "checkmark" : "doc.on.doc") { copy(prompt) }
+                ShareLink(item: prompt) { Label("Share…", systemImage: "square.and.arrow.up") }
                 Spacer()
             }
         } header: {
-            Text("Run this on the agent’s machine")
-        } footer: {
-            Text("The tree appears at `/workspace/\(relativePath)`. When the agent has stopped writing, `bunx @ovst/cli agent finish --root /workspace` syncs its last changes.")
+            Text("Give this to your agent")
         }
         Section {
             Label {
-                Text("Story shows this only once. It signs in as a device of your account, so anyone who has it can read and change everything your account can, until you revoke it from the Share panel.")
+                Text("Story shows this only once. Its link signs in as a device of your account, so anyone who has it can read and change everything your account can, until you revoke it from the Share panel.")
             } icon: {
                 Image(systemName: "key.fill").foregroundStyle(.orange)
             }

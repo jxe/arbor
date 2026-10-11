@@ -1,0 +1,42 @@
+{
+  "description": "Agent codes (accounts §5.5). A code is 16 bytes in unpadded base64url. With HKDF-SHA256 over the code's 22 ASCII characters and the salt \"overstory-agent-v1\": the DeviceID is dv_ and the base32 of 16 bytes for the info \"device-id\"; the Ed25519 seed is 32 bytes for the info \"device-key\".",
+  "devices": [
+    {
+      "code": "AAAAAAAAAAAAAAAAAAAAAA",
+      "deviceID": "dv_mmpnzxhglfl3fkilzj6q7ubfhu",
+      "key": "ed25519:fQJl9vKHu6S9GozgPuvVXIQDQ5Ph1gnoCA25c9RUROU"
+    },
+    {
+      "code": "Xk3mQ9vT2pLr8sWz4nB7cA",
+      "deviceID": "dv_f2lmblwxpohep2oyggmyckzswm",
+      "key": "ed25519:K25lTrUGt2o19hOVQHzOdN1bO4HiE4Nvrin_siTOTi8"
+    },
+    {
+      "code": "_-_-_-_-_-_-_-_-_-_-_w",
+      "deviceID": "dv_455oodskwgstaf7xqa7rdhegxi",
+      "key": "ed25519:dgaCthuOf742P_NI2YRnFiXcdpAm0WRrMIJEWUvYoYU"
+    }
+  ],
+  "links": [
+    {
+      "link": "https://garden.example/~joe/notes#overstory-agent=Xk3mQ9vT2pLr8sWz4nB7cA",
+      "origin": "https://garden.example",
+      "canonicalPath": "/~joe/notes",
+      "code": "Xk3mQ9vT2pLr8sWz4nB7cA"
+    },
+    {
+      "link": "http://127.0.0.1:4318/~joe#overstory-agent=AAAAAAAAAAAAAAAAAAAAAA",
+      "origin": "http://127.0.0.1:4318",
+      "canonicalPath": "/~joe",
+      "code": "AAAAAAAAAAAAAAAAAAAAAA"
+    }
+  ],
+  "rejected": [
+    "https://garden.example/~joe/notes",
+    "https://garden.example/~joe/notes#overstory-agent=tooshort",
+    "http://garden.example/~joe/notes#overstory-agent=Xk3mQ9vT2pLr8sWz4nB7cA",
+    "https://garden.example/~joe/notes?x=1#overstory-agent=Xk3mQ9vT2pLr8sWz4nB7cA",
+    "https://garden.example/#overstory-agent=Xk3mQ9vT2pLr8sWz4nB7cA",
+    "overstory://garden.example/~joe/notes#overstory-agent=Xk3mQ9vT2pLr8sWz4nB7cA"
+  ]
+}

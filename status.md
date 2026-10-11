@@ -84,6 +84,17 @@ the bundle ID stays `org.nxhx.Arbor`. The code is under the MIT license.
   Install Command Line Tool… linking `/usr/local/bin/story` to it. In the
   notarized build 4 the command runs through a link and reports `0.1.0+4`; the
   menu item itself has not been tried.
+- **Agent links.** An agent's device can be handed over as
+  `https://host/~joe/notes#overstory-agent=<code>`: the code is 16 random
+  bytes from which the DeviceID and key are derived, and the device signs in
+  at its home host by DeviceID alone (accounts §5.1, §5.5). Nothing is stored
+  for it. `story agent create` prints one for a tree placed under its own
+  name, `story agent start` takes one, and the Share panel's Use with an agent
+  makes one and shows a prompt with both commands. Evidence: a CLI test
+  creates, starts, edits, finishes and revokes through a link; Swift derives
+  the vector's device. Not deployed: the host must accept a challenge by
+  device, and agents need the next `@ovst/cli`. The app-hosted tests and
+  `test:protocol` have not run with it.
 - **Live host, read-only check.** arb.nxhx.org answers `/.overstory/health`;
   Joe pushed main on 2026-10-11. Its root access rule, read with Joe's
   account, still grants `admin` to the root group itself

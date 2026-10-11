@@ -587,6 +587,26 @@ struct StoryAppTests {
         #expect(!StorySupportDirectories.pendingVoiceRecordings.path.contains("Hunch"))
     }
 
+    @Test("An agent code derives the device the shared vectors name")
+    func agentCodeVectors() throws {
+        struct Vectors: Decodable {
+            struct Device: Decodable { let code: String; let deviceID: String; let key: String }
+            let devices: [Device]
+        }
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appending(path: "../../docs/overstory-spec/conformance/agent-code.json")
+        let vectors = try JSONDecoder().decode(Vectors.self, from: Data(contentsOf: url))
+        #expect(!vectors.devices.isEmpty)
+        for vector in vectors.devices {
+            let code = try #require(StoryAgentCode(vector.code))
+            #expect(code.deviceID == vector.deviceID)
+            #expect(try StoryCloudBundle.deviceKey(seed: code.deviceKeySeed) == ProtocolDeviceKey(vector.key))
+            #expect(code.link(canonicalURL: "https://garden.example/~joe/notes/") == "https://garden.example/~joe/notes#overstory-agent=\(vector.code)")
+        }
+        #expect(StoryAgentCode("short") == nil)
+        #expect(StoryAgentCode().code.count == 22)
+    }
+
     @Test("The sample pages open on a page that edits, with the others beside it")
     func tourProvider() async throws {
         let provider = StoryTour.provider()

@@ -178,8 +178,12 @@ bundle=$(story agent create --name "Coding agents" \
   --place https://garden.example/~joe/project-notes notes)
 ```
 
-The command creates a dedicated non-administrator account device and prints one
-`arbor-cloud-v2...` string to stdout. That string contains its credential and
+The command creates a dedicated non-administrator account device and prints
+its credential to stdout. For one tree placed under its own name, such as
+`--place https://garden.example/~joe/notes notes`, that is a short agent link,
+`https://garden.example/~joe/notes#overstory-agent=<code>`: the code is the
+device's whole secret, and `story agent start` works the rest out from the
+host. Any other set of placements prints one `arbor-cloud-v2...` string. That string contains its credential and
 the complete placement manifest. It is reusable, immutable, and secret. A
 bundle is limited to one claimed Overstory account on one host, every selected
 tree must be writable, and the encoded string may not exceed 32 KiB. Placement
@@ -241,9 +245,9 @@ sync, but only `finish`, or the end of `run`, provides the complete
 verification contract.
 
 On a Mac, Story's Share panel makes the same bundle for the tree it shows:
-**Use with an agent…** makes one at once, placing that one tree at its
-canonical name, and shows the whole start command with the string in it, once,
-with Copy Command and Share. The panel lists the tree's bundles with
+**Use with an agent…** makes an agent link for that tree at once and shows,
+once, a short prompt for the agent with the start and finish commands and the
+link in place, with Copy Prompt and Share. The panel lists the tree's bundles with
 **Revoke**. Like every bundle, its credential is an account device, so the
 string reaches everything the account can; the placement only chooses what is
 checked out.

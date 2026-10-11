@@ -531,8 +531,9 @@ export async function serveHost(options: {
         }
         if (url.pathname === "/.overstory/device-sessions/challenges" && request.method === "POST") {
           const body = await bodyFields(request) as { profileTree?: unknown; device?: unknown };
-          if (typeof body.profileTree !== "string" || typeof body.device !== "string") throw new Error("A session challenge names a profile TreeID and a DeviceID");
-          if (challenges && !challenges.allow(`${callerAddress(request, server)}:session:${body.profileTree}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
+          // The profile may be left out at a device's home host, which knows whose device it is (accounts §5.1).
+          if ((body.profileTree !== undefined && typeof body.profileTree !== "string") || typeof body.device !== "string") throw new Error("A session challenge names a DeviceID, and a profile TreeID unless this is the device's home host");
+          if (challenges && !challenges.allow(`${callerAddress(request, server)}:session:${body.profileTree ?? body.device}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
           return json(await overstoryd.createDeviceSessionChallenge({ origin: publicOrigin, profileTree: body.profileTree, device: body.device }), 201);
         }
         if (url.pathname === "/.overstory/device-sessions" && request.method === "POST") {

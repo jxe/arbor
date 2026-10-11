@@ -586,7 +586,12 @@ POST /.overstory/device-sessions
 
 A device never sends a long-lived secret. It asks a host for a challenge,
 naming `profileTree` and `device`, and the host returns a random, single-use
-challenge valid for at most two minutes:
+challenge valid for at most two minutes. At the profile's home host the
+request may name `device` alone: the host knows whose device it is and names
+the profile in the challenge. A placement host needs the profile, since it
+learns a device only from its home host's list (§5.4). A DeviceID is 128
+random bits, and is already published with its profile (§5.4), so answering
+for one tells a caller nothing they could not read.
 
 ```json
 {
@@ -704,6 +709,36 @@ every five seconds per profile, so that nobody can use a placement host to
 flood a home host. A challenge for a missing DeviceID that arrives within
 that interval waits for it to pass and the refetch that follows, rather than
 being refused, so a device paired at the home host moments before is found.
+
+### 5.5 Agent codes
+
+A device made for an agent, a program that works in a checkout on some other
+machine, can be handed over as one short link. An **agent code** is 16 random
+bytes in unpadded base64url, 22 characters, and is the device's whole secret.
+With HKDF-SHA256 over the code's 22 ASCII characters and the salt
+`overstory-agent-v1`:
+
+- the DeviceID is `dv_` followed by the lowercase base32 of 16 bytes derived
+  with the info `device-id`;
+- the device's Ed25519 seed is 32 bytes derived with the info `device-key`.
+
+Whoever makes the code derives both and pairs that device like any other
+(§5), as a device that is not an administrator. The **agent link** is the
+canonical URL of the one tree to check out, with the code as its fragment
+([locators §2.3](03-locators.md#23-agent-links)):
+
+```text
+https://community.example/~alice/notes#overstory-agent=<code>
+```
+
+A client given the link derives the device, opens a session at the link's
+host by DeviceID alone (§5.1), learns the profile from the challenge, and
+resolves the link's path to the tree, which it checks out under the last name
+of that path. Nothing is stored for the code: the host holds an ordinary
+device, and deleting it from `devices.yaml` ends the link. The link reaches
+everything the account can, not only the tree it names; the tree is what is
+checked out. [conformance/agent-code.json](conformance/agent-code.json) pins
+the derivation and the link's form.
 
 ## 6. Declaring, activating and mounting a tree
 

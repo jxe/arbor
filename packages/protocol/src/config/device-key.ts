@@ -33,9 +33,22 @@ export function deviceKeyFromSeed(seed: string): string {
  * its canonical bytes.
  */
 export async function openDeviceSession(origin: string, profileTree: string, device: string, seed: string): Promise<DeviceSession> {
+  return (await openSession(origin, profileTree, device, seed)).session;
+}
+
+/**
+ * Open a session at a device's home host knowing only the device: the host
+ * names the profile in its challenge (accounts §5.1). An agent code's device
+ * signs in this way.
+ */
+export async function openDeviceSessionByDevice(origin: string, device: string, seed: string): Promise<{ session: DeviceSession; profileTree: string }> {
+  return openSession(origin, undefined, device, seed);
+}
+
+async function openSession(origin: string, profileTree: string | undefined, device: string, seed: string): Promise<{ session: DeviceSession; profileTree: string }> {
   const host = new ProtocolClient(origin);
-  const challenge = validateDeviceSessionChallenge(await host.createDeviceSessionChallenge({ profileTree, device }));
-  if (challenge.origin !== new URL(origin).origin || challenge.profileTree !== profileTree || challenge.device !== device) {
+  const challenge = validateDeviceSessionChallenge(await host.createDeviceSessionChallenge({ ...(profileTree ? { profileTree } : {}), device }));
+  if (challenge.origin !== new URL(origin).origin || (profileTree && challenge.profileTree !== profileTree) || challenge.device !== device) {
     throw new Error("The host's session challenge names another host, profile or device");
   }
   const signature = sign(null, deviceSessionChallengeBytes(challenge), privateKey(seed)).toString("base64url");
@@ -43,5 +56,5 @@ export async function openDeviceSession(origin: string, profileTree: string, dev
   if (session.device !== device || typeof session.token !== "string" || !Number.isSafeInteger(session.expiresAt)) {
     throw new Error("The host opened a session for another device");
   }
-  return session;
+  return { session, profileTree: challenge.profileTree };
 }

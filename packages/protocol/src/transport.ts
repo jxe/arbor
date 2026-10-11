@@ -381,7 +381,7 @@ export class ProtocolClient {
     return decodePublishedDeviceKeys(await response.json(), profileTree);
   }
 
-  async createDeviceSessionChallenge(input: { profileTree: TreeID; device: string }): Promise<DeviceSessionChallenge> {
+  async createDeviceSessionChallenge(input: { profileTree?: TreeID; device: string }): Promise<DeviceSessionChallenge> {
     const response = await this.checked(await this.request("/.overstory/device-sessions/challenges", {
       method: "POST",
       headers: { "content-type": "application/json" },
