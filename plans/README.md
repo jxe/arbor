@@ -97,6 +97,11 @@ When Joe shares by link, alongside Web 025: an access link must not leak its sec
 URLs, history or logs. Nothing is in production yet, so until then the spec carries the
 requirement.
 
+**[Release 004: an intro video for invited friends](release/004-intro-video.md).**
+Joe wants a short video to send with an invitation: getting set up, the iPhone gestures, and
+agents. He records and narrates; the plan holds the shot list, the demo setup and how the
+cut is assembled. After the first release is out.
+
 **[Sharing 001: join on an iPhone first, add a Mac later](sharing/001-join-on-iphone-first.md).**
 An invitation link is usually tapped on a phone, where today it ends at an app that can only
 pair with a Mac. Join from the iPhone with the same link, then add a Mac by scanning a code
