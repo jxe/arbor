@@ -59,6 +59,13 @@ xcodebuild archive -quiet "$@" -scheme Story -configuration Release \
 app="$work/Story.app"
 ditto "$work/Story.xcarchive/Products/Applications/Story.app" "$app"
 
+# The app must find every framework it links by @rpath, or it exits at launch before showing anything.
+otool -l "$app/Contents/MacOS/Story" | grep -q "path @executable_path/../Frameworks " \
+  || { echo "error: Story has no run path to Contents/Frameworks" >&2; exit 1; }
+for library in $(otool -L "$app/Contents/MacOS/Story" | sed -n 's|^[[:space:]]*@rpath/\([^ ]*\) .*|\1|p'); do
+  [ -e "$app/Contents/Frameworks/$library" ] || { echo "error: $library is not in Contents/Frameworks" >&2; exit 1; }
+done
+
 # Inside out: each nested binary, then the app that seals them.
 sign() { codesign --force --sign "$identity" --options runtime --timestamp "$@"; }
 sparkle="$app/Contents/Frameworks/Sparkle.framework"

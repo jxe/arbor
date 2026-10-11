@@ -93,6 +93,8 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: B7P78ULCXS
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": StoryApp/Story.entitlements
+        # Where the Mac app's embedded frameworks (Sparkle) are found at launch.
+        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks"
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         TARGETED_DEVICE_FAMILY: "1,2"

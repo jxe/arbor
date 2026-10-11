@@ -423,6 +423,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "$(inherited) @executable_path/../Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = org.nxhx.Arbor;
 				PRODUCT_MODULE_NAME = StoryApp;
 				SDKROOT = auto;
@@ -598,6 +599,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "$(inherited) @executable_path/../Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = org.nxhx.Arbor;
 				PRODUCT_MODULE_NAME = StoryApp;
 				SDKROOT = auto;
