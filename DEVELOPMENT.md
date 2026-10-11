@@ -222,6 +222,22 @@ OVERSTORYD_TEST_POSTGRES_DSN='postgresql://user:password@127.0.0.1:5432/postgres
 
 The Postgres test creates and drops a uniquely named `story_test_*` schema. It does not use an existing application schema.
 
+## Releasing
+
+`tools/release.sh <version>` (or `bun run release <version>`) releases what
+people install, at one version: the Mac app as a GitHub release with the
+notarized DMG and the Sparkle appcast, the iPhone app as an upload to App Store
+Connect, and the `story` command as `@ovst/cli` on npm. `--only mac,ios,npm`
+takes any subset. It builds and checks first, asks once, then publishes; the
+build number is the commit count. It pushes `main`, which deploys the host.
+
+It runs on Joe's Mac: it needs the Developer ID certificate, the
+`story-notary` keychain profile, the Sparkle signing key, Xcode signed in to
+the team, and `gh` and `npm` logged in. Two steps stay manual: adding the new
+TestFlight build to its tester group, and approving the npm publish when npm
+stages it. The pieces are `swift/scripts/release-mac.sh`,
+`swift/scripts/release-ios.sh` and `bun run build:cli:package`.
+
 ## Disposable browser smoke test
 
 Use fresh directories rather than the checked-in fixture or your real Story data home:

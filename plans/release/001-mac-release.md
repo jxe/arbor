@@ -33,7 +33,7 @@
 
 1. **Acknowledgements.** Add an acknowledgements file for Bun, `@parcel/watcher`, Quagmire, Yams and Sparkle.
 2. **Clean-machine walkthrough (Joe).** On a Mac account that has never run Story: download, pass Gatekeeper, approve the login item, join from an invitation link, and pair an iPhone. Then publish a second release and confirm the update installs and the helper restarts.
-3. **Publish (Joe's go-ahead).** Create the GitHub Release tagged `v<version>` with the DMG and `appcast.xml`. Set `OVERSTORYD_STORY_MAC_URL` on the host so the invitation page offers the download, and add the link on nxhx.org. Replace the symlink procedure in `packages/overstoryd/deploy/README.md` with the DMG install.
+3. **Publish (Joe's go-ahead).** Run `tools/release.sh <version>`, which creates the GitHub release tagged `v<version>` with the DMG, a `Story.dmg` copy for a stable link, and `appcast.xml`. The script has not yet run to the end. Set `OVERSTORYD_STORY_MAC_URL` on the host so the invitation page offers the download, and add the link on nxhx.org. Replace the symlink procedure in `packages/overstoryd/deploy/README.md` with the DMG install.
 4. **Close out.** Record the evidence in `status.md` and delete this plan.
 
 ## Not verified
