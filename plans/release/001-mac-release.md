@@ -31,11 +31,11 @@
 
 ## Steps
 
-4. **Updates.** Add Sparkle as a macOS-only dependency with `SUFeedURL` set to `https://github.com/jxe/arbor/releases/latest/download/appcast.xml`, a Check for Updates menu item, and the public key in `Info.plist`; Joe generates the signing key and keeps the private half in his keychain. The release script signs Sparkle's nested helpers and writes the signed appcast.
-5. **Acknowledgements.** Add an acknowledgements file for Bun, `@parcel/watcher`, Quagmire, Yams and Sparkle.
-6. **Clean-machine walkthrough (Joe).** On a Mac account that has never run Story: download, pass Gatekeeper, approve the login item, join from an invitation link, and pair an iPhone. Then publish a second release and confirm the update installs and the helper restarts.
-7. **Publish (Joe's go-ahead).** Create the GitHub Release. Set `OVERSTORYD_STORY_MAC_URL` on the host so the invitation page offers the download, and add the link on nxhx.org. Replace the symlink procedure in `packages/overstoryd/deploy/README.md` with the DMG install.
-8. **Close out.** Record the evidence in `status.md` and delete this plan.
+1. **Updates.** Add Sparkle as a macOS-only dependency with `SUFeedURL` set to `https://github.com/jxe/arbor/releases/latest/download/appcast.xml`, a Check for Updates menu item, and the public key in `Info.plist`; Joe generates the signing key and keeps the private half in his keychain. The release script signs Sparkle's nested helpers and writes the signed appcast.
+2. **Acknowledgements.** Add an acknowledgements file for Bun, `@parcel/watcher`, Quagmire, Yams and Sparkle.
+3. **Clean-machine walkthrough (Joe).** On a Mac account that has never run Story: download, pass Gatekeeper, approve the login item, join from an invitation link, and pair an iPhone. Then publish a second release and confirm the update installs and the helper restarts.
+4. **Publish (Joe's go-ahead).** Create the GitHub Release. Set `OVERSTORYD_STORY_MAC_URL` on the host so the invitation page offers the download, and add the link on nxhx.org. Replace the symlink procedure in `packages/overstoryd/deploy/README.md` with the DMG install.
+5. **Close out.** Record the evidence in `status.md` and delete this plan.
 
 ## Not verified
 
