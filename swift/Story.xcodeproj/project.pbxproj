@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		00CF3804F0A62172853CECBD /* StoryDirectoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A27A7EADF20AC6C392158935 /* StoryDirectoryView.swift */; };
 		138AB71328EADD327DF05358 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0F57E1CDD14CFF64B73C4196 /* Assets.xcassets */; };
+		14554EF5D50A77EC9DE05CCB /* StoryTour.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71E92471C42C9DD9FAE87E05 /* StoryTour.swift */; };
 		18B2099CB8B2E619C05D95C9 /* StoryAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44DCE9BA85E5A6914ED7A28A /* StoryAppTests.swift */; };
 		2389F5B89ABF83893F8BFCED /* StoryOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B12A0A099353DC70B96556 /* StoryOnboarding.swift */; };
 		25A3618F79041C1CA3AF0706 /* StoryAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EDB49754CACAEB6EA0D809C /* StoryAppModel.swift */; };
@@ -74,6 +75,7 @@
 		570CA5BE42A3C7740713926E /* StorySyncRESTClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncRESTClient.swift; sourceTree = "<group>"; };
 		5CA3B5A57DFF35B1C2881F8B /* HostAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostAccountService.swift; sourceTree = "<group>"; };
 		63D9EA3BB99A535CFAB23B48 /* StoryApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryApp.swift; sourceTree = "<group>"; };
+		71E92471C42C9DD9FAE87E05 /* StoryTour.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryTour.swift; sourceTree = "<group>"; };
 		73B68E87641593E3050F1F40 /* StoryEditor */ = {isa = PBXFileReference; lastKnownFileType = folder; name = StoryEditor; path = Packages/StoryEditor; sourceTree = SOURCE_ROOT; };
 		7EDB49754CACAEB6EA0D809C /* StoryAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAppModel.swift; sourceTree = "<group>"; };
 		8B3FAFCE4CBE59350772DC86 /* StorySupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySupportDirectories.swift; sourceTree = "<group>"; };
@@ -175,6 +177,7 @@
 				ECF67517026BEB4C160F1B29 /* StorySaveDiagnostics.swift */,
 				C14AB815B7145C5339991F4C /* StoryStyle.swift */,
 				8B3FAFCE4CBE59350772DC86 /* StorySupportDirectories.swift */,
+				71E92471C42C9DD9FAE87E05 /* StoryTour.swift */,
 				0FDE2E5423C22378EE9EAC6B /* StoryUpdates.swift */,
 				D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */,
 				F6B87FA2419E6805DE2A2DD2 /* VoiceRecordingIntents.swift */,
@@ -364,6 +367,7 @@
 				6A886DB15992427E3D306299 /* StorySyncProcessSupervisor.swift in Sources */,
 				43B73395F5BC136A8F372B5B /* StorySyncProtocol.swift in Sources */,
 				7E28C9228D2AD90BA27BBCC8 /* StorySyncRESTClient.swift in Sources */,
+				14554EF5D50A77EC9DE05CCB /* StoryTour.swift in Sources */,
 				9BD579B02F3143195AFB5663 /* StoryUpdates.swift in Sources */,
 				B7927EDF50F594B3EB1D11E5 /* StoryVisits.swift in Sources */,
 				8D856512BD7DE6492C00A93E /* VoiceRecordingIntents.swift in Sources */,

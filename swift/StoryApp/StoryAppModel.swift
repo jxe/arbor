@@ -2074,6 +2074,15 @@ final class StoryWorkspaceState {
         return receipt
     }
 
+    /// Whether the sample pages are open instead of a tree.
+    var isShowingTour: Bool { home.tree == StoryTour.tree }
+
+    /// Open the sample pages: a workspace in memory, with no account or host.
+    func openTour() async {
+        await switchProvider(StoryTour.provider(), home: StoryTour.home, launchLocation: .reference(StoryTour.welcome),
+                             detail: "Sample pages on this device")
+    }
+
     func switchProvider(
         _ nextProvider: any WorkspaceProvider,
         home nextHome: WorkspaceReference,

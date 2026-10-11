@@ -587,6 +587,15 @@ struct StoryAppTests {
         #expect(!StorySupportDirectories.pendingVoiceRecordings.path.contains("Hunch"))
     }
 
+    @Test("The sample pages open on a page that edits, with the others beside it")
+    func tourProvider() async throws {
+        let provider = StoryTour.provider()
+        let welcome = try await provider.resolve(StoryTour.welcome)
+        #expect(welcome.title == "Welcome to Story")
+        #expect(welcome.surface.supportsDocumentSession)
+        #expect(try await provider.children(of: StoryTour.home).count == 3)
+    }
+
     @Test("Directory cache round-trips and avatar hashes cannot escape the cache")
     func directoryCache() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)

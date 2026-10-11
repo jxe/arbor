@@ -241,7 +241,10 @@ without requiring the remote community to be reachable.
 On iOS, setup is pairing-only: scan a pairing QR code from an existing administrator
 device, or paste that same pairing payload when scanning is unavailable. Identity
 creation and recovery are not offered. Existing paired accounts and replicas retain
-their independent device authorization and offline restoration.
+their independent device authorization and offline restoration. A device with no
+account also offers **Look Around First**, which opens a few sample pages held in
+memory: they edit like any page, nothing is stored or sent, and a bar at the
+bottom returns to pairing.
 
 The Mac app already bundles Bun, Story Sync, and its native watcher. Shell tools
 are build dependencies, not user installation prerequisites. Background service

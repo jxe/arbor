@@ -16,7 +16,7 @@
 - `swift/scripts/release-ios.sh <version> <build>` archives the iPhone and iPad app, signs it with the team's managed distribution identity and uploads it to App Store Connect. Build 1 of `0.1.0` was uploaded on 2026-10-11 with the account signed in to Xcode.
 - The build carries `ITSAppUsesNonExemptEncryption` (false), orientation keys for both device families, and `PrivacyInfo.xcprivacy` (UserDefaults and file timestamps; nothing collected or tracked). The icon preview masters are out of the bundle.
 - The app record exists for bundle ID `org.nxhx.Arbor`, which stays (see [old names](../../docs/architecture/old-names.md)).
-- The iPhone app pairs with an account that already exists and does nothing else at first launch. That is enough here: each friend has a Mac.
+- The iPhone app pairs with an account that already exists; each friend has a Mac. With no account it also offers sample pages held in memory, which is the reviewer's way in. That is in the source, not yet in an uploaded build.
 
 ## Steps
 
@@ -27,5 +27,5 @@
 
 ## Not verified
 
-- Whether beta review accepts a pairing-only app without a demo account. If it does not, the reviewer path from Release 003 moves here.
+- Whether beta review accepts the sample pages as enough to review.
 - Friends need iOS 27.

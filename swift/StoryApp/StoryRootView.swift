@@ -4271,6 +4271,19 @@ struct StoryIOSLaunchView: View {
                 StoryRootView(workspace: workspace) {
                     resetForPairing()
                 }
+                .safeAreaInset(edge: .bottom) {
+                    if workspace.isShowingTour {
+                        HStack {
+                            Text("Sample pages. Nothing here is saved.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Pair with a Mac") { resetForPairing() }
+                                .font(.footnote.weight(.semibold))
+                        }
+                        .padding(.horizontal).padding(.vertical, 10)
+                        .background(.bar)
+                    }
+                }
             } else {
                 onboarding
             }
@@ -4369,6 +4382,20 @@ struct StoryIOSLaunchView: View {
                         confirmationCode = nil
                         scanError = nil
                         phase = .scanning
+                    }
+                } footer: {
+                    Text("In Story on your Mac, choose Sync & Accounts, then Pair another device.")
+                }
+                if accounts.isEmpty {
+                    Section {
+                        Button("Look Around First", systemImage: "doc.text.magnifyingglass") {
+                            Task {
+                                await workspace.openTour()
+                                ready = true
+                            }
+                        }
+                    } footer: {
+                        Text("Opens a few sample pages kept on this iPhone. Nothing is saved or synced.")
                     }
                 }
                 if let scanError { Section { Text(scanError).foregroundStyle(.red) } }
