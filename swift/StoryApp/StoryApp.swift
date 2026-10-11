@@ -337,26 +337,6 @@ final class StoryApplicationDelegate: NSObject, NSApplicationDelegate {
     var workspace: StoryWorkspaceState?
     private var terminationPending = false
 
-    /// The menu bar's order after the application menu. SwiftUI puts every
-    /// `CommandMenu` between View and Window, so the delegate reorders.
-    private static let menuOrder = ["Tree", "Page", "Edit", "Format", "View", "Window", "Help"]
-
-    /// SwiftUI may rebuild the menu bar on any update, so restore the order
-    /// each pass; the check is a comparison of a handful of titles.
-    func applicationWillUpdate(_ notification: Notification) {
-        guard let menu = NSApp.mainMenu, menu.items.count > 1 else { return }
-        let items = Array(menu.items.dropFirst())
-        // A menu this list does not name stays just before Window.
-        let unnamed = Self.menuOrder.firstIndex(of: "Window")!
-        let rank = { (item: NSMenuItem) in Self.menuOrder.firstIndex(of: item.title).map { $0 * 2 } ?? unnamed * 2 - 1 }
-        let ordered = items.enumerated()
-            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
-            .map(\.element)
-        guard ordered != items else { return }
-        for item in items { menu.removeItem(item) }
-        for item in ordered { menu.addItem(item) }
-    }
-
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let workspace, !terminationPending else { return terminationPending ? .terminateLater : .terminateNow }
         terminationPending = true
