@@ -5087,6 +5087,7 @@ private struct StoryProfileWidget: View {
                     reservesHostHandle: workspace.isCommunityMembershipTree,
                     hostOrigin: workspace.directory.first(where: { $0.id == model.currentReference.tree.rawValue && $0.isCommunityProfile })?.origin.absoluteString,
                     prefill: prefill,
+                    current: { await model.currentProfileDocument() },
                     add: {
                         try await model.addProfileMember(treeID: $0, handle: $1)
                         reloadAfterDismiss = true
@@ -5327,6 +5328,8 @@ private struct StoryProfileMembersSheet: View {
     let reservesHostHandle: Bool
     let hostOrigin: String?
     let prefill: String?
+    /// The member list as the page's editor holds it now.
+    let current: () async -> StoryProfileDocument?
     let add: (String, String) async throws -> Void
     let invite: (String, String) async throws -> Void
     let remove: (String) async throws -> Void
@@ -5338,15 +5341,11 @@ private struct StoryProfileMembersSheet: View {
     @State private var query = ""
     @State private var busy = false
     @State private var message: String?
-    // The page behind the sheet reloads when it closes; until then the sheet tracks its own edits.
-    @State private var added: [StoryProfileDocument.Member] = []
-    @State private var removed: Set<String> = []
+    // The page behind the sheet reloads when it closes; the sheet reads the editor's copy.
+    @State private var live: StoryProfileDocument?
     @State private var confirmingRemoval: StoryProfileDocument.Member?
 
-    private var members: [StoryProfileDocument.Member] {
-        (profile.members + added.filter { member in !profile.members.contains { $0.profile == member.profile } })
-            .filter { !removed.contains($0.profile) }
-    }
+    private var members: [StoryProfileDocument.Member] { (live ?? profile).members }
 
     var body: some View {
         NavigationStack {
@@ -5372,10 +5371,11 @@ private struct StoryProfileMembersSheet: View {
                         }
                         Button("Create Invitation Link") { Task { await createInvitation(handle: handle) } }
                             .disabled(busy || handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Text("Choose the person's handle on this host. They join by opening the link in Story.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     } header: {
                         Text("Invite someone")
-                    } footer: {
-                        Text("Choose the person's handle on this host. They join by opening the link in Story.")
                     }
                     if let issued {
                         Section("Invitation link for ~\(issued.handle)") {
@@ -5440,6 +5440,7 @@ private struct StoryProfileMembersSheet: View {
         .frame(minWidth: 440, minHeight: 420)
 #endif
         .task {
+            live = await current()
             // Add to Group names the person already; there is nothing left to choose.
             if let prefill, !reservesHostHandle { await addMember(prefill, handle: "") }
             else if let prefill { treeID = prefill; addingExisting = true }
@@ -5486,16 +5487,12 @@ private struct StoryProfileMembersSheet: View {
     private func removeNow(_ member: StoryProfileDocument.Member) async {
         await run {
             try await remove(member.profile)
-            removed.insert(member.profile)
         }
     }
 
     private func addMember(_ profile: String, handle: String) async {
         await run {
             try await add(profile, handle)
-            let value = profile.trimmingCharacters(in: .whitespacesAndNewlines)
-            added.append(.init(profile: TreeID.isWellFormed(value) ? "overstory://\(value)/" : value,
-                               handle: handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : handle))
             query = ""
             treeID = ""
             existingHandle = ""
@@ -5514,7 +5511,6 @@ private struct StoryProfileMembersSheet: View {
                 throw ProtocolValidationError.invalidValue("This host address cannot form an invitation link")
             }
             try await invite(name, invitation.digest)
-            added.append(.init(profile: "invite:\(invitation.digest)", handle: name))
             issued = (name, link)
             handle = ""
         }
@@ -5536,6 +5532,7 @@ private struct StoryProfileMembersSheet: View {
         } catch {
             message = error.localizedDescription
         }
+        live = await current()
     }
 }
 

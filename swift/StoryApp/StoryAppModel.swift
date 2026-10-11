@@ -2725,6 +2725,14 @@ final class StoryAppModel {
         await workspace.refreshDirectory(force: true)
     }
 
+    /// The open page's profile frontmatter as its editor holds it now. A page's
+    /// node is as it was loaded; an update accepted since, such as a claimed
+    /// invitation, shows only here.
+    func currentProfileDocument() async -> StoryProfileDocument? {
+        guard currentReference.path == "/", let binding, let snapshot = try? await binding.snapshot() else { return nil }
+        return StoryProfileDocument.parse(snapshot.source)
+    }
+
     /// The profile frontmatter of a Markdown node, if it declares one.
     func profileDocument(for node: WorkspaceNode) -> StoryProfileDocument? {
         let source: String
