@@ -97,6 +97,7 @@ final class StoryApplicationDelegate: NSObject, NSApplicationDelegate {
     /// AppKit adds dictation and Emoji & Symbols to the Edit menu it finds at launch.
     func applicationWillFinishLaunching(_ notification: Notification) {
         StoryMenuBar.shared.install()
+        StoryAppIconSelection.shared.restore()
     }
 
     func applicationWillUpdate(_ notification: Notification) {

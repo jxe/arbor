@@ -4862,7 +4862,10 @@ private struct IOSAccountPanel: View {
                 if let message { Section { Text(message).foregroundStyle(.red) } }
             }
             .navigationTitle("Sync & Accounts")
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { StoryAppIconPicker() }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
         }
         .task { await load(); await workspace.refreshDirectory() }
         .sheet(isPresented: $addingAccount, onDismiss: { Task { await load() } }) {

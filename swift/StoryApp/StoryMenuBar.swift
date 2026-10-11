@@ -105,6 +105,25 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(window("Sync & Accounts…") { $0.showAccounts() })
         menu.addItem(window("People…") { $0.showPeople() })
+        let iconItem = NSMenuItem(title: "App Icon", action: nil, keyEquivalent: "")
+        let iconMenu = NSMenu(title: "App Icon")
+        for icon in StoryAppIcon.allCases {
+            let choice = item(icon.title) {
+                Task {
+                    await StoryAppIconSelection.shared.select(icon)
+                    if let error = StoryAppIconSelection.shared.error {
+                        let alert = NSAlert()
+                        alert.messageText = "Couldn’t Change App Icon"
+                        alert.informativeText = error
+                        alert.runModal()
+                    }
+                }
+            }
+            choice.refresh = { $0.state = StoryAppIconSelection.shared.selected == icon ? .on : .off }
+            iconMenu.addItem(choice)
+        }
+        iconItem.submenu = iconMenu
+        menu.addItem(iconItem)
         if StoryCommandLineTool.launcher != nil {
             menu.addItem(item("Install Command Line Tool…") { Task { await StoryCommandLineTool.installAndReport() } })
         }

@@ -8,12 +8,14 @@
 
 /* Begin PBXBuildFile section */
 		00CF3804F0A62172853CECBD /* StoryDirectoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A27A7EADF20AC6C392158935 /* StoryDirectoryView.swift */; };
+		082FACB404380CFE037D9A27 /* StoryAppIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCCF2321660F3AFFB1B3CC9F /* StoryAppIconTests.swift */; };
 		138AB71328EADD327DF05358 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0F57E1CDD14CFF64B73C4196 /* Assets.xcassets */; };
 		14554EF5D50A77EC9DE05CCB /* StoryTour.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71E92471C42C9DD9FAE87E05 /* StoryTour.swift */; };
 		18B2099CB8B2E619C05D95C9 /* StoryAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44DCE9BA85E5A6914ED7A28A /* StoryAppTests.swift */; };
 		2389F5B89ABF83893F8BFCED /* StoryOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B12A0A099353DC70B96556 /* StoryOnboarding.swift */; };
 		25A3618F79041C1CA3AF0706 /* StoryAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EDB49754CACAEB6EA0D809C /* StoryAppModel.swift */; };
 		25D14DC831AB83257FF4873C /* StorySaveDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF67517026BEB4C160F1B29 /* StorySaveDiagnostics.swift */; };
+		2F27D2A74FD1A0E850B4109F /* StoryAppIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 184C527B9CD3A7F77F069911 /* StoryAppIcon.swift */; };
 		3070177B9658900053719FAA /* StoryDailyDriverViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBAC914250ADC60AB8330AF5 /* StoryDailyDriverViews.swift */; };
 		43B73395F5BC136A8F372B5B /* StorySyncProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DC1C9155C6415735EFB900D /* StorySyncProtocol.swift */; };
 		4BB7FFC47B9602F5F4F43F15 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 1EBBD6708255637AC1839184 /* PrivacyInfo.xcprivacy */; };
@@ -66,6 +68,7 @@
 		0DC1C9155C6415735EFB900D /* StorySyncProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncProtocol.swift; sourceTree = "<group>"; };
 		0F57E1CDD14CFF64B73C4196 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		0FDE2E5423C22378EE9EAC6B /* StoryUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryUpdates.swift; sourceTree = "<group>"; };
+		184C527B9CD3A7F77F069911 /* StoryAppIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAppIcon.swift; sourceTree = "<group>"; };
 		1EBBD6708255637AC1839184 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		2310FA6DF2AC58696C3C95AF /* StorySyncLoopbackServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncLoopbackServices.swift; sourceTree = "<group>"; };
 		2497A2CC0E8257903E8DD80B /* StoryKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = StoryKit; path = Packages/StoryKit; sourceTree = SOURCE_ROOT; };
@@ -93,6 +96,7 @@
 		B5B1DB7105A6370E332021AC /* StorySyncLoopbackServicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncLoopbackServicesTests.swift; sourceTree = "<group>"; };
 		C14AB815B7145C5339991F4C /* StoryStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryStyle.swift; sourceTree = "<group>"; };
 		C801E1356B70DF981F10CE55 /* StoryAgentBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAgentBundleTests.swift; sourceTree = "<group>"; };
+		CCCF2321660F3AFFB1B3CC9F /* StoryAppIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAppIconTests.swift; sourceTree = "<group>"; };
 		D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryVisits.swift; sourceTree = "<group>"; };
 		E264714074530EDE343A1F69 /* StoryAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = StoryAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E461AB2FE619EC60E92149F0 /* StoryMenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryMenuBar.swift; sourceTree = "<group>"; };
@@ -153,6 +157,7 @@
 			isa = PBXGroup;
 			children = (
 				C801E1356B70DF981F10CE55 /* StoryAgentBundleTests.swift */,
+				CCCF2321660F3AFFB1B3CC9F /* StoryAppIconTests.swift */,
 				44DCE9BA85E5A6914ED7A28A /* StoryAppTests.swift */,
 				013BFCA263291982C814C4C8 /* StorySyncClientTests.swift */,
 				B5B1DB7105A6370E332021AC /* StorySyncLoopbackServicesTests.swift */,
@@ -172,6 +177,7 @@
 				08DF6DD4D68F12688B37CB50 /* Story.entitlements */,
 				B4988444CA00D5B4D30BFBF9 /* StoryAgentBundle.swift */,
 				63D9EA3BB99A535CFAB23B48 /* StoryApp.swift */,
+				184C527B9CD3A7F77F069911 /* StoryAppIcon.swift */,
 				7EDB49754CACAEB6EA0D809C /* StoryAppModel.swift */,
 				008227DF4607F9664CCB42A5 /* StoryCommandLineTool.swift */,
 				EEFC87D3C02AC6C37B8443A9 /* StoryConflictReview.swift */,
@@ -347,6 +353,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				80731DFD7207784658256DAD /* StoryAgentBundleTests.swift in Sources */,
+				082FACB404380CFE037D9A27 /* StoryAppIconTests.swift in Sources */,
 				18B2099CB8B2E619C05D95C9 /* StoryAppTests.swift in Sources */,
 				678D4AD72FDFF443A4356A01 /* StorySyncClientTests.swift in Sources */,
 				706F84BAD07E9C3CC796ECF7 /* StorySyncLoopbackServicesTests.swift in Sources */,
@@ -360,6 +367,7 @@
 				F5A083DC712E9DDC2FB183A2 /* HostAccountService.swift in Sources */,
 				C8A9FA9F81FECD5E612F0AA2 /* StoryAgentBundle.swift in Sources */,
 				9C704388497EA12B9D978089 /* StoryApp.swift in Sources */,
+				2F27D2A74FD1A0E850B4109F /* StoryAppIcon.swift in Sources */,
 				25A3618F79041C1CA3AF0706 /* StoryAppModel.swift in Sources */,
 				E4481610264F1B4CAAB5BAE9 /* StoryCommandLineTool.swift in Sources */,
 				FDFA8D98B41CFA8447349913 /* StoryConflictReview.swift in Sources */,
@@ -423,6 +431,7 @@
 		17BE8B39E81FDB4DE146193A /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "PageS Doorway StoryPath";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = StoryApp/Story.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
@@ -600,6 +609,7 @@
 		A52BA58663741C732CE6D70E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "PageS Doorway StoryPath";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = StoryApp/Story.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";

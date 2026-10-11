@@ -12,6 +12,32 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Story icon choices — 2026-10-11
+
+Story offers Story Path (Black, the primary icon), Page S, and Doorway.
+The Mac's Story > App Icon submenu changes the running Dock icon and restores
+its device-local preference at launch. It does not alter the Finder icon on
+the app bundle. iOS exposes a top-left toolbar menu in the pull-down Sync & Accounts
+panel and uses the system alternate-icon API; failed changes leave the current
+icon selected and show the error. Icon preferences do not sync with accounts.
+Story Path's inner paper corners use broader curves to fit the iOS mask; the
+original master is retained as `Story-StoryPath-v1-master.png`. The previous
+iOS StoryPath alternate name remains available for upgrade compatibility.
+
+Square source masters and the rendition command are documented in
+[IconPreviews](swift/StoryApp/IconPreviews/README.md). All 112 catalog slots (including the legacy StoryPath alias)
+were checked for correct dimensions and platform alpha: iOS images are opaque
+and full bleed, while Mac images have rounded tiles and transparent margins.
+Separate macOS app/test-bundle and iOS Simulator app builds passed. The built
+iOS Info.plist declares Page S, Doorway, and the legacy StoryPath alias for iPhone and iPad, and all three
+Mac runtime images load from the compiled asset catalog with the expected
+size and transparent corners. The affected dependency-pin test and link check
+passed. An additional iOS test-bundle build is blocked by existing references
+in `StoryAppTests.swift:601–607` to Mac-only `StoryAgentCode` and
+`StoryCloudBundle`. App-hosted tests and manual device switching remain
+unverified: the running debug Story app was preserved. No app was installed
+or released.
+
 ## Plan review: what is deployed — 2026-10-11
 
 A review of `plans/` found rows and plans still saying "not deployed" for work
