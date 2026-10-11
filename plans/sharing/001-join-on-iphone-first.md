@@ -25,11 +25,14 @@
 
 - **Backup before anything else.** Joining on an iPhone is not offered until the iPhone can back its identity up, in the Mac's backup format, to Files. The first-steps list on the iPhone requires it, as the Mac's does.
 - **Adding a Mac: the Mac shows the code, the phone scans it.** This is what people know from messaging apps, and a Mac has no good way to scan. It needs no pairing offer:
-  1. On the Mac, the person opens the same invitation link (or types the host's name). The host answers that the account is claimed, which tells the Mac the host and handle.
-  2. The Mac makes a device key and shows a QR code holding its DeviceID, public key and name, with a short confirmation code beside it.
-  3. On the iPhone, **Add a Mac** scans it, shows the name and the same confirmation code, and on approval adds the device to `devices.yaml`, an ordinary configuration edit by an administrator device.
-  4. The Mac, which has been asking the host for a session challenge by its DeviceID, gets one as soon as the device exists, signs in, and continues into its first steps.
+  1. The Mac makes a device key and shows a QR code holding its DeviceID, public key and name, with a short confirmation code beside it.
+  2. On the iPhone, **Add a Mac** scans it, shows the name and the same confirmation code, and on approval adds the device to `devices.yaml`, an ordinary configuration edit by an administrator device.
+  3. The Mac learns which host to ask (below), asks it for a session challenge by its DeviceID, gets one as soon as the device exists, signs in, and continues into its first steps.
   The QR code holds nothing secret. The confirmation code is what stops a person from approving a code shown by someone else's screen.
+- **Open: how the Mac learns the host without the person typing it.** The Mac starts knowing nothing, and there is no central place to ask. Candidates, which can be combined, with typing the host's name as the fallback under all of them:
+  - *Over the local network.* The QR code also carries an address and a one-time token for a listener the Mac opens while the code is on screen; after approval the iPhone posts the host's address to it. Immediate, and needs no account anywhere, but both devices must be on the same network, the iPhone asks for local-network permission, and a Mac firewall may ask too.
+  - *Through iCloud.* The iPhone writes the host's address to the app's iCloud key-value store and the Mac reads it. Nothing to approve and no shared network needed, but both devices must use one Apple Account, it can lag by seconds to a minute, and the Developer ID build needs an iCloud entitlement and provisioning profile it does not have today.
+  - *By handing over a link.* After approval the iPhone offers AirDrop or Handoff of the account's address, which opens Story on the Mac. One extra tap, no new permissions.
 - **Whether the Mac added this way is an administrator device** is the person's choice on the approval screen, defaulting to yes: without it the Mac cannot share.
 - **Open: what a phone-first person can do before they add a Mac.** Either the iPhone learns to create one notes tree under the account, or phone-first means reading and editing what others share. Decide before step 3.
 
