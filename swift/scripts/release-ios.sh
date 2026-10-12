@@ -24,7 +24,9 @@ work="$output/build"
 rm -rf "$work"
 mkdir -p "$work"
 
-if [ -f swift/Story.local.xcworkspace/contents.xcworkspacedata ]; then
+# tools/release.sh sets STORY_USE_PINNED_PACKAGES=1 to build against the pinned
+# Quagmire release rather than the sibling checkout the local workspace adds.
+if [ "${STORY_USE_PINNED_PACKAGES:-}" != "1" ] && [ -f swift/Story.local.xcworkspace/contents.xcworkspacedata ]; then
   set -- -workspace swift/Story.local.xcworkspace
 else
   set -- -project swift/Story.xcodeproj
