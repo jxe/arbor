@@ -143,6 +143,34 @@ application query, and content fragment survive. Overstory renderers translate
 the alias to the server-visible path suffix before emitting HTTP links. Nodes
 with a null stable key remain path-identified.
 
+### 4.1 Presented headings
+
+A client that presents an operational document as a page shows two headings
+that its source may lack. Neither is authored source.
+
+- **Title.** When the body does not begin with an H1, the page opens with a
+  presented H1 naming the node: the last segment of its logical path, which is
+  the body file's name without its extension, or the directory's name for
+  `_index.md`.
+- **Children.** When the document has no explicit `<!-- overstory:children -->`
+  marker and the implicit marker's remainder is not empty, the page ends with a
+  presented `# Children` H1 followed by that remainder. It closes every authored
+  section above it, so the remainder never reads as part of the last authored
+  section. An explicit marker presents its remainder where it stands, with no
+  presented heading.
+
+Indexing, searching, and transfers of authored blocks ignore presented
+headings. A selection that includes one carries only authored source, so moving
+a page's last section leaves the remainder with the page. Hosted output renders
+presented headings as a client does.
+
+Editing a presented heading materializes it through an ordinary content write.
+Editing the title writes it as the body's first H1. Renaming the Children
+heading, or adding content under it, writes `# Children` followed by an
+explicit marker after the authored source, and the remainder stays where it was
+under the now-authored heading. Materializing one heading never materializes
+the other.
+
 ## 5. Recognized authored files
 
 - `schema.cddl` declares a collection child schema, stable key, and optional
