@@ -151,7 +151,7 @@ that its source may lack. Neither is authored source.
 - **Title.** When the body does not begin with an H1, the page opens with a
   presented H1 naming the node: the last segment of its logical path, which is
   the body file's name without its extension, or the directory's name for
-  `_index.md`.
+  `_index.md`, with each hyphen shown as a space.
 - **Children.** When the document has no explicit `<!-- overstory:children -->`
   marker and the implicit marker's remainder is not empty, the page ends with a
   presented `# Children` H1 followed by that remainder. It closes every authored
