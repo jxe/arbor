@@ -12,6 +12,32 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Moved blocks keep their links — 2026-10-12
+
+Implemented, not installed or deployed. Two faults showed when sections moved
+from `/Social/Life-no-longer-socially-small.md` to `/Social.md` and their
+link rows read "(missing)".
+
+- **Move to Document carried relative links unchanged.** The moved bytes kept
+  hrefs written from the origin's directory. `StoryMarkdownCodec.transfer`
+  now takes the two source directories and rewrites each relative link in the
+  moved span as an origin edit (`rebasedRelativeHref`,
+  `markdownLinkRebasingEdits` in StoryKit), keeping parameters, query and
+  fragment, so the transfer is still one exact change. The fallback append and
+  Copy to Document rewrite the same links on the blocks they retype
+  (`rebasingLinks`); a copied block whose link changes is new text, not an
+  exact copy. Absolute, tree-rooted and cross-tree links are untouched.
+- **A keyed link whose path climbed above the root did not resolve at all.**
+  `resolveLogicalURL` rejected `..` at the root before the key was read. In
+  both stacks a relative reference that carries a stable key now drops the
+  excess `..`, so the key selects the node; a keyless one is still invalid
+  (`url-resolution.json`, `markdown-link-healing.json`). The links already
+  moved into `/Social.md` resolve again as written. Their stale paths are
+  rewritten when healing next runs for that page; nothing heals on open.
+
+Checks: `TransferPlanTests` (`movedLinksAreRebased`, `retypedLinksAreRebased`),
+StoryKit `LogicalURLTests`, `tests/unit/logical-url.test.ts`.
+
 ## Presented headings — 2026-10-12
 
 Implemented, not installed or deployed. Every client shows a page through one

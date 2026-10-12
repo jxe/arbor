@@ -87,3 +87,21 @@ private func healedHref(
         contentFragment: locator.contentFragment
     ))
 }
+
+/// The edits that keep a source's relative links pointing where they did when
+/// the source moves from a file in `from` to a file in `to`: one per href
+/// that reads differently from there, replacing only that href (UTF-8
+/// offsets, with the href it expects). See `rebasedRelativeHref`.
+public func markdownLinkRebasingEdits(_ source: String, from: String, to: String) -> [WorkspaceSourceEdit] {
+    markdownLinkDestinations(in: source).compactMap { destination in
+        guard let replacement = rebasedRelativeHref(destination.href, from: from, to: to) else { return nil }
+        let start = source.utf8.distance(from: source.startIndex, to: destination.range.lowerBound)
+        return WorkspaceSourceEdit(utf8Range: start..<(start + destination.href.utf8.count), replacement: replacement, expected: destination.href)
+    }
+}
+
+/// `source` with its relative links rebased from `from` to `to`.
+public func rebaseMarkdownLinks(_ source: String, from: String, to: String) -> String {
+    let edits = markdownLinkRebasingEdits(source, from: from, to: to)
+    return (try? WorkspaceDocumentPatch(baseContentRevision: "", edits: edits).applying(to: source)) ?? source
+}

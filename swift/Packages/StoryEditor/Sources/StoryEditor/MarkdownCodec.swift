@@ -588,6 +588,11 @@ public enum StoryMarkdownCodec {
     /// cannot be stated exactly (a block without its recorded source, blocks
     /// apart from each other, tab indentation, an empty destination, or bytes
     /// that would not reparse to the intended trees).
+    ///
+    /// `relink` names the two pages' source directories when they differ. A
+    /// relative link in the moved source is then rewritten, as an edit of the
+    /// origin inside the moved span, to name the same file from the
+    /// destination's directory; its key, query and fragment are kept.
     struct PlannedTransfer {
         var moves: [WorkspaceDocumentTransfer.Move]
         var edits: [WorkspaceDocumentTransfer.Edit]
@@ -597,7 +602,8 @@ public enum StoryMarkdownCodec {
     }
 
     static func transfer(_ roots: [Block], from blocks: [Block], ledger: StorySourceLedger,
-                         into destination: StoryMarkdownOpenedDocument) -> PlannedTransfer? {
+                         into destination: StoryMarkdownOpenedDocument,
+                         relink: (from: String, to: String)? = nil) -> PlannedTransfer? {
         // A page's generated child links reach here materialized (they lose
         // their projected mark in `materializingProjectedChildren`). They have
         // no source to move and the origin generates them again, so they stay.
@@ -667,6 +673,20 @@ public enum StoryMarkdownCodec {
             moves.append(.init(source: span, anchor: .init(document: .destination, range: anchor), side: .after))
         }
         edits += placed.flatMap(\.edits).map { WorkspaceDocumentTransfer.Edit(document: .origin, edit: $0) }
+        // Links are rewritten after the shapes are known to be right: a
+        // rewritten href changes no block's kind or nesting, only where its
+        // link leads from the destination's directory.
+        var relinked: [String]?
+        if let relink {
+            relinked = placed.map { rebaseMarkdownLinks($0.raw, from: relink.from, to: relink.to) }
+            for item in placed {
+                for edit in markdownLinkRebasingEdits(item.record.raw, from: relink.from, to: relink.to) {
+                    let start = item.record.range.lowerBound + edit.utf8Range.lowerBound
+                    edits.append(.init(document: .origin, edit: .init(
+                        utf8Range: start..<(start + edit.utf8Range.count), replacement: edit.replacement, expected: edit.expected)))
+                }
+            }
+        }
         edits.sort { ($0.document == .origin ? 0 : 1, $0.edit.utf8Range.lowerBound) < ($1.document == .origin ? 0 : 1, $1.edit.utf8Range.lowerBound) }
         // The origin without the moved spans, and its ledger.
         let removed = Set(placed.map(\.record.block.id))
@@ -689,9 +709,10 @@ public enum StoryMarkdownCodec {
         guard sameShape(open(source: originSource, revision: "transfer", identitySeed: "origin").blocks, remaining),
               sameShape(open(source: destinationSource, revision: "transfer", identitySeed: "destination").blocks,
                         foldHeadingsInScopes(removingProjectedBlocks(from: destination.blocks) + roots.map(stripped))) else { return nil }
+        let landing = edits.contains { $0.document == .destination } ? String(target.source.dropLast(newline.count)) + blank : target.source
         return PlannedTransfer(moves: moves, edits: edits, originSource: originSource,
             originLedger: StorySourceLedger(source: originSource, revision: ledger.revision, envelope: ledger.envelope, newline: ledger.newline, records: records),
-            destinationSource: destinationSource)
+            destinationSource: relinked.map { landing + $0.joined() } ?? destinationSource)
     }
 
     private static func removingSubtrees(_ ids: Set<BlockID>, from blocks: [Block]) -> [Block] {
@@ -1160,6 +1181,43 @@ public enum StoryMarkdownCodec {
 
     static func isProjectedChild(_ block: Block) -> Bool {
         block.metadata[projectedChildMetadataKey] == "true"
+    }
+
+    /// Blocks retyped or copied into a page in another directory, with their
+    /// relative links (link rows, images, links in text) rewritten to name
+    /// the same files from there. See `rebasedRelativeHref`.
+    static func rebasingLinks(in blocks: [Block], from: String, to: String) -> [Block] {
+        func text(_ value: AttributedString) -> AttributedString {
+            var result = value
+            for run in value.runs {
+                guard let link = run.link, let rebased = rebasedRelativeHref(link.absoluteString, from: from, to: to),
+                      let url = URL(string: rebased) else { continue }
+                result[run.range].link = url
+            }
+            return result
+        }
+        func rebase(_ block: Block) -> Block {
+            var value = block
+            switch block.kind {
+            case let .paragraph(inline): value.kind = .paragraph(text: text(inline))
+            case let .heading(level, inline): value.kind = .heading(level: level, text: text(inline))
+            case let .bullet(inline): value.kind = .bullet(text: text(inline))
+            case let .numbered(inline): value.kind = .numbered(text: text(inline))
+            case let .todo(inline, done): value.kind = .todo(text: text(inline), done: done)
+            case let .quote(inline): value.kind = .quote(text: text(inline))
+            case let .toggle(title): value.kind = .toggle(title: text(title))
+            case let .documentLink(label, reference):
+                if let rebased = rebasedRelativeHref(reference.rawValue, from: from, to: to) {
+                    value.kind = .documentLink(label: label, reference: DocumentReference(rebased))
+                }
+            case let .image(source, alt):
+                if let rebased = rebasedRelativeHref(source, from: from, to: to) { value.kind = .image(source: rebased, alt: alt) }
+            case .code, .divider, .templateButton, .unsupported: break
+            }
+            value.children = block.children.map(rebase)
+            return value
+        }
+        return blocks.map(rebase)
     }
 
     static func materializingProjectedChildren(_ blocks: [Block]) -> [Block] {

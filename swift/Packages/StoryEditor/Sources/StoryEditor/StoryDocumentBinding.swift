@@ -205,8 +205,11 @@ public final class StoryDocumentBinding {
     /// Move `roots` (subtrees of this document, in document order) to the end
     /// of `destination` as one change stating both documents. Nil when it
     /// cannot be stated that way (the provider, the source, or diverged local
-    /// work), and nothing has changed; the caller falls back.
-    public func transferBlocks(_ roots: [Block], into destination: any WorkspaceDocumentSession) async throws -> WorkspaceDocumentTransferResult? {
+    /// work), and nothing has changed; the caller falls back. `relink` names
+    /// the two pages' source directories when they differ, so the moved
+    /// source's relative links are rewritten to lead where they did.
+    public func transferBlocks(_ roots: [Block], into destination: any WorkspaceDocumentSession,
+                               relink: (from: String, to: String)? = nil) async throws -> WorkspaceDocumentTransferResult? {
         await flush()
         if let failure = lastError { throw failure }
         guard source.isSettled, !holdsTransferred, ledger.source.utf8.elementsEqual(source.basis.source.utf8),
@@ -217,7 +220,7 @@ public final class StoryDocumentBinding {
                                               identitySeed: String(describing: target.reference.identity))
         // The editor may have moved on while the destination was read.
         guard source.isSettled, basis == source.basis, mountedSource.utf8.elementsEqual(source.latestSource.utf8),
-              let planned = StoryMarkdownCodec.transfer(roots, from: document.children, ledger: ledger, into: opened) else { return nil }
+              let planned = StoryMarkdownCodec.transfer(roots, from: document.children, ledger: ledger, into: opened, relink: relink) else { return nil }
         let transfer = try WorkspaceDocumentTransfer(origin: basis, destination: target, moves: planned.moves, edits: planned.edits,
                                                      originSource: planned.originSource, destinationSource: planned.destinationSource)
         func ids(_ blocks: [Block]) -> [BlockID] { blocks.flatMap { [$0.id] + ids($0.children) } }

@@ -678,7 +678,12 @@ public final class StoryEditorHost: EditorHost {
                 errorAction("Couldn't copy blocks: this page changed while copying. Try again.")
                 return false
             }
-            let copies = blocks.map { $0.withFreshIDs() }
+            // A copied block whose relative links must change is new text in
+            // the destination; the rest stay exact copies of this page's source.
+            let relink = await relink(to: destination)
+            let copies = blocks.map { $0.withFreshIDs() }.map { copy in
+                relink.map { StoryMarkdownCodec.rebasingLinks(in: [copy], from: $0.from, to: $0.to)[0] } ?? copy
+            }
             var mapping: [BlockID: BlockID] = [:]
             func map(_ source: Block, _ copy: Block) {
                 mapping[copy.id] = source.id
@@ -713,8 +718,10 @@ public final class StoryEditorHost: EditorHost {
         }
         if let moved = await moveToDocument(decoded, blocks) { return moved }
         do {
+            let relink = await relink(to: decoded)
+            let appended = relink.map { StoryMarkdownCodec.rebasingLinks(in: blocks, from: $0.from, to: $0.to) } ?? blocks
             _ = try await withDocumentSession(decoded) { session in
-                try await admitBlockEdit(in: session) { $0 += blocks }
+                try await admitBlockEdit(in: session) { $0 += appended }
             }
             return true
         } catch {
@@ -734,9 +741,10 @@ public final class StoryEditorHost: EditorHost {
     private func moveToDocument(_ destination: WorkspaceReference, _ blocks: [Block]) async -> Bool? {
         guard destination.tree == binding.reference.tree, destination.identity != binding.reference.identity,
               !blocks.isEmpty, blocks.allSatisfy({ binding.ledger.records[$0.id] != nil }) else { return nil }
+        let relink = await relink(to: destination)
         func attempt() async throws -> Bool {
             try await withDocumentSession(destination) { session in
-                try await self.binding.transferBlocks(blocks, into: session) != nil
+                try await self.binding.transferBlocks(blocks, into: session, relink: relink) != nil
             }
         }
         do {
@@ -758,6 +766,17 @@ public final class StoryEditorHost: EditorHost {
         }
         errorAction("Couldn’t move these blocks together. They remain in the original page.")
         return false
+    }
+
+    /// This page's source directory and `destination`'s, when a relative link
+    /// written here reads differently there. Nil for another tree (its links
+    /// are not relative to this one) and for a page in the same directory.
+    private func relink(to destination: WorkspaceReference) async -> (from: String, to: String)? {
+        guard destination.tree == binding.reference.tree else { return nil }
+        let node = try? await provider.resolve(destination)
+        let directory = node?.sourceDirectory
+            ?? markdownSourceDirectory(nodePath: destination.path, body: knownBodies[destination.path] ?? .sibling)
+        return directory == sourceDirectory ? nil : (sourceDirectory, directory)
     }
 
     /// Open a provider session for one operation and always close it.

@@ -326,8 +326,12 @@ func canonicalNodePath(_ input: String) -> String {
     canonicalDecodedNodePath(input) ?? input
 }
 
-/// Decode each raw path component exactly once and resolve dot segments.
-private func resolveTreePath(sourceDirectory: String, rawDestination: String) -> String? {
+/// Decode each raw path component exactly once and resolve dot segments. A
+/// path cannot escape its tree root: `..` at the root is invalid, unless
+/// `clampAtRoot` says the reference also carries a stable key. The key then
+/// selects the node and the path is only a stale hint (a link moved to a
+/// shallower directory with its bytes unchanged), so the excess `..` is dropped.
+private func resolveTreePath(sourceDirectory: String, rawDestination: String, clampAtRoot: Bool = false) -> String? {
     var stack: [String]
     if rawDestination.hasPrefix("/") {
         stack = []
@@ -341,8 +345,11 @@ private func resolveTreePath(sourceDirectory: String, rawDestination: String) ->
         if segment.contains("/") || segment.contains("\\") || segment.contains("\0") { return nil }
         if segment == "." { continue }
         if segment == ".." {
-            guard !stack.isEmpty else { return nil }
-            stack.removeLast()
+            if stack.isEmpty {
+                guard clampAtRoot else { return nil }
+            } else {
+                stack.removeLast()
+            }
         } else {
             stack.append(segment)
         }
@@ -408,7 +415,8 @@ public func resolveLogicalURL(sourceDirectory: String, href: String) -> Resolved
         let parsed = locatorState(destination: destination, fragment: fragment),
         // An invitation goes only on an account locator at a host.
         parsed.locator.invite == nil,
-        let path = resolveTreePath(sourceDirectory: sourceDirectory, rawDestination: parsed.rawPath)
+        let path = resolveTreePath(sourceDirectory: sourceDirectory, rawDestination: parsed.rawPath,
+                                   clampAtRoot: parsed.locator.stableKey != nil)
     else { return nil }
     return .local(path: path, locator: parsed.locator)
 }
@@ -455,6 +463,37 @@ public func relativeFileReference(from sourceDirectory: String, toFile targetFil
 
 private func querySuffix(_ applicationQuery: String?) -> String {
     applicationQuery.map { "?\($0)" } ?? ""
+}
+
+/// A relative href written in a source file in `from`, as the same file in
+/// `to` writes it: the same target file, relative to the new directory, with
+/// its parameters, query and fragment exactly as written. This is the rewrite
+/// for source that moves between files with its links (blocks moved to
+/// another page); it needs no knowledge of the target. Nil when the href is
+/// not relative (a scheme, a tree-rooted path, a bare fragment), when it does
+/// not resolve inside the tree from `from`, or when it reads the same from `to`.
+public func rebasedRelativeHref(_ href: String, from: String, to: String) -> String? {
+    guard !href.hasPrefix("/"), !href.hasPrefix("#"),
+          schemeExpression.firstMatch(in: href, range: NSRange(href.startIndex..., in: href)) == nil else { return nil }
+    let end = href.firstIndex { $0 == ";" || $0 == "?" || $0 == "#" } ?? href.endIndex
+    let rawPath = href[..<end]
+    guard !rawPath.isEmpty, let base = canonicalDecodedNodePath(from) else { return nil }
+    var stack = base.split(separator: "/").map(String.init)
+    for rawSegment in rawPath.split(separator: "/", omittingEmptySubsequences: true) {
+        guard let segment = String(rawSegment).removingPercentEncoding,
+              !segment.contains("/"), !segment.contains("\\"), !segment.contains("\0") else { return nil }
+        if segment == "." { continue }
+        if segment == ".." {
+            guard !stack.isEmpty else { return nil }
+            stack.removeLast()
+        } else {
+            stack.append(segment)
+        }
+    }
+    var reference = relativeFileReference(from: to, toFile: "/" + stack.joined(separator: "/"))
+    if rawPath.hasSuffix("/"), !reference.hasSuffix("/") { reference += "/" }
+    let rebased = reference + href[end...]
+    return rebased == href ? nil : rebased
 }
 
 /// A node a Markdown link names, with the locator state the link carries.

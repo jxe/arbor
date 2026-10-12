@@ -185,6 +185,33 @@ final class LogicalURLTests: XCTestCase {
         var expected: String
     }
 
+    func testRelativeHrefsRebaseBetweenDirectories() {
+        // Source moved from a file in /Social to a file at the root, and back down.
+        XCTAssertEqual(rebasedRelativeHref("../Work/Q.md#arbor-key=id:341rcu", from: "/Social", to: "/"), "Work/Q.md#arbor-key=id:341rcu")
+        XCTAssertEqual(rebasedRelativeHref("Plans/2026.md?view=board#goals", from: "/Social", to: "/"), "Social/Plans/2026.md?view=board#goals")
+        XCTAssertEqual(rebasedRelativeHref("Work/Q.md;overstory-key=id:341rcu#part", from: "/", to: "/Social/Life"), "../../Work/Q.md;overstory-key=id:341rcu#part")
+        XCTAssertEqual(rebasedRelativeHref("My%20Notes/a%20b.md", from: "/x", to: "/y"), "../x/My%20Notes/a%20b.md")
+        XCTAssertEqual(rebasedRelativeHref("Folder/", from: "/x", to: "/"), "x/Folder/")
+        // Not relative, not inside the tree, or unchanged: left as written.
+        for href in ["https://example.org/a.md", "/Top.md", "#part", "overstory://tr_other/x", "mailto:a@b.c", "../../escape.md"] {
+            XCTAssertNil(rebasedRelativeHref(href, from: "/Social", to: "/"), href)
+        }
+        XCTAssertNil(rebasedRelativeHref("a.md", from: "/Social", to: "/Social"))
+        let source = "[Q](../Work/Q.md#overstory-key=id:341rcu) and ![map](Assets/map.png)\n\n[Web](https://example.org)\n"
+        XCTAssertEqual(rebaseMarkdownLinks(source, from: "/Social", to: "/"),
+                       "[Q](Work/Q.md#overstory-key=id:341rcu) and ![map](Social/Assets/map.png)\n\n[Web](https://example.org)\n")
+        XCTAssertEqual(markdownLinkRebasingEdits(source, from: "/Social", to: "/").map(\.expected),
+                       ["../Work/Q.md#overstory-key=id:341rcu", "Assets/map.png"])
+    }
+
+    func testAKeyedLinkAboveTheRootResolvesByItsKey() {
+        // The bytes of a link moved from /Social/x.md to /Social.md: the path is stale, the key is not.
+        let moved = resolveNodeTarget(sourceDirectory: "/", href: "../Dating-profiles.md#arbor-key=id:24vifr")
+        XCTAssertEqual(moved?.stableKey, "[[\"id\",\"24vifr\"]]")
+        XCTAssertEqual(moved?.path, "/Dating-profiles")
+        XCTAssertNil(resolveNodeTarget(sourceDirectory: "/", href: "../Dating-profiles.md"))
+    }
+
     func testSharedMarkdownSourcesHeal() throws {
         let cases = try conformance([HealingFixture].self, "markdown-link-healing.json")
         XCTAssertFalse(cases.isEmpty)

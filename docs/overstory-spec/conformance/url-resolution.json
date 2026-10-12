@@ -61,6 +61,21 @@
     "expected": null
   },
   {
+    "sourceDirectory": "/",
+    "href": "../archive/roadmap.md#overstory-key=id:x7f3q2",
+    "expected": {"kind": "local", "path": "/archive/roadmap", "stableKey": "[[\"id\",\"x7f3q2\"]]", "revision": null, "applicationQuery": null, "contentFragment": null}
+  },
+  {
+    "sourceDirectory": "/projects",
+    "href": "../../roadmap.md#arbor-key=id:x7f3q2",
+    "expected": {"kind": "local", "path": "/roadmap", "stableKey": "[[\"id\",\"x7f3q2\"]]", "revision": null, "applicationQuery": null, "contentFragment": null}
+  },
+  {
+    "sourceDirectory": "/",
+    "href": "../archive/roadmap.md#implementation",
+    "expected": null
+  },
+  {
     "sourceDirectory": "/projects/atlas",
     "href": "roadmap;overstory-key=not-a-token",
     "expected": null

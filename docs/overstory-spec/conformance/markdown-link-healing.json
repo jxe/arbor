@@ -61,5 +61,18 @@
     "tree": "tr_same",
     "nodes": [{"path": "/Calendar", "body": "sibling", "stableKey": "[[\"id\",\"h31mlm\"]]"}],
     "expected": "﻿# T\r\n[C](Calendar.md#overstory-key=id:h31mlm)\r\n[W](https://example.com/a#b) [top](#top) ![i](Assets/p.png) [D](Missing.md) [K](Gone.md#overstory-key=id:zzz)\r\n"
+  },
+  {
+    "name": "a keyed link whose stale path climbs above the root heals by key",
+    "source": "[Q](../Work/Questions.md#arbor-key=id:341rcu)\n\n[D](../Dating.md#overstory-key=id:24vifr)\n\n[Lost](../Lost.md)\n",
+    "resolveFrom": "/",
+    "writeFrom": "/",
+    "tree": "tr_same",
+    "nodes": [
+      { "path": "/Work/Questions", "body": "sibling", "stableKey": "[[\"id\",\"341rcu\"]]" },
+      { "path": "/Social/Dating", "body": "sibling", "stableKey": "[[\"id\",\"24vifr\"]]" },
+      { "path": "/Lost", "body": "sibling", "stableKey": "[[\"id\",\"lost01\"]]" }
+    ],
+    "expected": "[Q](Work/Questions.md#overstory-key=id:341rcu)\n\n[D](Social/Dating.md#overstory-key=id:24vifr)\n\n[Lost](../Lost.md)\n"
   }
 ]

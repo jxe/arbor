@@ -181,7 +181,14 @@ function canonicalDecodedNodePath(input: string): LogicalPath | null {
 }
 
 /** Decode each raw path component exactly once and resolve dot segments. */
-function resolveTreePath(sourceDirectory: LogicalPath, rawDestination: string): LogicalPath | null {
+/**
+ * Decode each raw path component once and resolve dot segments. A path cannot
+ * escape its tree root: `..` at the root is invalid, unless `clampAtRoot` says
+ * the reference also carries a stable key. The key then selects the node and
+ * the path is only a stale hint (a link moved to a shallower directory with
+ * its bytes unchanged), so the excess `..` is dropped.
+ */
+function resolveTreePath(sourceDirectory: LogicalPath, rawDestination: string, clampAtRoot = false): LogicalPath | null {
   let stack: string[];
   if (rawDestination.startsWith("/")) {
     stack = [];
@@ -207,7 +214,7 @@ function resolveTreePath(sourceDirectory: LogicalPath, rawDestination: string): 
     if (segment.includes("/") || segment.includes("\\") || segment.includes("\0")) return null;
     if (segment === ".") continue;
     if (segment === "..") {
-      if (!stack.length) return null;
+      if (!stack.length && !clampAtRoot) return null;
       stack.pop();
       continue;
     }
@@ -272,7 +279,7 @@ export function resolveLogicalURL(sourceDirectory: LogicalPath, href: string): R
   if (!parsed) return null;
   // An invitation goes only on an account locator at a host.
   if (parsed.state.invite) return null;
-  const path = resolveTreePath(sourceDirectory, parsed.rawPath);
+  const path = resolveTreePath(sourceDirectory, parsed.rawPath, Boolean(parsed.state.stableKey));
   if (path === null) return null;
   return { kind: "local", path, ...parsed.state };
 }

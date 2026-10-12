@@ -2152,6 +2152,48 @@ struct TransferPlanTests {
         #expect(planned.destinationSource == "Target\n\n# First\n\n- one\n\n# Last\n\n- two\n")
     }
 
+    @Test("Moved relative links are rewritten to lead where they did from the destination's directory")
+    func movedLinksAreRebased() throws {
+        // /Social/Life.md moves a section to /Social.md, whose links resolve from the root.
+        let origin = "Intro\n\n# Search\n\n[Questions](../Work/3-Questions.md#arbor-key=id:341rcu)\n\n[Dating](../Dating-profiles.md#overstory-key=id:24vifr)\n\n"
+            + "- See [the plan](Plans/2026.md?view=board#goals) and ![map](Assets/map.png)\n  - [nested](./Sub/page.md)\n\n"
+            + "[Web](https://example.org/a.md) and [rooted](/Top.md) and [tree](overstory://tr_other/x) stay.\n"
+        let destination = "# Social\n\nBody.\n"
+        let a = StoryMarkdownCodec.open(source: origin, revision: "a1", identitySeed: "origin")
+        let b = StoryMarkdownCodec.open(source: destination, revision: "b1", identitySeed: "destination")
+        let planned = try #require(StoryMarkdownCodec.transfer([a.blocks[1]], from: a.blocks, ledger: a.ledger, into: b, relink: (from: "/Social", to: "/")))
+        #expect(planned.originSource == "Intro\n\n")
+        #expect(planned.destinationSource == "# Social\n\nBody.\n\n# Search\n\n[Questions](Work/3-Questions.md#arbor-key=id:341rcu)\n\n[Dating](Dating-profiles.md#overstory-key=id:24vifr)\n\n"
+            + "- See [the plan](Social/Plans/2026.md?view=board#goals) and ![map](Social/Assets/map.png)\n  - [nested](Social/Sub/page.md)\n\n"
+            + "[Web](https://example.org/a.md) and [rooted](/Top.md) and [tree](overstory://tr_other/x) stay.\n")
+        // One exact change: the moves and edits reproduce both sources.
+        let transfer = try WorkspaceDocumentTransfer(
+            origin: .init(reference: .init(tree: "tr_move", path: "/Social/Life"), source: origin, contentRevision: "a1"),
+            destination: .init(reference: .init(tree: "tr_move", path: "/Social"), source: destination, contentRevision: "b1"),
+            moves: planned.moves, edits: planned.edits, originSource: planned.originSource, destinationSource: planned.destinationSource)
+        #expect(transfer.moves.count == 1)
+        #expect(transfer.edits.filter { $0.document == .origin }.map(\.edit.replacement)
+            == ["Work/3-Questions.md#arbor-key=id:341rcu", "Dating-profiles.md#overstory-key=id:24vifr", "Social/Plans/2026.md?view=board#goals", "Social/Assets/map.png", "Social/Sub/page.md"])
+        // The rewritten links name the same nodes from the new directory.
+        #expect(resolveNodeTarget(sourceDirectory: "/", href: "Work/3-Questions.md#arbor-key=id:341rcu")
+            == resolveNodeTarget(sourceDirectory: "/Social", href: "../Work/3-Questions.md#arbor-key=id:341rcu"))
+        // Deeper, a link gains the steps back up.
+        let deeper = try #require(StoryMarkdownCodec.transfer([a.blocks[1]], from: a.blocks, ledger: a.ledger, into: b, relink: (from: "/Social", to: "/Social/Life/Notes")))
+        #expect(deeper.destinationSource.contains("[Questions](../../../Work/3-Questions.md#arbor-key=id:341rcu)"))
+        #expect(deeper.destinationSource.contains("[nested](../../Sub/page.md)"))
+        // Without a change of directory the bytes move untouched.
+        let same = try #require(StoryMarkdownCodec.transfer([a.blocks[1]], from: a.blocks, ledger: a.ledger, into: b))
+        #expect(same.destinationSource.contains("[Questions](../Work/3-Questions.md#arbor-key=id:341rcu)"))
+    }
+
+    @Test("Blocks retyped into another directory keep their links' targets")
+    func retypedLinksAreRebased() throws {
+        let blocks = StoryMarkdownCodec.parseBlocks("[Dating](../Dating-profiles.md#overstory-key=id:24vifr)\n\n- See [the plan](Plans/2026.md) and ![map](Assets/map.png)\n\n![pic](pic.png)\n")
+        let rebased = StoryMarkdownCodec.rebasingLinks(in: blocks, from: "/Social", to: "/")
+        #expect(StoryMarkdownCodec.serializeBlocks(rebased)
+            == "[Dating](Dating-profiles.md#overstory-key=id:24vifr)\n\n- See [the plan](Social/Plans/2026.md) and ![map](Social/Assets/map.png)\n\n![pic](Social/pic.png)\n\n")
+    }
+
     @Test("An empty destination cannot be a landing place")
     func emptyDestination() throws {
         #expect(try plan("One\n\nTwo\n", "") { [$0[0]] } == nil)
