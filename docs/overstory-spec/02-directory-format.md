@@ -159,13 +159,15 @@ that its source may lack. Neither is authored source.
   section. An explicit marker presents its remainder where it stands, with no
   presented heading.
 
-Indexing, searching, and transfers of authored blocks ignore presented
-headings. A selection that includes one carries only authored source, so moving
+Indexing, searching, fragment targets, and transfers of authored blocks
+ignore presented headings, and a presented heading cannot be deleted: adding an
+authored H1, linking the children, or placing a marker removes it. A selection that includes one carries only authored source, so moving
 a page's last section leaves the remainder with the page. Hosted output renders
 presented headings as a client does.
 
 Editing a presented heading materializes it through an ordinary content write.
-Editing the title writes it as the body's first H1. Renaming the Children
+Editing the title writes it as the body's first H1; it does not rename the
+node. Renaming the Children
 heading, or adding content under it, writes `# Children` followed by an
 explicit marker after the authored source, and the remainder stays where it was
 under the now-authored heading. Materializing one heading never materializes
