@@ -580,7 +580,7 @@ private struct MacPageOrderPicker: NSViewRepresentable {
         if let index = orders.firstIndex(of: selection) {
             button.selectItem(at: index)
         }
-        button.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(StoryStyle.mutedToolbarOpacity)
+        button.refreshTint()
         button.setAccessibilityValue(selection.label)
     }
 
@@ -611,6 +611,32 @@ private final class PageOrderPopUpButton: NSPopUpButton {
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: 32, height: 32)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshTint()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        refreshTint()
+    }
+
+    /// Tints the icon with the muted toolbar color resolved for the current
+    /// appearance. Left dynamic, the popup's icon in the titlebar sometimes kept
+    /// the previous appearance's color across a light/dark switch, drawing a
+    /// near-black clock on a dark toolbar; a concrete color reassigned on each
+    /// appearance change always redraws.
+    func refreshTint() {
+        var tint = NSColor.secondaryLabelColor
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            tint = NSColor.secondaryLabelColor.usingColorSpace(.sRGB) ?? NSColor.secondaryLabelColor
+        }
+        tint = tint.withAlphaComponent(StoryStyle.mutedToolbarOpacity)
+        guard contentTintColor != tint else { return }
+        contentTintColor = tint
+        needsDisplay = true
     }
 }
 #endif
