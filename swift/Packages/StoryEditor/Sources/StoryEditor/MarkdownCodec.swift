@@ -16,6 +16,9 @@ public struct StoryMarkdownAdmission: Sendable {
 struct SourceRecord: Sendable {
     var block: Block
     var raw: String
+    /// Nesting depth, not counting headings: a heading owns the blocks after
+    /// it without changing how any of them is written, so gaining or losing
+    /// one (an edited presented title, a new first H1) keeps their source.
     var depth: Int
     var indent: Int
     var range: Range<Int>
@@ -39,7 +42,7 @@ public struct StoryMarkdownOpenedDocument: Sendable {
 }
 
 public enum StoryMarkdownCodec {
-    private static let childrenMarker = "<!-- overstory:children -->"
+    static let childrenMarker = "<!-- overstory:children -->"
     // Rename 002: the marker as documents from before the Overstory rename spell
     // it. Both are read as the children marker; an authored marker is kept as
     // written, and nothing writes the old spelling.
@@ -64,20 +67,29 @@ public enum StoryMarkdownCodec {
         return admission(blocks: blocks, ledger: ledger).0.source
     }
 
-    /// Insert unmentioned immediate children into the operational document at
-    /// the explicit children marker, or at the implicit marker after authored
-    /// source. The generated links are ordinary Quagmire blocks carrying
-    /// host-owned metadata until a transfer explicitly places them. Rows resolve
-    /// from, and generated rows are written from, the directory's source
-    /// directory: the directory itself for `_index.md`, its parent for a sibling
-    /// `x.md` body.
+    /// Authored blocks with a directory's unmentioned immediate children
+    /// placed against them. With an explicit children marker they stand after
+    /// it in `blocks`; without one they are the `remainder` of the implicit
+    /// marker after authored source, and `StoryPagePresentation.present`
+    /// decides how that reads.
+    struct DirectoryPlacement {
+        var blocks: [Block]
+        var remainder: [Block]
+    }
+
+    /// Place unmentioned immediate children against the operational document.
+    /// The generated links are ordinary Quagmire blocks carrying host-owned
+    /// metadata until a transfer explicitly places them. Rows resolve from,
+    /// and generated rows are written from, the directory's source directory:
+    /// the directory itself for `_index.md`, its parent for a sibling `x.md`
+    /// body.
     static func placeDirectoryChildren(
         _ children: [WorkspaceNode],
         in blocks: [Block],
         directory: WorkspaceReference,
         sourceDirectory: String
-    ) -> [Block] {
-        let authored = removingProjectedBlocks(from: blocks)
+    ) -> DirectoryPlacement {
+        let authored = StoryPagePresentation.authored(blocks)
         var mentionedIdentities = Set<WorkspaceIdentity>()
         var mentionedPaths = Set<String>()
         var markerCount = 0
@@ -100,7 +112,7 @@ public enum StoryMarkdownCodec {
             }
         }
         inspect(authored)
-        guard markerCount <= 1 else { return authored }
+        guard markerCount <= 1 else { return DirectoryPlacement(blocks: authored, remainder: []) }
 
         let missing = children
             .filter {
@@ -108,7 +120,7 @@ public enum StoryMarkdownCodec {
                     && !mentionedPaths.contains(pathKey(tree: $0.reference.tree, path: $0.reference.path))
             }
             .sorted { Array($0.reference.path.utf8).lexicographicallyPrecedes(Array($1.reference.path.utf8)) }
-        guard !missing.isEmpty else { return authored }
+        guard !missing.isEmpty else { return DirectoryPlacement(blocks: authored, remainder: []) }
 
         let generated = missing.map { child -> Block in
             let rawReference = if child.reference.tree != directory.tree {
@@ -128,10 +140,8 @@ public enum StoryMarkdownCodec {
         }
 
         var result = authored
-        if !insert(generated, afterChildrenMarkerIn: &result) {
-            appendAtImplicitMarker(generated, to: &result)
-        }
-        return result
+        if insert(generated, afterChildrenMarkerIn: &result) { return DirectoryPlacement(blocks: result, remainder: []) }
+        return DirectoryPlacement(blocks: authored, remainder: generated)
     }
 
     static func patch(from source: String, to result: String, revision: String) -> WorkspaceDocumentPatch {
@@ -260,6 +270,9 @@ public enum StoryMarkdownCodec {
     }
 
     static func admission(blocks: [Block], ledger: StorySourceLedger, copies: [BlockID: BlockID] = [:], moved: Set<BlockID> = [], foreignCopies: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]) -> (StoryMarkdownAdmission, StorySourceLedger) {
+        // Only authored source is written: presented headings and generated
+        // child links are not, and an edited presented heading is.
+        let blocks = StoryPagePresentation.authored(blocks)
         if copies.isEmpty, foreignCopies.isEmpty, let arranged = arrangement(blocks: blocks, ledger: ledger, moved: moved) { return arranged }
         var chunks: [String] = [ledger.envelope]
         var emittedTail = String(ledger.envelope.suffix(max(2, ledger.newline.count * 2)))
@@ -347,7 +360,7 @@ public enum StoryMarkdownCodec {
             for child in block.children {
                 append(
                     child,
-                    depth: depth + 1,
+                    depth: depth + (isHeading(block) ? 0 : 1),
                     containerDepth: containerDepth + (addsContainerDepth ? 1 : 0)
                 )
             }
@@ -425,7 +438,7 @@ public enum StoryMarkdownCodec {
                   let shifted = reindented(record, by: indent - record.indent) else { return false }
             placed.append(Placed(record: record, depth: depth, indent: indent, raw: shifted.raw, edits: shifted.edits))
             let child = indent + (isIndentContainer(block) ? 1 : 0)
-            return block.children.allSatisfy { place($0, depth: depth + 1, indent: child) }
+            return block.children.allSatisfy { place($0, depth: depth + (isHeading(block) ? 0 : 1), indent: child) }
         }
         guard blocks.allSatisfy({ place($0, depth: 0, indent: 0) }), seen.count == ledger.records.count, !placed.isEmpty else { return nil }
         let old = placed.map(\.record.range.lowerBound)
@@ -588,9 +601,12 @@ public enum StoryMarkdownCodec {
         // A page's generated child links reach here materialized (they lose
         // their projected mark in `materializingProjectedChildren`). They have
         // no source to move and the origin generates them again, so they stay.
+        // A presented heading in the selection gives way to the authored
+        // source under it, so a page's last section moves without its
+        // Children heading.
         var projected: Set<BlockID> = []
         walk(blocks) { block, _ in if isProjectedChild(block) { projected.insert(block.id) } }
-        let roots = removingSubtrees(projected, from: roots)
+        let roots = removingSubtrees(projected, from: StoryPagePresentation.transferable(roots, in: blocks))
         typealias Placed = (record: SourceRecord, raw: String, edits: [WorkspaceSourceEdit])
         var placed: [Placed] = []
         func place(_ block: Block, indent: Int) -> Bool {
@@ -669,7 +685,7 @@ public enum StoryMarkdownCodec {
         let destinationSource = (edits.contains { $0.document == .destination } ? String(target.source.dropLast(newline.count)) + blank : target.source)
             + placed.map(\.raw).joined()
         // Both results must mean the intended trees.
-        let remaining = removingSubtrees(removed, from: removingProjectedBlocks(from: blocks))
+        let remaining = removingSubtrees(removed, from: StoryPagePresentation.authored(blocks))
         guard sameShape(open(source: originSource, revision: "transfer", identitySeed: "origin").blocks, remaining),
               sameShape(open(source: destinationSource, revision: "transfer", identitySeed: "destination").blocks,
                         foldHeadingsInScopes(removingProjectedBlocks(from: destination.blocks) + roots.map(stripped))) else { return nil }
@@ -914,6 +930,10 @@ public enum StoryMarkdownCodec {
         return parseSiblings(at: parsed[0].indent)
     }
 
+    private static func isHeading(_ block: Block) -> Bool {
+        if case .heading = block.kind { true } else { false }
+    }
+
     private static func isIndentContainer(_ block: Block) -> Bool {
         switch block.kind {
         case .bullet, .numbered, .todo, .toggle:
@@ -1116,7 +1136,7 @@ public enum StoryMarkdownCodec {
     }
 
     /// A deterministic BlockID from the first 16 bytes of the value's SHA-256.
-    private static func digestID(_ value: String) -> BlockID {
+    static func digestID(_ value: String) -> BlockID {
         let digest = Array(SHA256.hash(data: Data(value.utf8)).prefix(16))
         return BlockID(UUID(uuid: (
             digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
@@ -1163,15 +1183,6 @@ public enum StoryMarkdownCodec {
         return false
     }
 
-    private static func appendAtImplicitMarker(_ generated: [Block], to blocks: inout [Block]) {
-        guard let index = blocks.indices.last,
-              case .heading = blocks[index].kind else {
-            blocks.append(contentsOf: generated)
-            return
-        }
-        appendAtImplicitMarker(generated, to: &blocks[index].children)
-    }
-
     private static func foldHeadings(_ blocks: [Block]) -> [Block] {
         var roots: [Block] = []
         var stack: [(block: Block, level: HeadingLevel)] = []
@@ -1211,10 +1222,11 @@ public enum StoryMarkdownCodec {
         }
     }
 
+    /// Preorder, with each block's depth as a `SourceRecord` counts it.
     private static func walk(_ blocks: [Block], depth: Int = 0, visit: (Block, Int) -> Void) {
         for block in blocks {
             visit(block, depth)
-            walk(block.children, depth: depth + 1, visit: visit)
+            walk(block.children, depth: depth + (isHeading(block) ? 0 : 1), visit: visit)
         }
     }
 

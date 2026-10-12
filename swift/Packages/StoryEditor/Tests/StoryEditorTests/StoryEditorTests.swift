@@ -521,7 +521,7 @@ struct StoryEditorTests {
             contentRevision: "r1"
         ))
         let binding = try await StoryDocumentBinding.open(reference: reference, session: session)
-        let paragraph = try #require(binding.document.children.last)
+        let paragraph = try #require(binding.document.body.last)
 
         binding.document.transaction(name: "edit") {
             _ = binding.document.setText(paragraph.id, AttributedString("Appended edit"))
@@ -550,7 +550,7 @@ struct StoryEditorTests {
             provider: InMemoryWorkspaceProvider.sample(),
             linkPreviewService: linkPreviewService()
         )
-        let block = try #require(binding.document.children.last)
+        let block = try #require(binding.document.body.last)
 
         binding.document.transaction(name: "Format Block") {
             binding.document.mutate(block.id) {
@@ -592,7 +592,7 @@ struct StoryEditorTests {
             provider: InMemoryWorkspaceProvider.sample(),
             linkPreviewService: linkPreviewService()
         )
-        let block = try #require(binding.document.children.last)
+        let block = try #require(binding.document.body.last)
 
         binding.document.transaction(name: "Format Block") {
             binding.document.mutate(block.id) {
@@ -704,7 +704,7 @@ struct StoryEditorTests {
         )
         let target = StoryDocumentReferenceCodec.encode(destination)
 
-        let copied = try #require(binding.document.children.last)
+        let copied = try #require(binding.document.body.last)
         #expect(!(await host.copyToDocument(target, blocks: [copied], from: binding.document)))
         #expect(errors == ["Couldn't copy blocks: this page changed while copying. Try again."])
         #expect(try await destinationSession.snapshot() == before)
@@ -729,12 +729,12 @@ struct StoryEditorTests {
         let binding = try await StoryDocumentBinding.open(reference: reference, session: session)
         var errors: [String] = []
         let host = StoryEditorHost(binding: binding, provider: provider, linkPreviewService: linkPreviewService(), reportError: { errors.append($0) })
-        let moved = binding.document.children[1]
+        let moved = binding.document.body[1]
         let before = try await provider.openDocument(destination).snapshot().source
         #expect(!(await host.appendToDocument(StoryDocumentReferenceCodec.encode(destination), [moved])))
         let target = try await provider.openDocument(destination).snapshot().source
         #expect(target == before)
-        #expect(binding.document.children.contains { $0.id == moved.id })
+        #expect(binding.document.body.contains { $0.id == moved.id })
         #expect(errors.count == 1)
         await binding.close()
     }
@@ -945,7 +945,7 @@ struct StoryEditorTests {
         )
         let empty = Block.paragraph(text: AttributedString())
         binding.document.transaction(name: "Insert blank paragraph") {
-            _ = binding.document.insertSubtree(empty, at: .root(at: 1))
+            _ = binding.document.insertSubtree(empty, at: binding.document.bodyPath(at: 1))
         }
         var replacements: [DocumentReplacement] = []
         binding.document.didReplaceChildren = { replacements.append($0) }
@@ -955,7 +955,7 @@ struct StoryEditorTests {
 
         #expect(binding.lastError == nil)
         #expect(replacements.isEmpty)
-        #expect(binding.document.children[1].id == empty.id)
+        #expect(binding.document.body[1].id == empty.id)
         #expect((try await session.snapshot()).source == "before\n\n\nafter\n")
     }
 
@@ -980,7 +980,7 @@ struct StoryEditorTests {
         let draft = DraftDocumentSession(parent: parent, pageID: "pg_drafted")
         let lease = try await workspace.leaseDraft(draft)
         let binding = lease.binding
-        let heading = try #require(binding.document.children.first)
+        let heading = try #require(binding.document.body.first)
         guard case let .heading(level, text) = heading.kind else {
             Issue.record("A draft opens on \(heading.kind)")
             return
@@ -1084,7 +1084,7 @@ struct StoryEditorTests {
             in: tree
         )
 
-        let first = try #require(lease.binding.document.children.first)
+        let first = try #require(lease.binding.document.body.first)
         var firstSectionContainsTranscript = false
         func inspect(_ block: Block) {
             if String(block.text.characters) == "Captured in the first section." {
@@ -1094,7 +1094,7 @@ struct StoryEditorTests {
         }
         inspect(first)
         #expect(firstSectionContainsTranscript)
-        let later = try #require(lease.binding.document.children.last)
+        let later = try #require(lease.binding.document.body.last)
         #expect(!later.children.contains { String($0.text.characters) == "Captured in the first section." })
         let saved = try await lease.binding.snapshot()
         let transcriptRange = try #require(saved.source.range(of: "Captured in the first section."))
@@ -1252,7 +1252,7 @@ struct StoryEditorTests {
             in: opened.blocks,
             directory: directory,
             sourceDirectory: "/parent"
-        )
+        ).blocks
         let parent = try #require(projected.first)
         let markerIndex = try #require(parent.children.firstIndex {
             if case let .unsupported(_, display) = $0.kind { return display == "Children" }
@@ -1273,7 +1273,7 @@ struct StoryEditorTests {
             _ = document.replaceSubtree(generatedID, with: prepared)
             _ = document.moveSubtrees([generatedID], to: DropPath(parent: parentID, position: 0))
         }
-        let admitted = StoryMarkdownCodec.admission(blocks: document.children, ledger: opened.ledger).0.source
+        let admitted = StoryMarkdownCodec.admission(blocks: document.body, ledger: opened.ledger).0.source
         #expect(document.find(generatedID).map(StoryMarkdownCodec.isProjectedChild) == false)
         #expect(admitted.contains("[Child](child.md#overstory-key=id:pg_child)"))
         let linkRange = try #require(admitted.range(of: "[Child]("))
@@ -1304,7 +1304,7 @@ struct StoryEditorTests {
             in: opened.blocks,
             directory: directory,
             sourceDirectory: "/"
-        )
+        ).blocks
         let heading = try #require(projected.first)
         let generated = try #require(heading.children.first(where: StoryMarkdownCodec.isProjectedChild))
         guard case let .documentLink(label, reference) = generated.kind else {
@@ -1480,11 +1480,11 @@ struct StoryEditorTests {
         let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let session = try await provider.openDocument(reference)
         let binding = try await StoryDocumentBinding.open(reference: reference, session: session)
-        let originalIDs = binding.document.children.map(\.id)
+        let originalIDs = binding.document.body.map(\.id)
         let base = try await session.snapshot()
         let confirmed = try await session.admit(source: base.source + "\nAdded externally.\n", baseContentRevision: base.contentRevision)
         await binding.applyAcceptedReplacement(confirmed)
-        #expect(binding.document.children.first?.id == originalIDs.first)
+        #expect(binding.document.body.first?.id == originalIDs.first)
         #expect(binding.lastError == nil)
 
         let reopened = StoryMarkdownCodec.open(
@@ -1492,7 +1492,7 @@ struct StoryEditorTests {
             revision: confirmed.contentRevision,
             identitySeed: "replacement-check"
         )
-        let rebased = StoryMarkdownCodec.rebased(reopened, preserving: binding.document.children)
+        let rebased = StoryMarkdownCodec.rebased(reopened, preserving: binding.document.body)
         let (noOp, _) = StoryMarkdownCodec.admission(blocks: rebased.blocks, ledger: rebased.ledger)
         #expect(noOp.source == confirmed.source)
         #expect(noOp.patch.edits.isEmpty)
@@ -1509,7 +1509,7 @@ struct StoryEditorTests {
         )
         let session = LiveUpdateSession(snapshot: initial)
         let binding = try await StoryDocumentBinding.open(reference: reference, session: session)
-        let originalHeadingID = binding.document.children.first?.id
+        let originalHeadingID = binding.document.body.first?.id
         func blockCount() -> Int {
             var count = 0
             binding.document.walk { _, _, _ in count += 1 }
@@ -1523,7 +1523,7 @@ struct StoryEditorTests {
         }
 
         #expect(blockCount() == 2)
-        #expect(binding.document.children.first?.id == originalHeadingID)
+        #expect(binding.document.body.first?.id == originalHeadingID)
         #expect(binding.lastError == nil)
         #expect(!binding.isSaving)
         await binding.close()
@@ -1616,14 +1616,14 @@ struct StoryEditorTests {
 
         var updated = false
         for _ in 0..<100 where !updated {
-            if case let .toggle(title) = binding.document.children.first?.kind {
+            if case let .toggle(title) = binding.document.body.first?.kind {
                 updated = String(title.characters) == "Updated details"
             }
             if !updated { try await Task.sleep(for: .milliseconds(10)) }
         }
 
         #expect(updated)
-        #expect(binding.document.children.first?.children.first.map { String($0.text.characters) } == "Original body.")
+        #expect(binding.document.body.first?.children.first.map { String($0.text.characters) } == "Original body.")
         #expect(binding.lastError == nil)
         await binding.close()
     }
@@ -1853,7 +1853,7 @@ func boundEqualByteReorder() async throws {
     let session = RecordingAdmissionSession(snapshot:.init(reference:reference,source:"same\n\nsame\n\n",contentRevision:"r1"))
     let binding = try await StoryDocumentBinding.open(reference:reference,session:session)
     binding.document.transaction(name:"reorder") {
-        _ = binding.document.replaceChildrenReconciled(Array(binding.document.children.reversed()))
+        _ = binding.document.replaceChildrenReconciled(Array(binding.document.body.reversed()))
     }
     binding.appendCurrentGeneration()
     await binding.flush()
@@ -1872,11 +1872,11 @@ func boundSourceCopy(position: Int) async throws {
     let session = RecordingAdmissionSession(snapshot:.init(reference:reference,source:source,contentRevision:"r1"))
     let binding = try await StoryDocumentBinding.open(reference:reference,session:session)
     binding.document.didCommitTransaction = { _ in binding.appendCurrentGeneration() }
-    let original = binding.document.children[0]
+    let original = binding.document.body[0]
     _ = binding.document.insertCopies(of:[original],at:.init(parent:nil,position:position))
     // A later commit while the copy is being appended must not lose its evidence.
     binding.document.transaction(name:"unrelated append") {
-        _ = binding.document.insertSubtree(.paragraph(text:AttributedString("later")),at:.init(parent:nil,position:binding.document.children.count))
+        _ = binding.document.insertSubtree(.paragraph(text:AttributedString("later")),at:.init(parent:nil,position:binding.document.body.count))
     }
     await binding.flush()
     // The copy is appended at once; the later commit follows as the next
@@ -2158,6 +2158,23 @@ struct TransferPlanTests {
     }
 }
 
+extension Document {
+    /// The page's authored blocks: what the tree holds under its presented
+    /// headings, without them or the generated child links.
+    var body: [Block] { StoryPagePresentation.authored(children) }
+
+    /// Where the body's block `position` stands in the tree: under the presented title when the page has one.
+    func bodyPath(at position: Int) -> DropPath {
+        guard let title = children.first, StoryPagePresentation.heading(title) == .title else { return .root(at: position) }
+        return DropPath(parent: title.id, position: position)
+    }
+}
+
+extension StoryMarkdownCodec.DirectoryPlacement {
+    /// The placed document with the implicit marker's remainder after its authored source.
+    var document: [Block] { blocks + remainder }
+}
+
 @Suite("Same-tree links are relative Markdown links from the body's directory")
 struct MarkdownLinkWritingTests {
     private struct DirectoryFixture: Decodable {
@@ -2231,7 +2248,7 @@ struct MarkdownLinkWritingTests {
                 in: opened.blocks,
                 directory: directory.reference,
                 sourceDirectory: directory.sourceDirectory
-            )
+            ).document
             let links = Self.documentLinks(projected)
             let comment = Comment(rawValue: item.name)
             #expect(links.map(\.reference.rawValue) == item.expectedBlockPaths, comment)
@@ -2277,7 +2294,7 @@ struct MarkdownLinkWritingTests {
                 in: opened.blocks,
                 directory: directory.reference,
                 sourceDirectory: directory.sourceDirectory
-            )
+            ).document
             let comment = Comment(rawValue: item.name)
             // Document order: each marker (shown as "Children") and each generated row.
             func order(_ blocks: [Block]) -> [String] {
@@ -2315,7 +2332,7 @@ struct MarkdownLinkWritingTests {
                 in: opened.blocks,
                 directory: directory.reference,
                 sourceDirectory: directory.sourceDirectory
-            )).map(\.reference.rawValue)
+            ).document).map(\.reference.rawValue)
         }
         #expect(rows(.index) == ["overstory://tr_other/", "alpha.md#overstory-key=id:a1", "folder/_index.md#overstory-key=id:f1"])
         #expect(rows(.sibling) == ["overstory://tr_other/", "notes/alpha.md#overstory-key=id:a1", "notes/folder/_index.md#overstory-key=id:f1"])
@@ -2419,7 +2436,7 @@ func explicitMoveIdentity() throws {
     var count = 0
     document.didCommitTransaction = { _ in
         #expect(document.movedBlocksForCurrentCommit == [selected])
-        let (captured, next) = StoryMarkdownCodec.admission(blocks: document.children, ledger: ledger, moved: document.movedBlocksForCurrentCommit)
+        let (captured, next) = StoryMarkdownCodec.admission(blocks: document.body, ledger: ledger, moved: document.movedBlocksForCurrentCommit)
         let move = captured.patch.moves!.first!
         #expect(move.source == ledger.records[selected]!.range)
         #expect(try! captured.patch.applying(to: ledger.source) == captured.source)

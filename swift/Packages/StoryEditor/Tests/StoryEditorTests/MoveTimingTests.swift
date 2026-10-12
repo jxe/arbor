@@ -16,7 +16,7 @@ func measureMovePipeline() throws {
         var capture = 0.0
         document.didCommitTransaction = { _ in
             let start = CFAbsoluteTimeGetCurrent()
-            let (_, next) = StoryMarkdownCodec.admission(blocks: document.children, ledger: ledger, moved: document.movedBlocksForCurrentCommit)
+            let (_, next) = StoryMarkdownCodec.admission(blocks: document.body, ledger: ledger, moved: document.movedBlocksForCurrentCommit)
             capture += CFAbsoluteTimeGetCurrent() - start
             ledger = next
         }

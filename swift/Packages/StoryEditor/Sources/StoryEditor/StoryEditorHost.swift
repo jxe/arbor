@@ -651,6 +651,9 @@ public final class StoryEditorHost: EditorHost {
             errorAction("Couldn't copy blocks: the destination page is not in this workspace")
             return false
         }
+        // Presented headings and the generated links under Children are not source to copy.
+        let blocks = StoryPagePresentation.transferable(blocks, in: binding.document.children)
+        guard !blocks.isEmpty else { return false }
         // Freeze identity and source before suspension. Never infer a copy from
         // matching text in another page after the user changes the selection.
         await binding.flush()
@@ -699,6 +702,13 @@ public final class StoryEditorHost: EditorHost {
     public func appendToDocument(_ reference: DocumentReference, _ blocks: [Block]) async -> Bool {
         guard let decoded = workspaceReference(for: reference) else {
             errorAction("Couldn't add blocks: the destination page is not in this workspace")
+            return false
+        }
+        // A selection that includes a presented heading carries only authored
+        // source; the heading and the children generated under it stay with the page.
+        let blocks = StoryPagePresentation.transferable(blocks, in: binding.document.children)
+        guard !blocks.isEmpty else {
+            errorAction("There is nothing to move: this heading belongs to the page.")
             return false
         }
         if let moved = await moveToDocument(decoded, blocks) { return moved }
@@ -768,7 +778,12 @@ public final class StoryEditorHost: EditorHost {
 
     public func prepareBlocksForTransfer(_ blocks: [Block], in document: Document) -> [Block] {
         guard document === binding.document else { return blocks }
-        return StoryMarkdownCodec.materializingProjectedChildren(blocks)
+        // A presented heading is not placed by moving it: it and the children
+        // generated under it keep their marks, and presentation puts it back.
+        return blocks.flatMap { block in
+            StoryPagePresentation.heading(block) != nil && StoryPagePresentation.isUntouched(block)
+                ? [block] : StoryMarkdownCodec.materializingProjectedChildren([block])
+        }
     }
 
     public func relocateDocument(_ reference: DocumentReference, from document: Document) async -> Bool {

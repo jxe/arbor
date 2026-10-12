@@ -12,6 +12,51 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Presented headings — 2026-10-12
+
+Implemented, not installed or deployed. Every client shows a page through one
+presentation layer ([directory format §4.1](docs/overstory-spec/02-directory-format.md#41-presented-headings))
+instead of calling directory placement: `presentPage` and its inverse
+`authorPage` in `packages/protocol/src/documents/page-presentation.ts`, and
+`StoryPagePresentation.present` and `authored` beside the Story editor's codec.
+Both run `docs/overstory-spec/conformance/page-presentation.json`. Placement
+(`placeDirectoryChildren`) now returns the implicit marker's remainder rather
+than appending it, and `directory-documents.json` stays about placement.
+
+- **Presented**: a title (the last path segment, hyphens as spaces) when the
+  body does not begin with an H1, and a closing `# Children` H1 holding the
+  children no authored link names when the document has no explicit marker.
+  The Swift editor no longer nests those children into the last authored
+  heading. The root presents no title.
+- **Written**: nothing, until a heading is edited. An edited title (new text
+  or another kind of block) is written as the body's first block; a renamed
+  Children heading, or one with content under it, is written with its text
+  and an explicit marker where the generated children were shown.
+- **Story editor**: the binding presents on open, on every accepted
+  replacement and child projection, and after every commit, so a deleted or
+  dragged presented heading comes back and an edited one becomes an ordinary
+  authored block. Move to Document unwraps a presented heading in the
+  selection and leaves generated links behind. `acceptedTitle` reads authored
+  source only, so a presented title proposes no rename. A source record's
+  depth no longer counts headings, so gaining a first H1 keeps the exact bytes
+  of the blocks under it.
+- **story-web**: `PageEditor` calls `presentPage` for every page and
+  `authorPage` before serializing; block conversion keeps the presented mark
+  by block identity. The Add title button is gone. The package is out of the
+  build and typecheck until Web 025, so these edits are neither compiled nor run.
+- **Hosted pages**: the name shown for a body without a leading H1 has hyphens
+  as spaces; unlinked children follow a `Children` H1, or stand at an explicit
+  marker, which is no longer rendered as raw Markdown.
+
+Not done: story-web does not restore a presented heading that is deleted or
+dragged until the page reloads (nothing is written meanwhile). Quagmire still lets the gestures happen; presentation
+undoes them after the commit. Find-in-page matches presented headings.
+
+Checks: `swift/scripts/test-story-editor-local.sh` (97 tests, including
+`PagePresentationTests`), `tests/unit/page-presentation.test.ts`,
+`tests/unit/directory-document.test.ts`, `tests/unit/overstoryd/public-page.test.ts`,
+`bun run typecheck`.
+
 ## Story icon choices — 2026-10-11
 
 Story offers Story Path (Black, the primary icon), Page S, and Doorway.

@@ -324,7 +324,7 @@ public final class StoryEditorWorkspace {
             target = block.id
         }
         guard let target, let heading = document.find(target) else {
-            return DropPath(parent: nil, position: document.children.count)
+            return StoryPagePresentation.endOfBody(in: document.children)
         }
         return DropPath(parent: target, position: heading.children.count)
     }

@@ -26,8 +26,8 @@ func cachedMoveMatchesFullParse(source: String) throws {
     document.didCommitTransaction = { _ in
         var uncached = ledger
         uncached.parsedKinds = [:]
-        let cold = StoryMarkdownCodec.admission(blocks: document.children, ledger: uncached, moved: document.movedBlocksForCurrentCommit)
-        let warm = StoryMarkdownCodec.admission(blocks: document.children, ledger: ledger, moved: document.movedBlocksForCurrentCommit)
+        let cold = StoryMarkdownCodec.admission(blocks: document.body, ledger: uncached, moved: document.movedBlocksForCurrentCommit)
+        let warm = StoryMarkdownCodec.admission(blocks: document.body, ledger: ledger, moved: document.movedBlocksForCurrentCommit)
         #expect(warm.0.patch == cold.0.patch)
         #expect(warm.0.source.utf8.elementsEqual(cold.0.source.utf8))
         if warm.0.patch.moves?.isEmpty == false {
@@ -62,7 +62,7 @@ func editThenMoveKeepsCachedLeaves() throws {
     var ledger = opened.ledger
     for index in 0..<20 {
         document.mutate(edited) { $0.kind = .paragraph(text: AttributedString("Changed \(index) **literal** text")) }
-        let (captured, next) = StoryMarkdownCodec.admission(blocks: document.children, ledger: ledger)
+        let (captured, next) = StoryMarkdownCodec.admission(blocks: document.body, ledger: ledger)
         #expect(try captured.patch.applying(to: ledger.source) == captured.source)
         #expect(next.parsedKinds == opened.ledger.parsedKinds)
         ledger = next
@@ -70,8 +70,8 @@ func editThenMoveKeepsCachedLeaves() throws {
     document.transaction(name: "Move") { _ = document.slideSiblings([edited], by: 1) }
     var uncached = ledger
     uncached.parsedKinds = [:]
-    let cold = StoryMarkdownCodec.admission(blocks: document.children, ledger: uncached, moved: [edited])
-    let warm = StoryMarkdownCodec.admission(blocks: document.children, ledger: ledger, moved: [edited])
+    let cold = StoryMarkdownCodec.admission(blocks: document.body, ledger: uncached, moved: [edited])
+    let warm = StoryMarkdownCodec.admission(blocks: document.body, ledger: ledger, moved: [edited])
     #expect(warm.0.patch == cold.0.patch)
     #expect(warm.0.patch.moves?.count == 1)
     #expect(warm.0.source.utf8.elementsEqual(cold.0.source.utf8))
@@ -116,8 +116,8 @@ func bindingCacheSurvivesEditAndReplacement() async throws {
     let session = InMemoryDocumentSession(snapshot: .init(reference: reference, source: original, contentRevision: "r0"))
     let binding = try await StoryDocumentBinding.open(reference: reference, session: session)
     let initialCache = binding.ledger.parsedKinds
-    let kept = binding.document.children[1].id
-    binding.document.setText(binding.document.children[0].id, AttributedString("Local edit"))
+    let kept = binding.document.body[1].id
+    binding.document.setText(binding.document.body[0].id, AttributedString("Local edit"))
     binding.appendCurrentGeneration()
     await binding.flush()
     #expect(binding.ledger.parsedKinds == initialCache)
@@ -126,7 +126,7 @@ func bindingCacheSurvivesEditAndReplacement() async throws {
     let accepted = try await session.admit(source: replacement, baseContentRevision: base.contentRevision)
     await binding.applyAcceptedReplacement(accepted)
     #expect(binding.ledger.source == replacement)
-    #expect(binding.document.children.first?.id == kept)
+    #expect(binding.document.body.first?.id == kept)
     let fresh = StoryMarkdownCodec.open(source: replacement, revision: accepted.contentRevision, identitySeed: "comparison")
     #expect(binding.ledger.parsedKinds == fresh.ledger.parsedKinds)
     #expect(binding.ledger.parsedKinds[Data("First **bold**\n".utf8)] == nil)
@@ -139,14 +139,14 @@ func outdentedLastChildIsNotAMove() throws {
     let source = "- Parent\n  - First child\n  - Last child\n- Next\n"
     let opened = StoryMarkdownCodec.open(source: source, revision: "r", identitySeed: "outdent")
     let document = Document(id: DocumentID("outdent"), children: opened.blocks)
-    let parent = try #require(document.children.first)
+    let parent = try #require(document.body.first)
     let last = try #require(parent.children.last)
     #expect(document.canSlideSiblings([last.id], by: 1))
     var moved: Set<BlockID> = []
     document.didCommitTransaction = { _ in moved = document.movedBlocksForCurrentCommit }
     document.transaction(name: "Move") { _ = document.slideSiblings([last.id], by: 1) }
     #expect(moved.contains(last.id))
-    let (captured, _) = StoryMarkdownCodec.admission(blocks: document.children, ledger: opened.ledger, moved: moved)
+    let (captured, _) = StoryMarkdownCodec.admission(blocks: document.body, ledger: opened.ledger, moved: moved)
     // The editor reports the block as moved, but its bytes stay where they
     // were: only the indentation changes, so no move is published.
     #expect(captured.source == "- Parent\n  - First child\n- Last child\n- Next\n")

@@ -41,7 +41,7 @@ struct LiveEditorAdmissionTests {
 
     private func edit(_ binding: StoryDocumentBinding, text: String) {
         binding.document.transaction(name: "Typing") {
-            _ = binding.document.setText(binding.document.children[0].id, AttributedString(text))
+            _ = binding.document.setText(binding.document.body[0].id, AttributedString(text))
         }
         binding.appendCurrentGeneration()
     }
@@ -65,11 +65,11 @@ struct LiveEditorAdmissionTests {
         let undo = UndoManager(); undo.groupsByEvent = false; binding.document.undoManager = undo
         binding.document.didCommitTransaction = { _ in binding.appendCurrentGeneration() }
         let original = try await session.snapshot().source
-        #expect(await host.copyToDocument(StoryDocumentReferenceCodec.encode(destination), blocks: [binding.document.children[0]], from: binding.document))
+        #expect(await host.copyToDocument(StoryDocumentReferenceCodec.encode(destination), blocks: [binding.document.body[0]], from: binding.document))
         _ = try await coordinator.syncOnce()
         let queue = try await ChangeLog(tree: treeID, stateRoot: root)
         #expect(try await queue.retained().contains { $0.update.trace?.contains { $0.operations.contains { $0.kind == "copySource" } } == true })
-        let action = UUID(), block = binding.document.children[0]
+        let action = UUID(), block = binding.document.body[0]
         let page = try #require(await host.createDocument(title: "Converted " + action.uuidString, requestedReference: nil,
             initialContent: [block], transaction: action))
         binding.document.withTransactionIdentity(action) {
@@ -250,7 +250,7 @@ extension LiveEditorAdmissionTests {
         var binding: StoryDocumentBinding? = try await .open(reference:reference,session:session)
         let document = try #require(binding?.document)
         document.didCommitTransaction = { [weak binding] _ in binding?.appendCurrentGeneration() }
-        _ = document.insertCopies(of:[document.children[0]],at:.init(parent:nil,position:0))
+        _ = document.insertCopies(of:[document.body[0]],at:.init(parent:nil,position:0))
         let authored = try #require(binding?.lastEnqueuedSource)
         var expected = authored
         if recoverDraft {
@@ -264,7 +264,7 @@ extension LiveEditorAdmissionTests {
             binding = try await .open(reference:reference,session:session)
             let restored = try #require(binding)
             restored.document.transaction(name:"Edit immediately after recovery") {
-                _ = restored.document.insertSubtree(.paragraph(text:AttributedString("After recovery")),at:.init(parent:nil,position:restored.document.children.count))
+                _ = restored.document.insertSubtree(.paragraph(text:AttributedString("After recovery")),at:.init(parent:nil,position:restored.document.body.count))
             }
             restored.appendCurrentGeneration()
             expected = try #require(restored.lastEnqueuedSource)
@@ -307,7 +307,7 @@ extension LiveEditorAdmissionTests {
         document.didCommitTransaction = { _ in binding.appendCurrentGeneration() }
         for text in ["Plain first", "Plain second"] {
             document.transaction(name: "Typing", coalesceKey: "typing") {
-                _ = document.setText(document.children[0].id, AttributedString(text))
+                _ = document.setText(document.body[0].id, AttributedString(text))
             }
         }
         let authored = try #require(binding.lastEnqueuedSource)
@@ -380,7 +380,7 @@ extension LiveEditorAdmissionTests {
         }
         binding.appendCurrentGeneration()
         #expect(binding.lastEnqueuedSource?.contains("- the conflict stuff is buggy / weird\n\n  - \n\n") == true)
-        document.transaction(name: "Reorder") { _ = document.replaceChildrenReconciled(Array(document.children.reversed())) }
+        document.transaction(name: "Reorder") { _ = document.replaceChildrenReconciled(Array(document.body.reversed())) }
         binding.appendCurrentGeneration()
         let expected = try #require(binding.lastEnqueuedSource)
         #expect(binding.generation == 4)
@@ -423,7 +423,7 @@ extension LiveEditorAdmissionTests {
         let binding = try await StoryDocumentBinding.open(reference: reference, session: session)
         let document = binding.document
         document.transaction(name: "Move Block") {
-            var children = document.children
+            var children = document.body
             children.insert(children.removeLast(), at: 0)
             _ = document.replaceChildrenReconciled(children)
         }
@@ -462,7 +462,7 @@ extension LiveEditorAdmissionTests {
         // Editing continues on the accepted result, inside the moved paragraph.
         let continued = try await StoryDocumentBinding.open(reference: reference, session: after)
         continued.document.transaction(name: "Typing") {
-            _ = continued.document.setText(continued.document.children[0].id, AttributedString("Typed after the move"))
+            _ = continued.document.setText(continued.document.body[0].id, AttributedString("Typed after the move"))
         }
         continued.appendCurrentGeneration()
         await continued.flush()
@@ -501,7 +501,7 @@ extension LiveEditorAdmissionTests {
             // Unpublished work on the destination, on its own chain.
             let other = try await StoryDocumentBinding.open(reference: destination, session: provider.openDocument(destination))
             other.document.transaction(name: "Typing") {
-                _ = other.document.setText(other.document.children[0].id, AttributedString("Destination edited"))
+                _ = other.document.setText(other.document.body[0].id, AttributedString("Destination edited"))
             }
             other.appendCurrentGeneration(); await other.flush()
             #expect(other.lastError == nil)
@@ -515,11 +515,11 @@ extension LiveEditorAdmissionTests {
         binding.document.didCommitTransaction = { _ in binding.appendCurrentGeneration() }
         if variant == .diverged {
             binding.document.transaction(name: "Typing") {
-                _ = binding.document.setText(binding.document.children[0].id, AttributedString("Stays here, edited"))
+                _ = binding.document.setText(binding.document.body[0].id, AttributedString("Stays here, edited"))
             }
             await binding.flush()
         }
-        let moved = binding.document.children[1]
+        let moved = binding.document.body[1]
         // What Quagmire's Move to Document does: append, then remove here.
         #expect(await host.appendToDocument(StoryDocumentReferenceCodec.encode(destination), [moved]))
         binding.document.transaction(name: "Move to DocumentLink") { binding.document.removeSubtree(moved.id) }
@@ -535,8 +535,8 @@ extension LiveEditorAdmissionTests {
         // Nothing else was captured for either page after the move.
         #expect(try await log.retained().last?.change == record.change)
         if let observer {
-            for _ in 0..<100 where observer.document.children.count < 2 { try await Task.sleep(for: .milliseconds(20)) }
-            #expect(observer.document.children.count == 2)
+            for _ in 0..<100 where observer.document.body.count < 2 { try await Task.sleep(for: .milliseconds(20)) }
+            #expect(observer.document.body.count == 2)
             #expect(observer.lastError == nil)
             await observer.close()
         }

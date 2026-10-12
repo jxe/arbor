@@ -55,6 +55,7 @@ public final class StoryDocumentBinding {
     private(set) var ledger: StorySourceLedger
     private var updatesTask: Task<Void, Never>?
     private var directoryProjection: (directory: WorkspaceNode, children: [WorkspaceNode])?
+    @ObservationIgnored private var presentationTask: Task<Void, Never>?
     /// Mirrors of the source's state for observation.
     private var saving = false
     private var failure: (any Error)?
@@ -117,17 +118,55 @@ public final class StoryDocumentBinding {
         self.ledger = opened.ledger
         let document = Document(
             id: DocumentID(String(describing: snapshot.reference.identity)),
-            children: opened.blocks,
+            children: StoryPagePresentation.present(opened.blocks, path: snapshot.reference.path, directory: nil),
             fallbackTitle: snapshot.reference.path.split(separator: "/").last.map(String.init)
         )
         self.document = document
-        self.acceptedTitle = document.title
+        self.acceptedTitle = Self.authoredTitle(of: document)
         self.editorState = EditorState()
         self.basisLedgers[snapshot.contentRevision] = opened.ledger
         source.onAcknowledged = { [weak self] snapshot in self?.acknowledge(snapshot) }
         source.onFailure = { [weak self] error in
             self?.trace("append failed: \(String(describing: error))")
             self?.refreshState()
+        }
+    }
+
+    /// The page's title as its source states it. A presented title names the
+    /// node already, so it never proposes a rename.
+    private static func authoredTitle(of document: Document) -> String {
+        Document.deriveTitle(from: StoryPagePresentation.authored(document.children), fallback: document.fallbackTitle ?? "Untitled")
+    }
+
+    // MARK: Presentation
+
+    /// `blocks` (authored, or this editor's edited tree) as the page shows them.
+    private func presented(_ blocks: [Block]) -> [Block] {
+        StoryPagePresentation.present(blocks, path: reference.path, directory: directoryProjection.map {
+            .init(children: $0.children, reference: $0.directory.reference, sourceDirectory: $0.directory.sourceDirectory)
+        })
+    }
+
+    /// Show the page as its current source presents it. Source is unchanged:
+    /// a presented heading that was removed or moved comes back, one that was
+    /// edited is from now on an authored block, and one that is no longer
+    /// called for (an authored first H1, a marker, every child linked) goes.
+    func represent() {
+        presentationTask?.cancel()
+        presentationTask = nil
+        guard !holdsTransferred else { return }
+        let next = presented(document.children)
+        if next != document.children { _ = document.replaceChildrenReconciled(next) }
+    }
+
+    /// Re-present once the editor's commit has returned: the tree is replaced
+    /// outside Quagmire's transaction, never from inside its commit callback.
+    private func representAfterCommit() {
+        guard presentationTask == nil else { return }
+        presentationTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            self.presentationTask = nil
+            self.represent()
         }
     }
 
@@ -215,6 +254,9 @@ public final class StoryDocumentBinding {
     /// Capture the editor's current tree as one generation and append it.
     func appendCurrentGeneration() {
         guard !holdsTransferred else { return }
+        // Presented headings cannot be deleted or moved, and an edit can call
+        // for one or retire one, so every commit is followed by presentation.
+        representAfterCommit()
         captureTransactionEvidence()
         // The patch is captured against the previous generation's ledger,
         // exactly as the editor produced it; the change states it in its own
@@ -264,7 +306,7 @@ public final class StoryDocumentBinding {
         let opened = StoryMarkdownCodec.open(source: replacement, revision: source.basis.contentRevision,
                                              identitySeed: String(describing: reference.identity), reusing: ledger.parsedKinds)
         let rebased = StoryMarkdownCodec.rebased(opened, preserving: document.children)
-        _ = document.replaceChildrenReconciled(rebased.blocks)
+        _ = document.replaceChildrenReconciled(presented(rebased.blocks))
         ledger = rebased.ledger
         authoredLedgers[generation] = rebased.ledger
         lastEnqueuedSource = replacement
@@ -276,21 +318,15 @@ public final class StoryDocumentBinding {
         if let error = lastError { throw error }
     }
 
-    /// Project the directory's immediate children into the live editor without
-    /// adding them to authored Markdown. Moving a projected row materializes
+    /// Present the directory's immediate children in the live editor without
+    /// adding them to authored Markdown. Moving a generated row materializes
     /// it through Quagmire's ordinary block move transaction.
     public func projectDirectoryChildren(
         _ children: [WorkspaceNode],
         in directory: WorkspaceNode
     ) {
         directoryProjection = (directory, children)
-        let projected = StoryMarkdownCodec.placeDirectoryChildren(
-            children,
-            in: document.children,
-            directory: directory.reference,
-            sourceDirectory: directory.sourceDirectory
-        )
-        _ = document.replaceChildrenReconciled(projected)
+        represent()
     }
 
     /// Reconcile a provider-authored path change for this stable identity
@@ -299,6 +335,8 @@ public final class StoryDocumentBinding {
         guard reference.identity == self.reference.identity else { return }
         self.reference = reference
         document.fallbackTitle = reference.path.split(separator: "/").last.map(String.init)
+        // A presented title names the node.
+        represent()
     }
 
     public func history() async throws -> [WorkspaceHistoryEntry] {
@@ -330,22 +368,11 @@ public final class StoryDocumentBinding {
             reusing: ledger.parsedKinds
         )
         let rebased = StoryMarkdownCodec.rebased(opened, preserving: document.children)
-        let replacement: [Block]
-        if let directoryProjection {
-            replacement = StoryMarkdownCodec.placeDirectoryChildren(
-                directoryProjection.children,
-                in: rebased.blocks,
-                directory: directoryProjection.directory.reference,
-                sourceDirectory: directoryProjection.directory.sourceDirectory
-            )
-        } else {
-            replacement = rebased.blocks
-        }
-        _ = document.replaceChildrenReconciled(replacement)
         reference = snapshot.reference
+        _ = document.replaceChildrenReconciled(presented(rebased.blocks))
         ledger = rebased.ledger
         basisLedgers = [snapshot.contentRevision: rebased.ledger]
-        acceptedTitle = document.title
+        acceptedTitle = Self.authoredTitle(of: document)
         lastEnqueuedSource = nil
     }
 
@@ -356,6 +383,8 @@ public final class StoryDocumentBinding {
     }
 
     func stopObserving() {
+        presentationTask?.cancel()
+        presentationTask = nil
         updatesTask?.cancel()
         updatesTask = nil
     }
@@ -452,9 +481,10 @@ public final class StoryDocumentBinding {
                 )
                 let rebased = StoryMarkdownCodec.rebased(opened, preserving: document.children)
                 ledger = rebased.ledger
-                if rebased.blocks != document.children { _ = document.replaceChildrenReconciled(rebased.blocks) }
+                let next = presented(rebased.blocks)
+                if next != document.children { _ = document.replaceChildrenReconciled(next) }
             }
-            acceptedTitle = document.title
+            acceptedTitle = Self.authoredTitle(of: document)
             authoredLedgers.removeAll()
             copySources.removeAll()
             basisLedgers = basisLedgers.filter { $0.key == confirmed.contentRevision }

@@ -23,7 +23,7 @@ struct EditorChangeLogTests {
     }
 
     private func type(_ text: String, into binding: StoryDocumentBinding) {
-        let paragraph = binding.document.children[binding.document.children.count - 1].id
+        let paragraph = binding.document.body[binding.document.body.count - 1].id
         binding.document.transaction(name: "Typing") {
             _ = binding.document.setText(paragraph, AttributedString(text))
         }
@@ -61,7 +61,7 @@ struct EditorChangeLogTests {
         session = try await WorkingTreeProvider(workingTree: workingTree, coordinator: coordinator).openDocument(reference)
         binding = try await StoryDocumentBinding.open(reference: reference, session: session)
         #expect(try await session.snapshot().source == written)
-        #expect(binding.document.children.last.map { String($0.text.characters) } == "Second")
+        #expect(binding.document.body.last.map { String($0.text.characters) } == "Second")
         // Editing continues on the retained chain.
         type("Third", into: binding)
         await binding.flush()
@@ -93,7 +93,7 @@ struct EditorChangeLogTests {
         #expect(binding.lastError != nil)
         #expect(binding.isSaving)
         #expect(retentions.isEmpty)
-        #expect(binding.document.children.last.map { String($0.text.characters) } == "Kept in the editor")
+        #expect(binding.document.body.last.map { String($0.text.characters) } == "Kept in the editor")
         try FileManager.default.removeItem(at: journal)
         await binding.retryLastSave()
         #expect(binding.lastError == nil)
