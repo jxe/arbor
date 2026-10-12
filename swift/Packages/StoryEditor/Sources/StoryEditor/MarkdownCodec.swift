@@ -585,6 +585,12 @@ public enum StoryMarkdownCodec {
 
     static func transfer(_ roots: [Block], from blocks: [Block], ledger: StorySourceLedger,
                          into destination: StoryMarkdownOpenedDocument) -> PlannedTransfer? {
+        // A page's generated child links reach here materialized (they lose
+        // their projected mark in `materializingProjectedChildren`). They have
+        // no source to move and the origin generates them again, so they stay.
+        var projected: Set<BlockID> = []
+        walk(blocks) { block, _ in if isProjectedChild(block) { projected.insert(block.id) } }
+        let roots = removingSubtrees(projected, from: roots)
         typealias Placed = (record: SourceRecord, raw: String, edits: [WorkspaceSourceEdit])
         var placed: [Placed] = []
         func place(_ block: Block, indent: Int) -> Bool {

@@ -2135,6 +2135,23 @@ struct TransferPlanTests {
         #expect(adjacent.transfer.moves.count == 1)
     }
 
+    @Test("A last section carrying a generated child link moves without it")
+    func generatedChildLink() throws {
+        let origin = "Intro\n\n# First\n\n- one\n\n# Last\n\n- two\n"
+        let a = StoryMarkdownCodec.open(source:origin,revision:"a1",identitySeed:"origin")
+        // The page projects an unmentioned child page into its last section,
+        // and Quagmire materializes it before asking for a transfer.
+        var blocks = a.blocks
+        let link = Block(kind:.documentLink(label:AttributedString("Child"),reference:DocumentReference("Last/Child.md")),
+                         metadata:[StoryMarkdownCodec.projectedChildMetadataKey:"true"])
+        blocks[2].children.append(link)
+        let roots = StoryMarkdownCodec.materializingProjectedChildren([blocks[1], blocks[2]])
+        let b = StoryMarkdownCodec.open(source:"Target\n\n",revision:"b1",identitySeed:"destination")
+        let planned = try #require(StoryMarkdownCodec.transfer(roots, from:blocks, ledger:a.ledger, into:b))
+        #expect(planned.originSource == "Intro\n\n")
+        #expect(planned.destinationSource == "Target\n\n# First\n\n- one\n\n# Last\n\n- two\n")
+    }
+
     @Test("An empty destination cannot be a landing place")
     func emptyDestination() throws {
         #expect(try plan("One\n\nTwo\n", "") { [$0[0]] } == nil)
