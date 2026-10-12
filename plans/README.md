@@ -97,6 +97,12 @@ pair with a Mac. Join from the iPhone with the same link, then add a Mac by scan
 the Mac shows. After Release 001. It owns what an invitation link does on the iPhone;
 Links 001 owns the iPhone's other link opens.
 
+**[Sharing 002: invite from the command line, through a client library](sharing/002-invite-from-the-command-line.md).**
+Setting up the intro video, Joe could make an invitation only in the Mac app. He wants
+`story invite`, built the way the other clients work: the command talks to the host itself
+through `@ovst/client`, with Story Sync out of the path. The rest of the CLI's host edits
+moving the same way is recorded there as a follow-up.
+
 **[Security 012: get back into an account with the admin's help](security/012-get-back-in-with-the-admins-help.md).**
 A person who has lost every device gets back in through the host's administrator, as the
 spec has it; Joe wants that to be as easy as possible for both. The administrator makes a

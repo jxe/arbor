@@ -8,7 +8,7 @@
 
 - **Effort**: M
 - **Risk**: LOW
-- **Depends on**: Release 001 published, Mac and TestFlight; the host deployed with agent links; `@ovst/cli` at a version with `agent` commands
+- **Depends on**: beta review passing for the Friends group (takes 06 only). Done on 2026-10-11: `v0.1.1` published for the Mac, `@ovst/cli` 0.1.1 on npm, and `OVERSTORYD_STORY_MAC_URL` set on the host
 - **Category**: release
 
 ## Before recording
@@ -24,7 +24,7 @@ Each of these must be true, or the script says something the screen cannot show:
 
 - A fresh macOS account for the demo, reset with `/Users/Shared/reset-story-test-account.sh` between attempts. Joe's own account logged out or its sync helper stopped while recording there ([Security 011](../security/011-story-sync-local-callers.md)).
 - A new invitation with a friendly handle, its link ready in a Messages or Mail window on the demo account, so take 1 starts from a real message.
-- A photo to choose, and a small `Notes` folder in Documents with three or four short pages, so the app is not empty after the join.
+- A photo to choose, and a small `Notes` folder in Documents with three or four short pages, so the app is not empty after the join. The pages, with the Groceries list below, are in `/Users/Shared/story-demo/Notes` (and `dist/video/demo/`); copy the folder into the demo account's Documents.
 - A second member with a name and photo (Joe himself is enough), so the Share menu has someone to pick.
 - The demo iPhone signed out of Story, with the TestFlight email in its inbox.
 - A Claude Code cloud session ready to paste the agent prompt into, and something cute for it to do that shows on screen at a glance: a page in `Notes` called "Groceries" with a dozen items in the order they came to mind (milk, basil, bin bags, apples, yoghurt, pasta, toothpaste, onions, butter, rice, lemons, olive oil), and the task "sort my grocery list by aisle". Short to run, the before and after are obvious, and it reads well on the iPhone too.
@@ -34,7 +34,7 @@ Each of these must be true, or the script says something the screen cannot show:
 - **ScreenFlow**, screen and microphone together, one take per row below. Narrating while recording keeps voice and picture in step; nothing is synced afterwards. Redo a take that goes wrong; each is 10 to 25 seconds.
 - Mac takes: record the demo account's whole screen at one fixed window size. Hide the Dock and notifications.
 - iPhone screen takes: ScreenFlow with the iPhone on a cable, or the iPhone's own screen recording.
-- iPhone gesture takes (11 to 14): a screen recording does not show fingers, so film the hand and phone with a second phone, held steady above it, and narrate in the same take or in a separate voice take named to match.
+- iPhone gesture takes (11 to 14): a screen recording does not show fingers, so film the hand and phone from above with the Mac's Desk View camera, the phone flat in front of the keyboard, its brightness down so the screen does not blow out. Narrate in the same take, or in a separate voice take named `11-swipe.voice.m4a`. For a sharp screen beside the hand, record the iPhone's screen in the same take and save it as `11-swipe.screen.mov`. The page to demo on is `Saturday` in Joe's todos tree; open it before recording, since the page list shows his real titles.
 - Name files by take number: `01-invite-link.mov`, `11-swipe.mov`. Leave a second of silence at each end.
 
 ## Shot list
@@ -75,14 +75,14 @@ Take 22 has a wait in the middle. Record the paste and start, stop, then record 
 
 ## Assembly (agent session)
 
-With `ffmpeg`, from `dist/video/takes/`:
+`dist/video/assemble.sh` does this with `ffmpeg`, from `dist/video/takes/`; it was tried on synthetic takes only. Captions are in `dist/video/captions.txt`, and a take the script cuts badly gets a line in `takes/trim.txt`.
 
 1. Trim the silence at each end of every take and normalize the audio to one level.
 2. For hand-filmed takes with a separate voice take, lay the voice over the picture.
 3. Add a title card before each section: Getting set up, Feature tour, Agents.
 4. Join in take order, with the same frame size and rate throughout; letterbox the iPhone and hand clips beside or inside a plain background.
-5. Write captions from the narration column as a subtitle file beside the video; do not burn them in.
-6. Write `dist/video/story-intro.mp4`, show Joe, and recut from his notes. Keep the assembly as a script under `dist/video/` so a retake only needs a rerun.
+5. Write captions from the narration column as a subtitle file beside the video and as a track in it that a player can turn on; do not burn them in.
+6. Write `dist/video/story-intro.mp4`, show Joe, and recut from his notes; a retake only needs a rerun.
 
 ## Close out
 
