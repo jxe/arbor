@@ -46,7 +46,9 @@ unzip -q -o "$bun_archive" -d "$work/bun"
 BUN_EXECUTABLE="$work/bun/bun-darwin-aarch64/bun"
 export BUN_EXECUTABLE
 
-if [ -f swift/Story.local.xcworkspace/contents.xcworkspacedata ]; then
+# tools/release.sh sets STORY_USE_PINNED_PACKAGES=1 to build against the pinned
+# Quagmire release rather than the sibling checkout the local workspace adds.
+if [ "${STORY_USE_PINNED_PACKAGES:-}" != "1" ] && [ -f swift/Story.local.xcworkspace/contents.xcworkspacedata ]; then
   set -- -workspace swift/Story.local.xcworkspace
 else
   set -- -project swift/Story.xcodeproj

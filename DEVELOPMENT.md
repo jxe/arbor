@@ -22,7 +22,9 @@ Overstory and Quagmire are developed together, so committed Overstory code,
 including code on main, may use Quagmire API that the pinned release does not
 have yet. Building that code needs the local override below until the next
 Quagmire release. Releasing Quagmire and moving both pins to that release is a
-separate step from pushing to main.
+separate step from pushing to main; `tools/release.sh` does it when Quagmire's
+main has moved past the pin, and builds the apps against the pin, not the
+local workspace.
 
 To develop Overstory and Quagmire together, clone Quagmire beside this checkout
 so the layout is as below. The Quagmire directory must be named exactly
