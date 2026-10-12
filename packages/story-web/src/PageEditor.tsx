@@ -7,7 +7,7 @@ import { filterSuggestionItems, SideMenuExtension } from "@blocknote/core/extens
 import { TextSelection } from "@tiptap/pm/state";
 import { FormattingToolbarController, SideMenuController, SuggestionMenuController } from "@blocknote/react";
 import type { OverstoryBlock, BacklinkEntry, NodeSummary } from "@ovst/protocol";
-import { canonicalOverstoryLocator, isPersonProfileTreeID, placeDirectoryChildren, reorderChildLinks, resolveChildLinkPath, serializeMarkdown } from "@ovst/protocol";
+import { canonicalOverstoryLocator, authorPage, isPersonProfileTreeID, presentPage, reorderChildLinks, resolveChildLinkPath, serializeMarkdown } from "@ovst/protocol";
 import type {
   NodeRef,
   NodeResponse,
@@ -423,13 +423,16 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
   const physicalChildren = children;
   const childrenRevision = physicalChildren.map((child) => `${child.ref.path}:${presentationKind(child)}:${child.materialization}`).join("\0");
   const childrenByPath = useMemo(() => new Map(physicalChildren.map((child) => [child.ref.path, child])), [childrenRevision]);
-  const placedDocument = useMemo(() => markdownDocument && isDirectory
-    ? placeDirectoryChildren({ path: node.ref.path, body: node.content?.representation?.origin ?? "index" }, markdownDocument, physicalChildren.map((child) => ({
+  // Every page is shown through `presentPage`: it adds the presented title
+  // and, for a node with children, places them (directory format §4.1).
+  const presentedNode = { path: node.ref.path, body: node.content?.representation?.origin ?? (isDirectory ? "index" as const : "sibling" as const) };
+  const placedDocument = useMemo(() => markdownDocument
+    ? presentPage(presentedNode, markdownDocument, isDirectory ? physicalChildren.map((child) => ({
       name: child.name,
       path: child.ref.path,
       body: presentationBody(child),
       stableKey: child.ref.stableKey,
-    }))).document
+    })) : null).document
     : markdownDocument,
   [node.capabilities.content?.revision, childrenRevision, isDirectory]);
   const initial = placedDocument?.blocks ?? authored;
@@ -551,7 +554,8 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
     value: DocumentSnapshot,
     base: DocumentSnapshot,
   ): Promise<NodeResponse> => {
-    const source = serializeMarkdown(markdownDocument!, value.blocks, frontmatterPatch(base.frontmatter, value.frontmatter));
+    // An edited presented heading becomes authored source; an untouched one is not written.
+    const source = serializeMarkdown(markdownDocument!, authorPage(presentedNode, value.blocks), frontmatterPatch(base.frontmatter, value.frontmatter));
     let context = admissionNode.current;
     if (!context?.admissionBasis || context.capabilities.content?.revision !== baseRevision) {
       context = await sapiRef.current.editorNode(nodeReference);
@@ -1322,25 +1326,6 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
         : saveState === "conflict" ? "Conflict"
           : saveState === "error" ? "Save failed"
             : "Saved";
-  const firstBlock = editor.document[0] as OverstoryEditorBlock | undefined;
-  const beginsWithTitle = firstBlock?.type === "heading" && Number(firstBlock.props.level) === 1;
-  const addPageTitle = () => {
-    const first = editor.document[0] as OverstoryEditorBlock | undefined;
-    if (!first) return;
-    const reusesStarterParagraph = editor.document.length === 1
-      && first.type === "paragraph"
-      && Array.isArray(first.content)
-      && first.content.length === 0
-      && first.children.length === 0;
-    editor.transact(() => {
-      const title = reusesStarterParagraph
-        ? editor.updateBlock(first, { type: "heading", props: { level: 1 } })
-        : editor.insertBlocks([{ type: "heading", props: { level: 1 } }], first, "before")[0]!;
-      editor.setTextCursorPosition(title, "start");
-    });
-    editor.focus();
-  };
-
   return <div className="editor-shell">
     <details className="properties">
       <summary><span>Properties</span><small>{propertyKeys.length}</small></summary>
@@ -1470,9 +1455,6 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
         onClickCapture={openInternalLink}
       >
         <style>{footnoteLayout.css}</style>
-        {!beginsWithTitle && <button type="button" className="add-page-title" aria-label="Add page title" onClick={addPageTitle}>
-          Add title
-        </button>}
         <BlockNoteView editor={editor} sideMenu={false} formattingToolbar={false} slashMenu={false} onChange={(_editor, { getChanges }) => {
           if (coordinator.isApplying) return;
           if (!getChanges().some((change) => change.source.type !== "yjs-remote")) return;

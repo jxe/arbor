@@ -1,6 +1,6 @@
 import { buildNetworkLocator, resolveLogicalURL } from "@ovst/protocol/logical-url";
 import type { OverstoryBlock, JSONValue } from "@ovst/protocol";
-import { markdownDisplayTitle, parseMarkdown } from "@ovst/protocol";
+import { PRESENTED_CHILDREN_HEADING, isChildrenMarker, beginsWithTitle, markdownDisplayTitle, parseMarkdown } from "@ovst/protocol";
 
 export interface PublicPageChild {
   name: string;
@@ -280,15 +280,23 @@ export function renderPublicMarkdownPage(options: PublicMarkdownPageOptions): st
     sourceDirectory: options.sourceDirectory,
     footnotes: collectFootnotes(document.blocks),
   };
-  const title = markdownDisplayTitle(document, options.fallbackTitle);
-  const beginsWithTitle = document.blocks.find((block) => block.type !== "rawMarkdown" || !block.props?.blank)?.type === "heading"
-    && Number(document.blocks.find((block) => block.type !== "rawMarkdown" || !block.props?.blank)?.props?.level ?? 1) === 1;
+  // Presented headings (directory format §4.1): a page whose body does not
+  // begin with an H1 opens with its name, hyphens shown as spaces, and
+  // children no authored link names close it under Children unless an
+  // explicit marker says where they stand.
+  const title = markdownDisplayTitle(document, options.fallbackTitle.replaceAll("-", " "));
   const referenced = referencedChildren(document.blocks, context);
   const projectedChildren = (options.children ?? [])
     .filter((child) => !referenced.has(child.href))
     .map((child) => childRow(child.name, child.href, child.href, child.kind === "folder", context, true))
     .join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light dark"><title>${escapeHTML(title)}</title><style>${PUBLIC_STYLES}</style></head><body><main class="public-page"><article class="story-document">${beginsWithTitle ? "" : `<h1>${escapeHTML(title)}</h1>`}${renderBlocks(document.blocks, context)}${projectedChildren ? `<div class="child-list">${projectedChildren}</div>` : ""}</article></main></body></html>`;
+  const childList = projectedChildren ? `<div class="child-list">${projectedChildren}</div>` : "";
+  const markers = document.blocks.flatMap((block, index) => isChildrenMarker(block) ? [index] : []);
+  const marker = markers.length === 1 ? markers[0]! : -1;
+  const body = marker === -1
+    ? `${renderBlocks(document.blocks, context)}${childList ? `<h1>${escapeHTML(PRESENTED_CHILDREN_HEADING)}</h1>${childList}` : ""}`
+    : `${renderBlocks(document.blocks.slice(0, marker), context)}${childList}${renderBlocks(document.blocks.slice(marker + 1), context)}`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light dark"><title>${escapeHTML(title)}</title><style>${PUBLIC_STYLES}</style></head><body><main class="public-page"><article class="story-document">${beginsWithTitle(document.blocks) ? "" : `<h1>${escapeHTML(title)}</h1>`}${body}</article></main></body></html>`;
 }
 
 function renderedProperty(value: JSONValue): string {

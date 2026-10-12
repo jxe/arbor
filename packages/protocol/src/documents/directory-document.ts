@@ -20,7 +20,10 @@ export interface PlacementDirectory {
 }
 
 export interface DirectoryPlacementResult {
+  /** The authored document, with unclaimed children standing at its explicit marker when it has one. */
   document: MarkdownDocument;
+  /** The implicit marker's remainder: unclaimed children of a document without a marker, in canonical order. */
+  remainder: OverstoryBlock[];
   placedChildren: string[];
   generatedChildren: string[];
   diagnostics: Diagnostic[];
@@ -31,7 +34,8 @@ export interface DirectoryPlacementResult {
 // writes a marker, and the raw block round-trips byte for byte.
 const LEGACY_CHILDREN_MARKER = "<!-- arbor:children -->";
 
-function isChildrenMarker(block: OverstoryBlock): boolean {
+/** Whether a block is a standalone children marker, in its current or its pre-rename spelling. */
+export function isChildrenMarker(block: OverstoryBlock): boolean {
   if (block.type !== "rawMarkdown") return false;
   const text = String(block.content ?? block.source ?? "").trim();
   return text === CHILDREN_MARKER || text === LEGACY_CHILDREN_MARKER;
@@ -52,14 +56,17 @@ export function directoryPlacementDiagnostics(
 }
 
 /**
- * Project a directory's current child generation into its parsed document.
+ * Place a directory's current child generation against its parsed document.
+ * Clients show the result through `presentPage`, which decides how a
+ * remainder without a marker reads.
  *
  * Authored standalone links claim their first matching child. Unclaimed
- * children are virtual blocks at the explicit marker, or after authored source
- * when the marker is absent. Virtual blocks carry `storyGenerated` and the
- * Markdown serializer omits them, so paging a large collection file never expands its
- * `_index.md`. Moving a virtual block through the managed-row operation clears
- * that flag and makes the link an authored placement.
+ * children are virtual blocks: placed after the explicit marker, or returned
+ * as `remainder` when the document has none. Virtual blocks carry
+ * `storyGenerated` and the Markdown serializer omits them, so paging a large
+ * collection file never expands its `_index.md`. Moving a virtual block
+ * through the managed-row operation clears that flag and makes the link an
+ * authored placement.
  */
 export function placeDirectoryChildren(
   placement: PlacementDirectory,
@@ -94,6 +101,7 @@ export function placeDirectoryChildren(
   if (diagnostics.length) {
     return {
       document,
+      remainder: [],
       placedChildren: [...matched].map((child) => canonicalNodePath(child.path)),
       generatedChildren: [],
       diagnostics,
@@ -121,10 +129,11 @@ export function placeDirectoryChildren(
     ? { ...block, props: { ...block.props, storyChildrenMarker: true } }
     : block
   );
-  if (generated.length) blocks.splice(markerIndex === -1 ? blocks.length : markerIndex + 1, 0, ...generated);
+  if (markerIndex !== -1) blocks.splice(markerIndex + 1, 0, ...generated);
 
   return {
     document: { ...document, blocks },
+    remainder: markerIndex === -1 ? generated : [],
     placedChildren: children.map((child) => canonicalNodePath(child.path)),
     generatedChildren: missing.map((child) => canonicalNodePath(child.path)),
     diagnostics,

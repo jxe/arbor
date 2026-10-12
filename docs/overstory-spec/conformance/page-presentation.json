@@ -1,0 +1,179 @@
+{
+  "cases": [
+    {
+      "name": "title-from-the-last-segment-with-hyphens-as-spaces",
+      "node": { "path": "/journal/trip-to-berlin", "body": "sibling" },
+      "source": "Arrived late.\n",
+      "children": null,
+      "expectedOutline": [
+        { "presented": "title", "text": "trip to berlin" }
+      ]
+    },
+    {
+      "name": "index-body-takes-the-directory-name",
+      "node": { "path": "/field-notes", "body": "index" },
+      "source": "## Method\n\nWalk and write.\n",
+      "children": [],
+      "expectedOutline": [
+        { "presented": "title", "text": "field notes" },
+        { "heading": 2, "text": "Method" }
+      ]
+    },
+    {
+      "name": "leading-h1-is-the-title",
+      "node": { "path": "/journal/trip-to-berlin", "body": "sibling" },
+      "source": "---\ntags: [travel]\n---\n\n# Berlin\n\nArrived late.\n",
+      "children": null,
+      "expectedOutline": [
+        { "heading": 1, "text": "Berlin" }
+      ]
+    },
+    {
+      "name": "later-h1-does-not-title-the-page",
+      "node": { "path": "/journal/notes", "body": "sibling" },
+      "source": "Preamble.\n\n# Part one\n",
+      "children": null,
+      "expectedOutline": [
+        { "presented": "title", "text": "notes" },
+        { "heading": 1, "text": "Part one" }
+      ]
+    },
+    {
+      "name": "root-presents-no-title",
+      "node": { "path": "/", "body": "index" },
+      "source": "Welcome.\n",
+      "children": [],
+      "expectedOutline": []
+    },
+    {
+      "name": "empty-body-presents-title-and-children",
+      "node": { "path": "/dir", "body": "index" },
+      "source": "",
+      "children": [
+        { "name": "b", "path": "/dir/b", "body": "sibling" },
+        { "name": "a", "path": "/dir/a", "body": "sibling" }
+      ],
+      "expectedOutline": [
+        { "presented": "title", "text": "dir" },
+        { "presented": "children", "text": "Children" },
+        { "link": "a.md", "generated": true },
+        { "link": "b.md", "generated": true }
+      ]
+    },
+    {
+      "name": "children-close-the-last-authored-section",
+      "node": { "path": "/dir", "body": "index" },
+      "source": "# Directory\n\n[Linked](linked.md)\n\n## Last section\n\nBody.\n",
+      "children": [
+        { "name": "linked", "path": "/dir/linked", "body": "sibling" },
+        { "name": "loose", "path": "/dir/loose", "body": "sibling" },
+        { "name": "folder", "path": "/dir/folder", "body": "index" }
+      ],
+      "expectedOutline": [
+        { "heading": 1, "text": "Directory" },
+        { "link": "linked.md", "generated": false },
+        { "heading": 2, "text": "Last section" },
+        { "presented": "children", "text": "Children" },
+        { "link": "folder/_index.md", "generated": true },
+        { "link": "loose.md", "generated": true }
+      ]
+    },
+    {
+      "name": "explicit-marker-presents-no-children-heading",
+      "node": { "path": "/dir", "body": "index" },
+      "source": "# Directory\n\n## Pages\n\n<!-- overstory:children -->\n\n## After\n",
+      "children": [
+        { "name": "a", "path": "/dir/a", "body": "sibling" }
+      ],
+      "expectedOutline": [
+        { "heading": 1, "text": "Directory" },
+        { "heading": 2, "text": "Pages" },
+        { "link": "a.md", "generated": true },
+        { "heading": 2, "text": "After" }
+      ]
+    },
+    {
+      "name": "every-child-linked-presents-no-children-heading",
+      "node": { "path": "/dir", "body": "index" },
+      "source": "# Directory\n\n[A](a.md)\n\n[B](b.md)\n",
+      "children": [
+        { "name": "a", "path": "/dir/a", "body": "sibling" },
+        { "name": "b", "path": "/dir/b", "body": "sibling" }
+      ],
+      "expectedOutline": [
+        { "heading": 1, "text": "Directory" },
+        { "link": "a.md", "generated": false },
+        { "link": "b.md", "generated": false }
+      ]
+    },
+    {
+      "name": "duplicate-markers-still-present-the-title",
+      "node": { "path": "/dir", "body": "index" },
+      "source": "<!-- overstory:children -->\n\nText\n\n<!-- overstory:children -->\n",
+      "children": [
+        { "name": "child", "path": "/dir/child", "body": "sibling" }
+      ],
+      "expectedOutline": [
+        { "presented": "title", "text": "dir" }
+      ]
+    }
+  ],
+  "edits": [
+    {
+      "name": "editing-the-title-writes-the-first-h1",
+      "node": { "path": "/journal/trip-to-berlin", "body": "sibling" },
+      "source": "---\ntags: [travel]\n---\n\nArrived late.\n",
+      "children": null,
+      "edit": { "retitle": "title", "text": "Berlin" },
+      "expectedSource": "---\ntags: [travel]\n---\n\n# Berlin\n\nArrived late.\n"
+    },
+    {
+      "name": "editing-the-title-leaves-children-presented",
+      "node": { "path": "/dir", "body": "index" },
+      "source": "Intro.\n",
+      "children": [
+        { "name": "a", "path": "/dir/a", "body": "sibling" }
+      ],
+      "edit": { "retitle": "title", "text": "Directory" },
+      "expectedSource": "# Directory\n\nIntro.\n"
+    },
+    {
+      "name": "retyping-the-title-writes-it",
+      "node": { "path": "/journal/notes", "body": "sibling" },
+      "source": "Body.\n",
+      "children": null,
+      "edit": { "retype": "title", "level": 2 },
+      "expectedSource": "## notes\n\nBody.\n"
+    },
+    {
+      "name": "renaming-children-writes-the-heading-and-a-marker",
+      "node": { "path": "/dir", "body": "index" },
+      "source": "# Directory\n\nIntro.\n",
+      "children": [
+        { "name": "a", "path": "/dir/a", "body": "sibling" }
+      ],
+      "edit": { "retitle": "children", "text": "Pages" },
+      "expectedSource": "# Directory\n\nIntro.\n\n# Pages\n\n<!-- overstory:children -->\n"
+    },
+    {
+      "name": "content-under-children-writes-the-heading-and-a-marker",
+      "node": { "path": "/dir", "body": "index" },
+      "source": "Intro.\n",
+      "children": [
+        { "name": "a", "path": "/dir/a", "body": "sibling" }
+      ],
+      "edit": { "append": "See also the archive." },
+      "expectedSource": "Intro.\n\n# Children\n\n<!-- overstory:children -->\n\nSee also the archive.\n\n"
+    },
+    {
+      "name": "an-untouched-page-writes-nothing",
+      "node": { "path": "/dir", "body": "index" },
+      "source": "Intro.\r\n",
+      "children": [
+        { "name": "a", "path": "/dir/a", "body": "sibling" }
+      ],
+      "edit": null,
+      "expectedSource": "Intro.\r\n"
+    }
+  ]
+}

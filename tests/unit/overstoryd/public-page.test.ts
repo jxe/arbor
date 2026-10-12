@@ -24,6 +24,35 @@ describe("public Markdown pages", () => {
   });
 });
 
+describe("presented headings on a public page", () => {
+  const children = [{ name: "note", href: "/~joe/todos/dir/note", kind: "document" as const }];
+  const render = (source: string, fallbackTitle = "field-notes") => renderPublicMarkdownPage({
+    source, fallbackTitle, origin: "https://garden.example.org", treeCanonicalPath: "/~joe/todos", sourceDirectory: "/dir", children,
+  });
+
+  test("a body without a leading H1 opens with the name, hyphens shown as spaces", () => {
+    expect(render("Text.\n")).toContain("<h1>field notes</h1>");
+    expect(render("# Authored\n")).not.toContain("<h1>field notes</h1>");
+  });
+
+  test("unlinked children close the page under Children", () => {
+    const html = render("# Dir\n\n## Last\n\nBody.\n");
+    expect(html).toContain('<h1>Children</h1><div class="child-list">');
+    expect(html.indexOf("Body.")).toBeLessThan(html.indexOf("<h1>Children</h1>"));
+  });
+
+  test("an explicit marker places them with no heading", () => {
+    const html = render("# Dir\n\n<!-- overstory:children -->\n\nTail.\n");
+    expect(html).not.toContain("<h1>Children</h1>");
+    expect(html).not.toContain('class="raw-markdown"');
+    expect(html.indexOf('class="child-list"')).toBeLessThan(html.indexOf("Tail."));
+  });
+
+  test("linked children present no heading", () => {
+    expect(render("# Dir\n\n[Note](note.md)\n")).not.toContain("<h1>Children</h1>");
+  });
+});
+
 describe("the reserved-address page", () => {
   test("says the address is reserved and unclaimed, and that an invitation opens in Story", () => {
     const page = renderReservedPage("alice", "garden.example.org");

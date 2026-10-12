@@ -840,6 +840,13 @@ export function fromBlockNote(block: OverstoryEditorBlock, originals: Map<string
   }
   const props: Record<string, string | number | boolean> = {};
   if (block.type === "heading") props.level = block.props.level;
+  // A presented heading has no editor prop to carry its mark, so it is kept
+  // by identity. `authorPage` decides from the block's current text and kind
+  // whether it is still presented or has become authored source.
+  if (original?.props?.storyPresented) {
+    props.storyGenerated = true;
+    props.storyPresented = original.props.storyPresented;
+  }
   if (block.type === "checkListItem") props.checked = block.props.checked;
   if (block.type === "codeBlock") props.language = block.props.language;
   if (block.type === "footnoteDefinition") props.label = block.props.label;

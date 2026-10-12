@@ -38,6 +38,7 @@ export * from "./documents/markdown.ts";
 export * from "./documents/markdown-identity.ts";
 export * from "./documents/markdown-links.ts";
 export * from "./documents/directory-document.ts";
+export * from "./documents/page-presentation.ts";
 export * from "./documents/child-links.ts";
 export * from "./documents/document-icon.ts";
 export * from "./documents/display-title.ts";

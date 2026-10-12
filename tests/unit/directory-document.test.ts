@@ -18,7 +18,8 @@ describe("bounded directory child placement", () => {
     for (const item of fixture.cases) {
       const authored = parseMarkdown(item.source);
       const result = placeDirectoryChildren(item.directory, authored, item.children);
-      expect(result.document.blocks.filter((block) => block.type === "standaloneLink").map((block) => block.props?.path)).toEqual(item.expectedBlockPaths);
+      // A document without a marker has an implicit one after its authored source.
+      expect([...result.document.blocks, ...result.remainder].filter((block) => block.type === "standaloneLink").map((block) => block.props?.path)).toEqual(item.expectedBlockPaths);
       expect(result.generatedChildren).toEqual(item.expectedGeneratedChildren);
       expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(item.expectedDiagnosticCodes);
       expect(serializeMarkdown(result.document, result.document.blocks)).toBe(item.source);
@@ -36,7 +37,8 @@ describe("bounded directory child placement", () => {
     expect(result.generatedChildren).toHaveLength(125);
     expect(result.generatedChildren[0]).toBe("/dir/child-000");
     expect(result.generatedChildren.at(-1)).toBe("/dir/child-124");
-    expect(serializeMarkdown(result.document, result.document.blocks)).toBe(source);
+    expect(result.remainder).toHaveLength(125);
+    expect(serializeMarkdown(result.document, [...result.document.blocks, ...result.remainder])).toBe(source);
   });
 
   test("moving a generated child makes it an authored placement", () => {
