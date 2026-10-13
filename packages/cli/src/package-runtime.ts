@@ -1,33 +1,30 @@
-import { cp, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { STORY_VERSION } from "@ovst/story-sync";
 
-/** Preserve installed services independently of bunx's disposable package cache. */
-export async function persistPackageRuntime(script: string, home: string): Promise<string> {
-  const packageRoot = dirname(dirname(script));
-  const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
-  if (manifest.name !== "@ovst/cli") throw new Error("Expected a packaged Story CLI runtime");
-  const hash = createHash("sha256").update("story-runtime-2").update(await readFile(script)).digest("hex").slice(0, 16);
-  const destination = join(home, "Library", "Application Support", "Story", "CLI", `${manifest.version}-${hash}`);
-  const installed = join(destination, "bin", "story-sync.js");
+/** True in the `bun build --compile` executable the npm package ships, whose own modules live in Bun's embedded filesystem. */
+export const compiledExecutable = import.meta.path.startsWith("/$bunfs/") || /^[A-Za-z]:[\\/]~BUN[\\/]/.test(import.meta.path);
+
+/** The command that runs this same CLI again: the executable alone when compiled, otherwise Bun and the entry script. */
+export function storyCommand(): string[] {
+  if (compiledExecutable) return [process.execPath];
+  const entry = process.argv[1];
+  if (!entry) throw new Error("Cannot locate the Story CLI entry point");
+  return [process.execPath, entry];
+}
+
+/** Preserve the executable a service runs independently of npx's or bunx's disposable package cache. */
+export async function persistPackageRuntime(executable: string, home: string): Promise<string> {
+  const hash = createHash("sha256").update("story-runtime-3").update(await readFile(executable)).digest("hex").slice(0, 16);
+  const destination = join(home, "Library", "Application Support", "Story", "CLI", `${STORY_VERSION}-${hash}`);
+  const installed = join(destination, "story");
   if (await stat(installed).then(() => true, () => false)) return installed;
   const staging = `${destination}.${crypto.randomUUID()}.tmp`;
   await mkdir(staging, { recursive: true, mode: 0o700 });
   try {
-    await cp(join(packageRoot, "bin"), join(staging, "bin"), { recursive: true, dereference: true });
-    await cp(join(packageRoot, "package.json"), join(staging, "package.json"));
-    const copied = new Set<string>();
-    const copyDependency = async (name: string, from: string): Promise<void> => {
-      if (copied.has(name)) return;
-      const manifestPath = createRequire(from).resolve(`${name}/package.json`);
-      const dependency = JSON.parse(await readFile(manifestPath, "utf8"));
-      copied.add(name);
-      await cp(dirname(manifestPath), join(staging, "node_modules", name), { recursive: true, dereference: true });
-      for (const child of Object.keys(dependency.dependencies ?? {})) await copyDependency(child, manifestPath);
-    };
-    await copyDependency("@parcel/watcher", script);
-    await copyDependency(`@parcel/watcher-darwin-${process.arch}`, createRequire(script).resolve("@parcel/watcher"));
+    await copyFile(executable, join(staging, "story"));
+    await chmod(join(staging, "story"), 0o755);
     await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
     try { await rename(staging, destination); }
     catch (error) {

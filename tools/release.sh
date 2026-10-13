@@ -162,7 +162,7 @@ echo "Ready to publish $version (build $build): $parts"
 { wants mac || wants ios; } && echo "  - built with Quagmire $target"
 wants mac && echo "  - push main and $tag (deploys the host); GitHub release with Story-$version.dmg, Story.dmg, appcast.xml"
 wants ios && echo "  - archive and upload the iPhone app to App Store Connect, then add it to its TestFlight group"
-wants npm && echo "  - npm publish @ovst/cli@$version"
+wants npm && echo "  - npm publish @ovst/cli@$version and its four platform builds (@ovst/cli-darwin-arm64 and so on)"
 printf 'Publish? Type yes: '
 read answer
 [ "$answer" = "yes" ] || { echo "Nothing published. The builds are in dist/."; exit 1; }
@@ -193,6 +193,8 @@ if wants ios; then
 fi
 if wants npm; then
   echo "== Publishing the story command"
+  # The platform builds first, so @ovst/cli never names an optional dependency npm cannot find.
+  for platform in dist/npm-cli-*/; do npm publish "$platform"; done
   npm publish ./dist/npm-cli
 fi
 
@@ -203,5 +205,5 @@ if wants ios; then
   if [ "${testflight_failed:-}" = "1" ]; then echo "  iPhone: add build $build to its group in App Store Connect > TestFlight once it has processed."
   else echo "  iPhone: build $build is in its TestFlight group."; fi
 fi
-wants npm && echo "  npm: if the publish was staged, approve it on npmjs.com; then bunx @ovst/cli@$version --version"
+wants npm && echo "  npm: if the publish was staged, approve it on npmjs.com; then npx @ovst/cli@$version --version"
 exit 0

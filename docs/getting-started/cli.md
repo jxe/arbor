@@ -466,42 +466,50 @@ macOS asks for an administrator's password when that folder needs one. The
 link points into the app, so the command updates with it. No separate Bun is
 needed.
 
-## Running with bunx
+## Running with npx
 
-Install Bun first (the release is tested with Bun 1.4.2). The CLI package keeps
-Bun as a runtime prerequisite; it does not include another runtime or require Node.
-The package has one command, `story`, so `bunx @ovst/cli` runs it; `npx @ovst/cli`
-does the same when Bun is installed. Version-pinned examples:
+The npm package needs only Node (18 or newer); Bun is not required. `@ovst/cli`
+is a small launcher that runs a standalone `story` executable, compiled with Bun,
+from the optional dependency for your platform: `@ovst/cli-darwin-arm64`,
+`-darwin-x64`, `-linux-x64` or `-linux-arm64` (Linux builds need glibc). The
+package has one command, `story`, so `npx @ovst/cli` runs it; `bunx @ovst/cli`
+does the same. Version-pinned examples:
 
 ```sh
-bunx @ovst/cli@0.1.0 sync status --json
-bunx @ovst/cli@0.1.0 daemon install
-bunx @ovst/cli@0.1.0 agent create --name agent --place https://community.example/~you/notes notes
+npx @ovst/cli@0.1.0 sync status --json
+npx @ovst/cli@0.1.0 daemon install
+npx @ovst/cli@0.1.0 agent create --name agent --place https://community.example/~you/notes notes
 # Set STORY_CLOUD_BUNDLE to the returned secret using your agent secret store.
-bunx @ovst/cli@0.1.0 agent run --root ./agent-work -- <agent command>
+npx @ovst/cli@0.1.0 agent run --root ./agent-work -- <agent command>
 # Or, where the harness starts the agent itself:
-bunx @ovst/cli@0.1.0 agent start --root ./agent-work --json
-bunx @ovst/cli@0.1.0 sync status ./agent-work --json
-bunx @ovst/cli@0.1.0 agent finish --root ./agent-work --json
+npx @ovst/cli@0.1.0 agent start --root ./agent-work --json
+npx @ovst/cli@0.1.0 sync status ./agent-work --json
+npx @ovst/cli@0.1.0 agent finish --root ./agent-work --json
 ```
 
 Ordinary synchronization commands attach to an existing service and report
-install/start instructions when unavailable. macOS daemon installation preserves
-packaged JavaScript and watcher dependencies under `~/Library/Application Support/Story/CLI/`,
-independently of the bunx cache. Bun itself remains an installed prerequisite.
-Linux users run `bunx @ovst/cli@0.1.0 daemon run --control`
-under their service manager. Agent sessions start their own isolated runtime
-without installing a persistent daemon. Headless identity operations can opt into
+install/start instructions when unavailable. macOS daemon installation copies
+the executable to `~/Library/Application Support/Story/CLI/`, independently of
+the npx cache, and the LaunchAgent runs its `story daemon run`. Linux users run
+`npx @ovst/cli@0.1.0 daemon run --control` under their service manager. Agent
+sessions start their own isolated runtime without installing a persistent
+daemon. Headless identity operations can opt into
 `STORY_CREDENTIAL_STORE=file`; this stores the private key in the private data
 home with mode 0600, rather than using a desktop credential service.
 
-`bun run build:cli:package` creates `dist/npm-cli`, a publishable package with
-bundled workspace code and its native watcher dependency. Pack and test that
-directory before publication; the repository workspace manifest is not the release
-artifact. Publication and installed-service updates are separate actions.
+`bun run build:cli:package` creates `dist/npm-cli` (the launcher package) and
+`dist/npm-cli-<os>-<cpu>` (one executable package per platform), cross-compiling
+every platform from one machine; it fetches each platform's `@parcel/watcher`
+prebuild from npm and embeds it in the executable. `STORY_CLI_TARGETS=linux-x64`
+builds only the named platforms. On macOS it signs the Mac executables ad hoc.
+Pack and test those directories before publication; the repository workspace
+manifest is not the release artifact. Publication and installed-service updates
+are separate actions, and the platform packages are published before
+`@ovst/cli`.
 
-Run `bun run test:cli:package` to build and install a tarball in a disposable
-folder, exercise the real-host CLI/cloud tests against it, and (on macOS) verify
-the durable helper after removing the installed package cache. Run this gate on
-macOS arm64/x64 and Linux glibc arm64/x64 before release. It requires npm for the
-pack/install verification, not for the shipped CLI runtime.
+Run `bun run test:cli:package` to build this platform's executable, install the
+packed tarballs in a disposable folder, run `story --version` with only Node on
+`PATH`, exercise the real-host CLI/cloud tests against the executable, and (on
+macOS) verify the durable helper after removing the installed package cache.
+Run this gate on macOS before release. It requires npm for the pack/install
+verification, not for the shipped CLI runtime.

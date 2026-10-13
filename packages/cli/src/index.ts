@@ -11,6 +11,7 @@ import { listLocalAccounts } from "@ovst/story-sync/state";
 import { addLocalPlacement, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
 import type { Document } from "yaml";
 import { STORY_SYNC_PORT, storyDaemonSupervisor } from "./daemon.ts";
+import { compiledExecutable, storyCommand } from "./package-runtime.ts";
 import { validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@ovst/overstoryd";
 import {
   cloudPlacementPath,
@@ -1290,7 +1291,7 @@ interface CloudStartResult {
 
 /** How this command was run, so the instructions name a command that works where they are read. */
 function storyInvocation(): string {
-  return /[\\/]@ovst[\\/]cli[\\/]/.test(process.argv[1] ?? "") ? "bunx @ovst/cli" : "story";
+  return /[\\/]@ovst[\\/]cli(-[\w-]+)?[\\/]/.test(compiledExecutable ? process.execPath : process.argv[1] ?? "") ? "npx @ovst/cli" : "story";
 }
 
 /** The working rules for an agent session, said once where the agent will read them: start's output. */
@@ -1414,11 +1415,8 @@ async function startCloudSession(options: CloudStartOptions): Promise<CloudStart
       ]);
       session = { ...session, instanceID: crypto.randomUUID(), phase: "preparing", updatedAt: new Date().toISOString(), origin: undefined, pid: undefined, lastError: undefined };
       await saveCloudSession(session);
-      const cliEntryPoint = process.argv[1];
-      if (!cliEntryPoint) throw new Error("Cannot locate the Story CLI entry point");
       const child = Bun.spawn([
-        process.execPath,
-        cliEntryPoint,
+        ...storyCommand(),
         "__cloud-story-sync",
         "--control",
         "--port", "0",

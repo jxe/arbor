@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { persistPackageRuntime } from "./package-runtime.ts";
+import { compiledExecutable, persistPackageRuntime } from "./package-runtime.ts";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -95,9 +94,11 @@ export function darwinDaemonPaths(home = homedir()): DarwinDaemonPaths {
 
 export function darwinDaemonCommand(options: Pick<DarwinDaemonOptions, "executable" | "script"> = {}): string[] {
   if (options.executable) return [resolve(options.executable), "--control", "--port", String(STORY_SYNC_PORT)];
+  // The packaged CLI is one executable; its `daemon run` is Story Sync.
+  if (compiledExecutable && !options.script) return [process.execPath, "daemon", "run", "--control", "--port", String(STORY_SYNC_PORT)];
   return [
     process.execPath,
-    resolve(options.script ?? (existsSync(join(import.meta.dir, "story-sync.js")) ? join(import.meta.dir, "story-sync.js") : join(import.meta.dir, "../../story-sync/src/cli.ts"))),
+    resolve(options.script ?? join(import.meta.dir, "../../story-sync/src/cli.ts")),
     "--control",
     "--port",
     String(STORY_SYNC_PORT),
@@ -164,7 +165,7 @@ export class DarwinStoryDaemonSupervisor implements StoryDaemonSupervisor {
     this.paths = darwinDaemonPaths(options.home ?? homedir());
     this.command = darwinDaemonCommand(options);
     this.home = options.home ?? homedir();
-    this.packaged = !options.executable && !options.script && existsSync(join(import.meta.dir, "story-sync.js"));
+    this.packaged = compiledExecutable && !options.executable && !options.script;
     const uid = typeof process.getuid === "function" ? process.getuid() : 0;
     this.domain = `gui/${uid}`;
     this.service = `${this.domain}/${STORY_SYNC_LABEL}`;
@@ -189,7 +190,7 @@ export class DarwinStoryDaemonSupervisor implements StoryDaemonSupervisor {
     if (!loaded && await this.reachable()) {
       throw new Error(`An unsupervised Story Sync for this data home is already running at ${this.origin}; stop that foreground process, then run \`story daemon install\` again`);
     }
-    if (this.packaged) this.command[1] = await persistPackageRuntime(this.command[1]!, this.home);
+    if (this.packaged) this.command[0] = await persistPackageRuntime(this.command[0]!, this.home);
     const desired = darwinLaunchAgentPlist(this.command, this.paths);
     if (existing !== desired) {
       if (loaded) await this.bootout();

@@ -12,6 +12,22 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## The story command without Bun — 2026-10-13
+
+Implemented on branch `claude/project-thread-iagedb`; not published. `@ovst/cli`
+becomes a Node launcher (`#!/usr/bin/env node`, CommonJS) whose optional
+dependencies `@ovst/cli-{darwin,linux}-{arm64,x64}` each ship one `bun build
+--compile` executable with this platform's `@parcel/watcher` binding embedded.
+The CLI respawns itself through `storyCommand()` (the executable alone when
+compiled), and the macOS LaunchAgent runs a copied executable's `story daemon
+run` instead of `bun story-sync.js`. The Mac app's agent prompt says `npx -y
+@ovst/cli` and "needs Node.js". Evidence on Linux x64: the packed tarballs
+installed with npm print `0.1.2` from `story --version` with only Node on
+`PATH`, and `bun run test:cli:package` passes (`cli-sync.test.ts` 13 of 13
+against the installed executable, including `agent run`). All four platforms
+cross-compile from Linux (83 MB each, 38 MB packed). Not run: anything on macOS
+(signing, `daemon install`, the helper check).
+
 ## Moved blocks keep their links — 2026-10-12
 
 Implemented, not installed or deployed. Two faults showed when sections moved
@@ -699,7 +715,7 @@ measurements before broadening the implementation.
 | Area | State | Where to read |
 |---|---|---|
 | Story first launch: shared Mac/CLI identity, create/recover/backup, guarded legacy reconciliation, community-address claim and durable retry; iOS pairing-only setup | implemented, not installed | [browser design](docs/implementing-editors/design.md#first-launch-and-identity), [account bootstrap](docs/implementing-sync-services/story-sync-api.md#4-identity-account-bootstrap-and-declined-changes) |
-| Bun CLI distribution: publishable package with one `story` command, external-checkout cloud sessions, explicit daemon requirements, durable installed watcher/runtime assets | published as `@ovst/cli` 0.1.0 (2026-10-11) | [bunx usage](docs/getting-started/cli.md#running-with-bunx) |
+| Bun CLI distribution: publishable package with one `story` command, external-checkout cloud sessions, explicit daemon requirements, durable installed watcher/runtime assets | published as `@ovst/cli` 0.1.0 (2026-10-11) | [npx usage](docs/getting-started/cli.md#running-with-npx) |
 | Tree identity and synchronization: stable TreeIDs, immutable objects, content-addressed snapshot bundles, accepted updates, append-only update strings, watch streams with unconditional net catch-up, sparse object transfer, canonical boundaries, public HTML and Markdown projection; TypeScript and Swift with shared fixtures | deployed | [tree operations](docs/overstory-spec/01-tree-operations.md), [conformance](docs/overstory-spec/conformance/README.md) |
 | Protocol format 5: raw file objects, typed file/directory/tree entries, sparse bootstrap without a file map, optional accepted-conflict metadata | deployed, installed | [tree operations](docs/overstory-spec/01-tree-operations.md) |
 | Authored change identity: every candidate carries `change`, `trace` (up to 64 frames and 1024 operations) or `trace: null`, `resolves`, and optional `ifCurrent`; digests over domain `arbor-update/2`; whole-batch rejection of unsupported semantics before any prefix is accepted | deployed, installed | [tree operations §2.1](docs/overstory-spec/01-tree-operations.md#21-the-update-request), [source intent](docs/overstory-spec/10-source-intent.md) |

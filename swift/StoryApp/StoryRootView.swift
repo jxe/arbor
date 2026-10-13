@@ -3688,9 +3688,9 @@ private struct StoryAgentBundlePage: View {
         """
         You can work in a Story folder: Markdown pages kept in sync with \(access.canonical).
 
-        Check it out (needs Bun, https://bun.sh), then follow the instructions it prints:
+        Check it out (needs Node.js), then follow the instructions it prints:
 
-          bunx @ovst/cli agent start '\(bundle)' --root /workspace
+          npx -y @ovst/cli agent start '\(bundle)' --root /workspace
 
         Keep that link private: it signs in as the owner's account.
         """

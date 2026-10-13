@@ -12,7 +12,10 @@ import { ProfileIdentityStore, loadLocalPlacements } from "@ovst/client";
 import { parseDocument } from "yaml";
 
 const bunExecutable = process.execPath;
-const cliEntry = process.env.STORY_TEST_CLI_ENTRY ?? join(import.meta.dir, "../../packages/cli/src/index.ts");
+// STORY_TEST_CLI_EXECUTABLE runs a packaged story executable instead of the source.
+const cliCommand = process.env.STORY_TEST_CLI_EXECUTABLE
+  ? [process.env.STORY_TEST_CLI_EXECUTABLE]
+  : [bunExecutable, join(import.meta.dir, "../../packages/cli/src/index.ts")];
 let sandbox: string;
 let state: string;
 let profile: string;
@@ -23,8 +26,8 @@ let previousCloudHome: string | undefined;
 
 async function storyOutput(args: string[]): Promise<{ stdout: string; stderr: string }> {
   const daemon = await serveStorySyncControl({ port: 0 });
-  const process = Bun.spawn([bunExecutable, cliEntry, ...args], {
-    cwd: Bun.env.STORY_TEST_CLI_ENTRY ? sandbox : join(import.meta.dir, "../.."),
+  const process = Bun.spawn([...cliCommand, ...args], {
+    cwd: Bun.env.STORY_TEST_CLI_EXECUTABLE ? sandbox : join(import.meta.dir, "../.."),
     env: { ...Bun.env, STORY_HOME: state, STORY_SYNC_URL: daemon.url },
     stdout: "pipe",
     stderr: "pipe",
@@ -42,8 +45,8 @@ async function storyOutput(args: string[]): Promise<{ stdout: string; stderr: st
 
 /** One CLI run with no daemon of its own: its exit status and both streams, whatever the status. */
 async function storyResult(args: string[], env: Record<string, string> = {}): Promise<{ exit: number; stdout: string; stderr: string }> {
-  const child = Bun.spawn([bunExecutable, cliEntry, ...args], {
-    cwd: Bun.env.STORY_TEST_CLI_ENTRY ? sandbox : join(import.meta.dir, "../.."),
+  const child = Bun.spawn([...cliCommand, ...args], {
+    cwd: Bun.env.STORY_TEST_CLI_EXECUTABLE ? sandbox : join(import.meta.dir, "../.."),
     env: { ...Bun.env, STORY_HOME: state, ...env },
     stdout: "pipe",
     stderr: "pipe",
@@ -60,7 +63,7 @@ async function cloudStatus(path: string): Promise<Record<string, unknown>> {
   const environment: Record<string, string | undefined> = { ...Bun.env };
   delete environment.STORY_HOME;
   delete environment.STORY_SYNC_URL;
-  const process = Bun.spawn([bunExecutable, cliEntry, "sync", "status", "--json"], {
+  const process = Bun.spawn([...cliCommand, "sync", "status", "--json"], {
     cwd: path,
     env: environment,
     stdout: "pipe",
@@ -77,8 +80,8 @@ async function cloudStatus(path: string): Promise<Record<string, unknown>> {
 
 async function storyFailure(args: string[]): Promise<string> {
   const daemon = await serveStorySyncControl({ port: 0 });
-  const process = Bun.spawn([bunExecutable, cliEntry, ...args], {
-    cwd: Bun.env.STORY_TEST_CLI_ENTRY ? sandbox : join(import.meta.dir, "../.."),
+  const process = Bun.spawn([...cliCommand, ...args], {
+    cwd: Bun.env.STORY_TEST_CLI_EXECUTABLE ? sandbox : join(import.meta.dir, "../.."),
     env: { ...Bun.env, STORY_HOME: state, STORY_SYNC_URL: daemon.url },
     stdout: "pipe",
     stderr: "pipe",
@@ -239,9 +242,9 @@ describe("plural-account CLI place", () => {
 
     // Ending the run ends its command, and what the command wrote is still sent.
     const third = join(sandbox, "agent-run-three");
-    const interrupted = Bun.spawn([bunExecutable, cliEntry, "agent", "run", bundle, "--root", third, "--timeout", "15s", "--",
+    const interrupted = Bun.spawn([...cliCommand, "agent", "run", bundle, "--root", third, "--timeout", "15s", "--",
       "sh", "-c", 'printf "# Interrupted\\n" > checkout/note.md; exec sleep 60'], {
-      cwd: Bun.env.STORY_TEST_CLI_ENTRY ? sandbox : join(import.meta.dir, "../.."),
+      cwd: Bun.env.STORY_TEST_CLI_EXECUTABLE ? sandbox : join(import.meta.dir, "../.."),
       env: { ...Bun.env, STORY_HOME: state },
       stdout: "ignore",
       stderr: "pipe",

@@ -3,11 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { storySyncHeaders } from "../packages/protocol/src/config/story-sync-access.ts";
 
-const [runtime, script] = process.argv.slice(2);
-if (!runtime || !script) throw new Error("Usage: test-sync-helper runtime script");
+// The command that runs Story Sync, such as an installed `story daemon run`.
+const command = process.argv.slice(2);
+if (command.length === 0) throw new Error("Usage: test-sync-helper <command>...");
 const scratch = await mkdtemp(join(tmpdir(), "story-helper-check-"));
 const dataHome = join(scratch, "data");
-const child = Bun.spawn([runtime, script, "--control", "--port", "0"], {
+const child = Bun.spawn([...command, "--control", "--port", "0"], {
   cwd: scratch,
   env: { ...process.env, PATH: "/usr/bin:/bin", STORY_HOME: dataHome, STORY_CREDENTIAL_STORE: "file" },
   stdout: "pipe", stderr: "pipe",
