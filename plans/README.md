@@ -103,6 +103,13 @@ Setting up the intro video, Joe could make an invitation only in the Mac app. He
 through `@ovst/client`, with Story Sync out of the path. The rest of the CLI's host edits
 moving the same way is recorded there as a follow-up.
 
+**[Sharing 003: see who else is here](sharing/003-presence.md).**
+Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which
+page each person is on, and where their cursor is when two people share a page. It must be
+light: nothing about cursors is sent unless someone else is on the same page. No timing yet.
+It starts with the spec, because presence is the first live data a host relays that is not
+part of a tree.
+
 **[Security 012: get back into an account with the admin's help](security/012-get-back-in-with-the-admins-help.md).**
 A person who has lost every device gets back in through the host's administrator, as the
 spec has it; Joe wants that to be as easy as possible for both. The administrator makes a
