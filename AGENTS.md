@@ -32,4 +32,5 @@ first. The points below are the ones that most often go wrong for an agent.
   worktree-isolated agent's git commands are refused when they are too
   complex to prove they stay inside the worktree.
 - Live data, installed apps, and the public host are never changed without
-  Joe's explicit go-ahead. `/.overstory/integrity` is a full audit, not a probe; call it once, never poll it.
+  Joe's explicit go-ahead. The exception is deploying by pushing `main`,
+  which needs none; a live migration or other change to live data still does. `/.overstory/integrity` is a full audit, not a probe; call it once, never poll it.

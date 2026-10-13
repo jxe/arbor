@@ -2,7 +2,7 @@
 
 **Why and when:** Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which page each person is on, and where their cursor is when two people share a page. It must be light. Nothing is sent about cursors unless someone else is on the same page, and an idle reader costs a keepalive. No timing yet. The plan starts with the spec, because presence is the first live data a host relays that is not part of a tree.
 
-> **Executor instructions**: Do the phases in order and stop after each for Joe's hands-on check. Each phase lists the spec and doc text that becomes true with it; change that text in the same phase. Phase 2 changes a host route, so it also runs `bun run test:protocol`. Pushing `main` deploys overstoryd and needs Joe's go-ahead. Never test against `arb.nxhx.org`.
+> **Executor instructions**: Do the phases in order and stop after each for Joe's hands-on check. Each phase lists the spec and doc text that becomes true with it; change that text in the same phase. Phase 2 changes a host route, so it also runs `bun run test:protocol`. Pushing `main` deploys overstoryd. Never test against `arb.nxhx.org`.
 >
 > **Drift check**: `git diff --stat 1cfac9e..HEAD -- docs/overstory-spec/01-tree-operations.md docs/overstory-spec/05-access-control.md docs/overstory-spec/README.md packages/overstoryd/src/host.ts packages/overstoryd/src/overstoryd.ts swift/Packages/Overstory/Sources/Overstory/ProtocolClient.swift swift/Packages/OverstoryClient/Sources/OverstoryClient/HostWatchRunner.swift swift/StoryApp/StoryAppModel.swift swift/StoryApp/StoryRootView.swift`. Stop if a `presence` route or event already exists.
 

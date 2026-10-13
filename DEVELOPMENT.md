@@ -188,8 +188,9 @@ clients, which the import graph cannot see.
 
 Run the full gate for periodic releases, before a live migration or install,
 or when Joe explicitly requests it. Ordinary commits and plan closure do not
-trigger it by themselves. Pushing `main` still deploys overstoryd and requires Joe's
-explicit go-ahead:
+trigger it by themselves. Pushing `main` deploys overstoryd and needs no separate
+go-ahead; a live migration or any other change to live data still does. The full
+gate:
 
 ```sh
 bun run typecheck
