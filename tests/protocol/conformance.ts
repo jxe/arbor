@@ -91,7 +91,7 @@ try {
       const placed = trees.snapshot.find((item) => item.id === tree);
       if (!placed?.root || !placed.update) throw new Error("Placed tree did not record its accepted base");
 
-      const daemon = { STORY_TEST_URL: control.url, STORY_TEST_TREE: tree };
+      const daemon = { STORY_TEST_URL: control.url, STORY_TEST_TREE: tree, STORY_HOME: home };
       // The daemon client is Mac app code (Native 011), so its suites run in
       // the app-hosted StoryAppTests bundle; xcodebuild forwards
       // `TEST_RUNNER_`-prefixed variables to the test process. A local
