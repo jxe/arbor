@@ -322,27 +322,86 @@ export interface StoryDownloads {
 
 /**
  * The one script of the reserved-address page. When the address was opened
- * as an invitation link it reveals the invitation block and points its Open
- * link at the same URL under the `overstory:` scheme, and does nothing else.
- * The code stays in the fragment: the script sends it nowhere. Constant text,
- * so the page's policy names it by hash.
+ * as an invitation link it reveals the invitation choices, hides the line
+ * asking for one, and points the Open button at the same URL under the
+ * `overstory:` scheme, and does nothing else. The code stays in the
+ * fragment: the script sends it nowhere. Constant text, so the page's policy
+ * names it by hash.
  */
 export const RESERVED_PAGE_SCRIPT = `
 if (location.hash.startsWith("#overstory-invite=")) {
   document.getElementById("open-in-story").href = "overstory:" + location.href.slice(location.protocol.length);
   document.getElementById("invitation").hidden = false;
+  document.getElementById("no-invitation").hidden = true;
 }
+`;
+
+/** Images overstoryd serves itself, for its own pages and their link previews. */
+export const PAGE_ASSETS = {
+  icon: "/.overstory/assets/story-icon.png",
+  card: "/.overstory/assets/story-card.png",
+} as const;
+
+const RESERVED_STYLES = `
+:root{color-scheme:light dark;--fg:#1d1b17;--muted:#6b6457;--bg:#f5efe3;--panel:#fffdf8;--border:rgba(29,27,23,.1);--button:#1d1b17;--button-fg:#f5efe3}
+@media(prefers-color-scheme:dark){:root{--fg:#ece7dc;--muted:#a39b8c;--bg:#171614;--panel:#211f1c;--border:rgba(255,255,255,.1);--button:#ece7dc;--button-fg:#171614}}
+*{box-sizing:border-box}html{background:var(--bg)}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:48px 20px;background:var(--bg);color:var(--fg);font:400 16px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}
+main{width:100%;max-width:680px;text-align:center}
+.app-icon{display:block;width:96px;height:96px;margin:0 auto 22px;filter:drop-shadow(0 6px 14px rgba(0,0,0,.18))}
+h1{margin:0;font-size:34px;line-height:1.2;font-weight:700;letter-spacing:-.01em;overflow-wrap:anywhere}
+.lede{margin:10px auto 0;max-width:460px;color:var(--muted)}
+.choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-top:36px;text-align:left}
+.choice{display:flex;flex-direction:column;padding:24px;border:1px solid var(--border);border-radius:16px;background:var(--panel)}
+.choice h2{margin:0;font-size:17px;font-weight:600}
+.choice p{margin:6px 0 0;color:var(--muted);font-size:14px}
+.choice .button{margin-top:auto}
+.choice p+.button{margin-top:20px}
+.button{display:block;padding:11px 16px;border-radius:10px;background:var(--button);color:var(--button-fg);font-weight:600;text-align:center;text-decoration:none}
+.button:hover{opacity:.88}
+.button.secondary{margin-top:8px;background:none;color:var(--fg);border:1px solid var(--border)}
+.choice small{display:block;margin-top:14px;color:var(--muted);font-size:12.5px;line-height:1.45}
 `;
 
 /**
  * The page at a reserved, unclaimed `/~handle`. It depends on the handle,
- * the host and the operator's download links only, so it is the same bytes
- * whether the address is held for one profile or for a pending invitation,
- * and says nothing about which.
+ * the host's origin and the operator's download links only, so it is the
+ * same bytes whether the address is held for one profile or for a pending
+ * invitation, and says nothing about which. Its link preview comes from the
+ * same text, since crawlers never see an invitation link's fragment.
  */
-export function renderReservedPage(handle: string, host: string, downloads: StoryDownloads = {}): string {
-  const download = (label: string, url: string | undefined) => url ? `<p><a href="${escapeHTML(url)}">${label}</a></p>` : "";
-  return renderNoticePage(`~${handle}`, `<h1>~${escapeHTML(handle)}</h1><p>This address on ${escapeHTML(host)} is reserved and has not been claimed yet.</p><p>If someone sent you an invitation to it, open the invitation in Story.</p><div id="invitation" hidden><p><a id="open-in-story" href="#">Open in Story</a></p><p>If Story opens and asks for your invitation, which can happen the first time you run it, choose Open in Story again, or copy this page's address and paste it into Story.</p>${download("Get Story for Mac", downloads.mac)}${download("Get Story for iPhone", downloads.iphone)}</div><script>${RESERVED_PAGE_SCRIPT}</script>`);
+export function renderReservedPage(handle: string, origin: string, downloads: StoryDownloads = {}): string {
+  const host = new URL(origin).host;
+  const address = `~${escapeHTML(handle)}`;
+  const pageURL = `${origin}/~${encodeURIComponent(handle)}`;
+  const title = `${address} on ${escapeHTML(host)}`;
+  const description = `This address is reserved for you. Open the link to claim it in Story.`;
+  const meta = [
+    `<meta name="description" content="${description}">`,
+    `<meta property="og:type" content="website">`,
+    `<meta property="og:site_name" content="Story">`,
+    `<meta property="og:title" content="${title}">`,
+    `<meta property="og:description" content="${description}">`,
+    `<meta property="og:url" content="${escapeHTML(pageURL)}">`,
+    `<meta property="og:image" content="${escapeHTML(origin + PAGE_ASSETS.card)}">`,
+    `<meta property="og:image:width" content="1200">`,
+    `<meta property="og:image:height" content="630">`,
+    `<meta property="og:image:alt" content="Story">`,
+    `<meta name="twitter:card" content="summary_large_image">`,
+    `<meta name="twitter:title" content="${title}">`,
+    `<meta name="twitter:description" content="${description}">`,
+    `<meta name="twitter:image" content="${escapeHTML(origin + PAGE_ASSETS.card)}">`,
+    `<link rel="icon" href="${PAGE_ASSETS.icon}">`,
+    `<link rel="apple-touch-icon" href="${PAGE_ASSETS.icon}">`,
+  ].join("");
+  const downloadLinks = [
+    downloads.mac ? `<a class="button" href="${escapeHTML(downloads.mac)}">Get Story for Mac</a>` : "",
+    downloads.iphone ? `<a class="button${downloads.mac ? " secondary" : ""}" href="${escapeHTML(downloads.iphone)}">Get Story for iPhone</a>` : "",
+  ].join("");
+  const getStory = downloadLinks
+    ? `<section class="choice"><h2>New to Story?</h2><p>Download it, then come back to this page and choose Open in Story.</p>${downloadLinks}</section>`
+    : "";
+  const body = `<main><img class="app-icon" src="${PAGE_ASSETS.icon}" alt="Story" width="96" height="96"><h1>${address}</h1><p class="lede">This address on ${escapeHTML(host)} is reserved and has not been claimed yet.</p><p class="lede" id="no-invitation">If someone sent you an invitation to it, open the invitation in Story.</p><div id="invitation" hidden><div class="choices"><section class="choice"><h2>Already have Story?</h2><p>Open this invitation in the app to claim the address.</p><a class="button" id="open-in-story" href="#">Open in Story</a><small>If Story asks for your invitation, which can happen the first time you run it, choose Open in Story again, or paste this page's address into Story.</small></section>${getStory}</div></div></main><script>${RESERVED_PAGE_SCRIPT}</script>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${address}</title>${meta}<style>${RESERVED_STYLES}</style></head><body>${body}</body></html>`;
 }
 
 const NOTICE_STYLES = "body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}";

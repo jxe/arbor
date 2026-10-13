@@ -26,7 +26,7 @@ import {
   type RemoteAccountDescriptor,
   type RemotePlacementAccountDescriptor,
 } from "@ovst/protocol";
-import { escapeHTML, publicTreePath, renderNoticePage, renderPublicDataPage, renderPublicMarkdownPage, renderReservedPage, RESERVED_PAGE_SCRIPT, type PublicPageChild, type StoryDownloads } from "./public-page.ts";
+import { escapeHTML, publicTreePath, renderNoticePage, renderPublicDataPage, renderPublicMarkdownPage, renderReservedPage, RESERVED_PAGE_SCRIPT, PAGE_ASSETS, type PublicPageChild, type StoryDownloads } from "./public-page.ts";
 import { ProtocolProjection, protocolCollectionFileRowMarkdown, protocolCollectionFileRowTitle } from "./projection.ts";
 import { buildDirectory } from "./directory.ts";
 import { clientAddress, hardenResponse, htmlContentSecurityPolicy, storedFileHeaders, type PageScript } from "./response-policy.ts";
@@ -492,6 +492,12 @@ export async function serveHost(options: {
             { profile: account.id },
           );
         }
+        const pageAsset = Object.values(PAGE_ASSETS).find((path) => path === url.pathname);
+        if (pageAsset && (request.method === "GET" || request.method === "HEAD")) {
+          return new Response(Bun.file(new URL(`../assets/${pageAsset.slice(pageAsset.lastIndexOf("/") + 1)}`, import.meta.url)), {
+            headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" },
+          });
+        }
         if (request.method === "GET" && url.pathname === "/.overstory/health") {
           try {
             overstoryd.verifyDatabase();
@@ -918,7 +924,7 @@ export async function serveHost(options: {
           if (pendingHandle && overstoryd.isReservedHandle(pendingHandle)) {
             // One page for every reserved address: it does not say whether the
             // address is held for a profile or for an invitation.
-            return html(renderReservedPage(pendingHandle, new URL(publicOrigin).host, options.storyDownloads), 200, { "overstory-profile-state": "reserved" }, { source: RESERVED_PAGE_SCRIPT });
+            return html(renderReservedPage(pendingHandle, new URL(publicOrigin).origin, options.storyDownloads), 200, { "overstory-profile-state": "reserved" }, { source: RESERVED_PAGE_SCRIPT });
           }
           const claimed = pendingHandle ? overstoryd.accountByHandle(pendingHandle) : null;
           if (pendingHandle && claimed && !overstoryd.boundary(requestLocator.path)) {

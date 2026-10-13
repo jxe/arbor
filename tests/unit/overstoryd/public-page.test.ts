@@ -55,8 +55,9 @@ describe("presented headings on a public page", () => {
 
 describe("the reserved-address page", () => {
   test("says the address is reserved and unclaimed, and that an invitation opens in Story", () => {
-    const page = renderReservedPage("alice", "garden.example.org");
+    const page = renderReservedPage("alice", "https://garden.example.org");
     expect(page).toContain("<h1>~alice</h1>");
+    expect(page).toContain('<img class="app-icon" src="/.overstory/assets/story-icon.png"');
     expect(page).toContain("This address on garden.example.org is reserved and has not been claimed yet.");
     expect(page).toContain("open the invitation in Story");
     // Nothing about what holds the reservation.
@@ -64,29 +65,38 @@ describe("the reserved-address page", () => {
   });
 
   test("keeps the invitation block hidden until its one constant script reveals it", () => {
-    const page = renderReservedPage("alice", "garden.example.org");
+    const page = renderReservedPage("alice", "https://garden.example.org");
     expect(page).toContain('<div id="invitation" hidden>');
-    expect(page).toContain('<a id="open-in-story" href="#">Open in Story</a>');
+    expect(page).toContain('<a class="button" id="open-in-story" href="#">Open in Story</a>');
     expect(page.match(/<script>/g)).toHaveLength(1);
     expect(page).toContain(`<script>${RESERVED_PAGE_SCRIPT}</script>`);
     // The script is the same text for every handle and configuration.
-    expect(renderReservedPage("bob", "other.example", { mac: "https://example.org/mac" })).toContain(`<script>${RESERVED_PAGE_SCRIPT}</script>`);
+    expect(renderReservedPage("bob", "https://other.example", { mac: "https://example.org/mac" })).toContain(`<script>${RESERVED_PAGE_SCRIPT}</script>`);
     expect(RESERVED_PAGE_SCRIPT).toContain('location.hash.startsWith("#overstory-invite=")');
     expect(RESERVED_PAGE_SCRIPT).toContain('"overstory:" + location.href.slice(location.protocol.length)');
     expect(RESERVED_PAGE_SCRIPT).not.toMatch(/fetch|XMLHttpRequest|sendBeacon|src\s*=/);
   });
 
   test("offers each download link only when its URL is configured", () => {
-    const none = renderReservedPage("alice", "garden.example.org");
+    const none = renderReservedPage("alice", "https://garden.example.org");
     expect(none).not.toContain("Get Story for");
-    const mac = renderReservedPage("alice", "garden.example.org", { mac: "https://example.org/story?a=1&b=2" });
-    expect(mac).toContain('<a href="https://example.org/story?a=1&amp;b=2">Get Story for Mac</a>');
+    const mac = renderReservedPage("alice", "https://garden.example.org", { mac: "https://example.org/story?a=1&b=2" });
+    expect(mac).toContain('<a class="button" href="https://example.org/story?a=1&amp;b=2">Get Story for Mac</a>');
     expect(mac).not.toContain("Get Story for iPhone");
-    const both = renderReservedPage("alice", "garden.example.org", { mac: "https://example.org/mac", iphone: "https://example.org/iphone" });
-    expect(both).toContain('<a href="https://example.org/mac">Get Story for Mac</a>');
-    expect(both).toContain('<a href="https://example.org/iphone">Get Story for iPhone</a>');
+    const both = renderReservedPage("alice", "https://garden.example.org", { mac: "https://example.org/mac", iphone: "https://example.org/iphone" });
+    expect(both).toContain('<a class="button" href="https://example.org/mac">Get Story for Mac</a>');
+    expect(both).toContain('<a class="button secondary" href="https://example.org/iphone">Get Story for iPhone</a>');
     // Both sit inside the hidden block.
     expect(both.indexOf("Get Story for Mac")).toBeGreaterThan(both.indexOf('<div id="invitation" hidden>'));
-    expect(both.indexOf("Get Story for iPhone")).toBeLessThan(both.indexOf("</div>"));
+    expect(both.indexOf("Get Story for iPhone")).toBeLessThan(both.indexOf("</main>"));
+  });
+
+  test("carries a link preview built from the address alone, since crawlers never see the invitation fragment", () => {
+    const page = renderReservedPage("alice", "https://garden.example.org");
+    expect(page).toContain('<meta property="og:title" content="~alice on garden.example.org">');
+    expect(page).toContain('<meta property="og:url" content="https://garden.example.org/~alice">');
+    expect(page).toContain('<meta property="og:image" content="https://garden.example.org/.overstory/assets/story-card.png">');
+    expect(page).toContain('<meta name="twitter:card" content="summary_large_image">');
+    expect(page.slice(0, page.indexOf("</head>"))).not.toMatch(/invit|profile|identity|digest/i);
   });
 });

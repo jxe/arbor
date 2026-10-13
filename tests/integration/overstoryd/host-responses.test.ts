@@ -239,7 +239,9 @@ describe("the reserved-address page", () => {
     expect(exactPage).toContain("is reserved and has not been claimed yet");
     // The only difference is the handle each address names.
     expect(invitedPage.replaceAll("guest", "founder")).toBe(exactPage);
-    expect(new TextEncoder().encode(invitedPage).byteLength - "guest".length * 2).toBe(new TextEncoder().encode(exactPage).byteLength - "founder".length * 2);
+    const mentions = exactPage.split("founder").length - 1;
+    expect(invitedPage.split("guest").length - 1).toBe(mentions);
+    expect(new TextEncoder().encode(invitedPage).byteLength - "guest".length * mentions).toBe(new TextEncoder().encode(exactPage).byteLength - "founder".length * mentions);
     // Headers reveal nothing either.
     const headers = (response: Response) => [...response.headers].filter(([name]) => name !== "date" && name !== "content-length");
     expect(headers(invited)).toEqual(headers(exact));
@@ -260,8 +262,21 @@ describe("the reserved-address page", () => {
     // The script sends nothing anywhere, so the page may not connect.
     expect(policy).not.toContain("connect-src");
     expect(page).toContain('<div id="invitation" hidden>');
-    expect(page).toContain('<a href="https://example.org/story-mac">Get Story for Mac</a>');
-    expect(page).toContain('<a href="https://example.org/story-iphone">Get Story for iPhone</a>');
+    expect(page).toContain('<a class="button" href="https://example.org/story-mac">Get Story for Mac</a>');
+    expect(page).toContain('<a class="button secondary" href="https://example.org/story-iphone">Get Story for iPhone</a>');
+  });
+
+  test("serves the icon and link-preview card it names", async () => {
+    const page = await (await fetch(`${host.url}/~guest`)).text();
+    const card = page.match(/<meta property="og:image" content="([^"]+)">/)![1]!;
+    expect(new URL(card).origin).toBe(new URL(host.url).origin);
+    for (const path of [new URL(card).pathname, "/.overstory/assets/story-icon.png"]) {
+      const response = await fetch(`${host.url}${path}`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("image/png");
+      expect(new Uint8Array(await response.arrayBuffer()).slice(1, 4)).toEqual(new TextEncoder().encode("PNG"));
+    }
+    expect((await fetch(`${host.url}/.overstory/assets/missing.png`)).status).not.toBe(200);
   });
 
   test("omits the download links a host has not configured", async () => {
