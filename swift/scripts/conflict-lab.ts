@@ -21,6 +21,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { storySyncHeaders } from "@ovst/protocol";
 
 const repository = join(import.meta.dir, "../..");
 const lab = join(repository, ".story-lab/conflicts");
@@ -259,7 +260,7 @@ async function up() {
   const control = await serveStorySyncControl({ port: 0 });
   try {
     const claimed = await fetch(`${control.url}/v1/bootstrap/accounts`, {
-      method: "POST", headers: { "content-type": "application/json" },
+      method: "POST", headers: { "content-type": "application/json", ...await storySyncHeaders() },
       body: JSON.stringify({ account: `${origin}/~joe`, path: profile, displayName: "Conflict lab Mac" }),
     });
     if (!claimed.ok) throw new Error(`Claim failed: ${await claimed.text()}`);

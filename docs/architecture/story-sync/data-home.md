@@ -21,6 +21,7 @@ ${STORY_HOME:-~/.story}/
       apps.yaml
       devices.yaml
   .state/
+    story-sync.json   # caller token and listening origin, mode 0600
     ...private story-sync state...
 ```
 
@@ -114,6 +115,45 @@ belongs in synchronized configuration or authored trees.
 The reference CLI exposes `story daemon install|uninstall|start|stop|restart|logs` independently of the host service manager. The default data home has exactly one supervised local daemon and all native and command-line clients attach to its Story Sync REST origin. An explicit `STORY_HOME` remains an isolated foreground run instead of accidentally becoming a second default service.
 
 macOS implements this contract as the per-user launchd label `org.nxhx.story.sync`. A signed Story app registers its relocatable bundled agent with `SMAppService`; a CLI-only installation writes a user LaunchAgent pointing at that CLI installation. Both paths use the same label, port, control-mode daemon, and log location, so launchd cannot load competing owners. Future Linux and Windows adapters should preserve the commands and one-daemon-per-data-home invariant while translating them to the native user-service manager.
+
+## Who may call Story Sync
+
+A loopback port is shared by every account logged in to the machine, and the
+daemon serves its user's pages, credentials and placed folders. So it answers
+only callers that can read its data home: `.state/story-sync.json`, mode 0600
+in a 0700 directory, holds a random caller token, and every request must send
+it as `Authorization: Bearer <token>` (the [loopback API](../../implementing-sync-services/story-sync-api.md)).
+The operating system's file permissions are the whole check; there is no
+other secret to manage.
+
+```json
+{ "version": 1, "token": "<43 base64url characters>", "origin": "http://127.0.0.1:4317" }
+```
+
+The token belongs to the data home, not to a process: whichever of the daemon
+or a client needs it first creates the file (exclusively, so two never race),
+and it is kept across restarts. Every Story Sync on the data home, a test's
+in-process daemon or a foreground run included, answers to the same token, so
+a process with a different `STORY_HOME` is refused even under the same user.
+A cloud session's Story Sync has its own data home and so its own token.
+
+`origin` is where the data home's Story Sync last started listening. It
+prefers port 4317; when that port is held by a Story Sync that refuses this
+data home's token (another user's), it takes the next free port up to 4336 and
+records it, so two accounts on one Mac each run their own. When 4317 is held
+by one that accepts the token, the data home already has its daemon and the new
+one exits, as before. Clients read `origin`, or use 4317 when none is
+recorded, and treat a `401` as "not mine": the Mac app then starts its own
+helper rather than attaching, and the helper it launches finds its own port.
+A Story Sync whose status lacks `access: "token"` is an older build that checks
+no caller; nothing attaches to it, and the Mac app restarts its own installed
+service when it finds one. `STORY_SYNC_URL` still names an origin explicitly; the token
+comes from the selected data home either way.
+
+A browser cannot send the token, so outside `/v1/` a request without it gets
+only the Plan B notice, never a file. The rebuilt web editor will need its own
+way to hand the browser the token, such as `story open` exchanging it for a
+same-site cookie.
 
 ## Watching and local activation
 

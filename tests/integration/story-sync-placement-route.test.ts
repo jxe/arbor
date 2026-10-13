@@ -9,6 +9,7 @@ import { accountProtocolClient, ProfileIdentityStore } from "@ovst/client";
 import { LocalAccountService } from "../../packages/story-sync/src/account-service.ts";
 import { makeProfilePublic, reserveMembers } from "../helpers/community-reservations.ts";
 import { deviceClient, testAccount } from "../helpers/devices.ts";
+import { storySyncFetch } from "../helpers/story-sync-fetch.ts";
 
 /**
  * `POST /v1/bootstrap/placements`, the route a local app (Story on the Mac)
@@ -32,7 +33,7 @@ const repository = join(import.meta.dir, "../..");
 const STALE_MS = 400;
 
 async function post(path: string, body: unknown): Promise<{ status: number; body: Record<string, any> }> {
-  const response = await fetch(`${daemon.url}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const response = await storySyncFetch(`${daemon.url}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, state);
   return { status: response.status, body: await response.json() as Record<string, any> };
 }
 
@@ -122,7 +123,7 @@ describe("POST /v1/bootstrap/placements", () => {
     const record = await new HostPlacementStore(configurationTree, bOrigin).safe();
     expect(record).toEqual(claimed.body.placement as never);
     // The daemon's credential route now serves B's session, which reads the placement account.
-    const credential = await fetch(`${daemon.url}/v1/credential?configurationTree=${configurationTree}&origin=${encodeURIComponent(bOrigin)}`);
+    const credential = await storySyncFetch(`${daemon.url}/v1/credential?configurationTree=${configurationTree}&origin=${encodeURIComponent(bOrigin)}`, {}, state);
     const { token } = await credential.json() as { token: string };
     const { account } = await new ProtocolClient(bOrigin, token).placementAccount();
     expect(account.placementRoot.id).toBe(record!.placementRoot);

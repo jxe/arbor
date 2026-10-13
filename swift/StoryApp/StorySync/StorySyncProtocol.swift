@@ -9,13 +9,17 @@ struct StorySyncServiceStatus: Codable, Sendable, Equatable {
     var protocolVersion: String
     var instanceID: String
     var runtimeKind: String
+    /// `"token"` from a Story Sync that answered only because the caller sent its data home's token;
+    /// absent from older builds, which check no caller and may be another user's.
+    var access: String?
 
-    init(service: String, version: String, protocolVersion: String, instanceID: String, runtimeKind: String) {
+    init(service: String, version: String, protocolVersion: String, instanceID: String, runtimeKind: String, access: String? = nil) {
         self.service = service
         self.version = version
         self.protocolVersion = protocolVersion
         self.instanceID = instanceID
         self.runtimeKind = runtimeKind
+        self.access = access
     }
 }
 

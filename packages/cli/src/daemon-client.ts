@@ -11,6 +11,7 @@ import type {
 } from "@ovst/protocol";
 import { parseSSEStream, reconnectingStream, type ParsedSSEFrame } from "@ovst/protocol/sse";
 import { decodeCanonicalCBOR } from "@ovst/protocol/cbor";
+import { readStorySyncAccess, storySyncAuthorization } from "@ovst/protocol";
 
 export type {
   OverstoryErrorCode,
@@ -63,6 +64,9 @@ export class StorySyncError extends Error {
 export interface StorySyncRESTClientOptions {
   baseURL?: string;
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  /** The caller token; read from `dataHome`'s token file (the selected data home by default) when omitted. */
+  token?: string;
+  dataHome?: string;
 }
 
 // Account and identity values are the shared vocabulary in @ovst/protocol:
@@ -126,7 +130,18 @@ export class StorySyncRESTClient {
 
   constructor(options: StorySyncRESTClientOptions = {}) {
     this.baseURL = options.baseURL?.replace(/\/$/, "") ?? "";
-    this.fetcher = options.fetch ?? ((input, init) => fetch(input, init));
+    const fetcher = options.fetch ?? ((input, init) => fetch(input, init));
+    // Story Sync answers only callers holding its data home's token (data-home.md).
+    let token: Promise<string | undefined> | undefined;
+    this.fetcher = async (input, init) => {
+      token ??= options.token !== undefined
+        ? Promise.resolve(options.token)
+        : readStorySyncAccess(options.dataHome).then((access) => access?.token);
+      const value = await token;
+      const headers = new Headers(init?.headers);
+      if (value) headers.set("authorization", storySyncAuthorization({ token: value }));
+      return fetcher(input, { ...init, headers });
+    };
   }
 
   trees(): Promise<SnapshotEnvelope<LocalTreeDescriptor[]>> {

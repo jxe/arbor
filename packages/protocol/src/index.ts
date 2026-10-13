@@ -45,6 +45,7 @@ export * from "./documents/display-title.ts";
 export * from "./documents/merge.ts";
 
 export * from "./config/private-state.ts";
+export * from "./config/story-sync-access.ts";
 export * from "./config/tree-config.ts";
 export * from "./config/profile-config.ts";
 export * from "./config/server-config.ts";

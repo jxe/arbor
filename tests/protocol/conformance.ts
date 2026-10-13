@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveStorySyncControl } from "@ovst/story-sync";
 import { serveHost } from "@ovst/overstoryd";
-import { decodeProtocolDirectory, type SourceOperation } from "@ovst/protocol";
+import { decodeProtocolDirectory, storySyncHeaders, type SourceOperation } from "@ovst/protocol";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { deviceClient, deviceSession, testAccount, testDevice } from "../helpers/devices.ts";
@@ -85,9 +85,9 @@ try {
     const control = await serveStorySyncControl({ port: 0, syncIntervalMs: 60_000 });
     try {
       // One explicit pass places the tree and records its accepted base.
-      const sync = await fetch(`${control.url}/v1/sync`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      const sync = await fetch(`${control.url}/v1/sync`, { method: "POST", headers: { "content-type": "application/json", ...await storySyncHeaders() }, body: "{}" });
       if (!sync.ok) throw new Error(`Control daemon sync failed: ${sync.status}`);
-      const trees = await fetch(`${control.url}/v1/trees`).then((response) => response.json()) as { snapshot: Array<{ id: string; root?: string; update?: string }> };
+      const trees = await fetch(`${control.url}/v1/trees`, { headers: await storySyncHeaders() }).then((response) => response.json()) as { snapshot: Array<{ id: string; root?: string; update?: string }> };
       const placed = trees.snapshot.find((item) => item.id === tree);
       if (!placed?.root || !placed.update) throw new Error("Placed tree did not record its accepted base");
 
@@ -123,7 +123,7 @@ try {
       const conflict = (await owner.submitUpdates(tree, { base: basis.update, updates: [await replacement("Hidden retained choice\n")] })).results[0]!.update;
       if (!conflict.conflicted) throw new Error("Expected accepted ambiguity");
       const syncOnce = async () => {
-        const response = await fetch(`${control.url}/v1/sync`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        const response = await fetch(`${control.url}/v1/sync`, { method: "POST", headers: { "content-type": "application/json", ...await storySyncHeaders() }, body: "{}" });
         if (!response.ok) throw new Error(`Conflict sync failed: ${response.status}`);
       };
       await syncOnce();

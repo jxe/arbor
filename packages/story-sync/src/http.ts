@@ -1,4 +1,5 @@
 import type { OverstoryErrorCode, OverstoryError } from "@ovst/protocol";
+import { timingSafeEqual } from "node:crypto";
 import { normalizeTreePath, ProtocolError } from "@ovst/protocol";
 
 export function json(value: unknown, status = 200): Response {
@@ -53,6 +54,22 @@ export function assertSameOrigin(request: Request, url: URL): void {
   }
 }
 
+
+/**
+ * Whether the request carries the data home's caller token. A loopback port is
+ * shared by everyone logged in to the machine; reading the token file is what
+ * shows a caller is this data home's user.
+ */
+export function isCaller(request: Request, token: string): boolean {
+  const presented = request.headers.get("authorization")?.match(/^Bearer ([A-Za-z0-9_-]+)$/)?.[1];
+  return !!presented && presented.length === token.length && timingSafeEqual(Buffer.from(presented), Buffer.from(token));
+}
+
+/** Refuse a caller that does not hold the data home's token. */
+export function assertCaller(request: Request, url: URL, token: string): void {
+  if (isCaller(request, token)) return;
+  throw new ProtocolError("unauthenticated", "Story Sync answers only its own user; send this data home's caller token", 401, { path: url.pathname });
+}
 
 /**
  * A request's or locator's percent-encoded path as a logical path. This is the

@@ -3,8 +3,35 @@ import { persistPackageRuntime } from "./package-runtime.ts";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { readStorySyncAccess, storySyncAuthorization } from "@ovst/protocol";
 
+/** The port the data home's Story Sync prefers; a second account on the Mac records another (data-home.md). */
 export const STORY_SYNC_PORT = 4317;
+
+/**
+ * The data home's Story Sync status at its recorded origin (or the well-known
+ * port), asked with its caller token. Null when nothing answers or what answers
+ * is not this data home's: another user's refuses the token, and an older
+ * build that checks no caller says nothing of `access`.
+ */
+async function ownStatus(fetcher: Fetcher, dataHome?: string): Promise<{ origin: string; instanceID?: string } | null> {
+  const access = await readStorySyncAccess(dataHome).catch(() => null);
+  const origin = access?.origin ?? `http://127.0.0.1:${STORY_SYNC_PORT}`;
+  if (!access) return null;
+  try {
+    const response = await fetcher(`${origin}/v1/status`, {
+      headers: { authorization: storySyncAuthorization(access) },
+      signal: AbortSignal.timeout(1_000),
+    });
+    if (!response.ok) return null;
+    const status = await response.json() as { service?: string; protocolVersion?: string; instanceID?: string; access?: string };
+    return status.service === "story-sync" && status.protocolVersion === "v1" && status.access === "token"
+      ? { origin, ...(status.instanceID ? { instanceID: status.instanceID } : {}) }
+      : null;
+  } catch {
+    return null;
+  }
+}
 export const STORY_SYNC_LABEL = "org.nxhx.story.sync";
 
 export type StoryDaemonState = "running" | "stopped" | "not-installed" | "unavailable";
@@ -160,7 +187,7 @@ export class DarwinStoryDaemonSupervisor implements StoryDaemonSupervisor {
       return "Story Sync is already installed by the native Story app.";
     }
     if (!loaded && await this.reachable()) {
-      throw new Error("An unsupervised Story Sync is already using port 4317; stop that foreground process, then run `story daemon install` again");
+      throw new Error(`An unsupervised Story Sync for this data home is already running at ${this.origin}; stop that foreground process, then run \`story daemon install\` again`);
     }
     if (this.packaged) this.command[1] = await persistPackageRuntime(this.command[1]!, this.home);
     const desired = darwinLaunchAgentPlist(this.command, this.paths);
@@ -274,25 +301,18 @@ export class DarwinStoryDaemonSupervisor implements StoryDaemonSupervisor {
     return contents ? contents.slice(-32_768) : `No Story Sync log output at ${this.paths.log}`;
   }
 
-  private get origin(): string {
-    return `http://127.0.0.1:${STORY_SYNC_PORT}`;
-  }
+  /** Where the data home's Story Sync was last found, else the well-known port. */
+  private origin = `http://127.0.0.1:${STORY_SYNC_PORT}`;
 
   private async reachable(): Promise<boolean> {
     return await this.liveStatus() !== null;
   }
 
-  private async liveStatus(): Promise<{ service: string; protocolVersion: string; instanceID?: string } | null> {
-    try {
-      const response = await this.fetcher(`${this.origin}/v1/status`, { signal: AbortSignal.timeout(1_000) });
-      if (!response.ok) return null;
-      const status = await response.json() as { service?: string; protocolVersion?: string; instanceID?: string };
-      return status.service === "story-sync" && status.protocolVersion === "v1"
-        ? { service: status.service, protocolVersion: status.protocolVersion, ...(status.instanceID ? { instanceID: status.instanceID } : {}) }
-        : null;
-    } catch {
-      return null;
-    }
+  private async liveStatus(): Promise<{ instanceID?: string } | null> {
+    // Supervision owns only the default data home.
+    const status = await ownStatus(this.fetcher, join(this.home, ".story"));
+    if (status) this.origin = status.origin;
+    return status;
   }
 
   private async waitUntilRunning(previousInstanceID?: string): Promise<void> {
@@ -303,7 +323,7 @@ export class DarwinStoryDaemonSupervisor implements StoryDaemonSupervisor {
     }
     throw new Error(
       previousInstanceID
-        ? `Story Sync restart did not produce a new service instance. Another process may still own port 4317. Inspect ${this.paths.log}`
+        ? `Story Sync restart did not produce a new service instance. Another process for this data home may still be running. Inspect ${this.paths.log}`
         : `Story Sync was launched but REST v1 did not become ready. Inspect ${this.paths.log}`,
     );
   }
@@ -336,20 +356,17 @@ class UnsupportedStoryDaemonSupervisor implements StoryDaemonSupervisor {
   async restart(): Promise<string> { return this.unsupported(); }
   async logs(): Promise<string> { return this.unsupported(); }
   async status(): Promise<StoryDaemonStatus> {
-    const origin = `http://127.0.0.1:${STORY_SYNC_PORT}`;
-    try {
-      const response = await fetch(`${origin}/v1/status`, { signal: AbortSignal.timeout(1_000) });
-      const status = response.ok ? await response.json() as { service?: string; protocolVersion?: string } : null;
-      if (status?.service === "story-sync" && status.protocolVersion === "v1") {
-        return {
-          platform: this.platform,
-          state: "running",
-          installed: false,
-          origin,
-          detail: "Story Sync is reachable and is supervised outside Story's current platform adapter.",
-        };
-      }
-    } catch {}
+    const running = await ownStatus(fetch);
+    const origin = running?.origin ?? `http://127.0.0.1:${STORY_SYNC_PORT}`;
+    if (running) {
+      return {
+        platform: this.platform,
+        state: "running",
+        installed: false,
+        origin,
+        detail: "Story Sync is reachable and is supervised outside Story's current platform adapter.",
+      };
+    }
     return {
       platform: this.platform,
       state: "unavailable",

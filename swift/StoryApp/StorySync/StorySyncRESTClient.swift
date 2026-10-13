@@ -83,15 +83,28 @@ struct LocalPlacementConnection: Codable, Sendable, Equatable {
 /// working-tree client uses (bootstrap, credential, objects) plus the event
 /// stream. The daemon has no editor path; editing happens in the working tree.
 /// Pairing offers go to the host directly through `ProtocolClient` (Native 011).
+///
+/// Story Sync answers only its data home's own user, so every request carries
+/// the data home's caller token (docs/architecture/story-sync/data-home.md).
 actor StorySyncRESTClient {
     private let baseURL: URL
     private let session: URLSession
+    private let token: String?
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    init(baseURL: URL, session: URLSession = .shared) {
+    init(baseURL: URL, token: String? = StorySyncAccess.load()?.token, session: URLSession = .shared) {
         self.baseURL = baseURL
+        self.token = token
         self.session = session
+    }
+
+    /// `request` with the caller token.
+    private static func authorized(_ request: URLRequest, token: String?) -> URLRequest {
+        guard let token else { return request }
+        var request = request
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return request
     }
 
     func status() async throws -> StorySyncServiceStatus {
@@ -182,7 +195,7 @@ actor StorySyncRESTClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         // Account bootstrap returns an effects array; identity routes return envelopes.
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: Self.authorized(request, token: token))
         try validate(data: data, status: statusCode(response))
     }
 
@@ -210,7 +223,7 @@ actor StorySyncRESTClient {
         components.queryItems = [URLQueryItem(name: "tree", value: tree)]
         var request = URLRequest(url: components.url!)
         request.setValue("application/cbor", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: Self.authorized(request, token: token))
         try validate(data: data, status: try statusCode(response))
         let envelope = try CanonicalCBORDecoder().decode(TreeBootstrapEnvelope.self, from: data)
         let spine: ProtocolSnapshot
@@ -260,7 +273,7 @@ actor StorySyncRESTClient {
         components.queryItems = items
         var request = URLRequest(url: components.url!)
         request.setValue("application/cbor", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: Self.authorized(request, token: token))
         try validate(data: data, status: try statusCode(response))
         let actual = ProtocolObjectCodec.hash(data)
         guard actual == hash else {
@@ -272,6 +285,7 @@ actor StorySyncRESTClient {
     func observations(after initialCursor: String) -> AsyncThrowingStream<WorkspaceEvent, Error> {
         let baseURL = self.baseURL
         let session = self.session
+        let token = self.token
         let decoder = self.decoder
         return AsyncThrowingStream { continuation in
             let task = Task {
@@ -283,7 +297,7 @@ actor StorySyncRESTClient {
                         components.queryItems = [URLQueryItem(name: "after", value: cursor)]
                         var request = URLRequest(url: components.url!)
                         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-                        let (bytes, response) = try await session.bytes(for: request)
+                        let (bytes, response) = try await session.bytes(for: Self.authorized(request, token: token))
                         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                         if status >= 400 {
                             var data = Data()
@@ -343,7 +357,7 @@ actor StorySyncRESTClient {
     }
 
     private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: Self.authorized(request, token: token))
         let status = try statusCode(response)
         try validate(data: data, status: status)
         return try decoder.decode(T.self, from: data)

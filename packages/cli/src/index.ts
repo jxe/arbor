@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, normalizeLegacyLocator, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
+import { agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, normalizeLegacyLocator, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { constants as osConstants } from "node:os";
@@ -164,11 +164,20 @@ async function openBrowser(url: string): Promise<void> {
   try { Bun.spawn(command, { stdout: "ignore", stderr: "ignore" }); } catch {}
 }
 
-export async function attachedStorySyncURL(target: OpenTarget, port: number, selectedOrigin?: string): Promise<URL | null> {
-  const origin = selectedOrigin ?? `http://127.0.0.1:${port}`;
+/**
+ * Where the selected data home's Story Sync listens: the origin it recorded,
+ * else the well-known port. Another user's Story Sync may hold that port, so a
+ * second account's records another (data-home.md).
+ */
+export async function storySyncOrigin(): Promise<string> {
+  return (await readStorySyncAccess().catch(() => null))?.origin ?? `http://127.0.0.1:${STORY_SYNC_PORT}`;
+}
+
+export async function attachedStorySyncURL(target: OpenTarget, selectedOrigin?: string, dataHome?: string): Promise<URL | null> {
+  const origin = selectedOrigin ?? await storySyncOrigin();
   try {
-    const status = await fetch(`${origin}/v1/status`);
-    if (!status.ok || (await status.json() as { service?: string }).service !== "story-sync") return null;
+    const status = await new StorySyncRESTClient({ baseURL: origin, ...(dataHome ? { dataHome } : {}) }).status();
+    if (status.service !== "story-sync") return null;
     if (target.path) return new URL(`${origin}/render${target.path}`);
     const browserURL = new URL(`${origin}/render`);
     if (target.remoteURL) browserURL.searchParams.set("browse", target.remoteURL);
@@ -339,8 +348,8 @@ async function withStorySync<T>(
   // owns this data home (explicit URL, cloud session, or the well-known
   // loopback port) and fails clearly when none answers.
   const cloud = !process.env.STORY_SYNC_URL ? await cloudSessionForPath(path) : null;
-  const baseURL = process.env.STORY_SYNC_URL ?? cloud?.origin ?? `http://127.0.0.1:${STORY_SYNC_PORT}`;
-  const client = new StorySyncRESTClient({ baseURL });
+  const baseURL = process.env.STORY_SYNC_URL ?? cloud?.origin ?? await storySyncOrigin();
+  const client = new StorySyncRESTClient({ baseURL, ...(cloud ? { dataHome: cloud.dataHome } : {}) });
   const compatible = await client.status().then(
     (status) => status.service === "story-sync" && status.protocolVersion === "v1",
     () => false,
@@ -1166,7 +1175,7 @@ async function prepareCloudDataHome(payload: CloudBundlePayload, session: CloudS
 async function liveCloudStatus(session: CloudSessionRecord) {
   if (!session.origin) return null;
   try {
-    const status = await new StorySyncRESTClient({ baseURL: session.origin }).status();
+    const status = await new StorySyncRESTClient({ baseURL: session.origin, dataHome: session.dataHome }).status();
     return status.service === "story-sync" && status.protocolVersion === "v1" && status.instanceID === session.instanceID ? status : null;
   } catch { return null; }
 }
@@ -1196,7 +1205,7 @@ async function waitForCloudOrigin(session: CloudSessionRecord, deadline: number)
     const url = source.match(/https?:\/\/127\.0\.0\.1:\d+/)?.[0];
     if (url) {
       try {
-        const status = await new StorySyncRESTClient({ baseURL: url }).status();
+        const status = await new StorySyncRESTClient({ baseURL: url, dataHome: session.dataHome }).status();
         if (status.instanceID === session.instanceID && status.runtimeKind === "cloud") return url;
       } catch {}
     }
@@ -1223,7 +1232,7 @@ async function cloudPlacementsReady(
   payload: CloudAccountAccess,
 ): Promise<{ ready: boolean; reason?: string }> {
   if (!session.origin) return { ready: false, reason: "Story Sync has no recorded origin" };
-  const client = new StorySyncRESTClient({ baseURL: session.origin });
+  const client = new StorySyncRESTClient({ baseURL: session.origin, dataHome: session.dataHome });
   const local = (await client.trees()).snapshot;
   const wire = new ProtocolClient(payload.origin, payload.token, { timeoutMs: 60_000 });
   for (const target of session.placements) {
@@ -1431,7 +1440,7 @@ async function startCloudSession(options: CloudStartOptions): Promise<CloudStart
     }
     const origin = session.origin;
     if (!origin) throw new Error("Cloud Story Sync origin is unavailable");
-    const client = new StorySyncRESTClient({ baseURL: origin });
+    const client = new StorySyncRESTClient({ baseURL: origin, dataHome: session.dataHome });
     await client.synchronizeNow(payload.configurationTree);
     await waitForCloudPlacements(session, await cloudAccountAccess(session), deadline);
     session = { ...session, phase: "ready", updatedAt: new Date().toISOString(), lastError: undefined };
@@ -1486,7 +1495,7 @@ async function finishCloudSession(options: { root: string; timeoutMs: number }) 
   try {
     const deadline = Date.now() + options.timeoutMs;
     const payload = await cloudAccountAccess(session);
-    const client = new StorySyncRESTClient({ baseURL: session.origin });
+    const client = new StorySyncRESTClient({ baseURL: session.origin, dataHome: session.dataHome });
     await client.synchronizeNow(payload.configurationTree);
     await waitForCloudPlacements(session, payload, deadline);
     if (!await liveCloudStatus(session)) throw new Error("Cloud Story Sync instance changed before shutdown");
@@ -1596,7 +1605,8 @@ async function statusCommand(args: string[]): Promise<void> {
       : cloud
         ? "cloud"
         : "persistent";
-  const origin = process.env.STORY_SYNC_URL ?? cloud?.origin ?? `http://127.0.0.1:${STORY_SYNC_PORT}`;
+  const origin = process.env.STORY_SYNC_URL ?? cloud?.origin ?? await storySyncOrigin();
+  const dataHome = cloud ? { dataHome: cloud.dataHome } : {};
   let liveStatus: Awaited<ReturnType<StorySyncRESTClient["status"]>> | null = null;
   let accounts: Awaited<ReturnType<StorySyncRESTClient["accounts"]>>["accounts"] = [];
   let trees: Awaited<ReturnType<StorySyncRESTClient["trees"]>>["snapshot"] = [];
@@ -1605,7 +1615,7 @@ async function statusCommand(args: string[]): Promise<void> {
   let supervision: Awaited<ReturnType<ReturnType<typeof storyDaemonSupervisor>["status"]>> | undefined;
   const diagnostics: Array<{ code: string; message: string }> = [];
   try {
-    const client = new StorySyncRESTClient({ baseURL: origin });
+    const client = new StorySyncRESTClient({ baseURL: origin, ...dataHome });
     const status = await client.status();
     if (status.service !== "story-sync" || status.protocolVersion !== "v1" || (cloud && status.instanceID !== cloud.instanceID)) {
       runtimeState = "incompatible";
@@ -1641,7 +1651,7 @@ async function statusCommand(args: string[]): Promise<void> {
   if (options.locator) {
     if (!liveStatus) throw new Error(`Cannot resolve ${options.locator} because the selected Story Sync is not running`);
     const input = CANONICAL_INPUT.test(options.locator) ? options.locator : resolve(options.locator);
-    const resolved = await new StorySyncRESTClient({ baseURL: origin }).resolve(input);
+    const resolved = await new StorySyncRESTClient({ baseURL: origin, ...dataHome }).resolve(input);
     const tree = resolved.enclosingTree
       ? decoratedTrees.find((candidate) => candidate.id === resolved.enclosingTree!.id)
       : undefined;
@@ -1932,13 +1942,13 @@ async function main(): Promise<void> {
       ? await cloudSessionForPath(target.path ?? process.cwd())
       : null;
     const selectedOrigin = process.env.STORY_SYNC_URL ?? cloud?.origin;
-    let attached = await attachedStorySyncURL(target, STORY_SYNC_PORT, selectedOrigin);
+    let attached = await attachedStorySyncURL(target, selectedOrigin, cloud?.dataHome);
     if (!attached && !process.env.STORY_HOME && !process.env.STORY_SYNC_URL && !cloud && process.platform === "darwin") {
       const supervisor = storyDaemonSupervisor();
       const status = await supervisor.status();
       if (!status.installed) throw new Error("Story Sync is not running; run `story daemon install` first");
       await supervisor.start();
-      attached = await attachedStorySyncURL(target, STORY_SYNC_PORT);
+      attached = await attachedStorySyncURL(target);
       if (!attached) throw new Error(`Story Sync started but could not open ${input}`);
     }
     if (attached) {
@@ -1948,7 +1958,7 @@ async function main(): Promise<void> {
       await openBrowser(attached.toString());
       return;
     }
-    throw new Error(`A compatible Story Sync is not reachable at ${selectedOrigin ?? `http://127.0.0.1:${STORY_SYNC_PORT}`}; run \`story sync status\` for details`);
+    throw new Error(`A compatible Story Sync is not reachable at ${selectedOrigin ?? await storySyncOrigin()}; run \`story sync status\` for details`);
   }
   if (command === "place") {
     await placeCommand(args);

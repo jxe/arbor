@@ -6,6 +6,7 @@ import { serveStorySyncControl } from "@ovst/story-sync";
 import { serveHost } from "@ovst/overstoryd";
 import { ProfileIdentityStore } from "@ovst/client";
 import { treeConfigurationID } from "@ovst/protocol";
+import { storySyncFetch as fetch } from "../helpers/story-sync-fetch.ts";
 
 let sandbox: string;
 const previous = { home: process.env.STORY_HOME, store: process.env.STORY_CREDENTIAL_STORE };

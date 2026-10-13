@@ -1,5 +1,5 @@
 import { installAccountHome } from "../helpers/account-home.ts";
-import { decodeCanonicalCBOR, encodeProtocolDirectory, ProtocolClient } from "@ovst/protocol";
+import { decodeCanonicalCBOR, encodeProtocolDirectory, ensureStorySyncAccess, ProtocolClient, readStorySyncAccess, storySyncAuthorization } from "@ovst/protocol";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import { serveStorySyncControl, serveStorySync } from "@ovst/story-sync";
 import { StorySyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import type { Workspace } from "@ovst/story-sync";
 import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
+import { storySyncFetch } from "../helpers/story-sync-fetch.ts";
 
 let root: string;
 let state: string;
@@ -17,6 +18,9 @@ let client: StorySyncRESTClient;
 let close: () => Promise<void>;
 let activeWorkspace: Workspace;
 let scope: string;
+
+/** Every request here comes from the data home's own user. */
+const fetch = (input: string, init?: RequestInit) => storySyncFetch(input, init);
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "story-server-"));
@@ -52,6 +56,30 @@ describe("story-sync REST v1", () => {
       runtimeKind: "foreground",
       instanceID: expect.any(String),
     });
+  });
+
+  test("answers only callers holding the data home's token, showing a browser nothing but the notice", async () => {
+    await writeFile(join(root, "secret.md"), "Private\n");
+    const bare = await globalThis.fetch(`${base}/v1/status`);
+    expect(bare.status).toBe(401);
+    expect(await bare.json()).toMatchObject({ error: "unauthenticated" });
+    const other = await mkdtemp(join(tmpdir(), "story-server-other-home-"));
+    try {
+      const stranger = await ensureStorySyncAccess(other);
+      for (const route of ["/v1/status", "/v1/trees", "/v1/accounts", "/v1/credential"]) {
+        const response = await globalThis.fetch(`${base}${route}`, { headers: { authorization: storySyncAuthorization(stranger) } });
+        expect(response.status, route).toBe(401);
+      }
+    } finally {
+      await rm(other, { recursive: true, force: true });
+    }
+    const file = await globalThis.fetch(`${base}${root}/secret.md?raw`);
+    expect(file.status).toBe(200);
+    expect(await file.text()).toContain("Story web is being rebuilt");
+    expect(await (await fetch(`${base}${root}/secret.md?raw`)).text()).toBe("Private\n");
+    const status = await fetch(`${base}/v1/status`);
+    expect(await status.json()).toMatchObject({ access: "token" });
+    expect((await readStorySyncAccess())?.origin).toBe(base);
   });
 
   test("rejects DNS-rebound Host headers", async () => {

@@ -16,6 +16,18 @@ UTF-8. It rejects non-loopback `Host` headers so DNS rebinding cannot turn an
 attacker-controlled origin into a local file reader. Request URLs never contain
 credentials or access-link secrets.
 
+**Only its own user's processes may call it.** A loopback port is shared by
+everyone logged in to the machine, so every request, `GET /v1/status`
+included, carries `Authorization: Bearer <token>`, where
+the token is the data home's caller token
+([the data home](../architecture/story-sync/data-home.md#who-may-call-story-sync)).
+A request without it, or with another, is `401 unauthenticated` and learns
+nothing else; a client that gets that answer has found someone else's Story
+Sync, not its own. Outside `/v1/` (§6) a request without the token gets the
+Plan B notice and no file. The same file names the origin the data home's Story Sync
+listens on, which is `127.0.0.1:4317` unless another user's Story Sync holds
+that port.
+
 **REST v1 is a control surface, not an editor path.** The daemon is the
 placed folder's synchronization client plus the loopback services a
 working-tree client needs: `GET /v1/status`, `GET /v1/trees`,
@@ -131,7 +143,9 @@ GET  /v1/resolve?locator={OverstoryLocator}
 ```
 
 Status returns the service and protocol versions, an opaque process
-`instanceID`, and the `runtimeKind` (`persistent`, `foreground`, or `cloud`).
+`instanceID`, the `runtimeKind` (`persistent`, `foreground`, or `cloud`), and
+`access: "token"`. A status without `access` comes from a build that checked no
+caller, which may be another user's, so clients do not attach to it.
 Device identity is account-scoped and appears in `GET /v1/accounts`, not status. The instance ID lets an owner verify
 that a PID or loopback port still belongs to the runtime it created; clients
 must not assign meaning to its contents.
@@ -305,9 +319,10 @@ device now, because the profile's home host has been unreachable past the
 grace ([accounts §5.4](../overstory-spec/04-accounts-and-devices.md#54-published-device-keys)), is
 `503` with `retryable: true`. Either keeps the host's `details.homeHost`, so a
 client can name the home host.
-Serving the token over loopback is deliberate and adds no authority: any
-local process running as the user can already read the credential store and
-write the placed folders the daemon synchronizes. `data-home.md` records
+Serving the token over loopback is deliberate and adds no authority: only
+a caller holding the data home's caller token reaches it, and any local
+process running as the user can already read the credential store and write
+the placed folders the daemon synchronizes. `data-home.md` records
 the exposure.
 
 The token is never a long-lived credential: a session is valid for at most an

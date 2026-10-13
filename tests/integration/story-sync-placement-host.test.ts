@@ -18,6 +18,7 @@ import { LocalAccountService } from "../../packages/story-sync/src/account-servi
 import { StorySyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import { makeProfilePublic, reserveMembers } from "../helpers/community-reservations.ts";
 import { deviceClient, testAccount } from "../helpers/devices.ts";
+import { storySyncFetch } from "../helpers/story-sync-fetch.ts";
 
 /**
  * Security 007 and 011 gate: two local overstoryd instances, home host A and
@@ -52,6 +53,9 @@ let research: string;
 const repository = join(import.meta.dir, "../..");
 const environment = (state: string) => ({ ...Bun.env, STORY_HOME: state, STORY_CREDENTIAL_STORE: "file" });
 
+/** Each Story Sync's data home, whose token its callers send. */
+const dataHomes = new Map<string, string>();
+
 /** A Story Sync control service for one device's data home, in its own process. */
 async function startStorySync(state: string): Promise<{ url: string; client: StorySyncRESTClient }> {
   const child = Bun.spawn(["bun", "packages/story-sync/src/cli.ts", "--control", "--port", "0"], {
@@ -67,7 +71,8 @@ async function startStorySync(state: string): Promise<{ url: string; client: Sto
     if (match) {
       reader.releaseLock();
       daemons.push({ child, url: match[1]! });
-      return { url: match[1]!, client: new StorySyncRESTClient({ baseURL: match[1]! }) };
+      dataHomes.set(match[1]!, state);
+      return { url: match[1]!, client: new StorySyncRESTClient({ baseURL: match[1]!, dataHome: state }) };
     }
   }
 }
@@ -102,13 +107,13 @@ async function atB(token: string, tree: string, name = "_index.md"): Promise<str
 }
 
 async function credential(daemon: string, origin: string): Promise<string> {
-  const response = await fetch(`${daemon}/v1/credential?configurationTree=${configurationTree}&origin=${encodeURIComponent(origin)}`);
+  const response = await storySyncFetch(`${daemon}/v1/credential?configurationTree=${configurationTree}&origin=${encodeURIComponent(origin)}`, {}, dataHomes.get(daemon));
   if (!response.ok) throw new Error(`credential: ${response.status} ${await response.text()}`);
   return ((await response.json()) as { token: string }).token;
 }
 
 async function post(daemon: string, path: string, body: unknown): Promise<void> {
-  const response = await fetch(`${daemon}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const response = await storySyncFetch(`${daemon}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, dataHomes.get(daemon));
   if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
 }
 

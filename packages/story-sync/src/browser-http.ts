@@ -101,6 +101,11 @@ export function browserHandler(service: BrowserFiles) {
     if (surface) {
       return fileResponse(request, surface, { raw });
     }
-    return new Response(WEB_PLACEHOLDER, { headers: { "content-type": MIME[".html"] ?? "text/html" } });
+    return webPlaceholder();
   };
+}
+
+/** The Plan B notice: all a browser without the caller token is shown. */
+export function webPlaceholder(): Response {
+  return new Response(WEB_PLACEHOLDER, { headers: { "content-type": MIME[".html"] ?? "text/html" } });
 }

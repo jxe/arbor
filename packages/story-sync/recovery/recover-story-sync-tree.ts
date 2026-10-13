@@ -2,7 +2,7 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { accountProtocolClient } from "@ovst/client";
-import { decodeSnapshotBundle, encodeSnapshotBundle, type ObjectHash, type TreeSnapshot } from "@ovst/protocol";
+import { decodeSnapshotBundle, encodeSnapshotBundle, storySyncHeaders, type ObjectHash, type TreeSnapshot } from "@ovst/protocol";
 import {
   decodeAdmissionBasis,
   assertUnchangedHost,
@@ -82,8 +82,8 @@ function required(values: Map<string, string[]>, key: string): string {
   return value;
 }
 
-async function treePlacement(storySync: string, tree: string): Promise<TreeListItem> {
-  const response = await fetch(`${storySync}/v1/trees`);
+async function treePlacement(storySync: string, tree: string, dataHome: string): Promise<TreeListItem> {
+  const response = await fetch(`${storySync}/v1/trees`, { headers: await storySyncHeaders(dataHome) });
   if (!response.ok) throw new Error(`Story Sync tree list failed: ${response.status} ${await response.text()}`);
   const body = await response.json() as { snapshot?: TreeListItem[] };
   const item = body.snapshot?.find((candidate) => candidate.id === tree);
@@ -101,7 +101,7 @@ async function prepare(values: Map<string, string[]>): Promise<void> {
   const output = resolve(required(values, "output"));
   const dataHome = resolve(values.get("data-home")?.at(-1) ?? `${process.env.HOME}/.story`);
   const storySync = new URL(values.get("story-sync")?.at(-1) ?? "http://127.0.0.1:4317").origin;
-  const placement = await treePlacement(storySync, tree);
+  const placement = await treePlacement(storySync, tree, dataHome);
   const configurationTree = placement.configurationTree;
   const diskInput = values.get("disk")?.at(-1) ?? placement.osPath;
   if (!configurationTree) throw new Error(`Tree ${tree} has no account configuration tree`);

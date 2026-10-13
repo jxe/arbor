@@ -159,8 +159,8 @@ describe("story open operands", () => {
     process.env.STORY_HOME = state;
     const running = await serveStorySync(root, { port: 0 });
     try {
-      const port = Number(new URL(running.url).port);
-      expect((await attachedStorySyncURL({ path: root }, port))?.toString())
+      // Found through the origin the data home's Story Sync recorded.
+      expect((await attachedStorySyncURL({ path: root }))?.toString())
         .toBe(`${running.url}/render${root}`);
     } finally {
       running.server.stop(true);
@@ -179,8 +179,8 @@ describe("story open operands", () => {
     process.env.STORY_HOME = state;
     const running = await serveStorySync(root, { port: 0, instanceID: "status-test-instance" });
     try {
+      // The data home stays selected: its token is what the explicit Story Sync answers to.
       const childEnvironment: Record<string, string | undefined> = { ...process.env, STORY_SYNC_URL: running.url };
-      delete childEnvironment.STORY_HOME;
       const child = Bun.spawn(["bun", "packages/cli/src/index.ts", "sync", "status", "--json"], {
         cwd: join(import.meta.dir, "../.."),
         env: childEnvironment,

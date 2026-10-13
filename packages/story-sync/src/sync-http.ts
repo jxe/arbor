@@ -23,6 +23,8 @@ export function syncHandler(service: SyncHTTPService, options: {
         protocolVersion: "v1",
         instanceID,
         runtimeKind: options.runtimeKind,
+        // Only a caller holding this data home's token gets this far (data-home.md).
+        access: "token",
       });
     }
     if (request.method === "POST" && url.pathname === "/v1/sync") {

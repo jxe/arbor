@@ -4,6 +4,7 @@
 // The report is what a migration's run.ts prints: { trees: [{ id, root }] }.
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { storySyncHeaders } from "@ovst/protocol";
 
 const args = process.argv.slice(2);
 const [origin, reportPath] = args;
@@ -32,7 +33,7 @@ for (const tree of report.trees) {
   if (body.tree?.root !== tree.root) failures.push(`${tree.id}: server root ${body.tree?.root} != report ${tree.root}`);
 }
 
-const local = verifySync ? await fetch(`${sync}/v1/trees`).catch(() => null) : null;
+const local = verifySync ? await fetch(`${sync}/v1/trees`, { headers: await storySyncHeaders() }).catch(() => null) : null;
 if (verifySync && !local?.ok) failures.push(`story-sync: ${local?.status ?? "not running"} at ${sync}`);
 else if (local) {
   const body = await local.json() as { snapshot: Array<{ id: string; sync?: string; placement: string }> };

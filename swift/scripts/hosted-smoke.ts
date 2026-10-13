@@ -27,7 +27,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveStorySyncControl } from "@ovst/story-sync";
 import { serveHost } from "@ovst/overstoryd";
-import { overstoryPrivateRoot, sha256 } from "@ovst/protocol";
+import { overstoryPrivateRoot, sha256, storySyncHeaders } from "@ovst/protocol";
 import { ProfileIdentityStore, loadLocalPlacements } from "@ovst/client";
 
 const repository = join(import.meta.dir, "../..");
@@ -88,7 +88,7 @@ try {
     // The Mac's data-home claim route; the CLI's daemon client has no claim method.
     const claim = await fetch(`${control.url}/v1/bootstrap/accounts`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...await storySyncHeaders() },
       body: JSON.stringify({ account: `${host.url}/~joe`, path: profile, displayName: "Hosted smoke Mac" }),
     });
     if (!claim.ok) throw new Error(`Account claim failed: ${claim.status} ${await claim.text()}`);

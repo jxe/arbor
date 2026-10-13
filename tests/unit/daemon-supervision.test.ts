@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ensureStorySyncAccess } from "@ovst/protocol";
 import {
   STORY_SYNC_LABEL,
   DarwinStoryDaemonSupervisor,
@@ -39,6 +40,7 @@ describe("Story daemon supervision", () => {
     delete process.env.STORY_HOME;
     const home = await mkdtemp(join(tmpdir(), "story-daemon-supervision-"));
     roots.push(home);
+    await ensureStorySyncAccess(join(home, ".story"));
     const commands: string[][] = [];
     let loaded = false;
     let running = false;
@@ -47,7 +49,7 @@ describe("Story daemon supervision", () => {
       home,
       executable: "/opt/story/story-sync",
       fetcher: (async () => running
-        ? Response.json({ service: "story-sync", protocolVersion: "v1", instanceID: `instance-${instance}` })
+        ? Response.json({ service: "story-sync", protocolVersion: "v1", instanceID: `instance-${instance}`, access: "token" })
         : Promise.reject(new Error("stopped"))),
       run: async (command) => {
         commands.push(command);
@@ -89,9 +91,10 @@ describe("Story daemon supervision", () => {
     delete process.env.STORY_HOME;
     const home = await mkdtemp(join(tmpdir(), "story-daemon-collision-"));
     roots.push(home);
+    await ensureStorySyncAccess(join(home, ".story"));
     const supervisor = new DarwinStoryDaemonSupervisor({
       home,
-      fetcher: async () => Response.json({ service: "story-sync", protocolVersion: "v1" }),
+      fetcher: async () => Response.json({ service: "story-sync", protocolVersion: "v1", access: "token" }),
       run: async () => ({ exitCode: 113, stdout: "", stderr: "not found" }),
     });
     await expect(supervisor.install()).rejects.toThrow("unsupervised Story Sync");
@@ -99,12 +102,30 @@ describe("Story daemon supervision", () => {
 
   test("does not report restart success while the old instance still owns the port", async () => {
     delete process.env.STORY_HOME;
+    const home = await mkdtemp(join(tmpdir(), "story-daemon-restart-"));
+    roots.push(home);
+    await ensureStorySyncAccess(join(home, ".story"));
     const supervisor = new DarwinStoryDaemonSupervisor({
-      fetcher: async () => Response.json({ service: "story-sync", protocolVersion: "v1", instanceID: "old-instance" }),
+      home,
+      fetcher: async () => Response.json({ service: "story-sync", protocolVersion: "v1", instanceID: "old-instance", access: "token" }),
       run: async (command) => command[1] === "print"
         ? { exitCode: 0, stdout: "state = running\npid = 812", stderr: "" }
         : { exitCode: 0, stdout: "", stderr: "" },
     });
     await expect(supervisor.restart()).rejects.toThrow("did not produce a new service instance");
   }, 10_000);
+
+  test("does not take another user's Story Sync on the well-known port for its own", async () => {
+    delete process.env.STORY_HOME;
+    const home = await mkdtemp(join(tmpdir(), "story-daemon-other-user-"));
+    roots.push(home);
+    await ensureStorySyncAccess(join(home, ".story"));
+    const supervisor = new DarwinStoryDaemonSupervisor({
+      home,
+      // Another user's Story Sync refuses this data home's token.
+      fetcher: async () => Response.json({ error: "unauthenticated" }, { status: 401 }),
+      run: async () => ({ exitCode: 113, stdout: "", stderr: "not found" }),
+    });
+    expect((await supervisor.status()).state).toBe("not-installed");
+  });
 });

@@ -42,6 +42,27 @@ enum StorySyncSupervisorError: Error, LocalizedError, Sendable {
     }
 }
 
+/// The data home's caller token and the origin its Story Sync last recorded
+/// (docs/architecture/story-sync/data-home.md). Story Sync writes the file;
+/// only the data home's own user can read it, which is what makes a caller
+/// that holds the token that user.
+struct StorySyncAccess: Decodable, Sendable, Equatable {
+    var version: Int
+    var token: String
+    var origin: String?
+
+    /// Read from the data home `STORY_HOME` selects now, so a test that changes it is followed.
+    static func load() -> StorySyncAccess? {
+        let environment = ProcessInfo.processInfo.environment
+        let dataHome = environment["STORY_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".story", directoryHint: .isDirectory)
+        guard let data = try? Data(contentsOf: dataHome.appending(path: ".state/story-sync.json")),
+              let access = try? JSONDecoder().decode(StorySyncAccess.self, from: data),
+              access.version == 1 else { return nil }
+        return access
+    }
+}
+
 enum StorySyncLaunchPolicy: Sendable, Equatable {
     case automatic
     case attachOnly
@@ -125,7 +146,7 @@ actor StorySyncProcessSupervisor {
     // MARK: Shared attach-or-launch path
 
     private func connect(explicitExecutable: URL?, preferredPort: Int) async throws -> StorySyncControlRuntime {
-        if let attached = try await attachIfCompatible(port: preferredPort) {
+        if let attached = try await attachOwn(preferredPort: preferredPort) {
             // The launch agent outlives the app, so an updated app finds the helper of the build it replaced.
             guard explicitExecutable == nil, preferredPort == Self.defaultPort, shouldUsePersistentService,
                   attached.status.runtimeKind == "persistent",
@@ -133,7 +154,7 @@ actor StorySyncProcessSupervisor {
                   await installedServiceExists() else { return attached }
             _ = await launchctl(["kickstart", "-k", serviceTarget()])
             for _ in 0..<100 {
-                if let restarted = try await attachIfCompatible(port: preferredPort),
+                if let restarted = try await attachOwn(preferredPort: preferredPort),
                    restarted.status.instanceID != attached.status.instanceID { return restarted }
                 try await Task.sleep(for: .milliseconds(100))
             }
@@ -145,13 +166,13 @@ actor StorySyncProcessSupervisor {
         }
 
         if explicitExecutable == nil, preferredPort == Self.defaultPort, shouldUsePersistentService {
-            if await kickstartInstalledService() {
-                if let attached = try await waitForService(port: preferredPort) { return attached }
+            if await restartInstalledService() {
+                if let attached = try await waitForService(preferredPort: preferredPort) { return attached }
                 throw StorySyncSupervisorError.readinessTimedOut(canonicalServiceLog())
             }
             do {
                 if try registerBundledService() {
-                    if let attached = try await waitForService(port: preferredPort) { return attached }
+                    if let attached = try await waitForService(preferredPort: preferredPort) { return attached }
                     throw StorySyncSupervisorError.readinessTimedOut(canonicalServiceLog())
                 }
             } catch {
@@ -162,34 +183,25 @@ actor StorySyncProcessSupervisor {
 
         let executable = try explicitExecutable ?? locateExecutable()
         self.executable = executable
-        var lastFailure = "No available loopback port"
-
-        for port in preferredPort..<(preferredPort + 20) {
-            if let attached = try await attachIfCompatible(port: port) { return attached }
-            do {
-                let launched = try launch(executable: executable, port: port)
-                process = launched
-                let origin = URL(string: "http://127.0.0.1:\(port)")!
-                let client = StorySyncRESTClient(baseURL: origin)
-                for _ in 0..<100 {
-                    if !launched.isRunning {
-                        lastFailure = logs()
-                        break
-                    }
-                    if let status = try? await client.status() {
-                        try validate(status)
-                        return StorySyncControlRuntime(origin: origin, client: client, status: status, attachedToExistingProcess: false)
-                    }
-                    try await Task.sleep(for: .milliseconds(100))
-                }
-                if launched.isRunning { launched.terminate() }
-                process = nil
-            } catch {
-                lastFailure = String(describing: error)
-                process = nil
+        // Story Sync takes the next free port itself when another user's holds this one,
+        // and records where it listens; the instance ID tells our launch from anyone else's.
+        let instanceID = UUID().uuidString
+        let launched = try launch(executable: executable, port: preferredPort, instanceID: instanceID)
+        process = launched
+        var lastFailure = "Story Sync did not answer with this data home's token"
+        for _ in 0..<100 {
+            if !launched.isRunning {
+                lastFailure = logs()
+                break
             }
+            if let attached = try await attachOwn(preferredPort: preferredPort, recordedFirst: true),
+               attached.status.instanceID == instanceID {
+                return StorySyncControlRuntime(origin: attached.origin, client: attached.client, status: attached.status, attachedToExistingProcess: false)
+            }
+            try await Task.sleep(for: .milliseconds(100))
         }
-
+        if launched.isRunning { launched.terminate() }
+        process = nil
         throw StorySyncSupervisorError.readinessTimedOut(lastFailure)
     }
 
@@ -208,17 +220,32 @@ actor StorySyncProcessSupervisor {
         return running != bundled
     }
 
-    private func attachIfCompatible(port: Int) async throws -> StorySyncControlRuntime? {
-        let origin = URL(string: "http://127.0.0.1:\(port)")!
-        let client = StorySyncRESTClient(baseURL: origin)
-        guard let status = try? await client.status() else { return nil }
-        try validate(status)
-        return StorySyncControlRuntime(origin: origin, client: client, status: status, attachedToExistingProcess: true)
+    /// Attach to this data home's own Story Sync: the one that answers its caller
+    /// token. Another user's refuses the token, and an older build that checks no
+    /// caller says nothing of `access`; neither is attached to. At the default
+    /// port the origin Story Sync recorded comes first, since a second account on
+    /// the Mac listens elsewhere; a test's explicit port is asked only after a launch.
+    private func attachOwn(preferredPort: Int, recordedFirst: Bool = false) async throws -> StorySyncControlRuntime? {
+        guard let access = StorySyncAccess.load() else { return nil }
+        var origins: [URL] = []
+        if preferredPort == Self.defaultPort || recordedFirst, let recorded = access.origin.flatMap(URL.init(string:)) {
+            origins.append(recorded)
+        }
+        if let fixed = URL(string: "http://127.0.0.1:\(preferredPort)"), preferredPort != 0, !origins.contains(fixed) {
+            origins.append(fixed)
+        }
+        for origin in origins {
+            let client = StorySyncRESTClient(baseURL: origin, token: access.token)
+            guard let status = try? await client.status(), status.access == "token" else { continue }
+            try validate(status)
+            return StorySyncControlRuntime(origin: origin, client: client, status: status, attachedToExistingProcess: true)
+        }
+        return nil
     }
 
-    private func waitForService(port: Int) async throws -> StorySyncControlRuntime? {
+    private func waitForService(preferredPort: Int) async throws -> StorySyncControlRuntime? {
         for _ in 0..<100 {
-            if let attached = try await attachIfCompatible(port: port) { return attached }
+            if let attached = try await attachOwn(preferredPort: preferredPort) { return attached }
             try await Task.sleep(for: .milliseconds(100))
         }
         return nil
@@ -260,9 +287,11 @@ actor StorySyncProcessSupervisor {
         await launchctl(["print", serviceTarget()]) == 0
     }
 
-    private func kickstartInstalledService() async -> Bool {
+    /// Start the installed service, restarting it if it runs: reaching here means it
+    /// did not answer this data home's token, so it is stopped, wedged, or an older build.
+    private func restartInstalledService() async -> Bool {
         guard await installedServiceExists() else { return false }
-        _ = await launchctl(["kickstart", serviceTarget()])
+        _ = await launchctl(["kickstart", "-k", serviceTarget()])
         return true
     }
 
@@ -304,14 +333,14 @@ actor StorySyncProcessSupervisor {
     }
 
     /// Launch `story-sync --control`: no session and no folder of its own.
-    private func launch(executable: URL, port: Int) throws -> Process {
+    private func launch(executable: URL, port: Int, instanceID: String) throws -> Process {
         let logs = FileManager.default.temporaryDirectory
             .appending(path: "Story-story-sync-\(UUID().uuidString).log")
         FileManager.default.createFile(atPath: logs.path, contents: nil)
         let handle = try FileHandle(forWritingTo: logs)
         let process = Process()
         process.executableURL = executable
-        var command = ["--control", "--port", String(port)]
+        var command = ["--control", "--port", String(port), "--instance-id", instanceID]
         // A hosted test app's helper must not outlive the test run that owns it.
         if ProcessInfo.processInfo.environment["STORY_TEST_BUNDLED_HELPER"] == "1" {
             command += ["--parent-pid", String(ProcessInfo.processInfo.processIdentifier)]

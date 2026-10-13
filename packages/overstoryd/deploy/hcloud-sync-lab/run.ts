@@ -373,6 +373,9 @@ async function ssh(
   return command([...sshBase(state, node), ...remote], options);
 }
 
+/** curl as the client's Story Sync answers it: with its data home's caller token, which root can read. */
+const STORY_SYNC_CURL = `curl -fsS -H "authorization: Bearer $(jq -r .token /home/story/.story/.state/story-sync.json)"`;
+
 async function sshBash(
   state: LabState,
   role: Role,
@@ -667,7 +670,7 @@ async function createScenario(state: LabState, scenario: string, binary = "commo
   await waitForConvergence(state, scenario);
   const found = await sshBash(state, "alice", [
     "for attempt in $(seq 1 30); do",
-    `  tree=$(curl -fsS 'http://127.0.0.1:4317/v1/trees' | jq -r --arg path '${CLIENT_PATHS.alice}/${scenario}' '.snapshot[] | select(.osPath == $path) | .id' | head -n1)`,
+    `  tree=$(${STORY_SYNC_CURL} 'http://127.0.0.1:4317/v1/trees' | jq -r --arg path '${CLIENT_PATHS.alice}/${scenario}' '.snapshot[] | select(.osPath == $path) | .id' | head -n1)`,
     "  if [[ $tree == tr_* ]]; then printf '%s' \"$tree\"; exit 0; fi",
     "  sleep 1",
     "done",
@@ -689,7 +692,7 @@ async function authorityHistoryCount(state: LabState, tree: string): Promise<num
 
 async function treeDescriptor(state: LabState, role: Exclude<Role, "community">, tree: string): Promise<{ sync?: string; conflicted?: boolean } | undefined> {
   const response = await sshBash(state, role,
-    "curl -fsS 'http://127.0.0.1:4317/v1/trees'",
+    `${STORY_SYNC_CURL} 'http://127.0.0.1:4317/v1/trees'`,
     { allowFailure: true, quiet: true });
   if (response.exitCode !== 0) return undefined;
   try {
@@ -979,7 +982,7 @@ async function collect(state: LabState): Promise<string> {
       `journalctl -u '${service}' --no-pager -n 1000 || true`,
       ...(role === "community" ? [] : [
         `find '${CLIENT_PATHS[role]}' -mindepth 2 -type f -print0 | sort -z | xargs -0 sha256sum || true`,
-        "curl -fsS 'http://127.0.0.1:4317/v1/trees' || true",
+        `${STORY_SYNC_CURL} 'http://127.0.0.1:4317/v1/trees' || true`,
       ]),
     ].join("\n"), { allowFailure: true, quiet: true, timeoutMs: 60_000 });
     await writeFile(join(destination, `${role}.log`), `${report.stdout}\n${report.stderr}`);
