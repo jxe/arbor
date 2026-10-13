@@ -9,6 +9,8 @@ const root = resolve(import.meta.dir, "..");
 const source = JSON.parse(await readFile(join(root, "packages/cli/package.json"), "utf8"));
 const output = resolve(process.argv[2] ?? join(root, "dist/npm-cli"));
 const only = process.env.STORY_CLI_TARGETS?.split(",").filter(Boolean);
+// Every executable embeds the repository's pinned Bun, whatever Bun runs this script: a canary has no runtimes to cross-compile with.
+const bunVersion = (await readFile(join(root, ".bun-version"), "utf8")).trim();
 
 /** The platforms the package ships, as Node names them, with the Bun target and @parcel/watcher prebuild for each. */
 const CLI_TARGETS = [
@@ -59,7 +61,7 @@ try {
     const result = await Bun.build({
       entrypoints: [join(root, "packages/cli/src/index.ts")],
       define: { STORY_PACKAGE_VERSION: JSON.stringify(source.version) },
-      compile: { target: target.bun, outfile: executable },
+      compile: { target: `${target.bun}-v${bunVersion}`, outfile: executable },
       plugins: [{
         name: "story-watcher-binding",
         setup(build) {
