@@ -75,13 +75,13 @@ Take 22 has a wait in the middle. Record the paste and start, stop, then record 
 
 ## Assembly (agent session)
 
-`dist/video/assemble.sh` does this with `ffmpeg`, from `dist/video/takes/`; it was tried on synthetic takes only. Captions are in `dist/video/captions.txt`, and a take the script cuts badly gets a line in `takes/trim.txt`.
+`dist/video/assemble.sh` does this with `ffmpeg`, from `dist/video/takes/`; it was tried on synthetic takes only. A take the script cuts badly gets a line in `takes/trim.txt`.
 
 1. Trim the silence at each end of every take and normalize the audio to one level.
 2. For hand-filmed takes with a separate voice take, lay the voice over the picture.
 3. Add a title card before each section: Getting set up, Feature tour, Agents.
 4. Join in take order, with the same frame size and rate throughout; letterbox the iPhone and hand clips beside or inside a plain background.
-5. Write captions from the narration column as a subtitle file beside the video and as a track in it that a player can turn on; do not burn them in.
+5. No captions: Joe decided on 2026-10-13 to leave them out. `assemble.sh` still writes them when `dist/video/captions.txt` has lines.
 6. Write `dist/video/story-intro.mp4`, show Joe, and recut from his notes; a retake only needs a rerun.
 
 ## Close out
