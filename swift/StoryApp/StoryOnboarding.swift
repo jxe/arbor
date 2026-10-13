@@ -21,6 +21,9 @@ struct StoryMacLaunchView: View {
                 StoryMacOnboarding(workspace: workspace, resumeExisting: true, initialCommunity: joinAccount, initialCode: joinCode) { ready = true }
             }
         }
+        // Story keeps one window: a link opened while it is up goes to that
+        // window instead of making SwiftUI open a second one beside it.
+        .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         .onOpenURL { url in
             switch StoryIncomingLocator(url) {
             case let .join(account, code):
