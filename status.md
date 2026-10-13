@@ -21,7 +21,7 @@ dependencies `@ovst/cli-{darwin,linux}-{arm64,x64}` each ship one `bun build
 The CLI respawns itself through `storyCommand()` (the executable alone when
 compiled), and the macOS LaunchAgent runs a copied executable's `story daemon
 run` instead of `bun story-sync.js`. The Mac app's agent prompt says `npx -y
-@ovst/cli` and "needs Node.js". Evidence on Linux x64: the packed tarballs
+@ovst/cli` and names no runtime. Evidence on Linux x64: the packed tarballs
 installed with npm print `0.1.2` from `story --version` with only Node on
 `PATH`, and `bun run test:cli:package` passes (`cli-sync.test.ts` 13 of 13
 against the installed executable, including `agent run`). All four platforms
