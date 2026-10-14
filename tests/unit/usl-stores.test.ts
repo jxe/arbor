@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SQL } from "bun";
-import { columnType, compileUsl, layoutOf, setupSql, typeDeclarations, validateRow, type Table } from "@ovst/usl";
+import { columnType, compileUsl, layoutOf, recordsFromRows, rowsFromRecords, setupSql, typeDeclarations, validateRow, type Table } from "@ovst/usl";
 import { compareShapes, inspectSqlite, sqliteAffinity, verifyFiles, verifyStore } from "@ovst/usl/verify";
 
 const examples = join(import.meta.dir, "../../plans/schema-language/examples");
@@ -172,5 +172,102 @@ describe("usl for Overstory", () => {
     const deep = `model A { @@views(${"[".repeat(40)}${"]".repeat(40)}) }`;
     expect(compileUsl(deep).diagnostics.map((d) => d.code)).toEqual(["limit"]);
     expect(compileUsl("x".repeat(1_100_000)).diagnostics.map((d) => d.code)).toEqual(["limit"]);
+  });
+});
+
+describe("usl for apps", () => {
+  const source = `model Game {
+  name    Text
+  status  Status
+  tags    Text[]
+  done    Bool
+  due     Date?
+  authors Person[]
+  @@editableBy(authors)
+  @@index(status, modified)
+}
+model List {
+  name  Text
+  owner Person
+  games Game[]
+}
+model Note {
+  game Game
+  body Markdown
+  @@id(game, id)
+}
+Game.authors[] @fold <-> Person.games[]
+List.games[] @ordered @fold <-> Game.lists[]
+List.owner <-> Person.lists[]
+Note.game <-> Game.notes[]
+Game.status <-> Status.games[]
+model Status { @@fixed { Draft, Done } }
+`;
+  const result = compileUsl(source);
+  const tables = layoutOf(result);
+
+  test("@@editableBy and @@index are resolved", () => {
+    expect(result.diagnostics).toEqual([]);
+    const game = result.models.find((m) => m.name === "Game")!;
+    expect(game.editableBy).toEqual(["authors"]);
+    expect(game.indexes).toEqual([["status", "modified"]]);
+    expect(game.fields.map((f) => f.name)).toEqual(["name", "status", "tags", "done", "due", "authors", "lists", "notes"]);
+    const many = compileUsl("model A {\n  tags Text[]\n  @@index(tags)\n  @@index(nope)\n}\n").diagnostics.map((d) => d.code);
+    expect(many).toEqual(["index-many", "unknown-field"]);
+  });
+
+  test("references and @@index are indexed", () => {
+    const indexes = Object.fromEntries(tables.map((t) => [t.name, t.indexes]));
+    expect(indexes).toEqual({
+      Game: [["status", "modified"]],
+      List: [["owner"]],
+      Note: [],
+      Game_authors: [["person"]],
+      List_games: [["game"]],
+    });
+    expect(setupSql(tables, "postgres")).toContain('CREATE INDEX IF NOT EXISTS "List_owner_idx" ON "List" ("owner");');
+    expect(layoutOf(result, { store: "files" }).every((t) => t.indexes.length === 0)).toBe(true);
+    const qualified = setupSql(tables, "postgres", { schema: "remake" });
+    expect(qualified).toStartWith('CREATE SCHEMA IF NOT EXISTS "remake";');
+    expect(qualified).toContain('CREATE TABLE IF NOT EXISTS "remake"."List_games"');
+    expect(qualified).toContain('REFERENCES "remake"."List" ("id") ON DELETE CASCADE');
+    expect(qualified).not.toMatch(/(?<!"remake"\.)"Game" \(/);
+  });
+
+  test("records round-trip through SQLite tables", () => {
+    const records = {
+      Game: [
+        { id: "g1", name: "Chess", status: "Done", tags: ["old"], done: true, due: "2026-10-14", authors: ["p1", "p2"] },
+        { id: "g2", name: "Go", status: "Draft", tags: [], done: false, due: null, authors: [] },
+      ],
+      List: [{ id: "l1", name: "Favorites", owner: "p1", games: ["g2", "g1"] }],
+      Note: [{ game: "g1", id: "n1", body: "Opening" }],
+    };
+    const rows = rowsFromRecords(tables, records);
+    expect(rows.List_games).toEqual([
+      { list: "l1", game: "g2", games_position: 0 },
+      { list: "l1", game: "g1", games_position: 1 },
+    ]);
+    const db = new Database(":memory:");
+    db.exec(setupSql(tables, "sqlite"));
+    for (const table of tables) {
+      for (const row of rows[table.name] ?? []) {
+        const names = Object.keys(row);
+        const values = names.map((n) => {
+          const v = row[n];
+          return Array.isArray(v) ? JSON.stringify(v) : typeof v === "boolean" ? Number(v) : (v as any);
+        });
+        db.prepare(`INSERT INTO "${table.name}" (${names.map((n) => `"${n}"`).join(", ")}) VALUES (${names.map(() => "?").join(", ")})`).run(...values);
+      }
+    }
+    const read = Object.fromEntries(tables.map((t) => [t.name, db.query(`SELECT * FROM "${t.name}" ORDER BY rowid DESC`).all() as Record<string, unknown>[]]));
+    const back = recordsFromRows(tables, read);
+    const byId = (rs: Record<string, unknown>[]) => [...rs].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    // Game.authors isn't @ordered, so its members come back in no particular order.
+    const games = byId(back.Game!).map((g) => ({ ...g, authors: [...(g.authors as string[])].sort() }));
+    expect(games).toEqual(records.Game);
+    expect(back.List).toEqual(records.List);
+    expect(back.Note).toEqual(records.Note);
+    expect(Object.keys(recordsFromRows(tables, read, { timestamps: true }).List![0]!)).toContain("modified");
   });
 });

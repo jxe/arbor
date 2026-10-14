@@ -23,7 +23,7 @@ export const BUILTIN_MODELS = ["Person"] as const;
 export const IMPLICIT_FIELDS = ["id", "created", "modified"] as const;
 
 const FIELD_ATTRIBUTES = ["ordered", "color", "unique", "as", "column", "fold", "path"];
-const MODEL_ATTRIBUTES = ["views", "editableBy", "fold", "table", "id"];
+const MODEL_ATTRIBUTES = ["views", "editableBy", "fold", "table", "id", "index"];
 const VIEW_OPTIONS = ["label", "line", "group", "sort"];
 // Presentation of one item in a view's line: `@bullet` draws a fixed value as
 // the row's colored bullet, `@summary` shows a many-valued field as a count,
@@ -88,6 +88,10 @@ export interface ResolvedModel {
   schemaRows: { name: string; values: Record<string, RowValue>; color?: string }[];
   /** `@@views`, in tab order; empty when the model has none. */
   views: ResolvedView[];
+  /** The `Person` fields named by `@@editableBy`: people in them may change the model's rows. */
+  editableBy: string[];
+  /** `@@index(...)`, each a list of single-valued fields (`id`, `created` and `modified` included) to look rows up by. */
+  indexes: string[][];
 }
 
 /** One item of a view's line: a field and its presentation. */
@@ -339,7 +343,11 @@ export function checkUsl(file: SchemaFile): CheckResult {
       name,
       rows: rows?.mode ?? "data",
       key,
-      fields: [...fields.values()],
+      // Fields written in the model come in the order they're written; the rest follow.
+      fields: [
+        ...[...declared.keys()].flatMap((f) => (fields.has(f) ? [fields.get(f)!] : [])),
+        ...[...fields.values()].filter((f) => !declared.has(f.name)),
+      ],
       ends: modelEnds.map(resolvedEnd),
       schemaRows: (rows?.rows ?? []).map((row) => {
         const color = row.attrs.find((a) => a.name === "color")?.args[0];
@@ -350,6 +358,8 @@ export function checkUsl(file: SchemaFile): CheckResult {
         };
       }),
       views: model ? resolvedViews(model) : [],
+      editableBy: [],
+      indexes: [],
     };
     resolved.set(name, entry);
     fieldMaps.set(name, fields);
@@ -427,7 +437,8 @@ export function checkUsl(file: SchemaFile): CheckResult {
     for (const member of model.members) {
       if (member.kind !== "modelAttribute" && member.kind !== "rows") continue;
       const name = member.kind === "rows" ? "rows" : member.name;
-      if (seen.has(name)) {
+      // A model may have several indexes; every other attribute appears once.
+      if (seen.has(name) && name !== "index") {
         report("duplicate-attribute", member.at, member.kind === "rows" ? "A model has at most one `@@fixed` or `@@seed` block" : `\`@@${name}\` appears twice`);
         continue;
       }
@@ -449,7 +460,22 @@ export function checkUsl(file: SchemaFile): CheckResult {
           const field = fields.get(arg.name);
           if (!field) report("unknown-field", arg.at, `\`${model.name}\` has no field \`${arg.name}\``);
           else if (field.type !== "Person") report("editable-by-person", arg.at, `\`${arg.name}\` holds ${field.type}, not Person`);
+          else resolved.get(model.name)!.editableBy.push(arg.name);
         }
+      } else if (member.name === "index") {
+        if (member.args.length === 0) report("attribute-arguments", member.at, "`@@index` names at least one field");
+        const index: string[] = [];
+        for (const arg of member.args) {
+          if (arg.kind !== "ident") {
+            report("attribute-arguments", arg.at, "`@@index` takes field names");
+            continue;
+          }
+          const field = fields.get(arg.name);
+          if (!field && !(IMPLICIT_FIELDS as readonly string[]).includes(arg.name)) report("unknown-field", arg.at, `\`${model.name}\` has no field \`${arg.name}\``);
+          else if (field && field.arity === "many") report("index-many", arg.at, `\`${arg.name}\` holds many values; an index takes single-valued fields`);
+          else index.push(arg.name);
+        }
+        if (index.length === member.args.length && index.length > 0) resolved.get(model.name)!.indexes.push(index);
       } else if (member.name === "id") {
         const entry = resolved.get(model.name)!;
         if (rows.length > 0) {

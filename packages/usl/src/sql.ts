@@ -50,35 +50,43 @@ function columnSql(column: Column, dialect: Dialect): string {
 
 const columnList = (names: string[]) => `(${names.map(quote).join(", ")})`;
 const onDelete = (fk: ForeignKey) => (fk.onDelete === "restrict" ? "" : ` ON DELETE ${fk.onDelete.toUpperCase()}`);
-const references = (fk: ForeignKey) => `FOREIGN KEY ${columnList(fk.columns)} REFERENCES ${quote(fk.table)} ${columnList(fk.refColumns)}${onDelete(fk)}`;
 export const foreignKeyName = (table: Table, fk: ForeignKey) => `${table.name}_${fk.columns.join("_")}_fkey`;
 
-export function setupSql(tables: Table[], dialect: Dialect): string {
+export interface SetupOptions {
+  /** Postgres: create the tables in this schema (`CREATE SCHEMA IF NOT EXISTS` included) and qualify every name with it. */
+  schema?: string;
+}
+
+export function setupSql(tables: Table[], dialect: Dialect, options: SetupOptions = {}): string {
   const out: string[] = [];
+  if (options.schema && dialect !== "postgres") throw new Error("Only Postgres setup SQL takes a schema");
+  // A table's name as statements write it, qualified by the schema when there is one.
+  const qualified = (name: string) => (options.schema ? `${quote(options.schema)}.${quote(name)}` : quote(name));
+  const references = (fk: ForeignKey) =>
+    `FOREIGN KEY ${columnList(fk.columns)} REFERENCES ${qualified(fk.table)} ${columnList(fk.refColumns)}${onDelete(fk)}`;
+  if (options.schema) out.push(`CREATE SCHEMA IF NOT EXISTS ${quote(options.schema)};`);
   for (const table of tables) {
     const lines = table.columns.map((c) => columnSql(c, dialect));
     lines.push(`PRIMARY KEY ${columnList(table.primaryKey)}`);
     for (const unique of table.uniques) lines.push(`UNIQUE ${columnList(unique)}`);
     // SQLite has no ALTER TABLE ADD CONSTRAINT, but doesn't need referenced tables to exist yet.
     if (dialect === "sqlite") for (const fk of table.foreignKeys) lines.push(references(fk));
-    out.push(`CREATE TABLE IF NOT EXISTS ${quote(table.name)} (\n  ${lines.join(",\n  ")}\n);`);
+    out.push(`CREATE TABLE IF NOT EXISTS ${qualified(table.name)} (\n  ${lines.join(",\n  ")}\n);`);
   }
   if (dialect === "postgres") {
     for (const table of tables) {
       for (const fk of table.foreignKeys) {
         const name = foreignKeyName(table, fk);
         out.push(
-          `DO $$ BEGIN\n  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = ${literal(name, dialect)}) THEN\n` +
-            `    ALTER TABLE ${quote(table.name)} ADD CONSTRAINT ${quote(name)} ${references(fk)};\n  END IF;\nEND $$;`,
+          `DO $$ BEGIN\n  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = ${literal(name, dialect)}${options.schema ? ` AND connamespace = ${literal(options.schema, dialect)}::regnamespace` : ""}) THEN\n` +
+            `    ALTER TABLE ${qualified(table.name)} ADD CONSTRAINT ${quote(name)} ${references(fk)};\n  END IF;\nEND $$;`,
         );
       }
     }
   }
   for (const table of tables) {
-    for (const fk of table.foreignKeys) {
-      const leadsKey = fk.columns.every((c, i) => table.primaryKey[i] === c);
-      if (leadsKey) continue;
-      out.push(`CREATE INDEX IF NOT EXISTS ${quote(`${table.name}_${fk.columns.join("_")}_idx`)} ON ${quote(table.name)} ${columnList(fk.columns)};`);
+    for (const columns of table.indexes) {
+      out.push(`CREATE INDEX IF NOT EXISTS ${quote(`${table.name}_${columns.join("_")}_idx`)} ON ${qualified(table.name)} ${columnList(columns)};`);
     }
   }
   for (const table of tables) {
@@ -87,7 +95,7 @@ export function setupSql(tables: Table[], dialect: Dialect): string {
       const values = names.map((n) => literal(row[n]!, dialect)).join(", ");
       const verb = dialect === "sqlite" ? "INSERT OR IGNORE INTO" : "INSERT INTO";
       const tail = dialect === "sqlite" ? "" : " ON CONFLICT DO NOTHING";
-      out.push(`${verb} ${quote(table.name)} ${columnList(names)} VALUES (${values})${tail};`);
+      out.push(`${verb} ${qualified(table.name)} ${columnList(names)} VALUES (${values})${tail};`);
     }
   }
   return out.join("\n\n") + "\n";

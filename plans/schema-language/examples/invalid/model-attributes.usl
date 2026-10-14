@@ -5,7 +5,7 @@
 model Book {
   title Text
   owner Person
-  @@index(title)
+  @@search(title)
   @@editableBy(owner, title, nobody)
   @@views([{ label: "All" }])
   @@views([{ label: "Again" }])

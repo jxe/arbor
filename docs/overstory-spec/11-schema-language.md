@@ -130,6 +130,7 @@ model needs a `name Text` field, and its colors are data in a `@color` field.
 | `@@table("name")` | a model with a table | the stored table's name |
 | `@@fold(Model)` | a connection model | in data files, stored on the rows of one model it connects |
 | `@@editableBy(field, ...)` | a model | people in those `Person` fields may change its rows |
+| `@@index(field, ...)` | a model with a table, any number of times | databases index those single-valued fields (`id`, `created` and `modified` included) in that order |
 | `@@views([...])` | a model | default arrangements ([§6](#6-views)) |
 
 ## 6. Views
@@ -161,6 +162,10 @@ The checked schema determines the tables, columns and keys a store holds.
   is stored.
 - Database tables have `created` and `modified` timestamps. Data files leave
   them out; a tree's history records when a row changed.
+- Database tables index each reference that doesn't lead the primary key,
+  profile ids included, and each `@@index`. An index whose columns begin
+  another index is left out. Indexes never change what a database holds, so
+  implementing a schema doesn't depend on them.
 - In data files, an n:m connection with a `@fold` end is an array, on that
   end's rows, of the other side's keys. Databases always use a join table.
 

@@ -19,6 +19,8 @@
 //   describe a database it didn't create.
 // - In data files, an n:m connection with a `@fold` end is an array on that
 //   end's rows instead of a file of its own. Databases always use a join table.
+// - Database tables index the columns rows are looked up by: references not
+//   leading the primary key (profile ids included) and each `@@index`.
 
 import type { CheckResult, ResolvedEnd, ResolvedModel, RowValue } from "./check.ts";
 
@@ -45,6 +47,26 @@ export interface ForeignKey {
   onDelete: "cascade" | "set null" | "restrict";
 }
 
+/** The columns that hold one field of a model's rows. */
+export interface StoredField {
+  name: string;
+  columns: string[];
+  /** For a reference: the model it names a row of, by that model's key columns in order. */
+  target?: string;
+}
+
+/** One side of a join table: the rows of `model` whose `field` holds the connection. */
+export interface JoinEnd {
+  model: string;
+  field: string;
+  /** The columns naming the `model` row. */
+  columns: string[];
+  /** For an `@ordered` end: the column that orders `field`'s members. */
+  position?: string;
+  /** `@fold`: in data files, `field` holds the connection as an array. */
+  fold: boolean;
+}
+
 export interface Table {
   name: string;
   /** The model this table stores, or the connection a join table stores (`Game.authors`). */
@@ -53,6 +75,12 @@ export interface Table {
   primaryKey: string[];
   uniques: string[][];
   foreignKeys: ForeignKey[];
+  /** Columns to look rows up by, beyond the primary key: references, and `@@index`. */
+  indexes: string[][];
+  /** For a model's table: which columns hold each field. Other columns (timestamps, positions) hold themselves. */
+  fields: StoredField[];
+  /** For a join table: its two sides. */
+  ends?: [JoinEnd, JoinEnd];
   /** `@@seed` rows, inserted when missing. */
   seed: Record<string, RowValue>[];
 }
@@ -126,14 +154,21 @@ export function layoutOf(result: CheckResult, options: LayoutOptions = {}): Tabl
       primaryKey: key.map((c) => c.name),
       uniques: [],
       foreignKeys: [],
+      indexes: [],
+      fields: [],
       seed: [],
     };
     const add = (columns: Column[]) => table.columns.push(...columns);
     // Key fields that are references need foreign keys too.
     for (const k of model.key) {
       const field = model.fields.find((f) => f.name === k);
-      if (field && !VALUE_COLUMN[field.type]) {
+      if (!field) {
+        table.fields.push({ name: k, columns: [k] });
+      } else if (VALUE_COLUMN[field.type]) {
+        table.fields.push({ name: k, columns: [columnName(field)] });
+      } else {
         const cols = referenceColumns(field.type, columnName(field), false);
+        table.fields.push({ name: k, columns: cols.map((c) => c.name), target: field.type });
         table.foreignKeys.push(...foreignKey(field.type, cols, model.ends.length > 0 ? "cascade" : "restrict"));
       }
     }
@@ -141,11 +176,13 @@ export function layoutOf(result: CheckResult, options: LayoutOptions = {}): Tabl
       if (model.key.includes(field.name)) continue;
       if (VALUE_COLUMN[field.type]) {
         add([{ name: columnName(field), type: VALUE_COLUMN[field.type]!, array: field.arity === "many", nullable: field.arity === "optional" }]);
+        table.fields.push({ name: field.name, columns: [columnName(field)] });
         if (field.unique) table.uniques.push([columnName(field)]);
       } else if (field.origin === "end") {
         // A connection model with its own id: its ends are plain required references.
         const cols = referenceColumns(field.type, columnName(field), false);
         add(cols);
+        table.fields.push({ name: field.name, columns: cols.map((c) => c.name), target: field.type });
         table.foreignKeys.push(...foreignKey(field.type, cols, "cascade"));
       }
     }
@@ -177,6 +214,7 @@ export function layoutOf(result: CheckResult, options: LayoutOptions = {}): Tabl
       if (models.get(holder.model)!.key.includes(holder.field)) continue;
       const cols = referenceColumns(other.model, holder.column ?? holder.field, holder.arity === "optional");
       table.columns.splice(table.columns.length - 2, 0, ...cols);
+      table.fields.push({ name: holder.field, columns: cols.map((c) => c.name), target: other.model });
       if (other.ordered) {
         table.columns.splice(table.columns.length - 2, 0, {
           name: `${other.field}_position`,
@@ -201,13 +239,41 @@ export function layoutOf(result: CheckResult, options: LayoutOptions = {}): Tabl
         column = { ...referenceColumns(other.model, name, false)[0]!, array: true };
       }
       table.columns.splice(table.columns.length - 2, 0, column);
+      table.fields.push({ name: holder.field, columns: [name], target: other.model });
     } else if (storage.kind === "array") {
       tables.set(`${a.model}.${a.field}`, joinTable(a, b));
     }
   }
 
-  if (options.store === "files") {
-    for (const table of tables.values()) table.columns = table.columns.filter((c) => c.type !== "timestamp");
+  for (const table of tables.values()) {
+    if (options.store === "files") {
+      // Data files have no indexes, and leave timestamps to the tree's history.
+      table.columns = table.columns.filter((c) => c.type !== "timestamp");
+      continue;
+    }
+    const model = models.get(table.stores);
+    const indexes: string[][] = [];
+    const leadsKey = (columns: string[]) => columns.every((c, i) => table.primaryKey[i] === c);
+    // References are looked up from the rows they name: foreign keys, and profile ids, whose table isn't here.
+    for (const fk of table.foreignKeys) if (!leadsKey(fk.columns)) indexes.push(fk.columns);
+    for (const column of table.columns) {
+      if (column.profile && !column.array && !leadsKey([column.name])) indexes.push([column.name]);
+    }
+    for (const fields of model?.indexes ?? []) {
+      indexes.push(
+        fields.flatMap((f) => {
+          if ((["created", "modified"] as string[]).includes(f)) return [f];
+          const stored = table.fields.find((s) => s.name === f);
+          if (!stored) throw new LayoutError(`\`@@index\` names \`${f}\`, which \`${table.name}\` doesn't store; index the model that holds it`, model!.name);
+          return stored.columns;
+        }),
+      );
+    }
+    // An index also serves lookups by its leading columns, so drop one that another starts with.
+    const startsWith = (long: string[], short: string[]) => short.every((c, i) => long[i] === c);
+    table.indexes = indexes.filter(
+      (columns, i) => !indexes.some((other, j) => startsWith(other, columns) && (other.length > columns.length || j < i)),
+    );
   }
 
   for (const [where, table] of tables) {
@@ -239,6 +305,12 @@ export function layoutOf(result: CheckResult, options: LayoutOptions = {}): Tabl
       primaryKey: [...colsA, ...colsB].map((c) => c.name),
       uniques: [],
       foreignKeys: [...foreignKey(a.model, colsA, "cascade"), ...foreignKey(b.model, colsB, "cascade")],
+      indexes: [],
+      fields: [],
+      ends: [
+        { model: a.model, field: a.field, columns: colsA.map((c) => c.name), fold: a.fold, ...(a.ordered ? { position: `${a.field}_position` } : {}) },
+        { model: b.model, field: b.field, columns: colsB.map((c) => c.name), fold: b.fold, ...(b.ordered ? { position: `${b.field}_position` } : {}) },
+      ],
       seed: [],
     };
   }

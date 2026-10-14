@@ -409,12 +409,12 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
   ],
   "myLists": [
     [
-      "SCAN root",
+      "SEARCH root USING INDEX List_owner_modified_idx (owner=?)",
       "CORRELATED SCALAR SUBQUERY 1",
       "SEARCH counted USING COVERING INDEX sqlite_autoindex_Item_1 (list=?)",
       "CORRELATED SCALAR SUBQUERY 2",
       "SEARCH counted USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
-      "USE TEMP B-TREE FOR ORDER BY",
+      "USE TEMP B-TREE FOR LAST TERM OF ORDER BY",
     ],
     [
       "SEARCH related USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
@@ -480,12 +480,12 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
   ],
   "profile": [
     [
-      "SCAN link USING COVERING INDEX sqlite_autoindex_Practice_authors_1",
+      "SEARCH link USING INDEX Practice_authors_person_idx (person=?)",
       "SEARCH related USING INDEX sqlite_autoindex_Practice_1 (id=?)",
       "USE TEMP B-TREE FOR ORDER BY",
     ],
     [
-      "SCAN related",
+      "SEARCH related USING INDEX List_owner_modified_idx (owner=?)",
       "CORRELATED SCALAR SUBQUERY 1",
       "SEARCH counted USING COVERING INDEX sqlite_autoindex_Item_1 (list=?)",
       "CORRELATED SCALAR SUBQUERY 2",

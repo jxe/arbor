@@ -2,8 +2,19 @@
 
 export * from "./ast.ts";
 export { parseUsl, UslSyntaxError, USL_LIMITS, type ParseResult } from "./parse.ts";
-export { layoutOf, LayoutError, type Column, type ColumnType, type ForeignKey, type Table } from "./layout.ts";
-export { setupSql, columnType, SQL_TYPES, type Dialect } from "./sql.ts";
+export { layoutOf, LayoutError, type Column, type ColumnType, type ForeignKey, type JoinEnd, type StoredField, type Table } from "./layout.ts";
+export {
+  rowOf,
+  recordOf,
+  joinRowsOf,
+  rowsFromRecords,
+  recordsFromRows,
+  type StoredRecord,
+  type RecordsByModel,
+  type RowsByTable,
+  type RecordOptions,
+} from "./records.ts";
+export { setupSql, columnType, SQL_TYPES, type Dialect, type SetupOptions } from "./sql.ts";
 export { validateRow, fitsColumn, fromCell, type RowDiagnostic } from "./rows.ts";
 export { typeDeclarations } from "./types.ts";
 export { relationshipsOf, PERSON_RELATION, type Relationship } from "./relationships.ts";

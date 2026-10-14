@@ -13,6 +13,7 @@ model List {
   tags        Tag[]
 
   @@editableBy(owner)
+  @@index(owner, modified)                  // my lists, newest first
 }
 
 { List.owner, Person.ownedLists[] }

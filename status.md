@@ -39,8 +39,12 @@ collections, workspace, snapshot-acceptance, projection, merge, Supplies query
 and mutation, and data-query tests pass; `usl verify` reports that
 `examples/supplies/data/_store.sqlite3` implements its `schema.usl`.
 
-Gap: USL can't declare an index, so `myLists`, `person.ownedLists` and
-`person.practices` scan their tables; fine at fixture size.
+Later the same day (@ovst/usl 0.2.0): references and `@@index` are indexed,
+so `myLists`, `person.ownedLists` and `person.practices` search indexes
+instead of scanning (`supplies-queries` query-plan snapshot); `@@editableBy`
+is resolved for apps; and `rowsFromRecords`/`recordsFromRows` convert app
+records to and from table rows, round-tripped through SQLite in
+`usl-stores.test.ts`.
 
 ## The story command without Bun — 2026-10-13
 
