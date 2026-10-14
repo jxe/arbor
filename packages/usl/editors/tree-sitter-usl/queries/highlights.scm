@@ -23,18 +23,22 @@
   model: (identifier) @constant.builtin
   (#eq? @constant.builtin "Person"))
 
-; Fields, where declared and as connection ends.
+; Fields, where declared, as connection ends, and named in a view's line or
+; group, or in @@editableBy.
 (field_declaration name: (identifier) @function)
 (end field: (identifier) @function)
+(reference (identifier) @function)
 
-; Field attributes (@fold) and model attributes (@@views) differ.
-(attribute "@" @attribute name: (identifier) @attribute)
+; Field attributes (@fold) and model attributes (@@views) differ. Themes such
+; as Ayu Dark draw @attribute, @label and @type in one blue, so field
+; attributes take @string.regex (teal there), and view keys are plain
+; @variable, apart from the colored names.
+(attribute "@" @string.regex name: (identifier) @string.regex)
 (model_attribute "@@" @preproc name: (identifier) @preproc)
 (rows "@@" @preproc mode: _ @preproc)
 
 (row name: (_) @constant)
-(pair key: (_) @label)
-(reference (identifier) @variable.special)
+(pair key: (_) @variable)
 (view path: (path) @string.special)
 
 "<->" @operator
