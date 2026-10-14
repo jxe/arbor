@@ -34,18 +34,20 @@ model Item {
   Practice.items[]
 }
 
-// list_tags. In SQL a tag id was unique only within its list; here a tag
-// gets a global id (question 2 in the README).
+// list_tags: a tag's id is unique only within its list, so the list is part
+// of its key.
 model Tag {
   name  Text
   color Text?  @color                        // data, since people add tags
+  @@id(list, id)
 }
 
 { Tag.list, List.tags[] }
 
-// practice_tags: a connection whose end is itself a connection. The SQL also
-// required tag.list = item.list, which this can't say (question 3).
-{ Item.tags[], Tag.items[] }
+// practice_tags: an item's tags come from the item's own list. Both sides
+// have a `list`, and @within says they share it, so a stored reference to a
+// tag keeps only the tag's id (the SQL's foreign key on list_id, tag_id).
+{ Item.tags[] @within(list), Tag.items[] }
 
 // list_reactions: one emoji per person per list.
 model Reaction {

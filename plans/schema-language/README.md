@@ -61,8 +61,15 @@ two ends and no name or fields can be written either way:
   it declares, such as `@ordered`.
 - **Identity.** A model with two or more ends is keyed by them (one Rating
   per person and game), through a field per end named after its model
-  (`person`, `game`). Any other model gets an `id`. Every row also has
-  `created` and `modified`.
+  (`person`, `game`). `@as(from)` on an end names that field instead, which
+  two ends on the same model need. Any other model gets an `id`. Every row
+  also has `created` and `modified`. `@@id(...)` overrides the key:
+  `@@id(list, id)` makes an id unique only within its list, and a bare
+  `@@id` gives a connection model its own id so it can repeat (two reviews
+  of one game by one person). A fixed row's name is its id.
+- **`@within(field)`** on an end says both sides share that field: an item's
+  tags come from the item's own list. It is a constraint said by storage: a
+  stored reference keeps only the rest of the target's key.
 - **Connections with two named sides are declared outside the models they
   connect,** because they belong to neither. Storage is inferred: a 1:n becomes a column on the
   single side; an n:m becomes an array on the first end (in files) or a join
@@ -103,8 +110,9 @@ two ends and no name or fields can be written either way:
      needs its own color, so colors become a data field marked `@color`.
      `@@seed` inserts rows whose id is missing and never overwrites edits.
 
-- **Presentation lives in the schema too.** One `@@views([...])` list per
-  model gives its arrangements in tab order. Each view has a `label`, a
+- **Default presentation lives in the schema too.** One `@@views([...])`
+  list per model gives its default arrangements in tab order; a page may
+  override any of them. Each view has a `label`, a
   `line` (the fields shown for each row, with presentation attributes such as
   `status @bullet` on the items that need them), and optionally `group` and
   `sort`. A view without a `line` uses the first view's. A model with no
@@ -139,30 +147,26 @@ creating one Tag per distinct value), and grow a fixed model (`@@fixed` →
 | [supplies](examples/supplies.usl) | `examples/supplies/data/schema.sql` + `relationships.json` rewritten: connections with attributes, a connection on a connection |
 | [stress](examples/stress.usl) | self-relations, 1:1, ordered children, keyed ratings, number arrays, a reified fixed model |
 
-## Questions the examples raise
+## Where a schema lives
 
-1. **Row names as ids.** A fixed row's name is its id; `"Current focus"`
-   needs quotes. Fine, or should row names be identifiers with a separate
-   label?
-2. **Scoped identity.** Supplies' `list_tags` are keyed by (list, id): a tag
-   id is unique only within its list. Here a Tag just gets a global `id`. Is
-   that loss acceptable?
-3. **Cross-connection constraints.** Supplies' `practice_tags` require the
-   tag and the item to belong to the same list. The language can't say that.
-4. **Keyed by ends, or not.** A model with two ends that should still allow
-   duplicates (two ratings of one game by one person) needs an escape hatch;
-   `@@id`?
-5. **Access beyond `@@editableBy`.** Supplies' `allow_arbor_user_edits` is a
-   field that changes who may edit. Does access belong in the schema at all?
-6. **Which presentation belongs in the schema.** `@@views` is about one way
-   of showing the data. Should the schema hold only defaults,
-   with pages free to override everything?
-7. **File name and place.** One schema per tree, or per collection folder?
-   The extension is `.usl`.
-8. **Attributes inside expressions.** `status @bullet` inside a `line` list
-   is the second place attributes can appear, after fields. Is that one
-   grammar rule or two?
-9. **Naming a connection model's key fields.** The checker names them after
-   their models (`Rating.person`, `Rating.game`), so two ends on the same
-   model (`Friendship { Person.friends[], Person.friendOf[] }`) clash.
-   Should an end be able to name its field on this side?
+A `.usl` file sits beside the data it describes: the `.sqlite3`, `.csv` or
+`.jsonl` file. A folder may hold several CSV or JSONL files, one per table.
+
+## Settled by Joe (2026-10-14)
+
+- Row names as ids, with quotes when needed, are fine.
+- Scoped identity and the Supplies same-list constraint are expressed with
+  `@@id(list, id)` and `@within(list)` (see [supplies](examples/supplies.usl)).
+- `@@id` is the escape hatch from keying by ends; `@as` names an end's field.
+- `@@views` in a schema are defaults; a page may override all of them.
+
+## Open questions
+
+1. **Access.** Access will mostly be at the tree level in Overstory. How do
+   `@@editableBy` and fields that change who may edit (Supplies'
+   `openToEdits`) work together with tree access?
+2. **Several tables in one folder.** With one CSV or JSONL file per table,
+   how are the files named and matched to models (`Game.csv` for `Game`)?
+3. **Attributes inside expressions.** `status @bullet` inside a `line` list
+   is the second place attributes appear, after fields. The parser treats
+   them as one rule; is that the language we want?

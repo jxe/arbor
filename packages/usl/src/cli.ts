@@ -33,7 +33,8 @@ for (const path of paths) {
     const s = c.storage;
     const where =
       s.kind === "column" ? `column ${s.on}.${s.field}` : s.kind === "array" ? `array ${s.on}.${s.field} (SQLite: ${s.sqlite})` : s.kind;
-    console.log(`  ${c.ends[0]} <-> ${c.ends[1]}: ${where}`);
+    const within = c.within ? `, within the same ${c.within}` : "";
+    console.log(`  ${c.ends[0]} <-> ${c.ends[1]}: ${where}${within}`);
   }
 }
 process.exit(failed ? 1 : 0);

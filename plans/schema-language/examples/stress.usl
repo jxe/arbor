@@ -21,12 +21,28 @@ Team.lead? <-> Person.ledTeam?
 
 Team.members[] <-> Person.teams[]
 
-// Keyed by its ends: one rating per person per game. Rating the same game
-// twice would need an escape hatch (question 4).
+// Keyed by its ends: one rating per person per game.
 model Rating {
   Person.ratings[]
   Game.ratings[]
   stars Number
+}
+
+// @@id with no fields gives each row its own id, so one person can review
+// the same game twice.
+model Review {
+  Person.reviews[]
+  Game.reviews[]
+  body Markdown
+  @@id
+}
+
+// Two ends on the same model: @as names the field each end gets here, since
+// both would otherwise be called `person`.
+model Friendship {
+  Person.friends[]   @as(from)
+  Person.friendOf[]  @as(to)
+  since Date?
 }
 
 model Game {

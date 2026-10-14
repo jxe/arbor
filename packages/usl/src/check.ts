@@ -21,8 +21,8 @@ export const VALUE_TYPES = ["Text", "Markdown", "Number", "Bool", "Date"] as con
 export const BUILTIN_MODELS = ["Person"] as const;
 export const IMPLICIT_FIELDS = ["id", "created", "modified"] as const;
 
-const FIELD_ATTRIBUTES = ["ordered", "color", "unique"];
-const MODEL_ATTRIBUTES = ["views", "editableBy", "fold", "table"];
+const FIELD_ATTRIBUTES = ["ordered", "color", "unique", "as", "within"];
+const MODEL_ATTRIBUTES = ["views", "editableBy", "fold", "table", "id"];
 const VIEW_OPTIONS = ["label", "line", "group", "sort"];
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 
@@ -31,8 +31,8 @@ export interface ResolvedField {
   /** A value type or a model name. */
   type: string;
   arity: Arity;
-  /** declared: written in the model. connection: gained from a connection. key: an end of this connection model. */
-  origin: "declared" | "connection" | "key";
+  /** declared: written in the model. connection: gained from a connection. end: one of this connection model's ends. */
+  origin: "declared" | "connection" | "end";
   ordered: boolean;
 }
 
@@ -56,6 +56,8 @@ export interface ResolvedModel {
 export interface ResolvedConnection {
   ends: [string, string];
   storage: Storage;
+  /** Both ends share this field (`@within`); a stored reference keeps only the rest of the target's key. */
+  within?: string;
 }
 
 export interface CheckResult {
@@ -73,6 +75,12 @@ interface EndInfo {
 }
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+const identArg = (attrs: Attribute[], name: string): string | undefined => {
+  const arg = attrs.find((a) => a.name === name)?.args[0];
+  return arg?.kind === "ident" ? arg.name : undefined;
+};
+/** The field a connection model gets for one of its ends: `@as(name)`, or the end's model in lower case. */
+const keyFieldOf = (end: EndDecl) => identArg(end.attrs, "as") ?? lowerFirst(end.model);
 const arityText = (arity: Arity) => (arity === "many" ? "[]" : arity === "optional" ? "?" : "");
 const isValueType = (type: string) => (VALUE_TYPES as readonly string[]).includes(type);
 
@@ -182,12 +190,13 @@ export function checkUsl(file: SchemaFile): CheckResult {
     // A connection model is keyed by its ends and has a field for each.
     for (const end of modelEnds) {
       if (!modelExists(end.model)) continue;
-      const fieldName = lowerFirst(end.model);
+      const fieldName = keyFieldOf(end);
       if (fields.has(fieldName) || declared.has(fieldName)) {
-        report("duplicate-field", end.at, `\`${name}\` already has a field \`${fieldName}\`, which this end would key it by`);
+        const hint = end.attrs.some((a) => a.name === "as") ? "" : `; name this side with \`@as(...)\``;
+        report("duplicate-field", end.at, `\`${name}\` already has a field \`${fieldName}\`, which this end would key it by${hint}`);
         continue;
       }
-      fields.set(fieldName, { name: fieldName, type: end.model, arity: "one", origin: "key", ordered: false });
+      fields.set(fieldName, { name: fieldName, type: end.model, arity: "one", origin: "end", ordered: false });
     }
 
     // Fields gained from connections.
@@ -239,19 +248,44 @@ export function checkUsl(file: SchemaFile): CheckResult {
       }
     }
 
-    const key = modelEnds.length >= 2 ? modelEnds.map((e) => lowerFirst(e.model)) : rows?.mode === "fixed" ? ["name"] : ["id"];
+    const key = modelEnds.length >= 2 ? modelEnds.map(keyFieldOf) : rows?.mode === "fixed" ? ["name"] : ["id"];
     const entry: ResolvedModel = { name, rows: rows?.mode ?? "data", key, fields: [...fields.values()] };
     resolved.set(name, entry);
     fieldMaps.set(name, fields);
   }
 
+  // `@within(f)` on an end: the row and every row it points to share `f`.
+  const checkWithin = (end: EndDecl, shared: string, at: Position) => {
+    const info = ends.get(`${end.model}.${end.field}`);
+    if (!info || info.decl !== end) return;
+    const here = fieldMaps.get(end.model)?.get(shared);
+    const there = fieldMaps.get(info.target)?.get(shared);
+    if (!here || !there) {
+      const missing = !here ? end.model : info.target;
+      report("within-field", at, `\`@within(${shared})\` needs both ${end.model} and ${info.target} to have \`${shared}\`; ${missing} doesn't`);
+    } else if (here.type !== there.type || here.arity !== "one" || there.arity !== "one") {
+      report("within-field", at, `\`${shared}\` must hold exactly one value of the same type on both sides; it is ${here.type}${arityText(here.arity)} on ${end.model} and ${there.type}${arityText(there.arity)} on ${info.target}`);
+    }
+  };
+
   // 4. Field and end attributes.
-  const checkFieldAttrs = (attrs: Attribute[], arity: Arity, type: string | null, owner: string) => {
+  const checkFieldAttrs = (attrs: Attribute[], arity: Arity, type: string | null, owner: string, end?: { decl: EndDecl; named: boolean }) => {
     for (const attr of attrs) {
+      const endOnly = attr.name === "as" || attr.name === "within";
       if (attr.name === "bullet") {
         report("misplaced-attribute", attr.at, "`@bullet` is presentation; put it on the field in a view's `line`");
       } else if (!FIELD_ATTRIBUTES.includes(attr.name)) {
         report("unknown-attribute", attr.at, `Unknown attribute \`@${attr.name}\``);
+      } else if (endOnly && !end) {
+        report("misplaced-attribute", attr.at, `\`@${attr.name}\` goes on a connection end`);
+      } else if (endOnly && (attr.args.length !== 1 || attr.args[0]!.kind !== "ident")) {
+        report("attribute-arguments", attr.at, `\`@${attr.name}\` names one field: \`@${attr.name}(list)\``);
+      } else if (attr.name === "as" && !end!.named) {
+        report("misplaced-attribute", attr.at, "`@as` names a connection model's field for this end; an unnamed connection has no such field");
+      } else if (attr.name === "within") {
+        checkWithin(end!.decl, (attr.args[0] as { name: string }).name, attr.at);
+      } else if (endOnly) {
+        // `@as` is applied where the connection model's fields are resolved.
       } else if (attr.args.length > 0) {
         report("attribute-arguments", attr.at, `\`@${attr.name}\` on a field takes no arguments`);
       } else if (attr.name === "ordered" && arity !== "many") {
@@ -268,7 +302,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
   for (const model of models.values()) {
     for (const member of model.members) {
       if (member.kind === "field" && isValueType(member.type)) checkFieldAttrs(member.attrs, member.arity, member.type, model.name);
-      if (member.kind === "end") checkFieldAttrs(member.attrs, member.arity, null, model.name);
+      if (member.kind === "end") checkFieldAttrs(member.attrs, member.arity, null, model.name, { decl: member, named: true });
     }
     const colorFields = model.members.filter((m) => m.kind === "field" && m.attrs.some((a) => a.name === "color"));
     if (colorFields.length > 1) {
@@ -277,7 +311,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
   }
   for (const decl of file.declarations) {
     if (decl.kind !== "connection") continue;
-    for (const member of decl.members) if (member.kind === "end") checkFieldAttrs(member.attrs, member.arity, null, member.model);
+    for (const member of decl.members) if (member.kind === "end") checkFieldAttrs(member.attrs, member.arity, null, member.model, { decl: member, named: false });
   }
 
   // 5. Model attributes.
@@ -312,6 +346,27 @@ export function checkUsl(file: SchemaFile): CheckResult {
           const field = fields.get(arg.name);
           if (!field) report("unknown-field", arg.at, `\`${model.name}\` has no field \`${arg.name}\``);
           else if (field.type !== "Person") report("editable-by-person", arg.at, `\`${arg.name}\` holds ${field.type}, not Person`);
+        }
+      } else if (member.name === "id") {
+        const entry = resolved.get(model.name)!;
+        if (rows.length > 0) {
+          report("id-on-rows", member.at, "Rows written in the schema are identified by their names");
+          continue;
+        }
+        entry.key = member.args.length === 0 ? ["id"] : [];
+        for (const arg of member.args) {
+          if (arg.kind !== "ident") {
+            report("attribute-arguments", arg.at, "`@@id` takes field names");
+            continue;
+          }
+          if (arg.name === "id") {
+            entry.key.push("id"); // the implicit id, now unique only alongside the other key fields
+            continue;
+          }
+          const field = fields.get(arg.name);
+          if (!field) report("unknown-field", arg.at, `\`${model.name}\` has no field \`${arg.name}\``);
+          else if (field.arity !== "one") report("id-field", arg.at, `\`${arg.name}\` is part of the key, so it must hold exactly one value`);
+          else entry.key.push(arg.name);
         }
       } else if (member.name === "fold" || member.name === "table") {
         if (modelEnds.length === 0) {
@@ -367,7 +422,8 @@ export function checkUsl(file: SchemaFile): CheckResult {
       );
       continue;
     }
-    connections.push({ ends: label, storage });
+    const within = identArg(a.attrs, "within") ?? identArg(b.attrs, "within");
+    connections.push(within ? { ends: label, storage, within } : { ends: label, storage });
   }
 
   // 7. Top-level views can only be checked for their options.

@@ -1,0 +1,30 @@
+// expect: duplicate-field
+// expect: misplaced-attribute
+// expect: id-field
+// expect: unknown-field
+// expect: id-on-rows
+// expect: within-field
+// expect: within-field
+// Two ends on Person both want the field `person`; name one with @as.
+model Friendship {
+  Person.friends[]
+  Person.friendOf[]
+}
+// @as only means something inside a named connection model.
+model Game { name Text, tags Text[] }
+Game.authors[] @as(author) <-> Person.games[]
+// Key fields hold exactly one value and must exist.
+model Edition {
+  title Text
+  @@id(tags, isbn)
+  tags Text[]
+}
+model Status {
+  @@fixed { Draft }
+  @@id
+}
+// @within needs the shared field on both sides, with the same type.
+model Shelf { name Text }
+model Box { name Number }
+Game.shelf @within(owner) <-> Shelf.games[]
+Box.shelf @within(name) <-> Shelf.boxes[]
