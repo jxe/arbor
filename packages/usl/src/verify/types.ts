@@ -2,7 +2,7 @@
 // backend: it reads what is there and reports how it differs from the
 // schema's layout. Add a backend to support another store.
 
-import type { Table } from "../layout.ts";
+import type { LayoutOptions, Table } from "../layout.ts";
 
 export interface StoreDiagnostic {
   /** error: the store can't hold the schema's data as declared. warning: it holds more than the schema says. */
@@ -18,6 +18,8 @@ export interface StoreDiagnostic {
 export interface StoreBackend {
   /** A short name, used on the command line: `sqlite`, `postgres`, `files`. */
   name: string;
+  /** Which layout the store holds: databases keep every n:m in a join table; data files fold `@fold` ends. */
+  layout: NonNullable<LayoutOptions["store"]>;
   /** True when this backend reads `location` (a path or URL). */
   accepts(location: string): boolean;
   verify(tables: Table[], location: string): Promise<StoreDiagnostic[]>;

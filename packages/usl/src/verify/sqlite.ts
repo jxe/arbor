@@ -40,6 +40,7 @@ export function inspectSqlite(db: Database): TableShape[] {
 
 export const sqliteBackend: StoreBackend = {
   name: "sqlite",
+  layout: "database",
   accepts: (location) => /\.(sqlite3?|db)$/.test(location),
   async verify(tables, location) {
     const db = new Database(location, { readonly: true });

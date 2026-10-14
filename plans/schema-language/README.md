@@ -71,11 +71,22 @@ two ends and no name or fields can be written either way:
   of one game by one person). A fixed row's name is its id.
 - **Connections with two named sides are declared outside the models they
   connect,** because they belong to neither. Storage is inferred: a 1:n becomes a column on the
-  single side; an n:m becomes an array on the first end (in files) or a join
-  table (SQLite). `@@fold(Model)` or `@@table` overrides. Value arrays
+  single side; an n:m becomes a join table (a file of its own in data
+  files) unless one end has `@fold`. A connection model is its own table
+  unless `@@fold(Model)`. Value arrays
   (`Text[]`) always stay on the row. Storage column names come from the field
   names, so self-relations (`Page.parent?`, `Page.children[]`) need nothing
   extra.
+- **Stored names.** Tables are named after models and columns after fields.
+  `@@table("lists")` on a model and `@column("list_id")` on a field or the
+  end that stores a connection rename them, for a database the schema didn't
+  create.
+- **`@fold`** on one end of an n:m connection keeps it, in data files, as an
+  array on that end's rows (`List.games[] @fold`) instead of a file of its
+  own. Databases always use a join table. A connection model folds with
+  `@@fold(Model)`.
+- **`@path`** on a required Text field makes its value the row's name in the
+  tree (`/Posts/hello-world`); otherwise the key names the row.
 - **`@ordered`** keeps a many-valued field in order; merge treats it as a
   sequence.
 - **`@@editableBy(field, ...)`** on a model: the people in those fields (and
@@ -159,14 +170,17 @@ A `.usl` file sits beside the data it describes: the `.sqlite3`, `.csv` or
   (see [supplies](examples/supplies.usl)).
 - `@@id` is the escape hatch from keying by ends; `@as` names an end's field.
 - `@@views` in a schema are defaults; a page may override all of them.
+- `@path` (not `@@childName`) names rows in the tree; `@@table`/`@column`
+  replace Prisma's `@@map`/`@map`; `@fold` chooses arrays in data files.
 
 ## Open questions
 
 1. **Access.** Access will mostly be at the tree level in Overstory. How do
    `@@editableBy` and fields that change who may edit (Supplies'
    `openToEdits`) work together with tree access?
-2. **Several tables in one folder.** With one CSV or JSONL file per table,
-   how are the files named and matched to models (`Game.csv` for `Game`)?
+2. **Several tables in one folder.** `usl verify` reads `<Table>.csv`,
+   `.jsonl` or `.json`, one per table (`_store.*` for a single table). Is
+   that the naming Overstory should adopt?
 3. **Attributes inside expressions.** `status @bullet` inside a `line` list
    is the second place attributes appear, after fields. The parser treats
    them as one rule; is that the language we want?

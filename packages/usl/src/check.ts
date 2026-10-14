@@ -2,6 +2,7 @@
 // each model's full set of fields: its own, those its connections give it,
 // and, for a connection model, the ends that key it.
 
+import { LayoutError, layoutOf } from "./layout.ts";
 import type {
   Arity,
   Attribute,
@@ -21,8 +22,8 @@ export const VALUE_TYPES = ["Text", "Markdown", "Int", "Number", "Bool", "Date"]
 export const BUILTIN_MODELS = ["Person"] as const;
 export const IMPLICIT_FIELDS = ["id", "created", "modified"] as const;
 
-const FIELD_ATTRIBUTES = ["ordered", "color", "unique", "as"];
-const MODEL_ATTRIBUTES = ["views", "editableBy", "fold", "table", "id", "childName"];
+const FIELD_ATTRIBUTES = ["ordered", "color", "unique", "as", "column", "fold", "path"];
+const MODEL_ATTRIBUTES = ["views", "editableBy", "fold", "table", "id"];
 const VIEW_OPTIONS = ["label", "line", "group", "sort"];
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 
@@ -37,6 +38,8 @@ export interface ResolvedField {
   unique: boolean;
   /** Holds the row's color (`@color`). */
   color: boolean;
+  /** The stored column's name when it differs from the field's (`@column("…")`). */
+  column?: string;
 }
 
 /** One end of a connection: the field `model` gains, and (for a connection model) the field the end gets there. */
@@ -47,6 +50,10 @@ export interface ResolvedEnd {
   ordered: boolean;
   /** The field this end gets in its connection model (`@as`, or the model's name in lower case). */
   as: string;
+  /** `@column("…")` on the end. */
+  column?: string;
+  /** `@fold`: in data files, this end's rows hold the connection as an array. */
+  fold: boolean;
 }
 
 /** A value written in the schema: a string, number, boolean, or a list of them. */
@@ -61,14 +68,16 @@ export type Storage =
 
 export interface ResolvedModel {
   name: string;
+  /** The stored table's name when it differs from the model's (`@@table("…")`). */
+  table?: string;
   /** `fixed` rows live in the schema; `seed` rows are data with defaults; `data` is an ordinary collection. */
   rows: "fixed" | "seed" | "data";
   /** The fields that identify a row: its ends for a connection model, otherwise `id` (or the row name, for fixed rows). */
   key: string[];
   fields: ResolvedField[];
   storage?: Storage;
-  /** The field that names each row's child in an Overstory tree (`@@childName`); otherwise its key does. */
-  childName?: string;
+  /** The field whose value is each row's path segment in an Overstory tree (`@path`); otherwise its key is. */
+  path?: string;
   /** A connection model's ends. */
   ends: ResolvedEnd[];
   /** The rows written in `@@fixed` or `@@seed`, with their values. */
@@ -103,12 +112,19 @@ const identArg = (attrs: Attribute[], name: string): string | undefined => {
 };
 /** The field a connection model gets for one of its ends: `@as(name)`, or the end's model in lower case. */
 const keyFieldOf = (end: EndDecl) => identArg(end.attrs, "as") ?? lowerFirst(end.model);
+/** `{ column: "…" }` when `@column("…")` is among the attributes. */
+const columnOf = (attrs: Attribute[]): { column?: string } => {
+  const arg = attrs.find((a) => a.name === "column")?.args[0];
+  return arg?.kind === "string" ? { column: arg.value } : {};
+};
 const resolvedEnd = (end: EndDecl): ResolvedEnd => ({
   model: end.model,
   field: end.field,
   arity: end.arity,
   ordered: end.attrs.some((a) => a.name === "ordered"),
   as: keyFieldOf(end),
+  ...columnOf(end.attrs),
+  fold: end.attrs.some((a) => a.name === "fold"),
 });
 const rowValue = (expr: Expr): RowValue => {
   switch (expr.kind) {
@@ -225,6 +241,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
             origin: "declared",
             ordered: member.attrs.some((a) => a.name === "ordered"),
             unique: member.attrs.some((a) => a.name === "unique"),
+            ...columnOf(member.attrs),
             color: member.attrs.some((a) => a.name === "color"),
           });
         }
@@ -240,7 +257,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
         report("duplicate-field", end.at, `\`${name}\` already has a field \`${fieldName}\`, which this end would key it by${hint}`);
         continue;
       }
-      fields.set(fieldName, { name: fieldName, type: end.model, arity: "one", origin: "end", ordered: false, unique: false, color: false });
+      fields.set(fieldName, { name: fieldName, type: end.model, arity: "one", origin: "end", ordered: false, unique: false, color: false, ...columnOf(end.attrs) });
     }
 
     // Fields gained from connections.
@@ -265,6 +282,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
         ordered: info.decl.attrs.some((a) => a.name === "ordered"),
         unique: false,
         color: false,
+        ...columnOf(info.decl.attrs),
       });
     }
 
@@ -313,7 +331,20 @@ export function checkUsl(file: SchemaFile): CheckResult {
   // 4. Field and end attributes.
   const checkFieldAttrs = (attrs: Attribute[], arity: Arity, type: string | null, owner: string, end?: { decl: EndDecl; named: boolean }) => {
     for (const attr of attrs) {
-      const endOnly = attr.name === "as";
+      const endOnly = attr.name === "as" || attr.name === "fold";
+      if (attr.name === "column") {
+        if (attr.args.length !== 1 || attr.args[0]!.kind !== "string" || attr.args[0]!.value === "") {
+          report("attribute-arguments", attr.at, '`@column` names the stored column: `@column("list_id")`');
+        }
+        continue;
+      }
+      if (attr.name === "fold") {
+        if (!end) report("misplaced-attribute", attr.at, "`@fold` goes on a connection end");
+        else if (end.named) report("misplaced-attribute", attr.at, "A connection model folds with `@@fold(Model)`");
+        else if (attr.args.length > 0) report("attribute-arguments", attr.at, "`@fold` takes no arguments");
+        // Whether the connection can fold is checked with its storage.
+        continue;
+      }
       if (attr.name === "bullet") {
         report("misplaced-attribute", attr.at, "`@bullet` is presentation; put it on the field in a view's `line`");
       } else if (!FIELD_ATTRIBUTES.includes(attr.name)) {
@@ -334,6 +365,8 @@ export function checkUsl(file: SchemaFile): CheckResult {
         report("color-field-type", attr.at, "`@color` marks a single `Text` field holding each row's color");
       } else if (attr.name === "unique" && (type === null || !isValueType(type) || arity === "many")) {
         report("unique-value", attr.at, "`@unique` applies to a single value field; a connection's arity already says how many");
+      } else if (attr.name === "path" && (type !== "Text" || arity !== "one")) {
+        report("path-field", attr.at, "`@path` marks a required `Text` field whose value names the row in the tree");
       } else if (attr.name === "color" && isFixed(owner)) {
         report("misplaced-attribute", attr.at, "A fixed model's colors go on its rows; a `@color` field is for `@@seed` models");
       }
@@ -348,6 +381,9 @@ export function checkUsl(file: SchemaFile): CheckResult {
     if (colorFields.length > 1) {
       report("duplicate-color", colorFields[1]!.at, "Only one field per model can hold the row's color");
     }
+    const pathFields = model.members.filter((m): m is FieldDecl => m.kind === "field" && m.attrs.some((a) => a.name === "path"));
+    if (pathFields.length > 1) report("duplicate-path", pathFields[1]!.at, "Only one field per model can name its rows");
+    if (pathFields[0]) resolved.get(model.name)!.path = pathFields[0].name;
   }
   for (const decl of file.declarations) {
     if (decl.kind !== "connection") continue;
@@ -376,16 +412,6 @@ export function checkUsl(file: SchemaFile): CheckResult {
         report("unknown-attribute", member.at, `Unknown model attribute \`@@${member.name}\``);
       } else if (member.name === "views") {
         checkViews(member, model.name, fields, report);
-      } else if (member.name === "childName") {
-        const arg = member.args[0];
-        if (member.args.length !== 1 || arg?.kind !== "ident") {
-          report("attribute-arguments", member.at, "`@@childName` names one field: `@@childName(slug)`");
-          continue;
-        }
-        const field = fields.get(arg.name);
-        if (!field) report("unknown-field", arg.at, `\`${model.name}\` has no field \`${arg.name}\``);
-        else if (field.type !== "Text" || field.arity !== "one") report("child-name-field", arg.at, `A child name comes from a required \`Text\` field; \`${arg.name}\` is ${field.type}${arityText(field.arity)}`);
-        else resolved.get(model.name)!.childName = arg.name;
       } else if (member.name === "editableBy") {
         if (member.args.length === 0) report("attribute-arguments", member.at, "`@@editableBy` names at least one field");
         for (const arg of member.args) {
@@ -418,6 +444,15 @@ export function checkUsl(file: SchemaFile): CheckResult {
           else if (field.arity !== "one") report("id-field", arg.at, `\`${arg.name}\` is part of the key, so it must hold exactly one value`);
           else entry.key.push(arg.name);
         }
+      } else if (member.name === "table" && member.args.length > 0) {
+        const arg = member.args[0];
+        if (member.args.length !== 1 || arg?.kind !== "string" || arg.value === "") {
+          report("attribute-arguments", member.at, '`@@table` names the stored table: `@@table("lists")`');
+        } else if (rows.some((r) => r.mode === "fixed")) {
+          report("stored-on-fixed", member.at, `\`${model.name}\` has fixed rows and no table to name`);
+        } else {
+          resolved.get(model.name)!.table = arg.value;
+        }
       } else if (member.name === "fold" || member.name === "table") {
         if (modelEnds.length === 0) {
           report("storage-on-plain-model", member.at, `\`@@${member.name}\` chooses storage for a connection; \`${model.name}\` has no ends`);
@@ -430,12 +465,10 @@ export function checkUsl(file: SchemaFile): CheckResult {
           } else if (arg.name === "Person" || isFixed(arg.name)) {
             report("stored-on-fixed", arg.at, `\`${arg.name}\` has no table to fold into`);
           }
-        } else if (member.args.length > 0) {
-          report("attribute-arguments", member.at, "`@@table` takes no arguments");
         }
       }
     }
-    if (seen.has("fold") && seen.has("table")) {
+    if (seen.has("fold") && seen.has("table") && modelEnds.length > 0) {
       const second = model.members.find((m) => m.kind === "modelAttribute" && m.name === "table")!;
       report("fold-and-table", second.at, "`@@fold` and `@@table` contradict each other");
     }
@@ -459,7 +492,25 @@ export function checkUsl(file: SchemaFile): CheckResult {
     let storage: Storage | null = null;
     const nm = a.arity === "many" && b.arity === "many";
     const candidates = nm ? [a, b] : [a, b].filter((e) => e.arity !== "many");
-    const on = candidates.find((e) => hasTable(e.model));
+    const folded = [a, b].filter((e) => e.attrs.some((x) => x.name === "fold"));
+    const foldAt = (e: EndDecl) => e.attrs.find((x) => x.name === "fold")!.at;
+    if (folded.length > 0 && !nm) {
+      report("fold-end", foldAt(folded[0]!), "Only an n:m connection folds; a 1:1 or 1:n is already a column on its single side");
+    } else if (folded.length > 1) {
+      report("fold-end", foldAt(folded[1]!), "Fold one end of a connection, not both");
+    } else if (folded.length === 1 && !hasTable(folded[0]!.model)) {
+      report("stored-on-fixed", foldAt(folded[0]!), `\`${folded[0]!.model}\` has no table to fold into`);
+    }
+    const on = folded.length === 1 && nm && hasTable(folded[0]!.model) ? folded[0] : candidates.find((e) => hasTable(e.model));
+    for (const end of [a, b]) {
+      const column = end.attrs.find((x) => x.name === "column");
+      if (!column || !on) continue;
+      if (nm && end !== folded[0]) {
+        report("column-placement", column.at, "An n:m connection is stored in its own table; name its columns in a named connection model, or `@fold` this end");
+      } else if (!nm && end !== on) {
+        report("column-placement", column.at, `This connection is stored as a column on \`${on.model}.${on.field}\`; put \`@column\` there`);
+      }
+    }
     if (on) {
       storage = nm ? { kind: "array", on: on.model, field: on.field, sqlite: "join table" } : { kind: "column", on: on.model, field: on.field };
     }
@@ -485,8 +536,22 @@ export function checkUsl(file: SchemaFile): CheckResult {
     }
   }
 
+  // Names that only clash once stored (two fields given one @column, or a key column and a field).
+  const result: CheckResult = { diagnostics, models: [...resolved.values()], connections };
+  if (diagnostics.length === 0) {
+    for (const store of ["database", "files"] as const) {
+      try {
+        layoutOf(result, { store });
+      } catch (error) {
+        if (!(error instanceof LayoutError)) throw error;
+        const model = models.get(error.where?.split(".")[0] ?? "");
+        report("duplicate-column", model?.at ?? { line: 1, column: 1 }, error.message);
+        break;
+      }
+    }
+  }
   diagnostics.sort((x, y) => x.line - y.line || x.column - y.column);
-  return { diagnostics, models: [...resolved.values()], connections };
+  return result;
 }
 
 type Report = (code: string, at: Position, message: string) => void;

@@ -12,6 +12,14 @@ export interface RowDiagnostic {
 /** Whether `value` is a valid value for `column`. Null is never valid here; callers decide whether a column may be empty. */
 export function fitsColumn(value: unknown, column: Column, item = false): boolean {
   if (column.array && !item) return Array.isArray(value) && value.every((v) => fitsColumn(v, column, true));
+  if (item && column.references) {
+    // A folded connection's item is the target's key: one value, or an object of its key columns.
+    const keys = column.references.columns;
+    if (keys.length === 1) return fitsColumn(value, { ...keys[0]!, array: false });
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+    const record = value as Record<string, unknown>;
+    return keys.every((k) => fitsColumn(record[k.name], { ...k, array: false }));
+  }
   switch (column.type) {
     case "text":
       return typeof value === "string" && (!column.allowed || column.allowed.includes(value));
@@ -45,7 +53,9 @@ export function fromCell(cell: string, column: Column): unknown {
 }
 
 export const describeColumn = (column: Column) =>
-  column.allowed
+  column.references
+    ? `a list of ${column.references.table} keys`
+    : column.allowed
     ? `one of ${column.allowed.map((a) => JSON.stringify(a)).join(", ")}`
     : `${column.type === "position" ? "number" : column.type}${column.array ? "[]" : ""}`;
 

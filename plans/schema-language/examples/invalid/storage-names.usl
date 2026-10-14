@@ -1,0 +1,28 @@
+// expect: column-placement
+// expect: column-placement
+// expect: attribute-arguments
+// expect: stored-on-fixed
+// expect: fold-end
+// expect: fold-end
+// expect: misplaced-attribute
+// @column names the column that stores a connection, so it goes on the end
+// whose model holds it: Episode here, not Series.
+model Episode { title Text }
+model Series { title Text }
+Series.episodes[] @column("episode_ids") <-> Episode.series
+// An unfolded n:m is its own table; its columns aren't either end's.
+Episode.guests[] @column("guest_ids") <-> Person.episodes[]
+model Show { name Text @column(name) }
+model Status {
+  @@fixed { Draft }
+  @@table("statuses")
+}
+// Only an n:m folds, and only one end of it.
+Episode.season @fold <-> Season.episodes[]
+model Season { number Int }
+Episode.tags[] @fold <-> Tag.episodes[] @fold
+model Tag { name Text }
+model Credit {
+  Episode.credits[] @fold
+  Person.credits[]
+}

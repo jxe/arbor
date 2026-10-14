@@ -41,7 +41,7 @@ if (command === "verify" && paths[0] && paths[1]) {
   const backendAt = paths.indexOf("--backend");
   const backend = backendAt >= 0 ? paths[backendAt + 1] : undefined;
   try {
-    const diagnostics = await verifyStore(layoutOf(compiled(paths[0])), paths[1], backend);
+    const diagnostics = await verifyStore(compiled(paths[0]), paths[1], backend);
     for (const d of diagnostics) console.log(`${d.severity}: ${d.code}: ${d.message}`);
     const errors = diagnostics.filter((d) => d.severity === "error").length;
     console.log(errors === 0 ? `${paths[1]} implements ${paths[0]}` : `${errors} error${errors === 1 ? "" : "s"}`);

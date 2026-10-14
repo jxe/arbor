@@ -16,7 +16,8 @@ Draft: no other package uses it yet.
   only what is missing and inserts `@@seed` rows only when their id is
   missing; it never alters or drops.
 - `validateRow(table, row)`, `typeDeclarations(tables)`, `uslFingerprint(source)`.
-- `@ovst/usl/verify`: `verifyStore(tables, location)` checks that a store
+- `layoutOf(result, { store: "files" })` folds `@fold` connections into arrays, as data files store them.
+- `@ovst/usl/verify`: `verifyStore(schema, location)` checks that a store
   implements a schema. Each kind of store is a `StoreBackend`: `sqlite` (a
   `.sqlite3` file), `postgres` (a `postgres://` URL, `?schema=` for a
   namespace), and `files` (a folder with one `<Table>.csv`, `.jsonl` or

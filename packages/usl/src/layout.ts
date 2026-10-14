@@ -14,6 +14,10 @@
 // - `@ordered` on a many end adds a `field_position` column where the
 //   connection is stored.
 // - Every table has `created` and `modified`.
+// - `@@table("…")` and `@column("…")` rename what is stored, so a schema can
+//   describe a database it didn't create.
+// - In data files, an n:m connection with a `@fold` end is an array on that
+//   end's rows instead of a file of its own. Databases always use a join table.
 
 import type { CheckResult, ResolvedEnd, ResolvedModel, RowValue } from "./check.ts";
 
@@ -29,6 +33,8 @@ export interface Column {
   allowed?: string[];
   /** For a reference to Person: the column holds a profile id. */
   profile?: boolean;
+  /** For a folded connection: each item names a row of `table` by its key columns (one value, or an object of them). */
+  references?: { table: string; columns: Column[] };
 }
 
 export interface ForeignKey {
@@ -59,12 +65,27 @@ const VALUE_COLUMN: Record<string, ColumnType> = {
   Date: "date",
 };
 
-export class LayoutError extends Error {}
+export class LayoutError extends Error {
+  constructor(
+    message: string,
+    /** The model or connection (`Model.field`) the problem is in. */
+    readonly where?: string,
+  ) {
+    super(message);
+  }
+}
 
-export function layoutOf(result: CheckResult): Table[] {
+export interface LayoutOptions {
+  /** `files` folds `@fold` connections into arrays; `database` (the default) keeps every n:m in a join table. */
+  store?: "database" | "files";
+}
+
+export function layoutOf(result: CheckResult, options: LayoutOptions = {}): Table[] {
   if (result.diagnostics.length > 0) throw new LayoutError("The schema has errors; check it first");
   const models = new Map(result.models.map((m) => [m.name, m]));
   const hasTable = (name: string) => name !== "Person" && models.get(name)?.rows !== "fixed";
+  const tableName = (model: string) => models.get(model)?.table ?? model;
+  const columnName = (field: { name: string; column?: string }) => field.column ?? field.name;
 
   // The columns that identify a row of `model`, as they appear in its own table.
   const keyColumns = (model: ResolvedModel, seen: string[] = []): Column[] => {
@@ -72,8 +93,8 @@ export function layoutOf(result: CheckResult): Table[] {
     return model.key.flatMap((k) => {
       if (k === "id") return [{ name: "id", type: "text", array: false, nullable: false } satisfies Column];
       const field = model.fields.find((f) => f.name === k)!;
-      if (VALUE_COLUMN[field.type]) return [{ name: k, type: VALUE_COLUMN[field.type]!, array: false, nullable: false }];
-      return referenceColumns(field.type, k, false, [...seen, model.name]);
+      if (VALUE_COLUMN[field.type]) return [{ name: columnName(field), type: VALUE_COLUMN[field.type]!, array: false, nullable: false }];
+      return referenceColumns(field.type, columnName(field), false, [...seen, model.name]);
     });
   };
 
@@ -90,7 +111,7 @@ export function layoutOf(result: CheckResult): Table[] {
 
   const foreignKey = (target: string, columns: Column[], onDelete: ForeignKey["onDelete"]): ForeignKey[] =>
     hasTable(target)
-      ? [{ columns: columns.map((c) => c.name), table: target, refColumns: keyColumns(models.get(target)!).map((c) => c.name), onDelete }]
+      ? [{ columns: columns.map((c) => c.name), table: tableName(target), refColumns: keyColumns(models.get(target)!).map((c) => c.name), onDelete }]
       : [];
 
   const tables = new Map<string, Table>();
@@ -98,7 +119,7 @@ export function layoutOf(result: CheckResult): Table[] {
     if (!hasTable(model.name)) continue;
     const key = keyColumns(model);
     const table: Table = {
-      name: model.name,
+      name: tableName(model.name),
       stores: model.name,
       columns: [...key],
       primaryKey: key.map((c) => c.name),
@@ -106,25 +127,23 @@ export function layoutOf(result: CheckResult): Table[] {
       foreignKeys: [],
       seed: [],
     };
-    const add = (columns: Column[]) => {
-      for (const c of columns) if (!table.columns.some((t) => t.name === c.name)) table.columns.push(c);
-    };
+    const add = (columns: Column[]) => table.columns.push(...columns);
     // Key fields that are references need foreign keys too.
     for (const k of model.key) {
       const field = model.fields.find((f) => f.name === k);
       if (field && !VALUE_COLUMN[field.type]) {
-        const cols = referenceColumns(field.type, k, false);
+        const cols = referenceColumns(field.type, columnName(field), false);
         table.foreignKeys.push(...foreignKey(field.type, cols, model.ends.length > 0 ? "cascade" : "restrict"));
       }
     }
     for (const field of model.fields) {
       if (model.key.includes(field.name)) continue;
       if (VALUE_COLUMN[field.type]) {
-        add([{ name: field.name, type: VALUE_COLUMN[field.type]!, array: field.arity === "many", nullable: field.arity === "optional" }]);
-        if (field.unique) table.uniques.push([field.name]);
+        add([{ name: columnName(field), type: VALUE_COLUMN[field.type]!, array: field.arity === "many", nullable: field.arity === "optional" }]);
+        if (field.unique) table.uniques.push([columnName(field)]);
       } else if (field.origin === "end") {
         // A connection model with its own id: its ends are plain required references.
-        const cols = referenceColumns(field.type, field.name, false);
+        const cols = referenceColumns(field.type, columnName(field), false);
         add(cols);
         table.foreignKeys.push(...foreignKey(field.type, cols, "cascade"));
       }
@@ -138,7 +157,11 @@ export function layoutOf(result: CheckResult): Table[] {
       { name: "modified", type: "timestamp", array: false, nullable: false },
     ]);
     if (model.rows === "seed") {
-      table.seed = model.schemaRows.map((row) => ({ id: row.name, ...row.values }));
+      const byField = new Map(model.fields.map((f) => [f.name, columnName(f)]));
+      table.seed = model.schemaRows.map((row) => ({
+        id: row.name,
+        ...Object.fromEntries(Object.entries(row.values).map(([k, v]) => [byField.get(k) ?? k, v])),
+      }));
     }
     tables.set(model.name, table);
   }
@@ -151,7 +174,7 @@ export function layoutOf(result: CheckResult): Table[] {
       const table = tables.get(holder.model)!;
       // A connection that is part of the key (`@@id(list, id)`) already has its columns.
       if (models.get(holder.model)!.key.includes(holder.field)) continue;
-      const cols = referenceColumns(other.model, holder.field, holder.arity === "optional");
+      const cols = referenceColumns(other.model, holder.column ?? holder.field, holder.arity === "optional");
       table.columns.splice(table.columns.length - 2, 0, ...cols);
       if (other.ordered) {
         table.columns.splice(table.columns.length - 2, 0, {
@@ -163,8 +186,30 @@ export function layoutOf(result: CheckResult): Table[] {
       }
       if (other.arity !== "many") table.uniques.push(cols.map((c) => c.name));
       table.foreignKeys.push(...foreignKey(other.model, cols, holder.arity === "optional" ? "set null" : "restrict"));
+    } else if (storage.kind === "array" && options.store === "files" && (a.fold || b.fold)) {
+      const holder = a.fold ? a : b;
+      const other = holder === a ? b : a;
+      const name = holder.column ?? holder.field;
+      const table = tables.get(holder.model)!;
+      let column: Column;
+      if (hasTable(other.model)) {
+        const keys = keyColumns(models.get(other.model)!);
+        const type = keys.length === 1 ? keys[0]!.type : "text";
+        column = { name, type, array: true, nullable: false, references: { table: tableName(other.model), columns: keys } };
+      } else {
+        column = { ...referenceColumns(other.model, name, false)[0]!, array: true };
+      }
+      table.columns.splice(table.columns.length - 2, 0, column);
     } else if (storage.kind === "array") {
-      tables.set(`${a.model}_${a.field}`, joinTable(a, b));
+      tables.set(`${a.model}.${a.field}`, joinTable(a, b));
+    }
+  }
+
+  for (const [where, table] of tables) {
+    const seen = new Set<string>();
+    for (const c of table.columns) {
+      if (seen.has(c.name)) throw new LayoutError(`Table \`${table.name}\` would have two columns named \`${c.name}\`; rename one with @column`, where);
+      seen.add(c.name);
     }
   }
 
@@ -177,7 +222,7 @@ export function layoutOf(result: CheckResult): Table[] {
       .filter((e) => e.ordered)
       .map((e) => ({ name: `${e.field}_position`, type: "position", array: false, nullable: false }));
     return {
-      name: `${a.model}_${a.field}`,
+      name: `${tableName(a.model)}_${a.field}`,
       stores: `${a.model}.${a.field}`,
       columns: [
         ...colsA,

@@ -49,6 +49,7 @@ export async function inspectPostgres(sql: SQL, schema = "public"): Promise<Tabl
 
 export const postgresBackend: StoreBackend = {
   name: "postgres",
+  layout: "database",
   accepts: (location) => /^postgres(ql)?:\/\//.test(location),
   async verify(tables, location) {
     const url = new URL(location);

@@ -56,11 +56,13 @@ model Episode {
   title Text
 }
 
+// @@table and @column name what is stored, for a database the schema didn't create.
 model Series {
-  title Text
+  title Text  @column("series_title")
+  @@table("series")
 }
 
-Episode.series <-> Series.episodes[] @ordered
+Episode.series @column("series_id") <-> Series.episodes[] @ordered
 
 // A fixed model at the three stages of its life. A field that uses it, such
 // as a game's genre, is the same at every stage.

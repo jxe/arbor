@@ -40,7 +40,7 @@ projection; tree-merge's `collection-file-rows-v1`) and of
 | columns and value types | `row` members: text, int, number, bool, literals, ranges, arrays, nested maps | value fields: `Text`, `Markdown`, `Int`, `Number`, `Bool`, `Date`, arrays; layout columns |
 | enumerations | literal choices | fixed models (`@@fixed`), stored as the row name, with a `CHECK` in SQL |
 | primary key | `overstory-primary-key` | the model's key: `id`, its ends, or `@@id(...)` |
-| child names | `overstory-child-name` | `@@childName(field)` |
+| child names | `overstory-child-name` | `@path` on a Text field |
 | references between rows | none (files); `relationships.json` (SQLite) | connections, with foreign keys in the layout |
 | profiles | `virtualRelations` with `source: overstory-profile` | the built-in `Person` model |
 | SQLite schema | `schema.sql`, which must match the database exactly | `usl sql sqlite` writes it; `verifyStore` checks a database |
@@ -71,7 +71,7 @@ open `row` map allowed.
 3. **One schema interface.** Give `collection-schema`'s codec
    (`decodeProtocolCollectionFile`, `encodeProtocolCollectionFile`,
    `collectionChildSetHash`) a schema interface with `columns`, `primaryKey`,
-   `childName`, `revision` and `validate`, implemented by USL's compiled
+   `path` (the child-name field), `revision` and `validate`, implemented by USL's compiled
    schema. A collection folder's `schema.usl` declares one data model (fixed
    models aside); a database container's declares one per table.
 4. **Protocol descriptor.** `childrenSource.schemaSource` may be
@@ -90,12 +90,14 @@ open `row` map allowed.
 7. **overstoryd.** Acceptance compiles `schema.usl` through the same cache,
    keyed by fingerprint.
 8. **Convert.** The books fixture, the inline schemas in tests, and
-   `examples/supplies/data` move to `schema.usl`. Supplies' tables and columns
-   are renamed to the generated layout, or kept with a name mapping (open
-   question 1).
-9. **Existing trees.** A `story` command converts a tree's `schema.cddl`
-   files to `schema.usl` as one authored change (open question 2). Run on
-   Joe's trees only with his go-ahead.
+   `examples/supplies/data` move to `schema.usl`. Supplies' tables and
+   columns are renamed to the generated layout (`lists` → `List`, `list_id`
+   → `list`), along with its queries and mutations. `@@table` and `@column`
+   exist for databases a schema didn't create, but Supplies doesn't use them.
+9. **Existing trees.** A one-off conversion tool outside the `story`
+   command (a script in `tools/`, not a CLI subcommand) converts each tree's
+   `schema.cddl` files to `schema.usl` as one authored change. Run on Joe's
+   trees only with his go-ahead, then delete the tool with the CDDL code.
 10. **Remove CDDL.** Delete the CDDL parser, `schema.sql` and
     `relationships.json` handling, and `schemaSource: "schema.cddl"`.
 
@@ -120,14 +122,13 @@ open `row` map allowed.
   reports nothing, and the Supplies integration tests pass unchanged.
 - A converted tree syncs between two placements with its rows intact.
 
-## Open questions
+## Decided (Joe, 2026-10-14)
 
-1. **Names in existing databases.** The layout names tables after models
-   (`List`, `Practice_authors`) and columns after fields. Supplies uses
-   `lists`, `list_id` and so on. Rename the data, or add Prisma's `@@map` and
-   `@map` so a schema can describe a database it didn't create?
-2. **Existing trees.** Convert every `schema.cddl` once, or keep reading CDDL
-   indefinitely for trees nobody converts?
-3. **Data files for n:m.** The file backend stores an n:m connection as its
-   own file (`Game_authors.json`), like the SQL join table. The workspace
-   README says files keep it as an array on the first end. Pick one.
+- Supplies' data is renamed to the generated names. USL also has
+  `@@table("…")` and `@column("…")` (Prisma's `@@map` and `@map`) for
+  databases it didn't create.
+- Existing trees are converted once, by a tool kept out of the `story`
+  command, which stays lean.
+- An n:m connection in data files is its own file by default; `@fold` on one
+  end keeps it as an array on that end's rows instead. Databases always use a
+  join table.

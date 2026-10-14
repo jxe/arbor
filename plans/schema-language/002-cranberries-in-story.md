@@ -88,6 +88,17 @@ Supabase today.
 - Presentation never changes data: a view, a page's override or a default
   arrangement only chooses what is shown.
 
+## Interaction with presence (Sharing 003)
+
+Presence names a page by its logical path and a caret as a byte range in a
+file object. A presented view's page is the collection folder (or the page
+that presents it), so the roster works unchanged. A caret in a view is in one
+field of one row, and a row in SQLite has no file object, so milestone 2
+needs a second selection kind, such as `{ row: { table, key }, field, anchor,
+head }`, with offsets into that field's text. That is easiest if Sharing 003's
+phase 1 makes `PresenceSelection` extensible (a `kind`, or decoders that skip
+an unknown selection) rather than fixing the byte-range shape.
+
 ## Open questions
 
 1. **Access.** Access will mostly be per tree in Overstory. How do

@@ -22,8 +22,10 @@ model List {
   games Game[]                                  // cross-reference
 }
 
-Game.authors[] <-> Person.games[]
-List.games[] @ordered <-> Game.lists[]
+// In data files, @fold keeps these as arrays on Game and List rows instead
+// of files of their own. Databases still use join tables.
+Game.authors[] @fold <-> Person.games[]
+List.games[] @ordered @fold <-> Game.lists[]
 Game.status <-> Status.games[]
 
 model Status {

@@ -127,8 +127,33 @@ export function verifyFiles(tables: Table[], dir: string): StoreDiagnostic[] {
     loaded.set(table.name, { table, file: found.path, rows });
   }
 
-  // References between files: each foreign key must name an existing row.
+  // References between files: each foreign key, and each item of a folded connection, must name an existing row.
   for (const { table, file, rows } of loaded.values()) {
+    for (const column of table.columns) {
+      const ref = column.references;
+      const target = ref && [...loaded.values()].find((t) => t.table.name === ref.table);
+      if (!ref || !target) continue;
+      const keyOf = (item: unknown) =>
+        JSON.stringify(ref.columns.length === 1 ? [item] : ref.columns.map((c) => (item as Record<string, unknown>)[c.name] ?? null));
+      const present = new Set(target.rows.map((r) => JSON.stringify(ref.columns.map((c) => r.values[c.name] ?? null))));
+      let reported = 0;
+      for (const { row, values } of rows) {
+        const items = values[column.name];
+        if (!Array.isArray(items)) continue;
+        for (const item of items) {
+          if (!present.has(keyOf(item)) && reported++ < MAX_PER_TABLE) {
+            out.push({
+              severity: "error",
+              code: "dangling-reference",
+              table: table.name,
+              column: column.name,
+              row,
+              message: `${file}:${row}: \`${column.name}\` names ${JSON.stringify(item)}, which is no row of ${ref.table}`,
+            });
+          }
+        }
+      }
+    }
     for (const fk of table.foreignKeys) {
       const target = loaded.get(fk.table);
       if (!target) continue;
@@ -162,6 +187,7 @@ export function verifyFiles(tables: Table[], dir: string): StoreDiagnostic[] {
 
 export const filesBackend: StoreBackend = {
   name: "files",
+  layout: "files",
   accepts: (location) => existsSync(location) && statSync(location).isDirectory(),
   async verify(tables, location) {
     return verifyFiles(tables, location);
