@@ -17,12 +17,12 @@ import type {
   SchemaFile,
 } from "./ast.ts";
 
-export const VALUE_TYPES = ["Text", "Markdown", "Number", "Bool", "Date"] as const;
+export const VALUE_TYPES = ["Text", "Markdown", "Int", "Number", "Bool", "Date"] as const;
 export const BUILTIN_MODELS = ["Person"] as const;
 export const IMPLICIT_FIELDS = ["id", "created", "modified"] as const;
 
 const FIELD_ATTRIBUTES = ["ordered", "color", "unique", "as"];
-const MODEL_ATTRIBUTES = ["views", "editableBy", "fold", "table", "id"];
+const MODEL_ATTRIBUTES = ["views", "editableBy", "fold", "table", "id", "childName"];
 const VIEW_OPTIONS = ["label", "line", "group", "sort"];
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 
@@ -34,7 +34,23 @@ export interface ResolvedField {
   /** declared: written in the model. connection: gained from a connection. end: one of this connection model's ends. */
   origin: "declared" | "connection" | "end";
   ordered: boolean;
+  unique: boolean;
+  /** Holds the row's color (`@color`). */
+  color: boolean;
 }
+
+/** One end of a connection: the field `model` gains, and (for a connection model) the field the end gets there. */
+export interface ResolvedEnd {
+  model: string;
+  field: string;
+  arity: Arity;
+  ordered: boolean;
+  /** The field this end gets in its connection model (`@as`, or the model's name in lower case). */
+  as: string;
+}
+
+/** A value written in the schema: a string, number, boolean, or a list of them. */
+export type RowValue = string | number | boolean | RowValue[];
 
 /** Where a connection's data lives. */
 export type Storage =
@@ -51,10 +67,18 @@ export interface ResolvedModel {
   key: string[];
   fields: ResolvedField[];
   storage?: Storage;
+  /** The field that names each row's child in an Overstory tree (`@@childName`); otherwise its key does. */
+  childName?: string;
+  /** A connection model's ends. */
+  ends: ResolvedEnd[];
+  /** The rows written in `@@fixed` or `@@seed`, with their values. */
+  schemaRows: { name: string; values: Record<string, RowValue> }[];
 }
 
 export interface ResolvedConnection {
   ends: [string, string];
+  a: ResolvedEnd;
+  b: ResolvedEnd;
   storage: Storage;
 }
 
@@ -79,6 +103,26 @@ const identArg = (attrs: Attribute[], name: string): string | undefined => {
 };
 /** The field a connection model gets for one of its ends: `@as(name)`, or the end's model in lower case. */
 const keyFieldOf = (end: EndDecl) => identArg(end.attrs, "as") ?? lowerFirst(end.model);
+const resolvedEnd = (end: EndDecl): ResolvedEnd => ({
+  model: end.model,
+  field: end.field,
+  arity: end.arity,
+  ordered: end.attrs.some((a) => a.name === "ordered"),
+  as: keyFieldOf(end),
+});
+const rowValue = (expr: Expr): RowValue => {
+  switch (expr.kind) {
+    case "string":
+    case "number":
+      return expr.value;
+    case "ident":
+      return expr.name === "true" ? true : expr.name === "false" ? false : expr.name;
+    case "list":
+      return expr.items.map(rowValue);
+    case "object":
+      return JSON.stringify(expr.entries);
+  }
+};
 const arityText = (arity: Arity) => (arity === "many" ? "[]" : arity === "optional" ? "?" : "");
 const isValueType = (type: string) => (VALUE_TYPES as readonly string[]).includes(type);
 
@@ -180,6 +224,8 @@ export function checkUsl(file: SchemaFile): CheckResult {
             arity: member.arity,
             origin: "declared",
             ordered: member.attrs.some((a) => a.name === "ordered"),
+            unique: member.attrs.some((a) => a.name === "unique"),
+            color: member.attrs.some((a) => a.name === "color"),
           });
         }
       }
@@ -194,7 +240,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
         report("duplicate-field", end.at, `\`${name}\` already has a field \`${fieldName}\`, which this end would key it by${hint}`);
         continue;
       }
-      fields.set(fieldName, { name: fieldName, type: end.model, arity: "one", origin: "end", ordered: false });
+      fields.set(fieldName, { name: fieldName, type: end.model, arity: "one", origin: "end", ordered: false, unique: false, color: false });
     }
 
     // Fields gained from connections.
@@ -217,6 +263,8 @@ export function checkUsl(file: SchemaFile): CheckResult {
         arity: info.decl.arity,
         origin: "connection",
         ordered: info.decl.attrs.some((a) => a.name === "ordered"),
+        unique: false,
+        color: false,
       });
     }
 
@@ -247,7 +295,17 @@ export function checkUsl(file: SchemaFile): CheckResult {
     }
 
     const key = modelEnds.length >= 2 ? modelEnds.map(keyFieldOf) : rows?.mode === "fixed" ? ["name"] : ["id"];
-    const entry: ResolvedModel = { name, rows: rows?.mode ?? "data", key, fields: [...fields.values()] };
+    const entry: ResolvedModel = {
+      name,
+      rows: rows?.mode ?? "data",
+      key,
+      fields: [...fields.values()],
+      ends: modelEnds.map(resolvedEnd),
+      schemaRows: (rows?.rows ?? []).map((row) => ({
+        name: row.name,
+        values: Object.fromEntries(row.values.map((v) => [v.key, rowValue(v.value)])),
+      })),
+    };
     resolved.set(name, entry);
     fieldMaps.set(name, fields);
   }
@@ -318,6 +376,16 @@ export function checkUsl(file: SchemaFile): CheckResult {
         report("unknown-attribute", member.at, `Unknown model attribute \`@@${member.name}\``);
       } else if (member.name === "views") {
         checkViews(member, model.name, fields, report);
+      } else if (member.name === "childName") {
+        const arg = member.args[0];
+        if (member.args.length !== 1 || arg?.kind !== "ident") {
+          report("attribute-arguments", member.at, "`@@childName` names one field: `@@childName(slug)`");
+          continue;
+        }
+        const field = fields.get(arg.name);
+        if (!field) report("unknown-field", arg.at, `\`${model.name}\` has no field \`${arg.name}\``);
+        else if (field.type !== "Text" || field.arity !== "one") report("child-name-field", arg.at, `A child name comes from a required \`Text\` field; \`${arg.name}\` is ${field.type}${arityText(field.arity)}`);
+        else resolved.get(model.name)!.childName = arg.name;
       } else if (member.name === "editableBy") {
         if (member.args.length === 0) report("attribute-arguments", member.at, "`@@editableBy` names at least one field");
         for (const arg of member.args) {
@@ -404,7 +472,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
       );
       continue;
     }
-    connections.push({ ends: label, storage });
+    connections.push({ ends: label, a: resolvedEnd(a), b: resolvedEnd(b), storage });
   }
 
   // 7. Top-level views can only be checked for their options.
@@ -529,6 +597,8 @@ function checkValue(entry: ObjectEntry, field: FieldDecl, report: Report) {
         return value.kind === "string";
       case "Number":
         return value.kind === "number";
+      case "Int":
+        return value.kind === "number" && Number.isSafeInteger(value.value);
       case "Bool":
         return value.kind === "ident" && (value.name === "true" || value.name === "false");
       case "Date":

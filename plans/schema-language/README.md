@@ -3,7 +3,9 @@
 A workspace for iterating on Ultimate Schema Language (USL, `.usl` files),
 Overstory's schema language: the declaration
 that would replace `schema.cddl`, `schema.sql` and `relationships.json`, and
-that Story uses to arrange collections. It is not specified yet; a parser
+that Story uses to arrange collections. It is not specified yet. The plans
+to adopt it are [001](001-replace-cddl-with-usl.md) and
+[002](002-cranberries-in-story.md). A parser
 and checker live in `packages/usl` (`bun packages/usl/src/cli.ts check|show
 file.usl`), and `examples/invalid/` holds one broken file per invariant. Background and the history of the design are in the project
 thread "Cranberries in Story".

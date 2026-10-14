@@ -55,6 +55,16 @@ placement hosts too. After Apps 005.
 
 ## Later
 
+**[Schema language 001: replace CDDL with Ultimate Schema Language](schema-language/001-replace-cddl-with-usl.md).**
+Joe decided CDDL was a mistake and named its replacement on 2026-10-14. One `schema.usl`
+beside a collection's data replaces `schema.cddl`, `schema.sql` and `relationships.json`;
+`packages/usl` already parses, checks, writes setup SQL and checks stores.
+
+**[Schema language 002: cranberries documents in Story](schema-language/002-cranberries-in-story.md).**
+Joe wants excellences and supplies-remake to run natively in Story on the Overstory data
+model. After Schema language 001: presented views, a native editor, field-level merge,
+and ports of both sites.
+
 **[Performance 003: fast catch-up from an older authored basis](performance/003-fast-historical-catch-up.md).**
 Joe requested this on 2026-10-09 after the iPhone caught up but needed several minutes
 of server history reconstruction. Retain useful historical checkpoints within a byte

@@ -184,6 +184,9 @@
       "bin": {
         "usl": "./src/cli.ts",
       },
+      "dependencies": {
+        "csv-parse": "6.1.0",
+      },
     },
     "packages/working-tree": {
       "name": "@ovst/working-tree",

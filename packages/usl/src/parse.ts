@@ -33,14 +33,25 @@ export class UslSyntaxError extends Error {
   constructor(
     message: string,
     readonly at: Position,
+    readonly code: "syntax" | "limit" = "syntax",
   ) {
     super(message);
   }
 }
 
+/** Bounds on what a schema may ask of a parser, so an untrusted schema can't exhaust a host. Same values as the CDDL profile's. */
+export const USL_LIMITS = {
+  sourceBytes: 1_048_576,
+  tokens: 65_536,
+  depth: 32,
+} as const;
+
 const PUNCT = ["<->", "@@", "{", "}", "(", ")", "[", "]", ",", ".", ":", "?", "@", "/"];
 
 function lex(source: string): Token[] {
+  if (new TextEncoder().encode(source).length > USL_LIMITS.sourceBytes) {
+    throw new UslSyntaxError(`A schema is at most ${USL_LIMITS.sourceBytes} bytes`, { line: 1, column: 1 }, "limit");
+  }
   const tokens: Token[] = [];
   let i = 0;
   let line = 1;
@@ -100,6 +111,9 @@ function lex(source: string): Token[] {
     }
   }
   tokens.push({ kind: "eof", text: "", start: i, end: i, line, column: i - lineStart + 1 });
+  if (tokens.length > USL_LIMITS.tokens) {
+    throw new UslSyntaxError(`A schema has at most ${USL_LIMITS.tokens} tokens`, { line: 1, column: 1 }, "limit");
+  }
   return tokens;
 }
 
@@ -336,7 +350,20 @@ class Parser {
     return entries;
   }
 
+  private depth = 0;
+
   private expr(): Expr {
+    if (++this.depth > USL_LIMITS.depth) {
+      throw new UslSyntaxError(`Values nest at most ${USL_LIMITS.depth} deep`, this.at(), "limit");
+    }
+    try {
+      return this.exprInner();
+    } finally {
+      this.depth--;
+    }
+  }
+
+  private exprInner(): Expr {
     const token = this.token;
     const at = this.at();
     if (token.kind === "string") {
@@ -374,7 +401,7 @@ export function parseUsl(source: string): ParseResult {
     return { file, diagnostics: [] };
   } catch (error) {
     if (error instanceof UslSyntaxError) {
-      return { file: null, diagnostics: [{ code: "syntax", message: error.message, ...error.at }] };
+      return { file: null, diagnostics: [{ code: error.code, message: error.message, ...error.at }] };
     }
     throw error;
   }

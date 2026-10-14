@@ -1,12 +1,16 @@
 {
   "name": "@ovst/usl",
   "version": "0.1.0",
-  "description": "Ultimate Schema Language (.usl): a parser and checker for Overstory's Prisma-shaped schema language. Pure: no code execution, filesystem, or network access outside the CLI.",
+  "description": "Ultimate Schema Language (.usl): parser, checker, setup SQL for SQLite and Postgres, and checks that a database or data files implement a schema.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./verify": "./src/verify/index.ts"
   },
   "bin": {
     "usl": "./src/cli.ts"
+  },
+  "dependencies": {
+    "csv-parse": "6.1.0"
   }
 }

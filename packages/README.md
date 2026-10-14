@@ -12,7 +12,7 @@ here. The Swift twins are under [`swift/`](../swift/README.md).
 | | [`overstoryd-merge`](overstoryd-merge/README.md) | The merge sidecar and the `overstoryd-merge` command |
 | | [`tree-merge`](tree-merge/README.md) | The three-way snapshot tree merge, shared by the merge sidecar and Story Sync tree recovery |
 | | [`collection-schema`](collection-schema/README.md) | Declarative `schema.cddl` collection schemas and the collection-file codec |
-| | [`usl`](usl/README.md) | Draft: parser and checker for Ultimate Schema Language (`.usl`), the planned replacement for `schema.cddl` |
+| | [`usl`](usl/README.md) | Draft: Ultimate Schema Language (`.usl`), the planned replacement for `schema.cddl`: checker, setup SQL, and store checks |
 | | [`apps-runtime`](apps-runtime/README.md) | The executable-document runtime |
 | Client stack | [`client`](client/README.md) | Synchronizing a working tree against a host |
 | | [`fs`](fs/README.md) | Materializing trees on a filesystem |
