@@ -1,0 +1,21 @@
+// expect: storage-on-plain-model
+// expect: fold-target
+// expect: fold-and-table
+// expect: stored-on-fixed
+// expect: stored-on-fixed
+model Book {
+  title Text
+  @@table
+}
+model Shelf { name Text }
+model Placement {
+  Book.placements[]
+  Shelf.placements[]
+  @@fold(Status)
+  @@table
+}
+// A fixed model has no table to hold a column.
+Status.book <-> Book.statuses[]
+// Two models without tables have nowhere to keep their connection.
+Status.people[] <-> Person.statuses[]
+model Status { @@fixed { Draft, Done } }

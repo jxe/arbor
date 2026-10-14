@@ -1,0 +1,11 @@
+// expect: seed-needs-name
+// expect: misplaced-attribute
+// expect: bad-color
+model Genre {
+  label Text
+  color Text @color
+  @@seed {
+    Puzzle { label: "Puzzle", color: "#4278c0" } @color("#4278c0")
+    Sports { label: "Sports", color: "green" }
+  }
+}

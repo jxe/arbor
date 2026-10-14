@@ -1,0 +1,22 @@
+// expect: duplicate-view
+// expect: view-label
+// expect: unknown-field
+// expect: duplicate-bullet
+// expect: unknown-attribute
+// expect: unknown-field
+// expect: unknown-view-option
+// expect: unknown-view-option
+model Game {
+  name   Text
+  status Status
+  @@views([
+    { label: "All", line: [status @bullet, name] },
+    { label: "All", group: status },
+    { group: status },
+    { label: "Wide", line: [name @bullet, status @bullet, rating, name @ordered] },
+    { label: "Odd", group: author, filter: status },
+  ])
+}
+Game.status <-> Status.games[]
+model Status { @@fixed { Draft, Done } }
+view "My games" of ../Games/Game { group: status, label: "x" }

@@ -1,0 +1,71 @@
+// examples/supplies/data: schema.sql and relationships.json, as one schema.
+// created_at / updated_at become the implicit `created` / `modified`.
+// Connections here use the { A, B } spelling; the other examples use A <-> B.
+
+model List {
+  name        Text
+  about       Markdown?
+  visibility  Visibility
+  kind        ListKind
+  openToEdits Bool                          // was allow_arbor_user_edits
+  owner       Person                        // was owner_profile
+  items       Item[]                        // cross-references, declared below
+  tags        Tag[]
+
+  @@editableBy(owner)
+}
+
+{ List.owner, Person.ownedLists[] }
+{ List.visibility, Visibility.lists[] }
+{ List.kind, ListKind.lists[] }
+
+model Practice {
+  name  Text   @unique                      // no two practices share a name
+  about Markdown?
+  authors Person[]                          // cross-reference
+}
+
+// practice_authors
+{ Practice.authors[], Person.practices[] }
+
+// list_practices: a named connection, because tags hang off it.
+model Item {
+  List.items[]   @ordered                   // position column, per list
+  Practice.items[]
+}
+
+// list_tags. In SQL a tag id was unique only within its list; here a tag
+// gets a global id (question 2 in the README).
+model Tag {
+  name  Text
+  color Text?  @color                        // data, since people add tags
+}
+
+{ Tag.list, List.tags[] }
+
+// practice_tags: a connection whose end is itself a connection. The SQL also
+// required tag.list = item.list, which this can't say (question 3).
+{ Item.tags[], Tag.items[] }
+
+// list_reactions: one emoji per person per list.
+model Reaction {
+  List.reactions[]
+  Person.reactions[]
+  emoji Text
+}
+
+// list_contributors
+model Contribution {
+  List.contributors[]
+  Person.contributions[]
+  first Date
+  last  Date
+}
+
+model Visibility {
+  @@fixed { Public, Private }
+}
+
+model ListKind {
+  @@fixed { Standard, Tagged }
+}

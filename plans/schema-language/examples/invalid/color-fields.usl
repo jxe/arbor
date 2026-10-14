@@ -1,0 +1,11 @@
+// expect: duplicate-color
+// expect: misplaced-attribute
+model Tag {
+  name       Text
+  color      Text  @color
+  background Text  @color
+}
+model Status {
+  color Text? @color
+  @@fixed { Draft @color("#9aa0aa") }
+}

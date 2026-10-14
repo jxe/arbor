@@ -1,0 +1,14 @@
+// The smallest case: tests/fixtures/workspace/books/schema.cddl, rewritten.
+//
+//   row = { title: tstr, status: "reading" / "done" }
+
+model Book {
+  title  Text
+  status Status
+}
+
+Book.status <-> Status.books[]
+
+model Status {
+  @@fixed { Reading, Done }
+}

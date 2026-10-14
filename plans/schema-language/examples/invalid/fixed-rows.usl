@@ -1,0 +1,28 @@
+// expect: duplicate-row
+// expect: bad-color
+// expect: missing-value
+// expect: bad-value
+// expect: unknown-field
+// expect: rows-with-ends
+// expect: duplicate-attribute
+model Genre {
+  blurb Text
+  rank  Number?
+  @@fixed {
+    Puzzle   { blurb: "Think" }        @color("blue")
+    Puzzle   { blurb: "Again" }
+    Strategy                           @color("#27815a")
+    Action   { blurb: "Go", rank: "first" }
+    Sports   { blurb: "Run", speed: 3 }
+  }
+}
+model Shelving {
+  Genre.shelvings[]
+  Shelf.shelvings[]
+  @@fixed { Top, Bottom }
+}
+model Shelf { name Text }
+model Twice {
+  @@fixed { A }
+  @@seed { B }
+}

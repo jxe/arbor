@@ -1,0 +1,13 @@
+// expect: unknown-attribute
+// expect: duplicate-attribute
+// expect: editable-by-person
+// expect: unknown-field
+model Book {
+  title Text
+  owner Person
+  @@index(title)
+  @@editableBy(owner, title, nobody)
+  @@views([{ label: "All" }])
+  @@views([{ label: "Again" }])
+}
+Book.owner <-> Person.books[]

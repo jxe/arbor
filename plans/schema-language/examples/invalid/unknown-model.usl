@@ -1,0 +1,7 @@
+// expect: unknown-model
+// expect: unknown-type
+model Book {
+  title  Text
+  author Author
+}
+Book.author <-> Author.books[]

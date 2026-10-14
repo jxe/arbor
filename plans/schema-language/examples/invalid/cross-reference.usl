@@ -1,0 +1,15 @@
+// expect: cross-reference-mismatch
+// expect: cross-reference-mismatch
+// expect: cross-reference-mismatch
+// A cross-reference must agree with the connection it mirrors.
+model Book {
+  title   Text
+  authors Person                 // arity: the end says []
+  shelf   List                   // type: the connection says Shelf
+  lists   List[] @ordered        // @ordered isn't on the end
+}
+model Shelf { name Text }
+model List { name Text }
+Book.authors[] <-> Person.books[]
+Book.shelf <-> Shelf.books[]
+Book.lists[] <-> List.books[]

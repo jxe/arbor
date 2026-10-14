@@ -1,0 +1,6 @@
+// expect: undeclared-connection
+// A model-typed field must be declared as a connection with both sides named.
+model Book {
+  title   Text
+  authors Person[]
+}

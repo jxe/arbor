@@ -12,6 +12,7 @@ here. The Swift twins are under [`swift/`](../swift/README.md).
 | | [`overstoryd-merge`](overstoryd-merge/README.md) | The merge sidecar and the `overstoryd-merge` command |
 | | [`tree-merge`](tree-merge/README.md) | The three-way snapshot tree merge, shared by the merge sidecar and Story Sync tree recovery |
 | | [`collection-schema`](collection-schema/README.md) | Declarative `schema.cddl` collection schemas and the collection-file codec |
+| | [`usl`](usl/README.md) | Draft: parser and checker for Ultimate Schema Language (`.usl`), the planned replacement for `schema.cddl` |
 | | [`apps-runtime`](apps-runtime/README.md) | The executable-document runtime |
 | Client stack | [`client`](client/README.md) | Synchronizing a working tree against a host |
 | | [`fs`](fs/README.md) | Materializing trees on a filesystem |
@@ -21,7 +22,7 @@ here. The Swift twins are under [`swift/`](../swift/README.md).
 
 Layering rules, checked by reading each `package.json`:
 
-- `protocol` depends on nothing in the workspace.
+- `protocol` and `usl` depend on nothing in the workspace.
 - `apps-runtime` and `collection-schema` depend only on `protocol`;
   `tree-merge` only on `protocol` and `collection-schema`.
 - `object-store`, `fs`, `client`, `overstoryd`, and `overstoryd-merge` never depend

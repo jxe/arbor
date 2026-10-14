@@ -1,0 +1,15 @@
+// expect: ordered-single
+// expect: color-field-type
+// expect: unique-value
+// expect: misplaced-attribute
+// expect: unknown-attribute
+// expect: ordered-single
+model Book {
+  title   Text      @ordered
+  pages   Number    @color
+  tags    Text[]    @unique
+  status  Text      @bullet
+  isbn    Text      @primary
+}
+Book.shelf @ordered <-> Shelf.books[]
+model Shelf { name Text }

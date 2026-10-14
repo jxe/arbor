@@ -1,0 +1,80 @@
+// Cases the real examples don't reach.
+
+// A self-relation: pages nest, and a page's children keep their order.
+model Page {
+  title    Text
+  body     Markdown?
+  parent   Page?                            // cross-references
+  children Page[]
+}
+
+Page.parent? <-> Page.children[] @ordered
+
+// 1:1: each team has at most one lead, and a person leads at most one team.
+model Team {
+  name    Text
+  lead    Person?                           // cross-references
+  members Person[]
+}
+
+Team.lead? <-> Person.ledTeam?
+
+Team.members[] <-> Person.teams[]
+
+// Keyed by its ends: one rating per person per game. Rating the same game
+// twice would need an escape hatch (question 4).
+model Rating {
+  Person.ratings[]
+  Game.ratings[]
+  stars Number
+}
+
+model Game {
+  name   Text
+  scores Number[]  @ordered                 // a value array that keeps its order
+}
+
+// 1:n: every episode belongs to exactly one series. Stored as a column on
+// Episode, because that is the single side.
+model Episode {
+  title Text
+}
+
+model Series {
+  title Text
+}
+
+Episode.series <-> Series.episodes[] @ordered
+
+// A fixed model at the three stages of its life. A field that uses it, such
+// as a game's genre, is the same at every stage.
+
+// 1. Fixed values: no table; a reference is stored as the name ("Puzzle").
+model Genre1 {
+  @@fixed {
+    Puzzle    @color("#4278c0")
+    Strategy  @color("#27815a")
+  }
+}
+
+// 2. Values that carry data: still no table; the rows live in the schema.
+model Genre2 {
+  blurb Text
+  @@fixed {
+    Puzzle    { blurb: "Think it through" }  @color("#4278c0")
+    Strategy  { blurb: "Plan ahead" }        @color("#27815a")
+  }
+}
+
+// 3. An actual table people can add to. Each row keeps its old name as its
+// id, so stored references stay valid, and gains an editable `name`. Colors
+// become data, because a new row needs one; @color marks the field that
+// holds each row's color. @@seed inserts rows whose id is missing and never overwrites.
+model Genre3 {
+  name  Text
+  color Text   @color
+  @@seed {
+    Puzzle    { name: "Puzzle",   color: "#4278c0" }
+    Strategy  { name: "Strategy", color: "#27815a" }
+  }
+}

@@ -18,6 +18,7 @@
         "@ovst/story-sync": "workspace:*",
         "@ovst/story-web": "workspace:*",
         "@ovst/tree-merge": "workspace:*",
+        "@ovst/usl": "workspace:*",
         "@ovst/working-tree": "workspace:*",
       },
       "devDependencies": {
@@ -175,6 +176,13 @@
       "dependencies": {
         "@ovst/collection-schema": "workspace:*",
         "@ovst/protocol": "workspace:*",
+      },
+    },
+    "packages/usl": {
+      "name": "@ovst/usl",
+      "version": "0.1.0",
+      "bin": {
+        "usl": "./src/cli.ts",
       },
     },
     "packages/working-tree": {
@@ -341,6 +349,8 @@
     "@ovst/story-web": ["@ovst/story-web@workspace:packages/story-web"],
 
     "@ovst/tree-merge": ["@ovst/tree-merge@workspace:packages/tree-merge"],
+
+    "@ovst/usl": ["@ovst/usl@workspace:packages/usl"],
 
     "@ovst/working-tree": ["@ovst/working-tree@workspace:packages/working-tree"],
 

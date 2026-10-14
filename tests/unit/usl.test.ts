@@ -1,0 +1,68 @@
+import { describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { compileUsl, parseUsl } from "@ovst/usl";
+
+const examples = join(import.meta.dir, "../../plans/schema-language/examples");
+const usl = (dir: string) => readdirSync(dir).filter((f) => f.endsWith(".usl"));
+
+describe("usl examples", () => {
+  for (const name of usl(examples)) {
+    test(`${name} checks clean`, () => {
+      expect(compileUsl(readFileSync(join(examples, name), "utf8")).diagnostics).toEqual([]);
+    });
+  }
+});
+
+describe("usl broken examples", () => {
+  const dir = join(examples, "invalid");
+  for (const name of usl(dir)) {
+    test(`${name} reports exactly what it expects`, () => {
+      const source = readFileSync(join(dir, name), "utf8");
+      const expected = [...source.matchAll(/^\/\/ expect: ([a-z-]+)$/gm)].map((m) => m[1]!).sort();
+      expect(expected.length).toBeGreaterThan(0);
+      const actual = compileUsl(source).diagnostics.map((d) => d.code).sort();
+      expect(actual).toEqual(expected);
+    });
+  }
+});
+
+describe("usl resolution", () => {
+  test("a connection model is keyed by its ends and gives each side a field", () => {
+    const { models } = compileUsl(`
+      model Game { name Text }
+      model Rating { Person.ratings[], Game.ratings[], stars Number }
+    `);
+    const rating = models.find((m) => m.name === "Rating")!;
+    expect(rating.key).toEqual(["person", "game"]);
+    const game = models.find((m) => m.name === "Game")!;
+    expect(game.fields.find((f) => f.name === "ratings")).toMatchObject({ type: "Rating", arity: "many", origin: "connection" });
+  });
+
+  test("arrow and braces spell the same connection", () => {
+    const arrow = compileUsl(`model Game { name Text }\nGame.authors[] <-> Person.games[]`);
+    const braces = compileUsl(`model Game { name Text }\n{ Game.authors[], Person.games[] }`);
+    expect(arrow.models).toEqual(braces.models);
+    expect(arrow.connections).toEqual(braces.connections);
+  });
+
+  test("storage: 1:n is a column on the single side, n:m an array on the first end with a table", () => {
+    const { connections } = compileUsl(`
+      model Episode { title Text }
+      model Series { title Text }
+      Series.episodes[] <-> Episode.series
+      Person.games[] <-> Game.authors[]
+      model Game { name Text }
+    `);
+    expect(connections.map((c) => c.storage)).toEqual([
+      { kind: "column", on: "Episode", field: "series" },
+      { kind: "array", on: "Game", field: "authors", sqlite: "join table" },
+    ]);
+  });
+
+  test("syntax errors carry a position", () => {
+    expect(parseUsl("model A {\n  x Text,,\n  y\n}").diagnostics).toEqual([
+      { code: "syntax", message: "Expected a type for field `y`, found end of line", line: 3, column: 4 },
+    ]);
+  });
+});

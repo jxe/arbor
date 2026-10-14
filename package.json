@@ -54,6 +54,7 @@
     "@ovst/tree-merge": "workspace:*",
     "@ovst/apps-runtime": "workspace:*",
     "@ovst/collection-schema": "workspace:*",
+    "@ovst/usl": "workspace:*",
     "@ovst/story-sync": "workspace:*",
     "@ovst/cli": "workspace:*",
     "@ovst/story-web": "workspace:*"

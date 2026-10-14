@@ -1,0 +1,5 @@
+// expect: syntax
+// A field needs a type.
+model Book {
+  title
+}

@@ -1,0 +1,13 @@
+// expect: reserved-field
+// expect: duplicate-field
+// expect: duplicate-field
+// expect: reserved-field
+model Book {
+  id    Text
+  title Text
+  title Markdown
+  shelf Text
+}
+model Shelf { name Text }
+Book.shelf <-> Shelf.books[]
+Shelf.created <-> Person.shelves[]

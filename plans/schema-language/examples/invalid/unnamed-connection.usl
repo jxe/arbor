@@ -1,0 +1,8 @@
+// expect: connection-ends
+// expect: connection-member
+// expect: connection-ends
+// An unnamed connection has exactly two ends and nothing else.
+model Book { title Text }
+model Shelf { name Text }
+{ Book.shelves[], Shelf.books[], Person.shelvedBooks[] }
+{ Book.readers[], weight Number }
