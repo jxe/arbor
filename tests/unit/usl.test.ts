@@ -85,3 +85,13 @@ describe("usl resolution", () => {
     ]);
   });
 });
+
+describe("usl editor support", () => {
+  const editors = join(import.meta.dir, "../../packages/usl/editors");
+  test("Zed's queries are the tree-sitter grammar's", () => {
+    const queries = join(editors, "tree-sitter-usl/queries");
+    for (const name of readdirSync(queries)) {
+      expect(readFileSync(join(editors, "zed/languages/usl", name), "utf8")).toBe(readFileSync(join(queries, name), "utf8"));
+    }
+  });
+});

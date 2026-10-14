@@ -17,6 +17,7 @@
   },
   "files": [
     "src",
+    "editors",
     "README.md"
   ],
   "dependencies": {

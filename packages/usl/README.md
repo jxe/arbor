@@ -32,6 +32,8 @@ databases and derives query relationships from its database layout.
   compare structure; the files backend reads every row. Add a backend to
   `STORE_BACKENDS` to support another store.
 
+Editor support (Zed and VS Code highlighting) is in [`editors/`](editors/README.md).
+
 The main entry imports nothing from Node or Bun, so it runs in a browser;
 `@ovst/usl/verify` and the CLI need Bun. The package ships TypeScript with
 `.ts` import paths: a typechecking consumer needs

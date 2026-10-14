@@ -1,0 +1,7 @@
+{
+  "name": "tree-sitter-usl",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tree-sitter grammar for Ultimate Schema Language (.usl)",
+  "tree-sitter": [{ "scope": "source.usl", "file-types": ["usl"], "highlights": "queries/highlights.scm" }]
+}
