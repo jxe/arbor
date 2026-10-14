@@ -67,9 +67,6 @@ two ends and no name or fields can be written either way:
   `@@id(list, id)` makes an id unique only within its list, and a bare
   `@@id` gives a connection model its own id so it can repeat (two reviews
   of one game by one person). A fixed row's name is its id.
-- **`@within(field)`** on an end says both sides share that field: an item's
-  tags come from the item's own list. It is a constraint said by storage: a
-  stored reference keeps only the rest of the target's key.
 - **Connections with two named sides are declared outside the models they
   connect,** because they belong to neither. Storage is inferred: a 1:n becomes a column on the
   single side; an n:m becomes an array on the first end (in files) or a join
@@ -155,8 +152,9 @@ A `.usl` file sits beside the data it describes: the `.sqlite3`, `.csv` or
 ## Settled by Joe (2026-10-14)
 
 - Row names as ids, with quotes when needed, are fine.
-- Scoped identity and the Supplies same-list constraint are expressed with
-  `@@id(list, id)` and `@within(list)` (see [supplies](examples/supplies.usl)).
+- Scoped identity is `@@id(list, id)`. The Supplies same-list constraint
+  needs no syntax: tags connect to practices, and a tag belongs to one list
+  (see [supplies](examples/supplies.usl)).
 - `@@id` is the escape hatch from keying by ends; `@as` names an end's field.
 - `@@views` in a schema are defaults; a page may override all of them.
 

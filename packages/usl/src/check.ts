@@ -21,7 +21,7 @@ export const VALUE_TYPES = ["Text", "Markdown", "Number", "Bool", "Date"] as con
 export const BUILTIN_MODELS = ["Person"] as const;
 export const IMPLICIT_FIELDS = ["id", "created", "modified"] as const;
 
-const FIELD_ATTRIBUTES = ["ordered", "color", "unique", "as", "within"];
+const FIELD_ATTRIBUTES = ["ordered", "color", "unique", "as"];
 const MODEL_ATTRIBUTES = ["views", "editableBy", "fold", "table", "id"];
 const VIEW_OPTIONS = ["label", "line", "group", "sort"];
 const COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -56,8 +56,6 @@ export interface ResolvedModel {
 export interface ResolvedConnection {
   ends: [string, string];
   storage: Storage;
-  /** Both ends share this field (`@within`); a stored reference keeps only the rest of the target's key. */
-  within?: string;
 }
 
 export interface CheckResult {
@@ -254,24 +252,10 @@ export function checkUsl(file: SchemaFile): CheckResult {
     fieldMaps.set(name, fields);
   }
 
-  // `@within(f)` on an end: the row and every row it points to share `f`.
-  const checkWithin = (end: EndDecl, shared: string, at: Position) => {
-    const info = ends.get(`${end.model}.${end.field}`);
-    if (!info || info.decl !== end) return;
-    const here = fieldMaps.get(end.model)?.get(shared);
-    const there = fieldMaps.get(info.target)?.get(shared);
-    if (!here || !there) {
-      const missing = !here ? end.model : info.target;
-      report("within-field", at, `\`@within(${shared})\` needs both ${end.model} and ${info.target} to have \`${shared}\`; ${missing} doesn't`);
-    } else if (here.type !== there.type || here.arity !== "one" || there.arity !== "one") {
-      report("within-field", at, `\`${shared}\` must hold exactly one value of the same type on both sides; it is ${here.type}${arityText(here.arity)} on ${end.model} and ${there.type}${arityText(there.arity)} on ${info.target}`);
-    }
-  };
-
   // 4. Field and end attributes.
   const checkFieldAttrs = (attrs: Attribute[], arity: Arity, type: string | null, owner: string, end?: { decl: EndDecl; named: boolean }) => {
     for (const attr of attrs) {
-      const endOnly = attr.name === "as" || attr.name === "within";
+      const endOnly = attr.name === "as";
       if (attr.name === "bullet") {
         report("misplaced-attribute", attr.at, "`@bullet` is presentation; put it on the field in a view's `line`");
       } else if (!FIELD_ATTRIBUTES.includes(attr.name)) {
@@ -282,8 +266,6 @@ export function checkUsl(file: SchemaFile): CheckResult {
         report("attribute-arguments", attr.at, `\`@${attr.name}\` names one field: \`@${attr.name}(list)\``);
       } else if (attr.name === "as" && !end!.named) {
         report("misplaced-attribute", attr.at, "`@as` names a connection model's field for this end; an unnamed connection has no such field");
-      } else if (attr.name === "within") {
-        checkWithin(end!.decl, (attr.args[0] as { name: string }).name, attr.at);
       } else if (endOnly) {
         // `@as` is applied where the connection model's fields are resolved.
       } else if (attr.args.length > 0) {
@@ -422,8 +404,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
       );
       continue;
     }
-    const within = identArg(a.attrs, "within") ?? identArg(b.attrs, "within");
-    connections.push(within ? { ends: label, storage, within } : { ends: label, storage });
+    connections.push({ ends: label, storage });
   }
 
   // 7. Top-level views can only be checked for their options.

@@ -44,10 +44,11 @@ model Tag {
 
 { Tag.list, List.tags[] }
 
-// practice_tags: an item's tags come from the item's own list. Both sides
-// have a `list`, and @within says they share it, so a stored reference to a
-// tag keeps only the tag's id (the SQL's foreign key on list_id, tag_id).
-{ Item.tags[] @within(list), Tag.items[] }
+// practice_tags: tags connect to the practice, not the list item. A tag
+// belongs to one list, so a tagging can't cross lists. Unlike the SQL, a
+// practice removed from a list keeps its tags there, and gets them back if
+// re-added.
+{ Tag.practices[], Practice.tags[] }
 
 // list_reactions: one emoji per person per list.
 model Reaction {
