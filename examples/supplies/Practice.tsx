@@ -16,15 +16,16 @@ import {
 } from "./components/shared"
 
 const suppliesData = node("./data")
-const arbor_profiles = node("./data/arbor_profiles").children
-const practice_authors = node("./data/practice_authors").children
-const practices = node("./data/practices").children
-const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
+const lists = node("./data/List").children
+const people = node("./data/Person").children
+const practiceAuthors = node("./data/Practice_authors").children
+const practices = node("./data/Practice").children
+const profileCard = people.pick("id", "name", "handle", "portrait")
 
 export const practice = query.maybe(
   practices,
   z.object({ id: z.string().uuid() }),
-  (practice, { input, user }) => ({
+  (practice, { input }) => ({
     where: practice.id.eq(input.id),
     select: {
       ...practice.pick("id", "name", "about"),
@@ -32,22 +33,32 @@ export const practice = query.maybe(
         orderBy: author => author.name,
         select: profileCard,
       }),
-      lists: practice.lists({
-        where: list => list.visibility.eq("public").or(
-          list.owner_profile.eq(user.profile),
-        ),
-        orderBy: list => list.reactions.count.desc(),
-        select: list => ({
-          ...list.pick("id", "name", "about", "visibility", "kind"),
-          ownerProfile: list.owner_profile,
-          owner: list.owner(profileCard),
-          practiceCount: list.items.count,
-          reactionCount: list.reactions.count,
-          reactionProfiles: list.reactions({
-            orderBy: reaction => reaction.profile,
-            select: reaction => ({ profile: reaction.profile }),
-          }),
-        }),
+    },
+  }),
+)
+
+// The lists a practice is on reach it through their items, so they are
+// queried from List: a practice's items cannot filter or order by their list.
+export const practiceLists = query.many(
+  lists,
+  z.object({ id: z.string().uuid() }),
+  (list, { input, user }) => ({
+    where: [
+      list.items.some(item => item.practice.eq(input.id)),
+      list.visibility.eq("Public").or(
+        list.owner.eq(user.profile),
+      ),
+    ],
+    orderBy: list.reactions.count.desc(),
+    select: {
+      ...list.pick("id", "name", "about", "visibility", "kind"),
+      ownerProfile: list.owner,
+      owner: list.owner(profileCard),
+      practiceCount: list.items.count,
+      reactionCount: list.reactions.count,
+      reactionProfiles: list.reactions({
+        orderBy: reaction => reaction.person,
+        select: reaction => ({ profile: reaction.person }),
       }),
     },
   }),
@@ -62,14 +73,14 @@ export const updatePractice = mutation(
   }),
   async ({ user, tx, now }, input) => {
     if (!user) throw publicError("user-required", "This operation requires a Story user")
-    const authors = await tx.many(practice_authors, { practice_id: input.practiceId })
-    if (authors.length > 0 && !authors.some(row => row.author_profile === user.profile)) {
+    const authors = await tx.many(practiceAuthors, { practice: input.practiceId })
+    if (authors.length > 0 && !authors.some(row => row.person === user.profile)) {
       throw publicError("permission-denied", "Only an author can edit this practice")
     }
     await tx.update(practices, { id: input.practiceId }, {
       name: input.name,
       about: input.about,
-      updated_at: now,
+      modified: now,
     })
     return { ok: true }
   },
@@ -90,6 +101,7 @@ export default function Practice({ search }: { search: URLSearchParams }) {
 
 function PracticeContent({ id, editing = false }: { id: string; editing?: boolean }) {
   const value = useQuery(practice, { id })
+  const lists = useQuery(practiceLists, { id })
   const user = useUser()
   if (!value) {
     return (
@@ -100,7 +112,7 @@ function PracticeContent({ id, editing = false }: { id: string; editing?: boolea
     )
   }
   const canEdit = Boolean(user && (value.authors.length === 0 || value.authors.some(author => author.id === user.profile)))
-  const description = value.about.replace(/[#_*`>\[\]()]/g, " ").replace(/\s+/g, " ").trim().slice(0, 200)
+  const description = (value.about ?? "").replace(/[#_*`>\[\]()]/g, " ").replace(/\s+/g, " ").trim().slice(0, 200)
   return (
     <Shell
       title={value.name}
@@ -115,13 +127,13 @@ function PracticeContent({ id, editing = false }: { id: string; editing?: boolea
       <meta name="description" content={description} />
       {editing && canEdit ? <PracticeEditor value={value} /> : (
         <div className="mx-auto max-w-2xl rounded-lg bg-slate-100 p-4 leading-relaxed text-slate-700">
-          <Markdown source={value.about} />
+          <Markdown source={value.about ?? ""} />
         </div>
       )}
       {user ? <AddToLists practiceID={id} /> : null}
       <section className="mt-10">
         <h2 className="mb-3 text-xl font-semibold">This practice is on the following lists</h2>
-        <ListGrid lists={value.lists} />
+        <ListGrid lists={lists} />
       </section>
     </Shell>
   )
@@ -137,7 +149,7 @@ function AddToLists({ practiceID }: { practiceID: string }) {
       <MutationError error={state.error} />
       <div className="flex flex-wrap gap-2">
         {lists.map(list => {
-          const included = list.practiceMemberships.some(membership => membership.practice_id === practiceID)
+          const included = list.practiceMemberships.some(membership => membership.practice === practiceID)
           return (
             <form action={action} key={list.id}>
               <input type="hidden" name="listId" value={list.id} />
@@ -167,7 +179,7 @@ function PracticeEditor({ value }) {
       </label>
       <label className="grid gap-1">
         About
-        <TextArea className="min-h-36 resize-y" name="about" defaultValue={value.about} required />
+        <TextArea className="min-h-36 resize-y" name="about" defaultValue={value.about ?? ""} required />
       </label>
       <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save practice"}</Button>
     </form>

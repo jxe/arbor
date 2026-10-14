@@ -3,6 +3,7 @@ import { posix } from "node:path";
 import type {
   OverstoryUser,
   CountExpression,
+  ExistsExpression,
   OrderExpression,
   PredicateExpression,
   QueryHandle,
@@ -18,8 +19,7 @@ import type {
   ResolvedStorySource,
   StoreSchema,
 } from "./schema.ts";
-// Rename 002: `isProfileRelationSource` also accepts the old "arbor-profile" spelling.
-import { introspectStoreSchema, isProfileRelationSource } from "./schema.ts";
+import { introspectStoreSchema } from "./schema.ts";
 import {
   compareQueryValues,
   containsRequiredUser,
@@ -115,6 +115,14 @@ function validatePredicate(schema: StoreSchema, relation: string, value: Predica
     for (const operand of value.operands) validatePredicate(schema, relation, operand);
     return;
   }
+  if (value.kind === "exists") {
+    const metadata = relationship(schema, relation, value.relationship);
+    if (schema.relations[relation]!.source !== "sqlite" || schema.relations[metadata.target]!.source !== "sqlite") {
+      throw new QueryCompileError(`some() on ${relation}.${value.relationship} must stay inside the database`);
+    }
+    if (value.where) validatePredicate(schema, metadata.target, value.where);
+    return;
+  }
   validateValue(schema, relation, value.left);
   validateValue(schema, relation, value.right);
   if (value.operator === "contains" && value.left.kind !== "field") throw new QueryCompileError("contains() requires a relation field");
@@ -165,6 +173,7 @@ function equalityFields(predicate: PredicateExpression | undefined): Set<string>
     if (predicate.operator === "and") for (const operand of predicate.operands) for (const value of equalityFields(operand)) result.add(value);
     return result;
   }
+  if (predicate.kind !== "comparison") return result;
   if (predicate.operator === "eq" && predicate.left.kind === "field" && predicate.right.kind !== "field" && predicate.right.kind !== "count") {
     result.add(predicate.left.field);
   }
@@ -264,6 +273,7 @@ function compilePredicateSQL(
     const separator = value.operator === "and" ? " and " : " or ";
     return `(${value.operands.map((operand) => compilePredicateSQL(operand, relationName, alias, schema, context, parameters)).join(separator)})`;
   }
+  if (value.kind === "exists") return existsSQL(value, relationName, alias, schema, context, parameters);
   const left = compileRuntimeValue(value.left, relationName, alias, schema, context, parameters);
   const rightValue = value.right.kind === "parameter"
     ? parameterValue(context.input, value.right.path)
@@ -276,6 +286,31 @@ function compilePredicateSQL(
   const right = compileRuntimeValue(value.right, relationName, alias, schema, context, parameters);
   if (value.operator === "eq") return `${left} = ${right}`;
   return `instr(lower(${left}), lower(${right})) > 0`;
+}
+
+function existsSQL(
+  value: ExistsExpression,
+  relationName: string,
+  alias: string,
+  schema: StoreSchema,
+  context: ExecutionContext,
+  parameters: unknown[],
+): string {
+  const metadata = relationship(schema, relationName, value.relationship);
+  // Named by depth, not by node id, so the SQL is the same however many queries were built before.
+  const target = `${alias}_some`;
+  let from = `${quote(metadata.target)} as ${quote(target)}`;
+  let constraint: string;
+  if (metadata.direct) {
+    constraint = metadata.direct.map((pair) => `${quote(target)}.${quote(pair.target)} = ${quote(alias)}.${quote(pair.source)}`).join(" and ");
+  } else {
+    const through = metadata.through!;
+    const link = `${target}_link`;
+    from = `${quote(through.relation)} as ${quote(link)} join ${from} on ${through.target.map((pair) => `${quote(link)}.${quote(pair.through)} = ${quote(target)}.${quote(pair.target)}`).join(" and ")}`;
+    constraint = through.source.map((pair) => `${quote(link)}.${quote(pair.through)} = ${quote(alias)}.${quote(pair.source)}`).join(" and ");
+  }
+  if (value.where) constraint += ` and ${compilePredicateSQL(value.where, metadata.target, target, schema, context, parameters)}`;
+  return `exists (select 1 from ${from} where ${constraint})`;
 }
 
 function countSQL(value: CountExpression, relationName: string, alias: string, schema: StoreSchema): string {
@@ -298,7 +333,10 @@ function requiredFields(plan: SelectionPlan, relationName: string, schema: Store
   };
   const visitPredicate = (value: PredicateExpression) => {
     if (value.kind === "logical") value.operands.forEach(visitPredicate);
-    else { visitValue(value.left); visitValue(value.right); }
+    else if (value.kind === "exists") {
+      const metadata = relationship(schema, relationName, value.relationship);
+      for (const pair of metadata.direct ?? metadata.through!.source) result.add(pair.source);
+    } else { visitValue(value.left); visitValue(value.right); }
   };
   if (plan.where) visitPredicate(plan.where);
   for (const order of plan.orderBy) visitValue(order.value);
@@ -468,7 +506,7 @@ function profileIDFromPredicate(predicate: PredicateExpression | undefined, cont
     }
     return undefined;
   }
-  if (predicate.operator !== "eq" || predicate.left.kind !== "field" || predicate.left.field !== "id") return undefined;
+  if (predicate.kind !== "comparison" || predicate.operator !== "eq" || predicate.left.kind !== "field" || predicate.left.field !== "id") return undefined;
   const value = runtimeValue(predicate.right, {}, context);
   return typeof value === "string" ? value : undefined;
 }
@@ -600,7 +638,7 @@ export class SQLiteQueryEngine implements AsyncDisposable {
   private async rootRows(plan: QueryPlan, context: ExecutionContext): Promise<Record<string, unknown>[]> {
     const relationMetadata = this.schema.relations[plan.relation]!;
     const portable = isPortableNodePlan(plan);
-    if (isProfileRelationSource(relationMetadata.source)) {
+    if (relationMetadata.source === "overstory-profile") {
       const id = profileIDFromPredicate(plan.where, context);
       if (!id) throw new QueryCompileError("A root profile-relation query must constrain id exactly");
       const fields = requiredFields(plan, plan.relation, this.schema);
@@ -669,11 +707,11 @@ export class SQLiteQueryEngine implements AsyncDisposable {
   ): Promise<Record<string, unknown>[][]> {
     if (parents.length === 0) return [];
     const target = this.schema.relations[metadata.target]!;
-    const grouped = isProfileRelationSource(target.source)
+    const grouped = target.source === "overstory-profile"
       ? await this.profileRelationshipRows(parents, metadata, selected.plan, context)
       : this.sqliteRelationshipRows(parents, metadata, selected.plan, context);
     return grouped.map((rows) => {
-      const ordered = isProfileRelationSource(target.source)
+      const ordered = target.source === "overstory-profile"
         ? sortRows(rows, metadata.target, selected.plan, this.schema, context, metadata)
         : rows;
       if (metadata.cardinality === "many") assertStableRows(ordered, this.schema, metadata.target, selected.plan, metadata);

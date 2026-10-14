@@ -1,46 +1,23 @@
-/** The profile version this package implements (spec 06 §2.4). */
-export const COLLECTION_SCHEMA_PROFILE = 1;
-export const COLLECTION_SCHEMA_SOURCE = "schema.cddl";
+import { USL_LIMITS } from "@ovst/usl";
 
-/** Normative limits of profile version 1 (spec 06 §2.4.6). */
+export const COLLECTION_SCHEMA_SOURCE = "schema.usl";
+
+/** Limits on a collection schema and on validating its rows (spec 06 §2.4). */
 export const COLLECTION_SCHEMA_LIMITS = {
-  "source-bytes": 1_048_576,
-  tokens: 65_536,
-  rules: 1_024,
-  "syntax-nodes": 32_768,
-  "nesting-depth": 32,
-  "choice-alternatives": 256,
-  "map-members": 1_024,
-  "expanded-nodes": 100_000,
+  "source-bytes": USL_LIMITS.sourceBytes,
+  tokens: USL_LIMITS.tokens,
+  "nesting-depth": USL_LIMITS.depth,
   "row-steps": 1_000_000,
   "collection-steps": 50_000_000,
-  "text-literal-bytes": 4_096,
 } as const;
 
 export type CollectionSchemaLimit = keyof typeof COLLECTION_SCHEMA_LIMITS;
 
-export type SchemaDiagnosticCode =
-  | "invalid-utf8"
-  | "schema-too-large"
-  | "invalid-character"
-  | "syntax-error"
-  | "unsupported-syntax"
-  | "unsupported-type"
-  | "invalid-literal"
-  | "invalid-range"
-  | "duplicate-rule"
-  | "unknown-rule"
-  | "reserved-rule"
-  | "rule-cycle"
-  | "missing-row"
-  | "invalid-row"
-  | "duplicate-member"
-  | "invalid-metadata"
-  | "missing-profile-version"
-  | "unsupported-profile-version"
-  | "invalid-primary-key"
-  | "invalid-child-name"
-  | "budget-exceeded";
+/**
+ * Why a schema was rejected: a USL checker code (`unknown-type`,
+ * `duplicate-field`, `limit`, ...) or one of the collection's own.
+ */
+export type SchemaDiagnosticCode = "invalid-utf8" | "schema-too-large" | "collection-tables" | (string & {});
 
 export interface SourceLocation {
   /** 1-based line. */
@@ -58,7 +35,6 @@ export interface SchemaDiagnostic {
 
 export type ValueDiagnosticCode =
   | "type-mismatch"
-  | "out-of-range"
   | "no-matching-choice"
   | "unknown-member"
   | "missing-member"
@@ -67,7 +43,6 @@ export type ValueDiagnosticCode =
   | "csv-duplicate-column"
   | "csv-invalid-cell"
   | "csv-invalid-row"
-  | "csv-unrepresentable-schema"
   | "csv-unrepresentable-value";
 
 export interface ValueDiagnostic {

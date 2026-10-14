@@ -2,10 +2,9 @@ import { node, mutation, publicError } from "overstory/data"
 import { z } from "zod"
 
 const suppliesData = node("../data")
-const list_contributors = node("../data/list_contributors").children
-const list_practices = node("../data/list_practices").children
-const lists = node("../data/lists").children
-const practice_tags = node("../data/practice_tags").children
+const contributions = node("../data/Contribution").children
+const items = node("../data/Item").children
+const lists = node("../data/List").children
 
 // React Actions submit strings; imperative callers may already have booleans.
 export const booleanInput = z.union([z.boolean(), z.stringbool()])
@@ -14,43 +13,42 @@ export async function requireListEditor(tx, listId: string, user) {
   if (!user) throw publicError("user-required", "This operation requires a Story user")
   const value = await tx.one(lists, { id: listId })
   if (!value) throw publicError("not-found", "List not found")
-  if (value.owner_profile !== user.profile && !value.allow_arbor_user_edits) {
+  if (value.owner !== user.profile && !value.openToEdits) {
     throw publicError("permission-denied", "You cannot edit this list")
   }
   return value
 }
 
-export async function recordContributor(tx, list, profile: string, now: string) {
-  if (list.owner_profile === profile) return
+// A contribution's first and last are dates (schema.usl `Date`).
+export async function recordContributor(tx, list, person: string, now: string) {
+  if (list.owner === person) return
+  const today = now.slice(0, 10)
   await tx.upsert(
-    list_contributors,
-    { list_id: list.id, profile },
+    contributions,
+    { list: list.id, person },
     {
-      create: {
-        list_id: list.id,
-        profile,
-        first_contributed_at: now,
-        last_contributed_at: now,
-      },
-      update: { last_contributed_at: now },
+      create: { list: list.id, person, first: today, last: today },
+      update: { last: today },
     },
   )
 }
 
 export function orderedListPractices(tx, listId: string) {
-  return tx.ordered(list_practices, {
-    within: { list_id: listId },
-    key: "practice_id",
-    order: "position",
+  return tx.ordered(items, {
+    within: { list: listId },
+    key: "practice",
+    order: "items_position",
   })
 }
 
 export async function touchList(tx, listId: string, now: string) {
-  await tx.update(lists, { id: listId }, { updated_at: now })
+  await tx.update(lists, { id: listId }, { modified: now })
 }
 
 // Membership is shared by List and Practice. The ordered relation owns safe
 // append/removal under concurrent writers; callers never derive a position.
+// A practice's tags belong to the practice (scoped by the tag's list), so
+// removing it from a list keeps them for when it is added back.
 export const setListPractice = mutation(
   suppliesData,
   z.object({
@@ -60,21 +58,17 @@ export const setListPractice = mutation(
   }),
   async ({ user, tx, now }, input) => {
     const list = await requireListEditor(tx, input.listId, user)
-    const existing = await tx.one(list_practices, {
-      list_id: input.listId,
-      practice_id: input.practiceId,
+    const existing = await tx.one(items, {
+      list: input.listId,
+      practice: input.practiceId,
     })
 
     let changed = false
     const ordered = orderedListPractices(tx, input.listId)
     if (input.included && !existing) {
-      await ordered.append({ practice_id: input.practiceId })
+      await ordered.append({ practice: input.practiceId })
       changed = true
     } else if (!input.included && existing) {
-      await tx.deleteWhere(practice_tags, {
-        list_id: input.listId,
-        practice_id: input.practiceId,
-      })
       await ordered.remove(input.practiceId)
       changed = true
     }

@@ -265,14 +265,14 @@ type CollectionFileDescriptor = {
   type: "collection-file";
   format: "csv" | "json" | "jsonl";
   source: "_store.csv" | "_store.json" | "_store.jsonl";
-  schemaSource: "schema.cddl";
+  schemaSource: "schema.usl";
   schemaFingerprint: Hash;
   childSetHash: Hash;
 };
 ```
 
 In a directory object the descriptor has exactly these seven fields, with
-`version: 1` and `schemaSource: "schema.cddl"`
+`version: 1` and `schemaSource: "schema.usl"`
 ([file-backed collections](06-child-backings.md#21-accepted-overstory-representation)).
 Any other version or schema source is invalid.
 
@@ -1174,7 +1174,7 @@ nothing in Overstory is identified by canonical JSON text.
 When the value being identified is already an exact byte sequence, Overstory
 hashes those bytes directly instead. In particular, `schemaFingerprint` is
 the SHA-256 of the exact UTF-8 bytes of the descriptor's `schemaSource`
-(`schema.cddl`), and therefore equals that file's object hash. The
+(`schema.usl`), and therefore equals that file's object hash. The
 [`canonical-cbor-values`](conformance/canonical-cbor-values.json) vectors
 freeze valid encodings and rejected byte sequences for every language binding.
 

@@ -18,6 +18,8 @@ interface RelationSensitivity {
   fields: Set<string>;
   predicates: PredicateExpression[];
   unfiltered: boolean;
+  /** Reached by some(): its rows decide which rows match without being recorded as dependencies. */
+  opaque: boolean;
 }
 
 interface QuerySensitivity {
@@ -47,6 +49,23 @@ function addValue(fields: Set<string>, value: ValueExpression, schema: StoreSche
 function addPredicate(fields: Set<string>, predicate: PredicateExpression, schema: StoreSchema, relation: string, relations: Map<string, RelationSensitivity>): void {
   if (predicate.kind === "logical") {
     for (const operand of predicate.operands) addPredicate(fields, operand, schema, relation, relations);
+  } else if (predicate.kind === "exists") {
+    const metadata = schema.relationships[`${relation}.${predicate.relationship}`]!;
+    for (const pair of metadata.direct ?? metadata.through!.source) fields.add(pair.source);
+    const target = relationSensitivity(relations, metadata.target, false);
+    target.opaque = true;
+    if (metadata.direct) for (const pair of metadata.direct) target.fields.add(pair.target);
+    else {
+      const through = relationSensitivity(relations, metadata.through!.relation, false);
+      through.opaque = true;
+      through.unfiltered = true;
+      for (const pair of [...metadata.through!.source, ...metadata.through!.target]) through.fields.add(pair.through);
+      for (const pair of metadata.through!.target) target.fields.add(pair.target);
+    }
+    if (predicate.where) {
+      target.predicates.push(predicate.where);
+      addPredicate(target.fields, predicate.where, schema, metadata.target, relations);
+    } else target.unfiltered = true;
   } else {
     addValue(fields, predicate.left, schema, relation, relations);
     addValue(fields, predicate.right, schema, relation, relations);
@@ -56,7 +75,7 @@ function addPredicate(fields: Set<string>, predicate: PredicateExpression, schem
 function relationSensitivity(relations: Map<string, RelationSensitivity>, relation: string, root: boolean): RelationSensitivity {
   let value = relations.get(relation);
   if (!value) {
-    value = { root, fields: new Set(), predicates: [], unfiltered: false };
+    value = { root, fields: new Set(), predicates: [], unfiltered: false, opaque: false };
     relations.set(relation, value);
   } else if (root) value.root = true;
   return value;
@@ -97,9 +116,10 @@ function sensitivity(schema: StoreSchema, plan: QueryPlan, input: unknown, user:
 
 function predicateMatches(predicate: PredicateExpression | undefined, row: Record<string, unknown> | null, query: QuerySensitivity): boolean {
   if (!row) return false;
+  // A count or some() depends on other rows, so the row alone cannot rule the predicate out.
   const containsCount = (value: PredicateExpression): boolean => value.kind === "logical"
     ? value.operands.some(containsCount)
-    : value.left.kind === "count" || value.right.kind === "count";
+    : value.kind === "exists" || value.left.kind === "count" || value.right.kind === "count";
   if (predicate && containsCount(predicate)) return true;
   return evaluateQueryPredicate(predicate, row, query);
 }
@@ -115,7 +135,7 @@ function rowRelevant(change: SQLiteRowChange, query: QuerySensitivity, execution
   const rowMayParticipate = relation.unfiltered || relation.predicates.length === 0 || relation.predicates.some((predicate) =>
     predicateMatches(predicate, change.before, query) || predicateMatches(predicate, change.after, query));
   if (!rowMayParticipate) return false;
-  if (relation.root) return true;
+  if (relation.root || relation.opaque) return true;
   const dependency = execution?.dependencies.database[change.collection];
   if (!dependency) return true;
   if (dependency.rows.some((key) => matches(change.before, key) || matches(change.after, key))) return true;

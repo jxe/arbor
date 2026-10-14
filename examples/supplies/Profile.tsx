@@ -3,11 +3,11 @@ import { node, query } from "overstory/data"
 import { z } from "zod"
 import { ListGrid, PracticeGrid, Shell } from "./components/shared"
 
-const arbor_profiles = node("./data/arbor_profiles").children
-const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
+const people = node("./data/Person").children
+const profileCard = people.pick("id", "name", "handle", "portrait")
 
 export const profile = query.maybe(
-  arbor_profiles,
+  people,
   z.object({ profile: z.string().min(1) }),
   (person, { input }) => ({
     where: person.id.eq(input.profile),
@@ -17,18 +17,18 @@ export const profile = query.maybe(
         orderBy: practice => practice.name,
         select: practice => practice.pick("id", "name", "about"),
       }),
-      lists: person.lists({
-        where: list => list.visibility.eq("public"),
+      lists: person.ownedLists({
+        where: list => list.visibility.eq("Public"),
         orderBy: list => list.name,
         select: list => ({
           ...list.pick("id", "name", "about", "visibility", "kind"),
-          ownerProfile: list.owner_profile,
+          ownerProfile: list.owner,
           owner: list.owner(profileCard),
           practiceCount: list.items.count,
           reactionCount: list.reactions.count,
           reactionProfiles: list.reactions({
-            orderBy: reaction => reaction.profile,
-            select: reaction => ({ profile: reaction.profile }),
+            orderBy: reaction => reaction.person,
+            select: reaction => ({ profile: reaction.person }),
           }),
         }),
       }),

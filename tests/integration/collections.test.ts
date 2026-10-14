@@ -65,33 +65,31 @@ async function prepareWrite(
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "story-collections-"));
   await mkdir(join(root, "csv"));
-  await writeFile(join(root, "csv", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr, count: number }\n');
+  await writeFile(join(root, "csv", "schema.usl"), 'model Item {\n  title Text\n  count Number\n}\n');
   await writeFile(join(root, "csv", "_store.csv"), "id,title,count\none,One,1\ntwo,Two,nope\n");
   await mkdir(join(root, "jsonl"));
-  await writeFile(join(root, "jsonl", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n');
+  await writeFile(join(root, "jsonl", "schema.usl"), 'model Item {\n  title Text\n}\n');
   await writeFile(join(root, "jsonl", "_store.jsonl"), '{"id":"one","title":"One"}\nnot json\n{"id":"three","title":"Three"}\n');
   await mkdir(join(root, "json"));
-  await writeFile(join(root, "json", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n');
+  await writeFile(join(root, "json", "schema.usl"), 'model Item {\n  title Text\n}\n');
   await writeFile(join(root, "json", "_store.json"), '[{"id":"b","title":"Second"},{"id":"a","title":"First"}]\n');
   await mkdir(join(root, "named"));
-  await writeFile(join(root, "named", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\noverstory-child-name = "slug"\nrow = { id: tstr, slug: tstr, title: tstr }\n');
+  await writeFile(join(root, "named", "schema.usl"), 'model Item {\n  slug  Text @path\n  title Text\n}\n');
   await writeFile(join(root, "named", "_store.json"), '[{"id":"opaque-1","slug":"first-practice","title":"First"}]\n');
   await mkdir(join(root, "markdown"));
-  await writeFile(join(root, "markdown", "schema.cddl"), 'overstory-schema-version = 1\nrow = { id: tstr, title: tstr, status: "draft" / "done" }\n');
+  await writeFile(join(root, "markdown", "schema.usl"), 'model Item {\n  title  Text\n  status Status\n}\nItem.status <-> Status.items[]\nmodel Status {\n  @@fixed { draft, done }\n}\n');
   await writeFile(join(root, "markdown", "one.md"), "---\nid: abc123\ntitle: One\nstatus: draft\n---\nBody\n");
   await mkdir(join(root, "writable-json"));
-  await writeFile(join(root, "writable-json", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr, count: number }\n');
+  await writeFile(join(root, "writable-json", "schema.usl"), 'model Item {\n  title Text\n  count Number\n}\n');
   await writeFile(join(root, "writable-json", "_store.json"), '[\n  { "id": "one", "title": "One", "count": 1 },\n  {\n    "id":"two",\n    "title":"Two",\n    "count":2\n  }\n]\n');
   await mkdir(join(root, "writable-jsonl"));
-  await writeFile(join(root, "writable-jsonl", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr, count: number }\n');
+  await writeFile(join(root, "writable-jsonl", "schema.usl"), 'model Item {\n  title Text\n  count Number\n}\n');
   await writeFile(join(root, "writable-jsonl", "_store.jsonl"), '{"id":"one","title":"One","count":1}\r\n  {"id":"two","title":"Two","count":2}  \r\n');
   await mkdir(join(root, "writable-csv"));
-  await writeFile(join(root, "writable-csv", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr, count: number, notes: tstr }\n');
+  await writeFile(join(root, "writable-csv", "schema.usl"), 'model Item {\n  title Text\n  count Number\n  notes Text\n}\n');
   await writeFile(join(root, "writable-csv", "_store.csv"), 'id,title,count,notes\r\none,One,1,"first\r\nnote"\r\ntwo,Two,2,plain\r\n');
   await mkdir(join(root, "sqlite"));
   const sqliteSchema = "create table items (id text primary key, title text not null, active boolean not null); create table memberships (list_id text not null, profile text not null, primary key (list_id, profile));";
-  await writeFile(join(root, "sqlite", "schema.sql"), `${sqliteSchema}\n`);
-  await writeFile(join(root, "sqlite", "relationships.json"), '{"version":1,"relationships":{}}\n');
   const sqlite = new Database(join(root, "sqlite", "_store.sqlite3"));
   sqlite.exec(sqliteSchema);
   sqlite.query("insert into items values (?, ?, ?), (?, ?, ?)").run("b", "Second", 0, "a", "First", 1);
@@ -173,26 +171,20 @@ describe("file-backed collections", () => {
     await providers[Symbol.asyncDispose]();
   });
 
-  test("never falls back from duplicate or nullable declared identity", async () => {
+  test("never falls back from duplicate declared identity", async () => {
     const duplicate = join(root, "duplicate");
     await mkdir(duplicate);
-    await writeFile(join(duplicate, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n');
+    await writeFile(join(duplicate, "schema.usl"), 'model Item {\n  title Text\n}\n');
     await writeFile(join(duplicate, "_store.json"), '[{"id":"same","title":"One"},{"id":"same","title":"Two"}]\n');
     const page = await childrenOf(new ProjectionProviderHost(), duplicate, "/duplicate", null, 20);
     expect(page.items.every((row) => row.ref.stableKey === null)).toBe(true);
     expect(page.items.every((row) => row.diagnostics.some((item) => item.code === "duplicate-row-key"))).toBe(true);
-
-    const nullable = join(root, "nullable");
-    await mkdir(nullable);
-    await writeFile(join(nullable, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { ? id: tstr }\n');
-    await writeFile(join(nullable, "_store.json"), "[]\n");
-    await expect(new ProjectionProviderHost().descriptor(nullable)).rejects.toThrow("invalid-primary-key");
   });
 
   test("keeps CSV text keys exact and preserves undeclared columns as text", async () => {
     const directory = join(root, "typed-csv");
     await mkdir(directory);
-    await writeFile(join(directory, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["code"]\nrow = { code: tstr, qty: uint, ? note: tstr, active: bool }\n');
+    await writeFile(join(directory, "schema.usl"), 'model Item {\n  code Text\n  qty Int\n  note Text?\n  active Bool\n  @@id(code)\n}\n');
     await writeFile(join(directory, "_store.csv"), "code,qty,note,active\n001,2,,true\n010,0,x,false\n");
     const providers = new ProjectionProviderHost();
     const page = await childrenOf(providers, directory, "/typed-csv");
@@ -220,44 +212,42 @@ describe("file-backed collections", () => {
     await writeFile(join(directory, "schema.ts"), "export const schema = {};\n");
     expect(await detectProjection(directory)).toBeNull();
 
-    await writeFile(join(directory, "schema.cddl"), "overstory-schema-version = 1\nrow = { title: tstr }\n");
+    await writeFile(join(directory, "schema.usl"), "model Item {\n  title Text\n}\n");
     await writeFile(join(directory, "one.md"), "---\ntitle: One\n---\n");
     const definition = await detectProjection(directory);
     expect(definition).toMatchObject({ provider: "markdown", diagnostics: [], markdownPaths: [join(directory, "one.md")] });
   });
 
-  test("schema.cddl does not govern a database backing", async () => {
+  test("schema.usl sits beside a database backing", async () => {
     const directory = join(root, "sqlite-with-schema");
     await mkdir(directory);
     new Database(join(directory, "_store.sqlite3")).close();
-    await writeFile(join(directory, "schema.cddl"), "overstory-schema-version = 1\nrow = { id: tstr }\n");
+    await writeFile(join(directory, "schema.usl"), "model Item {}\n");
     const definition = await detectProjection(directory);
-    expect(definition).toMatchObject({ provider: "sqlite", diagnostics: [expect.objectContaining({ code: "mixed-collection-backing" })] });
-    expect(definition?.schemaPath).toBeUndefined();
+    expect(definition).toMatchObject({ provider: "sqlite", diagnostics: [], schemaPath: join(directory, "schema.usl") });
   });
 
-  test("an invalid schema.cddl is rejected with its profile diagnostic, not evaluated", async () => {
-    const directory = join(root, "invalid-cddl");
+  test("an invalid schema.usl is rejected with its diagnostic, not evaluated", async () => {
+    const directory = join(root, "invalid-schema");
     await mkdir(directory);
-    await writeFile(join(directory, "schema.cddl"), "overstory-schema-version = 1\nrow = { id: tstr .size 3 }\n");
+    await writeFile(join(directory, "schema.usl"), "model Item {\n  title Txt\n}\n");
     await writeFile(join(directory, "_store.json"), "[]\n");
-    await expect(new ProjectionProviderHost().descriptor(directory)).rejects.toThrow("unsupported-syntax at 2:18");
+    await expect(new ProjectionProviderHost().descriptor(directory)).rejects.toThrow("unknown-type at 2:3");
   });
 
   test("accepts and preserves undeclared Markdown frontmatter, including a page id", async () => {
     const directory = join(root, "markdown-open");
     await mkdir(directory);
-    await writeFile(join(directory, "schema.cddl"), 'overstory-schema-version = 1\nrow = { title: tstr, ? meta: { ? tag: tstr } }\n');
+    await writeFile(join(directory, "schema.usl"), 'model Page {\n  title Text\n}\n');
     await writeFile(join(directory, "one.md"), "---\nid: pg123\ntitle: One\nrating: 4\ntags: [a, b]\n---\nBody\n");
     await writeFile(join(directory, "two.md"), "---\ntitle: Two\nmeta:\n  tag: x\n  extra: y\n---\n");
     const page = await childrenOf(new ProjectionProviderHost(), directory, "/markdown-open", null, 20);
     expect(page.items.map((item) => [item.ref.path, item.properties, item.diagnostics.map((diagnostic) => diagnostic.code)])).toEqual([
       ["/markdown-open/one", { id: "pg123", title: "One", rating: 4, tags: ["a", "b"] }, []],
-      // Nested maps stay closed unless they declare * tstr => any.
-      ["/markdown-open/two", { title: "Two", meta: { tag: "x", extra: "y" } }, ["unknown-member"]],
+      ["/markdown-open/two", { title: "Two", meta: { tag: "x", extra: "y" } }, []],
     ]);
-    // Declaring no `id` keeps rows without an id-derived stable key.
-    expect((await new ProjectionProviderHost().descriptor(directory))?.identityRule).toBeUndefined();
+    // A Markdown row's frontmatter `id` is its stable key; without one, its file name identifies it.
+    expect(page.items.map((item) => item.ref.stableKey)).toEqual([canonicalStableKey([["id", "pg123"]]), null]);
   });
 
   test("keeps Markdown identity in the same property map as record fields", async () => {

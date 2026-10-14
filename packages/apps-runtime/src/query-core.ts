@@ -68,6 +68,7 @@ export function evaluateQueryPredicate(
   context: QueryValueContext,
 ): boolean {
   if (!predicate) return true;
+  if (predicate.kind === "exists") throw new QueryCompileError("some() is evaluated only inside the database");
   if (predicate.kind === "logical") {
     return predicate.operator === "and"
       ? predicate.operands.every((operand) => evaluateQueryPredicate(operand, row, context))
@@ -159,7 +160,7 @@ export function portableQueryFields(plan: QueryPlan): ReadonlySet<string> {
   };
   const visitPredicate = (predicate: PredicateExpression) => {
     if (predicate.kind === "logical") predicate.operands.forEach(visitPredicate);
-    else {
+    else if (predicate.kind === "comparison") {
       visitValue(predicate.left);
       visitValue(predicate.right);
     }
@@ -182,6 +183,8 @@ export function validatePortableNodePlan(plan: QueryPlan): void {
     if (value.kind === "logical") {
       if (value.operands.length === 0) throw new QueryCompileError("A logical predicate cannot be empty");
       value.operands.forEach(visitPredicate);
+    } else if (value.kind === "exists") {
+      throw new QueryCompileError("The portable node-query subset does not support some()");
     } else {
       visitValue(value.left);
       visitValue(value.right);

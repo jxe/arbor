@@ -80,7 +80,7 @@ A backing preserves these logical child-set facts:
   [locators](03-locators.md#2-stable-keys-revisions-and-fragments); each key
   field's validated value must be a JSON string, boolean, or finite number.
   A file-backed schema never normalizes a value into that form
-  ([§2.4.4](#244-value-validation)); a database backing maps a value not
+  ([§2.4.2](#242-value-validation)); a database backing maps a value not
   exactly representable in one of those forms to a string through its
   declared column mapping. Changing a key is observed as
   removal of one child and creation of another. A row's logical child segment
@@ -141,22 +141,16 @@ For a runtime-owned mutation, the backing adapter normally knows exact affected 
 
 ## 2. File-backed collections
 
-A file-backed collection contains `schema.cddl`, a declarative row schema in the
-[collection schema profile](#24-collection-schema-profile), and exactly one row
-representation:
+A file-backed collection contains `schema.usl`, its
+[schema](#24-collection-schemas) in the [schema language](11-schema-language.md),
+and exactly one row representation:
 
-```cddl
-overstory-schema-version = 1
-overstory-primary-key = ["id"]
-; Optional. Omission derives logical names from the primary key.
-overstory-child-name = "slug"
-
-row = {
-  id: tstr,
-  slug: tstr,
-  title: tstr,
-  ? description: tstr,
-  quantity: 0..1000
+```
+model Item {
+  slug        Text @path
+  title       Text
+  description Markdown?
+  quantity    Int
 }
 ```
 
@@ -166,27 +160,21 @@ row = {
 - one `_store.jsonl`.
 
 Interpreting a collection never executes authored code. The schema is data: a
-conforming implementation parses and checks it under the profile's finite
+conforming implementation parses and checks it under the language's finite
 limits and validates rows against it without inserting defaults, removing
 fields, or transforming values. A row may carry members the schema does not
 declare: its Markdown frontmatter keys, JSON or JSONL object members, or CSV
-columns beyond `row`'s. They are accepted and preserved exactly
-([§2.4.4](#244-value-validation)); declared members are validated strictly.
+columns beyond the declared ones. They are accepted and preserved exactly
+([§2.4.2](#242-value-validation)); declared members are validated strictly.
 
-`overstory-child-name` is an optional deterministic logical-name rule for
-compact backings. It names one required, text-only member of `row`; omission
-derives the name from the primary key. The selected value must be one valid
-logical `Name`.
+A row's key is its model's key: `id` unless the schema says otherwise. It names
+the row in durable references and mutations and is immutable under an ordinary
+row update. A Markdown row's key is its frontmatter `id` when it has one;
+without one, its file name identifies it. `@path` on a field makes that field's
+value the row's logical name, which must be one valid logical `Name`; without
+it, the name derives from the key.
 
-`overstory-primary-key` is required for mutation and durable row references. It
-names one or more declared required `row` members in tuple order. Omitting it leaves CSV and
-JSON/JSONL rows as read-only positional projections; Markdown rows may use their
-durable `id` identity as their key when the schema explicitly declares `id`.
-An undeclared `id` frontmatter key, such as the durable page ID a client adds
-when a page moves, is an ordinary preserved member. A key field is immutable
-under an ordinary row update.
-
-Only `schema.cddl` selects a collection schema. Any other file, including one
+Only `schema.usl` selects a collection schema. Any other file, including one
 named `schema.ts`, is an ordinary file with no collection meaning.
 
 `_store.csv` uses its header for property names. `_store.json` is one top-level
@@ -211,7 +199,7 @@ authored file:
 ```text
 Physical entries below /books:
   _store.json  → sourceHash
-  schema.cddl  → schemaHash
+  schema.usl   → schemaHash
 
 Logical children below /books:
   alice
@@ -228,27 +216,24 @@ The descriptor fields have these meanings:
 |---|---|
 | `version`, `type` | Select this descriptor contract: version 1, `collection-file`. Any other version is invalid. |
 | `format`, `source` | Select the physical collection file and parser for its exact bytes. |
-| `schemaSource` | Select the physical schema file used to interpret the rows: exactly `schema.cddl`. |
-| `schemaFingerprint` | Commit to the exact UTF-8 bytes of the selected schema source, comments and metadata included. |
+| `schemaSource` | Select the physical schema file used to interpret the rows: exactly `schema.usl`. |
+| `schemaFingerprint` | Commit to the exact UTF-8 bytes of the selected schema source, comments included. |
 | `childSetHash` | Commit to the validated logical children derived from the collection file and schema. |
 
-The descriptor version and the schema profile version
-(`overstory-schema-version`) are distinct. A descriptor version selects the
-schema file and this validation procedure; the profile version, inside the
-fingerprinted source, selects the schema language. A conforming authority
-validates a descriptor in this order:
+A descriptor version selects the schema file and this validation procedure.
+A conforming authority validates a descriptor in this order:
 
 1. Require `source` and `schemaSource` to name two ordinary file entries in
    the same directory, and require `source` to agree with `format`.
 2. Load the exact source and schema bytes through those entries' hashes.
 3. Recompute `schemaFingerprint` from the exact schema bytes, then parse and
-   check `schema.cddl` under the [collection schema profile](#24-collection-schema-profile)
-   and its limits.
+   check `schema.usl` as a [collection schema](#24-collection-schemas) under
+   the language's limits.
 4. Parse the collection file. For `_store.csv`, convert each cell to a value
-   by the [schema-directed CSV rules](#245-csv-cell-conversion); JSON and JSONL
-   values are used as parsed. Validate every row against `row`.
+   by the [schema-directed CSV rules](#243-csv-cell-conversion); JSON and JSONL
+   values are used as parsed. Validate every row.
 5. Derive every row's stable key and logical name from the validated values
-   using `overstory-primary-key` and `overstory-child-name`.
+   using the model's key and its `@path` field.
 6. Order the resulting `{ key, name, properties }` values by the UTF-8 bytes
    of `key` and recompute `childSetHash` as their canonical CBOR hash.
 7. Reject a missing or multiply claimed source, an invalid row, key, or name,
@@ -318,206 +303,93 @@ a collection file they cannot validate completely. Semantic merge reports
 `collection-file-constraint-conflict`; a row conflict path uses the parent
 logical path plus its `overstory-key` identity suffix.
 
-### 2.4 Collection schema profile
+### 2.4 Collection schemas
 
-`schema.cddl` is written in [CDDL (RFC 8610)](https://www.rfc-editor.org/rfc/rfc8610.html).
-This section defines the Overstory collection schema profile, version 1: a
-strict subset of CDDL syntax interpreted over JSON values, plus three reserved
-metadata rules and the open-row convention. Every accepted source is valid RFC
-8610 CDDL, but the metadata interpretation and the open `row` map
-([§2.4.4](#244-value-validation)) are Overstory conventions, not part of RFC
-8610.
-Valid CDDL outside the subset is rejected with a diagnostic, never ignored or
-approximated. The [`collection-schemas.json`](conformance/collection-schemas.json)
+A collection's `schema.usl` declares exactly one model with data rows: the
+collection's rows. It may also declare fixed models, which its rows reference
+by name, and connections to `Person`. The rows' members are the columns of
+that model's table in the [data-file layout](11-schema-language.md#7-layout):
+its key, its value fields, then its connections. A schema whose data-file
+layout has any other table, such as a second model or an n:m connection
+without `@fold`, cannot govern a collection and is rejected with
+`collection-tables`. The [`collection-schemas.json`](conformance/collection-schemas.json)
 vectors bind this section.
 
 #### 2.4.1 Source and identity
 
-The source is the exact bytes of `schema.cddl`. They must be well-formed UTF-8
-without a byte-order mark, and at most 1,048,576 bytes. `schemaFingerprint` is
-the SHA-256 of those exact bytes, so comments, metadata rules, and formatting
-are part of schema identity. Implementations never hash a reformatted or
-parsed form.
+The source is the exact bytes of `schema.usl`. They must be well-formed UTF-8
+without a byte-order mark (`invalid-utf8`), and at most 1,048,576 bytes
+(`schema-too-large`). `schemaFingerprint` is the SHA-256 of those exact bytes;
+implementations never hash a reformatted or parsed form.
 
-#### 2.4.2 Syntax subset
-
-The lexical syntax is RFC 8610's, restricted as follows.
-
-- Whitespace is space, tab, line feed, and carriage return. A comment runs from
-  `;` to the end of the line. Any other control character outside a comment or
-  text literal is rejected, as is one inside a comment other than tab or
-  carriage return.
-- A rule is `name = type`. Names use the RFC 8610 identifier grammar and are
-  compared exactly. Each name is defined once. `/=`, `//=`, generic parameters
-  (`name<T>`), and group rules (`name = ( ... )`) are rejected.
-- A type is one or more alternatives separated by `/`. An alternative is a
-  prelude type, a rule reference, a text literal, a numeric literal, a numeric
-  range, a map, or an array. Parenthesized types, group choices (`//`),
-  control operators (`.size`, `.regexp`, and every other `.name`), unwrap
-  (`~`), enumeration (`&`), tags (`#`), byte-string literals, and socket
-  (`$name`) extension points are rejected.
-- The prelude types are `bool`, `true`, `false`, `null`, `nil` (a synonym for
-  `null`), `tstr`, `text` (a synonym for `tstr`), `int`, `uint`, `nint`, and
-  `number`. Every other prelude name, including `any` (outside the open-map
-  entry below), `bstr`, `bytes`, `float`, `float16`, `float32`, `float64`, and
-  `undefined`, is rejected, and no rule may be named after a prelude type.
-- A text literal is a double-quoted string using JSON escapes (`\"`, `\\`,
-  `\/`, `\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX` with paired surrogates). Its
-  value must be valid Unicode and at most 4,096 UTF-8 bytes. Single-quoted and
-  prefixed literals are rejected.
-- An integer literal is `0` or an optional `-` followed by a decimal digit
-  string without leading zeros, and must lie within ±(2^53 − 1). A decimal
-  literal adds a fraction (`.` digits), an exponent (`e` or `E`, optional sign,
-  digits), or both, and its nearest IEEE 754 double must be finite. Hexadecimal,
-  binary, and hexadecimal-float literals are rejected.
-- A range is `low..high` (inclusive) or `low...high` (excluding `high`). Both
-  bounds are numeric literals of the same kind: two integer literals form an
-  integer range, two decimal literals a number range. Mixed bounds, named
-  bounds, and `low > high` are rejected.
-- A map is `{ entries }`. Each entry is `key: type`, optionally preceded by
-  `?`; `key` is a bareword or a text literal and names a string member.
-  Entries are separated by optional commas, and a trailing comma is allowed.
-  Member names are unique within a map. A map may also contain, at most once
-  and in any position, the open-map entry `* tstr => any` (`text` may replace
-  `tstr`), which admits undeclared members ([§2.4.4](#244-value-validation)).
-  Other occurrence indicators, other `=>` keys, computed or nontext keys, and
-  group entries are rejected.
-- An array is `[* type]` or `[+ type]`: a homogeneous array with zero-or-more
-  or one-or-more elements of `type`. Any other array group, including a
-  fixed-length tuple, is rejected.
-- Rule references are resolved within the one source file. An undefined
-  reference, a reference cycle (direct or indirect), and a reference to a
-  metadata rule are rejected. Unreferenced rules are allowed and checked.
-
-The rule `row` is required and must be defined directly as a map. Its declared
-members in source order are the collection's declared columns; that order is
-the generated-column and CSV-encoding order.
-
-#### 2.4.3 Metadata rules
-
-Names beginning with `overstory-` are reserved. Only these three may be
-defined, each at most once, and each only with the literal-only form shown:
-
-| Rule | Form | Meaning |
-|---|---|---|
-| `overstory-schema-version` | integer literal | Required. The profile version; this section defines `1`, and any other value is rejected as unsupported. |
-| `overstory-primary-key` | `[` text literal *( `,` text literal ) `]` | Optional. The primary-key fields in tuple order. |
-| `overstory-child-name` | text literal | Optional. The member supplying each row's logical name. |
-
-Each primary-key field names a distinct required member of `row` whose type
-admits only text, number, and boolean values; a field admitting `null`, a
-map, or an array is rejected. The child-name member must be a required member
-of `row` whose type admits only text. Nonliteral metadata, such as
-`overstory-primary-key = [tstr]` or a rule reference, is rejected. Absence of
-the primary key keeps the read-only positional and Markdown-`id` behavior of
-[§2](#2-file-backed-collections); absence of the child name derives each name
-from the key.
-
-#### 2.4.4 Value validation
+#### 2.4.2 Value validation
 
 Validation is a pure decision over one JSON value. It never inserts defaults,
 removes fields, coerces, or transforms, so a valid row's properties are
 exactly its parsed values.
 
-- `tstr` matches a string that is valid Unicode (no unpaired surrogate); a
-  text literal matches an equal string, compared by code point.
-- `bool`, `true`, `false`, and `null` match the corresponding JSON values.
-- `number` matches any finite number. `int` matches a number that is an
-  integer within ±(2^53 − 1); `uint` additionally requires ≥ 0 and `nint`
-  requires < 0. Numeric kind is decided by value, not by source spelling:
-  `1`, `1.0`, and `1e0` are the same integer, and `-0` is zero.
-- A numeric literal matches an equal number. An integer range matches an
-  integer within its bounds; a number range matches any finite number within
-  its bounds.
-- A map matches a JSON object in which every required member is present and
-  every present declared member is valid; an optional member is either absent
-  or present with a valid value, and `null` is a value, not absence. A closed
-  map, one without the open-map entry, also requires every member to be
-  declared: an undeclared member is invalid. An open map, one with
-  `* tstr => any`, accepts undeclared members with any JSON value without
-  examining them.
-- **Open rows.** By Overstory convention the `row` map is always open: rows
-  are validated as if `row` ended with `* tstr => any`, whether or not the
-  source writes that entry. Under plain RFC 8610 the two forms are equivalent;
-  a `:` member key implies a cut, so a declared member with an invalid value
-  never falls through to the open entry. Undeclared members are preserved
-  exactly in the row's properties, the child-set hash, and every re-encoding.
-  Nested maps keep ordinary CDDL semantics: they are closed unless they declare
-  `* tstr => any`. The primary key and child name still name declared
-  required members.
-- An array type matches a JSON array whose elements all match, with at least
-  one element for `+`.
-- A choice matches a value that matches any alternative.
+- A row is a JSON object with every required member present. An optional
+  member or an array may be absent, and an optional member may be `null`,
+  which means the same as absent.
+- `Text` and `Markdown` match a string that is valid Unicode (no unpaired
+  surrogate). `Int` matches an integer within ±(2^53 − 1), decided by value:
+  `1`, `1.0` and `1e0` are the same integer. `Number` matches any finite
+  number. `Bool` matches `true` or `false`. `Date` matches a string that
+  parses as an ISO 8601 date or date-time.
+- A reference to a fixed model matches one of its row names. A reference to
+  `Person` matches a profile id string. A folded connection is an array of the
+  other side's keys: a value, or an object of key columns when the key has
+  several.
+- An array matches a JSON array whose elements all match.
+- **Open rows.** Undeclared members are accepted without examination and
+  preserved exactly in the row's properties, the child-set hash, and every
+  re-encoding.
 
-Diagnostics name a stable code and a JSON Pointer to the failing value. Their
-order is deterministic: declared members in declaration order, then a closed
-map's undeclared members in their order in the value. A failed choice reports the
-choice itself rather than every alternative.
+Diagnostics name a stable code (`type-mismatch`, `missing-member`,
+`no-matching-choice`, `invalid-text`, `budget-exceeded`) and a JSON Pointer to
+the failing value, in the order the columns are declared.
 
-#### 2.4.5 CSV cell conversion
+#### 2.4.3 CSV cell conversion
 
 A CSV cell is text, so `_store.csv` converts each cell to a value using its
-column's declared type before validation. JSON and JSONL rows already contain
-typed values and are never converted.
+column's type before validation. JSON and JSONL rows already contain typed
+values and are never converted.
 
 Header names must be distinct; a repeated header name makes the file invalid.
-A header name that is not a declared `row` member is an undeclared column: it
-converts as if declared `? name: tstr`, so a nonempty cell is its exact text
-and an empty cell is absence. Every declared `row` member's type, after removing
-`null`, must admit exactly one scalar class: text (`tstr` and text literals),
-number (numeric types, ranges, and numeric literals), or boolean (`bool`,
-`true`, `false`). A schema with a map, array, or mixed-class member cannot
-govern `_store.csv`. A cell converts as follows:
+A header name that is not a declared column is an undeclared column: a
+nonempty cell is its exact text and an empty cell is absence. A declared cell
+converts as follows:
 
-1. A missing or empty cell is absence when the member is optional, otherwise
-   `null` when the type admits `null`, otherwise the empty string when the class
-   is text; otherwise it is invalid.
-2. A nonempty text-class cell is its exact text, so a key such as `001`
-   remains the string `"001"`.
-3. A nonempty number-class cell must match the JSON number grammar exactly,
-   without surrounding whitespace, and converts to that number.
-4. A nonempty boolean-class cell must be exactly `true` or `false`.
+1. A missing or empty cell is absence when the column is optional or an array,
+   otherwise the empty string for a text column; otherwise it is invalid.
+2. A nonempty text cell (`Text`, `Markdown`, `Date`, references) is its exact
+   text, so a key such as `001` remains the string `"001"`.
+3. A nonempty `Int` or `Number` cell must match the JSON number grammar
+   exactly, without surrounding whitespace, and converts to that number.
+4. A nonempty `Bool` cell must be exactly `true` or `false`.
+5. A nonempty array cell must be a JSON array.
 
-The converted row is then validated as in §2.4.4. Encoding writes the declared
-column order of `row`, then undeclared members in the order they first appear
-across the rows, and each value's text: numbers use their shortest round-trip
-JSON number text, and absence and `null` write an empty cell. A value that would not
-convert back to itself, such as the empty string in an optional text column or
-any nontext or empty undeclared value, cannot be written to `_store.csv` and
-rejects the write.
+The converted row is then validated as in §2.4.2. Encoding writes the declared
+columns in order, then undeclared members in the order they first appear
+across the rows. Numbers use their shortest round-trip JSON number text,
+arrays their JSON text, and absence and `null` an empty cell. A value that
+would not convert back to itself, such as the empty string in an optional text
+column or any nontext or empty undeclared value, cannot be written to
+`_store.csv` and rejects the write.
 
-#### 2.4.6 Resource limits
+#### 2.4.4 Resource limits
 
-Non-Turing-completeness is not a resource bound. Every implementation enforces
-at least these limits, and none may accept a schema or row beyond them:
-
-| Limit | Value |
-|---|---|
-| Source bytes | 1,048,576 |
-| Tokens | 65,536 |
-| Text literal bytes | 4,096 |
-| Rules | 1,024 |
-| Syntax nodes (types, members, alternatives) | 32,768 |
-| Nesting depth of maps, arrays, and choices, counted through references | 32 |
-| Alternatives in one choice | 256 |
-| Members in one map | 1,024 |
-| Expanded type nodes of `row`, counting each reference at every use | 100,000 |
-| Validation steps for one row (type visits plus examined object members) | 1,000,000 |
-| Validation steps for one collection file | 50,000,000 |
-
-Exceeding a limit rejects the schema or, for the two step limits, the row or
-collection file, with a `budget-exceeded` diagnostic naming the limit; an
-oversized source is `schema-too-large`. The
-collection-file, row-count, and schema-byte quotas of
-[§2.3](#23-accepted-update-validation-and-merge) apply in addition.
-
-A later profile version may add syntax only with bounded semantics,
-conformance vectors, and a compatibility assessment; an implementation that
-does not know a profile version rejects the schema.
+The [schema language's limits](11-schema-language.md#8-limits) apply to the
+source. Validating one row takes at most 1,000,000 steps (values visited plus
+object members examined), and one collection file at most 50,000,000;
+exceeding either rejects the row or file with `budget-exceeded` naming
+`row-steps` or `collection-steps`. The collection-file, row-count, and
+schema-byte quotas of [§2.3](#23-accepted-update-validation-and-merge) apply
+in addition.
 
 ## 3. SQLite
 
-`_store.sqlite3` makes the enclosing folder SQLite-backed. Each introspected user table appears as a child collection of a database container; the database's own schema is authoritative. `schema.cddl` governs only Markdown and collection-file backings and does not select a table: a `schema.cddl` beside `_store.sqlite3` or an external-store descriptor is a mixed-backing diagnostic. An ordinarily named `.sqlite3` file remains browsable as a database node but does not absorb its enclosing folder.
+`_store.sqlite3` makes the enclosing folder SQLite-backed. Each user table appears as a child collection of a database container. A `schema.usl` beside it declares the database's models: the database must [implement](11-schema-language.md#7-layout) the schema's database layout, and the schema's connections are the relationships executable documents query along, with people reached through the virtual `Person` relation. Without a `schema.usl`, the database's own introspected schema is used and has no relationships. An ordinarily named `.sqlite3` file remains browsable as a database node but does not absorb its enclosing folder.
 
 SQLite remains canonical and usable by ordinary SQLite tools. The adapter maps
 one runtime-owned mutation transaction to one SQLite transaction. Observation

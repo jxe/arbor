@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { node, compileQuery, introspectStoreSchema, query, resolveDatabaseLocation, QueryCompileError } from "overstory/data";
 
@@ -10,7 +8,7 @@ const supplies = join(repository, "examples", "supplies");
 describe("story/data query planning", () => {
   test("runs an authored planner once and retains symbolic input", () => {
     let invocations = 0;
-    const handle = query.many(node("./data/practices").children, (practice, { input }: any) => {
+    const handle = query.many(node("./data/Practice").children, (practice, { input }: any) => {
       invocations += 1;
       return {
         where: (practice.name as any).contains(input.search),
@@ -29,36 +27,39 @@ describe("story/data query planning", () => {
   test("rejects unknown fields and unproved singular queries during compilation", async () => {
     const location = await resolveDatabaseLocation(join(supplies, "List.tsx"), "./data");
     const schema = await introspectStoreSchema(location);
-    const lists = node("./data/lists").children;
+    const lists = node("./data/List").children;
     const unknown = query.many(lists, (list) => ({ select: { leaked: (list as any).secret } }));
     const ambiguous = query.maybe(lists, (list) => ({
-      where: (list.visibility as any).eq("public"),
+      where: (list.visibility as any).eq("Public"),
       select: (list as any).pick("id"),
     }));
     expect(() => compileQuery(unknown, schema)).toThrow(QueryCompileError);
     expect(() => compileQuery(ambiguous, schema)).toThrow("not constrained by a proved unique key");
   });
-  // Rename 002: authored sources may still carry the old spellings.
-  test("reads the old arbor: node path and arbor-profile relation source", async () => {
-    expect(node("arbor://garden.example/~ada/data/lists").path).toBe("arbor://garden.example/~ada/data/lists");
-    expect(node("overstory://garden.example/~ada/data/lists").children).toBeDefined();
-    expect(() => node("ftp://garden.example/data/lists")).toThrow("node() requires");
-
+  test("plans some() over a relationship and keeps it inside the database", async () => {
     const location = await resolveDatabaseLocation(join(supplies, "List.tsx"), "./data");
-    const current = await introspectStoreSchema(location);
-    const authored = await readFile(location.relationshipsPath, "utf8");
-    expect(authored).toContain('"source": "overstory-profile"');
-    const scratch = await mkdtemp(join(tmpdir(), "story-relation-source-"));
-    try {
-      const relationshipsPath = join(scratch, "relationships.json");
-      await writeFile(relationshipsPath, authored.replace('"source": "overstory-profile"', '"source": "arbor-profile"'));
-      const old = await introspectStoreSchema({ ...location, relationshipsPath });
-      expect(old.relations.arbor_profiles?.source).toBe("overstory-profile");
-      expect(old.relations).toEqual(current.relations);
-      await writeFile(relationshipsPath, authored.replace('"source": "overstory-profile"', '"source": "canopy-profile"'));
-      await expect(introspectStoreSchema({ ...location, relationshipsPath })).rejects.toThrow("unknown source");
-    } finally {
-      await rm(scratch, { recursive: true, force: true });
-    }
+    const schema = await introspectStoreSchema(location);
+    const onPractice = query.many(node("./data/List").children, (list: any, { input }: any) => ({
+      where: list.items.some((item: any) => item.practice.eq(input.id)),
+      select: list.pick("id"),
+    }));
+    expect(onPractice.plan.where).toMatchObject({
+      kind: "exists",
+      relationship: "items",
+      where: { kind: "comparison", left: { kind: "field", field: "practice" }, right: { kind: "parameter", path: ["id"] } },
+    });
+    expect(() => compileQuery(onPractice, schema)).not.toThrow();
+    const fromPeople = query.maybe(node("./data/Person").children, (person: any) => ({
+      where: [person.id.eq("tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"), person.ownedLists.some()],
+      select: person.pick("id"),
+    }));
+    expect(() => compileQuery(fromPeople, schema)).toThrow("must stay inside the database");
+  });
+
+  // Rename 002: authored sources may still carry the old spelling.
+  test("reads the old arbor: node path", () => {
+    expect(node("arbor://garden.example/~ada/data/List").path).toBe("arbor://garden.example/~ada/data/List");
+    expect(node("overstory://garden.example/~ada/data/List").children).toBeDefined();
+    expect(() => node("ftp://garden.example/data/List")).toThrow("node() requires");
   });
 });

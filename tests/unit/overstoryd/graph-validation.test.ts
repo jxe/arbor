@@ -140,14 +140,14 @@ test("changed collections are revalidated while unchanged siblings inherit their
         type: "directory",
         entries: [
           { name: "_store.json", file: f.file(text) },
-          { name: "schema.cddl", file: f.file("schema") },
+          { name: "schema.usl", file: f.file("schema") },
         ],
         childrenSource: {
           version: 1,
           type: "collection-file",
           format: "json",
           source: "_store.json",
-          schemaSource: "schema.cddl",
+          schemaSource: "schema.usl",
           schemaFingerprint: f.file("schema") as `sha256:${string}`,
           childSetHash: f.file("set") as `sha256:${string}`,
         },

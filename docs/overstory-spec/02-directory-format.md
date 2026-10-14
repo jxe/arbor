@@ -175,9 +175,9 @@ the other.
 
 ## 5. Recognized authored files
 
-- `schema.cddl` declares a collection child schema, stable key, and optional
-  logical-name rule in the declarative profile specified by
-  [child backings](06-child-backings.md#24-collection-schema-profile). No
+- `schema.usl` declares a collection's models, stable key, and optional
+  logical-name rule in the [schema language](11-schema-language.md), as
+  [child backings](06-child-backings.md#24-collection-schemas) specifies. No
   other file name selects a collection schema; a `schema.ts`, for example, is
   an ordinary file.
 - `_store.csv`, `_store.json`, `_store.jsonl`, `_store.sqlite3`, and
@@ -191,7 +191,7 @@ the other.
 These recognizers do not make generated declarations, compiled bundles, database credentials, or execution transcripts part of this format unless they are themselves deliberately authored ordinary tree content.
 
 For a collection-file directory, the selected `_store.csv`, `_store.json`, or
-`_store.jsonl` and `schema.cddl` remain exact authored file entries in the protocol
+`_store.jsonl` and `schema.usl` remain exact authored file entries in the protocol
 graph, while the directory's `childrenSource` descriptor marks their decoded
 rows as the complete immediate logical child set. Those reserved files are not
 themselves logical children. `_index.md` may still supply the directory node's

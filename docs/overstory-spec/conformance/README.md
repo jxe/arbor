@@ -33,8 +33,9 @@ identity (directory object hashes, `updates-v1` and `mutate-v1` digests, query o
 hashes, collection-file child-set hashes, and schema fingerprints) uses this encoding; file object hashes use raw bytes;
 `protocol-update-intent.json` records the currently implemented update digest derived from it.
 
-`collection-schemas.json` binds the collection schema profile of
-[child backings §2.4](../06-child-backings.md#24-collection-schema-profile):
+`collection-schemas.json` binds the collection schemas of
+[child backings §2.4](../06-child-backings.md#24-collection-schemas), written in
+the [schema language](../11-schema-language.md):
 accepted schemas with their columns, key, child name and fingerprint; rejected
 schemas with the first diagnostic's code and location; value and CSV-cell
 diagnostics as JSON Pointers, including accepted undeclared row members and
@@ -42,7 +43,7 @@ CSV columns; exact CSV encodings; malformed-UTF-8 sources; and
 generated sources and values at each limit. Generated parts repeat a template,
 replacing `{i}` and `{i+1}`; a `{"$repeat": v, "count": n}` value is an
 array of n copies. `node-model.json` and `protocol-objects.json` carry
-version-1 descriptors naming `schema.cddl` and invalid version and schema-file
+version-1 descriptors naming `schema.usl` and invalid version and schema-file
 pairings.
 
 `client-state-machines.json` freezes the transition scenarios of the one
@@ -118,7 +119,7 @@ authority for the implemented subset; the request grammar itself is in
 | `accepted-ambiguity.json` | Planned semantic conflict scenarios (not executable claims) |
 | `canonical-cbor-values.json` | The canonical CBOR subset and its hashes |
 | `client-state-machines.json` | Document admission and working-tree update machines |
-| `collection-schemas.json` | The declarative collection schema profile: syntax, metadata, values, CSV cells, limits |
+| `collection-schemas.json` | Collection schemas in `schema.usl`: accepted and rejected schemas, values, CSV cells, limits |
 | `cross-document-copy.json` | Cross-document copy capture in both admission queues |
 | `device-keys.json` | Device key encodings, session challenges, and their signatures |
 | `directory-documents.json` | Directory document projection (spec 02) |

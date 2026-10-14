@@ -60,7 +60,16 @@ export interface LogicalExpression {
   operands: PredicateExpression[];
 }
 
-export type PredicateExpression = ComparisonExpression | LogicalExpression;
+/** Some row reached along `relationship` matches `where` (every row, when absent). */
+export interface ExistsExpression {
+  kind: "exists";
+  id: number;
+  relation: string;
+  relationship: string;
+  where?: PredicateExpression;
+}
+
+export type PredicateExpression = ComparisonExpression | LogicalExpression | ExistsExpression;
 
 export interface OrderExpression {
   kind: "order";
@@ -172,7 +181,22 @@ function valueExpression(value: unknown): ValueExpression {
 }
 
 function predicate(operator: ComparisonExpression["operator"], left: ValueExpression, right: unknown): PredicateExpression {
-  const result = tagged({ kind: "comparison", id: nodeID(), operator, left, right: valueExpression(right) } satisfies ComparisonExpression);
+  return disjoinable(tagged({ kind: "comparison", id: nodeID(), operator, left, right: valueExpression(right) } satisfies ComparisonExpression));
+}
+
+function exists(relation: string, relationship: string, where: unknown): PredicateExpression {
+  const targetRelation = `${relation}.${relationship}`;
+  const value = typeof where === "function" && !dataNode(where) ? where(rowScope(targetRelation)) : where;
+  return disjoinable(tagged({
+    kind: "exists",
+    id: nodeID(),
+    relation,
+    relationship,
+    ...(value === undefined ? {} : { where: normalizeWhere(value) }),
+  } satisfies ExistsExpression));
+}
+
+function disjoinable(result: PredicateExpression): PredicateExpression {
   return new Proxy(result, {
     get(target, property, receiver) {
       if (property === "or") return (...others: unknown[]) => logical("or", [target, ...others.map(predicateExpression)]);
@@ -183,7 +207,7 @@ function predicate(operator: ComparisonExpression["operator"], left: ValueExpres
 
 function predicateExpression(value: unknown): PredicateExpression {
   const node = dataNode(value);
-  if (!node || (node.kind !== "comparison" && node.kind !== "logical")) {
+  if (!node || (node.kind !== "comparison" && node.kind !== "logical" && node.kind !== "exists")) {
     throw new Error("A query predicate must be built from symbolic fields");
   }
   return node;
@@ -205,6 +229,7 @@ function member(relation: string, field: string): unknown {
       if (property === NODE) return fieldNode;
       if (property === "eq") return (right: unknown) => predicate("eq", fieldNode, right);
       if (property === "contains") return (right: unknown) => predicate("contains", fieldNode, right);
+      if (property === "some") return (where?: unknown) => exists(relation, field, where);
       if (property === "asc") return () => tagged({ kind: "order", id: nodeID(), value: fieldNode, direction: "asc" } satisfies OrderExpression);
       if (property === "desc") return () => tagged({ kind: "order", id: nodeID(), value: fieldNode, direction: "desc" } satisfies OrderExpression);
       if (property === "count") {

@@ -18,27 +18,26 @@ import {
 } from "./components/shared"
 
 const suppliesData = node("./data")
-const lists = node("./data/lists").children
+const lists = node("./data/List").children
 
 export const createList = mutation(
   suppliesData,
   z.object({
     name: z.string().trim().min(1),
-    visibility: z.enum(["public", "private"]),
+    visibility: z.enum(["Public", "Private"]),
   }),
   async ({ user, tx, id, now }, input) => {
     if (!user) throw publicError("user-required", "This operation requires a Story user")
     const listId = id("list")
     await tx.insert(lists, {
       id: listId,
-      owner_profile: user.profile,
+      owner: user.profile,
       name: input.name,
-      about: "",
       visibility: input.visibility,
-      kind: "standard",
-      allow_arbor_user_edits: false,
-      created_at: now,
-      updated_at: now,
+      kind: "Standard",
+      openToEdits: false,
+      created: now,
+      modified: now,
     })
     return { id: listId }
   },
@@ -62,9 +61,9 @@ export default function MyLists() {
 
       <form className="mb-6 flex flex-wrap items-center gap-2" action={action}>
         <TextInput name="name" placeholder="New list name" required />
-        <Select name="visibility" defaultValue="public">
-          <option value="public">Public</option>
-          <option value="private">Private</option>
+        <Select name="visibility" defaultValue="Public">
+          <option value="Public">Public</option>
+          <option value="Private">Private</option>
         </Select>
         <Button type="submit" disabled={pending}>
           {pending ? "Creating…" : "Create list"}

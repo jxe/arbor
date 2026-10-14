@@ -11,7 +11,7 @@ import {
 import { sharedCollectionSchemaCache, type CollectionSchemaCache } from "./cache.ts";
 import type { CollectionSchema } from "./compile.ts";
 import { CollectionSchemaError, type ValueDiagnostic } from "./diagnostics.ts";
-import { csvHeaderDiagnostics, csvRowValue, csvSchemaDiagnostic, encodeCsvRows, CsvEncodeError } from "./csv.ts";
+import { csvHeaderDiagnostics, csvRowValue, encodeCsvRows, CsvEncodeError } from "./csv.ts";
 import { logicalChildName } from "./names.ts";
 import { collectionValidationBudget, validateRow, type ValidationBudget } from "./validate.ts";
 
@@ -78,8 +78,6 @@ export function decodeCollectionFileSource(
     const header = records[0] ?? [];
     const diagnostics: Diagnostic[] = [];
     if (schema) {
-      const unrepresentable = csvSchemaDiagnostic(schema);
-      if (unrepresentable) diagnostics.push(valueDiagnostic(unrepresentable, sourcePath));
       diagnostics.push(...csvHeaderDiagnostics(schema, header).map((item) => valueDiagnostic(item, sourcePath)));
     }
     const rows = records.slice(1).map((cells, index): CollectionSourceRow => {
@@ -181,14 +179,11 @@ export function decodeProtocolCollectionFile(
   try {
     schema = schemas.compile(schemaBytes);
   } catch (error) {
-    if (error instanceof CollectionSchemaError) throw new ProtocolCollectionFileError("schema", `Invalid schema.cddl: ${error.message}`);
+    if (error instanceof CollectionSchemaError) throw new ProtocolCollectionFileError("schema", `Invalid schema.usl: ${error.message}`);
     throw error;
   }
   if (schema.revision !== descriptor.schemaFingerprint) {
-    throw new ProtocolCollectionFileError("schema", "Collection-file schema fingerprint does not match schema.cddl");
-  }
-  if (!schema.primaryKey) {
-    throw new ProtocolCollectionFileError("constraint", "A synchronized collection file requires overstory-primary-key");
+    throw new ProtocolCollectionFileError("schema", "Collection-file schema fingerprint does not match schema.usl");
   }
   let source: string;
   try {
@@ -209,7 +204,7 @@ export function decodeProtocolCollectionFile(
     const diagnostic = raw.diagnostics[0];
     if (diagnostic) {
       const kind = diagnostic.code === "invalid-json-row" || diagnostic.code === "invalid-jsonl" ? "source" : "constraint";
-      throw new ProtocolCollectionFileError(kind, `Collection-file row ${index + 1} does not satisfy schema.cddl: ${diagnostic.code}${diagnostic.field ? ` at ${diagnostic.field}` : ""}`);
+      throw new ProtocolCollectionFileError(kind, `Collection-file row ${index + 1} does not satisfy schema.usl: ${diagnostic.code}${diagnostic.field ? ` at ${diagnostic.field}` : ""}`);
     }
     const properties = raw.values as Record<string, JSONValue>;
     const stableKey = stableKeyFromProperties(schema.primaryKey, properties);

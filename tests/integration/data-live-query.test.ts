@@ -22,13 +22,13 @@ const careList = "10000000-0000-4000-8000-000000000001";
 const listeningList = "10000000-0000-4000-8000-000000000003";
 const ada = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-const lists = node("./data/lists").children;
-const storyProfiles = node("./data/arbor_profiles").children;
+const lists = node("./data/List").children;
+const storyProfiles = node("./data/Person").children;
 const topPublicList = query.many(lists, (list: any) => ({
-  where: list.visibility.eq("public"),
-  orderBy: list.updated_at.desc(),
+  where: list.visibility.eq("Public"),
+  orderBy: list.modified.desc(),
   take: 1,
-  select: list.pick("id", "name", "about", "updated_at"),
+  select: list.pick("id", "name", "about", "modified"),
 }));
 const listOwner = query.one(lists, (list: any) => ({
   where: list.id.eq(careList),
@@ -58,12 +58,11 @@ function source(authoredPath: string, relation: string) {
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "story-live-query-"));
-  await Promise.all(["_store.sqlite3", "schema.sql", "relationships.json"].map((name) => cp(join(fixture, name), join(directory, name))));
+  await Promise.all(["_store.sqlite3", "schema.usl"].map((name) => cp(join(fixture, name), join(directory, name))));
   const location = {
     directory,
     databasePath: join(directory, "_store.sqlite3"),
-    schemaPath: join(directory, "schema.sql"),
-    relationshipsPath: join(directory, "relationships.json"),
+    schemaPath: join(directory, "schema.usl"),
     tree: "tr_supplies_data",
     path: "/",
   };
@@ -127,7 +126,7 @@ describe("SQLite committed observation", () => {
     const events: unknown[] = [];
     store.subscribe((event) => events.push(event));
     store.transaction((database) => {
-      database.query("update lists set about = ? where id = ?").run("Changed", careList);
+      database.query("update List set about = ? where id = ?").run("Changed", careList);
       expect(events).toHaveLength(0);
     });
     expect(events).toHaveLength(1);
@@ -135,7 +134,7 @@ describe("SQLite committed observation", () => {
       cursor: "sqlite:1",
       precision: "rows",
       changes: [{
-        collection: "lists",
+        collection: "List",
         operation: "update",
         primaryKey: { id: careList },
         changedFields: ["about"],
@@ -144,7 +143,7 @@ describe("SQLite committed observation", () => {
       }],
     });
     expect(() => store.transaction((database) => {
-      database.query("update lists set name = ? where id = ?").run("Rolled back", careList);
+      database.query("update List set name = ? where id = ?").run("Rolled back", careList);
       throw new Error("rollback");
     })).toThrow("rollback");
     expect(events).toHaveLength(1);
@@ -164,11 +163,11 @@ describe("live query state machine", () => {
     await Promise.all([ready(first), ready(second)]);
     expect(executions).toBe(2);
 
-    store.transaction((database) => database.query("update lists set about = ? where id = ?").run("Still private", "10000000-0000-4000-8000-000000000002"));
+    store.transaction((database) => database.query("update List set about = ? where id = ?").run("Still private", "10000000-0000-4000-8000-000000000002"));
     await Bun.sleep(25);
     expect(executions).toBe(2);
 
-    store.transaction((database) => database.query("update lists set name = ? where id = ?").run("Listening together", listeningList));
+    store.transaction((database) => database.query("update List set name = ? where id = ?").run("Listening together", listeningList));
     const [left, right] = await Promise.all([next(first, "result"), next(second, "result")]);
     expect((left as Extract<QueryStreamEvent, { value: unknown }>).value).toMatchObject([{ name: "Listening together" }]);
     expect((right as Extract<QueryStreamEvent, { value: unknown }>).value).toEqual((left as Extract<QueryStreamEvent, { value: unknown }>).value);
@@ -181,12 +180,12 @@ describe("live query state machine", () => {
     const reader = broker.stream(mount(), { signal: new AbortController().signal, user: null }).getReader();
     await ready(reader);
     store.transaction((database) => database.query(
-      "insert into lists(id, owner_profile, name, about, visibility, kind, allow_arbor_user_edits, created_at, updated_at) values (?, ?, ?, '', 'public', 'standard', 0, ?, ?)",
+      "insert into List(id, owner, name, visibility, kind, openToEdits, created, modified) values (?, ?, ?, 'Public', 'Standard', 0, ?, ?)",
     ).run("10000000-0000-4000-8000-000000000004", ada, "Newest", "2026-08-25T12:00:00.000Z", "2026-08-26T12:00:00.000Z"));
     const inserted = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
     expect(inserted.value).toMatchObject([{ name: "Newest" }]);
 
-    store.transaction((database) => database.query("update lists set updated_at = ? where id = ?").run("2026-08-27T12:00:00.000Z", careList));
+    store.transaction((database) => database.query("update List set modified = ? where id = ?").run("2026-08-27T12:00:00.000Z", careList));
     const reordered = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
     expect(reordered.value).toMatchObject([{ id: careList }]);
     await reader.cancel();
@@ -220,9 +219,9 @@ describe("live query state machine", () => {
       }
       return result;
     }) as typeof engine.execute;
-    store.transaction((database) => database.query("update lists set name = ? where id = ?").run("Intermediate", listeningList));
+    store.transaction((database) => database.query("update List set name = ? where id = ?").run("Intermediate", listeningList));
     await didEnter;
-    store.transaction((database) => database.query("update lists set name = ? where id = ?").run("Current", listeningList));
+    store.transaction((database) => database.query("update List set name = ? where id = ?").run("Current", listeningList));
     release();
     const event = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
     expect(event.value).toMatchObject([{ name: "Current" }]);
@@ -233,7 +232,7 @@ describe("live query state machine", () => {
     const reader = broker.stream(mount(), { signal: new AbortController().signal, user: null }).getReader();
     await ready(reader);
     const external = new Database(join(directory, "_store.sqlite3"));
-    external.query("update lists set name = ? where id = ?").run("External", listeningList);
+    external.query("update List set name = ? where id = ?").run("External", listeningList);
     external.close();
     expect(store.checkExternalChanges()).toBe(true);
     const event = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
@@ -253,7 +252,7 @@ describe("live query state machine", () => {
 
     await broker[Symbol.asyncDispose]();
     broker = new LiveQueryBroker(engine, store);
-    store.transaction((database) => database.query("update lists set name = ? where id = ?").run("After restart", listeningList));
+    store.transaction((database) => database.query("update List set name = ? where id = ?").run("After restart", listeningList));
     const restarted = broker.stream(mount(), { signal: new AbortController().signal, user: null }).getReader();
     const snapshot = await ready(restarted);
     expect((snapshot.first as Extract<QueryStreamEvent, { value: unknown }>).value).toMatchObject([{ name: "After restart" }]);

@@ -1,5 +1,7 @@
 import { readFile, realpath } from "node:fs/promises";
-import { canonicalCBORHash, stableJSONString } from "@ovst/protocol";
+import { canonicalCBORHash } from "@ovst/protocol";
+import { columnType, compileUsl, formatDiagnostic, layoutOf, PERSON_RELATION, relationshipsOf } from "@ovst/usl";
+import { compareShapes, inspectSqlite, sqliteAffinity } from "@ovst/usl/verify";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
 
@@ -65,34 +67,14 @@ export interface StoreSchema {
   fingerprint: string;
 }
 
-/**
- * Rename 002: authored `relationships.json` files may still say
- * `"source": "arbor-profile"`. Both spellings are read; metadata carries only
- * `"overstory-profile"`.
- */
-export function isProfileRelationSource(source: string): boolean {
-  return source === "overstory-profile" || source === "arbor-profile";
-}
-
-interface RelationshipDeclaration {
-  version: 1;
-  virtualRelations?: Record<string, {
-    source: "overstory-profile" | "arbor-profile";
-    primaryKey: string[];
-    fields: Record<string, { type: FieldType; nullable?: boolean }>;
-  }>;
-  relationships: Record<string, {
-    target: string;
-    cardinality: "one" | "maybe" | "many";
-    key?: string[];
-    direct?: DirectRelationship[];
-    through?: {
-      relation: string;
-      source: ThroughSourceRelationship[];
-      target: ThroughTargetRelationship[];
-    };
-  }>;
-}
+/** The fields of the virtual relation of people (Story profiles) that a schema's `Person` references reach. */
+const PERSON_FIELDS: Record<string, { type: FieldType; nullable: boolean }> = {
+  id: { type: "string", nullable: false },
+  name: { type: "string", nullable: false },
+  handle: { type: "string", nullable: false },
+  portrait: { type: "string", nullable: true },
+  bio: { type: "string", nullable: true },
+};
 
 export interface TreeBoundary {
   root: string;
@@ -103,7 +85,6 @@ export interface ResolvedDatabaseLocation {
   directory: string;
   databasePath: string;
   schemaPath: string;
-  relationshipsPath: string;
   tree?: string;
   path?: string;
 }
@@ -141,8 +122,7 @@ export async function resolveDatabaseLocation(
   return {
     directory,
     databasePath: join(directory, "_store.sqlite3"),
-    schemaPath: join(directory, "schema.sql"),
-    relationshipsPath: join(directory, "relationships.json"),
+    schemaPath: join(directory, "schema.usl"),
     ...(boundary ? { tree: boundary.tree, path: logicalPath(boundary.root, directory) } : {}),
   };
 }
@@ -240,8 +220,8 @@ export function inspectSQLite(database: Database): Record<string, RelationMetada
 /**
  * Introspect a standalone SQLite database without requiring authored query
  * relationship metadata. Generic node providers use this for ordinary SQLite
- * files; executable-document databases normally use introspectStoreSchema so
- * schema.sql and relationships.json are validated as well.
+ * files; executable-document databases normally use introspectStoreSchema,
+ * which checks the database against its schema.usl and adds relationships.
  */
 export function introspectSQLiteDatabase(source: string | Database): StoreSchema {
   const database = typeof source === "string"
@@ -261,22 +241,6 @@ export function introspectSQLiteDatabase(source: string | Database): StoreSchema
   } finally {
     if (owned) database.close();
   }
-}
-
-function sameSQLiteShape(left: Record<string, RelationMetadata>, right: Record<string, RelationMetadata>): boolean {
-  const shape = (relations: Record<string, RelationMetadata>) => Object.fromEntries(Object.entries(relations).map(([name, relation]) => [name, {
-    fields: Object.fromEntries(Object.entries(relation.fields).map(([field, metadata]) => [field, {
-      type: metadata.type,
-      nullable: metadata.nullable,
-      declaredType: metadata.declaredType.toLowerCase(),
-      hasDefault: metadata.hasDefault,
-    }])),
-    primaryKey: relation.primaryKey,
-    uniqueKeys: relation.uniqueKeys,
-    indexes: relation.indexes,
-    foreignKeys: relation.foreignKeys,
-  }]));
-  return stableJSONString(shape(left)) === stableJSONString(shape(right));
 }
 
 function sqliteDefinitions(database: Database): Record<string, string> {
@@ -335,67 +299,58 @@ function validateRelationship(relation: RelationshipMetadata, relations: Record<
   }
 }
 
+/**
+ * Check a database against the schema.usl beside it and describe it: its
+ * tables, the virtual `Person` relation when the schema refers to people, and
+ * a relationship for each connection end.
+ */
 export async function introspectStoreSchema(
-  location: Pick<ResolvedDatabaseLocation, "databasePath" | "schemaPath" | "relationshipsPath">,
+  location: Pick<ResolvedDatabaseLocation, "databasePath" | "schemaPath">,
   fixtureDatabase?: Database,
 ): Promise<StoreSchema> {
-  const [schemaSQL, declarationSource] = await Promise.all([
-    readFile(location.schemaPath, "utf8"),
-    readFile(location.relationshipsPath, "utf8"),
-  ]);
-  const declaration = JSON.parse(declarationSource) as RelationshipDeclaration;
-  if (declaration.version !== 1 || !declaration.relationships) throw new Error("relationships.json must declare version 1 and relationships");
+  const source = await readFile(location.schemaPath, "utf8");
+  const schema = compileUsl(source);
+  if (schema.diagnostics.length > 0) throw new Error(`Invalid ${formatDiagnostic("schema.usl", schema.diagnostics[0]!)}`);
+  const tables = layoutOf(schema, { store: "database" });
 
-  const authored = new Database(":memory:");
-  authored.exec("pragma foreign_keys = on");
-  authored.exec(schemaSQL);
-  const authoredRelations = inspectSQLite(authored);
-  const authoredDefinitions = sqliteDefinitions(authored);
-  authored.close();
-
-  const fixture = fixtureDatabase ?? new Database(location.databasePath, { readonly: true, strict: true });
-  const fixtureRelations = inspectSQLite(fixture);
-  const fixtureDefinitions = sqliteDefinitions(fixture);
-  if (!fixtureDatabase) fixture.close();
-  if (!sameSQLiteShape(authoredRelations, fixtureRelations)
-    || stableJSONString(authoredDefinitions) !== stableJSONString(fixtureDefinitions)) {
-    throw new Error("_store.sqlite3 does not match schema.sql");
+  const database = fixtureDatabase ?? new Database(location.databasePath, { readonly: true, strict: true });
+  let relations: Record<string, RelationMetadata>;
+  try {
+    const problems = compareShapes(
+      tables,
+      inspectSqlite(database),
+      (_, column) => columnType(column, "sqlite"),
+      (expected, actual) => sqliteAffinity(expected) === sqliteAffinity(actual),
+    ).filter((item) => item.severity === "error");
+    if (problems.length > 0) {
+      throw new Error(`_store.sqlite3 does not implement schema.usl: ${problems.map((item) => item.message).join("; ")}`);
+    }
+    relations = inspectSQLite(database);
+  } finally {
+    if (!fixtureDatabase) database.close();
   }
 
-  const relations = { ...fixtureRelations };
-  for (const [name, virtual] of Object.entries(declaration.virtualRelations ?? {})) {
-    if (relations[name]) throw new Error(`Virtual relation ${name} collides with a SQLite table`);
-    if (!isProfileRelationSource(virtual.source)) throw new Error(`Virtual relation ${name} has an unknown source`);
-    relations[name] = {
-      name,
+  if (tables.some((table) => table.columns.some((column) => column.profile))) {
+    if (relations[PERSON_RELATION]) throw new Error(`The table ${PERSON_RELATION} collides with the relation of people`);
+    relations[PERSON_RELATION] = {
+      name: PERSON_RELATION,
       source: "overstory-profile",
-      fields: Object.fromEntries(Object.entries(virtual.fields).map(([field, metadata]) => [field, {
-        name: field,
-        type: metadata.type,
-        nullable: metadata.nullable ?? false,
-        declaredType: metadata.type,
-        hasDefault: false,
+      fields: Object.fromEntries(Object.entries(PERSON_FIELDS).map(([name, field]) => [name, {
+        name, ...field, declaredType: field.type, hasDefault: false,
       }])),
-      primaryKey: virtual.primaryKey,
-      uniqueKeys: [virtual.primaryKey],
-      indexes: [{ fields: virtual.primaryKey, unique: true }],
+      primaryKey: ["id"],
+      uniqueKeys: [["id"]],
+      indexes: [{ fields: ["id"], unique: true }],
       foreignKeys: [],
     };
   }
 
   const relationships: Record<string, RelationshipMetadata> = {};
-  for (const [qualifiedName, value] of Object.entries(declaration.relationships)) {
-    const split = qualifiedName.lastIndexOf(".");
-    if (split <= 0 || split === qualifiedName.length - 1) throw new Error(`Invalid relationship name ${qualifiedName}`);
-    const relationship: RelationshipMetadata = {
-      source: qualifiedName.slice(0, split),
-      name: qualifiedName.slice(split + 1),
-      ...value,
-    };
+  for (const relationship of relationshipsOf(schema, tables)) {
     validateRelationship(relationship, relations);
-    relationships[qualifiedName] = relationship;
+    relationships[`${relationship.source}.${relationship.name}`] = relationship;
   }
 
-  const fingerprintInput = { version: 1, schemaSQL, relations, relationships };
+  const fingerprintInput = { version: 1, schema: source, relations, relationships };
   return { version: 1, relations, relationships, fingerprint: canonicalCBORHash(fingerprintInput) };
 }

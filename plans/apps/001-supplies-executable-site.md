@@ -62,7 +62,7 @@ examples/supplies/
     mutations.ts
   data/
     _index.md
-    schema.sql
+    schema.usl
     _store.sqlite3
 ```
 

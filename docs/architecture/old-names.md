@@ -16,7 +16,6 @@ Opaque tags and names. Some are hashed into identifiers or authenticate artifact
 - The `__arbor_` table prefix inside trees' own `_store.sqlite3` files
 - `arbor-child-…` generated block ids
 - `https://canopy.example` inside `conformance/device-keys.json`, which is signed and has no generator
-- Names the Supplies example chose for itself, also in its binary store: `arbor_profiles`, `allow_arbor_user_edits`
 - Completed migrations 018–023 under `packages/overstoryd/migrations/`, kept verbatim as history and excluded from typecheck
 - Outside the repo: the lab's hcloud context and Hetzner key `arbor-lab`, the Tailscale tag `tag:arbor-lab`, and `~/.ssh/arbor_hetzner`
 
@@ -39,7 +38,6 @@ These spellings are inside authored content or in links already shared. Readers 
 | `<!-- arbor:children -->` | `protocol/src/documents/directory-document.ts`, `StoryEditor/MarkdownCodec.swift` |
 | `.arborignore` | `fs/src/ignore-policy.ts`, `OverstoryWorkingTree/IgnorePolicy.swift`. When both files exist in a directory, `.overstoryignore` wins. |
 | `#arbor-access=` | `overstoryd/src/host.ts` |
-| `"source": "arbor-profile"` | `apps-runtime/src/schema.ts`, `sqlite.ts` |
 
 ## Cutover guard
 

@@ -1,10 +1,10 @@
 # usl
 
-Ultimate Schema Language (`.usl`), the Prisma-shaped schema language designed
-in [`plans/schema-language`](../../plans/schema-language/README.md) to
-replace `schema.cddl`, `schema.sql` and `relationships.json`
-([Schema language 001](../../plans/schema-language/001-replace-cddl-with-usl.md)).
-Draft: no other package uses it yet.
+Ultimate Schema Language (`.usl`), Overstory's schema language
+([spec](../../docs/overstory-spec/11-schema-language.md)). A collection's or
+database's `schema.usl` is compiled here: `collection-schema` builds row
+validation from its data-file layout, and `apps-runtime` checks SQLite
+databases and derives query relationships from its database layout.
 
 - `compileUsl(source)`: parse (`parseUsl`) and check (`checkUsl`). Returns
   diagnostics for every broken invariant, each model's resolved fields, and
@@ -15,7 +15,12 @@ Draft: no other package uses it yet.
 - `setupSql(tables, "sqlite" | "postgres")`: idempotent setup SQL. It creates
   only what is missing and inserts `@@seed` rows only when their id is
   missing; it never alters or drops.
-- `validateRow(table, row)`, `typeDeclarations(tables)`, `uslFingerprint(source)`.
+- `relationshipsOf(result, tables)`: a named relationship per connection end
+  (direct columns or a join table), with people as the `Person` relation.
+- `validateRow(table, row)`, `typeDeclarations(tables)`.
+
+The main entry imports nothing from Node or Bun, so it runs in a browser;
+`@ovst/usl/verify` and the CLI need Bun.
 - `layoutOf(result, { store: "files" })` folds `@fold` connections into arrays, as data files store them.
 - `@ovst/usl/verify`: `verifyStore(schema, location)` checks that a store
   implements a schema. Each kind of store is a `StoreBackend`: `sqlite` (a

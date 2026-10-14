@@ -26,12 +26,12 @@ export async function generateTreeTypes(options: GenerateTreeTypesOptions): Prom
   const snapshot = discovery ?? await fs.discoverRecursively();
   for (const directory of snapshot.directories) {
     if (directory.absolutePath === root) continue;
-    if (directory.childNames.has("schema.cddl") || directory.childNames.has("_store.postgres")) {
+    if (directory.childNames.has("schema.usl") || directory.childNames.has("_store.postgres")) {
       const absolute = directory.absolutePath;
       const shape = await provider.schemaTypes(absolute).catch(() => { temporaryFailure = true; return null; });
       if (shape) {
         const treePath = directory.treePath;
-        const schemaPath = join(absolute, "schema.cddl");
+        const schemaPath = join(absolute, "schema.usl");
         if (shape.kind === "database") {
           if (!shape.tables) {
             temporaryFailure = true;

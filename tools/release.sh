@@ -4,7 +4,8 @@ set -eu
 # One release of everything people install: the Mac app (a GitHub release
 # with the notarized DMG and the Sparkle appcast), the iPhone app (an upload
 # to App Store Connect, for TestFlight) and the story command (@ovst/cli on
-# npm), all at one version.
+# npm), all at one version. With npm it also publishes @ovst/usl, the schema
+# language that cranberries uses, when its own version isn't on npm yet.
 #
 #   tools/release.sh <version>            e.g. tools/release.sh 0.1.1
 #   tools/release.sh <version> --only mac,ios,npm    any subset, comma-separated
@@ -163,6 +164,12 @@ echo "Ready to publish $version (build $build): $parts"
 wants mac && echo "  - push main and $tag (deploys the host); GitHub release with Story-$version.dmg, Story.dmg, appcast.xml"
 wants ios && echo "  - archive and upload the iPhone app to App Store Connect, then add it to its TestFlight group"
 wants npm && echo "  - npm publish @ovst/cli@$version and its four platform builds (@ovst/cli-darwin-arm64 and so on)"
+usl_version=$(node -p 'require("./packages/usl/package.json").version')
+publish_usl=
+if wants npm && ! npm view "@ovst/usl@$usl_version" version >/dev/null 2>&1; then
+  publish_usl=1
+  echo "  - npm publish @ovst/usl@$usl_version (its own version, from packages/usl/package.json)"
+fi
 printf 'Publish? Type yes: '
 read answer
 [ "$answer" = "yes" ] || { echo "Nothing published. The builds are in dist/."; exit 1; }
@@ -196,6 +203,7 @@ if wants npm; then
   # The platform builds first, so @ovst/cli never names an optional dependency npm cannot find.
   for platform in dist/npm-cli-*/; do npm publish "$platform"; done
   npm publish ./dist/npm-cli
+  if [ -n "$publish_usl" ]; then (cd packages/usl && npm publish --access public); fi
 fi
 
 echo

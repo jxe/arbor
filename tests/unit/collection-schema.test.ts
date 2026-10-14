@@ -9,7 +9,6 @@ import {
   compileCollectionSchema,
   csvHeaderDiagnostics,
   csvRowValue,
-  csvSchemaDiagnostic,
   CsvEncodeError,
   decodeCollectionFileSource,
   decodeProtocolCollectionFile,
@@ -27,11 +26,10 @@ interface SchemaVector {
   name: string;
   source: string;
   fingerprint?: string;
-  accept?: { columns: string[]; primaryKey: string[] | null; childName: string | null };
+  accept?: { columns: string[]; primaryKey: string[]; childName: string | null };
   reject?: Reject;
   values?: Array<{ value: unknown; diagnostics: Diagnostic[] }>;
   csv?: {
-    unrepresentable?: Diagnostic;
     header?: string[];
     rows?: Array<{ cells: string[]; value?: Record<string, JSONValue>; diagnostics?: Diagnostic[] }>;
     headers?: Array<{ header: string[]; diagnostics: Diagnostic[] }>;
@@ -103,11 +101,6 @@ describe("collection schema conformance vectors", () => {
       for (const item of vector.values ?? []) expect(summary(validateRow(schema, item.value))).toEqual(item.diagnostics);
       const csv = vector.csv;
       if (!csv) return;
-      if (csv.unrepresentable) {
-        expect(summary([csvSchemaDiagnostic(schema)!])).toEqual([csv.unrepresentable]);
-        return;
-      }
-      expect(csvSchemaDiagnostic(schema)).toBeNull();
       for (const row of csv.rows ?? []) {
         const converted = csvRowValue(schema, csv.header!, row.cells);
         if (row.value) {
@@ -158,14 +151,14 @@ describe("collection schema conformance vectors", () => {
 });
 
 describe("collection schema implementation", () => {
-  const source = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr, count: int }\n';
+  const source = "model Item {\n  title Text\n  count Int\n}\n";
 
   test("diagnostics are deterministic across repeated compilation", () => {
-    const broken = "overstory-schema-version = 1\nrow = { a: missing, b: alsoMissing }\n";
+    const broken = "model Item {\n  a Missing\n  b AlsoMissing\n}\n";
     const first = (() => { try { compileCollectionSchema(broken); } catch (error) { return (error as CollectionSchemaError).diagnostics; } })();
     const second = (() => { try { compileCollectionSchema(broken); } catch (error) { return (error as CollectionSchemaError).diagnostics; } })();
     expect(first).toEqual(second!);
-    expect(first![0]).toMatchObject({ code: "unknown-rule", location: { line: 2, column: 12 } });
+    expect(first![0]).toMatchObject({ code: "unknown-type", location: { line: 2, column: 3 } });
   });
 
   test("validation neither normalizes nor strips values", () => {
@@ -191,16 +184,16 @@ describe("collection schema implementation", () => {
     const cache = new CollectionSchemaCache(2);
     const first = cache.compile(source);
     expect(cache.compile(new TextEncoder().encode(source))).toBe(first);
-    expect(() => cache.compile("row = { a: tstr }\n")).toThrow(CollectionSchemaError);
+    expect(() => cache.compile("model Item { a Txt }\n")).toThrow(CollectionSchemaError);
     expect(cache.size).toBe(1);
-    cache.compile(`${source}; two\n`);
-    cache.compile(`${source}; three\n`);
+    cache.compile(`${source}// two\n`);
+    cache.compile(`${source}// three\n`);
     expect(cache.size).toBe(2);
     expect(cache.compile(source)).not.toBe(first);
   });
 
   test("a collection file shares one step budget across its rows", () => {
-    const schema = compileCollectionSchema('overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, items: [* int] }\n');
+    const schema = compileCollectionSchema("model Series {\n  items Int[]\n}\n");
     const rows = Array.from({ length: 4 }, (_, index) => JSON.stringify({ id: `r${index}`, items: Array.from({ length: 100 }, () => 1) })).join("\n");
     const decoded = decodeCollectionFileSource("jsonl", rows, "_store.jsonl", schema, collectionValidationBudget(250));
     expect(decoded.rows.slice(0, 2).every((row) => row.diagnostics.length === 0)).toBe(true);
@@ -216,7 +209,7 @@ describe("collection schema implementation", () => {
       { key: '[["id","b"]]', name: "b", properties: { id: "b", title: "B", count: 2 } },
     ]);
     const descriptor: CollectionFileDescriptor = {
-      version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.cddl",
+      version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.usl",
       schemaFingerprint: schema.revision, childSetHash,
     };
     const decoded = decodeProtocolCollectionFile(descriptor, store, schemaBytes);

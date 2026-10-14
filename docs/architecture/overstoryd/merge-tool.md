@@ -438,7 +438,7 @@ in. Structured formats cannot opt into concatenation.
 Tree-sitter grammars and the strict XML parser are pinned dependencies. Only
 grammar modules are cached; parsed trees are disposed after evaluation.
 Neither authored source nor parser IDs execute with host IO authority, and
-collection schemas are declarative `schema.cddl` data checked by
+collection schemas are declarative `schema.usl` data checked by
 [`collection-schema`](../collection-schema/README.md); nothing is evaluated.
 
 ### Retained state

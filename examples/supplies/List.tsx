@@ -34,15 +34,15 @@ import {
 } from "./components/shared"
 
 const suppliesData = node("./data")
-const arbor_profiles = node("./data/arbor_profiles").children
-const list_practices = node("./data/list_practices").children
-const list_reactions = node("./data/list_reactions").children
-const list_tags = node("./data/list_tags").children
-const lists = node("./data/lists").children
-const practice_authors = node("./data/practice_authors").children
-const practice_tags = node("./data/practice_tags").children
-const practices = node("./data/practices").children
-const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
+const items = node("./data/Item").children
+const lists = node("./data/List").children
+const people = node("./data/Person").children
+const practices = node("./data/Practice").children
+const practiceAuthors = node("./data/Practice_authors").children
+const reactions = node("./data/Reaction").children
+const tags = node("./data/Tag").children
+const tagPractices = node("./data/Tag_practices").children
+const profileCard = people.pick("id", "name", "handle", "portrait")
 
 export const list = query.maybe(
   lists,
@@ -50,38 +50,39 @@ export const list = query.maybe(
   (list, { input, user }) => ({
     where: [
       list.id.eq(input.id),
-      list.visibility.eq("public").or(
-        list.owner_profile.eq(user.profile),
+      list.visibility.eq("Public").or(
+        list.owner.eq(user.profile),
       ),
     ],
     select: {
-      ...list.pick("id", "name", "about", "visibility", "kind"),
-      allowArborUserEdits: list.allow_arbor_user_edits,
-      ownerProfile: list.owner_profile,
+      ...list.pick("id", "name", "about", "visibility", "kind", "openToEdits"),
+      ownerProfile: list.owner,
       owner: list.owner(profileCard),
+      // Ordered by name in React: a query orders by its own fields only.
       contributors: list.contributors({
-        orderBy: person => person.name,
-        select: profileCard,
+        select: contribution => ({ person: contribution.person(profileCard) }),
       }),
       items: list.items({
-        orderBy: item => item.position,
+        orderBy: item => item.items_position,
         select: item => ({
-          position: item.position,
+          position: item.items_position,
           practice: item.practice(practice => ({
             ...practice.pick("id", "name", "about"),
             authors: practice.authors({
               orderBy: author => author.name,
               select: profileCard,
             }),
+            // A practice's tags on this list.
+            tags: practice.tags({
+              where: tag => tag.list.eq(input.id),
+              orderBy: tag => tag.name,
+              select: tag => tag.pick("id", "name", "color"),
+            }),
           })),
-          tags: item.tags({
-            orderBy: tag => tag.name,
-            select: tag => tag.pick("id", "name", "color"),
-          }),
         }),
       }),
       reactions: list.reactions({
-        orderBy: reaction => reaction.profile,
+        orderBy: reaction => reaction.person,
         select: reaction => ({
           profile: reaction.person(profileCard),
           emoji: reaction.emoji,
@@ -114,12 +115,12 @@ export const renameList = mutation(
   z.object({ listId: z.string().uuid(), name: z.string().trim().min(1) }),
   async ({ user, tx, now }, input) => {
     const value = await requireListEditor(tx, input.listId, user)
-    if (value.owner_profile !== user.profile) {
+    if (value.owner !== user.profile) {
       throw publicError("permission-denied", "Only the owner can rename this list")
     }
     await tx.update(lists, { id: input.listId }, {
       name: input.name,
-      updated_at: now,
+      modified: now,
     })
     return { ok: true }
   },
@@ -143,13 +144,13 @@ export const toggleListReaction = mutation(
   async ({ user, tx }, input) => {
     if (!user) throw publicError("user-required", "This operation requires a Story user")
     const value = await tx.one(lists, { id: input.listId })
-    if (!value || value.visibility !== "public") {
+    if (!value || value.visibility !== "Public") {
       throw publicError("not-found", "Only public lists can be liked")
     }
-    const key = { list_id: input.listId, profile: user.profile }
-    const existing = await tx.one(list_reactions, key)
-    if (existing) await tx.delete(list_reactions, key)
-    else await tx.insert(list_reactions, { ...key, emoji: "👍" })
+    const key = { list: input.listId, person: user.profile }
+    const existing = await tx.one(reactions, key)
+    if (existing) await tx.delete(reactions, key)
+    else await tx.insert(reactions, { ...key, emoji: "👍" })
     return { reacted: !existing }
   },
 )
@@ -158,19 +159,19 @@ export const setListSharing = mutation(
   suppliesData,
   z.object({
     listId: z.string().uuid(),
-    visibility: z.enum(["public", "private"]),
-    allowArborUserEdits: booleanInput,
+    visibility: z.enum(["Public", "Private"]),
+    openToEdits: booleanInput,
   }),
   async ({ user, tx, now }, input) => {
     if (!user) throw publicError("user-required", "This operation requires a Story user")
     const value = await tx.one(lists, { id: input.listId })
-    if (!value || value.owner_profile !== user.profile) {
+    if (!value || value.owner !== user.profile) {
       throw publicError("permission-denied", "Only the owner can change sharing")
     }
     await tx.update(lists, { id: input.listId }, {
       visibility: input.visibility,
-      allow_arbor_user_edits: input.allowArborUserEdits,
-      updated_at: now,
+      openToEdits: input.openToEdits,
+      modified: now,
     })
     return { ok: true }
   },
@@ -190,16 +191,16 @@ export const createPractice = mutation(
       id: practiceId,
       name: input.name,
       about: input.about,
-      created_at: now,
-      updated_at: now,
+      created: now,
+      modified: now,
     })
-    await tx.insert(practice_authors, {
-      practice_id: practiceId,
-      author_profile: user.profile,
+    await tx.insert(practiceAuthors, {
+      practice: practiceId,
+      person: user.profile,
     })
     if (input.addToList) {
       const value = await requireListEditor(tx, input.addToList, user)
-      await orderedListPractices(tx, value.id).append({ practice_id: practiceId })
+      await orderedListPractices(tx, value.id).append({ practice: practiceId })
       await recordContributor(tx, value, user.profile, now)
       await touchList(tx, value.id, now)
     }
@@ -209,14 +210,14 @@ export const createPractice = mutation(
 
 export const setListKind = mutation(
   suppliesData,
-  z.object({ listId: z.string().uuid(), kind: z.enum(["standard", "tagged"]) }),
+  z.object({ listId: z.string().uuid(), kind: z.enum(["Standard", "Tagged"]) }),
   async ({ user, tx, now }, input) => {
     if (!user) throw publicError("user-required", "This operation requires a Story user")
     const value = await tx.one(lists, { id: input.listId })
-    if (!value || value.owner_profile !== user.profile) {
+    if (!value || value.owner !== user.profile) {
       throw publicError("permission-denied", "Only the owner can change the list kind")
     }
-    await tx.update(lists, { id: input.listId }, { kind: input.kind, updated_at: now })
+    await tx.update(lists, { id: input.listId }, { kind: input.kind, modified: now })
     return { ok: true }
   },
 )
@@ -230,12 +231,12 @@ export const createListTag = mutation(
   }),
   async ({ user, tx, id, now }, input) => {
     const value = await requireListEditor(tx, input.listId, user)
-    if (value.owner_profile !== user.profile) {
+    if (value.owner !== user.profile) {
       throw publicError("permission-denied", "Only the owner can create tags")
     }
     const tagId = id("list-tag")
-    await tx.insert(list_tags, {
-      list_id: input.listId,
+    await tx.insert(tags, {
+      list: input.listId,
       id: tagId,
       name: input.name,
       color: input.color ?? null,
@@ -250,11 +251,11 @@ export const deleteListTag = mutation(
   z.object({ listId: z.string().uuid(), tagId: z.string().uuid() }),
   async ({ user, tx, now }, input) => {
     const value = await requireListEditor(tx, input.listId, user)
-    if (value.owner_profile !== user.profile) {
+    if (value.owner !== user.profile) {
       throw publicError("permission-denied", "Only the owner can delete tags")
     }
-    await tx.deleteWhere(practice_tags, { list_id: input.listId, tag_id: input.tagId })
-    await tx.delete(list_tags, { list_id: input.listId, id: input.tagId })
+    await tx.deleteWhere(tagPractices, { tag_list: input.listId, tag_id: input.tagId })
+    await tx.delete(tags, { list: input.listId, id: input.tagId })
     await touchList(tx, value.id, now)
     return { ok: true }
   },
@@ -270,19 +271,19 @@ export const setPracticeTag = mutation(
   }),
   async ({ user, tx, now }, input) => {
     const value = await requireListEditor(tx, input.listId, user)
-    const membership = await tx.one(list_practices, {
-      list_id: input.listId,
-      practice_id: input.practiceId,
+    const membership = await tx.one(items, {
+      list: input.listId,
+      practice: input.practiceId,
     })
     if (!membership) throw publicError("invalid-input", "The practice is not on this list")
     const key = {
-      list_id: input.listId,
-      practice_id: input.practiceId,
+      tag_list: input.listId,
       tag_id: input.tagId,
+      practice: input.practiceId,
     }
-    const existing = await tx.one(practice_tags, key)
-    if (input.included && !existing) await tx.insert(practice_tags, key)
-    if (!input.included && existing) await tx.delete(practice_tags, key)
+    const existing = await tx.one(tagPractices, key)
+    if (input.included && !existing) await tx.insert(tagPractices, key)
+    if (!input.included && existing) await tx.delete(tagPractices, key)
     if (input.included !== Boolean(existing)) {
       await recordContributor(tx, value, user.profile, now)
       await touchList(tx, value.id, now)
@@ -298,26 +299,26 @@ export const duplicateList = mutation(
     if (!user) throw publicError("user-required", "This operation requires a Story user")
     const newListId = id("list")
     const original = await tx.one(lists, { id: input.listId })
-    if (!original || (original.visibility === "private" && original.owner_profile !== user.profile)) {
+    if (!original || (original.visibility === "Private" && original.owner !== user.profile)) {
       throw publicError("not-found", "List not found")
     }
     await tx.insert(lists, {
       id: newListId,
-      owner_profile: user.profile,
+      owner: user.profile,
       name: `Copy of ${original.name}`,
       about: original.about,
       visibility: original.visibility,
-      kind: "standard",
-      allow_arbor_user_edits: false,
-      created_at: now,
-      updated_at: now,
+      kind: "Standard",
+      openToEdits: false,
+      created: now,
+      modified: now,
     })
-    const memberships = await tx.many(list_practices, { list_id: original.id }, {
-      orderBy: [["position", "asc"], ["practice_id", "asc"]],
+    const memberships = await tx.many(items, { list: original.id }, {
+      orderBy: [["items_position", "asc"], ["practice", "asc"]],
     })
     const ordered = orderedListPractices(tx, newListId)
     for (const membership of memberships) {
-      await ordered.append({ practice_id: membership.practice_id })
+      await ordered.append({ practice: membership.practice })
     }
     return { id: newListId }
   },
@@ -356,9 +357,13 @@ function ListContent({ id, editing }: { id: string; editing: boolean }) {
     )
   }
 
-  const canEdit = Boolean(user && (value.ownerProfile === user.profile || value.allowArborUserEdits))
+  const canEdit = Boolean(user && (value.ownerProfile === user.profile || value.openToEdits))
   const userReacted = Boolean(user && value.reactions.some(reaction => reaction.profile.id === user.profile))
-  const attribution = [value.owner, ...value.contributors.filter(person => person.id !== value.owner.id)]
+  const contributors = value.contributors
+    .map(contribution => contribution.person)
+    .filter(person => person.id !== value.owner.id)
+    .sort((left, right) => left.name.localeCompare(right.name))
+  const attribution = [value.owner, ...contributors]
   const actions = (
     <>
       {canEdit ? (
@@ -366,7 +371,7 @@ function ListContent({ id, editing }: { id: string; editing: boolean }) {
           ? <ButtonLink secondary href={`List?id=${encodeURIComponent(id)}`}>Done</ButtonLink>
           : <ButtonLink secondary href={`List?id=${encodeURIComponent(id)}&edit`}>Edit</ButtonLink>
       ) : null}
-      {user && value.visibility === "public" ? (
+      {user && value.visibility === "Public" ? (
         <form action={reactionAction}>
           <input type="hidden" name="listId" value={id} />
           <Button secondary selected={userReacted} disabled={reactionPending}>
@@ -391,7 +396,7 @@ function ListContent({ id, editing }: { id: string; editing: boolean }) {
       subtitle={
         <div className="flex items-center justify-center gap-4">
           <Attribution people={attribution} intro="a list by" />
-          {value.visibility === "private" ? <span className="text-sm text-slate-500">Private</span> : null}
+          {value.visibility === "Private" ? <span className="text-sm text-slate-500">Private</span> : null}
         </div>
       }
       actions={actions}
@@ -408,10 +413,10 @@ function ListContent({ id, editing }: { id: string; editing: boolean }) {
             <article className="flex min-w-0 flex-col rounded-lg border border-slate-200 bg-slate-50 p-4" key={item.practice.id}>
               <h2 className="text-lg font-semibold"><a href={`Practice?id=${encodeURIComponent(item.practice.id)}`}>{item.practice.name}</a></h2>
               <Attribution people={item.practice.authors} intro="by" />
-              <div className="mt-3 max-h-40 overflow-hidden leading-relaxed text-slate-600"><Markdown source={item.practice.about} /></div>
-              {item.tags.length ? (
+              <div className="mt-3 max-h-40 overflow-hidden leading-relaxed text-slate-600"><Markdown source={item.practice.about ?? ""} /></div>
+              {item.practice.tags.length ? (
                 <div className="mt-auto flex flex-wrap gap-1.5 pt-3">
-                  {item.tags.map(tag => (
+                  {item.practice.tags.map(tag => (
                     <span className="rounded-full border border-slate-300 px-2 py-0.5 text-xs text-slate-600" key={tag.id} style={tag.color ? { background: tag.color, color: "white" } : undefined}>
                       {tag.name}
                     </span>
@@ -476,13 +481,13 @@ function ListEditor({ value }) {
           <label className="grid gap-1">
             Visibility
             <Select name="visibility" defaultValue={value.visibility}>
-              <option value="public">Public</option>
-              <option value="private">Private</option>
+              <option value="Public">Public</option>
+              <option value="Private">Private</option>
             </Select>
           </label>
           <label className="grid gap-1">
             Editing
-            <Select name="allowArborUserEdits" defaultValue={String(value.allowArborUserEdits)}>
+            <Select name="openToEdits" defaultValue={String(value.openToEdits)}>
               <option value="false">Only the owner may edit</option>
               <option value="true">Any signed-in Story user may edit</option>
             </Select>
@@ -492,9 +497,9 @@ function ListEditor({ value }) {
         {isOwner ? (
           <form className="mt-3" action={kindAction}>
             <input type="hidden" name="listId" value={value.id} />
-            <input type="hidden" name="kind" value={value.kind === "tagged" ? "standard" : "tagged"} />
+            <input type="hidden" name="kind" value={value.kind === "Tagged" ? "Standard" : "Tagged"} />
             <Button secondary disabled={kindPending}>
-              {value.kind === "tagged" ? "Use a standard list" : "Use a tagged list"}
+              {value.kind === "Tagged" ? "Use a standard list" : "Use a tagged list"}
             </Button>
           </form>
         ) : null}
@@ -507,10 +512,10 @@ function ListEditor({ value }) {
             <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2" key={item.practice.id}>
               <span>
                 {item.practice.name}
-                {value.kind === "tagged" && value.tags.length ? (
+                {value.kind === "Tagged" && value.tags.length ? (
                   <span className="mt-2 flex flex-wrap gap-2">
                     {value.tags.map(tag => {
-                      const included = item.tags.some(value => value.id === tag.id)
+                      const included = item.practice.tags.some(value => value.id === tag.id)
                       return (
                         <form action={practiceTagAction} key={tag.id}>
                           <input type="hidden" name="listId" value={value.id} />
@@ -553,7 +558,7 @@ function ListEditor({ value }) {
         </div>
       </Panel>
 
-      {value.kind === "tagged" && isOwner ? (
+      {value.kind === "Tagged" && isOwner ? (
         <Panel>
           <h2 className="mb-3 text-xl font-semibold">Tags</h2>
           <div className="mb-3 flex flex-wrap gap-2">

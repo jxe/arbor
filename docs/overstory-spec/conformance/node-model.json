@@ -162,7 +162,7 @@
       "type": "collection-file",
       "format": "csv",
       "source": "_store.csv",
-      "schemaSource": "schema.cddl",
+      "schemaSource": "schema.usl",
       "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     },
@@ -171,7 +171,7 @@
       "type": "collection-file",
       "format": "json",
       "source": "_store.json",
-      "schemaSource": "schema.cddl",
+      "schemaSource": "schema.usl",
       "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     },
@@ -180,7 +180,7 @@
       "type": "collection-file",
       "format": "jsonl",
       "source": "_store.jsonl",
-      "schemaSource": "schema.cddl",
+      "schemaSource": "schema.usl",
       "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     }
@@ -202,7 +202,7 @@
         "type": "collection-file",
         "format": "json",
         "source": "_store.json",
-        "schemaSource": "schema.cddl",
+        "schemaSource": "schema.usl",
         "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
       } }

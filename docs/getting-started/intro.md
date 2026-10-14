@@ -95,7 +95,7 @@ That gets us to the level of plain filesystems, but we can do better. At this po
 Filesystems often get messy, whereas Notion, with the *same* hierarchical structure, doesn't so easily. Why? 
 
 * First, a directory in Notion isn't a bare listing; it's a document that *contains* its children, so you can group them under headings, fold the stale ones into a toggle, annotate the important ones. The folder explains itself and is malleable. Overstory does the same for local directories: story-sync always presents complete Markdown, treating the first standalone link to each immediate child as its position and appending ordinary links for children the stored body does not mention. An optional `_index.md` lets you author and persist that arrangement; merely browsing a bodyless directory creates no file.
-* Second, page properties mean a subtree of similar pages can become a database: past meeting agendas, say, each with a date and attendees; here that's frontmatter, hardened by an optional `schema.cddl` to keep things orderly and allow queries.
+* Second, page properties mean a subtree of similar pages can become a database: past meeting agendas, say, each with a date and attendees; here that's frontmatter, hardened by an optional `schema.usl` to keep things orderly and allow queries.
 * Third, sharing works on subtrees, which nudges people to map subtrees onto human groups and teams and projects. That social mapping keeps hierarchies meaningful as they grow. The same dynamic will happen here.
 
 All this, and story-sync still materializes the workspace as ordinary files on disk, for the pleasure of your agents and editors. `ls` is browsing. `cat` is reading. Writing a file is editing. `grep -r` is search. Nothing about your existing tools breaks.
@@ -114,23 +114,27 @@ Structured data belongs in the same tree as Markdown. The reference
 implementation supports expanded files, collection files, and SQLite today;
 Postgres connections remain planned. There are three intended forms:
 
-**First: plain files plus a schema.** A directory with a `schema.cddl` becomes a typed collection over exactly one ordinary backing: many Markdown files whose frontmatter conforms, one `_store.csv`, or one line-oriented `_store.jsonl`. The schema is declarative data in a small, bounded profile of [CDDL](https://www.rfc-editor.org/rfc/rfc8610.html), so reading a collection never runs code:
+**First: plain files plus a schema.** A directory with a `schema.usl` becomes a typed collection over exactly one ordinary backing: many Markdown files whose frontmatter conforms, one `_store.csv`, or one line-oriented `_store.jsonl`. The schema is declarative data in [Ultimate Schema Language](../overstory-spec/11-schema-language.md), so reading a collection never runs code:
 
-```cddl
-; essays/schema.cddl
-overstory-schema-version = 1
+```
+// essays/schema.usl
+model Essay {
+  title  Text
+  date   Date
+  tag    Text
+  status Status
+}
 
-row = {
-  title: tstr,
-  date: tstr,
-  tag: tstr,
-  status: "draft" / "published",
+Essay.status <-> Status.essays[]
+
+model Status {
+  @@fixed { draft, published }
 }
 ```
 
 Declared properties are checked; any others a page carries are kept as they are. This is how Notion turns page properties into a database.
 
-**Second: a real database.** Submissions pile up faster than essays — a few hundred a month, each with review state, notes, and an author to reply to. When frontmatter files stop being fun, drop `_store.sqlite3` into `submissions/`. Story Sync opens it, serves the folder's rows from it, introspects its tables to generate types, and watches changes. The folder keeps its path, its page, its schema, and every query pointed at it.
+**Second: a real database.** Submissions pile up faster than essays — a few hundred a month, each with review state, notes, and an author to reply to. When frontmatter files stop being fun, drop `_store.sqlite3` into `submissions/`, beside a `schema.usl` that declares its models and how they connect. Story Sync checks the database against the schema, serves the folder's rows from it, and watches changes. The folder keeps its path, its page, its schema, and every query pointed at it.
 
 **Third: a connection to a database you already have.** In the specified
 Postgres model, an external database enters the tree as a small reference file:

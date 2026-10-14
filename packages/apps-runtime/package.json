@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ovst/protocol": "workspace:*",
+    "@ovst/usl": "workspace:*",
     "yaml": "2.8.2"
   }
 }

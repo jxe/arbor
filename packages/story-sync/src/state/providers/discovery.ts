@@ -9,8 +9,8 @@ const fixedStores = [
   ["_store.sqlite3", "sqlite"],
   ["_store.postgres", "postgres"],
 ] as const satisfies readonly (readonly [string, ProjectionProviderKind])[];
-/** The declarative row schema. Any other file, including a `schema.ts`, is ordinary. */
-const SCHEMA = "schema.cddl";
+/** The collection's schema. Any other file, including a `schema.ts`, is ordinary. */
+const SCHEMA = "schema.usl";
 
 /** Inventory a directory once and select the single built-in provider that claims it. */
 export async function detectProjection(directory: string): Promise<ProjectionDefinition | null> {
@@ -29,20 +29,8 @@ export async function detectProjection(directory: string): Promise<ProjectionDef
     severity: "error",
   });
   const selected = stores[0];
-  const database = selected?.[1] === "sqlite" || selected?.[1] === "postgres";
-  if (schemaPath && database) diagnostics.push({
-    code: "mixed-collection-backing",
-    message: "schema.cddl governs Markdown and collection-file rows; a database backing introspects its own schema.",
-    path: schemaPath,
-    severity: "error",
-  });
   if (selected) {
-    return {
-      provider: selected[1],
-      storePath: join(directory, selected[0]),
-      ...(schemaPath && !database ? { schemaPath } : {}),
-      diagnostics,
-    };
+    return { provider: selected[1], storePath: join(directory, selected[0]), ...(schemaPath ? { schemaPath } : {}), diagnostics };
   }
   return { provider: "markdown", markdownPaths, ...(schemaPath ? { schemaPath } : {}), diagnostics };
 }

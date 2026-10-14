@@ -9,8 +9,8 @@ objects carry ordinary CSV, JSON, and JSONL source and schema entries plus a
 directory-level `childrenSource` descriptor that interprets them as one child
 set; overstoryd validates those graphs, merges disjoint rows by stable identity,
 and projects logical rows at ordinary locators while keeping `_store.*` and
-`schema.cddl` out of child navigation. Collection-file descriptors have one
-version, 1, which names `schema.cddl`, in TypeScript and Swift.
+`schema.usl` out of child navigation. Collection-file descriptors have one
+version, 1, which names `schema.usl`, in TypeScript and Swift.
 
 For an update string, overstoryd derives one credential-scoped digest per
 element over `{ domain: "arbor-update/2", tree, base, change, trace,

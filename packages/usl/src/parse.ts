@@ -39,7 +39,7 @@ export class UslSyntaxError extends Error {
   }
 }
 
-/** Bounds on what a schema may ask of a parser, so an untrusted schema can't exhaust a host. Same values as the CDDL profile's. */
+/** Bounds on what a schema may ask of a parser, so an untrusted schema can't exhaust a host. */
 export const USL_LIMITS = {
   sourceBytes: 1_048_576,
   tokens: 65_536,

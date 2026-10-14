@@ -27,7 +27,7 @@ import {
   type ProviderChildRecord,
 } from "@ovst/apps-runtime/collections";
 /** The schema facts a projection needs; an unschematized collection has none of them. */
-type SchemaView = Pick<CollectionSchema, "columns" | "primaryKey" | "childName" | "revision"> & { schema: CollectionSchema | null };
+type SchemaView = Pick<CollectionSchema, "columns" | "childName" | "revision"> & { primaryKey: readonly string[] | null; schema: CollectionSchema | null };
 const NO_SCHEMA: SchemaView = { columns: [], primaryKey: null, childName: { from: "primaryKey" }, revision: revisionOf("") as CollectionSchema["revision"], schema: null };
 
 function invalidWrite(diagnostics: ReturnType<typeof validateRow>): ProjectionProviderError {
@@ -322,16 +322,16 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
       ? await this.sourceRows(definition, schema)
       : await this.markdownRows(definition, schema);
     const fileValid = loaded.diagnostics.every((item) => item.severity !== "error");
-    const identityProperties = description.primaryKey
-      ? [...description.primaryKey]
-      : definition.provider === "markdown" && description.columns.includes("id") ? ["id"] : null;
+    const identityProperties = description.primaryKey ? [...description.primaryKey] : null;
+    // A Markdown row without an `id` in its frontmatter is identified by its file name.
+    const implicitId = definition.provider === "markdown" && identityProperties?.join() === "id";
     const identityRule = identityProperties ? { properties: identityProperties } : undefined;
     const validated = loaded.rows.map((row, index) => {
       const values = row.values;
       const stableKey = identityRule && fileValid && row.diagnostics.length === 0
         ? stableKeyFromProperties(identityRule.properties, values) : null;
       const diagnostics = [...row.diagnostics];
-      if (identityRule && !stableKey) diagnostics.push({
+      if (identityRule && !stableKey && !(implicitId && values.id === undefined)) diagnostics.push({
         code: "invalid-row-key", message: `Row does not have a valid ${identityRule.properties.join(", ")} stable key.`,
         path: definition.storePath ?? row.path, row: index, severity: "error",
       });
@@ -412,7 +412,9 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
       return {
         key: String(document.frontmatter.id ?? basename(path, ".md")), path: basename(path, ".md"),
         stableKey: null, revision: revisionOf(source), values: document.frontmatter,
-        diagnostics: schema ? validateRow(schema, document.frontmatter).map((item) => valueDiagnostic(item, path, index)) : [],
+        diagnostics: schema
+          ? validateRow(schema, { id: basename(path, ".md"), ...document.frontmatter }).map((item) => valueDiagnostic(item, path, index))
+          : [],
       } satisfies ProviderChildRecord;
     }));
     return { rows, revision: revisionOf(rows.map((row) => `${row.path}:${row.revision}`).join("\n")), diagnostics: [] as Diagnostic[] };

@@ -5,6 +5,7 @@ import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { Workspace } from "@ovst/story-sync";
+import { compileUsl, layoutOf, setupSql } from "@ovst/usl";
 import { canonicalStableKey, markdownStableKey } from "@ovst/protocol";
 
 let root: string;
@@ -50,9 +51,9 @@ describe("workspace service", () => {
     await expect(stat(join(root, ".overstory"))).rejects.toThrow();
 
     const collection = join(root, "typed");
-    const schemaPath = join(collection, "schema.cddl");
+    const schemaPath = join(collection, "schema.usl");
     await mkdir(collection);
-    await writeFile(schemaPath, 'overstory-schema-version = 1\nrow = { title: tstr }\n');
+    await writeFile(schemaPath, 'model Item {\n  title Text\n}\n');
     await writeFile(join(collection, "_store.csv"), "title\nExample\n");
     await workspace.nodes.generateTypes();
 
@@ -60,14 +61,14 @@ describe("workspace service", () => {
     // Declarations come from the declarative schema: no authored module or Zod import.
     expect(generated).not.toContain("import");
     // Rows are open (spec 06 §2.4.4), so the row type admits undeclared members.
-    expect(generated).toContain('type Schema0 = { "title": string; [member: string]: unknown; };');
+    expect(generated).toContain('type Schema0 = { "id": string; "title": string; [member: string]: unknown; };');
     expect(generated).toContain('"/typed": Collection<Schema0>;');
   });
 
   test("keeps Markdown collection rows out of the directory document", async () => {
     const collection = join(root, "records");
     await mkdir(collection);
-    await writeFile(join(collection, "schema.cddl"), 'overstory-schema-version = 1\nrow = { id: tstr, title: tstr }\n');
+    await writeFile(join(collection, "schema.usl"), 'model Item {\n  title Text\n}\n');
     await writeFile(join(collection, "_index.md"), "About the records.\n");
     await writeFile(join(collection, "one.md"), "---\nid: abc123\ntitle: One\n---\nRow body.\n");
 
@@ -103,7 +104,7 @@ describe("workspace service", () => {
   test("keeps a page id on a Markdown row without declaring it", async () => {
     const collection = join(root, "reading");
     await mkdir(collection);
-    await writeFile(join(collection, "schema.cddl"), 'overstory-schema-version = 1\nrow = { title: tstr }\n');
+    await writeFile(join(collection, "schema.usl"), 'model Item {\n  title Text\n}\n');
     const id = "row1final";
     await writeFile(join(collection, "final.md"), `---\nid: ${id}\ntitle: Draft\nrating: 4\n---\nBody\n`);
 
@@ -119,7 +120,7 @@ describe("workspace service", () => {
   test("resolves rolled-up JSON rows as ordinary stable-key nodes", async () => {
     const collection = join(root, "rolled");
     await mkdir(collection);
-    await writeFile(join(collection, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n');
+    await writeFile(join(collection, "schema.usl"), 'model Item {\n  title Text\n}\n');
     await writeFile(join(collection, "_store.json"), '[{"id":"b","title":"Second"},{"id":"a","title":"First"}]\n');
 
     const parent = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/rolled", stableKey: null });
@@ -139,12 +140,12 @@ describe("workspace service", () => {
   test("resolves SQLite databases, tables, and rows as ordinary nodes", async () => {
     const directory = join(root, "database");
     await mkdir(directory);
-    const schema = "create table items (id text primary key, title text not null);";
-    await writeFile(join(directory, "schema.sql"), `${schema}\n`);
-    await writeFile(join(directory, "relationships.json"), '{"version":1,"relationships":{}}\n');
+    const schema = "model items {\n  title Text\n}\n";
+    await writeFile(join(directory, "schema.usl"), schema);
     const database = new Database(join(directory, "_store.sqlite3"));
-    database.exec(schema);
-    database.query("insert into items values (?, ?), (?, ?)").run("b", "Second", "a", "First");
+    database.exec(setupSql(layoutOf(compileUsl(schema), { store: "database" }), "sqlite"));
+    const time = "2026-08-25T12:00:00.000Z";
+    database.query("insert into items (id, title, created, modified) values (?, ?, ?, ?), (?, ?, ?, ?)").run("b", "Second", time, time, "a", "First", time, time);
     database.close();
 
     const container = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/database", stableKey: null });
@@ -163,7 +164,7 @@ describe("workspace service", () => {
     const key = canonicalStableKey([["id", "b"]]);
     const row = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/database/items/stale", stableKey: key });
     expect(row.ref).toEqual({ tree: workspace.tree, path: "/database/items/b", stableKey: key });
-    expect(row.properties).toEqual({ id: "b", title: "Second" });
+    expect(row.properties).toEqual({ id: "b", title: "Second", created: time, modified: time });
     expect(row.capabilities.properties?.writable).toBe(true);
   });
 

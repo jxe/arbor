@@ -175,7 +175,7 @@ export async function snapshotDirectory(
             version: 1,
             type: "collection-file",
             source: entry.name as CollectionFileDescriptor["source"],
-            schemaSource: "schema.cddl",
+            schemaSource: "schema.usl",
             ...description,
           };
         }

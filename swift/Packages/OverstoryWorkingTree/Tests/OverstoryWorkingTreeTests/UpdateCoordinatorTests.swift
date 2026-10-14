@@ -160,17 +160,17 @@ struct UpdateCoordinatorTests {
     func collectionFileDescriptorRoundTrip() async throws {
         try await withTemporaryRoot { root in
             let source = try ProtocolObjectCodec.object(.file(Data(#"[{"id":"one"}]"#.utf8)))
-            let schema = try ProtocolObjectCodec.object(.file(Data("overstory-schema-version = 1\nrow = { id: tstr }\n".utf8)))
+            let schema = try ProtocolObjectCodec.object(.file(Data("model Row { name Text? }\n".utf8)))
             let descriptor = ProtocolCollectionFileDescriptor(
                 format: "json",
                 source: "_store.json",
-                schemaSource: "schema.cddl",
+                schemaSource: "schema.usl",
                 schemaFingerprint: "sha256:" + String(repeating: "3", count: 64),
                 childSetHash: "sha256:" + String(repeating: "4", count: 64)
             )
             let directory = try ProtocolObjectCodec.object(.directory([
                 .init(name: "_store.json", file: source.hash),
-                .init(name: "schema.cddl", file: schema.hash),
+                .init(name: "schema.usl", file: schema.hash),
             ], childrenSource: descriptor))
             let snapshot = ProtocolSnapshot(root: directory.hash, objects: [directory, schema, source])
             let replacement = try SnapshotBridge.replacement(

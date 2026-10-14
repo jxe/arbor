@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-/// Version 1 selects the declarative `schema.cddl` (spec 06 §2.1).
+/// Version 1 selects the collection's `schema.usl` (spec 06 §2.1).
 public struct ProtocolCollectionFileDescriptor: Hashable, Codable, Sendable {
     public var version: Int
     public var type: String
@@ -200,7 +200,7 @@ public enum ProtocolObjectCodec {
                   childrenSource.type == "collection-file",
                   ["csv", "json", "jsonl"].contains(childrenSource.format),
                   childrenSource.source == "_store.\(childrenSource.format)",
-                  childrenSource.schemaSource == "schema.cddl" else {
+                  childrenSource.schemaSource == "schema.usl" else {
                 throw ProtocolValidationError.invalidValue("Invalid collection-file descriptor")
             }
             try validateObjectHash(childrenSource.schemaFingerprint)

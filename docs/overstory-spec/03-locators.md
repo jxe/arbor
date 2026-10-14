@@ -370,7 +370,7 @@ its own policy names; a script on such a page is permitted by its hash.
 
 Rows in a recognized synchronized CSV/JSON/JSONL collection file have the same
 ordinary public path and stable-key locator projection as expanded children.
-The parent page lists those logical rows rather than `_store.*` or `schema.cddl`.
+The parent page lists those logical rows rather than `_store.*` or `schema.usl`.
 A path lookup or stable-key lookup may render a row as an HTML property page or
 a Markdown data projection; a stale readable path redirects permanently to the
 current row path while preserving the key, application query, and content

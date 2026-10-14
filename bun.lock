@@ -44,6 +44,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@ovst/protocol": "workspace:*",
+        "@ovst/usl": "workspace:*",
         "yaml": "2.8.2",
       },
     },
@@ -75,6 +76,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@ovst/protocol": "workspace:*",
+        "@ovst/usl": "workspace:*",
         "csv-parse": "6.1.0",
       },
     },

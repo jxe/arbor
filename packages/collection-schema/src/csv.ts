@@ -5,16 +5,6 @@ import { validateRow, type ValidationBudget } from "./validate.ts";
 
 const JSON_NUMBER = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
 
-/** Why a schema cannot govern `_store.csv`, or null when every member converts. */
-export function csvSchemaDiagnostic(schema: CollectionSchema): ValueDiagnostic | null {
-  const column = schema.csvColumns.find((item) => item.scalar === null);
-  return column ? {
-    code: "csv-unrepresentable-schema",
-    path: pointer("", column.name),
-    message: `Member ${JSON.stringify(column.name)} is not a single scalar class and cannot be a CSV column`,
-  } : null;
-}
-
 /**
  * File-level header checks: header names are distinct. An undeclared column is
  * allowed; it converts as if declared `? name: tstr` (spec 06 §2.4.5).
@@ -49,6 +39,13 @@ function convertCell(column: CsvColumn, text: string): Cell | null {
     const value = Number(text);
     return Number.isFinite(value) ? { absent: false, value } : null;
   }
+  if (column.scalar === "json") {
+    try {
+      return { absent: false, value: JSON.parse(text) as JSONValue };
+    } catch {
+      return null;
+    }
+  }
   if (column.scalar === "boolean") {
     if (text === "true") return { absent: false, value: true };
     if (text === "false") return { absent: false, value: false };
@@ -78,7 +75,7 @@ export function csvRowValue(
     const text = position === undefined ? "" : cells[position] ?? "";
     const cell = convertCell(column, text);
     if (!cell) {
-      diagnostics.push({ code: "csv-invalid-cell", path: pointer("", column.name), message: `Cell ${JSON.stringify(text)} does not convert to the declared ${column.scalar ?? "type"}` });
+      diagnostics.push({ code: "csv-invalid-cell", path: pointer("", column.name), message: `Cell ${JSON.stringify(text)} does not convert to the declared ${column.scalar}` });
     } else if (!cell.absent) {
       value[column.name] = cell.value;
     }
@@ -95,7 +92,8 @@ export function csvRowValue(
 }
 
 function sameValue(left: JSONValue | undefined, right: JSONValue | undefined): boolean {
-  return left === right || (typeof left === "number" && typeof right === "number" && left === right);
+  if (typeof left === "object" && left !== null) return JSON.stringify(left) === JSON.stringify(right);
+  return left === right;
 }
 
 export class CsvEncodeError extends Error {
@@ -121,8 +119,6 @@ function quote(text: string): string {
  * otherwise the write is rejected rather than changing data.
  */
 export function encodeCsvRows(schema: CollectionSchema, rows: readonly Readonly<Record<string, JSONValue>>[]): string {
-  const unrepresentable = csvSchemaDiagnostic(schema);
-  if (unrepresentable) throw new CsvEncodeError(unrepresentable);
   const declared = new Set(schema.columns);
   const extra = new Set<string>();
   for (const row of rows) for (const name of Object.keys(row)) if (!declared.has(name)) extra.add(name);

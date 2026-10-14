@@ -74,6 +74,7 @@ beforeAll(async () => {
     list: list.list,
     practiceChoices: list.practiceChoices,
     practice: practice.practice,
+    practiceLists: practice.practiceLists,
     profile: profile.profile,
     practiceSearch: practiceSearch.practiceSearch,
     popularLists: popularLists.popularLists,
@@ -87,6 +88,7 @@ beforeAll(async () => {
     list: join(supplies, "List.tsx"),
     practiceChoices: join(supplies, "List.tsx"),
     practice: join(supplies, "Practice.tsx"),
+    practiceLists: join(supplies, "Practice.tsx"),
     profile: join(supplies, "Profile.tsx"),
     practiceSearch: join(supplies, "components", "PracticeSearch.tsx"),
     popularLists: join(supplies, "components", "PopularLists.tsx"),
@@ -126,30 +128,30 @@ describe("Supplies SQLite query engine", () => {
     expect(fromSharedScript.tree).toBe("tr_supplies_data");
   });
 
-  test("introspects stable keys, booleans, virtual profiles, and reviewed relationships", () => {
-    expect(engine.schema.relations.lists?.primaryKey).toEqual(["id"]);
-    expect(engine.schema.relations.lists?.fields.allow_arbor_user_edits?.type).toBe("boolean");
-    expect(engine.schema.relations.arbor_profiles?.source).toBe("overstory-profile");
-    expect(engine.schema.relationships["list_practices.tags"]?.through?.source).toHaveLength(2);
-    expect(engine.schema.relationships["lists.items"]?.key).toEqual(["practice_id"]);
+  test("introspects stable keys, booleans, virtual people, and schema.usl relationships", () => {
+    expect(engine.schema.relations.List?.primaryKey).toEqual(["id"]);
+    expect(engine.schema.relations.List?.fields.openToEdits?.type).toBe("boolean");
+    expect(engine.schema.relations.Person?.source).toBe("overstory-profile");
+    expect(engine.schema.relationships["Tag.practices"]?.through?.source).toHaveLength(2);
+    expect(engine.schema.relationships["List.items"]?.key).toEqual(["practice"]);
     expect(engine.schema.fingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 
   test("rejects unactivated and incorrectly resolved node() sources before execution", async () => {
-    const unbound = query.many(node("./data/lists").children, (list: any) => ({
+    const unbound = query.many(node("./data/List").children, (list: any) => ({
       select: list.pick("id"),
     }));
     await expect(engine.execute(unbound)).rejects.toThrow("was not resolved during activation");
     expect(() => engine.bind(unbound, {
       authoredPath: unbound.source.path,
       tree: "tr_wrong_tree",
-      path: "/lists",
+      path: "/List",
       schemaFingerprint: engine.schema.fingerprint,
     })).toThrow("belongs to another tree");
     expect(() => engine.bind(unbound, {
       authoredPath: unbound.source.path,
       tree: "tr_supplies_data",
-      path: "/wrong/lists",
+      path: "/wrong/List",
       schemaFingerprint: engine.schema.fingerprint,
     })).toThrow("does not name this SQLite store relation");
   });
@@ -162,6 +164,7 @@ describe("Supplies SQLite query engine", () => {
       list: await engine.execute(handles.list, { input: { id: careList } }),
       practiceChoices: await engine.execute(handles.practiceChoices),
       practice: await engine.execute(handles.practice, { input: { id: listeningPractice } }),
+      practiceLists: await engine.execute(handles.practiceLists, { input: { id: listeningPractice } }),
       myLists: await engine.execute(handles.myLists, { user: { profile: ada } }),
     };
 
@@ -172,10 +175,11 @@ describe("Supplies SQLite query engine", () => {
     expect(executions.list.result).toMatchSnapshot("list result");
     expect(executions.practiceChoices.result).toMatchSnapshot("practiceChoices result");
     expect(executions.practice.result).toMatchSnapshot("practice result");
+    expect(executions.practiceLists.result).toMatchSnapshot("practiceLists result");
     expect(executions.myLists.result).toMatchSnapshot("myLists result");
     expect(Object.fromEntries(Object.entries(executions).map(([name, execution]) => [name, execution.queryPlans.map((plan) => plan.details)])))
       .toMatchSnapshot("SQLite query plans");
-    expect((executions.list.result as { allowArborUserEdits: unknown }).allowArborUserEdits).toBe(true);
+    expect((executions.list.result as { openToEdits: unknown }).openToEdits).toBe(true);
     expect(executions.list.dependencies.profiles.map((dependency) => dependency.profile)).toEqual([
       ada,
       bo,
@@ -186,12 +190,12 @@ describe("Supplies SQLite query engine", () => {
   test("keeps private lists out of anonymous results while allowing their owner", async () => {
     const anonymousList = await engine.execute(handles.list, { input: { id: privateList } });
     const ownerList = await engine.execute(handles.list, { input: { id: privateList }, user: { profile: ada } });
-    const anonymousPractice = await engine.execute(handles.practice, { input: { id: walkingPractice } });
-    const ownerPractice = await engine.execute(handles.practice, { input: { id: walkingPractice }, user: { profile: ada } });
+    const anonymousPractice = await engine.execute(handles.practiceLists, { input: { id: walkingPractice } });
+    const ownerPractice = await engine.execute(handles.practiceLists, { input: { id: walkingPractice }, user: { profile: ada } });
     expect(anonymousList.result).toBeNull();
     expect((ownerList.result as { id: string }).id).toBe(privateList);
-    expect((anonymousPractice.result as { lists: unknown[] }).lists).toEqual([]);
-    expect((ownerPractice.result as { lists: Array<{ id: string }> }).lists.map((list) => list.id)).toEqual([privateList]);
+    expect(anonymousPractice.result).toEqual([]);
+    expect((ownerPractice.result as Array<{ id: string }>).map((list) => list.id)).toEqual([privateList]);
   });
 
   test("validates input and required users before query execution", async () => {
@@ -207,7 +211,7 @@ describe("Supplies SQLite query engine", () => {
 
   test("applies Standard Schema transformations and query.one cardinality", async () => {
     const transformedSearch = query.many(
-      node("./data/practices").children,
+      node("./data/Practice").children,
       z.object({ search: z.string().trim().toLowerCase() }),
       (practice, { input }: any) => ({
         where: (practice.name as any).contains(input.search),
@@ -216,7 +220,7 @@ describe("Supplies SQLite query engine", () => {
       }),
     );
     const exactPractice = query.one(
-      node("./data/practices").children,
+      node("./data/Practice").children,
       z.object({ id: z.string().uuid() }),
       (practice, { input }: any) => ({
         where: (practice.id as any).eq(input.id),

@@ -9,7 +9,7 @@ model Excellence {
   projects   Project[]                          // cross-reference
 
   @@views([
-    { label: "By project",    line: [assessment @bullet, name, leads, projects], group: projects },
+    { label: "By project",    line: [name, leads @label("lead"), assessment @bullet, projects @summary @label("project")], group: projects },
     { label: "By lead",       group: leads },
     { label: "By assessment", group: assessment },
   ])

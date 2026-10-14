@@ -30,7 +30,7 @@ import {
 } from "./types.ts";
 import { ensureContainedPath, resolveTreePath, toTreePath } from "@ovst/protocol/path";
 
-const RESERVED = new Set(["schema.cddl", "_store.csv", "_store.json", "_store.jsonl", "_store.postgres", "_store.sqlite3", "_index.md"]);
+const RESERVED = new Set(["schema.usl", "_store.csv", "_store.json", "_store.jsonl", "_store.postgres", "_store.sqlite3", "_index.md"]);
 const EMPTY_REVISION = revisionOf("");
 
 function bodyRevision(document: MarkdownDocument): string {

@@ -1,11 +1,13 @@
 # @ovst/collection-schema
 
-Declarative collection schemas: the Overstory CDDL collection profile of
-[child backings §2.4](../../docs/overstory-spec/06-child-backings.md#24-collection-schema-profile)
-and the collection-file codec built on it.
+Collection schemas: a collection's `schema.usl`
+([child backings §2.4](../../docs/overstory-spec/06-child-backings.md#24-collection-schemas)),
+compiled with [`@ovst/usl`](../usl/README.md), and the collection-file codec
+built on it.
 
-- `compileCollectionSchema(bytes)`: parse and check one `schema.cddl`, or throw
-  a `CollectionSchemaError` whose first diagnostic has a code and location.
+- `compileCollectionSchema(bytes)`: compile one `schema.usl` whose data-file
+  layout is one table, or throw a `CollectionSchemaError` whose first
+  diagnostic has a code and location.
 - `validateRow(schema, value)`: a pure decision with deterministic JSON Pointer
   diagnostics; it never changes the value. The row map is open: undeclared
   members are accepted and preserved, while declared members validate strictly.
@@ -18,6 +20,6 @@ and the collection-file codec built on it.
 - `CollectionSchemaCache`: a bounded cache keyed by the exact source hash.
 
 The package executes no authored code and touches no filesystem or network; it
-depends only on `@ovst/protocol` and `csv-parse`. The conformance vectors
+depends only on `@ovst/protocol`, `@ovst/usl` and `csv-parse`. The conformance vectors
 are [`collection-schemas.json`](../../docs/overstory-spec/conformance/collection-schemas.json);
 the design notes are in [the architecture](../../docs/architecture/collection-schema/README.md).

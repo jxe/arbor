@@ -67,7 +67,7 @@ objectVectors.invalid = [
   { name: "file-and-directory", entries: [{ name: "a", file: invalidHash, directory: invalidHash }] },
   ...([
     ["collection-file-schema-ts", 1, "schema.ts"],
-    ["collection-file-unknown-version", 2, "schema.cddl"],
+    ["collection-file-unknown-version", 2, "schema.usl"],
   ] as const).map(([name, version, schemaSource]) => ({
     name,
     entries: [{ name: "_store.json", file: invalidHash }, { name: schemaSource, file: invalidHash }].sort((a, b) => a.name < b.name ? -1 : 1),

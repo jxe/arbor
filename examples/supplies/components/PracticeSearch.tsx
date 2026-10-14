@@ -4,9 +4,9 @@ import { node, query } from "overstory/data"
 import { z } from "zod"
 import { PracticeGrid, TextInput } from "./shared"
 
-const arbor_profiles = node("../data/arbor_profiles").children
-const practices = node("../data/practices").children
-const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
+const people = node("../data/Person").children
+const practices = node("../data/Practice").children
+const profileCard = people.pick("id", "name", "handle", "portrait")
 
 export const practiceSearch = query.many(
   practices,

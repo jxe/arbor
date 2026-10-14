@@ -6,7 +6,7 @@
 
 **PLANNED · L effort · high authority-boundary risk.** Replanned at
 `d55f4142`, 2026-09-21. Execute after
-Apps 007, declarative CDDL collection schemas, which is implemented
+Apps 007, declarative collection schemas (now `schema.usl`), which is implemented
 ([status](../../status.md#declarative-collection-schemas--2026-09-24)): collection
 acceptance, projection and merge no longer execute schemas, and QuickJS is no longer
 a workspace dependency.
@@ -30,7 +30,7 @@ and still applies before enabling a real application.
 The outcome is an independently shippable **headless HTTP execution sidecar**.
 overstoryd owns identity, authorization, immutable tree reads, accepted watches and
 updates; the sidecar owns query planning/evaluation and mutation execution. SQLite
-is a direct mediated provider. CDDL collection validation, ordinary row projection
+is a direct mediated provider. declarative collection validation, ordinary row projection
 and collection merge stay independent of application activation and availability.
 No authored schema JavaScript, compiler, React or query evaluator belongs in the
 overstoryd process dependency graph.
@@ -81,7 +81,7 @@ without changing portable behavior merely to fit the extraction.
 Scope: apps-runtime plus a new executable entrypoint/package if useful; overstoryd HTTP
 forwarding and execution configuration; pure shared bridge contracts; Story Sync's
 local integration; deployment/packaging configuration; affected protocol/Swift models,
-fixtures/tests and reference docs. Keep CDDL enforcement and collection codecs in
+fixtures/tests and reference docs. Keep collection-schema enforcement and collection codecs in
 the pure package established by Apps 007. Out of scope: schema migration, app registry,
 durable subscription resources, cross-host delegation, React/compiler implementation,
 cross-provider durable workflows, provider storage redesign and hostile-JS sandboxing.
@@ -192,7 +192,7 @@ bun test tests/unit/execution-sidecar-boundary.test.ts tests/unit/collection-sch
 
 All pass. The resolved daemon graph has no apps evaluator/compiler/React/QuickJS;
 starting overstoryd without installed apps-runtime or QuickJS in a disposable packaging
-fixture still supports ordinary and CDDL collection operations.
+fixture still supports ordinary and declarative collection operations.
 
 ## 4. Prove failure independence and local reuse
 
@@ -212,7 +212,7 @@ Required process-level cases in `tests/integration/execution-sidecar.test.ts`:
 3. Schema/binding change invalidates a plan, data-only change reevaluates it, and imported
    helpers resolve using their own pinned module context.
 4. Kill sidecar before/during streams and after mutation commit. While it stays down,
-   exercise overstoryd read/watch/update/merge, including CDDL collections; all remain usable.
+   exercise overstoryd read/watch/update/merge, including declarative collections; all remain usable.
    Restart, reconnect with a fresh snapshot and replay a persisted receipt.
 5. Lose authority invalidation, inject hostile context/response headers, exceed body/
    execution limits, disconnect slow readers and shut down; prove bounded resources,
@@ -235,7 +235,7 @@ StoryEditor testing uses the repository wrapper. Verify changed packaging throug
 `bun run build` builds the CLI and is not sufficient evidence of host isolation.
 
 Done: authorized headless execution across a real HTTP process boundary; durable
-retry/revocation tests; ordinary host and CDDL operations independent of apps;
+retry/revocation tests; ordinary host and declarative collection operations independent of apps;
 QuickJS/compiler/evaluator-free daemon closure; local bridge reuse; documented private
 configuration, failure behavior and rollback. Initial runtime is trusted; process
 separation alone makes no claim of hostile cross-tree JavaScript isolation.

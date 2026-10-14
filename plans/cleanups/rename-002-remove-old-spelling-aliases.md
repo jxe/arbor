@@ -13,7 +13,7 @@
 
 ## What is aliased
 
-[Old names](../../docs/architecture/old-names.md), under "Read old, write new", is the list: `arbor://`; the `;arbor-key=`, `;arbor-rev=`, `;arbor-config` parameters and the `#arbor-key=` fragment; `<!-- arbor:children -->`; `.arborignore`; `#arbor-access=` in shared access links; and `"source": "arbor-profile"` in an app's `relationships.json`.
+[Old names](../../docs/architecture/old-names.md), under "Read old, write new", is the list: `arbor://`; the `;arbor-key=`, `;arbor-rev=`, `;arbor-config` parameters and the `#arbor-key=` fragment; `<!-- arbor:children -->`; `.arborignore`; and `#arbor-access=` in shared access links. (`"source": "arbor-profile"` went with `relationships.json` on 2026-10-14.)
 
 ## Decisions
 

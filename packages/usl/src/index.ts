@@ -6,6 +6,7 @@ export { layoutOf, LayoutError, type Column, type ColumnType, type ForeignKey, t
 export { setupSql, columnType, SQL_TYPES, type Dialect } from "./sql.ts";
 export { validateRow, fitsColumn, fromCell, type RowDiagnostic } from "./rows.ts";
 export { typeDeclarations } from "./types.ts";
+export { relationshipsOf, PERSON_RELATION, type Relationship } from "./relationships.ts";
 export {
   checkUsl,
   BUILTIN_MODELS,
@@ -17,10 +18,11 @@ export {
   type RowValue,
   type ResolvedField,
   type ResolvedModel,
+  type ResolvedView,
+  type LineItem,
   type Storage,
 } from "./check.ts";
 
-import { createHash } from "node:crypto";
 import type { Diagnostic } from "./ast.ts";
 import { checkUsl, type CheckResult } from "./check.ts";
 import { parseUsl } from "./parse.ts";
@@ -34,9 +36,4 @@ export function compileUsl(source: string): CheckResult {
 
 export function formatDiagnostic(path: string, d: Diagnostic): string {
   return `${path}:${d.line}:${d.column}: ${d.code}: ${d.message}`;
-}
-
-/** The schema's revision: SHA-256 of its exact source bytes, as for `schema.cddl`. */
-export function uslFingerprint(source: string): string {
-  return createHash("sha256").update(source, "utf8").digest("hex");
 }

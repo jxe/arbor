@@ -72,13 +72,12 @@ function sourceBindings() {
 
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "story-supplies-mutations-"));
-  await Promise.all(["_store.sqlite3", "schema.sql", "relationships.json"].map((name) => cp(join(fixture, name), join(directory, name))));
+  await Promise.all(["_store.sqlite3", "schema.usl"].map((name) => cp(join(fixture, name), join(directory, name))));
   databasePath = join(directory, "_store.sqlite3");
   const location = {
     directory,
     databasePath,
-    schemaPath: join(directory, "schema.sql"),
-    relationshipsPath: join(directory, "relationships.json"),
+    schemaPath: join(directory, "schema.usl"),
     ...storeSource(),
   };
   const profiles = JSON.parse(await readFile(join(repository, "tests", "fixtures", "supplies", "profiles.json"), "utf8")) as Array<Record<string, unknown>>;
@@ -165,30 +164,29 @@ async function next(reader: ReadableStreamDefaultReader<QueryStreamEvent>, type:
 describe.serial("Supplies mutation runner", () => {
   test("validates before data access and returns sanitized expected failures", async () => {
     const before = store.currentCursor();
-    await expect(call("createList", { name: "", visibility: "public" }, "invalid-create"))
+    await expect(call("createList", { name: "", visibility: "Public" }, "invalid-create"))
       .rejects.toMatchObject({ value: { code: "invalid-input", retryable: false } });
     expect(store.currentCursor()).toBe(before);
     expect(all("select * from __arbor_mutation_receipts where mutation_id = 'invalid-create'")).toHaveLength(0);
 
     await expect(call("renameList", { listId: careList, name: "No" }, "denied-rename", bo))
       .rejects.toMatchObject({ value: { code: "permission-denied", message: "Only the owner can rename this list" } });
-    expect(all("select name from lists where id = ?", careList)[0]?.name).toBe("Community care");
+    expect(all("select name from List where id = ?", careList)[0]?.name).toBe("Community care");
 
     const diagnostics: unknown[] = [];
     const diagnosticBroker = new SQLiteMutationBroker(engine.schema, store, storeSource(), { diagnostic: (error) => diagnostics.push(error) });
     const authored = node("./data");
-    const lists = node("./data/lists").children;
+    const lists = node("./data/List").children;
     const failing = mutation(authored, z.object({}), async ({ tx }: any) => {
       tx.insert(lists, {
         id: "99999999-0000-4000-8000-000000000001",
-        owner_profile: ada,
+        owner: ada,
         name: "Must disappear",
-        about: "",
-        visibility: "private",
-        kind: "standard",
-        allow_arbor_user_edits: false,
-        created_at: "secret path /tmp/store",
-        updated_at: "secret path /tmp/store",
+        visibility: "Private",
+        kind: "Standard",
+        openToEdits: false,
+        created: "secret path /tmp/store",
+        modified: "secret path /tmp/store",
       });
       throw new Error("private SQL and /tmp/store details");
     });
@@ -211,7 +209,7 @@ describe.serial("Supplies mutation runner", () => {
       sources: sourceBindings(),
     })).rejects.toMatchObject({ value: { code: "internal-error", message: "The mutation could not be completed" } });
     expect(String(diagnostics[0])).toContain("private SQL");
-    expect(all("select * from lists where name = 'Must disappear'")).toHaveLength(0);
+    expect(all("select * from List where name = 'Must disappear'")).toHaveLength(0);
   });
 
   test("replays exact ambiguous submissions with stable IDs, time, cursor, result, and one effect", async () => {
@@ -221,28 +219,28 @@ describe.serial("Supplies mutation runner", () => {
       changes.push(change);
       receiptVisibleAtPublication = all("select 1 from __arbor_mutation_receipts where mutation_id = 'stable-create'").length === 1;
     });
-    const first = await call<{ id: string }>("createList", { name: "Retry stable", visibility: "private" }, "stable-create");
-    const retry = await call<{ id: string }>("createList", { name: "Retry stable", visibility: "private" }, "stable-create");
+    const first = await call<{ id: string }>("createList", { name: "Retry stable", visibility: "Private" }, "stable-create");
+    const retry = await call<{ id: string }>("createList", { name: "Retry stable", visibility: "Private" }, "stable-create");
     stop();
     expect(retry).toEqual(first);
     expect(first.requestDigest).toBe(semanticRequestDigest({
       version: "mutate-v1",
       handle: refs.createList,
-      input: { name: "Retry stable", visibility: "private" },
+      input: { name: "Retry stable", visibility: "Private" },
       sources: sourceBindings().sort((left, right) => left.authoredPath.localeCompare(right.authoredPath)),
     }));
     expect(first.result.id).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-5[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
-    expect(all("select id, created_at from lists where name = 'Retry stable'")).toEqual([{ id: first.result.id, created_at: "2026-08-27T12:00:01.000Z" }]);
+    expect(all("select id, created from List where name = 'Retry stable'")).toEqual([{ id: first.result.id, created: "2026-08-27T12:00:01.000Z" }]);
     expect(all("select observed_through, result_json from __arbor_mutation_receipts where mutation_id = 'stable-create'")).toEqual([{
       observed_through: first.observedThrough,
       result_json: JSON.stringify(first.result),
     }]);
     expect(changes).toHaveLength(1);
     expect(receiptVisibleAtPublication).toBe(true);
-    await expect(call("createList", { name: "Different", visibility: "private" }, "stable-create"))
+    await expect(call("createList", { name: "Different", visibility: "Private" }, "stable-create"))
       .rejects.toMatchObject({ value: { code: "conflict" } });
 
-    const otherSubject = await call<{ id: string }>("createList", { name: "Retry stable", visibility: "private" }, "stable-create", bo);
+    const otherSubject = await call<{ id: string }>("createList", { name: "Retry stable", visibility: "Private" }, "stable-create", bo);
     expect(otherSubject.requestDigest).toBe(first.requestDigest);
     expect(otherSubject.result.id).not.toBe(first.result.id);
     expect(all("select subject from __arbor_mutation_receipts where mutation_id = 'stable-create' order by subject"))
@@ -250,22 +248,25 @@ describe.serial("Supplies mutation runner", () => {
   });
 
   test("runs every checked-in mutation and keeps multi-row policy checks atomic", async () => {
-    const created = await call<{ id: string }>("createList", { name: "Working list", visibility: "private", owner_profile: bo }, "all-create");
-    expect(all("select owner_profile from lists where id = ?", created.result.id)).toEqual([{ owner_profile: ada }]);
+    const created = await call<{ id: string }>("createList", { name: "Working list", visibility: "Private", owner: bo }, "all-create");
+    expect(all("select owner, about from List where id = ?", created.result.id)).toEqual([{ owner: ada, about: null }]);
     await call("renameList", { listId: created.result.id, name: "Working together" }, "all-rename");
-    await call("setListSharing", { listId: created.result.id, visibility: "public", allowArborUserEdits: "true" }, "all-sharing");
+    await call("setListSharing", { listId: created.result.id, visibility: "Public", openToEdits: "true" }, "all-sharing");
 
     const practice = await call<{ id: string }>("createPractice", {
       name: "Shared cooking",
       about: "Cook something together.",
       addToList: created.result.id,
     }, "all-practice", bo);
-    expect(all("select profile from list_contributors where list_id = ?", created.result.id)).toEqual([{ profile: bo }]);
+    expect(all("select person, first, last from Contribution where list = ?", created.result.id))
+      .toEqual([{ person: bo, first: "2026-08-27", last: "2026-08-27" }]);
 
     const tag = await call<{ id: string }>("createListTag", { listId: created.result.id, name: "Food", color: "amber" }, "all-tag");
     await call("setPracticeTag", { listId: created.result.id, practiceId: practice.result.id, tagId: tag.result.id, included: "true" }, "all-practice-tag", bo);
-    await call("setListKind", { listId: created.result.id, kind: "tagged" }, "all-kind");
+    await call("setListKind", { listId: created.result.id, kind: "Tagged" }, "all-kind");
     await call("setListPractice", { listId: created.result.id, practiceId: mutualAid, included: "true" }, "all-membership", bo);
+    const kept = await call<{ id: string }>("createListTag", { listId: created.result.id, name: "Kept" }, "all-kept-tag");
+    await call("setPracticeTag", { listId: created.result.id, practiceId: mutualAid, tagId: kept.result.id, included: true }, "all-kept-practice-tag", bo);
     await call("reorderList", { listId: created.result.id, practiceIds: [mutualAid, practice.result.id] }, "all-reorder", bo);
     await call("toggleListReaction", { listId: created.result.id }, "all-reaction", bo);
     const duplicate = await call<{ id: string }>("duplicateList", { listId: created.result.id }, "all-duplicate", bo);
@@ -273,14 +274,16 @@ describe.serial("Supplies mutation runner", () => {
     await call("deleteListTag", { listId: created.result.id, tagId: tag.result.id }, "all-delete-tag");
     await call("setListPractice", { listId: created.result.id, practiceId: mutualAid, included: "false" }, "all-remove-membership", bo);
 
-    expect(all("select practice_id, position from list_practices where list_id = ? order by position", created.result.id)).toEqual([{ practice_id: practice.result.id, position: 0 }]);
-    expect(all("select * from practice_tags where list_id = ?", created.result.id)).toHaveLength(0);
-    expect(all("select kind from lists where id = ?", created.result.id)).toEqual([{ kind: "tagged" }]);
-    expect(all("select emoji from list_reactions where list_id = ? and profile = ?", created.result.id, bo)).toEqual([{ emoji: "👍" }]);
-    expect(all("select name from practices where id = ?", practice.result.id)).toEqual([{ name: "Shared cooking updated" }]);
-    expect(all("select practice_id, position from list_practices where list_id = ? order by position", duplicate.result.id)).toEqual([
-      { practice_id: mutualAid, position: 0 },
-      { practice_id: practice.result.id, position: 1 },
+    expect(all("select practice, items_position from Item where list = ? order by items_position", created.result.id)).toEqual([{ practice: practice.result.id, items_position: 0 }]);
+    // Deleting a tag removes its taggings; removing a practice from the list keeps its tags there.
+    expect(all("select tag_id, practice from Tag_practices where tag_list = ?", created.result.id))
+      .toEqual([{ tag_id: kept.result.id, practice: mutualAid }]);
+    expect(all("select kind from List where id = ?", created.result.id)).toEqual([{ kind: "Tagged" }]);
+    expect(all("select emoji from Reaction where list = ? and person = ?", created.result.id, bo)).toEqual([{ emoji: "👍" }]);
+    expect(all("select name from Practice where id = ?", practice.result.id)).toEqual([{ name: "Shared cooking updated" }]);
+    expect(all("select practice, items_position from Item where list = ? order by items_position", duplicate.result.id)).toEqual([
+      { practice: mutualAid, items_position: 0 },
+      { practice: practice.result.id, items_position: 1 },
     ]);
 
     await expect(call("createPractice", {
@@ -288,40 +291,40 @@ describe.serial("Supplies mutation runner", () => {
       about: "This insert precedes the policy check.",
       addToList: privateList,
     }, "atomic-denial", bo)).rejects.toMatchObject({ value: { code: "permission-denied" } });
-    expect(all("select * from practices where name = 'Must roll back'")).toHaveLength(0);
-    expect(all("select * from practice_authors where author_profile = ? and practice_id not in (?, ?, ?, ?)", bo, mutualAid, listening, walking, practice.result.id)).toHaveLength(0);
+    expect(all("select * from Practice where name = 'Must roll back'")).toHaveLength(0);
+    expect(all("select * from Practice_authors where person = ? and practice not in (?, ?, ?, ?)", bo, mutualAid, listening, walking, practice.result.id)).toHaveLength(0);
   });
 
   test("serializes concurrent append and reorder operations without duplicate or derived-count positions", async () => {
-    const created = await call<{ id: string }>("createList", { name: "Concurrent", visibility: "private" }, "concurrent-list");
+    const created = await call<{ id: string }>("createList", { name: "Concurrent", visibility: "Private" }, "concurrent-list");
     await Promise.all([
       call("setListPractice", { listId: created.result.id, practiceId: mutualAid, included: true }, "append-a"),
       call("setListPractice", { listId: created.result.id, practiceId: listening, included: true }, "append-b"),
     ]);
-    expect(all("select practice_id, position from list_practices where list_id = ? order by position", created.result.id)).toEqual([
-      { practice_id: mutualAid, position: 0 },
-      { practice_id: listening, position: 1 },
+    expect(all("select practice, items_position from Item where list = ? order by items_position", created.result.id)).toEqual([
+      { practice: mutualAid, items_position: 0 },
+      { practice: listening, items_position: 1 },
     ]);
     await Promise.all([
       call("reorderList", { listId: created.result.id, practiceIds: [listening, mutualAid] }, "reorder-a"),
       call("reorderList", { listId: created.result.id, practiceIds: [mutualAid, listening] }, "reorder-b"),
     ]);
-    expect(all("select practice_id, position from list_practices where list_id = ? order by position", created.result.id)).toEqual([
-      { practice_id: mutualAid, position: 0 },
-      { practice_id: listening, position: 1 },
+    expect(all("select practice, items_position from Item where list = ? order by items_position", created.result.id)).toEqual([
+      { practice: mutualAid, items_position: 0 },
+      { practice: listening, items_position: 1 },
     ]);
   });
 
   test("rechecks row authorization in transaction and publishes downstream live results only after commit", async () => {
-    await call("setListSharing", { listId: careList, visibility: "public", allowArborUserEdits: false }, "revoke-community-edits");
+    await call("setListSharing", { listId: careList, visibility: "Public", openToEdits: false }, "revoke-community-edits");
     await expect(call("renameList", { listId: careList, name: "Unauthorized race" }, "race-rename", bo))
       .rejects.toBeInstanceOf(MutationCallError);
 
-    const currentName = query.one(node("./data/lists").children, (list: any) => ({
+    const currentName = query.one(node("./data/List").children, (list: any) => ({
       where: list.id.eq(listeningList),
       select: list.pick("id", "name"),
     }));
-    engine.bind(currentName, sourceBindings().find((source) => source.authoredPath === "./data/lists")!);
+    engine.bind(currentName, sourceBindings().find((source) => source.authoredPath === "./data/List")!);
     const reader = live.stream([{ id: "list", handle: currentName }], { signal: new AbortController().signal, user: null }).getReader();
     await next(reader, "result");
     await next(reader, "ready");
@@ -337,8 +340,7 @@ describe.serial("Supplies mutation runner", () => {
     const reopened = {
       directory,
       databasePath,
-      schemaPath: join(directory, "schema.sql"),
-      relationshipsPath: join(directory, "relationships.json"),
+      schemaPath: join(directory, "schema.usl"),
       ...storeSource(),
     };
     const nextEngine = await SQLiteQueryEngine.open(reopened, { async resolve() { return { rows: [], dependencies: [] }; } });

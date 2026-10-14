@@ -25,6 +25,10 @@ export const IMPLICIT_FIELDS = ["id", "created", "modified"] as const;
 const FIELD_ATTRIBUTES = ["ordered", "color", "unique", "as", "column", "fold", "path"];
 const MODEL_ATTRIBUTES = ["views", "editableBy", "fold", "table", "id"];
 const VIEW_OPTIONS = ["label", "line", "group", "sort"];
+// Presentation of one item in a view's line: `@bullet` draws a fixed value as
+// the row's colored bullet, `@summary` shows a many-valued field as a count,
+// and `@label("lead")` names one of its members.
+const LINE_ATTRIBUTES = ["bullet", "summary", "label"];
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 
 export interface ResolvedField {
@@ -80,8 +84,26 @@ export interface ResolvedModel {
   path?: string;
   /** A connection model's ends. */
   ends: ResolvedEnd[];
-  /** The rows written in `@@fixed` or `@@seed`, with their values. */
-  schemaRows: { name: string; values: Record<string, RowValue> }[];
+  /** The rows written in `@@fixed` or `@@seed`, with their values and a fixed row's `@color`. */
+  schemaRows: { name: string; values: Record<string, RowValue>; color?: string }[];
+  /** `@@views`, in tab order; empty when the model has none. */
+  views: ResolvedView[];
+}
+
+/** One item of a view's line: a field and its presentation. */
+export interface LineItem {
+  field: string;
+  bullet: boolean;
+  summary: boolean;
+  label?: string;
+}
+
+/** A default arrangement from `@@views`. A view without a `line` uses the first view's. */
+export interface ResolvedView {
+  label: string;
+  line: LineItem[];
+  group?: string;
+  sort?: string;
 }
 
 export interface ResolvedConnection {
@@ -319,10 +341,15 @@ export function checkUsl(file: SchemaFile): CheckResult {
       key,
       fields: [...fields.values()],
       ends: modelEnds.map(resolvedEnd),
-      schemaRows: (rows?.rows ?? []).map((row) => ({
-        name: row.name,
-        values: Object.fromEntries(row.values.map((v) => [v.key, rowValue(v.value)])),
-      })),
+      schemaRows: (rows?.rows ?? []).map((row) => {
+        const color = row.attrs.find((a) => a.name === "color")?.args[0];
+        return {
+          name: row.name,
+          values: Object.fromEntries(row.values.map((v) => [v.key, rowValue(v.value)])),
+          ...(color?.kind === "string" ? { color: color.value } : {}),
+        };
+      }),
+      views: model ? resolvedViews(model) : [],
     };
     resolved.set(name, entry);
     fieldMaps.set(name, fields);
@@ -556,6 +583,42 @@ export function checkUsl(file: SchemaFile): CheckResult {
 
 type Report = (code: string, at: Position, message: string) => void;
 
+/** A model's `@@views`, as far as they are well formed; checkViews reports the rest. */
+function resolvedViews(model: ModelDecl): ResolvedView[] {
+  const attr = model.members.find((m): m is ModelAttribute => m.kind === "modelAttribute" && m.name === "views");
+  const list = attr?.args[0];
+  if (list?.kind !== "list") return [];
+  const ident = (e: Expr | undefined) => (e?.kind === "ident" ? e.name : undefined);
+  const views: ResolvedView[] = [];
+  for (const view of list.items) {
+    if (view.kind !== "object") continue;
+    const option = (key: string) => view.entries.find((e) => e.key === key)?.value;
+    const label = option("label");
+    const line = option("line");
+    const items: LineItem[] = line?.kind === "list"
+      ? line.items.flatMap((item) => {
+        if (item.kind !== "ident") return [];
+        const named = item.attrs.find((a) => a.name === "label")?.args[0];
+        return [{
+          field: item.name,
+          bullet: item.attrs.some((a) => a.name === "bullet"),
+          summary: item.attrs.some((a) => a.name === "summary"),
+          ...(named?.kind === "string" ? { label: named.value } : {}),
+        }];
+      })
+      : views[0]?.line ?? [];
+    const group = ident(option("group"));
+    const sort = ident(option("sort"));
+    views.push({
+      label: label?.kind === "string" ? label.value : "",
+      line: items,
+      ...(group ? { group } : {}),
+      ...(sort ? { sort } : {}),
+    });
+  }
+  return views;
+}
+
 function checkViews(attr: ModelAttribute, model: string, fields: Map<string, ResolvedField>, report: Report) {
   const list = attr.args[0];
   if (attr.args.length !== 1 || list?.kind !== "list") {
@@ -597,8 +660,13 @@ function checkViews(attr: ModelAttribute, model: string, fields: Map<string, Res
           fieldRef(item, false);
           if (item.kind !== "ident") continue;
           for (const a of item.attrs) {
-            if (a.name !== "bullet") report("unknown-attribute", a.at, `\`@${a.name}\` isn't presentation; only \`@bullet\` goes in a line`);
-            else if (++bullets > 1) report("duplicate-bullet", a.at, "A line has at most one `@bullet`");
+            if (!LINE_ATTRIBUTES.includes(a.name)) {
+              report("unknown-attribute", a.at, `\`@${a.name}\` isn't presentation; a line takes ${LINE_ATTRIBUTES.map((n) => `\`@${n}\``).join(", ")}`);
+            } else if (a.name === "label" ? a.args.length !== 1 || a.args[0]!.kind !== "string" : a.args.length > 0) {
+              report("attribute-arguments", a.at, a.name === "label" ? '`@label` takes one string: `@label("lead")`' : `\`@${a.name}\` takes no arguments`);
+            } else if (a.name === "bullet" && ++bullets > 1) {
+              report("duplicate-bullet", a.at, "A line has at most one `@bullet`");
+            }
           }
         }
       } else if (entry.key === "group" || entry.key === "sort") {

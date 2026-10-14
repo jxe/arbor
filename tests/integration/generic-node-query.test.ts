@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { Workspace } from "@ovst/story-sync";
+import { compileUsl, layoutOf, setupSql } from "@ovst/usl";
 import { node, NodeLiveQueryBroker, NodeQueryEngine, query, RegisteredQueryRuntime, SQLiteQueryEngine, type ProfileResolver } from "overstory/data";
 
 let root: string;
@@ -54,38 +55,36 @@ beforeAll(async () => {
   process.env.STORY_HOME = state;
   const expanded = join(root, "records");
   await mkdir(expanded);
-  await writeFile(join(expanded, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n');
+  await writeFile(join(expanded, "schema.usl"), 'model Item {\n  title Text\n}\n');
   await writeFile(join(expanded, "a.md"), "---\nid: a\ntitle: Alpha\n---\n");
   await writeFile(join(expanded, "b.md"), "---\nid: b\ntitle: Beta\n---\n");
   await writeFile(join(expanded, "c.md"), "---\nid: c\ntitle: Other\n---\n");
   const expandedKeys = join(root, "keys");
   await mkdir(expandedKeys);
-  await writeFile(join(expandedKeys, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["rank", "id"]\nrow = { rank: number, id: tstr, title: tstr }\n');
+  await writeFile(join(expandedKeys, "schema.usl"), 'model Item {\n  rank Number\n  title Text\n  @@id(rank, id)\n}\n');
   await writeFile(join(expandedKeys, "one.md"), "---\nrank: 2\nid: é\ntitle: Accent\n---\n");
   await writeFile(join(expandedKeys, "two.md"), "---\nrank: 10\nid: a\ntitle: Ten\n---\n");
   await writeFile(join(expandedKeys, "three.md"), "---\nrank: 2\nid: 😀\ntitle: Emoji\n---\n");
   const liveDirectory = join(root, "live-records");
   await mkdir(liveDirectory);
-  await writeFile(join(liveDirectory, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr, ? note: tstr }\n');
+  await writeFile(join(liveDirectory, "schema.usl"), 'model Item {\n  title Text\n  note Text?\n}\n');
   await writeFile(join(liveDirectory, "a.md"), "---\nid: a\ntitle: Alpha\nnote: first\n---\n");
   workspace = await Workspace.open(root);
 
   const databaseDirectory = join(root, "sqlite");
   await mkdir(databaseDirectory);
-  const schema = "create table records (id text primary key, title text not null); create table keys (rank integer not null, id text not null, title text not null, primary key (rank, id));";
-  await writeFile(join(databaseDirectory, "schema.sql"), `${schema}\n`);
-  await writeFile(join(databaseDirectory, "relationships.json"), '{"version":1,"relationships":{}}\n');
+  const schema = "model records {\n  title Text\n}\n\nmodel keys {\n  rank Int\n  title Text\n  @@id(rank, id)\n}\n";
+  await writeFile(join(databaseDirectory, "schema.usl"), schema);
   const database = new Database(join(databaseDirectory, "_store.sqlite3"));
-  database.exec(schema);
-  database.query("insert into records values (?, ?), (?, ?), (?, ?)").run("a", "Alpha", "b", "Beta", "c", "Other");
-  database.query("insert into keys values (?, ?, ?), (?, ?, ?), (?, ?, ?)").run(2, "é", "Accent", 10, "a", "Ten", 2, "😀", "Emoji");
+  database.exec(setupSql(layoutOf(compileUsl(schema), { store: "database" }), "sqlite"));
+  database.query("insert into records (id, title) values (?, ?), (?, ?), (?, ?)").run("a", "Alpha", "b", "Beta", "c", "Other");
+  database.query("insert into keys (rank, id, title) values (?, ?, ?), (?, ?, ?), (?, ?, ?)").run(2, "é", "Accent", 10, "a", "Ten", 2, "😀", "Emoji");
   database.close();
   const profiles: ProfileResolver = { async resolve() { return { rows: [], dependencies: [] }; } };
   sqlite = await SQLiteQueryEngine.open({
     directory: databaseDirectory,
     databasePath: join(databaseDirectory, "_store.sqlite3"),
-    schemaPath: join(databaseDirectory, "schema.sql"),
-    relationshipsPath: join(databaseDirectory, "relationships.json"),
+    schemaPath: join(databaseDirectory, "schema.usl"),
     tree: workspace.tree,
     path: "/",
   }, profiles);

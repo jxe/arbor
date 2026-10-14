@@ -76,13 +76,13 @@ export interface ChildrenPage {
   observedThrough: EventCursor;
 }
 
-/** Version 1 selects the declarative `schema.cddl` (spec 06 §2.1). */
+/** Version 1 selects the collection's `schema.usl` (spec 06 §2.1). */
 export interface CollectionFileDescriptor {
   version: 1;
   type: "collection-file";
   format: "csv" | "json" | "jsonl";
   source: "_store.csv" | "_store.json" | "_store.jsonl";
-  schemaSource: "schema.cddl";
+  schemaSource: "schema.usl";
   schemaFingerprint: Hash;
   childSetHash: Hash;
 }
@@ -323,13 +323,13 @@ export function decodeCollectionFileDescriptor(value: unknown): CollectionFileDe
   if (!["csv", "json", "jsonl"].includes(source.format as string)) throw new TypeError("childrenSource.format is invalid");
   const format = source.format as "csv" | "json" | "jsonl";
   if (source.source !== `_store.${format}`) throw new TypeError("childrenSource.source does not match its format");
-  if (source.schemaSource !== "schema.cddl") throw new TypeError("childrenSource.schemaSource must be schema.cddl");
+  if (source.schemaSource !== "schema.usl") throw new TypeError("childrenSource.schemaSource must be schema.usl");
   return {
     version: 1,
     type: "collection-file",
     format,
     source: source.source as CollectionFileDescriptor["source"],
-    schemaSource: "schema.cddl",
+    schemaSource: "schema.usl",
     schemaFingerprint: hash(source.schemaFingerprint, "childrenSource.schemaFingerprint"),
     childSetHash: hash(source.childSetHash, "childrenSource.childSetHash"),
   };

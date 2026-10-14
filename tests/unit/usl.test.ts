@@ -60,6 +60,25 @@ describe("usl resolution", () => {
     ]);
   });
 
+  test("views and fixed-row colors are resolved for presentation", () => {
+    const excellence = compileUsl(readFileSync(join(examples, "excellences.usl"), "utf8")).models;
+    expect(excellence.find((m) => m.name === "Excellence")!.views).toEqual([
+      {
+        label: "By project",
+        line: [
+          { field: "name", bullet: false, summary: false },
+          { field: "leads", bullet: false, summary: false, label: "lead" },
+          { field: "assessment", bullet: true, summary: false },
+          { field: "projects", bullet: false, summary: true, label: "project" },
+        ],
+        group: "projects",
+      },
+      { label: "By lead", line: expect.any(Array), group: "leads" },
+      { label: "By assessment", line: expect.any(Array), group: "assessment" },
+    ]);
+    expect(excellence.find((m) => m.name === "Assessment")!.schemaRows[0]).toEqual({ name: "Good", values: {}, color: "#27815a" });
+  });
+
   test("syntax errors carry a position", () => {
     expect(parseUsl("model A {\n  x Text,,\n  y\n}").diagnostics).toEqual([
       { code: "syntax", message: "Expected a type for field `y`, found end of line", line: 3, column: 4 },

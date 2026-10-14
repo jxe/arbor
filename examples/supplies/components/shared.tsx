@@ -109,7 +109,7 @@ export function ListCard({ list }: { list: ListSummary }) {
       <div className="flex items-start justify-between gap-4">
         <h2 className="text-lg font-semibold">
           <a href={`List?id=${encodeURIComponent(list.id)}`}>{list.name}</a>
-          {list.visibility === "private" ? <span className="text-sm font-normal text-slate-500" title="Private"> · private</span> : null}
+          {list.visibility === "Private" ? <span className="text-sm font-normal text-slate-500" title="Private"> · private</span> : null}
         </h2>
         <span className="shrink-0 text-xs text-slate-500">{list.practiceCount} practices</span>
       </div>
@@ -127,7 +127,7 @@ export function PracticeCard({ practice }: { practice: PracticeSummary }) {
     <article className="flex min-w-0 flex-col rounded-lg border border-slate-200 bg-slate-50 p-4 transition hover:border-slate-300 hover:shadow-md">
       <h2 className="text-lg font-semibold"><a href={`Practice?id=${encodeURIComponent(practice.id)}`}>{practice.name}</a></h2>
       {practice.authors ? <Attribution people={practice.authors} intro="by" /> : null}
-      <div className="mt-3 leading-relaxed text-slate-600"><Markdown source={practice.about} /></div>
+      <div className="mt-3 leading-relaxed text-slate-600"><Markdown source={practice.about ?? ""} /></div>
     </article>
   )
 }

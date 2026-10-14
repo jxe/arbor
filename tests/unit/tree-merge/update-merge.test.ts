@@ -77,7 +77,7 @@ function namedMarkdownSnapshot(name: string, source: string, objects: Map<string
   return { root: root([{ name, file: file }], objects), objects };
 }
 
-const JSON_SCHEMA = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n';
+const JSON_SCHEMA = 'model Item {\n  title Text\n}\n';
 
 async function jsonCollectionFileSnapshot(rows: unknown[]): Promise<TreeSnapshot> {
   return collectionFileSnapshot("_store.json", JSON_SCHEMA, `${JSON.stringify(rows, null, 2)}\n`);
@@ -87,7 +87,7 @@ async function collectionFileSnapshot(store: string, schema: string, source: str
   const directory = await mkdtemp(join(tmpdir(), "story-collection-file-merge-"));
   const collections = new ProjectionProviderHost();
   try {
-    await writeFile(join(directory, "schema.cddl"), schema);
+    await writeFile(join(directory, "schema.usl"), schema);
     await writeFile(join(directory, store), source);
     return await resolveSnapshot(await snapshotDirectory(directory, new Map(), [], (root, name) => collections.collectionFileDescriptor(root, name)));
   } finally {
@@ -201,7 +201,7 @@ describe("reference host merge fixtures", () => {
   });
 
   test("typed CSV rows merge and re-encode through their declared column types", async () => {
-    const schema = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, count: int, ? note: tstr }\n';
+    const schema = 'model Item {\n  count Int\n  note Text?\n}\n';
     const [base, candidate, remote] = await Promise.all([
       collectionFileSnapshot("_store.csv", schema, "id,count,note\n001,1,\n002,2,x\n"),
       collectionFileSnapshot("_store.csv", schema, "id,count,note\n001,10,\n002,2,x\n"),
@@ -216,12 +216,12 @@ describe("reference host merge fixtures", () => {
     const descriptor = rootObject.childrenSource!;
     const sourceBytes = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
     expect(new TextDecoder().decode(sourceBytes)).toBe("id,count,note\n001,10,\n002,2,y\n");
-    const decoded = decodeProtocolCollectionFile(descriptor, sourceBytes, load(rootObject.entries.find((entry) => entry.name === "schema.cddl")!.file!));
+    const decoded = decodeProtocolCollectionFile(descriptor, sourceBytes, load(rootObject.entries.find((entry) => entry.name === "schema.usl")!.file!));
     expect(decoded.rows.map((row) => row.properties)).toEqual([{ id: "001", count: 10 }, { id: "002", count: 2, note: "y" }]);
   });
 
   test("undeclared row members and CSV columns merge and survive re-encoding", async () => {
-    const schema = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, count: int }\n';
+    const schema = 'model Item {\n  count Int\n}\n';
     const [base, candidate, remote] = await Promise.all([
       collectionFileSnapshot("_store.csv", schema, "id,count,color\n001,1,red\n002,2,\n"),
       collectionFileSnapshot("_store.csv", schema, "id,count,color\n001,1,blue\n002,2,\n"),
@@ -236,7 +236,7 @@ describe("reference host merge fixtures", () => {
     const descriptor = rootObject.childrenSource!;
     const sourceBytes = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
     expect(new TextDecoder().decode(sourceBytes)).toBe("id,count,color\n001,1,blue\n002,3,green\n");
-    const decoded = decodeProtocolCollectionFile(descriptor, sourceBytes, load(rootObject.entries.find((entry) => entry.name === "schema.cddl")!.file!));
+    const decoded = decodeProtocolCollectionFile(descriptor, sourceBytes, load(rootObject.entries.find((entry) => entry.name === "schema.usl")!.file!));
     expect(decoded.rows.map((row) => row.properties)).toEqual([{ id: "001", count: 1, color: "blue" }, { id: "002", count: 3, color: "green" }]);
   });
 

@@ -68,6 +68,7 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 | [executable documents](07-executable-documents.md) | MDX/TSX documents and agents: named handles, queries, mutations, identity, hosting, confinement, consent, transcripts, and Overstory operations |
 | [authoring API](08-authoring-api.md) | The `overstory/react` and `overstory/data` packages, React Actions, hooks, and styling an executable document is written against |
 | [working-tree updates](09-client-synchronization.md), with [the update machine's runner](../implementing-sync-services/update-machine.md) | The update machine a working tree runs against Overstory: durable heads with their objects, sparse install entry, one self-contained prepared request in flight, one retained successor, validated apply, accepted conflicts as ordinary acceptance, and exact ambiguous recovery |
+| [schema language](11-schema-language.md) | Ultimate Schema Language (`.usl`): models, connections, keys, fixed rows, attributes, default views, the relational layout, and limits |
 
 The specification map does not report implementation progress. See
 [status.md](../../status.md) for that boundary and [`conformance/`](conformance) for

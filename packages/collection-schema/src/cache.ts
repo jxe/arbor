@@ -11,9 +11,9 @@ export class CollectionSchemaCache {
   private weight = 0;
 
   /**
-   * `maxWeight` bounds the summed syntax nodes of cached schemas; one
-   * profile-maximal schema weighs 32,768, so the default holds eight of those
-   * or many ordinary ones.
+   * `maxWeight` bounds the summed weight of cached schemas (members plus
+   * source size); a 1 MiB schema weighs about 16,000, so the default holds
+   * many ordinary ones.
    */
   constructor(
     private readonly maxEntries = 64,

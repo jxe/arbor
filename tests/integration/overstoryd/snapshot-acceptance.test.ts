@@ -120,12 +120,12 @@ test("snapshot suffixes retain hidden attribution and unrelated accepted additio
 async function collection(basis: string, name: string) {
   const local = await mkdtemp(`${tmpdir()}/story-snapshot-collection-`), stores = new ProjectionProviderHost();
   try {
-    const source = `overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, ${name}: tstr }\n`;
-    await writeFile(`${local}/schema.cddl`, source); await writeFile(`${local}/_store.json`, "[]");
+    const source = `model Item {\n  ${name} Text\n}\n`;
+    await writeFile(`${local}/schema.usl`, source); await writeFile(`${local}/_store.json`, "[]");
     const value = decodeProtocolDirectory(objects.get(basis)!);
     value.entries = value.entries.filter(e => e.name === "_index.md");
-    value.entries.push({ name: "_store.json", file: file("[]") }, { name: "schema.cddl", file: file(source) });
-    value.childrenSource = { version: 1, type: "collection-file", source: "_store.json", schemaSource: "schema.cddl",
+    value.entries.push({ name: "_store.json", file: file("[]") }, { name: "schema.usl", file: file(source) });
+    value.childrenSource = { version: 1, type: "collection-file", source: "_store.json", schemaSource: "schema.usl",
       ...((await stores.collectionFileDescriptor(local, "_store.json"))!) };
     return directory(value);
   } finally { await stores[Symbol.asyncDispose](); await rm(local, { recursive: true, force: true }); }
@@ -405,18 +405,18 @@ test("health checks only the database while integrity audits history in one shar
 });
 
 test("the host validates declarative collections itself and preserves undeclared row members", async () => {
-  const schema = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, count: uint }\n';
+  const schema = 'model Item {\n  count Int\n}\n';
   const people = (rows: Array<Record<string, unknown>>, declared = rows) => directory({
     type: "directory",
-    entries: [{ name: "_store.json", file: file(`${JSON.stringify(rows)}\n`) }, { name: "schema.cddl", file: file(schema) }],
+    entries: [{ name: "_store.json", file: file(`${JSON.stringify(rows)}\n`) }, { name: "schema.usl", file: file(schema) }],
     childrenSource: {
-      version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.cddl",
+      version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.usl",
       schemaFingerprint: hashObject(new TextEncoder().encode(schema)) as Hash,
       childSetHash: collectionChildSetHash(declared.map((row) => ({ key: `[["id",${JSON.stringify(row.id)}]]`, name: String(row.id), properties: row }))),
     },
   });
   // Invalid rows and a client-asserted hash that the host recomputes differently are both rejected.
-  await expect(submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: -1 }]) } })))).rejects.toThrow();
+  await expect(submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: 1.5 }]) } })))).rejects.toThrow();
   await expect(submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: 1 }], [{ id: "a", count: 2 }]) } })))).rejects.toThrow();
 
   // An undeclared member is accepted, but a declared member keeps its type.
@@ -431,7 +431,7 @@ test("the host validates declarative collections itself and preserves undeclared
   };
   const before = await readPage();
   expect(before).toContain("people/a");
-  expect(before).not.toContain("schema.cddl");
+  expect(before).not.toContain("schema.usl");
   // A restarted host reads the same rows from the exact stored bytes, with no apps process.
   await stop(); await start();
   expect(await readPage()).toBe(before);

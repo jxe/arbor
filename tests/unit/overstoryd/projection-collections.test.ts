@@ -13,13 +13,13 @@ function store() {
 
 test("projects declarative collection rows with their undeclared members, and a schema.ts is an ordinary file", async () => {
   const f = store();
-  const schema = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\noverstory-child-name = "slug"\nrow = { id: tstr, slug: tstr }\n';
+  const schema = 'model Item {\n  slug Text @path\n}\n';
   const rows = [{ id: "1", slug: "first", note: { kept: [null] } }];
   const current = f.directory({
     type: "directory",
-    entries: [{ name: "_store.json", file: f.text(JSON.stringify(rows)) }, { name: "schema.cddl", file: f.text(schema) }],
+    entries: [{ name: "_store.json", file: f.text(JSON.stringify(rows)) }, { name: "schema.usl", file: f.text(schema) }],
     childrenSource: {
-      version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.cddl",
+      version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.usl",
       schemaFingerprint: hashObject(new TextEncoder().encode(schema)) as Hash,
       childSetHash: collectionChildSetHash([{ key: '[["id","1"]]', name: "first", properties: rows[0] }]),
     },

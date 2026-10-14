@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SQL } from "bun";
-import { columnType, compileUsl, layoutOf, setupSql, typeDeclarations, uslFingerprint, validateRow, type Table } from "@ovst/usl";
+import { columnType, compileUsl, layoutOf, setupSql, typeDeclarations, validateRow, type Table } from "@ovst/usl";
 import { compareShapes, inspectSqlite, sqliteAffinity, verifyFiles, verifyStore } from "@ovst/usl/verify";
 
 const examples = join(import.meta.dir, "../../plans/schema-language/examples");
@@ -152,9 +152,6 @@ describe("usl for Overstory", () => {
     expect(out).toContain(`  person: string; // a Story profile id`);
   });
 
-  test("the fingerprint is the SHA-256 of the source bytes", () => {
-    expect(uslFingerprint("model A { x Text }")).toBe(new Bun.CryptoHasher("sha256").update("model A { x Text }").digest("hex"));
-  });
 
   test("@path names rows by a required text field", () => {
     const ok = compileUsl(`model Post { slug Text @path, title Text }`);

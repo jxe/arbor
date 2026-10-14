@@ -29,9 +29,9 @@ rows otherwise derive collision-safe readable names from declared stable keys.
 Equal keys and child-set hashes alone are therefore insufficient to promise
 equivalent `NodeRef`s or ordinary Markdown navigation.
 
-The specification supplies one provider-neutral mechanism: `schema.cddl` may
-declare a deterministic property-derived `overstory-child-name` rule; omitting
-it derives names from the primary key.
+The specification supplies one provider-neutral mechanism: `schema.usl` may
+mark a field `@path`, a deterministic property-derived name; without one,
+names derive from the key.
 
 The converter uses an existing unique property when it can reproduce every
 source logical name. Otherwise its dry-run reports the resulting renames or
@@ -89,7 +89,7 @@ supported backing and prove:
   string key raw when it is a valid path component (not `.`/`..`, no `~row-`
   prefix, no `.md` suffix, no `/`, `\` or NUL) and `~row-<base64url>`
   otherwise. It does not exclude reserved child names (`_store.csv`,
-  `schema.cddl`) or non-NFC keys the way `childName` does, and a physical
+  `schema.usl`) or non-NFC keys the way `childName` does, and a physical
   `foo.md` beside a row whose segment is `foo` silently shadows the row
   (`overstoryd/src/projection.ts`). Either prove the raw rule reversible and
   collision-free, or make the segment uniform. `~row-` is also the last

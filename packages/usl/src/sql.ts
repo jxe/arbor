@@ -9,7 +9,8 @@ import type { Column, ForeignKey, Table } from "./layout.ts";
 export type Dialect = "sqlite" | "postgres";
 
 export const SQL_TYPES: Record<Dialect, Record<Column["type"], string>> = {
-  sqlite: { text: "TEXT", int: "INTEGER", number: "REAL", bool: "INTEGER", date: "TEXT", timestamp: "TEXT", position: "REAL" },
+  sqlite: { text: "TEXT", int: "INTEGER", number: "REAL", bool: "BOOLEAN", date: "TEXT", timestamp: "TEXT", position: "REAL" },
+  // SQLite stores BOOLEAN with integer affinity; the name tells readers (and apps-runtime) the column is a flag.
   postgres: {
     text: "text",
     int: "bigint",

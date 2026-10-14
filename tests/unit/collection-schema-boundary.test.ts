@@ -54,14 +54,14 @@ describe("collection schema package boundary", () => {
 
   test("the pure package executes no code and reaches no filesystem, network, or runtime code generation", async () => {
     const manifest = JSON.parse(await readFile(join(root, "packages/collection-schema/package.json"), "utf8")) as { dependencies: Record<string, string> };
-    expect(Object.keys(manifest.dependencies).sort()).toEqual(["@ovst/protocol", "csv-parse"]);
+    expect(Object.keys(manifest.dependencies).sort()).toEqual(["@ovst/protocol", "@ovst/usl", "csv-parse"]);
     for (const path of await sourceFiles(join(root, "packages/collection-schema/src"))) {
       const source = await readFile(path, "utf8");
       expect(source, path).not.toMatch(/from "(?:node:|bun:|@overstory\/(?!protocol))/);
       expect(source, path).not.toMatch(/\b(?:eval|Function|fetch|Bun\.build|import)\s*\(/);
     }
     const closure = await resolvedClosure(["packages/collection-schema/src/index.ts"]);
-    expect(closure.filter((path) => !/^(?:packages\/(?:collection-schema|protocol)\/|node_modules\/.*(?:csv-parse|@noble\/hashes|yaml)\/)/.test(path))).toEqual([]);
+    expect(closure.filter((path) => !/^(?:packages\/(?:collection-schema|protocol|usl)\/|node_modules\/.*(?:csv-parse|@noble\/hashes|yaml)\/)/.test(path))).toEqual([]);
   });
 
   test("the resolved import closures of overstoryd, the merge worker, and Story Sync exclude QuickJS", async () => {
@@ -93,7 +93,7 @@ describe("collection schema package boundary", () => {
         "",
       ].join("\n"));
       const collection = join(directory, "people");
-      await Bun.write(join(collection, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, count: uint }\n');
+      await Bun.write(join(collection, "schema.usl"), 'model Item {\n  count Int\n}\n');
       await Bun.write(join(collection, "_store.csv"), "id,count\n001,1\n002,2\n");
       await writeFile(join(directory, "exercise.ts"), `
         import { ProjectionProviderHost } from ${module("story-sync/src/state/index.ts")};
@@ -109,7 +109,7 @@ describe("collection schema package boundary", () => {
         const rootObject = decodeProtocolDirectory(snapshot.objects.get(snapshot.root));
         const people = decodeProtocolDirectory(snapshot.objects.get(rootObject.entries.find((entry) => entry.name === "people").directory));
         const descriptor = people.childrenSource;
-        const rows = decodeProtocolCollectionFile(descriptor, snapshot.objects.get(people.entries.find((e) => e.name === descriptor.source).file), snapshot.objects.get(people.entries.find((e) => e.name === "schema.cddl").file)).rows;
+        const rows = decodeProtocolCollectionFile(descriptor, snapshot.objects.get(people.entries.find((e) => e.name === descriptor.source).file), snapshot.objects.get(people.entries.find((e) => e.name === "schema.usl").file)).rows;
         const projected = await new ProtocolProjection({ root: snapshot.root, load }).resolve("/people/002");
         const merged = await mergeProtocolTrees(snapshot.root, snapshot.root, snapshot.root, load);
         await providers[Symbol.asyncDispose]();

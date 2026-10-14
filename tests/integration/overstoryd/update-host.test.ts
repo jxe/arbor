@@ -584,12 +584,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       }));
       const peoplePath = join(treePath, "people");
       await mkdir(peoplePath);
-      await writeFile(join(peoplePath, "schema.cddl"), [
-        "overstory-schema-version = 1",
-        'overstory-primary-key = ["id"]',
-        "row = { id: tstr, name: tstr, email: tstr }",
-        "",
-      ].join("\n"));
+      await writeFile(join(peoplePath, "schema.usl"), "model Contact {\n  name  Text\n  email Text\n}\n");
       await writeFile(join(peoplePath, "_store.json"), '[{"id":"alice","name":"Alice","email":"alice@example.test"}]\n');
       const beforeCollectionFile = await client.descriptor(treeID);
       await client.submitUpdate(
@@ -607,7 +602,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       expect(peopleHTML).toContain("Alice");
       expect(peopleHTML).toContain(`people/${rowPath};overstory-key=`);
       expect(peopleHTML).not.toContain("_store.json");
-      expect(peopleHTML).not.toContain("schema.cddl");
+      expect(peopleHTML).not.toContain("schema.usl");
       const staleRow = buildNetworkLocator("/~owner/new-shared-tree/people/stale", {
         stableKey: rowKey,
         applicationQuery: "view=card",

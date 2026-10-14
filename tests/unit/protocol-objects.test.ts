@@ -222,7 +222,7 @@ describe("canonical tree objects", () => {
         type: "collection-file",
         format: "json",
         source: "_store.json",
-        schemaSource: "schema.cddl",
+        schemaSource: "schema.usl",
         schemaFingerprint: hash,
         childSetHash: hash,
       },
@@ -232,14 +232,14 @@ describe("canonical tree objects", () => {
       entries: [
         { name: "_store.json", file: hash },
         { name: "extra.md", file: hash },
-        { name: "schema.cddl", file: hash },
+        { name: "schema.usl", file: hash },
       ],
       childrenSource: {
         version: 1,
         type: "collection-file",
         format: "json",
         source: "_store.json",
-        schemaSource: "schema.cddl",
+        schemaSource: "schema.usl",
         schemaFingerprint: hash,
         childSetHash: hash,
       },
@@ -271,9 +271,9 @@ describe("canonical tree objects", () => {
     const root = await mkdtemp(join(tmpdir(), "story-wire-collection-file-"));
     const destination = await mkdtemp(join(tmpdir(), "story-wire-collection-file-materialized-"));
     try {
-      const schemaSource = "overstory-schema-version = 1\noverstory-primary-key = [\"id\"]\nrow = { id: tstr }\n";
+      const schemaSource = "model Item {}\n";
       const storeSource = "[{\"id\":\"one\"}]\n";
-      await writeFile(join(root, "schema.cddl"), schemaSource);
+      await writeFile(join(root, "schema.usl"), schemaSource);
       await writeFile(join(root, "_store.json"), storeSource);
       const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], async (_directory, sourceName) => ({
         format: sourceName === "_store.json" ? "json" : "csv",
@@ -283,7 +283,7 @@ describe("canonical tree objects", () => {
       const object = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
       if (object.type !== "directory") throw new Error("Expected a directory");
       const descriptor = object.childrenSource!;
-      expect(descriptor).toEqual(expect.objectContaining({ version: 1, type: "collection-file", format: "json", schemaSource: "schema.cddl" }));
+      expect(descriptor).toEqual(expect.objectContaining({ version: 1, type: "collection-file", format: "json", schemaSource: "schema.usl" }));
       const sourceHash = object.entries.find((entry) => entry.name === descriptor.source)!.file!;
       const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!;
       expect(sourceHash).not.toBe(schemaHash);
@@ -292,14 +292,14 @@ describe("canonical tree objects", () => {
 
       await materializeTree(destination, snapshot.root, async (hash) => snapshot.objects.get(hash)!);
       expect(await readFile(join(destination, "_store.json"), "utf8")).toBe(storeSource);
-      expect(await readFile(join(destination, "schema.cddl"), "utf8")).toBe(schemaSource);
+      expect(await readFile(join(destination, "schema.usl"), "utf8")).toBe(schemaSource);
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm(destination, { recursive: true, force: true });
     }
   });
 
-  test("validates schema.cddl and verifies CSV, JSON, and JSONL protocol descriptors without executing code", async () => {
+  test("validates schema.usl and verifies CSV, JSON, and JSONL protocol descriptors without executing code", async () => {
     const fixtures = {
       csv: "id,title\none,One\ntwo,Two\n",
       json: '[{"id":"one","title":"One"},{"id":"two","title":"Two"}]\n',
@@ -309,12 +309,7 @@ describe("canonical tree objects", () => {
       const root = await mkdtemp(join(tmpdir(), `story-wire-${codec}-`));
       const collections = new ProjectionProviderHost();
       try {
-        await writeFile(join(root, "schema.cddl"), [
-          "overstory-schema-version = 1",
-          'overstory-primary-key = ["id"]',
-          "row = { id: tstr, title: tstr }",
-          "",
-        ].join("\n"));
+        await writeFile(join(root, "schema.usl"), "model Item {\n  title Text\n}\n");
         await writeFile(join(root, `_store.${codec}`), source);
         const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (directory, name) =>
           collections.collectionFileDescriptor(directory, name)));
@@ -342,7 +337,7 @@ describe("canonical tree objects", () => {
     const collections = new ProjectionProviderHost();
     const describe = (directory: string, name: string) => collections.collectionFileDescriptor(directory, name);
     try {
-      // Without schema.cddl, _store.json and schema.ts are ordinary files.
+      // Without schema.usl, _store.json and schema.ts are ordinary files.
       await writeFile(join(root, "schema.ts"), "export const schema = {};\n");
       await writeFile(join(root, "_store.json"), '[{"id":"one"}]\n');
       const plain = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], describe));
@@ -353,7 +348,7 @@ describe("canonical tree objects", () => {
 
       // Beside a collection file it is one more immediate entry, which a
       // collection-file directory rejects like any other.
-      await writeFile(join(root, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr }\n');
+      await writeFile(join(root, "schema.usl"), 'model Item {}\n');
       await expect(snapshotDirectory(root, new Map(), [], describe)).rejects.toThrow("mixes immediate-child backings");
     } finally {
       await collections[Symbol.asyncDispose]();

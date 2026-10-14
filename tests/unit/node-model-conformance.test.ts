@@ -74,7 +74,7 @@ describe("unified node-model conformance", () => {
     expect(pages[0]?.items.every((item) => item.ref.stableKey !== null)).toBe(true);
     expect(pages[0]?.items.every((item) => !("kind" in item))).toBe(true);
     expect(collectionFiles.map((item) => item.format)).toEqual(["csv", "json", "jsonl"]);
-    expect(collectionFiles.every((item) => item.version === 1 && item.schemaSource === "schema.cddl")).toBe(true);
+    expect(collectionFiles.every((item) => item.version === 1 && item.schemaSource === "schema.usl")).toBe(true);
     for (const item of value.invalidCollectionFiles) expect(() => decodeCollectionFileDescriptor(item.value), item.name).toThrow();
     expect(new Set(collectionFiles.map((item) => item.childSetHash)).size).toBe(1);
     expect(() => decodeCollectionFileDescriptor({

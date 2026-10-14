@@ -4,7 +4,7 @@ This checked-in tree is the in-progress port of the existing Supplies applicatio
 
 When Overstory implements executable documents, hosting should work as follows:
 
-1. Promote `data/` as a private nested Overstory tree and attach either its `_store.sqlite3` or a future Postgres `_store.yaml` descriptor.
+1. Promote `data/` as a private nested Overstory tree and attach either its `_store.sqlite3` or a future Postgres `_store.yaml` descriptor. Either implements `data/schema.usl`, which names the tables (`List`, `Practice`, `Item`, `Tag`, ...) and the relationships the queries follow; `scripts/seed-fixture.ts` builds the SQLite fixture from it.
 2. Promote this folder as an Overstory tree.
 3. Give the tree's execution principal read/write access to the private data tree and profile-read access required by the compiled queries.
 4. Enable executable-document hosting for the tree on its host.
@@ -18,7 +18,8 @@ The Phase 1–3 `overstory/data` query, live-result, and transactional mutation 
 ## Ported so far
 
 - ordinary extensionless Overstory navigation between executable documents;
-- normalized SQLite schema with stable UUID/ProfileID keys;
+- a `schema.usl` data model with stable UUID/ProfileID keys, laid out as SQLite tables under the names USL generates;
+- tags that belong to a practice within one list, so a practice removed from a list and added back keeps its tags there;
 - independently live practice-search and popular-list regions, plus list, practice, profile, my-lists, and edit-choice relational queries;
 - React Action forms for create, rename, reorder, membership, reaction, list-sharing, tag, duplicate, and practice-edit mutations;
 - Overstory user identity through `useUser` instead of an application user/auth model;
@@ -41,7 +42,7 @@ The Phase 1–3 `overstory/data` query, live-result, and transactional mutation 
 ## Implemented Overstory foundation
 
 - symbolic query plans execute their callbacks once and reject unsupported fields and ambiguous singular roots;
-- SQLite schema/key/index introspection and reviewed `relationships.json` metadata share one schema fingerprint;
+- the database is checked against `schema.usl`, and the relationships derived from its connections share one schema fingerprint;
 - all checked-in Supplies queries compile to parameterized, projected SQLite reads with deterministic key tie-breakers;
 - ProfileID-backed relations resolve in batches without placing profile data in the Supplies database;
 - the deterministic nonempty fixture, shaped-result snapshots, query-plan snapshots, and private-row disclosure tests pass.

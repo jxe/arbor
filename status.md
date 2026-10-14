@@ -12,6 +12,36 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Schema language replaces CDDL — 2026-10-14
+
+Implemented and tested; deployed when main is pushed, not installed. A
+collection's or database's schema is `schema.usl` in Ultimate Schema Language
+([spec chapter 11](docs/overstory-spec/11-schema-language.md)). CDDL,
+`schema.sql` and `relationships.json` are gone with no dual support or converter:
+no collection used them. The Supplies example's data was regenerated under the
+names USL lays out (`List`, `Item`, `Practice`, `Practice_authors`, ...).
+
+- `@ovst/collection-schema` compiles USL: a collection's data-file layout must be
+  one table, and rows are checked against it, staying open to undeclared
+  members. Data files leave out `created` and `modified`, which databases keep.
+  `collection-schemas.json` is version 2.
+- A SQLite backing is checked against its `schema.usl` (`compareShapes`), and its
+  relationships come from the schema's connections (`relationshipsOf`), with
+  people as the virtual `Person` relation.
+- Queries gained `relationship.some(row => ...)`, an exists predicate, so the
+  Supplies practice page can reach its lists through `Item` now that the old
+  `practices.lists` relationship is gone.
+- `@ovst/usl` runs in a browser and is published by `tools/release.sh` when its
+  version is new; cranberries reads `.usl` with it.
+
+Evidence: `bunx tsc --noEmit -p .` is clean; the USL, collection-schema,
+collections, workspace, snapshot-acceptance, projection, merge, Supplies query
+and mutation, and data-query tests pass; `usl verify` reports that
+`examples/supplies/data/_store.sqlite3` implements its `schema.usl`.
+
+Gap: USL can't declare an index, so `myLists`, `person.ownedLists` and
+`person.practices` scan their tables; fine at fixture size.
+
 ## The story command without Bun — 2026-10-13
 
 Implemented on branch `claude/project-thread-iagedb`; not published. `@ovst/cli`
@@ -754,7 +784,7 @@ measurements before broadening the implementation.
 | Native sidebar Trees mode, People footer, and single-pane profile/sync/devices management with focused account and identity actions on Mac and iOS | implemented, not installed; macOS and iOS builds passed, manual UI verification pending | [client design](docs/implementing-editors/design.md#profile-control-and-claim) |
 | Plural local accounts and devices: one data home holds several host accounts, including several at one origin, in `account.yaml`, `trees.yaml`, and `devices.yaml`; Mac-to-iPhone pairing | installed, verified | [local system](docs/architecture/story-sync/data-home.md#data-home) |
 | Short-lived cloud workspaces: reusable one-account bundles, exact placements under an isolated root, detached Story Sync, explicit finish, bundle revocation, `story status`; Mac Share panel "Use with an agent" creates, shares, and revokes one-tree bundles (not yet exercised against a live host) | implemented | [CLI](docs/getting-started/cli.md#short-lived-cloud-sessions) |
-| Declarative collection schemas: `schema.cddl` in the Overstory CDDL profile, one collection descriptor version (1, naming `schema.cddl`) in TypeScript and Swift, open rows that accept and preserve undeclared members while declared members validate strictly, schema-directed CSV cells, validation that never normalizes, generated collection types without Zod; overstoryd acceptance and projection, the merge rules and Story Sync providers use the pure `@ovst/collection-schema` package, and QuickJS is no longer a dependency. No collections existed before, so there is nothing to migrate; a `schema.ts` is an ordinary file | deployed, not installed; the Swift model edits build and pass their suites on a Mac ([2026-10-11](#cli-package-people-and-joining-by-invitation--2026-10-11)) | [collection schemas](docs/architecture/collection-schema/README.md), [child backings §2.4](docs/overstory-spec/06-child-backings.md#24-collection-schema-profile) |
+| Declarative collection schemas: `schema.usl` in Ultimate Schema Language (CDDL, `schema.sql` and `relationships.json` removed 2026-10-14, see [Schema language](#schema-language-replaces-cddl--2026-10-14)), one collection descriptor version (1, naming `schema.usl`) in TypeScript and Swift, open rows that accept and preserve undeclared members while declared members validate strictly, schema-directed CSV cells, validation that never normalizes, generated collection types without Zod; overstoryd acceptance and projection, the merge rules and Story Sync providers use the pure `@ovst/collection-schema` package, and QuickJS is no longer a dependency. No collections existed before, so there is nothing to migrate; a `schema.ts` is an ordinary file | deployed, not installed; the Swift model edits build and pass their suites on a Mac ([2026-10-11](#cli-package-people-and-joining-by-invitation--2026-10-11)) | [collection schemas](docs/architecture/collection-schema/README.md), [child backings §2.4](docs/overstory-spec/06-child-backings.md#24-collection-schemas) |
 | Ignored filesystem content (Filesystem 005): one membership policy in `@ovst/fs` for discovery, listing, resolution, watching, snapshots, object reads and materialization; `.overstoryignore` and `.gitignore` in Git's grammar, mandatory exclusions that rules cannot negate, and tracked paths (the folder's last-held root) that stay synchronized until deleted; the Swift preview uses a port of the same matcher | implemented, not installed; `LocalFolderPreviewTests` pass on a Mac (2026-10-11); the [restart check](plans/small-work.md#ignore-policy-restart-check) remains | [directory format §7](docs/overstory-spec/02-directory-format.md#7-tree-membership-and-ignore-files), [ignored content](docs/architecture/story-sync/data-home.md#ignored-content) |
 | Headless executable-data core: SQLite-backed query lowering and execution over the Supplies corpus, dependency-sensitive live result streams, authorized transactional mutations with durable retry receipts | implemented | [apps runtime](packages/apps-runtime/README.md), [Supplies](examples/supplies/README.md) |
 | One merge-state model and squashed history: every acceptance records a merge state (tree creation, pairing, account configuration and boundary rewrites checkpoint their root; no whole-entry conflict rows); schema 18 keeps one accepted update per tree, and migration 016 squashes history to each head, keeping roots, head ids, entry dates and document versions | deployed 2026-09-24 at schema 18; history cut 2026-09-24 by migration 016 | migration 016 (deleted; its runbook is `packages/overstoryd/migrations/016-squash-history/README.md` at `d15ddce`) |
@@ -1488,7 +1518,7 @@ gates are in [small work](plans/small-work.md#native-011-hand-checks).
 ## Declarative collection schemas — 2026-09-24
 
 Apps 007 is implemented and tested, not deployed or installed. A collection's `schema.cddl` is parsed and
-checked under the profile in [child backings §2.4](docs/overstory-spec/06-child-backings.md#24-collection-schema-profile)
+checked under the profile in [child backings §2.4](docs/overstory-spec/06-child-backings.md#24-collection-schemas)
 by `@ovst/collection-schema`, which executes no code and has no
 filesystem or network access; `apps-runtime` lost its QuickJS sandbox and its
 QuickJS, Zod and `csv-parse` dependencies. Rows are open (2026-09-25, Joe's

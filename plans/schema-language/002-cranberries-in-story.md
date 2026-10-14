@@ -2,9 +2,8 @@
 
 **Why and when:** Joe asked on 2026-10-13 whether cranberries could live in
 Story, so that the MAI excellences document and supplies-remake run natively
-in Story.app on the Overstory data model. After
-[Schema language 001](001-replace-cddl-with-usl.md), whose `schema.usl` is the
-schema and arrangement both need. The design history is in the project
+in Story.app on the Overstory data model, whose collections are declared in
+`schema.usl` ([schema language](../../docs/overstory-spec/11-schema-language.md)). The design history is in the project
 thread "Cranberries in Story" and its sketch.
 
 ## Status
@@ -13,7 +12,7 @@ thread "Cranberries in Story" and its sketch.
 - **Risk:** HIGH. It needs field-level merge, which changes the merge
   protocol, and a new kind of editing surface in Story.
 - **State:** PLANNED.
-- **Depends on:** Schema language 001.
+- **Depends on:** nothing.
 - **Unblocks:** porting excellences and supplies-remake off Supabase.
 
 ## Joe's decisions
