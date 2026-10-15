@@ -46,6 +46,14 @@ array of n copies. `node-model.json` and `protocol-objects.json` carry
 version-1 descriptors naming `schema.usl` and invalid version and schema-file
 pairings.
 
+`presented-views.json` binds presented views (plan schema-language/002
+milestone 3): a schema, data-file rows and people's names presented by one
+view, and each view intent with the row operations
+([source intent §4.1](../10-source-intent.md#41-row-operations)) and rows it
+leads to. `@ovst/usl` (`presentView`, `viewEdits`) and StoryKit
+(`PresentedView`) run it; `tests/support/regenerate-presented-views.ts`
+recomputes its expectations from the TypeScript reference.
+
 `client-state-machines.json` freezes the transition scenarios of the one
 client synchronization machine, `working-tree-updates` (`UpdateMachine` in
 `OverstoryWorkingTree`, `reduceUpdate` in `@ovst/working-tree`): a working tree

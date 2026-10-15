@@ -1,0 +1,6335 @@
+{
+  "description": "Presented views (plan schema-language/002 milestone 3): a collection's rows as one of its views presents them, and what a person does to that view as row operations (spec 10 section 4.1). `fixtures` hold a schema.usl, data-file rows by table and people (profile ids and display names, in order). A presentation case may name the model (by default the one with @@views, else the first with rows), and names a view by index into the model's views (its @@views, or the default arrangement) and an optional search query. An intent case gives the row operations, without `key` and `collection`, and the rows after applying them; `error: true` means the intent is refused. Row and group ids are as the presentation gives them.",
+  "fixtures": {
+    "games": {
+      "schema": "// ~/src/supplies-remake: games, their authors, and lists of games.\n// Authors are Story accounts, so there is no Person model to declare.\n\nmodel Game {\n  name        Text\n  status      Status                            // stored as \"Draft\"\n  description Markdown?\n  tags        Text[]                            // values, stored on the row\n  authors     Person[]                          // cross-reference: declared below\n  lists       List[]                            // cross-reference: declared below\n\n  @@views([\n    { label: \"By game\",   line: [status @bullet, name, authors, description], sort: modified },\n    { label: \"By author\", group: authors },\n    { label: \"By list\",   group: lists, sort: modified },\n  ])\n  @@editableBy(authors)\n}\n\nmodel List {\n  name  Text\n  games Game[]                                  // cross-reference\n}\n\n// In data files, @fold keeps these as arrays on Game and List rows instead\n// of files of their own. Databases still use join tables.\nGame.authors[] @fold <-> Person.games[]\nList.games[] @ordered @fold <-> Game.lists[]\nGame.status <-> Status.games[]\n\nmodel Status {\n  @@fixed {\n    Draft       @color(\"#9aa0aa\")\n    Playtested  @color(\"#bd861a\")\n    Polished    @color(\"#27815a\")\n  }\n}\n",
+      "people": [
+        {
+          "id": "p-ada",
+          "name": "Ada"
+        },
+        {
+          "id": "p-bo",
+          "name": "Bo"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    "excellences": {
+      "schema": "// meaningalignment/excellences: the MAI roles document.\n// Leads were a `person` collection with a portrait; now they are Story\n// accounts, and portraits come from their profiles.\n\nmodel Excellence {\n  name       Text\n  assessment Assessment\n  leads      Person[]                           // cross-reference\n  projects   Project[]                          // cross-reference\n\n  @@views([\n    { label: \"By project\",    line: [name, leads @label(\"lead\"), assessment @bullet, projects @summary @label(\"project\")], group: projects },\n    { label: \"By lead\",       group: leads },\n    { label: \"By assessment\", group: assessment },\n  ])\n}\n\nmodel Project {\n  name        Text\n  excellences Excellence[]                      // cross-reference\n}\n\nExcellence.leads[] <-> Person.excellences[]\nExcellence.projects[] <-> Project.excellences[]\nExcellence.assessment <-> Assessment.excellences[]\n\nmodel Assessment {\n  @@fixed {\n    Good             @color(\"#27815a\")\n    Improving        @color(\"#bd861a\")\n    Bad              @color(\"#c25357\")\n    \"Current focus\"  @color(\"#4278c0\")\n    \"Not recorded\"   @color(\"#9aa0aa\")\n  }\n}\n",
+      "people": [
+        {
+          "id": "p-cy",
+          "name": "Cy"
+        },
+        {
+          "id": "p-di",
+          "name": "Di"
+        }
+      ],
+      "rows": {
+        "Excellence": [
+          {
+            "id": "e1",
+            "name": "Clear writing",
+            "assessment": "Good"
+          },
+          {
+            "id": "e2",
+            "name": "Fast reviews",
+            "assessment": "Current focus"
+          },
+          {
+            "id": "e3",
+            "name": "Hiring",
+            "assessment": "Not recorded"
+          }
+        ],
+        "Project": [
+          {
+            "id": "pr1",
+            "name": "Handbook"
+          },
+          {
+            "id": "pr2",
+            "name": "Launch"
+          }
+        ],
+        "Excellence_leads": [
+          {
+            "excellence": "e1",
+            "person": "p-di"
+          },
+          {
+            "excellence": "e2",
+            "person": "p-cy"
+          },
+          {
+            "excellence": "e1",
+            "person": "p-cy"
+          }
+        ],
+        "Excellence_projects": [
+          {
+            "excellence": "e1",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr2"
+          }
+        ]
+      }
+    },
+    "tasks": {
+      "schema": "// No @@views: the default arrangement. Tasks keep their order within a project.\nmodel Task {\n  title   Text\n  notes   Markdown?\n  points  Int?\n  done    Bool\n  owner   Person?\n  project Project?\n  labels  Text[]\n}\n\nmodel Project {\n  name  Text\n  color Text? @color\n}\n\nProject.tasks[] @ordered <-> Task.project?\nTask.owner? <-> Person.tasks[]\n",
+      "people": [
+        {
+          "id": "p-ed",
+          "name": "Ed"
+        }
+      ],
+      "rows": {
+        "Task": [
+          {
+            "id": "t1",
+            "title": "Draft",
+            "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+            "points": 3,
+            "done": false,
+            "owner": "p-ed",
+            "project": "pj1",
+            "tasks_position": 1,
+            "labels": [
+              "writing"
+            ]
+          },
+          {
+            "id": "t2",
+            "title": "Outline",
+            "done": true,
+            "project": "pj1",
+            "tasks_position": 0
+          },
+          {
+            "id": "t3",
+            "title": "Print",
+            "done": false,
+            "owner": "p-fay",
+            "project": "pj2",
+            "tasks_position": 0
+          },
+          {
+            "id": "t4",
+            "title": "Someday",
+            "done": false
+          }
+        ],
+        "Project": [
+          {
+            "id": "pj1",
+            "name": "Book",
+            "color": "#336699"
+          },
+          {
+            "id": "pj2",
+            "name": "Zine"
+          }
+        ]
+      }
+    }
+  },
+  "presentations": [
+    {
+      "name": "games: by game, flat, newest first, with a bullet",
+      "fixture": "games",
+      "view": 0,
+      "expected": {
+        "model": "Game",
+        "table": "Game",
+        "tabs": [
+          {
+            "label": "By game"
+          },
+          {
+            "label": "By author"
+          },
+          {
+            "label": "By list"
+          }
+        ],
+        "tab": 0,
+        "groups": [
+          {
+            "id": "",
+            "kind": "flat",
+            "heading": "",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g2\"]]",
+                "occurrence": "[\"By game\",\"\",\"[[\\\"id\\\",\\\"g2\\\"]]\"]",
+                "color": "#9aa0aa",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Draft",
+                    "color": "#9aa0aa",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Hanabi"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      },
+                      {
+                        "member": "p-bo",
+                        "name": "Bo"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": null,
+                    "paragraph": ""
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"g1\"]]",
+                "occurrence": "[\"By game\",\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "color": "#27815a",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Polished",
+                    "color": "#27815a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Wingspan"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+                    "paragraph": "Birds and eggs. Engine building."
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"g3\"]]",
+                "occurrence": "[\"By game\",\"\",\"[[\\\"id\\\",\\\"g3\\\"]]\"]",
+                "color": "#bd861a",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Playtested",
+                    "color": "#bd861a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Untitled"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": []
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": null,
+                    "paragraph": ""
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "status": [
+            {
+              "member": "Draft",
+              "name": "Draft",
+              "color": "#9aa0aa"
+            },
+            {
+              "member": "Playtested",
+              "name": "Playtested",
+              "color": "#bd861a"
+            },
+            {
+              "member": "Polished",
+              "name": "Polished",
+              "color": "#27815a"
+            }
+          ],
+          "authors": [
+            {
+              "member": "p-ada",
+              "name": "Ada"
+            },
+            {
+              "member": "p-bo",
+              "name": "Bo"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"g2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          },
+          "[[\"id\",\"g1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          },
+          "[[\"id\",\"g3\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          }
+        }
+      }
+    },
+    {
+      "name": "games: by author, a row under each of its authors",
+      "fixture": "games",
+      "view": 1,
+      "expected": {
+        "model": "Game",
+        "table": "Game",
+        "tabs": [
+          {
+            "label": "By game"
+          },
+          {
+            "label": "By author"
+          },
+          {
+            "label": "By list"
+          }
+        ],
+        "tab": 1,
+        "group": "authors",
+        "groups": [
+          {
+            "id": "\"p-ada\"",
+            "kind": "connection",
+            "heading": "Ada",
+            "member": "p-ada",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g1\"]]",
+                "occurrence": "[\"By author\",\"\\\"p-ada\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "color": "#27815a",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Polished",
+                    "color": "#27815a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Wingspan"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+                    "paragraph": "Birds and eggs. Engine building."
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"g2\"]]",
+                "occurrence": "[\"By author\",\"\\\"p-ada\\\"\",\"[[\\\"id\\\",\\\"g2\\\"]]\"]",
+                "color": "#9aa0aa",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Draft",
+                    "color": "#9aa0aa",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Hanabi"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      },
+                      {
+                        "member": "p-bo",
+                        "name": "Bo"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": null,
+                    "paragraph": ""
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"p-bo\"",
+            "kind": "connection",
+            "heading": "Bo",
+            "member": "p-bo",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g2\"]]",
+                "occurrence": "[\"By author\",\"\\\"p-bo\\\"\",\"[[\\\"id\\\",\\\"g2\\\"]]\"]",
+                "color": "#9aa0aa",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Draft",
+                    "color": "#9aa0aa",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Hanabi"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      },
+                      {
+                        "member": "p-bo",
+                        "name": "Bo"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": null,
+                    "paragraph": ""
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "unassigned",
+            "kind": "unassigned",
+            "heading": "Unassigned",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g3\"]]",
+                "occurrence": "[\"By author\",\"unassigned\",\"[[\\\"id\\\",\\\"g3\\\"]]\"]",
+                "color": "#bd861a",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Playtested",
+                    "color": "#bd861a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Untitled"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": []
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": null,
+                    "paragraph": ""
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "status": [
+            {
+              "member": "Draft",
+              "name": "Draft",
+              "color": "#9aa0aa"
+            },
+            {
+              "member": "Playtested",
+              "name": "Playtested",
+              "color": "#bd861a"
+            },
+            {
+              "member": "Polished",
+              "name": "Polished",
+              "color": "#27815a"
+            }
+          ],
+          "authors": [
+            {
+              "member": "p-ada",
+              "name": "Ada"
+            },
+            {
+              "member": "p-bo",
+              "name": "Bo"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"g1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"p-ada\""
+            ]
+          },
+          "[[\"id\",\"g2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"p-ada\"",
+              "\"p-bo\""
+            ]
+          },
+          "[[\"id\",\"g3\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "unassigned"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "games: by list, ordered groups sorted by their own rows",
+      "fixture": "games",
+      "view": 2,
+      "expected": {
+        "model": "Game",
+        "table": "Game",
+        "tabs": [
+          {
+            "label": "By game"
+          },
+          {
+            "label": "By author"
+          },
+          {
+            "label": "By list"
+          }
+        ],
+        "tab": 2,
+        "group": "lists",
+        "groups": [
+          {
+            "id": "\"l2\"",
+            "kind": "connection",
+            "heading": "To try",
+            "member": "l2",
+            "table": "List",
+            "row": "[[\"id\",\"l2\"]]",
+            "headingField": "name",
+            "ordered": true,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g1\"]]",
+                "occurrence": "[\"By list\",\"\\\"l2\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "color": "#27815a",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Polished",
+                    "color": "#27815a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Wingspan"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+                    "paragraph": "Birds and eggs. Engine building."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"l1\"",
+            "kind": "connection",
+            "heading": "Favorites",
+            "member": "l1",
+            "table": "List",
+            "row": "[[\"id\",\"l1\"]]",
+            "headingField": "name",
+            "ordered": true,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g2\"]]",
+                "occurrence": "[\"By list\",\"\\\"l1\\\"\",\"[[\\\"id\\\",\\\"g2\\\"]]\"]",
+                "color": "#9aa0aa",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Draft",
+                    "color": "#9aa0aa",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Hanabi"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      },
+                      {
+                        "member": "p-bo",
+                        "name": "Bo"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": null,
+                    "paragraph": ""
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"g1\"]]",
+                "occurrence": "[\"By list\",\"\\\"l1\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "color": "#27815a",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Polished",
+                    "color": "#27815a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Wingspan"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+                    "paragraph": "Birds and eggs. Engine building."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "unassigned",
+            "kind": "unassigned",
+            "heading": "Unassigned",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g3\"]]",
+                "occurrence": "[\"By list\",\"unassigned\",\"[[\\\"id\\\",\\\"g3\\\"]]\"]",
+                "color": "#bd861a",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Playtested",
+                    "color": "#bd861a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Untitled"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": []
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": null,
+                    "paragraph": ""
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "status": [
+            {
+              "member": "Draft",
+              "name": "Draft",
+              "color": "#9aa0aa"
+            },
+            {
+              "member": "Playtested",
+              "name": "Playtested",
+              "color": "#bd861a"
+            },
+            {
+              "member": "Polished",
+              "name": "Polished",
+              "color": "#27815a"
+            }
+          ],
+          "authors": [
+            {
+              "member": "p-ada",
+              "name": "Ada"
+            },
+            {
+              "member": "p-bo",
+              "name": "Bo"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"g1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"l2\"",
+              "\"l1\""
+            ]
+          },
+          "[[\"id\",\"g2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"l1\""
+            ]
+          },
+          "[[\"id\",\"g3\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "unassigned"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "games: search keeps rows matching every word",
+      "fixture": "games",
+      "view": 1,
+      "query": "ENGINE wing",
+      "expected": {
+        "model": "Game",
+        "table": "Game",
+        "tabs": [
+          {
+            "label": "By game"
+          },
+          {
+            "label": "By author"
+          },
+          {
+            "label": "By list"
+          }
+        ],
+        "tab": 1,
+        "group": "authors",
+        "groups": [
+          {
+            "id": "\"p-ada\"",
+            "kind": "connection",
+            "heading": "Ada",
+            "member": "p-ada",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g1\"]]",
+                "occurrence": "[\"By author\",\"\\\"p-ada\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "color": "#27815a",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Polished",
+                    "color": "#27815a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Wingspan"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+                    "paragraph": "Birds and eggs. Engine building."
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "status": [
+            {
+              "member": "Draft",
+              "name": "Draft",
+              "color": "#9aa0aa"
+            },
+            {
+              "member": "Playtested",
+              "name": "Playtested",
+              "color": "#bd861a"
+            },
+            {
+              "member": "Polished",
+              "name": "Polished",
+              "color": "#27815a"
+            }
+          ],
+          "authors": [
+            {
+              "member": "p-ada",
+              "name": "Ada"
+            },
+            {
+              "member": "p-bo",
+              "name": "Bo"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"g1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"p-ada\""
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "games: search keeps a group whose heading matches",
+      "fixture": "games",
+      "view": 2,
+      "query": "favorites",
+      "expected": {
+        "model": "Game",
+        "table": "Game",
+        "tabs": [
+          {
+            "label": "By game"
+          },
+          {
+            "label": "By author"
+          },
+          {
+            "label": "By list"
+          }
+        ],
+        "tab": 2,
+        "group": "lists",
+        "groups": [
+          {
+            "id": "\"l1\"",
+            "kind": "connection",
+            "heading": "Favorites",
+            "member": "l1",
+            "table": "List",
+            "row": "[[\"id\",\"l1\"]]",
+            "headingField": "name",
+            "ordered": true,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g2\"]]",
+                "occurrence": "[\"By list\",\"\\\"l1\\\"\",\"[[\\\"id\\\",\\\"g2\\\"]]\"]",
+                "color": "#9aa0aa",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Draft",
+                    "color": "#9aa0aa",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Hanabi"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      },
+                      {
+                        "member": "p-bo",
+                        "name": "Bo"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": null,
+                    "paragraph": ""
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"g1\"]]",
+                "occurrence": "[\"By list\",\"\\\"l1\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "color": "#27815a",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Polished",
+                    "color": "#27815a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Wingspan"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+                    "paragraph": "Birds and eggs. Engine building."
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "status": [
+            {
+              "member": "Draft",
+              "name": "Draft",
+              "color": "#9aa0aa"
+            },
+            {
+              "member": "Playtested",
+              "name": "Playtested",
+              "color": "#bd861a"
+            },
+            {
+              "member": "Polished",
+              "name": "Polished",
+              "color": "#27815a"
+            }
+          ],
+          "authors": [
+            {
+              "member": "p-ada",
+              "name": "Ada"
+            },
+            {
+              "member": "p-bo",
+              "name": "Bo"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"g2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"l1\""
+            ]
+          },
+          "[[\"id\",\"g1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"l1\""
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "excellences: by project, through a join table",
+      "fixture": "excellences",
+      "view": 0,
+      "expected": {
+        "model": "Excellence",
+        "table": "Excellence",
+        "tabs": [
+          {
+            "label": "By project"
+          },
+          {
+            "label": "By lead"
+          },
+          {
+            "label": "By assessment"
+          }
+        ],
+        "tab": 0,
+        "group": "projects",
+        "groups": [
+          {
+            "id": "\"pr1\"",
+            "kind": "connection",
+            "heading": "Handbook",
+            "member": "pr1",
+            "table": "Project",
+            "row": "[[\"id\",\"pr1\"]]",
+            "headingField": "name",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"e1\"]]",
+                "occurrence": "[\"By project\",\"\\\"pr1\\\"\",\"[[\\\"id\\\",\\\"e1\\\"]]\"]",
+                "color": "#27815a",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Clear writing"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "leads",
+                    "chips": [
+                      {
+                        "member": "p-di",
+                        "name": "Di"
+                      },
+                      {
+                        "member": "p-cy",
+                        "name": "Cy"
+                      }
+                    ],
+                    "label": "lead"
+                  },
+                  {
+                    "kind": "choice",
+                    "field": "assessment",
+                    "value": "Good",
+                    "color": "#27815a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "projects",
+                    "chips": [
+                      {
+                        "member": "pr1",
+                        "name": "Handbook"
+                      }
+                    ],
+                    "summary": true,
+                    "label": "project"
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"e2\"]]",
+                "occurrence": "[\"By project\",\"\\\"pr1\\\"\",\"[[\\\"id\\\",\\\"e2\\\"]]\"]",
+                "color": "#4278c0",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Fast reviews"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "leads",
+                    "chips": [
+                      {
+                        "member": "p-cy",
+                        "name": "Cy"
+                      }
+                    ],
+                    "label": "lead"
+                  },
+                  {
+                    "kind": "choice",
+                    "field": "assessment",
+                    "value": "Current focus",
+                    "color": "#4278c0",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "projects",
+                    "chips": [
+                      {
+                        "member": "pr1",
+                        "name": "Handbook"
+                      },
+                      {
+                        "member": "pr2",
+                        "name": "Launch"
+                      }
+                    ],
+                    "summary": true,
+                    "label": "project"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"pr2\"",
+            "kind": "connection",
+            "heading": "Launch",
+            "member": "pr2",
+            "table": "Project",
+            "row": "[[\"id\",\"pr2\"]]",
+            "headingField": "name",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"e2\"]]",
+                "occurrence": "[\"By project\",\"\\\"pr2\\\"\",\"[[\\\"id\\\",\\\"e2\\\"]]\"]",
+                "color": "#4278c0",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Fast reviews"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "leads",
+                    "chips": [
+                      {
+                        "member": "p-cy",
+                        "name": "Cy"
+                      }
+                    ],
+                    "label": "lead"
+                  },
+                  {
+                    "kind": "choice",
+                    "field": "assessment",
+                    "value": "Current focus",
+                    "color": "#4278c0",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "projects",
+                    "chips": [
+                      {
+                        "member": "pr1",
+                        "name": "Handbook"
+                      },
+                      {
+                        "member": "pr2",
+                        "name": "Launch"
+                      }
+                    ],
+                    "summary": true,
+                    "label": "project"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "unassigned",
+            "kind": "unassigned",
+            "heading": "Unassigned",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"e3\"]]",
+                "occurrence": "[\"By project\",\"unassigned\",\"[[\\\"id\\\",\\\"e3\\\"]]\"]",
+                "color": "#9aa0aa",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Hiring"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "leads",
+                    "chips": [],
+                    "label": "lead"
+                  },
+                  {
+                    "kind": "choice",
+                    "field": "assessment",
+                    "value": "Not recorded",
+                    "color": "#9aa0aa",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "projects",
+                    "chips": [],
+                    "summary": true,
+                    "label": "project"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "leads": [
+            {
+              "member": "p-cy",
+              "name": "Cy"
+            },
+            {
+              "member": "p-di",
+              "name": "Di"
+            }
+          ],
+          "assessment": [
+            {
+              "member": "Good",
+              "name": "Good",
+              "color": "#27815a"
+            },
+            {
+              "member": "Improving",
+              "name": "Improving",
+              "color": "#bd861a"
+            },
+            {
+              "member": "Bad",
+              "name": "Bad",
+              "color": "#c25357"
+            },
+            {
+              "member": "Current focus",
+              "name": "Current focus",
+              "color": "#4278c0"
+            },
+            {
+              "member": "Not recorded",
+              "name": "Not recorded",
+              "color": "#9aa0aa"
+            }
+          ],
+          "projects": [
+            {
+              "member": "pr1",
+              "name": "Handbook"
+            },
+            {
+              "member": "pr2",
+              "name": "Launch"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"e1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"pr1\""
+            ]
+          },
+          "[[\"id\",\"e2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"pr1\"",
+              "\"pr2\""
+            ]
+          },
+          "[[\"id\",\"e3\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "unassigned"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "excellences: by lead, people as groups",
+      "fixture": "excellences",
+      "view": 1,
+      "expected": {
+        "model": "Excellence",
+        "table": "Excellence",
+        "tabs": [
+          {
+            "label": "By project"
+          },
+          {
+            "label": "By lead"
+          },
+          {
+            "label": "By assessment"
+          }
+        ],
+        "tab": 1,
+        "group": "leads",
+        "groups": [
+          {
+            "id": "\"p-cy\"",
+            "kind": "connection",
+            "heading": "Cy",
+            "member": "p-cy",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"e2\"]]",
+                "occurrence": "[\"By lead\",\"\\\"p-cy\\\"\",\"[[\\\"id\\\",\\\"e2\\\"]]\"]",
+                "color": "#4278c0",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Fast reviews"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "leads",
+                    "chips": [
+                      {
+                        "member": "p-cy",
+                        "name": "Cy"
+                      }
+                    ],
+                    "label": "lead"
+                  },
+                  {
+                    "kind": "choice",
+                    "field": "assessment",
+                    "value": "Current focus",
+                    "color": "#4278c0",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "projects",
+                    "chips": [
+                      {
+                        "member": "pr1",
+                        "name": "Handbook"
+                      },
+                      {
+                        "member": "pr2",
+                        "name": "Launch"
+                      }
+                    ],
+                    "summary": true,
+                    "label": "project"
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"e1\"]]",
+                "occurrence": "[\"By lead\",\"\\\"p-cy\\\"\",\"[[\\\"id\\\",\\\"e1\\\"]]\"]",
+                "color": "#27815a",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Clear writing"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "leads",
+                    "chips": [
+                      {
+                        "member": "p-di",
+                        "name": "Di"
+                      },
+                      {
+                        "member": "p-cy",
+                        "name": "Cy"
+                      }
+                    ],
+                    "label": "lead"
+                  },
+                  {
+                    "kind": "choice",
+                    "field": "assessment",
+                    "value": "Good",
+                    "color": "#27815a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "projects",
+                    "chips": [
+                      {
+                        "member": "pr1",
+                        "name": "Handbook"
+                      }
+                    ],
+                    "summary": true,
+                    "label": "project"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"p-di\"",
+            "kind": "connection",
+            "heading": "Di",
+            "member": "p-di",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"e1\"]]",
+                "occurrence": "[\"By lead\",\"\\\"p-di\\\"\",\"[[\\\"id\\\",\\\"e1\\\"]]\"]",
+                "color": "#27815a",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Clear writing"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "leads",
+                    "chips": [
+                      {
+                        "member": "p-di",
+                        "name": "Di"
+                      },
+                      {
+                        "member": "p-cy",
+                        "name": "Cy"
+                      }
+                    ],
+                    "label": "lead"
+                  },
+                  {
+                    "kind": "choice",
+                    "field": "assessment",
+                    "value": "Good",
+                    "color": "#27815a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "projects",
+                    "chips": [
+                      {
+                        "member": "pr1",
+                        "name": "Handbook"
+                      }
+                    ],
+                    "summary": true,
+                    "label": "project"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "unassigned",
+            "kind": "unassigned",
+            "heading": "Unassigned",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"e3\"]]",
+                "occurrence": "[\"By lead\",\"unassigned\",\"[[\\\"id\\\",\\\"e3\\\"]]\"]",
+                "color": "#9aa0aa",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Hiring"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "leads",
+                    "chips": [],
+                    "label": "lead"
+                  },
+                  {
+                    "kind": "choice",
+                    "field": "assessment",
+                    "value": "Not recorded",
+                    "color": "#9aa0aa",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "projects",
+                    "chips": [],
+                    "summary": true,
+                    "label": "project"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "leads": [
+            {
+              "member": "p-cy",
+              "name": "Cy"
+            },
+            {
+              "member": "p-di",
+              "name": "Di"
+            }
+          ],
+          "assessment": [
+            {
+              "member": "Good",
+              "name": "Good",
+              "color": "#27815a"
+            },
+            {
+              "member": "Improving",
+              "name": "Improving",
+              "color": "#bd861a"
+            },
+            {
+              "member": "Bad",
+              "name": "Bad",
+              "color": "#c25357"
+            },
+            {
+              "member": "Current focus",
+              "name": "Current focus",
+              "color": "#4278c0"
+            },
+            {
+              "member": "Not recorded",
+              "name": "Not recorded",
+              "color": "#9aa0aa"
+            }
+          ],
+          "projects": [
+            {
+              "member": "pr1",
+              "name": "Handbook"
+            },
+            {
+              "member": "pr2",
+              "name": "Launch"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"e2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"p-cy\""
+            ]
+          },
+          "[[\"id\",\"e1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"p-cy\"",
+              "\"p-di\""
+            ]
+          },
+          "[[\"id\",\"e3\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "unassigned"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "excellences: by assessment, a choice",
+      "fixture": "excellences",
+      "view": 2,
+      "expected": {
+        "model": "Excellence",
+        "table": "Excellence",
+        "tabs": [
+          {
+            "label": "By project"
+          },
+          {
+            "label": "By lead"
+          },
+          {
+            "label": "By assessment"
+          }
+        ],
+        "tab": 2,
+        "group": "assessment",
+        "groups": [
+          {
+            "id": "\"Good\"",
+            "kind": "choice",
+            "heading": "Good",
+            "member": "Good",
+            "color": "#27815a",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"e1\"]]",
+                "occurrence": "[\"By assessment\",\"\\\"Good\\\"\",\"[[\\\"id\\\",\\\"e1\\\"]]\"]",
+                "color": "#27815a",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Clear writing"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "leads",
+                    "chips": [
+                      {
+                        "member": "p-di",
+                        "name": "Di"
+                      },
+                      {
+                        "member": "p-cy",
+                        "name": "Cy"
+                      }
+                    ],
+                    "label": "lead"
+                  },
+                  {
+                    "kind": "choice",
+                    "field": "assessment",
+                    "value": "Good",
+                    "color": "#27815a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "projects",
+                    "chips": [
+                      {
+                        "member": "pr1",
+                        "name": "Handbook"
+                      }
+                    ],
+                    "summary": true,
+                    "label": "project"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"Improving\"",
+            "kind": "choice",
+            "heading": "Improving",
+            "member": "Improving",
+            "color": "#bd861a",
+            "ordered": false,
+            "remove": "delete",
+            "lines": []
+          },
+          {
+            "id": "\"Bad\"",
+            "kind": "choice",
+            "heading": "Bad",
+            "member": "Bad",
+            "color": "#c25357",
+            "ordered": false,
+            "remove": "delete",
+            "lines": []
+          },
+          {
+            "id": "\"Current focus\"",
+            "kind": "choice",
+            "heading": "Current focus",
+            "member": "Current focus",
+            "color": "#4278c0",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"e2\"]]",
+                "occurrence": "[\"By assessment\",\"\\\"Current focus\\\"\",\"[[\\\"id\\\",\\\"e2\\\"]]\"]",
+                "color": "#4278c0",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Fast reviews"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "leads",
+                    "chips": [
+                      {
+                        "member": "p-cy",
+                        "name": "Cy"
+                      }
+                    ],
+                    "label": "lead"
+                  },
+                  {
+                    "kind": "choice",
+                    "field": "assessment",
+                    "value": "Current focus",
+                    "color": "#4278c0",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "projects",
+                    "chips": [
+                      {
+                        "member": "pr1",
+                        "name": "Handbook"
+                      },
+                      {
+                        "member": "pr2",
+                        "name": "Launch"
+                      }
+                    ],
+                    "summary": true,
+                    "label": "project"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"Not recorded\"",
+            "kind": "choice",
+            "heading": "Not recorded",
+            "member": "Not recorded",
+            "color": "#9aa0aa",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"e3\"]]",
+                "occurrence": "[\"By assessment\",\"\\\"Not recorded\\\"\",\"[[\\\"id\\\",\\\"e3\\\"]]\"]",
+                "color": "#9aa0aa",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Hiring"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "leads",
+                    "chips": [],
+                    "label": "lead"
+                  },
+                  {
+                    "kind": "choice",
+                    "field": "assessment",
+                    "value": "Not recorded",
+                    "color": "#9aa0aa",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "projects",
+                    "chips": [],
+                    "summary": true,
+                    "label": "project"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "leads": [
+            {
+              "member": "p-cy",
+              "name": "Cy"
+            },
+            {
+              "member": "p-di",
+              "name": "Di"
+            }
+          ],
+          "assessment": [
+            {
+              "member": "Good",
+              "name": "Good",
+              "color": "#27815a"
+            },
+            {
+              "member": "Improving",
+              "name": "Improving",
+              "color": "#bd861a"
+            },
+            {
+              "member": "Bad",
+              "name": "Bad",
+              "color": "#c25357"
+            },
+            {
+              "member": "Current focus",
+              "name": "Current focus",
+              "color": "#4278c0"
+            },
+            {
+              "member": "Not recorded",
+              "name": "Not recorded",
+              "color": "#9aa0aa"
+            }
+          ],
+          "projects": [
+            {
+              "member": "pr1",
+              "name": "Handbook"
+            },
+            {
+              "member": "pr2",
+              "name": "Launch"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"e1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"Good\""
+            ]
+          },
+          "[[\"id\",\"e2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"Current focus\""
+            ]
+          },
+          "[[\"id\",\"e3\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"Not recorded\""
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "tasks: the default arrangement's plain view",
+      "fixture": "tasks",
+      "view": 0,
+      "expected": {
+        "model": "Task",
+        "table": "Task",
+        "tabs": [
+          {
+            "label": "All"
+          },
+          {
+            "label": "By owner"
+          },
+          {
+            "label": "By project"
+          }
+        ],
+        "tab": 0,
+        "groups": [
+          {
+            "id": "",
+            "kind": "flat",
+            "heading": "",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"t1\"]]",
+                "occurrence": "[\"All\",\"\",\"[[\\\"id\\\",\\\"t1\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Draft"
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "notes",
+                    "value": "\n\n  First pass  \nof the text.\n\nThen edit.",
+                    "paragraph": "First pass of the text."
+                  },
+                  {
+                    "kind": "text",
+                    "field": "points",
+                    "type": "Int",
+                    "value": 3
+                  },
+                  {
+                    "kind": "text",
+                    "field": "done",
+                    "type": "Bool",
+                    "value": false
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": [
+                      {
+                        "member": "p-ed",
+                        "name": "Ed"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "project",
+                    "chips": [
+                      {
+                        "member": "pj1",
+                        "name": "Book",
+                        "color": "#336699"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "labels",
+                    "chips": [
+                      {
+                        "member": "writing",
+                        "name": "writing"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"t2\"]]",
+                "occurrence": "[\"All\",\"\",\"[[\\\"id\\\",\\\"t2\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Outline"
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "notes",
+                    "value": null,
+                    "paragraph": ""
+                  },
+                  {
+                    "kind": "text",
+                    "field": "points",
+                    "type": "Int",
+                    "value": null
+                  },
+                  {
+                    "kind": "text",
+                    "field": "done",
+                    "type": "Bool",
+                    "value": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": []
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "project",
+                    "chips": [
+                      {
+                        "member": "pj1",
+                        "name": "Book",
+                        "color": "#336699"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "labels",
+                    "chips": []
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"t3\"]]",
+                "occurrence": "[\"All\",\"\",\"[[\\\"id\\\",\\\"t3\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Print"
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "notes",
+                    "value": null,
+                    "paragraph": ""
+                  },
+                  {
+                    "kind": "text",
+                    "field": "points",
+                    "type": "Int",
+                    "value": null
+                  },
+                  {
+                    "kind": "text",
+                    "field": "done",
+                    "type": "Bool",
+                    "value": false
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": [
+                      {
+                        "member": "p-fay",
+                        "name": "p-fay"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "project",
+                    "chips": [
+                      {
+                        "member": "pj2",
+                        "name": "Zine"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "labels",
+                    "chips": []
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"t4\"]]",
+                "occurrence": "[\"All\",\"\",\"[[\\\"id\\\",\\\"t4\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Someday"
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "notes",
+                    "value": null,
+                    "paragraph": ""
+                  },
+                  {
+                    "kind": "text",
+                    "field": "points",
+                    "type": "Int",
+                    "value": null
+                  },
+                  {
+                    "kind": "text",
+                    "field": "done",
+                    "type": "Bool",
+                    "value": false
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": []
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "project",
+                    "chips": []
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "labels",
+                    "chips": []
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "owner": [
+            {
+              "member": "p-ed",
+              "name": "Ed"
+            }
+          ],
+          "project": [
+            {
+              "member": "pj1",
+              "name": "Book",
+              "color": "#336699"
+            },
+            {
+              "member": "pj2",
+              "name": "Zine"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"t1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          },
+          "[[\"id\",\"t2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          },
+          "[[\"id\",\"t3\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          },
+          "[[\"id\",\"t4\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          }
+        }
+      }
+    },
+    {
+      "name": "tasks: default grouping by a person",
+      "fixture": "tasks",
+      "view": 1,
+      "expected": {
+        "model": "Task",
+        "table": "Task",
+        "tabs": [
+          {
+            "label": "All"
+          },
+          {
+            "label": "By owner"
+          },
+          {
+            "label": "By project"
+          }
+        ],
+        "tab": 1,
+        "group": "owner",
+        "groups": [
+          {
+            "id": "\"p-ed\"",
+            "kind": "connection",
+            "heading": "Ed",
+            "member": "p-ed",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"t1\"]]",
+                "occurrence": "[\"By owner\",\"\\\"p-ed\\\"\",\"[[\\\"id\\\",\\\"t1\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Draft"
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "notes",
+                    "value": "\n\n  First pass  \nof the text.\n\nThen edit.",
+                    "paragraph": "First pass of the text."
+                  },
+                  {
+                    "kind": "text",
+                    "field": "points",
+                    "type": "Int",
+                    "value": 3
+                  },
+                  {
+                    "kind": "text",
+                    "field": "done",
+                    "type": "Bool",
+                    "value": false
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": [
+                      {
+                        "member": "p-ed",
+                        "name": "Ed"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "project",
+                    "chips": [
+                      {
+                        "member": "pj1",
+                        "name": "Book",
+                        "color": "#336699"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "labels",
+                    "chips": [
+                      {
+                        "member": "writing",
+                        "name": "writing"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"p-fay\"",
+            "kind": "connection",
+            "heading": "p-fay",
+            "member": "p-fay",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"t3\"]]",
+                "occurrence": "[\"By owner\",\"\\\"p-fay\\\"\",\"[[\\\"id\\\",\\\"t3\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Print"
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "notes",
+                    "value": null,
+                    "paragraph": ""
+                  },
+                  {
+                    "kind": "text",
+                    "field": "points",
+                    "type": "Int",
+                    "value": null
+                  },
+                  {
+                    "kind": "text",
+                    "field": "done",
+                    "type": "Bool",
+                    "value": false
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": [
+                      {
+                        "member": "p-fay",
+                        "name": "p-fay"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "project",
+                    "chips": [
+                      {
+                        "member": "pj2",
+                        "name": "Zine"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "labels",
+                    "chips": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "unassigned",
+            "kind": "unassigned",
+            "heading": "Unassigned",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"t2\"]]",
+                "occurrence": "[\"By owner\",\"unassigned\",\"[[\\\"id\\\",\\\"t2\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Outline"
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "notes",
+                    "value": null,
+                    "paragraph": ""
+                  },
+                  {
+                    "kind": "text",
+                    "field": "points",
+                    "type": "Int",
+                    "value": null
+                  },
+                  {
+                    "kind": "text",
+                    "field": "done",
+                    "type": "Bool",
+                    "value": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": []
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "project",
+                    "chips": [
+                      {
+                        "member": "pj1",
+                        "name": "Book",
+                        "color": "#336699"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "labels",
+                    "chips": []
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"t4\"]]",
+                "occurrence": "[\"By owner\",\"unassigned\",\"[[\\\"id\\\",\\\"t4\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Someday"
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "notes",
+                    "value": null,
+                    "paragraph": ""
+                  },
+                  {
+                    "kind": "text",
+                    "field": "points",
+                    "type": "Int",
+                    "value": null
+                  },
+                  {
+                    "kind": "text",
+                    "field": "done",
+                    "type": "Bool",
+                    "value": false
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": []
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "project",
+                    "chips": []
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "labels",
+                    "chips": []
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "owner": [
+            {
+              "member": "p-ed",
+              "name": "Ed"
+            }
+          ],
+          "project": [
+            {
+              "member": "pj1",
+              "name": "Book",
+              "color": "#336699"
+            },
+            {
+              "member": "pj2",
+              "name": "Zine"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"t1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"p-ed\""
+            ]
+          },
+          "[[\"id\",\"t3\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"p-fay\""
+            ]
+          },
+          "[[\"id\",\"t2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "unassigned"
+            ]
+          },
+          "[[\"id\",\"t4\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "unassigned"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "tasks: default grouping by an ordered 1:n",
+      "fixture": "tasks",
+      "view": 2,
+      "expected": {
+        "model": "Task",
+        "table": "Task",
+        "tabs": [
+          {
+            "label": "All"
+          },
+          {
+            "label": "By owner"
+          },
+          {
+            "label": "By project"
+          }
+        ],
+        "tab": 2,
+        "group": "project",
+        "groups": [
+          {
+            "id": "\"pj1\"",
+            "kind": "connection",
+            "heading": "Book",
+            "member": "pj1",
+            "color": "#336699",
+            "table": "Project",
+            "row": "[[\"id\",\"pj1\"]]",
+            "headingField": "name",
+            "ordered": true,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"t2\"]]",
+                "occurrence": "[\"By project\",\"\\\"pj1\\\"\",\"[[\\\"id\\\",\\\"t2\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Outline"
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "notes",
+                    "value": null,
+                    "paragraph": ""
+                  },
+                  {
+                    "kind": "text",
+                    "field": "points",
+                    "type": "Int",
+                    "value": null
+                  },
+                  {
+                    "kind": "text",
+                    "field": "done",
+                    "type": "Bool",
+                    "value": true
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": []
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "project",
+                    "chips": [
+                      {
+                        "member": "pj1",
+                        "name": "Book",
+                        "color": "#336699"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "labels",
+                    "chips": []
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"t1\"]]",
+                "occurrence": "[\"By project\",\"\\\"pj1\\\"\",\"[[\\\"id\\\",\\\"t1\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Draft"
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "notes",
+                    "value": "\n\n  First pass  \nof the text.\n\nThen edit.",
+                    "paragraph": "First pass of the text."
+                  },
+                  {
+                    "kind": "text",
+                    "field": "points",
+                    "type": "Int",
+                    "value": 3
+                  },
+                  {
+                    "kind": "text",
+                    "field": "done",
+                    "type": "Bool",
+                    "value": false
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": [
+                      {
+                        "member": "p-ed",
+                        "name": "Ed"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "project",
+                    "chips": [
+                      {
+                        "member": "pj1",
+                        "name": "Book",
+                        "color": "#336699"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "labels",
+                    "chips": [
+                      {
+                        "member": "writing",
+                        "name": "writing"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"pj2\"",
+            "kind": "connection",
+            "heading": "Zine",
+            "member": "pj2",
+            "table": "Project",
+            "row": "[[\"id\",\"pj2\"]]",
+            "headingField": "name",
+            "ordered": true,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"t3\"]]",
+                "occurrence": "[\"By project\",\"\\\"pj2\\\"\",\"[[\\\"id\\\",\\\"t3\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Print"
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "notes",
+                    "value": null,
+                    "paragraph": ""
+                  },
+                  {
+                    "kind": "text",
+                    "field": "points",
+                    "type": "Int",
+                    "value": null
+                  },
+                  {
+                    "kind": "text",
+                    "field": "done",
+                    "type": "Bool",
+                    "value": false
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": [
+                      {
+                        "member": "p-fay",
+                        "name": "p-fay"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "project",
+                    "chips": [
+                      {
+                        "member": "pj2",
+                        "name": "Zine"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "labels",
+                    "chips": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "unassigned",
+            "kind": "unassigned",
+            "heading": "Unassigned",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"t4\"]]",
+                "occurrence": "[\"By project\",\"unassigned\",\"[[\\\"id\\\",\\\"t4\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Someday"
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "notes",
+                    "value": null,
+                    "paragraph": ""
+                  },
+                  {
+                    "kind": "text",
+                    "field": "points",
+                    "type": "Int",
+                    "value": null
+                  },
+                  {
+                    "kind": "text",
+                    "field": "done",
+                    "type": "Bool",
+                    "value": false
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": []
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "project",
+                    "chips": []
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "labels",
+                    "chips": []
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "owner": [
+            {
+              "member": "p-ed",
+              "name": "Ed"
+            }
+          ],
+          "project": [
+            {
+              "member": "pj1",
+              "name": "Book",
+              "color": "#336699"
+            },
+            {
+              "member": "pj2",
+              "name": "Zine"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"t2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"pj1\""
+            ]
+          },
+          "[[\"id\",\"t1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"pj1\""
+            ]
+          },
+          "[[\"id\",\"t3\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"pj2\""
+            ]
+          },
+          "[[\"id\",\"t4\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "unassigned"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "projects: the other model's default arrangement, with chips from the many side",
+      "fixture": "tasks",
+      "model": "Project",
+      "view": 0,
+      "expected": {
+        "model": "Project",
+        "table": "Project",
+        "tabs": [
+          {
+            "label": "All"
+          },
+          {
+            "label": "By tasks"
+          }
+        ],
+        "tab": 0,
+        "groups": [
+          {
+            "id": "",
+            "kind": "flat",
+            "heading": "",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"pj1\"]]",
+                "occurrence": "[\"All\",\"\",\"[[\\\"id\\\",\\\"pj1\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Book"
+                  },
+                  {
+                    "kind": "text",
+                    "field": "color",
+                    "type": "Text",
+                    "value": "#336699"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tasks",
+                    "chips": [
+                      {
+                        "member": "t2",
+                        "name": "Outline"
+                      },
+                      {
+                        "member": "t1",
+                        "name": "Draft"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"pj2\"]]",
+                "occurrence": "[\"All\",\"\",\"[[\\\"id\\\",\\\"pj2\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Zine"
+                  },
+                  {
+                    "kind": "text",
+                    "field": "color",
+                    "type": "Text",
+                    "value": null
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tasks",
+                    "chips": [
+                      {
+                        "member": "t3",
+                        "name": "Print"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "tasks": [
+            {
+              "member": "t1",
+              "name": "Draft"
+            },
+            {
+              "member": "t2",
+              "name": "Outline"
+            },
+            {
+              "member": "t3",
+              "name": "Print"
+            },
+            {
+              "member": "t4",
+              "name": "Someday"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"pj1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          },
+          "[[\"id\",\"pj2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          }
+        }
+      }
+    }
+  ],
+  "intents": [
+    {
+      "name": "set a text field",
+      "fixture": "games",
+      "view": 0,
+      "intent": {
+        "kind": "set",
+        "row": "[[\"id\",\"g3\"]]",
+        "field": "name",
+        "value": "Tichu",
+        "at": "2026-10-15T10:00:00Z"
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "Game",
+          "row": "[[\"id\",\"g3\"]]",
+          "field": "name",
+          "before": "Untitled",
+          "value": "Tichu",
+          "at": "2026-10-15T10:00:00Z"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Tichu",
+            "status": "Playtested",
+            "modified": "2026-10-15T10:00:00Z"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "set Markdown",
+      "fixture": "games",
+      "view": 0,
+      "intent": {
+        "kind": "set",
+        "row": "[[\"id\",\"g2\"]]",
+        "field": "description",
+        "value": "Cooperative.\n"
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "Game",
+          "row": "[[\"id\",\"g2\"]]",
+          "field": "description",
+          "before": null,
+          "value": "Cooperative.\n"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "description": "Cooperative.\n",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "set a choice",
+      "fixture": "games",
+      "view": 0,
+      "intent": {
+        "kind": "set",
+        "row": "[[\"id\",\"g3\"]]",
+        "field": "status",
+        "value": "Draft"
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "Game",
+          "row": "[[\"id\",\"g3\"]]",
+          "field": "status",
+          "before": "Playtested",
+          "value": "Draft"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Draft"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a required choice can't be cleared",
+      "fixture": "games",
+      "view": 0,
+      "intent": {
+        "kind": "set",
+        "row": "[[\"id\",\"g3\"]]",
+        "field": "status",
+        "value": null
+      },
+      "error": true
+    },
+    {
+      "name": "a value outside the choice is refused",
+      "fixture": "games",
+      "view": 0,
+      "intent": {
+        "kind": "set",
+        "row": "[[\"id\",\"g3\"]]",
+        "field": "status",
+        "value": "Shipped"
+      },
+      "error": true
+    },
+    {
+      "name": "set a value list",
+      "fixture": "games",
+      "view": 0,
+      "intent": {
+        "kind": "set",
+        "row": "[[\"id\",\"g1\"]]",
+        "field": "tags",
+        "value": [
+          "engine"
+        ]
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "Game",
+          "row": "[[\"id\",\"g1\"]]",
+          "field": "tags",
+          "before": [
+            "engine",
+            "cards"
+          ],
+          "value": [
+            "engine"
+          ]
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "connect a person",
+      "fixture": "games",
+      "view": 0,
+      "intent": {
+        "kind": "connect",
+        "row": "[[\"id\",\"g3\"]]",
+        "field": "authors",
+        "member": "p-bo"
+      },
+      "operations": [
+        {
+          "kind": "rowConnect",
+          "table": "Game",
+          "row": "[[\"id\",\"g3\"]]",
+          "field": "authors",
+          "member": "p-bo"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "authors": [
+              "p-bo"
+            ],
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "disconnect a person",
+      "fixture": "games",
+      "view": 0,
+      "intent": {
+        "kind": "disconnect",
+        "row": "[[\"id\",\"g2\"]]",
+        "field": "authors",
+        "member": "p-ada"
+      },
+      "operations": [
+        {
+          "kind": "rowDisconnect",
+          "table": "Game",
+          "row": "[[\"id\",\"g2\"]]",
+          "field": "authors",
+          "member": "p-ada"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "connect through the other end's folded list",
+      "fixture": "games",
+      "view": 0,
+      "intent": {
+        "kind": "connect",
+        "row": "[[\"id\",\"g3\"]]",
+        "field": "lists",
+        "member": "l2",
+        "at": "2026-10-15T10:00:00Z"
+      },
+      "operations": [
+        {
+          "kind": "rowConnect",
+          "table": "List",
+          "row": "[[\"id\",\"l2\"]]",
+          "field": "games",
+          "member": "g3",
+          "at": "2026-10-15T10:00:00Z"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1",
+              "g3"
+            ],
+            "modified": "2026-10-15T10:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "set a reference list by difference",
+      "fixture": "games",
+      "view": 0,
+      "intent": {
+        "kind": "set",
+        "row": "[[\"id\",\"g2\"]]",
+        "field": "authors",
+        "value": [
+          "p-bo",
+          "p-cy"
+        ]
+      },
+      "operations": [
+        {
+          "kind": "rowDisconnect",
+          "table": "Game",
+          "row": "[[\"id\",\"g2\"]]",
+          "field": "authors",
+          "member": "p-ada"
+        },
+        {
+          "kind": "rowConnect",
+          "table": "Game",
+          "row": "[[\"id\",\"g2\"]]",
+          "field": "authors",
+          "member": "p-cy"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-bo",
+              "p-cy"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "create in a flat view",
+      "fixture": "games",
+      "view": 0,
+      "intent": {
+        "kind": "create",
+        "id": "g4",
+        "values": {
+          "name": "Azul"
+        },
+        "at": "2026-10-15T10:00:00Z"
+      },
+      "operations": [
+        {
+          "kind": "rowCreate",
+          "table": "Game",
+          "row": "[[\"id\",\"g4\"]]",
+          "values": {
+            "id": "g4",
+            "name": "Azul",
+            "status": "Draft"
+          },
+          "at": "2026-10-15T10:00:00Z"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          },
+          {
+            "id": "g4",
+            "name": "Azul",
+            "status": "Draft",
+            "created": "2026-10-15T10:00:00Z",
+            "modified": "2026-10-15T10:00:00Z"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "create in a person group presets the field",
+      "fixture": "games",
+      "view": 1,
+      "intent": {
+        "kind": "create",
+        "id": "g4",
+        "group": "\"p-bo\"",
+        "values": {
+          "name": "Azul"
+        }
+      },
+      "operations": [
+        {
+          "kind": "rowCreate",
+          "table": "Game",
+          "row": "[[\"id\",\"g4\"]]",
+          "values": {
+            "id": "g4",
+            "name": "Azul",
+            "authors": [
+              "p-bo"
+            ],
+            "status": "Draft"
+          }
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          },
+          {
+            "id": "g4",
+            "name": "Azul",
+            "authors": [
+              "p-bo"
+            ],
+            "status": "Draft"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "create in a list group connects the list, then places it",
+      "fixture": "games",
+      "view": 2,
+      "intent": {
+        "kind": "create",
+        "id": "g4",
+        "group": "\"l1\"",
+        "values": {
+          "name": "Azul"
+        },
+        "after": "[[\"id\",\"g2\"]]"
+      },
+      "operations": [
+        {
+          "kind": "rowCreate",
+          "table": "Game",
+          "row": "[[\"id\",\"g4\"]]",
+          "values": {
+            "id": "g4",
+            "name": "Azul",
+            "status": "Draft"
+          }
+        },
+        {
+          "kind": "rowConnect",
+          "table": "List",
+          "row": "[[\"id\",\"l1\"]]",
+          "field": "games",
+          "member": "g4"
+        },
+        {
+          "kind": "rowMove",
+          "table": "List",
+          "row": "[[\"id\",\"l1\"]]",
+          "field": "games",
+          "member": "g4",
+          "after": "g2"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          },
+          {
+            "id": "g4",
+            "name": "Azul",
+            "status": "Draft"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g4",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "create in Unassigned presets nothing",
+      "fixture": "games",
+      "view": 2,
+      "intent": {
+        "kind": "create",
+        "id": "g4",
+        "group": "unassigned",
+        "values": {
+          "name": "Azul"
+        }
+      },
+      "operations": [
+        {
+          "kind": "rowCreate",
+          "table": "Game",
+          "row": "[[\"id\",\"g4\"]]",
+          "values": {
+            "id": "g4",
+            "name": "Azul",
+            "status": "Draft"
+          }
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          },
+          {
+            "id": "g4",
+            "name": "Azul",
+            "status": "Draft"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Delete in a connection group disconnects",
+      "fixture": "games",
+      "view": 1,
+      "intent": {
+        "kind": "remove",
+        "row": "[[\"id\",\"g2\"]]",
+        "group": "\"p-ada\""
+      },
+      "operations": [
+        {
+          "kind": "rowDisconnect",
+          "table": "Game",
+          "row": "[[\"id\",\"g2\"]]",
+          "field": "authors",
+          "member": "p-ada"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Delete in a list group disconnects from that list",
+      "fixture": "games",
+      "view": 2,
+      "intent": {
+        "kind": "remove",
+        "row": "[[\"id\",\"g1\"]]",
+        "group": "\"l1\"",
+        "at": "2026-10-15T10:00:00Z"
+      },
+      "operations": [
+        {
+          "kind": "rowDisconnect",
+          "table": "List",
+          "row": "[[\"id\",\"l1\"]]",
+          "field": "games",
+          "member": "g1",
+          "at": "2026-10-15T10:00:00Z"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2"
+            ],
+            "modified": "2026-10-15T10:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Delete in a flat view deletes",
+      "fixture": "games",
+      "view": 0,
+      "intent": {
+        "kind": "remove",
+        "row": "[[\"id\",\"g3\"]]",
+        "group": ""
+      },
+      "operations": [
+        {
+          "kind": "rowDelete",
+          "table": "Game",
+          "row": "[[\"id\",\"g3\"]]"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Delete in Unassigned deletes",
+      "fixture": "games",
+      "view": 1,
+      "intent": {
+        "kind": "remove",
+        "row": "[[\"id\",\"g3\"]]",
+        "group": "unassigned"
+      },
+      "operations": [
+        {
+          "kind": "rowDelete",
+          "table": "Game",
+          "row": "[[\"id\",\"g3\"]]"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Delete row disconnects it from every list first",
+      "fixture": "games",
+      "view": 1,
+      "intent": {
+        "kind": "delete",
+        "row": "[[\"id\",\"g1\"]]"
+      },
+      "operations": [
+        {
+          "kind": "rowDisconnect",
+          "table": "List",
+          "row": "[[\"id\",\"l1\"]]",
+          "field": "games",
+          "member": "g1"
+        },
+        {
+          "kind": "rowDisconnect",
+          "table": "List",
+          "row": "[[\"id\",\"l2\"]]",
+          "field": "games",
+          "member": "g1"
+        },
+        {
+          "kind": "rowDelete",
+          "table": "Game",
+          "row": "[[\"id\",\"g1\"]]"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "move within an ordered list",
+      "fixture": "games",
+      "view": 2,
+      "intent": {
+        "kind": "move",
+        "row": "[[\"id\",\"g1\"]]",
+        "group": "\"l1\"",
+        "after": null
+      },
+      "operations": [
+        {
+          "kind": "rowMove",
+          "table": "List",
+          "row": "[[\"id\",\"l1\"]]",
+          "field": "games",
+          "member": "g1",
+          "after": null
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g1",
+              "g2"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "moving a line to where it is changes nothing",
+      "fixture": "games",
+      "view": 2,
+      "intent": {
+        "kind": "move",
+        "row": "[[\"id\",\"g2\"]]",
+        "group": "\"l1\"",
+        "after": null
+      },
+      "operations": [],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "regroup to another list, placed first",
+      "fixture": "games",
+      "view": 2,
+      "intent": {
+        "kind": "regroup",
+        "row": "[[\"id\",\"g2\"]]",
+        "from": "\"l1\"",
+        "to": "\"l2\"",
+        "after": null
+      },
+      "operations": [
+        {
+          "kind": "rowDisconnect",
+          "table": "List",
+          "row": "[[\"id\",\"l1\"]]",
+          "field": "games",
+          "member": "g2"
+        },
+        {
+          "kind": "rowConnect",
+          "table": "List",
+          "row": "[[\"id\",\"l2\"]]",
+          "field": "games",
+          "member": "g2"
+        },
+        {
+          "kind": "rowMove",
+          "table": "List",
+          "row": "[[\"id\",\"l2\"]]",
+          "field": "games",
+          "member": "g2",
+          "after": null
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "regroup from Unassigned to a person",
+      "fixture": "games",
+      "view": 1,
+      "intent": {
+        "kind": "regroup",
+        "row": "[[\"id\",\"g3\"]]",
+        "from": "unassigned",
+        "to": "\"p-bo\""
+      },
+      "operations": [
+        {
+          "kind": "rowConnect",
+          "table": "Game",
+          "row": "[[\"id\",\"g3\"]]",
+          "field": "authors",
+          "member": "p-bo"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "authors": [
+              "p-bo"
+            ],
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "regroup to a person the row already has",
+      "fixture": "games",
+      "view": 1,
+      "intent": {
+        "kind": "regroup",
+        "row": "[[\"id\",\"g2\"]]",
+        "from": "\"p-ada\"",
+        "to": "\"p-bo\""
+      },
+      "operations": [
+        {
+          "kind": "rowDisconnect",
+          "table": "Game",
+          "row": "[[\"id\",\"g2\"]]",
+          "field": "authors",
+          "member": "p-ada"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "rename a list from its heading",
+      "fixture": "games",
+      "view": 2,
+      "intent": {
+        "kind": "rename",
+        "group": "\"l2\"",
+        "value": "Next",
+        "at": "2026-10-15T10:00:00Z"
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "List",
+          "row": "[[\"id\",\"l2\"]]",
+          "field": "name",
+          "before": "To try",
+          "value": "Next",
+          "at": "2026-10-15T10:00:00Z"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "Next",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-15T10:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a person's heading is read-only",
+      "fixture": "games",
+      "view": 1,
+      "intent": {
+        "kind": "rename",
+        "group": "\"p-ada\"",
+        "value": "Ada L."
+      },
+      "error": true
+    },
+    {
+      "name": "connect a lead creates a join row",
+      "fixture": "excellences",
+      "view": 0,
+      "intent": {
+        "kind": "connect",
+        "row": "[[\"id\",\"e3\"]]",
+        "field": "leads",
+        "member": "p-di",
+        "at": "2026-10-15T10:00:00Z"
+      },
+      "operations": [
+        {
+          "kind": "rowCreate",
+          "table": "Excellence_leads",
+          "row": "[[\"excellence\",\"e3\"],[\"person\",\"p-di\"]]",
+          "values": {
+            "excellence": "e3",
+            "person": "p-di"
+          },
+          "at": "2026-10-15T10:00:00Z"
+        }
+      ],
+      "rows": {
+        "Excellence": [
+          {
+            "id": "e1",
+            "name": "Clear writing",
+            "assessment": "Good"
+          },
+          {
+            "id": "e2",
+            "name": "Fast reviews",
+            "assessment": "Current focus"
+          },
+          {
+            "id": "e3",
+            "name": "Hiring",
+            "assessment": "Not recorded"
+          }
+        ],
+        "Project": [
+          {
+            "id": "pr1",
+            "name": "Handbook"
+          },
+          {
+            "id": "pr2",
+            "name": "Launch"
+          }
+        ],
+        "Excellence_leads": [
+          {
+            "excellence": "e1",
+            "person": "p-di"
+          },
+          {
+            "excellence": "e2",
+            "person": "p-cy"
+          },
+          {
+            "excellence": "e1",
+            "person": "p-cy"
+          },
+          {
+            "excellence": "e3",
+            "person": "p-di",
+            "created": "2026-10-15T10:00:00Z",
+            "modified": "2026-10-15T10:00:00Z"
+          }
+        ],
+        "Excellence_projects": [
+          {
+            "excellence": "e1",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Delete in a project group deletes the join row",
+      "fixture": "excellences",
+      "view": 0,
+      "intent": {
+        "kind": "remove",
+        "row": "[[\"id\",\"e2\"]]",
+        "group": "\"pr1\""
+      },
+      "operations": [
+        {
+          "kind": "rowDelete",
+          "table": "Excellence_projects",
+          "row": "[[\"excellence\",\"e2\"],[\"project\",\"pr1\"]]"
+        }
+      ],
+      "rows": {
+        "Excellence": [
+          {
+            "id": "e1",
+            "name": "Clear writing",
+            "assessment": "Good"
+          },
+          {
+            "id": "e2",
+            "name": "Fast reviews",
+            "assessment": "Current focus"
+          },
+          {
+            "id": "e3",
+            "name": "Hiring",
+            "assessment": "Not recorded"
+          }
+        ],
+        "Project": [
+          {
+            "id": "pr1",
+            "name": "Handbook"
+          },
+          {
+            "id": "pr2",
+            "name": "Launch"
+          }
+        ],
+        "Excellence_leads": [
+          {
+            "excellence": "e1",
+            "person": "p-di"
+          },
+          {
+            "excellence": "e2",
+            "person": "p-cy"
+          },
+          {
+            "excellence": "e1",
+            "person": "p-cy"
+          }
+        ],
+        "Excellence_projects": [
+          {
+            "excellence": "e1",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Delete in a choice group deletes the row and its join rows",
+      "fixture": "excellences",
+      "view": 2,
+      "intent": {
+        "kind": "remove",
+        "row": "[[\"id\",\"e1\"]]",
+        "group": "\"Good\""
+      },
+      "operations": [
+        {
+          "kind": "rowDelete",
+          "table": "Excellence_leads",
+          "row": "[[\"excellence\",\"e1\"],[\"person\",\"p-di\"]]"
+        },
+        {
+          "kind": "rowDelete",
+          "table": "Excellence_leads",
+          "row": "[[\"excellence\",\"e1\"],[\"person\",\"p-cy\"]]"
+        },
+        {
+          "kind": "rowDelete",
+          "table": "Excellence_projects",
+          "row": "[[\"excellence\",\"e1\"],[\"project\",\"pr1\"]]"
+        },
+        {
+          "kind": "rowDelete",
+          "table": "Excellence",
+          "row": "[[\"id\",\"e1\"]]"
+        }
+      ],
+      "rows": {
+        "Excellence": [
+          {
+            "id": "e2",
+            "name": "Fast reviews",
+            "assessment": "Current focus"
+          },
+          {
+            "id": "e3",
+            "name": "Hiring",
+            "assessment": "Not recorded"
+          }
+        ],
+        "Project": [
+          {
+            "id": "pr1",
+            "name": "Handbook"
+          },
+          {
+            "id": "pr2",
+            "name": "Launch"
+          }
+        ],
+        "Excellence_leads": [
+          {
+            "excellence": "e2",
+            "person": "p-cy"
+          }
+        ],
+        "Excellence_projects": [
+          {
+            "excellence": "e2",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "regroup between choices sets the field once",
+      "fixture": "excellences",
+      "view": 2,
+      "intent": {
+        "kind": "regroup",
+        "row": "[[\"id\",\"e3\"]]",
+        "from": "\"Not recorded\"",
+        "to": "\"Improving\""
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "Excellence",
+          "row": "[[\"id\",\"e3\"]]",
+          "field": "assessment",
+          "before": "Not recorded",
+          "value": "Improving"
+        }
+      ],
+      "rows": {
+        "Excellence": [
+          {
+            "id": "e1",
+            "name": "Clear writing",
+            "assessment": "Good"
+          },
+          {
+            "id": "e2",
+            "name": "Fast reviews",
+            "assessment": "Current focus"
+          },
+          {
+            "id": "e3",
+            "name": "Hiring",
+            "assessment": "Improving"
+          }
+        ],
+        "Project": [
+          {
+            "id": "pr1",
+            "name": "Handbook"
+          },
+          {
+            "id": "pr2",
+            "name": "Launch"
+          }
+        ],
+        "Excellence_leads": [
+          {
+            "excellence": "e1",
+            "person": "p-di"
+          },
+          {
+            "excellence": "e2",
+            "person": "p-cy"
+          },
+          {
+            "excellence": "e1",
+            "person": "p-cy"
+          }
+        ],
+        "Excellence_projects": [
+          {
+            "excellence": "e1",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "create in a project group",
+      "fixture": "excellences",
+      "view": 0,
+      "intent": {
+        "kind": "create",
+        "id": "e4",
+        "group": "\"pr2\"",
+        "values": {
+          "name": "Docs"
+        }
+      },
+      "operations": [
+        {
+          "kind": "rowCreate",
+          "table": "Excellence",
+          "row": "[[\"id\",\"e4\"]]",
+          "values": {
+            "id": "e4",
+            "name": "Docs",
+            "assessment": "Good"
+          }
+        },
+        {
+          "kind": "rowCreate",
+          "table": "Excellence_projects",
+          "row": "[[\"excellence\",\"e4\"],[\"project\",\"pr2\"]]",
+          "values": {
+            "excellence": "e4",
+            "project": "pr2"
+          }
+        }
+      ],
+      "rows": {
+        "Excellence": [
+          {
+            "id": "e1",
+            "name": "Clear writing",
+            "assessment": "Good"
+          },
+          {
+            "id": "e2",
+            "name": "Fast reviews",
+            "assessment": "Current focus"
+          },
+          {
+            "id": "e3",
+            "name": "Hiring",
+            "assessment": "Not recorded"
+          },
+          {
+            "id": "e4",
+            "name": "Docs",
+            "assessment": "Good"
+          }
+        ],
+        "Project": [
+          {
+            "id": "pr1",
+            "name": "Handbook"
+          },
+          {
+            "id": "pr2",
+            "name": "Launch"
+          }
+        ],
+        "Excellence_leads": [
+          {
+            "excellence": "e1",
+            "person": "p-di"
+          },
+          {
+            "excellence": "e2",
+            "person": "p-cy"
+          },
+          {
+            "excellence": "e1",
+            "person": "p-cy"
+          }
+        ],
+        "Excellence_projects": [
+          {
+            "excellence": "e1",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr2"
+          },
+          {
+            "excellence": "e4",
+            "project": "pr2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "create in a choice group presets the choice",
+      "fixture": "excellences",
+      "view": 2,
+      "intent": {
+        "kind": "create",
+        "id": "e4",
+        "group": "\"Bad\"",
+        "values": {
+          "name": "Docs"
+        }
+      },
+      "operations": [
+        {
+          "kind": "rowCreate",
+          "table": "Excellence",
+          "row": "[[\"id\",\"e4\"]]",
+          "values": {
+            "id": "e4",
+            "name": "Docs",
+            "assessment": "Bad"
+          }
+        }
+      ],
+      "rows": {
+        "Excellence": [
+          {
+            "id": "e1",
+            "name": "Clear writing",
+            "assessment": "Good"
+          },
+          {
+            "id": "e2",
+            "name": "Fast reviews",
+            "assessment": "Current focus"
+          },
+          {
+            "id": "e3",
+            "name": "Hiring",
+            "assessment": "Not recorded"
+          },
+          {
+            "id": "e4",
+            "name": "Docs",
+            "assessment": "Bad"
+          }
+        ],
+        "Project": [
+          {
+            "id": "pr1",
+            "name": "Handbook"
+          },
+          {
+            "id": "pr2",
+            "name": "Launch"
+          }
+        ],
+        "Excellence_leads": [
+          {
+            "excellence": "e1",
+            "person": "p-di"
+          },
+          {
+            "excellence": "e2",
+            "person": "p-cy"
+          },
+          {
+            "excellence": "e1",
+            "person": "p-cy"
+          }
+        ],
+        "Excellence_projects": [
+          {
+            "excellence": "e1",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "rename a project from its heading",
+      "fixture": "excellences",
+      "view": 0,
+      "intent": {
+        "kind": "rename",
+        "group": "\"pr2\"",
+        "value": "Launch v2"
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "Project",
+          "row": "[[\"id\",\"pr2\"]]",
+          "field": "name",
+          "before": "Launch",
+          "value": "Launch v2"
+        }
+      ],
+      "rows": {
+        "Excellence": [
+          {
+            "id": "e1",
+            "name": "Clear writing",
+            "assessment": "Good"
+          },
+          {
+            "id": "e2",
+            "name": "Fast reviews",
+            "assessment": "Current focus"
+          },
+          {
+            "id": "e3",
+            "name": "Hiring",
+            "assessment": "Not recorded"
+          }
+        ],
+        "Project": [
+          {
+            "id": "pr1",
+            "name": "Handbook"
+          },
+          {
+            "id": "pr2",
+            "name": "Launch v2"
+          }
+        ],
+        "Excellence_leads": [
+          {
+            "excellence": "e1",
+            "person": "p-di"
+          },
+          {
+            "excellence": "e2",
+            "person": "p-cy"
+          },
+          {
+            "excellence": "e1",
+            "person": "p-cy"
+          }
+        ],
+        "Excellence_projects": [
+          {
+            "excellence": "e1",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr1"
+          },
+          {
+            "excellence": "e2",
+            "project": "pr2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "move within a project by position",
+      "fixture": "tasks",
+      "view": 2,
+      "intent": {
+        "kind": "move",
+        "row": "[[\"id\",\"t1\"]]",
+        "group": "\"pj1\"",
+        "after": null
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "Task",
+          "row": "[[\"id\",\"t1\"]]",
+          "field": "tasks_position",
+          "before": 1,
+          "value": -1
+        }
+      ],
+      "rows": {
+        "Task": [
+          {
+            "id": "t1",
+            "title": "Draft",
+            "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+            "points": 3,
+            "done": false,
+            "labels": [
+              "writing"
+            ],
+            "project": "pj1",
+            "tasks_position": -1,
+            "owner": "p-ed"
+          },
+          {
+            "id": "t2",
+            "title": "Outline",
+            "done": true,
+            "project": "pj1",
+            "tasks_position": 0
+          },
+          {
+            "id": "t3",
+            "title": "Print",
+            "done": false,
+            "owner": "p-fay",
+            "project": "pj2",
+            "tasks_position": 0
+          },
+          {
+            "id": "t4",
+            "title": "Someday",
+            "done": false
+          }
+        ],
+        "Project": [
+          {
+            "id": "pj1",
+            "name": "Book",
+            "color": "#336699"
+          },
+          {
+            "id": "pj2",
+            "name": "Zine"
+          }
+        ]
+      }
+    },
+    {
+      "name": "regroup to another project, placed first",
+      "fixture": "tasks",
+      "view": 2,
+      "intent": {
+        "kind": "regroup",
+        "row": "[[\"id\",\"t2\"]]",
+        "from": "\"pj1\"",
+        "to": "\"pj2\"",
+        "after": null
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "Task",
+          "row": "[[\"id\",\"t2\"]]",
+          "field": "project",
+          "before": "pj1",
+          "value": "pj2"
+        },
+        {
+          "kind": "rowSet",
+          "table": "Task",
+          "row": "[[\"id\",\"t2\"]]",
+          "field": "tasks_position",
+          "before": 0,
+          "value": -1
+        }
+      ],
+      "rows": {
+        "Task": [
+          {
+            "id": "t1",
+            "title": "Draft",
+            "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+            "points": 3,
+            "done": false,
+            "owner": "p-ed",
+            "project": "pj1",
+            "tasks_position": 1,
+            "labels": [
+              "writing"
+            ]
+          },
+          {
+            "id": "t2",
+            "title": "Outline",
+            "done": true,
+            "project": "pj2",
+            "tasks_position": -1
+          },
+          {
+            "id": "t3",
+            "title": "Print",
+            "done": false,
+            "owner": "p-fay",
+            "project": "pj2",
+            "tasks_position": 0
+          },
+          {
+            "id": "t4",
+            "title": "Someday",
+            "done": false
+          }
+        ],
+        "Project": [
+          {
+            "id": "pj1",
+            "name": "Book",
+            "color": "#336699"
+          },
+          {
+            "id": "pj2",
+            "name": "Zine"
+          }
+        ]
+      }
+    },
+    {
+      "name": "regroup from a project to Unassigned clears the position",
+      "fixture": "tasks",
+      "view": 2,
+      "intent": {
+        "kind": "regroup",
+        "row": "[[\"id\",\"t3\"]]",
+        "from": "\"pj2\"",
+        "to": "unassigned"
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "Task",
+          "row": "[[\"id\",\"t3\"]]",
+          "field": "project",
+          "before": "pj2",
+          "value": null
+        },
+        {
+          "kind": "rowSet",
+          "table": "Task",
+          "row": "[[\"id\",\"t3\"]]",
+          "field": "tasks_position",
+          "before": 0,
+          "value": null
+        }
+      ],
+      "rows": {
+        "Task": [
+          {
+            "id": "t1",
+            "title": "Draft",
+            "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+            "points": 3,
+            "done": false,
+            "owner": "p-ed",
+            "project": "pj1",
+            "tasks_position": 1,
+            "labels": [
+              "writing"
+            ]
+          },
+          {
+            "id": "t2",
+            "title": "Outline",
+            "done": true,
+            "project": "pj1",
+            "tasks_position": 0
+          },
+          {
+            "id": "t3",
+            "title": "Print",
+            "done": false,
+            "owner": "p-fay"
+          },
+          {
+            "id": "t4",
+            "title": "Someday",
+            "done": false
+          }
+        ],
+        "Project": [
+          {
+            "id": "pj1",
+            "name": "Book",
+            "color": "#336699"
+          },
+          {
+            "id": "pj2",
+            "name": "Zine"
+          }
+        ]
+      }
+    },
+    {
+      "name": "create in a project presets the project and its position",
+      "fixture": "tasks",
+      "view": 2,
+      "intent": {
+        "kind": "create",
+        "id": "t5",
+        "group": "\"pj2\"",
+        "values": {
+          "title": "Staple"
+        }
+      },
+      "operations": [
+        {
+          "kind": "rowCreate",
+          "table": "Task",
+          "row": "[[\"id\",\"t5\"]]",
+          "values": {
+            "id": "t5",
+            "title": "Staple",
+            "done": false,
+            "project": "pj2",
+            "tasks_position": 1
+          }
+        }
+      ],
+      "rows": {
+        "Task": [
+          {
+            "id": "t1",
+            "title": "Draft",
+            "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+            "points": 3,
+            "done": false,
+            "owner": "p-ed",
+            "project": "pj1",
+            "tasks_position": 1,
+            "labels": [
+              "writing"
+            ]
+          },
+          {
+            "id": "t2",
+            "title": "Outline",
+            "done": true,
+            "project": "pj1",
+            "tasks_position": 0
+          },
+          {
+            "id": "t3",
+            "title": "Print",
+            "done": false,
+            "owner": "p-fay",
+            "project": "pj2",
+            "tasks_position": 0
+          },
+          {
+            "id": "t4",
+            "title": "Someday",
+            "done": false
+          },
+          {
+            "id": "t5",
+            "title": "Staple",
+            "done": false,
+            "project": "pj2",
+            "tasks_position": 1
+          }
+        ],
+        "Project": [
+          {
+            "id": "pj1",
+            "name": "Book",
+            "color": "#336699"
+          },
+          {
+            "id": "pj2",
+            "name": "Zine"
+          }
+        ]
+      }
+    },
+    {
+      "name": "create fills required values",
+      "fixture": "tasks",
+      "view": 0,
+      "intent": {
+        "kind": "create",
+        "id": "t5"
+      },
+      "operations": [
+        {
+          "kind": "rowCreate",
+          "table": "Task",
+          "row": "[[\"id\",\"t5\"]]",
+          "values": {
+            "id": "t5",
+            "title": "",
+            "done": false
+          }
+        }
+      ],
+      "rows": {
+        "Task": [
+          {
+            "id": "t1",
+            "title": "Draft",
+            "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+            "points": 3,
+            "done": false,
+            "owner": "p-ed",
+            "project": "pj1",
+            "tasks_position": 1,
+            "labels": [
+              "writing"
+            ]
+          },
+          {
+            "id": "t2",
+            "title": "Outline",
+            "done": true,
+            "project": "pj1",
+            "tasks_position": 0
+          },
+          {
+            "id": "t3",
+            "title": "Print",
+            "done": false,
+            "owner": "p-fay",
+            "project": "pj2",
+            "tasks_position": 0
+          },
+          {
+            "id": "t4",
+            "title": "Someday",
+            "done": false
+          },
+          {
+            "id": "t5",
+            "title": "",
+            "done": false
+          }
+        ],
+        "Project": [
+          {
+            "id": "pj1",
+            "name": "Book",
+            "color": "#336699"
+          },
+          {
+            "id": "pj2",
+            "name": "Zine"
+          }
+        ]
+      }
+    },
+    {
+      "name": "set an Int",
+      "fixture": "tasks",
+      "view": 0,
+      "intent": {
+        "kind": "set",
+        "row": "[[\"id\",\"t4\"]]",
+        "field": "points",
+        "value": 5
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "Task",
+          "row": "[[\"id\",\"t4\"]]",
+          "field": "points",
+          "before": null,
+          "value": 5
+        }
+      ],
+      "rows": {
+        "Task": [
+          {
+            "id": "t1",
+            "title": "Draft",
+            "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+            "points": 3,
+            "done": false,
+            "owner": "p-ed",
+            "project": "pj1",
+            "tasks_position": 1,
+            "labels": [
+              "writing"
+            ]
+          },
+          {
+            "id": "t2",
+            "title": "Outline",
+            "done": true,
+            "project": "pj1",
+            "tasks_position": 0
+          },
+          {
+            "id": "t3",
+            "title": "Print",
+            "done": false,
+            "owner": "p-fay",
+            "project": "pj2",
+            "tasks_position": 0
+          },
+          {
+            "id": "t4",
+            "title": "Someday",
+            "points": 5,
+            "done": false
+          }
+        ],
+        "Project": [
+          {
+            "id": "pj1",
+            "name": "Book",
+            "color": "#336699"
+          },
+          {
+            "id": "pj2",
+            "name": "Zine"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an Int field refuses a fraction",
+      "fixture": "tasks",
+      "view": 0,
+      "intent": {
+        "kind": "set",
+        "row": "[[\"id\",\"t4\"]]",
+        "field": "points",
+        "value": 1.5
+      },
+      "error": true
+    },
+    {
+      "name": "set a single person",
+      "fixture": "tasks",
+      "view": 1,
+      "intent": {
+        "kind": "set",
+        "row": "[[\"id\",\"t4\"]]",
+        "field": "owner",
+        "value": "p-ed"
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "Task",
+          "row": "[[\"id\",\"t4\"]]",
+          "field": "owner",
+          "before": null,
+          "value": "p-ed"
+        }
+      ],
+      "rows": {
+        "Task": [
+          {
+            "id": "t1",
+            "title": "Draft",
+            "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+            "points": 3,
+            "done": false,
+            "owner": "p-ed",
+            "project": "pj1",
+            "tasks_position": 1,
+            "labels": [
+              "writing"
+            ]
+          },
+          {
+            "id": "t2",
+            "title": "Outline",
+            "done": true,
+            "project": "pj1",
+            "tasks_position": 0
+          },
+          {
+            "id": "t3",
+            "title": "Print",
+            "done": false,
+            "owner": "p-fay",
+            "project": "pj2",
+            "tasks_position": 0
+          },
+          {
+            "id": "t4",
+            "title": "Someday",
+            "done": false,
+            "owner": "p-ed"
+          }
+        ],
+        "Project": [
+          {
+            "id": "pj1",
+            "name": "Book",
+            "color": "#336699"
+          },
+          {
+            "id": "pj2",
+            "name": "Zine"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Delete in a person group disconnects an optional reference",
+      "fixture": "tasks",
+      "view": 1,
+      "intent": {
+        "kind": "remove",
+        "row": "[[\"id\",\"t1\"]]",
+        "group": "\"p-ed\""
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "Task",
+          "row": "[[\"id\",\"t1\"]]",
+          "field": "owner",
+          "before": "p-ed",
+          "value": null
+        }
+      ],
+      "rows": {
+        "Task": [
+          {
+            "id": "t1",
+            "title": "Draft",
+            "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+            "points": 3,
+            "done": false,
+            "labels": [
+              "writing"
+            ],
+            "project": "pj1",
+            "tasks_position": 1
+          },
+          {
+            "id": "t2",
+            "title": "Outline",
+            "done": true,
+            "project": "pj1",
+            "tasks_position": 0
+          },
+          {
+            "id": "t3",
+            "title": "Print",
+            "done": false,
+            "owner": "p-fay",
+            "project": "pj2",
+            "tasks_position": 0
+          },
+          {
+            "id": "t4",
+            "title": "Someday",
+            "done": false
+          }
+        ],
+        "Project": [
+          {
+            "id": "pj1",
+            "name": "Book",
+            "color": "#336699"
+          },
+          {
+            "id": "pj2",
+            "name": "Zine"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Delete row of a task",
+      "fixture": "tasks",
+      "view": 0,
+      "intent": {
+        "kind": "delete",
+        "row": "[[\"id\",\"t2\"]]"
+      },
+      "operations": [
+        {
+          "kind": "rowDelete",
+          "table": "Task",
+          "row": "[[\"id\",\"t2\"]]"
+        }
+      ],
+      "rows": {
+        "Task": [
+          {
+            "id": "t1",
+            "title": "Draft",
+            "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+            "points": 3,
+            "done": false,
+            "owner": "p-ed",
+            "project": "pj1",
+            "tasks_position": 1,
+            "labels": [
+              "writing"
+            ]
+          },
+          {
+            "id": "t3",
+            "title": "Print",
+            "done": false,
+            "owner": "p-fay",
+            "project": "pj2",
+            "tasks_position": 0
+          },
+          {
+            "id": "t4",
+            "title": "Someday",
+            "done": false
+          }
+        ],
+        "Project": [
+          {
+            "id": "pj1",
+            "name": "Book",
+            "color": "#336699"
+          },
+          {
+            "id": "pj2",
+            "name": "Zine"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Delete row of a project clears the tasks' references and positions",
+      "fixture": "tasks",
+      "model": "Project",
+      "view": 0,
+      "intent": {
+        "kind": "delete",
+        "row": "[[\"id\",\"pj1\"]]"
+      },
+      "operations": [
+        {
+          "kind": "rowSet",
+          "table": "Task",
+          "row": "[[\"id\",\"t1\"]]",
+          "field": "project",
+          "before": "pj1",
+          "value": null
+        },
+        {
+          "kind": "rowSet",
+          "table": "Task",
+          "row": "[[\"id\",\"t1\"]]",
+          "field": "tasks_position",
+          "before": 1,
+          "value": null
+        },
+        {
+          "kind": "rowSet",
+          "table": "Task",
+          "row": "[[\"id\",\"t2\"]]",
+          "field": "project",
+          "before": "pj1",
+          "value": null
+        },
+        {
+          "kind": "rowSet",
+          "table": "Task",
+          "row": "[[\"id\",\"t2\"]]",
+          "field": "tasks_position",
+          "before": 0,
+          "value": null
+        },
+        {
+          "kind": "rowDelete",
+          "table": "Project",
+          "row": "[[\"id\",\"pj1\"]]"
+        }
+      ],
+      "rows": {
+        "Task": [
+          {
+            "id": "t1",
+            "title": "Draft",
+            "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+            "points": 3,
+            "done": false,
+            "labels": [
+              "writing"
+            ],
+            "owner": "p-ed"
+          },
+          {
+            "id": "t2",
+            "title": "Outline",
+            "done": true
+          },
+          {
+            "id": "t3",
+            "title": "Print",
+            "done": false,
+            "owner": "p-fay",
+            "project": "pj2",
+            "tasks_position": 0
+          },
+          {
+            "id": "t4",
+            "title": "Someday",
+            "done": false
+          }
+        ],
+        "Project": [
+          {
+            "id": "pj2",
+            "name": "Zine"
+          }
+        ]
+      }
+    },
+    {
+      "name": "regroup to another list, placed last",
+      "fixture": "games",
+      "view": 2,
+      "intent": {
+        "kind": "regroup",
+        "row": "[[\"id\",\"g2\"]]",
+        "from": "\"l1\"",
+        "to": "\"l2\"",
+        "after": "[[\"id\",\"g1\"]]"
+      },
+      "operations": [
+        {
+          "kind": "rowDisconnect",
+          "table": "List",
+          "row": "[[\"id\",\"l1\"]]",
+          "field": "games",
+          "member": "g2"
+        },
+        {
+          "kind": "rowConnect",
+          "table": "List",
+          "row": "[[\"id\",\"l2\"]]",
+          "field": "games",
+          "member": "g2"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "engine",
+              "cards"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g1"
+            ],
+            "modified": "2026-10-02T09:00:00Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1",
+              "g2"
+            ],
+            "modified": "2026-10-05T09:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "create in a project between two tasks",
+      "fixture": "tasks",
+      "view": 2,
+      "intent": {
+        "kind": "create",
+        "id": "t5",
+        "group": "\"pj1\"",
+        "values": {
+          "title": "Revise"
+        },
+        "after": "[[\"id\",\"t2\"]]"
+      },
+      "operations": [
+        {
+          "kind": "rowCreate",
+          "table": "Task",
+          "row": "[[\"id\",\"t5\"]]",
+          "values": {
+            "id": "t5",
+            "title": "Revise",
+            "done": false,
+            "project": "pj1",
+            "tasks_position": 0.5
+          }
+        }
+      ],
+      "rows": {
+        "Task": [
+          {
+            "id": "t1",
+            "title": "Draft",
+            "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+            "points": 3,
+            "done": false,
+            "owner": "p-ed",
+            "project": "pj1",
+            "tasks_position": 1,
+            "labels": [
+              "writing"
+            ]
+          },
+          {
+            "id": "t2",
+            "title": "Outline",
+            "done": true,
+            "project": "pj1",
+            "tasks_position": 0
+          },
+          {
+            "id": "t3",
+            "title": "Print",
+            "done": false,
+            "owner": "p-fay",
+            "project": "pj2",
+            "tasks_position": 0
+          },
+          {
+            "id": "t4",
+            "title": "Someday",
+            "done": false
+          },
+          {
+            "id": "t5",
+            "title": "Revise",
+            "done": false,
+            "project": "pj1",
+            "tasks_position": 0.5
+          }
+        ],
+        "Project": [
+          {
+            "id": "pj1",
+            "name": "Book",
+            "color": "#336699"
+          },
+          {
+            "id": "pj2",
+            "name": "Zine"
+          }
+        ]
+      }
+    }
+  ]
+}
