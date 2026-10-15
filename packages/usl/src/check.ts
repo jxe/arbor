@@ -22,13 +22,13 @@ export const VALUE_TYPES = ["Text", "Markdown", "Int", "Number", "Bool", "Date"]
 export const BUILTIN_MODELS = ["Person"] as const;
 export const IMPLICIT_FIELDS = ["id", "created", "modified"] as const;
 
-const FIELD_ATTRIBUTES = ["ordered", "sort", "color", "unique", "as", "column", "fold", "path"];
+const FIELD_ATTRIBUTES = ["ordered", "color", "unique", "as", "column", "fold", "path"];
 const MODEL_ATTRIBUTES = ["views", "editableBy", "fold", "table", "id", "index"];
 const VIEW_OPTIONS = ["label", "line", "group", "sort"];
 // Presentation of one item in a view's line: `@bullet` draws a fixed value as
 // the row's colored bullet, `@summary` shows a many-valued field as a count,
 // and `@label("lead")` names one of its members.
-const LINE_ATTRIBUTES = ["bullet", "summary", "label"];
+const LINE_ATTRIBUTES = ["bullet", "summary", "label", "sort"];
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 
 export interface ResolvedField {
@@ -39,8 +39,6 @@ export interface ResolvedField {
   /** declared: written in the model. connection: gained from a connection. end: one of this connection model's ends. */
   origin: "declared" | "connection" | "end";
   ordered: boolean;
-  /** `@sort(field)` on an unordered connection end: the field of the target its members are listed by. */
-  sort?: string;
   unique: boolean;
   /** Holds the row's color (`@color`). */
   color: boolean;
@@ -54,8 +52,6 @@ export interface ResolvedEnd {
   field: string;
   arity: Arity;
   ordered: boolean;
-  /** `@sort(field)`: the field of the target its members are listed by. */
-  sort?: string;
   /** The field this end gets in its connection model (`@as`, or the model's name in lower case). */
   as: string;
   /** `@column("…")` on the end. */
@@ -104,6 +100,8 @@ export interface LineItem {
   bullet: boolean;
   summary: boolean;
   label?: string;
+  /** `@sort(field)`: lists a connection's members by a field of theirs instead of as connected. */
+  sort?: string;
 }
 
 /** A default arrangement from `@@views`. A view without a `line` uses the first view's. */
@@ -111,6 +109,8 @@ export interface ResolvedView {
   label: string;
   line: LineItem[];
   group?: string;
+  /** `group: field @sort(name)`: the groups in order of a field of theirs. */
+  groupSort?: string;
   sort?: string;
 }
 
@@ -142,11 +142,6 @@ const identArg = (attrs: Attribute[], name: string): string | undefined => {
 };
 /** The field a connection model gets for one of its ends: `@as(name)`, or the end's model in lower case. */
 const keyFieldOf = (end: EndDecl) => identArg(end.attrs, "as") ?? lowerFirst(end.model);
-/** `{ sort: "…" }` when `@sort(field)` is among the attributes. */
-const sortOf = (attrs: Attribute[]): { sort?: string } => {
-  const field = identArg(attrs, "sort");
-  return field ? { sort: field } : {};
-};
 /** `{ column: "…" }` when `@column("…")` is among the attributes. */
 const columnOf = (attrs: Attribute[]): { column?: string } => {
   const arg = attrs.find((a) => a.name === "column")?.args[0];
@@ -157,7 +152,6 @@ const resolvedEnd = (end: EndDecl): ResolvedEnd => ({
   field: end.field,
   arity: end.arity,
   ordered: end.attrs.some((a) => a.name === "ordered"),
-  ...sortOf(end.attrs),
   as: keyFieldOf(end),
   ...columnOf(end.attrs),
   fold: end.attrs.some((a) => a.name === "fold"),
@@ -316,7 +310,6 @@ export function checkUsl(file: SchemaFile): CheckResult {
         arity: info.decl.arity,
         origin: "connection",
         ordered: info.decl.attrs.some((a) => a.name === "ordered"),
-        ...sortOf(info.decl.attrs),
         unique: false,
         color: false,
         ...columnOf(info.decl.attrs),
@@ -377,21 +370,8 @@ export function checkUsl(file: SchemaFile): CheckResult {
   }
 
   // 4. Field and end attributes.
-  const sorts: { at: Position; target: string; field: string }[] = [];
   const checkFieldAttrs = (attrs: Attribute[], arity: Arity, type: string | null, owner: string, end?: { decl: EndDecl; named: boolean }) => {
     for (const attr of attrs) {
-      if (attr.name === "sort") {
-        const field = attr.args[0];
-        if (!end) report("misplaced-attribute", attr.at, "`@sort` goes on a many-valued connection end");
-        else if (attr.args.length !== 1 || field?.kind !== "ident") report("attribute-arguments", attr.at, "`@sort` names one field of the members: `@sort(name)`");
-        else if (arity !== "many") report("sort-single", attr.at, "`@sort` only applies to a many-valued end (`[]`)");
-        else if (attrs.some((a) => a.name === "ordered")) report("sort-ordered", attr.at, "An `@ordered` end keeps its own order; it can't also `@sort`");
-        else {
-          const target = ends.get(`${end.decl.model}.${end.decl.field}`)?.target;
-          if (target) sorts.push({ at: field.at, target, field: field.name });
-        }
-        continue;
-      }
       const endOnly = attr.name === "as" || attr.name === "fold";
       if (attr.name === "column") {
         if (attr.args.length !== 1 || attr.args[0]!.kind !== "string" || attr.args[0]!.value === "") {
@@ -451,14 +431,12 @@ export function checkUsl(file: SchemaFile): CheckResult {
     for (const member of decl.members) if (member.kind === "end") checkFieldAttrs(member.attrs, member.arity, null, member.model, { decl: member, named: false });
   }
 
-  // A member is sorted by a field of its own model: `name` for a person or a
+  // A connection's members sort by a field of theirs: `name` for a person or a
   // fixed row, otherwise a field, `created` or `modified`.
-  for (const { at, target, field } of sorts) {
-    const known = target === "Person" || isFixed(target)
+  const sortable = (target: string, field: string) =>
+    target === "Person" || isFixed(target)
       ? field === "name" || Boolean(fieldMaps.get(target)?.has(field))
       : (IMPLICIT_FIELDS as readonly string[]).includes(field) || Boolean(fieldMaps.get(target)?.has(field));
-    if (!known) report("unknown-field", at, `\`${target}\` has no field \`${field}\` to sort by`);
-  }
 
   // 5. Model attributes.
   for (const model of models.values()) {
@@ -482,7 +460,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
       } else if (!MODEL_ATTRIBUTES.includes(member.name)) {
         report("unknown-attribute", member.at, `Unknown model attribute \`@@${member.name}\``);
       } else if (member.name === "views") {
-        checkViews(member, model.name, fields, report);
+        checkViews(member, model.name, fields, sortable, report);
       } else if (member.name === "editableBy") {
         if (member.args.length === 0) report("attribute-arguments", member.at, "`@@editableBy` names at least one field");
         for (const arg of member.args) {
@@ -663,22 +641,50 @@ function resolvedViews(model: ModelDecl): ResolvedView[] {
           bullet: item.attrs.some((a) => a.name === "bullet"),
           summary: item.attrs.some((a) => a.name === "summary"),
           ...(named?.kind === "string" ? { label: named.value } : {}),
+          ...sortOf(item.attrs),
         }];
       })
       : views[0]?.line ?? [];
     const group = ident(option("group"));
+    const groupBy = option("group");
+    const groupSort = groupBy?.kind === "ident" ? sortOf(groupBy.attrs).sort : undefined;
     const sort = ident(option("sort"));
     views.push({
       label: label?.kind === "string" ? label.value : "",
       line: items,
       ...(group ? { group } : {}),
+      ...(groupSort ? { groupSort } : {}),
       ...(sort ? { sort } : {}),
     });
   }
   return views;
 }
 
-function checkViews(attr: ModelAttribute, model: string, fields: Map<string, ResolvedField>, report: Report) {
+/** `{ sort: "…" }` when `@sort(field)` is among the attributes. */
+function sortOf(attrs: Attribute[]): { sort?: string } {
+  const arg = attrs.find((a) => a.name === "sort")?.args[0];
+  return arg?.kind === "ident" ? { sort: arg.name } : {};
+}
+
+function checkViews(
+  attr: ModelAttribute,
+  model: string,
+  fields: Map<string, ResolvedField>,
+  sortable: (target: string, field: string) => boolean,
+  report: Report,
+) {
+  /** `@sort(x)` on a view's field: it names a field of the members of a connection. */
+  const checkSort = (field: string, a: Attribute) => {
+    const arg = a.args[0];
+    if (a.args.length !== 1 || arg?.kind !== "ident") {
+      report("attribute-arguments", a.at, "`@sort` names one field of the members: `@sort(name)`");
+      return;
+    }
+    const resolved = fields.get(field);
+    if (!resolved) return;
+    if (isValueType(resolved.type)) report("sort-field", a.at, `\`${field}\` holds values, not a connection's members`);
+    else if (!sortable(resolved.type, arg.name)) report("unknown-field", arg.at, `\`${resolved.type}\` has no field \`${arg.name}\` to sort by`);
+  };
   const list = attr.args[0];
   if (attr.args.length !== 1 || list?.kind !== "list") {
     report("attribute-arguments", attr.at, "`@@views` takes one list of views: `@@views([ { label: ... }, ... ])`");
@@ -721,6 +727,8 @@ function checkViews(attr: ModelAttribute, model: string, fields: Map<string, Res
           for (const a of item.attrs) {
             if (!LINE_ATTRIBUTES.includes(a.name)) {
               report("unknown-attribute", a.at, `\`@${a.name}\` isn't presentation; a line takes ${LINE_ATTRIBUTES.map((n) => `\`@${n}\``).join(", ")}`);
+            } else if (a.name === "sort") {
+              checkSort(item.name, a);
             } else if (a.name === "label" ? a.args.length !== 1 || a.args[0]!.kind !== "string" : a.args.length > 0) {
               report("attribute-arguments", a.at, a.name === "label" ? '`@label` takes one string: `@label("lead")`' : `\`@${a.name}\` takes no arguments`);
             } else if (a.name === "bullet" && ++bullets > 1) {
@@ -730,8 +738,10 @@ function checkViews(attr: ModelAttribute, model: string, fields: Map<string, Res
         }
       } else if (entry.key === "group" || entry.key === "sort") {
         fieldRef(entry.value, entry.key === "sort");
-        if (entry.value.kind === "ident" && entry.value.attrs.length > 0) {
-          report("misplaced-attribute", entry.value.attrs[0]!.at, "Attributes go on the items of a `line`");
+        if (entry.value.kind !== "ident") continue;
+        for (const a of entry.value.attrs) {
+          if (entry.key === "group" && a.name === "sort") checkSort(entry.value.name, a);
+          else report("misplaced-attribute", a.at, entry.key === "group" ? "A `group` takes only `@sort`; other attributes go on the items of a `line`" : "Attributes go on the items of a `line`");
         }
       }
     }

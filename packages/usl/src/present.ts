@@ -13,9 +13,9 @@
 //   order they're written or created, and "Unassigned" for rows in none of
 //   them. A row appears under every group it belongs to. A group stored as
 //   an `@ordered` list keeps that order and can be reordered; otherwise lines
-//   keep the rows' creation order. Unordered connection members are listed
-//   by the end's `@sort` field (groups by such a field too), else in the
-//   order they were connected.
+//   keep the rows' creation order. A line lists a connection's members by
+//   its `@sort(field)`, otherwise in their stored order or the order they
+//   were connected; `group: field @sort(name)` orders the groups likewise.
 // - `sort` orders lines by a field (newest first for `created` and
 //   `modified`, rows without one last); in groups whose order is stored it
 //   orders the groups instead, by their own rows.
@@ -370,10 +370,9 @@ class Collection {
     return undefined;
   }
 
-  /** The members `row` of `model` holds in `field`, in their order: stored, by `@sort`, or as connected. */
+  /** The members `row` of `model` holds in `field`, in their order. */
   members(model: ResolvedModel, field: ResolvedField, row: Row): Scalar[] {
-    const members = this.membersBy(model, this.access(model, field), row);
-    return field.sort ? this.sortMembers(field.type, field.sort, members) : members;
+    return this.membersBy(model, this.access(model, field), row);
   }
 
   /** Members of `target` by one of its fields (`@sort`): newest first for `created` and `modified`, members without it last. */
@@ -551,7 +550,7 @@ function arrange(collection: Collection, options: PresentOptions): Arrangement {
 
   // The groups: everything the field can refer to, then members nobody listed (people, values).
   const listedFirst = VALUE_TYPES.has(target) ? [] : collection.candidates(target);
-  const candidates = field.sort ? collection.sortMembers(target, field.sort, listedFirst, (c) => c.member) : listedFirst;
+  const candidates = view.groupSort ? collection.sortMembers(target, view.groupSort, listedFirst, (c) => c.member) : listedFirst;
   const listed = new Set(candidates.map((c) => canonical(c.member)));
   if (target === "Person" || VALUE_TYPES.has(target)) {
     for (const r of all) {
@@ -659,7 +658,8 @@ export function presentView(schema: CheckResult, rows: RowsByTable, options: Pre
   const bullet = fields.find(({ item }) => item.bullet);
 
   const cell = (row: Row, item: LineItem, field: ResolvedField): Cell => {
-    const members = collection.members(model, field, row);
+    const connected = collection.members(model, field, row);
+    const members = item.sort ? collection.sortMembers(field.type, item.sort, connected) : connected;
     if (VALUE_TYPES.has(field.type) && field.arity !== "many") {
       const value = members[0] ?? null;
       if (field.type === "Markdown") {

@@ -194,7 +194,7 @@
       }
     },
     "sorted": {
-      "schema": "// Members listed by a field of theirs (`@sort`) instead of the order\n// they were connected in.\n\nmodel Game {\n  name    Text\n  authors Person[]\n  tags    Tag[]\n\n  @@views([\n    { label: \"Games\",  line: [name, authors, tags] },\n    { label: \"By tag\", group: tags },\n  ])\n}\n\nmodel Tag {\n  name Text\n}\n\nGame.authors[] @fold @sort(name) <-> Person.games[]\nGame.tags[] @fold @sort(name) <-> Tag.games[]\n",
+      "schema": "// Members listed by a field of theirs (`@sort`) instead of the order\n// they were connected in.\n\nmodel Game {\n  name    Text\n  authors Person[]\n  tags    Tag[]\n\n  @@views([\n    { label: \"Games\",  line: [name, authors @sort(name), tags @sort(name)] },\n    { label: \"By tag\", group: tags @sort(name) },\n  ])\n}\n\nmodel Tag {\n  name Text\n}\n\nGame.authors[] @fold <-> Person.games[]\nGame.tags[] @fold <-> Tag.games[]\n",
       "people": [
         {
           "id": "p-zed",

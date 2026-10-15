@@ -464,11 +464,8 @@ final class USLRowCollection {
         return nil
     }
 
-    /// The members `row` of `model` holds in `field`, in their order: stored, by `@sort`, or as connected.
     func members(_ model: USLResolvedModel, _ field: USLResolvedField, _ row: USLRow) throws -> [JSONValue] {
-        let members = try membersBy(model, try access(model, field), row)
-        guard let sort = field.sort else { return members }
-        return try sortMembers(field.type, sort, members) { $0 }
+        try membersBy(model, try access(model, field), row)
     }
 
     /// Members of `target` by one of its fields (`@sort`): newest first for `created` and `modified`, members without it last.
@@ -637,7 +634,7 @@ func arrangeView(_ collection: USLRowCollection, _ options: PresentOptions) thro
 
     // The groups: everything the field can refer to, then members nobody listed (people, values).
     var candidates = uslValueTypeSet.contains(target) ? [] : try collection.candidates(target)
-    if let sort = field.sort { candidates = try collection.sortMembers(target, sort, candidates) { $0.member } }
+    if let sort = view.groupSort { candidates = try collection.sortMembers(target, sort, candidates) { $0.member } }
     var listed = Set(candidates.map(\.member.jsonText))
     if target == "Person" || uslValueTypeSet.contains(target) {
         for list in members {
@@ -743,7 +740,8 @@ public func presentView(_ schema: USLCheckResult, rows: USLRowsByTable, options:
     let bulletIndex = fields.firstIndex { $0.item.bullet }
 
     func cell(_ row: USLRow, _ item: USLLineItem, _ field: USLResolvedField) throws -> PresentedCell {
-        let members = try collection.members(model, field, row)
+        let connected = try collection.members(model, field, row)
+        let members = try item.sort.map { try collection.sortMembers(field.type, $0, connected) { $0 } } ?? connected
         if uslValueTypeSet.contains(field.type) && field.arity != .many {
             let value = members.first ?? .null
             if field.type == "Markdown" {

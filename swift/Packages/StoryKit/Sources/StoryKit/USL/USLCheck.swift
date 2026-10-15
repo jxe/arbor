@@ -10,13 +10,13 @@ public let uslValueTypes = ["Text", "Markdown", "Int", "Number", "Bool", "Date"]
 public let uslBuiltinModels = ["Person"]
 public let uslImplicitFields = ["id", "created", "modified"]
 
-private let fieldAttributes = ["ordered", "sort", "color", "unique", "as", "column", "fold", "path"]
+private let fieldAttributes = ["ordered", "color", "unique", "as", "column", "fold", "path"]
 private let modelAttributes = ["views", "editableBy", "fold", "table", "id", "index"]
 private let viewOptions = ["label", "line", "group", "sort"]
 // Presentation of one item in a view's line: `@bullet` draws a fixed value as
 // the row's colored bullet, `@summary` shows a many-valued field as a count,
 // and `@label("lead")` names one of its members.
-private let lineAttributes = ["bullet", "summary", "label"]
+private let lineAttributes = ["bullet", "summary", "label", "sort"]
 
 func isColor(_ text: String) -> Bool {
     text.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil
@@ -36,8 +36,6 @@ public struct USLResolvedField: Sendable, Equatable {
     public var color: Bool
     /// The stored column's name when it differs from the field's (`@column("…")`).
     public var column: String?
-    /// `@sort(field)` on an unordered connection end: the field of the target its members are listed by.
-    public var sort: String? = nil
 }
 
 /// One end of a connection: the field `model` gains, and (for a connection model) the field the end gets there.
@@ -51,8 +49,6 @@ public struct USLResolvedEnd: Sendable, Equatable {
     public var column: String?
     /// `@fold`: in data files, this end's rows hold the connection as an array.
     public var fold: Bool
-    /// `@sort(field)`: the field of the target its members are listed by.
-    public var sort: String? = nil
 }
 
 /// A value written in the schema: a string, number, boolean, or a list of them.
@@ -96,12 +92,15 @@ public struct USLLineItem: Sendable, Equatable {
     public var bullet: Bool
     public var summary: Bool
     public var label: String?
+    /// `@sort(field)`: lists a connection's members by a field of theirs instead of as connected.
+    public var sort: String?
 
-    public init(field: String, bullet: Bool = false, summary: Bool = false, label: String? = nil) {
+    public init(field: String, bullet: Bool = false, summary: Bool = false, label: String? = nil, sort: String? = nil) {
         self.field = field
         self.bullet = bullet
         self.summary = summary
         self.label = label
+        self.sort = sort
     }
 }
 
@@ -110,12 +109,15 @@ public struct USLResolvedView: Sendable, Equatable {
     public var label: String
     public var line: [USLLineItem]
     public var group: String?
+    /// `group: field @sort(name)`: the groups in order of a field of theirs.
+    public var groupSort: String?
     public var sort: String?
 
-    public init(label: String, line: [USLLineItem], group: String? = nil, sort: String? = nil) {
+    public init(label: String, line: [USLLineItem], group: String? = nil, groupSort: String? = nil, sort: String? = nil) {
         self.label = label
         self.line = line
         self.group = group
+        self.groupSort = groupSort
         self.sort = sort
     }
 }
@@ -192,8 +194,7 @@ private func resolvedEnd(_ end: USLEndDecl) -> USLResolvedEnd {
         ordered: end.attrs.contains { $0.name == "ordered" },
         as: keyFieldOf(end),
         column: columnOf(end.attrs),
-        fold: end.attrs.contains { $0.name == "fold" },
-        sort: identArg(end.attrs, "sort")
+        fold: end.attrs.contains { $0.name == "fold" }
     )
 }
 
@@ -364,8 +365,7 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
             }
             fields[field] = USLResolvedField(
                 name: field, type: info.target, arity: info.decl.arity, origin: .connection,
-                ordered: hasAttr(info.decl.attrs, "ordered"), unique: false, color: false, column: columnOf(info.decl.attrs),
-                sort: identArg(info.decl.attrs, "sort")
+                ordered: hasAttr(info.decl.attrs, "ordered"), unique: false, color: false, column: columnOf(info.decl.attrs)
             )
         }
 
@@ -409,25 +409,8 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
     }
 
     // 4. Field and end attributes.
-    var sorts: [(at: USLPosition, target: String, field: String)] = []
     func checkFieldAttrs(_ attrs: [USLAttribute], _ arity: USLArity, _ type: String?, _ owner: String, end: (decl: USLEndDecl, named: Bool)? = nil) {
         for attr in attrs {
-            if attr.name == "sort" {
-                var sortField: (name: String, at: USLPosition)?
-                if attr.args.count == 1, case .ident(let n, _, let at) = attr.args[0] { sortField = (n, at) }
-                if end == nil {
-                    report("misplaced-attribute", attr.at, "`@sort` goes on a many-valued connection end")
-                } else if sortField == nil {
-                    report("attribute-arguments", attr.at, "`@sort` names one field of the members: `@sort(name)`")
-                } else if arity != .many {
-                    report("sort-single", attr.at, "`@sort` only applies to a many-valued end (`[]`)")
-                } else if hasAttr(attrs, "ordered") {
-                    report("sort-ordered", attr.at, "An `@ordered` end keeps its own order; it can't also `@sort`")
-                } else if let target = ends["\(end!.decl.model).\(end!.decl.field)"]?.target {
-                    sorts.append((sortField!.at, target, sortField!.name))
-                }
-                continue
-            }
             let endOnly = attr.name == "as" || attr.name == "fold"
             if attr.name == "column" {
                 var ok = false
@@ -488,14 +471,11 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
         for case .end(let e) in decl.members { checkFieldAttrs(e.attrs, e.arity, nil, e.model, end: (e, false)) }
     }
 
-    // A member is sorted by a field of its own model: `name` for a person or a
+    // A connection's members sort by a field of theirs: `name` for a person or a
     // fixed row, otherwise a field, `created` or `modified`.
-    for sort in sorts {
-        let hasField = fieldMaps[sort.target]?.has(sort.field) ?? false
-        let known = sort.target == "Person" || isFixed(sort.target)
-            ? sort.field == "name" || hasField
-            : uslImplicitFields.contains(sort.field) || hasField
-        if !known { report("unknown-field", sort.at, "`\(sort.target)` has no field `\(sort.field)` to sort by") }
+    func sortable(_ target: String, _ field: String) -> Bool {
+        let hasField = fieldMaps[target]?.has(field) ?? false
+        return target == "Person" || isFixed(target) ? field == "name" || hasField : uslImplicitFields.contains(field) || hasField
     }
 
     // 5. Model attributes.
@@ -525,7 +505,7 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
             } else if !modelAttributes.contains(attr.name) {
                 report("unknown-attribute", attr.at, "Unknown model attribute `@@\(attr.name)`")
             } else if attr.name == "views" {
-                checkViews(attr, model.name, fields, report)
+                checkViews(attr, model.name, fields, sortable, report)
             } else if attr.name == "editableBy" {
                 if attr.args.isEmpty { report("attribute-arguments", attr.at, "`@@editableBy` names at least one field") }
                 for arg in attr.args {
@@ -703,19 +683,37 @@ private func resolvedViews(_ model: USLModelDecl) -> [USLResolvedView] {
                 guard case .ident(let name, let attrs, _) = item else { return nil }
                 var label: String?
                 if case .string(let value, _)? = attrs.first(where: { $0.name == "label" })?.args.first { label = value }
-                return USLLineItem(field: name, bullet: hasAttr(attrs, "bullet"), summary: hasAttr(attrs, "summary"), label: label)
+                return USLLineItem(field: name, bullet: hasAttr(attrs, "bullet"), summary: hasAttr(attrs, "summary"), label: label, sort: identArg(attrs, "sort"))
             }
         } else {
             items = views.first?.line ?? []
         }
         var label = ""
         if case .string(let value, _)? = option("label") { label = value }
-        views.append(USLResolvedView(label: label, line: items, group: ident(option("group")), sort: ident(option("sort"))))
+        var groupSort: String?
+        if case .ident(_, let attrs, _)? = option("group") { groupSort = identArg(attrs, "sort") }
+        views.append(USLResolvedView(label: label, line: items, group: ident(option("group")), groupSort: groupSort, sort: ident(option("sort"))))
     }
     return views
 }
 
-private func checkViews(_ attr: USLModelAttribute, _ model: String, _ fields: OrderedMap<USLResolvedField>, _ report: Report) {
+private func checkViews(
+    _ attr: USLModelAttribute, _ model: String, _ fields: OrderedMap<USLResolvedField>,
+    _ sortable: (String, String) -> Bool, _ report: Report
+) {
+    /// `@sort(x)` on a view's field: it names a field of the members of a connection.
+    func checkSort(_ field: String, _ a: USLAttribute) {
+        guard a.args.count == 1, case .ident(let name, _, let at) = a.args[0] else {
+            report("attribute-arguments", a.at, "`@sort` names one field of the members: `@sort(name)`")
+            return
+        }
+        guard let resolved = fields[field] else { return }
+        if isValueType(resolved.type) {
+            report("sort-field", a.at, "`\(field)` holds values, not a connection's members")
+        } else if !sortable(resolved.type, name) {
+            report("unknown-field", at, "`\(resolved.type)` has no field `\(name)` to sort by")
+        }
+    }
     guard attr.args.count == 1, case .list(let list, _) = attr.args[0] else {
         report("attribute-arguments", attr.at, "`@@views` takes one list of views: `@@views([ { label: ... }, ... ])`")
         return
@@ -751,8 +749,12 @@ private func checkViews(_ attr: USLModelAttribute, _ model: String, _ fields: Or
                 var bullets = 0
                 for item in items {
                     fieldRef(item, false)
-                    guard case .ident(_, let attrs, _) = item else { continue }
+                    guard case .ident(let itemName, let attrs, _) = item else { continue }
                     for a in attrs {
+                        if a.name == "sort" {
+                            checkSort(itemName, a)
+                            continue
+                        }
                         let badArguments: Bool
                         if a.name == "label" {
                             if a.args.count == 1, case .string = a.args[0] { badArguments = false } else { badArguments = true }
@@ -771,8 +773,10 @@ private func checkViews(_ attr: USLModelAttribute, _ model: String, _ fields: Or
                 }
             } else if entry.key == "group" || entry.key == "sort" {
                 fieldRef(entry.value, entry.key == "sort")
-                if case .ident(_, let attrs, _) = entry.value, let first = attrs.first {
-                    report("misplaced-attribute", first.at, "Attributes go on the items of a `line`")
+                guard case .ident(let name, let attrs, _) = entry.value else { continue }
+                for a in attrs {
+                    if entry.key == "group" && a.name == "sort" { checkSort(name, a) }
+                    else { report("misplaced-attribute", a.at, entry.key == "group" ? "A `group` takes only `@sort`; other attributes go on the items of a `line`" : "Attributes go on the items of a `line`") }
                 }
             }
         }

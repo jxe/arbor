@@ -858,25 +858,25 @@
     },
     {
       "name": "members sort by a field they have",
-      "source": "model Game {\n  name    Text\n  owner   Person\n  authors Person[]\n}\n\n{ Game.owner, Person.owned[] }\nGame.authors[] @fold @sort(nickname) <-> Person.games[]\n",
+      "source": "model Game {\n  name    Text\n  authors Person[]\n\n  @@views([\n    { label: \"Games\", line: [name, authors @sort(nickname)] },\n  ])\n}\n\nGame.authors[] @fold <-> Person.games[]\n",
       "reject": {
         "code": "unknown-field",
-        "line": 8,
-        "column": 28
+        "line": 6,
+        "column": 50
       }
     },
     {
-      "name": "an ordered end keeps its own order",
-      "source": "model Game {\n  name    Text\n  owner   Person\n  authors Person[]\n}\n\n{ Game.owner, Person.owned[] }\nGame.authors[] @fold @ordered @sort(name) <-> Person.games[]\n",
+      "name": "only a connection's members sort",
+      "source": "model Game {\n  name    Text\n  authors Person[]\n\n  @@views([\n    { label: \"Games\", line: [name @sort(name), authors] },\n  ])\n}\n\nGame.authors[] @fold <-> Person.games[]\n",
       "reject": {
-        "code": "sort-ordered"
+        "code": "sort-field"
       }
     },
     {
-      "name": "only a many-valued end sorts",
-      "source": "model Game {\n  name    Text\n  owner   Person\n  authors Person[]\n}\n\n{ Game.owner @sort(name), Person.owned[] }\nGame.authors[] @fold <-> Person.games[]\n",
+      "name": "a group takes only @sort",
+      "source": "model Game {\n  name    Text\n  authors Person[]\n\n  @@views([\n    { label: \"Games\", line: [name], group: authors @summary },\n  ])\n}\n\nGame.authors[] @fold <-> Person.games[]\n",
       "reject": {
-        "code": "sort-single"
+        "code": "misplaced-attribute"
       }
     }
   ],
