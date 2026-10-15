@@ -2,7 +2,8 @@ import { installAccountHome } from "../helpers/account-home.ts";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { interceptedUpdateRequest } from "../support/wire-body.ts";
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { StorySyncDaemon } from "@ovst/story-sync";
@@ -14,6 +15,8 @@ import { HostAccountStore, decodeProtocolDirectory, executeRowOperations, type S
 import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 
 const token = "folder-rows-owner";
+const SUPPLIES = join(import.meta.dir, "../../examples/supplies/data");
+const LIST = "10000000-0000-4000-8000-000000000001";
 const SCHEMA = "model Item {\n  title Text\n  done  Bool?\n}\n";
 const GAMES = "model Game {\n  name  Text\n  lists List[]\n}\n\nmodel List {\n  name  Text\n  games Game[]\n}\n\nList.games[] @ordered <-> Game.lists[]\n";
 let sandbox: string, state: string, folder: string, tree: string;
@@ -31,6 +34,9 @@ beforeAll(async () => {
   await writeFile(join(folder, "games", "Game.jsonl"), '{"id":"g1","name":"Chess"}\n');
   await writeFile(join(folder, "games", "List.jsonl"), '{"id":"l1","name":"Favorites"}\n');
   await writeFile(join(folder, "games", "List_games.jsonl"), "");
+  await mkdir(join(folder, "supplies"));
+  await writeFile(join(folder, "supplies", "schema.usl"), await readFile(join(SUPPLIES, "schema.usl")));
+  await copyFile(join(SUPPLIES, "_store.sqlite3"), join(folder, "supplies", "_store.sqlite3"));
   host = await serveHost({ dataRoot: join(sandbox, "host"), accounts: [testAccount("owner", token, { communityWriter: true })],
     publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
   const owner = await deviceClient(host.url, token);
@@ -122,6 +128,34 @@ test("a folder with a file per table syncs its rows as operations on each table"
     await daemon.synchronizeNow();
     expect(await readFile(join(folder, "games", "List.jsonl"), "utf8")).toBe('{"id":"l1","name":"Best"}\n');
     expect(await readFile(join(folder, "games", "Game.jsonl"), "utf8")).toBe('{"id":"g1","name":"Chess!"}\n{"id":"g2","name":"Go"}\n');
+    expect(await daemon.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
+  } finally { await daemon[Symbol.asyncDispose](); }
+}, 30_000);
+
+test("a folder's SQLite database syncs as rows: another program's edit publishes, and a concurrent edit lands in it", async () => {
+  process.env.STORY_HOME = state;
+  const path = join(folder, "supplies", "_store.sqlite3");
+  const list = () => {
+    const database = new Database(path, { readonly: true });
+    try { return database.query("select name, openToEdits from List where id = ?").get(LIST); } finally { database.close(); }
+  };
+  const daemon = await StorySyncDaemon.openControl({ autoSync: false });
+  try {
+    await daemon.synchronizeNow();
+    await recording(async (requests) => {
+      // As the sqlite3 command line would.
+      const external = new Database(path);
+      external.query("update List set name = 'Mutual aid' where id = ?").run(LIST);
+      external.close();
+      await daemon.synchronizeNow();
+      const trace = requests.flatMap((request) => request.updates).at(-1)!.trace;
+      expect(trace?.[0]?.operations).toEqual([
+        expect.objectContaining({ kind: "rowSet", table: "List", field: "name", before: "Community care", value: "Mutual aid" }),
+      ]);
+    });
+    await remoteSet(LIST, "openToEdits", true, false, "supplies", "List");
+    await daemon.synchronizeNow();
+    expect(list()).toEqual({ name: "Mutual aid", openToEdits: 0 });
     expect(await daemon.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
   } finally { await daemon[Symbol.asyncDispose](); }
 }, 30_000);

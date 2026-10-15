@@ -195,6 +195,29 @@ export function decodeProtocolCollectionFile(
   return { format: descriptor.format, schema, rows, childSetHash };
 }
 
+/** A row's canonical member order: the schema's columns in layout order,
+ * then undeclared members by UTF-8 name. Values are kept exactly. */
+export function canonicalRow(schema: Pick<CollectionSchema, "columns">, properties: Readonly<Record<string, JSONValue>>): Record<string, JSONValue> {
+  const declared = schema.columns.filter((name) => Object.hasOwn(properties, name));
+  const extra = Object.keys(properties).filter((name) => !schema.columns.includes(name)).sort(compareUTF8);
+  return Object.fromEntries([...declared, ...extra].map((name) => [name, properties[name]!]));
+}
+
+/**
+ * The exact text of a database table's file (spec 06 §2.1): one canonical
+ * row per line, without null members, ordered by the UTF-8 bytes of the
+ * row's stable key.
+ */
+export function canonicalTableText(
+  schema: Pick<CollectionSchema, "columns">,
+  rows: ReadonlyArray<{ stableKey: string; properties: Readonly<Record<string, JSONValue>> }>,
+): string {
+  return [...rows]
+    .sort((a, b) => compareUTF8(a.stableKey, b.stableKey))
+    .map((row) => `${JSON.stringify(canonicalRow(schema, Object.fromEntries(Object.entries(row.properties).filter(([, v]) => v !== null))))}\n`)
+    .join("");
+}
+
 /** One stored table of a collection, with its compiled schema. */
 export interface CollectionTable {
   /** The descriptor's table name, or null for the single-table form. */
@@ -218,7 +241,7 @@ export function collectionTables(
 ): CollectionTable[] {
   let set;
   try {
-    set = schemas.compileTables(schemaBytes);
+    set = schemas.compileTables(schemaBytes, descriptor.type === "collection-tables" && descriptor.store === "sqlite" ? "database" : "files");
   } catch (error) {
     if (error instanceof CollectionSchemaError) throw new ProtocolCollectionFileError("schema", `Invalid schema.usl: ${error.message}`);
     throw error;
@@ -264,6 +287,10 @@ export function decodeProtocolCollectionTables(
     const { rows, childSetHash } = collectionFileRows(descriptor.format, bytes, table.schema);
     if (childSetHash !== table.childSetHash) {
       throw new ProtocolCollectionFileError("constraint", "Collection-file child-set hash does not match its validated rows");
+    }
+    if (descriptor.type === "collection-tables" && descriptor.store === "sqlite"
+      && new TextDecoder().decode(bytes) !== canonicalTableText(table.schema, rows)) {
+      throw new ProtocolCollectionFileError("source", `${table.source} is not in canonical form`);
     }
     return { table: table.table, source: table.source, format: descriptor.format, schema: table.schema, rows, childSetHash };
   });

@@ -20,7 +20,11 @@ import {
 } from "@ovst/apps-runtime/collections";
 import { CollectionSchemaCache } from "@ovst/collection-schema";
 import type { ChildrenSourceDescriptor } from "@ovst/protocol";
+import type { SnapshotCollection } from "@ovst/fs";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describeCollectionTables } from "./providers/collection-tables.ts";
+import { DATABASE_FILE, DATABASE_FILES, describeDatabaseCollection } from "./providers/sqlite-collection.ts";
 function rowSummary(
   row: ProviderChildRecord,
   page: LoadedProjectionSlice,
@@ -251,12 +255,17 @@ export class ProjectionProviderHost implements AsyncDisposable {
   /**
    * The collection descriptor of a directory holding `schema.usl` (spec 06
    * §2.4): one `_store.*` file for a single-table collection, or one
-   * `<Table>.*` file per table. Null when the directory is not a valid
-   * collection, so its files sync as ordinary files.
+   * `<Table>.*` file per table, or a `_store.sqlite3` database, which the
+   * tree holds as one canonical JSONL file per table. Null when the directory
+   * is not a valid collection, so its files sync as ordinary files.
    */
-  async collectionDescriptor(directory: string, fileNames: readonly string[]): Promise<ChildrenSourceDescriptor | null> {
+  async collectionDescriptor(directory: string, fileNames: readonly string[]): Promise<ChildrenSourceDescriptor | SnapshotCollection | null> {
     const stores = fileNames.filter((name) => ["_store.csv", "_store.json", "_store.jsonl"].includes(name));
     if (stores.length > 1) throw new Error(`Directory has more than one collection file: ${directory}`);
+    if (!stores.length && fileNames.includes(DATABASE_FILE)) {
+      const database = await describeDatabaseCollection(directory, new Uint8Array(await readFile(join(directory, "schema.usl"))), this.schemas);
+      return database && { ...database, replaces: DATABASE_FILES };
+    }
     if (!stores.length) return describeCollectionTables(directory, fileNames, this.schemas);
     const source = stores[0]!;
     const description = await this.collectionFileDescriptor(directory, source);

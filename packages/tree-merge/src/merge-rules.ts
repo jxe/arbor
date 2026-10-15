@@ -4,6 +4,7 @@ import {
 } from "@ovst/protocol";
 import { collectionTableSources, stableJSONString, withCollectionChildSetHash, type ChildrenSourceDescriptor, type JSONValue } from "@ovst/protocol";
 import {
+  canonicalTableText,
   collectionFileRows,
   collectionTables,
   mergeCollectionRows,
@@ -320,7 +321,9 @@ export async function collectionFileFieldsV1(
         .filter((key, index, keys) => keys.indexOf(key) === index && !currentRows.has(key) && merged.rows.get(key))
         .map((key) => merged.rows.get(key)!);
       const currentSource = new TextDecoder().decode(await context.file(u));
-      const bytes = new TextEncoder().encode(spliceCollectionFile(format, currentSource, schema, { replaced, appended }));
+      const bytes = new TextEncoder().encode(current.descriptor.type === "collection-tables" && current.descriptor.store === "sqlite"
+        ? canonicalTableText(schema, [...merged.rows].flatMap(([stableKey, properties]) => properties ? [{ stableKey, properties }] : []))
+        : spliceCollectionFile(format, currentSource, schema, { replaced, appended }));
       sources[source] = context.store(bytes);
       descriptor = withCollectionChildSetHash(descriptor, table, collectionFileRows(format, bytes, schema).childSetHash);
       mergedRows += merged.mergedRows;

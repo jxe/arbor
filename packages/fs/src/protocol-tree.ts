@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { ChildrenSourceDescriptor } from "@ovst/protocol";
 import {
+  collectionTableSources,
   compareProtocolNames,
   decodeProtocolDirectory,
   encodeProtocolDirectory,
@@ -24,12 +25,36 @@ import {
   type SkipPath,
 } from "./ignore-policy.ts";
 
+/** A collection whose tree files stand in for files of the folder, as a
+ * database's tables stand in for the database. */
+export interface SnapshotCollection {
+  descriptor: ChildrenSourceDescriptor;
+  files: ReadonlyArray<{ name: string; bytes: Uint8Array }>;
+  /** The folder's file names the generated files replace. */
+  replaces: readonly string[];
+}
+
 /** The collection descriptor of a directory holding `schema.usl`, given
  * the names of its files, or null when it is not a valid collection. */
 export type DescribeSnapshotCollectionFile = (
   directory: string,
   fileNames: readonly string[],
-) => Promise<ChildrenSourceDescriptor | null>;
+) => Promise<ChildrenSourceDescriptor | SnapshotCollection | null>;
+
+/** Write a directory whose collection a device keeps in a database (spec 06
+ * §2.1) into the database at `directory`, in place of its table files. */
+export type MaterializeDatabase = (
+  directory: string,
+  object: ProtocolDirectory,
+  load: (hash: ObjectHash) => Promise<Uint8Array>,
+) => Promise<void>;
+
+/** The files a device keeps a database collection in. */
+export const DATABASE_COLLECTION_FILES = ["_store.sqlite3", "_store.sqlite3-wal", "_store.sqlite3-shm", "_store.sqlite3-journal"];
+
+function isDatabaseCollection(directory: ProtocolDirectory): boolean {
+  return directory.childrenSource?.type === "collection-tables" && directory.childrenSource.store === "sqlite";
+}
 
 export class UnavailableCloudContentError extends Error {
   constructor(readonly path: string) {
@@ -167,9 +192,19 @@ export async function snapshotDirectory(
         seen.add(entry.name);
       }
     }
-    const childrenSource = describeCollectionFile && fileNames.includes("schema.usl")
+    const described = describeCollectionFile && fileNames.includes("schema.usl")
       ? await describeCollectionFile(directory, fileNames) ?? undefined
       : undefined;
+    const childrenSource = described && "descriptor" in described ? described.descriptor : described;
+    if (described && "descriptor" in described) {
+      const replaced = new Set(described.replaces);
+      entries.splice(0, entries.length, ...entries.filter((entry) => !replaced.has(entry.name)));
+      for (const { name, bytes } of described.files) {
+        const hash = hashObject(bytes);
+        objects.set(hash, { hash, bytes: () => Promise.resolve(bytes) });
+        entries.push({ name, file: hash });
+      }
+    }
     const virtualChildren = new Map<string, string | null>();
     for (const [boundaryPath, tree] of normalizedBoundaries) {
       const remainder = relative(directory, boundaryPath);
@@ -251,6 +286,8 @@ export async function materializeTree(
    * platform metadata.
    */
   skip?: SkipPath,
+  /** Writes database collections; without it their table files are written. */
+  database?: MaterializeDatabase,
 ): Promise<void> {
   const destination = resolve(root);
   await mkdir(destination, { recursive: true });
@@ -278,7 +315,15 @@ export async function materializeTree(
     }
     const object = decodeProtocolDirectory(bytes);
     await mkdir(path, { recursive: true });
-    const expected = new Set(object.entries.map((entry) => entry.name));
+    // A database collection's tables are written into the database, which
+    // replaces their files in the folder.
+    const tables = database && isDatabaseCollection(object)
+      ? new Set(collectionTableSources(object.childrenSource!).map((t) => t.source))
+      : undefined;
+    const expected = new Set([
+      ...object.entries.map((entry) => entry.name).filter((name) => !tables?.has(name)),
+      ...tables ? DATABASE_COLLECTION_FILES : [],
+    ]);
     for (const existing of await readdir(path, { withFileTypes: true })) {
       if (MANDATORY_DIRECTORY_NAMES.has(existing.name) || isPlatformMetadataName(existing.name) || expected.has(existing.name) || isExcluded(join(path, existing.name))) continue;
       if (skip && await skip(toTreePath(canonicalDestination, join(path, existing.name)), existing.isDirectory())) continue;
@@ -290,10 +335,12 @@ export async function materializeTree(
       if (isPlatformMetadataName(entry.name)) continue;
       const target = contained(canonicalDestination, join(path, entry.name));
       if (isExcluded(target)) continue;
+      if (tables?.has(entry.name)) continue;
       if (entry.tree) await onBoundary?.(target, entry.tree);
       else if (entry.file) await visit(target, entry.file, "file");
       else if (entry.directory) await visit(target, entry.directory, "directory");
     }
+    if (tables) await database!(path, object, load);
   };
   await visit(canonicalDestination, rootHash, "directory");
 }

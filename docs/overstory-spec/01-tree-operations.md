@@ -278,12 +278,14 @@ type CollectionTablesDescriptor = {
   schemaFingerprint: Hash;
   // In UTF-8 order of table; source is `${table}.${format}`.
   tables: { table: string; source: string; childSetHash: Hash }[];
+  // A synchronized SQLite database; only with format "jsonl".
+  store?: "sqlite";
 };
 ```
 
 In a directory object a `collection-file` descriptor has exactly these seven
-fields and a `collection-tables` descriptor exactly these six, each table
-entry exactly its three, with `version: 1` and `schemaSource: "schema.usl"`
+fields and a `collection-tables` descriptor exactly these six, or seven with
+`store`, each table entry exactly its three, with `version: 1` and `schemaSource: "schema.usl"`
 ([file-backed collections](06-child-backings.md#21-accepted-overstory-representation)).
 Any other version or schema source is invalid.
 

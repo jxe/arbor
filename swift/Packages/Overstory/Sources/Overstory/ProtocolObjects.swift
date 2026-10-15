@@ -27,6 +27,9 @@ public struct ProtocolCollectionFileDescriptor: Hashable, Codable, Sendable {
     public var schemaFingerprint: String
     public var childSetHash: String?
     public var tables: [ProtocolCollectionTable]?
+    /// `sqlite`: the tables are the schema's database layout, in canonical
+    /// form, and a device keeps them as `_store.sqlite3`.
+    public var store: String?
 
     public init(
         version: Int = 1,
@@ -45,6 +48,7 @@ public struct ProtocolCollectionFileDescriptor: Hashable, Codable, Sendable {
         self.schemaFingerprint = schemaFingerprint
         self.childSetHash = childSetHash
         self.tables = nil
+        self.store = nil
     }
 
     public init(
@@ -52,7 +56,8 @@ public struct ProtocolCollectionFileDescriptor: Hashable, Codable, Sendable {
         format: String,
         schemaSource: String = "schema.usl",
         schemaFingerprint: String,
-        tables: [ProtocolCollectionTable]
+        tables: [ProtocolCollectionTable],
+        store: String? = nil
     ) {
         self.version = version
         self.type = "collection-tables"
@@ -62,6 +67,7 @@ public struct ProtocolCollectionFileDescriptor: Hashable, Codable, Sendable {
         self.schemaFingerprint = schemaFingerprint
         self.childSetHash = nil
         self.tables = tables
+        self.store = store
     }
 
     /// The files the collection stores its rows in.
@@ -177,7 +183,7 @@ public enum ProtocolObjectCodec {
 
     private static func collectionFileValue(_ descriptor: ProtocolCollectionFileDescriptor) -> CanonicalCBORValue {
         if let tables = descriptor.tables {
-            return .map([
+            var fields: [(String, CanonicalCBORValue)] = [
                 ("version", .unsigned(descriptor.version)),
                 ("type", .text(descriptor.type)),
                 ("format", .text(descriptor.format)),
@@ -190,7 +196,9 @@ public enum ProtocolObjectCodec {
                         ("childSetHash", .text(table.childSetHash)),
                     ])
                 })),
-            ])
+            ]
+            if let store = descriptor.store { fields.append(("store", .text(store))) }
+            return .map(fields)
         }
         return .map([
             ("version", .unsigned(descriptor.version)),
@@ -209,7 +217,14 @@ public enum ProtocolObjectCodec {
         }
         let item = Dictionary(uniqueKeysWithValues: fields)
         if case .text("collection-tables")? = item["type"] {
-            guard item.count == 6,
+            var store: String?
+            if let value = item["store"] {
+                guard case let .text(text) = value else {
+                    throw ProtocolValidationError.invalidCBOR("Collection-tables store is invalid")
+                }
+                store = text
+            }
+            guard item.count == (store == nil ? 6 : 7),
                   case let .unsigned(version)? = item["version"],
                   case let .text(format)? = item["format"],
                   case let .text(schemaSource)? = item["schemaSource"],
@@ -231,7 +246,7 @@ public enum ProtocolObjectCodec {
                 return ProtocolCollectionTable(table: table, source: source, childSetHash: childSetHash)
             }
             return ProtocolCollectionFileDescriptor(
-                version: version, format: format, schemaSource: schemaSource, schemaFingerprint: schemaFingerprint, tables: tables
+                version: version, format: format, schemaSource: schemaSource, schemaFingerprint: schemaFingerprint, tables: tables, store: store
             )
         }
         guard item.count == 7,
@@ -293,7 +308,7 @@ public enum ProtocolObjectCodec {
             try validateObjectHash(childrenSource.schemaFingerprint)
             switch childrenSource.type {
             case "collection-file":
-                guard childrenSource.tables == nil,
+                guard childrenSource.tables == nil, childrenSource.store == nil,
                       childrenSource.source == "_store.\(childrenSource.format)",
                       let childSetHash = childrenSource.childSetHash else {
                     throw ProtocolValidationError.invalidValue("Invalid collection-file descriptor")
@@ -301,6 +316,7 @@ public enum ProtocolObjectCodec {
                 try validateObjectHash(childSetHash)
             case "collection-tables":
                 guard childrenSource.source == nil, childrenSource.childSetHash == nil,
+                      childrenSource.store == nil || (childrenSource.store == "sqlite" && childrenSource.format == "jsonl"),
                       let tables = childrenSource.tables, !tables.isEmpty else {
                     throw ProtocolValidationError.invalidValue("Invalid collection-tables descriptor")
                 }

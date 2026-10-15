@@ -436,10 +436,41 @@ occurs at committed boundaries and
 snapshots are database-consistent; a live main database and WAL are never
 treated as unrelated files or assigned an exact bytes hash. A provider
 may widen an imprecise concurrent change to collection/store invalidation, but
-must not manufacture a whole-database hash by hashing all rows or storage
-bytes.
+must not manufacture a whole-database hash from storage bytes, or by hashing
+all rows outside the synchronization checkpoint of [§3.1](#31-synchronized-databases).
 
 External-write observation must detect committed changes made through other processes or connections. When affected rows cannot be recovered precisely, the driver emits a whole-store invalidation after the external commit. A wakeup alone is never treated as proof of a committed row change.
+
+### 3.1 Synchronized databases
+
+A folder whose `_store.sqlite3` implements the database layout of the
+`schema.usl` beside it synchronizes as rows. The accepted tree never holds the
+database file: it holds a `collection-tables` descriptor
+([§2.1](#21-accepted-overstory-representation)) with `store: "sqlite"` and
+`format: "jsonl"`, whose tables are the schema's database layout, join tables
+included, and one `<Table>.jsonl` file per table in canonical form:
+
+- one row per line, ordered by the UTF-8 bytes of its stable key;
+- each row's members in the table's column order, as RFC 8259 JSON with no
+  whitespace;
+- a NULL column absent, a flag as a JSON boolean, and a value array as a JSON
+  array.
+
+A host rejects a table file that is not in canonical form, and a database
+table's rows admit no undeclared member. Replaying row operations
+([source intent §4.1](10-source-intent.md#41-row-operations)) and merging
+([§2.3](#23-accepted-update-validation-and-merge)) write the canonical form
+rather than splicing. These files are the database's logical checkpoint
+([§1.3](#13-read-boundaries-and-committed-change-observation)); they consist of
+rows, never of database pages or WAL.
+
+A device publishes its database by reading every table into canonical form;
+the change from its basis is the row operations that reproduce it, whatever
+program made the change. A device writes an accepted tree by making its
+database hold exactly its rows, creating the database from the schema's setup
+SQL when it has none, in one transaction that leaves equal rows untouched. A
+database that does not implement the schema, or holds a row the schema
+rejects, synchronizes as an ordinary file.
 
 A server-hosted SQLite executable document coordinates committed writes with accepted updates for the containing tree, durably records mutation completion before acknowledgement, and advances the tree only from a consistent database state. Changing backing at the same logical database path does not change portable handles.
 

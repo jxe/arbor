@@ -52,6 +52,7 @@ import { deriveRowOperations } from "@ovst/collection-schema";
 import { ChangeLog, FileControlStore } from "@ovst/working-tree/node";
 import { differences, entryAt, maskDeclined, resolveDeclined, within, type LoadObject } from "./declined-paths.ts";
 import { forTrackedLookup, type TrackedRoot } from "./filesystem-object-source.ts";
+import { writeDatabaseCollection } from "./state/providers/sqlite-collection.ts";
 
 /** What the daemon provides one folder's synchronization. */
 export interface FolderSyncHost {
@@ -464,7 +465,7 @@ export class FolderSync implements AcceptedTree {
     const before = membershipSkip(await rulesOf(held), lookup);
     const after = membershipSkip(await rulesOf(tracked), lookup);
     await materializeTree(this.host.root, root as ObjectHash, load, undefined, [...mounts, ...points.map((point) => this.osPath(point))],
-      async (path, isDirectory) => await after(path, isDirectory) || await before(path, isDirectory));
+      async (path, isDirectory) => await after(path, isDirectory) || await before(path, isDirectory), writeDatabaseCollection);
     let uncovered = false;
     const written = await this.host.scan(tracked, async (path, isDirectory) => {
       if (!(await before(path, isDirectory))) return false;
@@ -867,7 +868,7 @@ export class FolderSync implements AcceptedTree {
       await writeFileAtomic(target, await load(entry.file), 0o644);
     } else if (entry?.directory) {
       if (existing && !existing.isDirectory()) await rm(target, { force: true });
-      await materializeTree(target, entry.directory, load, undefined, mounts, skip);
+      await materializeTree(target, entry.directory, load, undefined, mounts, skip, writeDatabaseCollection);
     }
   }
 

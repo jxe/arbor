@@ -2,7 +2,7 @@
 // schema.usl. Pure: compiling, validation, CSV conversion, and generated
 // declarations never execute authored code or touch the filesystem or network.
 export * from "./diagnostics.ts";
-export { compileCollectionSchema, compileCollectionSchemas, decodeSchemaSource, singleTable, type Check, type ChildNameRule, type CollectionSchema, type CollectionSchemaSet, type CsvColumn } from "./compile.ts";
+export { compileCollectionSchema, compileCollectionSchemas, decodeSchemaSource, singleTable, type Check, type ChildNameRule, type CollectionLayout, type CollectionSchema, type CollectionSchemaSet, type CsvColumn } from "./compile.ts";
 export { validateRow, collectionValidationBudget, type ValidationBudget } from "./validate.ts";
 export { csvHeaderDiagnostics, csvRowValue, encodeCsvRecord, encodeCsvRows, CsvEncodeError } from "./csv.ts";
 export { collectionTypeDeclarations } from "./typescript.ts";

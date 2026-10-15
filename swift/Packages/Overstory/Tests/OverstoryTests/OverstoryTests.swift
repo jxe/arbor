@@ -82,7 +82,8 @@ struct ProtocolObjectTests {
                                     source: $0["source"] as! String,
                                     childSetHash: $0["childSetHash"] as! String
                                 )
-                            }
+                            },
+                            store: value["store"] as? String
                         )
                     }
                     return ProtocolCollectionFileDescriptor(

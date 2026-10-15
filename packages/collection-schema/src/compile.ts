@@ -9,7 +9,7 @@ export type Check =
   | { kind: "bool" }
   | { kind: "int" }
   | { kind: "number" }
-  /** An open map admits undeclared string keys with any JSON value; the row map is always open. */
+  /** An open map admits undeclared string keys with any JSON value; a row map is open except in a database's tables. */
   | { kind: "map"; members: CheckMember[]; byName: ReadonlyMap<string, CheckMember>; open: boolean }
   | { kind: "array"; element: Check }
   /** A reference to a fixed model: one of its row names. */
@@ -95,7 +95,11 @@ const SCALAR: Record<Column["type"], CsvColumn["scalar"]> = {
   text: "text", date: "text", timestamp: "text", int: "number", number: "number", position: "number", bool: "boolean",
 };
 
-/** Every table a collection's `schema.usl` stores, as data files store them. */
+/** Which of the schema's layouts a collection stores: data files, where
+ * `@fold` keeps connections on rows, or a database, with join tables. */
+export type CollectionLayout = "files" | "database";
+
+/** Every table a collection's `schema.usl` stores, in one of its layouts. */
 export interface CollectionSchemaSet {
   readonly revision: Hash;
   readonly source: string;
@@ -110,7 +114,7 @@ export interface CollectionSchemaSet {
  * Person aside), and each connection without `@fold`. Throws
  * {@link CollectionSchemaError}.
  */
-export function compileCollectionSchemas(input: Uint8Array | string): CollectionSchemaSet {
+export function compileCollectionSchemas(input: Uint8Array | string, layout: CollectionLayout = "files"): CollectionSchemaSet {
   const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
   const source = decodeSchemaSource(bytes);
   const result = compileUsl(source);
@@ -119,10 +123,10 @@ export function compileCollectionSchemas(input: Uint8Array | string): Collection
       code: d.code, message: d.message, location: { line: d.line, column: d.column },
     })));
   }
-  const layout = layoutOf(result, { store: "files" });
-  if (!layout.length) throw schemaFailure("collection-tables", "A collection's schema.usl declares a model with data rows; this one has none");
+  const stored = layoutOf(result, { store: layout });
+  if (!stored.length) throw schemaFailure("collection-tables", "A collection's schema.usl declares a model with data rows; this one has none");
   const revision = revisionOf(bytes) as Hash;
-  const tables = layout.map((table): CollectionSchema => {
+  const tables = stored.map((table): CollectionSchema => {
     const model = result.models.find((m) => m.name === table.stores);
     const members: CheckMember[] = table.columns.map((column) => ({
       name: column.name,
@@ -139,8 +143,9 @@ export function compileCollectionSchemas(input: Uint8Array | string): Collection
       columns: table.columns.map((column) => column.name),
       primaryKey: [...table.primaryKey],
       childName: pathField ? { from: "property", property: pathField.column ?? pathField.name } : { from: "primaryKey" },
-      // Overstory convention (spec 06 §2.4): undeclared row members are kept.
-      row: { kind: "map", members, byName: new Map(members.map((m) => [m.name, m])), open: true },
+      // Overstory convention (spec 06 §2.4): undeclared row members are kept,
+      // except in a database's tables, which have no column for them.
+      row: { kind: "map", members, byName: new Map(members.map((m) => [m.name, m])), open: layout === "files" },
       csvColumns: table.columns.map((column) => ({
         name: column.name,
         optional: column.nullable || column.array,

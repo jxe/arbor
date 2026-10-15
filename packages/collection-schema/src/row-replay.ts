@@ -1,6 +1,5 @@
 import { parse as parseCSV } from "csv-parse/sync";
 import {
-  compareUTF8,
   decodeProtocolDirectory,
   encodeProtocolDirectory,
   hashObject,
@@ -14,7 +13,9 @@ import {
   withCollectionChildSetHash,
 } from "@ovst/protocol";
 import type { CollectionSchema } from "./compile.ts";
-import { collectionFileRows, collectionTables, ProtocolCollectionFileError, type CollectionFileFormat, type CollectionTable } from "./collection-file.ts";
+import { canonicalRow, canonicalTableText, collectionFileRows, collectionTables, ProtocolCollectionFileError, type CollectionFileFormat, type CollectionTable } from "./collection-file.ts";
+
+export { canonicalRow };
 import { CsvEncodeError, encodeCsvRecord, SYSTEM_COLUMNS } from "./csv.ts";
 
 type Row = Record<string, JSONValue>;
@@ -28,13 +29,6 @@ function invalid(message: string): never {
   throw new Error(`Invalid row operation: ${message}`);
 }
 
-/** A touched row's canonical member order: the schema's columns in layout
- * order, then undeclared members by UTF-8 name. Values are kept exactly. */
-export function canonicalRow(schema: Pick<CollectionSchema, "columns">, properties: Readonly<Row>): Row {
-  const declared = schema.columns.filter((name) => Object.hasOwn(properties, name));
-  const extra = Object.keys(properties).filter((name) => !schema.columns.includes(name)).sort(compareUTF8);
-  return Object.fromEntries([...declared, ...extra].map((name) => [name, properties[name]!]));
-}
 
 interface Line { number: number; start: number; contentEnd: number; end: number }
 
@@ -327,7 +321,9 @@ export const replayCollectionRows: CollectionRowReplay = async (directoryHash, o
       ? (parseCSV(sourceText, { bom: true, to_line: 1, relax_column_count: true }) as string[][])[0] ?? []
       : SYSTEM_COLUMNS;
     const splice = applyRowOperations(schema, basis.rows, ops, new Set(SYSTEM_COLUMNS.filter((name) => header.includes(name))));
-    const text = spliceCollectionFile(descriptor.format, sourceText, schema, splice);
+    const text = descriptor.type === "collection-tables" && descriptor.store === "sqlite"
+      ? canonicalTableText(schema, [...splice.rows].flatMap(([stableKey, properties]) => properties ? [{ stableKey, properties }] : []))
+      : spliceCollectionFile(descriptor.format, sourceText, schema, splice);
     const bytes = new TextEncoder().encode(text);
     const result = collectionFileRows(descriptor.format, bytes, schema);
     const expected = [...splice.rows].filter(([, row]) => row !== null);

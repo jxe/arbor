@@ -149,6 +149,7 @@
         "@ovst/fs": "workspace:*",
         "@ovst/protocol": "workspace:*",
         "@ovst/tree-merge": "workspace:*",
+        "@ovst/usl": "workspace:*",
         "@ovst/working-tree": "workspace:*",
         "csv-parse": "6.1.0",
       },

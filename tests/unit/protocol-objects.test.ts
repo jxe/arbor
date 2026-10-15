@@ -179,6 +179,7 @@ describe("canonical tree objects", () => {
       "collection-tables-unsorted",
       "collection-tables-source-mismatch",
       "collection-tables-missing-file",
+      "collection-database-not-jsonl",
       "noncanonical-cbor",
     ]);
     for (const vector of fixture.invalid) {

@@ -98,6 +98,11 @@ export interface CollectionTablesDescriptor {
   schemaFingerprint: Hash;
   /** One entry per stored table, in UTF-8 order of `table`. */
   tables: CollectionTableEntry[];
+  /**
+   * `sqlite`: the tables are the schema's database layout, each file holds
+   * its rows in canonical order, and a device keeps them as `_store.sqlite3`.
+   */
+  store?: "sqlite";
 }
 
 export interface CollectionTableEntry {
@@ -379,12 +384,13 @@ function exactKeys(source: Record<string, unknown>, keys: string[], label: strin
 
 export function decodeCollectionTablesDescriptor(value: unknown): CollectionTablesDescriptor {
   const source = object(value, "childrenSource");
-  exactKeys(source, ["version", "type", "format", "schemaSource", "schemaFingerprint", "tables"], "childrenSource");
+  exactKeys(source, ["version", "type", "format", "schemaSource", "schemaFingerprint", "tables", "store"], "childrenSource");
   if (source.version !== 1) throw new TypeError("childrenSource.version must be 1");
   if (source.type !== "collection-tables") throw new TypeError("childrenSource.type is invalid");
   if (!["csv", "json", "jsonl"].includes(source.format as string)) throw new TypeError("childrenSource.format is invalid");
   const format = source.format as "csv" | "json" | "jsonl";
   if (source.schemaSource !== "schema.usl") throw new TypeError("childrenSource.schemaSource must be schema.usl");
+  if (source.store !== undefined && (source.store !== "sqlite" || format !== "jsonl")) throw new TypeError("childrenSource.store must be sqlite, with jsonl tables");
   if (!Array.isArray(source.tables) || !source.tables.length) throw new TypeError("childrenSource.tables must be a non-empty array");
   let previous: string | undefined;
   const tables = source.tables.map((item, index): CollectionTableEntry => {
@@ -404,6 +410,7 @@ export function decodeCollectionTablesDescriptor(value: unknown): CollectionTabl
     schemaSource: "schema.usl",
     schemaFingerprint: hash(source.schemaFingerprint, "childrenSource.schemaFingerprint"),
     tables,
+    ...(source.store === "sqlite" ? { store: "sqlite" as const } : {}),
   };
 }
 

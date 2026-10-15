@@ -1,5 +1,5 @@
 import { revisionOf } from "@ovst/protocol";
-import { compileCollectionSchemas, singleTable, type CollectionSchema, type CollectionSchemaSet } from "./compile.ts";
+import { compileCollectionSchemas, singleTable, type CollectionLayout, type CollectionSchema, type CollectionSchemaSet } from "./compile.ts";
 
 /**
  * A content-addressed, bounded cache of compiled schemas. Entries are keyed
@@ -25,17 +25,17 @@ export class CollectionSchemaCache {
     return singleTable(this.compileTables(input));
   }
 
-  /** Every table the schema stores. */
-  compileTables(input: Uint8Array | string): CollectionSchemaSet {
+  /** Every table the schema stores in `layout`. */
+  compileTables(input: Uint8Array | string, layout: CollectionLayout = "files"): CollectionSchemaSet {
     const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
-    const key = revisionOf(bytes);
+    const key = `${revisionOf(bytes)}:${layout}`;
     const cached = this.entries.get(key);
     if (cached) {
       this.entries.delete(key);
       this.entries.set(key, cached);
       return cached;
     }
-    const schema = compileCollectionSchemas(bytes);
+    const schema = compileCollectionSchemas(bytes, layout);
     this.entries.set(key, schema);
     this.weight += schema.weight;
     while (this.entries.size > this.maxEntries || (this.weight > this.maxWeight && this.entries.size > 1)) {
