@@ -21,18 +21,6 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
   need not force renewed review, explanations of verified moves and deletions, rule-provided combination previews, bulk and
   offline resolution.
 
-- **Logical pages, projected per placement** (Joe, 2026-10-15: "probably a good
-  idea eventually"). Extend [schema-language 003](schema-language/003-logical-collections.md)'s
-  split to pages: the tree holds a page's properties and its body bytes, and the
-  `.md` file is the placement's projection. Body bytes stay exact, so Quagmire and
-  external editors see what they wrote. Each placement keeps its own front-matter
-  formatting (comments, key order, quoting) and splices property changes into it,
-  so formatting no longer travels between devices, and front matter merges per
-  property rather than by bytes. To decide: spec 02's byte-exact promise becomes
-  per placement; what a property outside any schema looks like logically (YAML
-  types, dates); and whether `_index.md` and sibling `x.md` stay distinct in the
-  tree or become one page with two projections. After 003 works for collections.
-
 ## Reliability
 
 - **Explicit web-editor unload drain** (with Web 025). `beforeunload`/`pagehide` has no
