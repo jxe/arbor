@@ -257,6 +257,54 @@ stay ordinary entries: the folder is a page that has a logical collection.
 Schema changes become logical migrations (add a field with a default, widen
 arity, rename); the format-only ones in README stop touching data.
 
+## Splitting the schema: logical schema and layouts
+
+Joe (2026-10-15): "maybe we want to split the usl into a more abstract and
+more per-placement units". Sorting today's USL by what it decides:
+
+| Decides | Attributes | Unit |
+|---|---|---|
+| what the data is | models, fields, types, arity, connections, `@ordered`, `@@id`, `@unique`, `@path`, `@@fixed`/`@@seed`, `@as` | logical schema |
+| who may change it | `@@editableBy` | logical schema |
+| default presentation | `@@views` | logical schema (shared by every placement) |
+| how a store holds it | `@fold`, `@@fold`, `@@table`, `@column`, `@@index`, position and timestamp columns, value encodings | layout |
+
+- **`schema.usl` keeps the logical part.** It's in the tree, its fingerprint
+  is the collection's, and every placement reads it.
+- **A layout maps that schema onto one store**: table and column names, folds,
+  indexes, and how values are stored (dates as text, flags as 0/1, a
+  timestamp column's name or its absence). With no layout, a projection uses
+  the default mapping (today's `layoutOf` rules), so most collections never
+  write one.
+- **Where layouts live.** A layout isn't secret and several machines often
+  want the same one (every device and the host matching an existing Supabase
+  database), so the natural home is a named file in the tree, beside the
+  schema (say `supabase.layout.usl`), which a placement chooses in
+  `placements.yaml`. A layout only shapes a projection: it never changes the
+  collection's hash, and changing it re-projects without an update.
+- **Existing databases** are what layouts are for: a layout says how the
+  existing tables spell the logical form, and `usl verify` checks a database
+  against schema plus layout.
+
+## Existing SQL databases and typed values
+
+The logical value's type comes from the schema, not from what a store
+happens to hold, and a projection converts at its boundary:
+
+- An `Int` field read from SQLite must hold an integer (a REAL `2.0` reads as
+  `2`; `2.5` makes the row invalid). A `Number` field reads any numeric
+  value as a number. Postgres's types already say which.
+- A NULL reads as absent; an empty string stays a present empty string.
+- `Bool` reads 0/1 (or `true`/`false`); `Date` and timestamps read the
+  store's spelling (`2026-10-15 10:00:00+00`) and normalize to the canonical
+  one.
+- **Normalizing is not changing.** A value that reads back equal to the
+  logical value is left as stored, so an existing database is never
+  rewritten into canonical spellings; only fields that actually change are
+  written, in the layout's spelling.
+- A row the schema can't read (text in an `Int` column) is reported for that
+  row, and the rest of the collection still syncs.
+
 ## Open questions, worked through
 
 1. **Pages.** Keep them representation-first for now, but note the same
@@ -327,8 +375,8 @@ With representation per placement, retention is per placement too:
    ends?
 2. Order as sequences, positions only in database projections? And a
    concurrent move of the same member: later `at` wins, or a decision?
-3. `@fold`/`@column`/`@@table`: schema defaults a placement may override, or
-   placement-only?
+3. Split USL into a logical `schema.usl` and named layouts in the tree that
+   placements choose (see "Splitting the schema")?
 4. Timestamps as row state stamped from `at`?
 5. Canonical CBOR with a chunked hash from the start, instead of the branch's
    JSONL?
