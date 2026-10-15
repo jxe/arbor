@@ -321,13 +321,15 @@ With representation per placement, retention is per placement too:
   projection side. Postgres 002's "canonical logical checkpoint" and Postgres
   004's logical data tree become this one encoding.
 
-## Open questions
+## Forks for Joe
 
-1. Pages: keep them representation-first for good, or later give a page the
-   same split (front matter as properties, body as content)?
-2. Does a collection that some placement projects as Markdown records need
-   its schema to name a body field, or can rows carry content outside the
-   schema?
-3. Ordered connections: positions in the logical form, or a sequence with its
-   own merge?
-4. Chunking: before or after the first large table?
+1. Addressable: models only, with plain n:m connections as properties on both
+   ends?
+2. Order as sequences, positions only in database projections? And a
+   concurrent move of the same member: later `at` wins, or a decision?
+3. `@fold`/`@column`/`@@table`: schema defaults a placement may override, or
+   placement-only?
+4. Timestamps as row state stamped from `at`?
+5. Canonical CBOR with a chunked hash from the start, instead of the branch's
+   JSONL?
+6. Content in rows only through a schema field marked `@body`?
