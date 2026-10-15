@@ -3,12 +3,16 @@ import Foundation
 /// Lossless semantic values. Operations validate against the closed protocol grammar before use.
 public indirect enum ProtocolSemanticValue: Codable, Sendable, Equatable {
     case string(String), integer(Int), array([ProtocolSemanticValue]), object([String: ProtocolSemanticValue]), null
+    /// Row values (spec 10 §4.1) also carry booleans and non-integer numbers.
+    case bool(Bool), number(Double)
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }
         else if let value = try? c.decode(String.self) { self = .string(value) }
+        else if let value = try? c.decode(Bool.self) { self = .bool(value) }
         else if let value = try? c.decode(Int.self), abs(Double(value)) <= 9_007_199_254_740_991 { self = .integer(value) }
+        else if let value = try? c.decode(Double.self), value.isFinite { self = .number(value) }
         else if let value = try? c.decode([ProtocolSemanticValue].self) { self = .array(value) }
         else { self = .object(try c.decode([String: ProtocolSemanticValue].self)) }
     }
@@ -20,6 +24,8 @@ public indirect enum ProtocolSemanticValue: Codable, Sendable, Equatable {
         case .array(let v): try c.encode(v)
         case .object(let v): try c.encode(v)
         case .null: try c.encodeNil()
+        case .bool(let v): try c.encode(v)
+        case .number(let v): try c.encode(v)
         }
     }
     var text: String? { if case .string(let s) = self { return s }; return nil }
@@ -45,6 +51,8 @@ public indirect enum ProtocolSemanticValue: Codable, Sendable, Equatable {
         case .array(let v): .array(v.map(\.cbor))
         case .object(let v): .map(v.map { ($0.key, $0.value.cbor) })
         case .null: .null
+        case .bool(let v): .bool(v)
+        case .number(let v): .float(v)
         }
     }
 }

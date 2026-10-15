@@ -50,6 +50,44 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
         guard let a = v?.items, a.count == 2, let start = a[0].number, let end = a[1].number else { throw ProtocolValidationError.invalidValue("Expected range") }
         try check(start >= 0 && end >= start && end <= 9_007_199_254_740_991); return (start, end)
     }
+    /// A USL model or field name.
+    private static func name(_ v: ProtocolSemanticValue?) throws {
+        guard let s = v?.text, let first = s.utf8.first, s.utf8.count <= 128 else { throw ProtocolValidationError.invalidValue("Expected name") }
+        func letter(_ c: UInt8) -> Bool { c == 95 || (65...90).contains(c) || (97...122).contains(c) }
+        try check(letter(first) && s.utf8.allSatisfy { letter($0) || (48...57).contains($0) })
+    }
+    /// A JSON value: at most 64 levels deep and 1 MiB as JSON text.
+    private static func json(_ v: ProtocolSemanticValue?, _ limit: Int = 1_048_576) throws {
+        guard let v else { throw ProtocolValidationError.invalidValue("Expected value") }
+        func depth(_ x: ProtocolSemanticValue, _ d: Int) throws {
+            try check(d <= 64)
+            switch x {
+            case .array(let a): for y in a { try depth(y, d + 1) }
+            case .object(let o): for y in o.values { try depth(y, d + 1) }
+            case .number(let n): try check(n.isFinite)
+            default: break
+            }
+        }
+        try depth(v, 0)
+        try check(try JSONEncoder().encode(v).count <= limit)
+    }
+    private static func member(_ v: ProtocolSemanticValue?) throws {
+        switch v ?? .null {
+        case .string, .integer, .bool, .number: try json(v, 4096)
+        default: try check(false)
+        }
+    }
+    /// The RFC 8785 JSON of a stable key's `[property, scalar]` pairs.
+    private static func canonicalStableKey(_ s: String) -> Bool {
+        guard let pairs = try? JSONDecoder().decode([ProtocolSemanticValue].self, from: Data(s.utf8)), !pairs.isEmpty else { return false }
+        for pair in pairs {
+            guard let p = pair.items, p.count == 2, let property = p[0].text, !property.isEmpty else { return false }
+            switch p[1] { case .string, .integer, .bool, .number: break; default: return false }
+        }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.withoutEscapingSlashes]
+        guard let again = try? encoder.encode(pairs) else { return false }
+        return String(decoding: again, as: UTF8.self) == s
+    }
     @discardableResult private static func reference(_ raw: ProtocolSemanticValue?, entry: Bool = false) throws -> Obj {
         let v = try object(raw); try keys(v, ["material"], ["within", "range"]); let m = try object(v["material"])
         switch m["kind"]?.text {
@@ -104,6 +142,18 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
             let value = try object(v["value"])
             if value["file"] != nil { try keys(value, ["file"]); try hash(value["file"]) }
             else { try keys(value, ["directory"]); try hash(value["directory"]) }
+        case "rowCreate", "rowDelete", "rowSet", "rowConnect", "rowDisconnect", "rowMove":
+            let fields: [String: [String]] = ["rowCreate": ["values"], "rowDelete": [], "rowSet": ["field", "before", "value"],
+                "rowConnect": ["field", "member"], "rowDisconnect": ["field", "member"], "rowMove": ["field", "member", "after"]]
+            let kind = v["kind"]!.text!
+            try keys(v, ["key", "kind", "collection", "table", "row"] + fields[kind]!)
+            try reference(v["collection"], entry: true); try name(v["table"])
+            try check(canonicalStableKey(try text(v["row"], 4096)))
+            if v["field"] != nil { try name(v["field"]) }
+            if kind == "rowCreate" { let values = try object(v["values"]); try json(v["values"]); for k in values.keys { try name(.string(k)) } }
+            if kind == "rowSet" { try json(v["before"]); try json(v["value"]) }
+            if v["member"] != nil { try member(v["member"]) }
+            if kind == "rowMove", v["after"] != .null { try member(v["after"]); try check(v["after"] != v["member"]) }
         default: try check(false)
         }
         return v["key"]!.text!

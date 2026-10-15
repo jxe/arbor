@@ -98,6 +98,7 @@ enum AcceptedReadValidation {
                 case "file","directory": try hash(value[kind])
                 case "tree": try token(value["tree"])
                 case "absent": try check(value["absent"] == .bool(true))
+                case "value": try check(d["kind"] == .string("field"))
                 default: try check(false)
                 }
                 if let placement=a["placement"] {
