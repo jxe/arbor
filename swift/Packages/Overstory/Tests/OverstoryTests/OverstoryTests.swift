@@ -70,7 +70,22 @@ struct ProtocolObjectTests {
             } else {
                 let entries = try #require(model["entries"] as? [[String: Any]])
                 let childrenSource = (model["childrenSource"] as? [String: Any]).map { value in
-                    ProtocolCollectionFileDescriptor(
+                    if let tables = value["tables"] as? [[String: Any]] {
+                        return ProtocolCollectionFileDescriptor(
+                            version: value["version"] as! Int,
+                            format: value["format"] as! String,
+                            schemaSource: value["schemaSource"] as! String,
+                            schemaFingerprint: value["schemaFingerprint"] as! String,
+                            tables: tables.map {
+                                ProtocolCollectionTable(
+                                    table: $0["table"] as! String,
+                                    source: $0["source"] as! String,
+                                    childSetHash: $0["childSetHash"] as! String
+                                )
+                            }
+                        )
+                    }
+                    return ProtocolCollectionFileDescriptor(
                             version: value["version"] as! Int,
                             type: value["type"] as! String,
                             format: value["format"] as! String,

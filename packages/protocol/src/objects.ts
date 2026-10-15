@@ -1,4 +1,4 @@
-import { compareUTF8, compareUTF8Bytes, decodeCBOR, decodeCollectionFileDescriptor, encodeCanonicalCBOR, sha256, type CollectionFileDescriptor } from "./index.ts";
+import { collectionSourceNames, compareUTF8, compareUTF8Bytes, decodeCBOR, decodeChildrenSourceDescriptor, encodeCanonicalCBOR, sha256, type ChildrenSourceDescriptor } from "./index.ts";
 
 export type ObjectHash = string;
 
@@ -11,7 +11,7 @@ export type ProtocolDirectoryEntry =
 export interface ProtocolDirectory {
   type: "directory";
   entries: ProtocolDirectoryEntry[];
-  childrenSource?: CollectionFileDescriptor;
+  childrenSource?: ChildrenSourceDescriptor;
 }
 
 export function protocolEntryObject(entry: ProtocolDirectoryEntry): { kind: ProtocolEntryKind; hash: ObjectHash } | undefined {
@@ -107,12 +107,11 @@ export function decodeProtocolDirectory(bytes: Uint8Array): ProtocolDirectory {
     });
     const childrenSource = record.childrenSource === undefined
       ? undefined
-      : decodeCollectionFileDescriptor(record.childrenSource);
+      : decodeChildrenSourceDescriptor(record.childrenSource);
     if (childrenSource) {
-      const source = entries.find((entry) => entry.name === childrenSource.source);
-      const schema = entries.find((entry) => entry.name === childrenSource.schemaSource);
-      if (!source?.file || !schema?.file) throw new Error("Collection-file sources must be ordinary file entries");
-      const allowed = new Set([childrenSource.source, childrenSource.schemaSource, "_index.md"]);
+      const named = collectionSourceNames(childrenSource);
+      if (!named.every((name) => entries.find((entry) => entry.name === name)?.file)) throw new Error("Collection-file sources must be ordinary file entries");
+      const allowed = new Set([...named, "_index.md"]);
       if (entries.some((entry) => !allowed.has(entry.name))) {
         throw new Error("Collection-file directory mixes immediate-child backings");
       }
@@ -150,7 +149,7 @@ export async function resolveProtocolLogicalNode(root: ObjectHash, path: string,
   let directory = decodeProtocolDirectory(await loadVerified(root, load));
   if (!parts.length) return { kind: "directory", directory, objectName: "", ...await directoryBody(directory, undefined, load) };
   for (const [index, part] of parts.entries()) {
-    if (part === directory.childrenSource?.source || part === directory.childrenSource?.schemaSource) return null;
+    if (directory.childrenSource && collectionSourceNames(directory.childrenSource).includes(part)) return null;
     const exact = directory.entries.find((entry) => entry.name === part);
     const sibling = directory.entries.find((entry) => entry.name === `${part}.md`);
     const last = index === parts.length - 1;

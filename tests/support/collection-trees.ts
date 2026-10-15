@@ -35,5 +35,5 @@ export function collectionTree(
 export function collectionSource(root: ObjectHash, objects: ReadonlyMap<ObjectHash, Uint8Array>): string {
   const top = decodeProtocolDirectory(objects.get(root)!);
   const items = decodeProtocolDirectory(objects.get(top.entries.find((e) => e.name === "items")!.directory!)!);
-  return new TextDecoder().decode(objects.get(items.entries.find((e) => e.name === items.childrenSource!.source)!.file!)!);
+  return new TextDecoder().decode(objects.get(items.entries.find((e) => e.name === (items.childrenSource as CollectionFileDescriptor).source)!.file!)!);
 }

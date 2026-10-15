@@ -104,7 +104,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
     const stores = new ProjectionProviderHost();
     try {
       return await resolveSnapshot(await snapshotDirectory(path, new Map(), [], (directory, sourceName) =>
-        stores.collectionFileDescriptor(directory, sourceName)));
+        stores.collectionDescriptor(directory, sourceName)));
     } finally {
       await stores[Symbol.asyncDispose]();
     }

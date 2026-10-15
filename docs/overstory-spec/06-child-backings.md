@@ -156,8 +156,11 @@ model Item {
 
 - Markdown row files other than `_index.md`;
 - one `_store.csv`;
-- one `_store.json`; or
-- one `_store.jsonl`.
+- one `_store.json`;
+- one `_store.jsonl`; or
+- one `<Table>.csv`, `<Table>.json` or `<Table>.jsonl` file for each table a
+  schema with several tables stores, all in one format
+  ([§2.4](#24-collection-schemas)).
 
 Interpreting a collection never executes authored code. The schema is data: a
 conforming implementation parses and checks it under the language's finite
@@ -220,6 +223,31 @@ The descriptor fields have these meanings:
 | `schemaFingerprint` | Commit to the exact UTF-8 bytes of the selected schema source, comments included. |
 | `childSetHash` | Commit to the validated logical children derived from the collection file and schema. |
 
+A collection whose schema stores several tables has a `collection-tables`
+descriptor instead. It has `version`, `type`, `format`, `schemaSource` and
+`schemaFingerprint` as above, and `tables` in place of `source` and
+`childSetHash`: one `{ table, source, childSetHash }` entry for each table the
+schema stores, in UTF-8 order of `table`. `table` is the table's name in the
+data-file layout, `source` is exactly `<table>.<format>`, and `childSetHash`
+commits to that table's rows. The descriptor is invalid if a table entry
+repeats, is out of order, or has another member, and the directory is invalid
+unless each `source` names an ordinary file entry. Its logical children are
+its tables, each named by `table`, and a table's logical children are its
+rows.
+
+```text
+Physical entries below /games:
+  Game.jsonl        → gameHash
+  List.jsonl        → listHash
+  List_games.jsonl  → listGamesHash
+  schema.usl        → schemaHash
+
+Logical children below /games:
+  Game/chess, Game/go
+  List/favorites
+  List_games/…
+```
+
 A descriptor version selects the schema file and this validation procedure.
 A conforming authority validates a descriptor in this order:
 
@@ -238,6 +266,11 @@ A conforming authority validates a descriptor in this order:
    of `key` and recompute `childSetHash` as their canonical CBOR hash.
 7. Reject a missing or multiply claimed source, an invalid row, key, or name,
    or either derived-hash mismatch.
+
+For a `collection-tables` descriptor, step 3 also requires `tables` to name
+exactly the tables the schema stores, and steps 1, 2 and 4 to 7 apply to each
+table's `source` with that table's columns and key, each table's rows checked
+against its own `childSetHash`.
 8. Expose the validated rows as the directory node's complete immediate
    logical child set. Preserve `source` and `schemaSource` as physical authored
    entries, but do not expose them as logical children.
@@ -306,14 +339,19 @@ logical path plus its `overstory-key` identity suffix.
 
 ### 2.4 Collection schemas
 
-A collection's `schema.usl` declares exactly one model with data rows: the
-collection's rows. It may also declare fixed models, which its rows reference
-by name, and connections to `Person`. The rows' members are the columns of
-that model's table in the [data-file layout](11-schema-language.md#7-layout):
-its key, its value fields, then its connections. A schema whose data-file
-layout has any other table, such as a second model or an n:m connection
-without `@fold`, cannot govern a collection and is rejected with
-`collection-tables`. The [`collection-schemas.json`](conformance/collection-schemas.json)
+A collection's `schema.usl` declares the models whose rows it holds. It may
+also declare fixed models, which rows reference by name, and connections to
+`Person`. Each table of the schema's
+[data-file layout](11-schema-language.md#7-layout) is one table of the
+collection, and its rows' members are that table's columns: for a model, its
+key, its value fields, then its connections; for an n:m connection without
+`@fold`, its join table's columns. A schema with one table may store it as
+`_store.csv`, `_store.json` or `_store.jsonl` with a `collection-file`
+descriptor; one with several tables stores each as `<Table>.csv`, `.json` or
+`.jsonl` with a `collection-tables` descriptor ([§2.1](#21-accepted-overstory-representation)),
+and a `_store.*` file beside such a schema is rejected with
+`collection-tables`. A schema whose layout has no table is rejected with
+`collection-tables` too. The [`collection-schemas.json`](conformance/collection-schemas.json)
 vectors bind this section.
 
 #### 2.4.1 Source and identity

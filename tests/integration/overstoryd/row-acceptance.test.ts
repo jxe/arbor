@@ -1,3 +1,4 @@
+import type { CollectionFileDescriptor } from "@ovst/protocol";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -27,7 +28,7 @@ function directory(value: ProtocolDirectory) {
 }
 function items(at: string) { return decodeProtocolDirectory(objects.get(at)!).entries.find((e) => e.name === "items")!.directory!; }
 function rows(at: string) {
-  const folder = decodeProtocolDirectory(objects.get(items(at))!), descriptor = folder.childrenSource!;
+  const folder = decodeProtocolDirectory(objects.get(items(at))!), descriptor = folder.childrenSource as CollectionFileDescriptor;
   const file = (name: string) => objects.get(folder.entries.find((e) => e.name === name)!.file!)!;
   return decodeProtocolCollectionFile(descriptor, file(descriptor.source), file(descriptor.schemaSource)).rows.map((row) => row.properties);
 }

@@ -2,7 +2,7 @@ import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID } from "@ovst/protocol";
+import { treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID, collectionSourceNames } from "@ovst/protocol";
 import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { AccountChallenge, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@ovst/apps-runtime/host";
@@ -28,12 +28,22 @@ import {
 } from "@ovst/protocol";
 import { escapeHTML, publicTreePath, renderNoticePage, renderPublicDataPage, renderPublicMarkdownPage, renderReservedPage, RESERVED_PAGE_SCRIPT, PAGE_ASSETS, type PublicPageChild, type StoryDownloads } from "./public-page.ts";
 import { ProtocolProjection, protocolCollectionFileRowMarkdown, protocolCollectionFileRowTitle } from "./projection.ts";
+import type { ProtocolCollectionFileRow } from "@ovst/collection-schema";
 import { buildDirectory } from "./directory.ts";
 import { clientAddress, hardenResponse, htmlContentSecurityPolicy, storedFileHeaders, type PageScript } from "./response-policy.ts";
 
 
 /** Comment frames keep watch streams alive across proxy idle timeouts. */
 const WATCH_KEEPALIVE_MS = 20_000;
+
+/** A collection table's rows as page children, each addressed by its stable key. */
+function collectionRowChildren(prefix: string, rows: readonly ProtocolCollectionFileRow[], applicationQuery: string | null | undefined): PublicPageChild[] {
+  return rows.map((row) => ({
+    name: protocolCollectionFileRowTitle(row),
+    href: buildNetworkLocator(`${prefix}/${encodeURIComponent(row.path)}`, { stableKey: row.stableKey, applicationQuery }),
+    kind: "document",
+  }));
+}
 
 function json(value: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store", ...headers } });
@@ -963,6 +973,18 @@ export async function serveHost(options: {
             }
             return html(renderPublicDataPage(title, collectionFileRow.row.properties));
           }
+          if (resolution.kind === "collection-table") {
+            const prefix = publicPath.replace(/\/$/, "");
+            return html(renderPublicMarkdownPage({
+              source: "",
+              fallbackTitle: resolution.table.table!,
+              origin: publicOrigin,
+              treeCanonicalPath: canonicalPath,
+              sourceDirectory: markdownSourceDirectory(logicalPath, null),
+              children: collectionRowChildren(prefix, resolution.table.rows, requestLocator.applicationQuery)
+                .sort((left, right) => left.name.localeCompare(right.name)),
+            }));
+          }
           if (!logical) return pageNotFound();
 
           const objectName = logical.objectName || canonicalPath.split("/").at(-1) || "Overstory";
@@ -995,11 +1017,10 @@ export async function serveHost(options: {
             return new Response(source, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
           }
           const collectionFileDescriptor = logical.directory.childrenSource;
-          const collectionFile = await projection.collectionFile(logical.directory);
+          const collectionTables = await projection.collectionTables(logical.directory);
+          const collectionSources = collectionFileDescriptor ? collectionSourceNames(collectionFileDescriptor) : [];
           const physicalChildren = (await Promise.all(logical.directory.entries
-            .filter((entry) => entry.name !== "_index.md"
-              && entry.name !== collectionFileDescriptor?.source
-              && entry.name !== collectionFileDescriptor?.schemaSource)
+            .filter((entry) => entry.name !== "_index.md" && !collectionSources.includes(entry.name))
             .map(async (entry): Promise<PublicPageChild | null> => {
               if (entry.tree) {
                 const nested = overstoryd.get(entry.tree);
@@ -1013,14 +1034,9 @@ export async function serveHost(options: {
                 kind: entry.tree || entry.directory !== undefined ? "folder" : markdown ? "document" : "file",
               };
             }))).filter((child): child is PublicPageChild => child !== null);
-          const collectionFileChildren: PublicPageChild[] = (collectionFile?.rows ?? []).map((row) => ({
-            name: protocolCollectionFileRowTitle(row),
-            href: buildNetworkLocator(`${prefix}/${encodeURIComponent(row.path)}`, {
-              stableKey: row.stableKey,
-              applicationQuery: requestLocator.applicationQuery,
-            }),
-            kind: "document",
-          }));
+          const collectionFileChildren: PublicPageChild[] = (collectionTables ?? []).flatMap((table) => table.table === null
+            ? collectionRowChildren(prefix, table.rows, requestLocator.applicationQuery)
+            : [{ name: table.table, href: `${prefix}/${encodeURIComponent(table.table)}${url.search}`, kind: "folder" as const }]);
           const children = [...physicalChildren, ...collectionFileChildren]
             .sort((left, right) => left.name.localeCompare(right.name));
           return html(renderPublicMarkdownPage({

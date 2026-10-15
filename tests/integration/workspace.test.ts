@@ -61,7 +61,7 @@ describe("workspace service", () => {
     // Declarations come from the declarative schema: no authored module or Zod import.
     expect(generated).not.toContain("import");
     // Rows are open (spec 06 §2.4.4), so the row type admits undeclared members.
-    expect(generated).toContain('type Schema0 = { "id": string; "title": string; [member: string]: unknown; };');
+    expect(generated).toContain('type Schema0 = { "id": string; "title": string; "created"?: string | null; "modified"?: string | null; [member: string]: unknown; };');
     expect(generated).toContain('"/typed": Collection<Schema0>;');
   });
 

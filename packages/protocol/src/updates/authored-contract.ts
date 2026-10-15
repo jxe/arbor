@@ -80,7 +80,7 @@ function json(v: unknown, max = 1048576) {
   const valid = (x: unknown, depth: number): boolean => depth <= 64 && (x === null || typeof x === "string" || typeof x === "boolean"
     || (typeof x === "number" && Number.isFinite(x))
     || (Array.isArray(x) && x.every((y) => valid(y, depth + 1)))
-    || (!!x && typeof x === "object" && Object.getPrototypeOf(x) === Object.prototype && Object.values(x).every((y) => valid(y, depth + 1))));
+    || (!!x && typeof x === "object" && [Object.prototype, null].includes(Object.getPrototypeOf(x)) && Object.values(x).every((y) => valid(y, depth + 1))));
   require(valid(v, 0));
   const encoded = JSON.stringify(v); text(encoded, max);
 }

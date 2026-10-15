@@ -1,3 +1,4 @@
+import type { CollectionFileDescriptor } from "@ovst/protocol";
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -89,7 +90,7 @@ async function collectionFileSnapshot(store: string, schema: string, source: str
   try {
     await writeFile(join(directory, "schema.usl"), schema);
     await writeFile(join(directory, store), source);
-    return await resolveSnapshot(await snapshotDirectory(directory, new Map(), [], (root, name) => collections.collectionFileDescriptor(root, name)));
+    return await resolveSnapshot(await snapshotDirectory(directory, new Map(), [], (root, name) => collections.collectionDescriptor(root, name)));
   } finally {
     await collections[Symbol.asyncDispose]();
     await rm(directory, { recursive: true, force: true });
@@ -99,13 +100,13 @@ async function collectionFileSnapshot(store: string, schema: string, source: str
 async function collectionText(result: { root: string; objects: Map<string, Uint8Array> }, objects: Map<string, Uint8Array>): Promise<string> {
   const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
   const directory = decodeProtocolDirectory(load(result.root));
-  return new TextDecoder().decode(load(directory.entries.find((entry) => entry.name === directory.childrenSource!.source)!.file!));
+  return new TextDecoder().decode(load(directory.entries.find((entry) => entry.name === (directory.childrenSource as CollectionFileDescriptor).source)!.file!));
 }
 
 async function collectionRows(result: { root: string; objects: Map<string, Uint8Array> }, objects: Map<string, Uint8Array>) {
   const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
   const directory = decodeProtocolDirectory(load(result.root));
-  const descriptor = directory.childrenSource!;
+  const descriptor = directory.childrenSource as CollectionFileDescriptor;
   const file = (name: string) => load(directory.entries.find((entry) => entry.name === name)!.file!);
   return decodeProtocolCollectionFile(descriptor, file(descriptor.source), file(descriptor.schemaSource)).rows.map((row) => row.properties);
 }
@@ -204,7 +205,7 @@ describe("reference host merge fixtures", () => {
     const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
     const rootObject = decodeProtocolDirectory(load(result.root));
     if (rootObject.type !== "directory") throw new Error("Expected collection-file root");
-    const descriptor = rootObject.childrenSource!;
+    const descriptor = rootObject.childrenSource as CollectionFileDescriptor;
     const source = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
     const schema = load(rootObject.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!);
     const decoded = decodeProtocolCollectionFile(descriptor, source, schema);
@@ -227,7 +228,7 @@ describe("reference host merge fixtures", () => {
     const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
     const rootObject = decodeProtocolDirectory(load(result.root));
     if (rootObject.type !== "directory") throw new Error("Expected collection-file root");
-    const descriptor = rootObject.childrenSource!;
+    const descriptor = rootObject.childrenSource as CollectionFileDescriptor;
     const sourceBytes = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
     expect(new TextDecoder().decode(sourceBytes)).toBe("id,count,note\n001,10,\n002,2,y\n");
     const decoded = decodeProtocolCollectionFile(descriptor, sourceBytes, load(rootObject.entries.find((entry) => entry.name === "schema.usl")!.file!));
@@ -247,7 +248,7 @@ describe("reference host merge fixtures", () => {
     const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
     const rootObject = decodeProtocolDirectory(load(result.root));
     if (rootObject.type !== "directory") throw new Error("Expected collection-file root");
-    const descriptor = rootObject.childrenSource!;
+    const descriptor = rootObject.childrenSource as CollectionFileDescriptor;
     const sourceBytes = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
     expect(new TextDecoder().decode(sourceBytes)).toBe("id,count,color\n001,1,blue\n002,3,green\n");
     const decoded = decodeProtocolCollectionFile(descriptor, sourceBytes, load(rootObject.entries.find((entry) => entry.name === "schema.usl")!.file!));

@@ -1,5 +1,5 @@
 import { revisionOf } from "@ovst/protocol";
-import { compileCollectionSchema, type CollectionSchema } from "./compile.ts";
+import { compileCollectionSchemas, singleTable, type CollectionSchema, type CollectionSchemaSet } from "./compile.ts";
 
 /**
  * A content-addressed, bounded cache of compiled schemas. Entries are keyed
@@ -7,7 +7,7 @@ import { compileCollectionSchema, type CollectionSchema } from "./compile.ts";
  * other bytes. A failed compilation throws and is never cached.
  */
 export class CollectionSchemaCache {
-  private readonly entries = new Map<string, CollectionSchema>();
+  private readonly entries = new Map<string, CollectionSchemaSet>();
   private weight = 0;
 
   /**
@@ -20,7 +20,13 @@ export class CollectionSchemaCache {
     private readonly maxWeight = 262_144,
   ) {}
 
+  /** A single-table collection's schema. */
   compile(input: Uint8Array | string): CollectionSchema {
+    return singleTable(this.compileTables(input));
+  }
+
+  /** Every table the schema stores. */
+  compileTables(input: Uint8Array | string): CollectionSchemaSet {
     const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
     const key = revisionOf(bytes);
     const cached = this.entries.get(key);
@@ -29,7 +35,7 @@ export class CollectionSchemaCache {
       this.entries.set(key, cached);
       return cached;
     }
-    const schema = compileCollectionSchema(bytes);
+    const schema = compileCollectionSchemas(bytes);
     this.entries.set(key, schema);
     this.weight += schema.weight;
     while (this.entries.size > this.maxEntries || (this.weight > this.maxWeight && this.entries.size > 1)) {

@@ -79,7 +79,7 @@ export class TreeObjectCache {
     return workspace.objects.bytes(hash, {
       boundaries: this.deps.boundariesFor(workspace),
       exclusions: this.deps.exclusionsFor(workspace),
-      describe: (directory, name) => workspace.describeProtocolCollectionFile(directory, name),
+      describe: (directory, names) => workspace.describeProtocolCollection(directory, names),
     }).catch((error) => {
       this.report(objectReadError({ source: "filesystem", tree, hash }, error));
       return undefined;

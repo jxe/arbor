@@ -141,7 +141,8 @@ authority validates those before acceptance.
 A schema'd collection ([child backings §2.4](06-child-backings.md#24-collection-schemas)) is edited by
 row, never by the bytes of its collection file. Every row operation also has
 `collection: Ref` (an entry reference, never ranged, to the collection's
-directory), `table` (a model name in its `schema.usl`) and `row` (the row's
+directory), `table` (one of the collection's tables, a model or a join table,
+as its `schema.usl`'s data-file layout names it) and `row` (the row's
 canonical stable key: the RFC 8785 JSON of its key's property and value pairs,
 such as `[["id","g1"]]`). `field`
 names one member of the row; a key field is never one.

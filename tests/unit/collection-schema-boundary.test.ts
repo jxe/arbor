@@ -104,7 +104,7 @@ describe("collection schema package boundary", () => {
         import { ProtocolProjection } from ${module("overstoryd/src/projection.ts")};
         import ${module("overstoryd/src/index.ts")};
         const providers = new ProjectionProviderHost();
-        const snapshot = await resolveSnapshot(await snapshotDirectory(${JSON.stringify(directory)}, new Map(), [${JSON.stringify(join(directory, "block-engine.ts"))}, ${JSON.stringify(join(directory, "exercise.ts"))}], (dir, name) => providers.collectionFileDescriptor(dir, name)));
+        const snapshot = await resolveSnapshot(await snapshotDirectory(${JSON.stringify(directory)}, new Map(), [${JSON.stringify(join(directory, "block-engine.ts"))}, ${JSON.stringify(join(directory, "exercise.ts"))}], (dir, names) => providers.collectionDescriptor(dir, names)));
         const load = async (hash) => snapshot.objects.get(hash);
         const rootObject = decodeProtocolDirectory(snapshot.objects.get(snapshot.root));
         const people = decodeProtocolDirectory(snapshot.objects.get(rootObject.entries.find((entry) => entry.name === "people").directory));

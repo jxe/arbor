@@ -3,10 +3,12 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
-import { canonicalStableKey, type JSONValue } from "@ovst/protocol";
+import { canonicalStableKey, ROW_TIME, type JSONValue } from "@ovst/protocol";
 import { ProjectionProviderHost, detectProjection } from "@ovst/story-sync/state";
 
 let root: string;
+/** A row's stamped edit time, which these byte comparisons leave out. */
+const UNSTAMP = /,"modified":"[^"]+"/;
 const providerContext = { tree: "tr_test", observedThrough: "test:0", writable: true } as const;
 
 function childrenOf(
@@ -112,7 +114,7 @@ describe("file-backed collections", () => {
     const collections = new ProjectionProviderHost();
     const summary = await collections.descriptor(join(root, "csv"));
     const page = await childrenOf(collections, join(root, "csv"), "/csv", null, 20);
-    expect(summary?.columns).toEqual(["id", "title", "count"]);
+    expect(summary?.columns).toEqual(["id", "title", "count", "created", "modified"]);
     expect(page.items[0]?.properties.count).toBe(1);
     expect(page.items[0]?.ref.stableKey).toBe(canonicalStableKey([["id", "one"]]));
     expect(page.items[0]?.capabilities.properties?.writable).toBe(false);
@@ -290,8 +292,10 @@ describe("file-backed collections", () => {
       if (prepared.storage !== "provider") throw new Error("Expected a provider-owned write");
       expect(await readFile(join(directory, item.source), "utf8")).toBe(item.before);
       const saved = await prepared.write.commit();
-      expect(saved.properties).toEqual(item.properties);
-      expect(await readFile(join(directory, item.source), "utf8")).toBe(item.after);
+      // JSON and JSONL rows carry the edit's time; a CSV row only where its header has the column.
+      const stamped = item.source !== "_store.csv";
+      expect(saved.properties).toEqual({ ...item.properties, ...stamped ? { modified: expect.stringMatching(ROW_TIME) } : {} });
+      expect((await readFile(join(directory, item.source), "utf8")).replace(UNSTAMP, "")).toBe(item.after);
       await collections[Symbol.asyncDispose]();
     }
   });
@@ -314,7 +318,7 @@ describe("file-backed collections", () => {
     // An undeclared member is accepted and written exactly.
     const extended = await prepareWrite(collections, target!, target!.revision, { id: "one", title: "One", count: 1, extra: { kept: [true] } }, "undeclared-member");
     if (extended.storage !== "provider") throw new Error("Expected a provider-owned write");
-    expect(extended.write.properties).toEqual({ id: "one", title: "One", count: 1, extra: { kept: [true] } });
+    expect(extended.write.properties).toEqual({ id: "one", title: "One", count: 1, extra: { kept: [true] }, modified: expect.stringMatching(ROW_TIME) });
     await extended.write.abort();
     expect(await readFile(path, "utf8")).toBe(original);
 
@@ -357,7 +361,7 @@ describe("file-backed collections", () => {
     expect(committed[1]?.status).toBe("rejected");
     expect(committed[1]?.status === "rejected" ? committed[1].reason : null)
       .toMatchObject({ code: "stale-source" });
-    expect(await readFile(path, "utf8"))
+    expect((await readFile(path, "utf8")).replace(UNSTAMP, ""))
       .toBe('[{"id":"one","title":"Changed one","count":1},{"id":"two","title":"Two","count":2}]\n');
     await collections[Symbol.asyncDispose]();
   });

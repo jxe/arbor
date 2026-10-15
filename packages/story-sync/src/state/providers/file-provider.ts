@@ -204,6 +204,9 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
     const diagnostics = validateRow(loaded.description.schema!, properties);
     if (diagnostics.length) throw invalidWrite(diagnostics);
     const candidate = (toJSONValue(properties) ?? {}) as Record<string, JSONValue>;
+    // A row's times are not the writer's to set: an omitted one is kept.
+    for (const name of ["created", "modified"] as const)
+      if (!Object.hasOwn(candidate, name) && current.values[name] !== undefined) candidate[name] = current.values[name] as JSONValue;
     // The edit's time, as the row operation Story Sync derives from it states it.
     const timed = definition.provider !== "csv";
     if (timed && stableJSONString({ ...current.values, modified: null }) !== stableJSONString({ ...candidate, modified: null }))

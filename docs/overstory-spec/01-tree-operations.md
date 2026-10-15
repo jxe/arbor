@@ -257,7 +257,7 @@ type ProtocolDirectoryEntry =
 type ProtocolDirectory = {
   type: "directory";
   entries: ProtocolDirectoryEntry[];
-  childrenSource?: CollectionFileDescriptor;
+  childrenSource?: CollectionFileDescriptor | CollectionTablesDescriptor;
 };
 
 type CollectionFileDescriptor = {
@@ -269,10 +269,21 @@ type CollectionFileDescriptor = {
   schemaFingerprint: Hash;
   childSetHash: Hash;
 };
+
+type CollectionTablesDescriptor = {
+  version: 1;
+  type: "collection-tables";
+  format: "csv" | "json" | "jsonl";
+  schemaSource: "schema.usl";
+  schemaFingerprint: Hash;
+  // In UTF-8 order of table; source is `${table}.${format}`.
+  tables: { table: string; source: string; childSetHash: Hash }[];
+};
 ```
 
-In a directory object the descriptor has exactly these seven fields, with
-`version: 1` and `schemaSource: "schema.usl"`
+In a directory object a `collection-file` descriptor has exactly these seven
+fields and a `collection-tables` descriptor exactly these six, each table
+entry exactly its three, with `version: 1` and `schemaSource: "schema.usl"`
 ([file-backed collections](06-child-backings.md#21-accepted-overstory-representation)).
 Any other version or schema source is invalid.
 

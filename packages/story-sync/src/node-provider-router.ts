@@ -127,8 +127,8 @@ export class NodeProviderRouter implements AsyncDisposable {
     }
     return this.physical.children({ ...ref, path }, cursor, observedThrough);
   }
-  collectionFileDescriptor(directory: string, sourceName: string) {
-    return this.providers.collectionFileDescriptor(directory, sourceName);
+  collectionDescriptor(directory: string, fileNames: readonly string[]) {
+    return this.providers.collectionDescriptor(directory, fileNames);
   }
   schemaTypes(directory: string) { return this.providers.schemaTypes(directory); }
   async [Symbol.asyncDispose](): Promise<void> { await this.providers[Symbol.asyncDispose](); }

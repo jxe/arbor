@@ -5,6 +5,7 @@ import {
   executeRowOperations,
   validateSourceTrace,
   type ObjectHash,
+  type RowOperation,
   type SourceOperation,
 } from "@ovst/protocol";
 import { replayCollectionRows } from "@ovst/collection-schema";
@@ -18,12 +19,12 @@ function rowOps(tree: CollectionTree) {
   const collection = { material: { kind: "basis" as const, path: "/items", object: tree.collection } };
   const target = (id: string, opKey: string) => ({ key: opKey, collection, table: "Item", row: key(id) });
   return {
-    set: (id: string, field: string, before: unknown, value: unknown, k = "set") => ({ ...target(id, k), kind: "rowSet", field, before, value }) as SourceOperation,
-    connect: (id: string, field: string, member: string, k = "connect") => ({ ...target(id, k), kind: "rowConnect", field, member }) as SourceOperation,
-    disconnect: (id: string, field: string, member: string, k = "disconnect") => ({ ...target(id, k), kind: "rowDisconnect", field, member }) as SourceOperation,
-    move: (id: string, field: string, member: string, after: string | null, k = "move") => ({ ...target(id, k), kind: "rowMove", field, member, after }) as SourceOperation,
-    create: (id: string, values: Record<string, unknown>, k = "create") => ({ ...target(id, k), kind: "rowCreate", values: { id, ...values } }) as SourceOperation,
-    remove: (id: string, k = "delete") => ({ ...target(id, k), kind: "rowDelete" }) as SourceOperation,
+    set: (id: string, field: string, before: unknown, value: unknown, k = "set") => ({ ...target(id, k), kind: "rowSet", field, before, value }) as RowOperation,
+    connect: (id: string, field: string, member: string, k = "connect") => ({ ...target(id, k), kind: "rowConnect", field, member }) as RowOperation,
+    disconnect: (id: string, field: string, member: string, k = "disconnect") => ({ ...target(id, k), kind: "rowDisconnect", field, member }) as RowOperation,
+    move: (id: string, field: string, member: string, after: string | null, k = "move") => ({ ...target(id, k), kind: "rowMove", field, member, after }) as RowOperation,
+    create: (id: string, values: Record<string, unknown>, k = "create") => ({ ...target(id, k), kind: "rowCreate", values: { id, ...values } }) as RowOperation,
+    remove: (id: string, k = "delete") => ({ ...target(id, k), kind: "rowDelete" }) as RowOperation,
   };
 }
 

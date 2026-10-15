@@ -1,7 +1,7 @@
 import type { BigIntStats } from "node:fs";
 import { mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
-import type { CollectionFileDescriptor, Hash } from "@ovst/protocol";
+import type { ChildrenSourceDescriptor } from "@ovst/protocol";
 import {
   compareProtocolNames,
   decodeProtocolDirectory,
@@ -24,16 +24,12 @@ import {
   type SkipPath,
 } from "./ignore-policy.ts";
 
-export interface SnapshotCollectionFileDescription {
-  format: CollectionFileDescriptor["format"];
-  schemaFingerprint: Hash;
-  childSetHash: Hash;
-}
-
+/** The collection descriptor of a directory holding `schema.usl`, given
+ * the names of its files, or null when it is not a valid collection. */
 export type DescribeSnapshotCollectionFile = (
   directory: string,
-  sourceName: string,
-) => Promise<SnapshotCollectionFileDescription | null>;
+  fileNames: readonly string[],
+) => Promise<ChildrenSourceDescriptor | null>;
 
 export class UnavailableCloudContentError extends Error {
   constructor(readonly path: string) {
@@ -142,7 +138,7 @@ export async function snapshotDirectory(
   const walk = async (directory: string, treePath: string): Promise<ObjectHash> => {
     const childPath = (name: string) => `${treePath === "/" ? "" : treePath}/${name}`;
     const entries: ProtocolDirectoryEntry[] = [];
-    let childrenSource: CollectionFileDescriptor | undefined;
+    const fileNames: string[] = [];
     const seen = new Set<string>();
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => compareProtocolNames(a.name, b.name))) {
       if (isTransactionTemporaryName(entry.name) || isPlatformMetadataName(entry.name)) continue;
@@ -166,23 +162,14 @@ export async function snapshotDirectory(
         seen.add(entry.name);
       } else if (entry.isFile()) {
         const source = await fileSource(absolute, entry.name);
-        const description = describeCollectionFile && ["_store.csv", "_store.json", "_store.jsonl"].includes(entry.name)
-          ? await describeCollectionFile(directory, entry.name)
-          : null;
-        if (description) {
-          if (childrenSource) throw new Error(`Directory has more than one collection file: ${directory}`);
-          childrenSource = {
-            version: 1,
-            type: "collection-file",
-            source: entry.name as CollectionFileDescriptor["source"],
-            schemaSource: "schema.usl",
-            ...description,
-          };
-        }
+        fileNames.push(entry.name);
         entries.push({ name: entry.name, file: source });
         seen.add(entry.name);
       }
     }
+    const childrenSource = describeCollectionFile && fileNames.includes("schema.usl")
+      ? await describeCollectionFile(directory, fileNames) ?? undefined
+      : undefined;
     const virtualChildren = new Map<string, string | null>();
     for (const [boundaryPath, tree] of normalizedBoundaries) {
       const remainder = relative(directory, boundaryPath);

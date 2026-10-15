@@ -1,3 +1,4 @@
+import type { CollectionFileDescriptor } from "@ovst/protocol";
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -147,7 +148,7 @@ describe("canonical tree objects", () => {
         model: { type: "file"; bytesBase64: string } | {
           type: "directory";
           entries: import("@ovst/protocol").ProtocolDirectoryEntry[];
-          childrenSource?: import("@ovst/protocol").CollectionFileDescriptor;
+          childrenSource?: import("@ovst/protocol").ChildrenSourceDescriptor;
         };
         bytesBase64: string;
         hash: string;
@@ -175,6 +176,9 @@ describe("canonical tree objects", () => {
       "file-and-directory",
       "collection-file-schema-ts",
       "collection-file-unknown-version",
+      "collection-tables-unsorted",
+      "collection-tables-source-mismatch",
+      "collection-tables-missing-file",
       "noncanonical-cbor",
     ]);
     for (const vector of fixture.invalid) {
@@ -275,14 +279,18 @@ describe("canonical tree objects", () => {
       const storeSource = "[{\"id\":\"one\"}]\n";
       await writeFile(join(root, "schema.usl"), schemaSource);
       await writeFile(join(root, "_store.json"), storeSource);
-      const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], async (_directory, sourceName) => ({
-        format: sourceName === "_store.json" ? "json" : "csv",
+      const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], async (_directory, names) => ({
+        version: 1,
+        type: "collection-file",
+        format: "json",
+        source: names.includes("_store.json") ? "_store.json" : "_store.csv",
+        schemaSource: "schema.usl",
         schemaFingerprint: `sha256:${"3".repeat(64)}`,
         childSetHash: `sha256:${"4".repeat(64)}`,
       })));
       const object = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
       if (object.type !== "directory") throw new Error("Expected a directory");
-      const descriptor = object.childrenSource!;
+      const descriptor = object.childrenSource as CollectionFileDescriptor;
       expect(descriptor).toEqual(expect.objectContaining({ version: 1, type: "collection-file", format: "json", schemaSource: "schema.usl" }));
       const sourceHash = object.entries.find((entry) => entry.name === descriptor.source)!.file!;
       const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!;
@@ -312,10 +320,10 @@ describe("canonical tree objects", () => {
         await writeFile(join(root, "schema.usl"), "model Item {\n  title Text\n}\n");
         await writeFile(join(root, `_store.${codec}`), source);
         const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (directory, name) =>
-          collections.collectionFileDescriptor(directory, name)));
+          collections.collectionDescriptor(directory, name)));
         const object = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
         if (object.type !== "directory") throw new Error("Expected a collection-file directory");
-        const descriptor = object.childrenSource!;
+        const descriptor = object.childrenSource as CollectionFileDescriptor;
         const sourceHash = object.entries.find((entry) => entry.name === descriptor.source)!.file!;
         const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!;
         const sourceObject = snapshot.objects.get(sourceHash)!;
@@ -335,7 +343,7 @@ describe("canonical tree objects", () => {
   test("treats a schema.ts as an ordinary file, never as a collection schema", async () => {
     const root = await mkdtemp(join(tmpdir(), "story-wire-schema-ts-"));
     const collections = new ProjectionProviderHost();
-    const describe = (directory: string, name: string) => collections.collectionFileDescriptor(directory, name);
+    const describe = (directory: string, names: readonly string[]) => collections.collectionDescriptor(directory, names);
     try {
       // Without schema.usl, _store.json and schema.ts are ordinary files.
       await writeFile(join(root, "schema.ts"), "export const schema = {};\n");

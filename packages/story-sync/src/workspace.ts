@@ -122,8 +122,8 @@ export class Workspace implements AsyncDisposable {
     };
   }
 
-  describeProtocolCollectionFile(directory: string, sourceName: string) {
-    return this.nodes.describeProtocolCollectionFile(directory, sourceName);
+  describeProtocolCollection(directory: string, fileNames: readonly string[]) {
+    return this.nodes.describeProtocolCollection(directory, fileNames);
   }
 
   updateTreeDescriptor(descriptor: Partial<LocalTreeDescriptor>): void {

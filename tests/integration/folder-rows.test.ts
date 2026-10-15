@@ -15,6 +15,7 @@ import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 
 const token = "folder-rows-owner";
 const SCHEMA = "model Item {\n  title Text\n  done  Bool?\n}\n";
+const GAMES = "model Game {\n  name  Text\n  lists List[]\n}\n\nmodel List {\n  name  Text\n  games Game[]\n}\n\nList.games[] @ordered <-> Game.lists[]\n";
 let sandbox: string, state: string, folder: string, tree: string;
 let host: Awaited<ReturnType<typeof serveHost>>;
 
@@ -25,13 +26,18 @@ beforeAll(async () => {
   await Promise.all([state, join(folder, "items")].map((path) => mkdir(path, { recursive: true })));
   await writeFile(join(folder, "items", "schema.usl"), SCHEMA);
   await writeFile(join(folder, "items", "_store.jsonl"), '{"id":"a","title":"A"}\n{"id":"b","title":"B"}\n');
+  await mkdir(join(folder, "games"));
+  await writeFile(join(folder, "games", "schema.usl"), GAMES);
+  await writeFile(join(folder, "games", "Game.jsonl"), '{"id":"g1","name":"Chess"}\n');
+  await writeFile(join(folder, "games", "List.jsonl"), '{"id":"l1","name":"Favorites"}\n');
+  await writeFile(join(folder, "games", "List_games.jsonl"), "");
   host = await serveHost({ dataRoot: join(sandbox, "host"), accounts: [testAccount("owner", token, { communityWriter: true })],
     publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
   const owner = await deviceClient(host.url, token);
   const profile = (await owner.account()).account.profileTree!;
   const stores = new ProjectionProviderHost();
   try {
-    tree = await hostTree(owner, await resolveSnapshot(await snapshotDirectory(folder, new Map(), [], (root, name) => stores.collectionFileDescriptor(root, name))),
+    tree = await hostTree(owner, await resolveSnapshot(await snapshotDirectory(folder, new Map(), [], (root, name) => stores.collectionDescriptor(root, name))),
       { parent: { tree: profile, name: "rows", kind: "person" } });
   } finally { await stores[Symbol.asyncDispose](); }
   const { values } = await readTreeConfig(owner, profile, "person");
@@ -59,13 +65,13 @@ async function recording<T>(body: (requests: UpdateRequest[]) => Promise<T>): Pr
 }
 
 /** Another device sets a field through the host, as row operations on the accepted head. */
-async function remoteSet(row: string, field: string, before: unknown, value: unknown) {
+async function remoteSet(row: string, field: string, before: unknown, value: unknown, path = "items", table = "Item") {
   const owner = await deviceClient(host.url, token);
   const current = await owner.descriptor(tree), snapshot = await owner.snapshot(tree, current.tree.root);
   const objects = new Map(snapshot.objects);
-  const items = decodeProtocolDirectory(objects.get(snapshot.root)!).entries.find((e) => e.name === "items")!.directory!;
-  const operations = [{ key: "set", kind: "rowSet", collection: { material: { kind: "basis", path: "/items", object: items } },
-    table: "Item", row: JSON.stringify([["id", row]]), field, before, value } as SourceOperation];
+  const items = decodeProtocolDirectory(objects.get(snapshot.root)!).entries.find((e) => e.name === path)!.directory!;
+  const operations = [{ key: "set", kind: "rowSet", collection: { material: { kind: "basis", path: `/${path}`, object: items } },
+    table, row: JSON.stringify([["id", row]]), field, before, value } as SourceOperation];
   const result = await executeRowOperations(snapshot.root, operations, async (hash) => objects.get(hash)!, replayCollectionRows);
   await owner.submitUpdates(tree, { base: current.tree.update, updates: [{ change: crypto.randomUUID(), candidate: result.root,
     trace: [{ before: snapshot.root, after: result.root, operations }], resolves: [], deltas: [],
@@ -91,6 +97,31 @@ test("a folder's row edit publishes row operations, and merges with a concurrent
       expect(requests.flatMap((request) => request.updates).some((update) => update.trace?.[0]?.operations.some((op) => op.kind === "rowSet" && op.value === "Alpha!"))).toBe(true);
     });
     expect(await readFile(join(folder, "items", "_store.jsonl"), "utf8")).toBe('{"id":"a","title":"Alpha!","done":true}\n{"id":"b","title":"B"}\n');
+    expect(await daemon.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
+  } finally { await daemon[Symbol.asyncDispose](); }
+}, 30_000);
+
+test("a folder with a file per table syncs its rows as operations on each table", async () => {
+  process.env.STORY_HOME = state;
+  const daemon = await StorySyncDaemon.openControl({ autoSync: false });
+  try {
+    await daemon.synchronizeNow();
+    await recording(async (requests) => {
+      await writeFile(join(folder, "games", "Game.jsonl"), '{"id":"g1","name":"Chess"}\n{"id":"g2","name":"Go"}\n');
+      await writeFile(join(folder, "games", "List_games.jsonl"), '{"list":"l1","game":"g2","games_position":1}\n');
+      await daemon.synchronizeNow();
+      const trace = requests.flatMap((request) => request.updates).at(-1)!.trace;
+      expect(trace?.[0]?.operations).toEqual([
+        expect.objectContaining({ kind: "rowCreate", table: "Game", row: JSON.stringify([["id", "g2"]]) }),
+        expect.objectContaining({ kind: "rowCreate", table: "List_games" }),
+      ]);
+    });
+    await remoteSet("l1", "name", "Favorites", "Best", "games", "List");
+    await writeFile(join(folder, "games", "Game.jsonl"), '{"id":"g1","name":"Chess!"}\n{"id":"g2","name":"Go"}\n');
+    await daemon.synchronizeNow();
+    await daemon.synchronizeNow();
+    expect(await readFile(join(folder, "games", "List.jsonl"), "utf8")).toBe('{"id":"l1","name":"Best"}\n');
+    expect(await readFile(join(folder, "games", "Game.jsonl"), "utf8")).toBe('{"id":"g1","name":"Chess!"}\n{"id":"g2","name":"Go"}\n');
     expect(await daemon.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
   } finally { await daemon[Symbol.asyncDispose](); }
 }, 30_000);

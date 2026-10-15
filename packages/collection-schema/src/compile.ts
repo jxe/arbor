@@ -95,12 +95,22 @@ const SCALAR: Record<Column["type"], CsvColumn["scalar"]> = {
   text: "text", date: "text", timestamp: "text", int: "number", number: "number", position: "number", bool: "boolean",
 };
 
+/** Every table a collection's `schema.usl` stores, as data files store them. */
+export interface CollectionSchemaSet {
+  readonly revision: Hash;
+  readonly source: string;
+  /** In the schema's layout order. */
+  readonly tables: readonly CollectionSchema[];
+  readonly weight: number;
+}
+
 /**
- * Compile a collection's `schema.usl` (spec 06 §2.4). The schema declares one
- * model with data rows (fixed models and Person aside), which is the
- * collection's row type as data files store it. Throws {@link CollectionSchemaError}.
+ * Compile a collection's `schema.usl` (spec 06 §2.4) into one schema per
+ * table it stores in data files: each model with data rows (fixed models and
+ * Person aside), and each connection without `@fold`. Throws
+ * {@link CollectionSchemaError}.
  */
-export function compileCollectionSchema(input: Uint8Array | string): CollectionSchema {
+export function compileCollectionSchemas(input: Uint8Array | string): CollectionSchemaSet {
   const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
   const source = decodeSchemaSource(bytes);
   const result = compileUsl(source);
@@ -109,48 +119,61 @@ export function compileCollectionSchema(input: Uint8Array | string): CollectionS
       code: d.code, message: d.message, location: { line: d.line, column: d.column },
     })));
   }
-  const tables = layoutOf(result, { store: "files" });
-  if (tables.length !== 1) {
+  const layout = layoutOf(result, { store: "files" });
+  if (!layout.length) throw schemaFailure("collection-tables", "A collection's schema.usl declares a model with data rows; this one has none");
+  const revision = revisionOf(bytes) as Hash;
+  const tables = layout.map((table): CollectionSchema => {
+    const model = result.models.find((m) => m.name === table.stores);
+    const members: CheckMember[] = table.columns.map((column) => ({
+      name: column.name,
+      // An empty value array is the same as an absent one.
+      optional: column.nullable || column.array,
+      nullable: column.nullable,
+      check: columnCheck(column),
+    }));
+    const pathField = model?.path ? model.fields.find((f) => f.name === model.path) : undefined;
+    return {
+      revision,
+      source,
+      model: table.name,
+      columns: table.columns.map((column) => column.name),
+      primaryKey: [...table.primaryKey],
+      childName: pathField ? { from: "property", property: pathField.column ?? pathField.name } : { from: "primaryKey" },
+      // Overstory convention (spec 06 §2.4): undeclared row members are kept.
+      row: { kind: "map", members, byName: new Map(members.map((m) => [m.name, m])), open: true },
+      csvColumns: table.columns.map((column) => ({
+        name: column.name,
+        optional: column.nullable || column.array,
+        nullable: false,
+        scalar: column.array ? "json" : SCALAR[column.type],
+      })),
+      merge: new Map((model?.fields ?? []).flatMap((field): Array<[string, "many" | "ordered" | "markdown"]> => {
+        const column = field.column ?? field.name;
+        if (!table.columns.some((c) => c.name === column)) return [];
+        if (field.arity === "many") return [[column, field.ordered ? "ordered" : "many"]];
+        return field.type === "Markdown" ? [[column, "markdown"]] : [];
+      })),
+      weight: 1 + members.length + Math.ceil(bytes.byteLength / 64),
+    };
+  });
+  return { revision, source, tables, weight: tables.reduce((n, t) => n + t.weight, 0) };
+}
+
+/**
+ * Compile the `schema.usl` of a single-table collection, stored as
+ * `_store.*`: it must store exactly one table. Throws
+ * {@link CollectionSchemaError}.
+ */
+export function compileCollectionSchema(input: Uint8Array | string): CollectionSchema {
+  return singleTable(compileCollectionSchemas(input));
+}
+
+export function singleTable(set: CollectionSchemaSet): CollectionSchema {
+  if (set.tables.length !== 1) {
     throw schemaFailure(
       "collection-tables",
-      tables.length === 0
-        ? "A collection's schema.usl declares one model with data rows; this one has none"
-        : `A collection's schema.usl declares one model with data rows; this one stores ${tables.map((t) => t.name).join(", ")}${
-          tables.some((t) => t.stores.includes(".")) ? " (keep a many-to-many on the rows with @fold)" : ""
-        }`,
+      `A single-file collection's schema.usl stores one table; this one stores ${set.tables.map((t) => t.model).join(", ")}, so keep one file per table (\`<Table>.jsonl\`)`,
     );
   }
-  const table = tables[0]!;
-  const model = result.models.find((m) => m.name === table.stores)!;
-  const members: CheckMember[] = table.columns.map((column) => ({
-    name: column.name,
-    // An empty value array is the same as an absent one.
-    optional: column.nullable || column.array,
-    nullable: column.nullable,
-    check: columnCheck(column),
-  }));
-  const pathField = model.path ? model.fields.find((f) => f.name === model.path) : undefined;
-  return {
-    revision: revisionOf(bytes) as Hash,
-    source,
-    model: model.name,
-    columns: table.columns.map((column) => column.name),
-    primaryKey: [...table.primaryKey],
-    childName: pathField ? { from: "property", property: pathField.column ?? pathField.name } : { from: "primaryKey" },
-    // Overstory convention (spec 06 §2.4): undeclared row members are kept.
-    row: { kind: "map", members, byName: new Map(members.map((m) => [m.name, m])), open: true },
-    csvColumns: table.columns.map((column) => ({
-      name: column.name,
-      optional: column.nullable || column.array,
-      nullable: false,
-      scalar: column.array ? "json" : SCALAR[column.type],
-    })),
-    merge: new Map(model.fields.flatMap((field): Array<[string, "many" | "ordered" | "markdown"]> => {
-      const column = field.column ?? field.name;
-      if (!table.columns.some((c) => c.name === column)) return [];
-      if (field.arity === "many") return [[column, field.ordered ? "ordered" : "many"]];
-      return field.type === "Markdown" ? [[column, "markdown"]] : [];
-    })),
-    weight: 1 + members.length + Math.ceil(bytes.byteLength / 64),
-  };
+  return set.tables[0]!;
 }

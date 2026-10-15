@@ -1,17 +1,18 @@
 import {
+  collectionTableSources,
   decodeProtocolDirectory,
   executeRowOperations,
   ROW_TIME,
   stableJSONString,
+  type ChildrenSourceDescriptor,
   type JSONValue,
   type ObjectHash,
   type ProtocolDirectory,
   type RowMember,
   type RowOperation,
 } from "@ovst/protocol";
-import { sharedCollectionSchemaCache } from "./cache.ts";
 import type { CollectionSchema } from "./compile.ts";
-import { collectionFileRows } from "./collection-file.ts";
+import { collectionFileRows, collectionTables, type CollectionTable } from "./collection-file.ts";
 import { replayCollectionRows } from "./row-replay.ts";
 import { SYSTEM_COLUMNS } from "./csv.ts";
 
@@ -63,40 +64,54 @@ function fieldEdits(schema: CollectionSchema, before: Row, after: Row, op: (fiel
   return true;
 }
 
-/** Row operations for one collection directory whose collection file changed. */
+/** Row operations for one collection directory whose collection files changed. */
 async function collectionEdits(path: string, object: ObjectHash, before: ProtocolDirectory, after: ProtocolDirectory, read: Read): Promise<RowOperation[] | null> {
   const descriptor = before.childrenSource!, next = after.childrenSource!;
-  if (stableJSONString({ ...descriptor, childSetHash: null }) !== stableJSONString({ ...next, childSetHash: null })) return null;
+  const sources = new Set(collectionTableSources(descriptor).map((t) => t.source));
+  const shape = (d: ChildrenSourceDescriptor) => stableJSONString(d.type === "collection-file"
+    ? { ...d, childSetHash: null }
+    : { ...d, tables: d.tables.map((t) => ({ ...t, childSetHash: null })) });
+  if (shape(descriptor) !== shape(next)) return null;
   const entry = (directory: ProtocolDirectory, name: string) => directory.entries.find((e) => e.name === name);
   const names = new Set([...before.entries, ...after.entries].map((e) => e.name));
   for (const name of names)
-    if (name !== descriptor.source && stableJSONString(entry(before, name) ?? null) !== stableJSONString(entry(after, name) ?? null)) return null;
-  const schemaFile = entry(before, descriptor.schemaSource)?.file, sourceBefore = entry(before, descriptor.source)?.file, sourceAfter = entry(after, descriptor.source)?.file;
-  if (!schemaFile || !sourceBefore || !sourceAfter) return null;
-  let schema: CollectionSchema, rowsBefore: Map<string, Row>, rowsAfter: Map<string, Row>;
+    if (!sources.has(name) && stableJSONString(entry(before, name) ?? null) !== stableJSONString(entry(after, name) ?? null)) return null;
+  const schemaFile = entry(before, descriptor.schemaSource)?.file;
+  if (!schemaFile) return null;
+  const collection: Collection = { material: { kind: "basis", path, object } };
+  const operations: RowOperation[] = [];
+  let tables: CollectionTable[];
   try {
-    schema = sharedCollectionSchemaCache.compile(await read(schemaFile));
-    const decode = async (hash: ObjectHash) => new Map(collectionFileRows(descriptor.format, await read(hash), schema).rows.map((row) => [row.stableKey, row.properties]));
-    [rowsBefore, rowsAfter] = [await decode(sourceBefore), await decode(sourceAfter)];
+    tables = collectionTables(descriptor, await read(schemaFile));
   } catch {
     return null;
   }
-  const collection: Collection = { material: { kind: "basis", path, object } };
-  const operations: RowOperation[] = [];
-  for (const [row, value] of rowsAfter) {
-    const prior = rowsBefore.get(row);
-    const op = (fields: Record<string, unknown>) => operations.push({ key: "", collection, table: schema.model, row, ...fields } as RowOperation);
-    if (!prior) {
-      // A row created with equal times was created by a timed operation.
-      const { created, modified, ...values } = value;
-      if (created !== undefined && json(created) === json(modified) && typeof created === "string" && ROW_TIME.test(created))
-        op({ kind: "rowCreate", values, at: created });
-      else op({ kind: "rowCreate", values: value });
+  for (const { schema, source } of tables) {
+    const sourceBefore = entry(before, source)?.file, sourceAfter = entry(after, source)?.file;
+    if (!sourceBefore || !sourceAfter) return null;
+    if (sourceBefore === sourceAfter) continue;
+    let rowsBefore: Map<string, Row>, rowsAfter: Map<string, Row>;
+    try {
+      const decode = async (hash: ObjectHash) => new Map(collectionFileRows(descriptor.format, await read(hash), schema).rows.map((row) => [row.stableKey, row.properties]));
+      [rowsBefore, rowsAfter] = [await decode(sourceBefore), await decode(sourceAfter)];
+    } catch {
+      return null;
     }
-    else if (!rowEdits(schema, prior, value, op)) return null;
+    for (const [row, value] of rowsAfter) {
+      const prior = rowsBefore.get(row);
+      const op = (fields: Record<string, unknown>) => operations.push({ key: "", collection, table: schema.model, row, ...fields } as RowOperation);
+      if (!prior) {
+        // A row created with equal times was created by a timed operation.
+        const { created, modified, ...values } = value;
+        if (created !== undefined && json(created) === json(modified) && typeof created === "string" && ROW_TIME.test(created))
+          op({ kind: "rowCreate", values, at: created });
+        else op({ kind: "rowCreate", values: value });
+      }
+      else if (!rowEdits(schema, prior, value, op)) return null;
+    }
+    for (const row of rowsBefore.keys())
+      if (!rowsAfter.has(row)) operations.push({ key: "", kind: "rowDelete", collection, table: schema.model, row });
   }
-  for (const row of rowsBefore.keys())
-    if (!rowsAfter.has(row)) operations.push({ key: "", kind: "rowDelete", collection, table: schema.model, row });
   return operations;
 }
 

@@ -1,15 +1,32 @@
 import CryptoKit
 import Foundation
 
-/// Version 1 selects the collection's `schema.usl` (spec 06 §2.1).
+/// One stored table of a multi-table collection (spec 06 §2.4).
+public struct ProtocolCollectionTable: Hashable, Codable, Sendable {
+    public var table: String
+    public var source: String
+    public var childSetHash: String
+
+    public init(table: String, source: String, childSetHash: String) {
+        self.table = table
+        self.source = source
+        self.childSetHash = childSetHash
+    }
+}
+
+/// Version 1 selects the collection's `schema.usl` (spec 06 §2.1). A
+/// `collection-file` descriptor names one `_store.*` source and its child-set
+/// hash; a `collection-tables` descriptor names one `<Table>.*` file per
+/// table, each with its own.
 public struct ProtocolCollectionFileDescriptor: Hashable, Codable, Sendable {
     public var version: Int
     public var type: String
     public var format: String
-    public var source: String
+    public var source: String?
     public var schemaSource: String
     public var schemaFingerprint: String
-    public var childSetHash: String
+    public var childSetHash: String?
+    public var tables: [ProtocolCollectionTable]?
 
     public init(
         version: Int = 1,
@@ -27,6 +44,30 @@ public struct ProtocolCollectionFileDescriptor: Hashable, Codable, Sendable {
         self.schemaSource = schemaSource
         self.schemaFingerprint = schemaFingerprint
         self.childSetHash = childSetHash
+        self.tables = nil
+    }
+
+    public init(
+        version: Int = 1,
+        format: String,
+        schemaSource: String = "schema.usl",
+        schemaFingerprint: String,
+        tables: [ProtocolCollectionTable]
+    ) {
+        self.version = version
+        self.type = "collection-tables"
+        self.format = format
+        self.source = nil
+        self.schemaSource = schemaSource
+        self.schemaFingerprint = schemaFingerprint
+        self.childSetHash = nil
+        self.tables = tables
+    }
+
+    /// The files the collection stores its rows in.
+    public var sources: [String] {
+        if let tables { return tables.map(\.source) }
+        return source.map { [$0] } ?? []
     }
 }
 
@@ -135,14 +176,30 @@ public enum ProtocolObjectCodec {
     }
 
     private static func collectionFileValue(_ descriptor: ProtocolCollectionFileDescriptor) -> CanonicalCBORValue {
-        .map([
+        if let tables = descriptor.tables {
+            return .map([
+                ("version", .unsigned(descriptor.version)),
+                ("type", .text(descriptor.type)),
+                ("format", .text(descriptor.format)),
+                ("schemaSource", .text(descriptor.schemaSource)),
+                ("schemaFingerprint", .text(descriptor.schemaFingerprint)),
+                ("tables", .array(tables.map { table in
+                    .map([
+                        ("table", .text(table.table)),
+                        ("source", .text(table.source)),
+                        ("childSetHash", .text(table.childSetHash)),
+                    ])
+                })),
+            ])
+        }
+        return .map([
             ("version", .unsigned(descriptor.version)),
             ("type", .text(descriptor.type)),
             ("format", .text(descriptor.format)),
-            ("source", .text(descriptor.source)),
+            ("source", .text(descriptor.source ?? "")),
             ("schemaSource", .text(descriptor.schemaSource)),
             ("schemaFingerprint", .text(descriptor.schemaFingerprint)),
-            ("childSetHash", .text(descriptor.childSetHash)),
+            ("childSetHash", .text(descriptor.childSetHash ?? "")),
         ])
     }
 
@@ -151,6 +208,32 @@ public enum ProtocolObjectCodec {
             throw ProtocolValidationError.invalidCBOR("Collection-file descriptor is not a map")
         }
         let item = Dictionary(uniqueKeysWithValues: fields)
+        if case .text("collection-tables")? = item["type"] {
+            guard item.count == 6,
+                  case let .unsigned(version)? = item["version"],
+                  case let .text(format)? = item["format"],
+                  case let .text(schemaSource)? = item["schemaSource"],
+                  case let .text(schemaFingerprint)? = item["schemaFingerprint"],
+                  case let .array(values)? = item["tables"] else {
+                throw ProtocolValidationError.invalidCBOR("Collection-tables descriptor fields are invalid")
+            }
+            let tables = try values.map { value -> ProtocolCollectionTable in
+                guard case let .map(fields) = value else {
+                    throw ProtocolValidationError.invalidCBOR("Collection table is not a map")
+                }
+                let entry = Dictionary(uniqueKeysWithValues: fields)
+                guard entry.count == 3,
+                      case let .text(table)? = entry["table"],
+                      case let .text(source)? = entry["source"],
+                      case let .text(childSetHash)? = entry["childSetHash"] else {
+                    throw ProtocolValidationError.invalidCBOR("Collection table fields are invalid")
+                }
+                return ProtocolCollectionTable(table: table, source: source, childSetHash: childSetHash)
+            }
+            return ProtocolCollectionFileDescriptor(
+                version: version, format: format, schemaSource: schemaSource, schemaFingerprint: schemaFingerprint, tables: tables
+            )
+        }
         guard item.count == 7,
               case let .unsigned(version)? = item["version"],
               case let .text(type)? = item["type"],
@@ -170,6 +253,12 @@ public enum ProtocolObjectCodec {
             schemaFingerprint: schemaFingerprint,
             childSetHash: childSetHash
         )
+    }
+
+    /// A table name is a USL model or join-table name.
+    private static func isTableName(_ name: String) -> Bool {
+        guard let first = name.unicodeScalars.first, first.isASCII, CharacterSet.letters.contains(first) else { return false }
+        return name.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_") }
     }
 
     private static func validate(_ object: ProtocolObject) throws {
@@ -197,20 +286,43 @@ public enum ProtocolObjectCodec {
         }
         if let childrenSource {
             guard childrenSource.version == 1,
-                  childrenSource.type == "collection-file",
                   ["csv", "json", "jsonl"].contains(childrenSource.format),
-                  childrenSource.source == "_store.\(childrenSource.format)",
                   childrenSource.schemaSource == "schema.usl" else {
                 throw ProtocolValidationError.invalidValue("Invalid collection-file descriptor")
             }
             try validateObjectHash(childrenSource.schemaFingerprint)
-            try validateObjectHash(childrenSource.childSetHash)
+            switch childrenSource.type {
+            case "collection-file":
+                guard childrenSource.tables == nil,
+                      childrenSource.source == "_store.\(childrenSource.format)",
+                      let childSetHash = childrenSource.childSetHash else {
+                    throw ProtocolValidationError.invalidValue("Invalid collection-file descriptor")
+                }
+                try validateObjectHash(childSetHash)
+            case "collection-tables":
+                guard childrenSource.source == nil, childrenSource.childSetHash == nil,
+                      let tables = childrenSource.tables, !tables.isEmpty else {
+                    throw ProtocolValidationError.invalidValue("Invalid collection-tables descriptor")
+                }
+                var previousTable: Data?
+                for table in tables {
+                    let utf8 = Data(table.table.utf8)
+                    guard isTableName(table.table), table.source == "\(table.table).\(childrenSource.format)",
+                          previousTable.map({ $0.lexicographicallyPrecedes(utf8) }) ?? true else {
+                        throw ProtocolValidationError.invalidValue("Invalid collection-tables descriptor")
+                    }
+                    previousTable = utf8
+                    try validateObjectHash(table.childSetHash)
+                }
+            default:
+                throw ProtocolValidationError.invalidValue("Invalid collection-file descriptor")
+            }
             let entriesByName = Dictionary(uniqueKeysWithValues: entries.map { ($0.name, $0) })
-            guard entriesByName[childrenSource.source]?.file != nil,
+            guard childrenSource.sources.allSatisfy({ entriesByName[$0]?.file != nil }),
                   entriesByName[childrenSource.schemaSource]?.file != nil else {
                 throw ProtocolValidationError.invalidValue("Collection-file sources must be ordinary file entries")
             }
-            let allowed = Set([childrenSource.source, childrenSource.schemaSource, "_index.md"])
+            let allowed = Set(childrenSource.sources + [childrenSource.schemaSource, "_index.md"])
             guard entries.allSatisfy({ allowed.contains($0.name) }) else {
                 throw ProtocolValidationError.invalidValue("Collection-file directory mixes immediate-child backings")
             }

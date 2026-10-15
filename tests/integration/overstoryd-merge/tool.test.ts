@@ -84,7 +84,7 @@ async function collection(rows: unknown[]): Promise<TreeSnapshot> {
   try {
     await writeFile(join(root, "schema.usl"), 'model Item {\n  title Text\n}\n');
     await writeFile(join(root, "_store.json"), JSON.stringify(rows) + "\n");
-    return await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (path, name) => host.collectionFileDescriptor(path, name)));
+    return await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (path, name) => host.collectionDescriptor(path, name)));
   } finally { await host[Symbol.asyncDispose](); }
 }
 test("collection row rules merge through the process, and a row conflict is a choice", async () => {

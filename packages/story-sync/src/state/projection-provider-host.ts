@@ -19,6 +19,8 @@ import {
   type ProviderChildRecord,
 } from "@ovst/apps-runtime/collections";
 import { CollectionSchemaCache } from "@ovst/collection-schema";
+import type { ChildrenSourceDescriptor } from "@ovst/protocol";
+import { describeCollectionTables } from "./providers/collection-tables.ts";
 function rowSummary(
   row: ProviderChildRecord,
   page: LoadedProjectionSlice,
@@ -218,7 +220,7 @@ export class ProjectionReadSession {
 export class ProjectionProviderHost implements AsyncDisposable {
   private readonly drivers: ProjectionProvider[];
   private readonly providers = new Map<ProjectionProviderKind, ProjectionProvider>();
-  constructor(schemas = new CollectionSchemaCache(), connections = new ConnectionStore()) {
+  constructor(private readonly schemas = new CollectionSchemaCache(), connections = new ConnectionStore()) {
     this.drivers = [
       new FileProjectionDriver(schemas),
       new SQLiteProjectionDriver(),
@@ -245,6 +247,26 @@ export class ProjectionProviderHost implements AsyncDisposable {
     if (!definition) return null;
     const provider = this.provider(definition.provider);
     return provider.collectionFileDescriptor ? provider.collectionFileDescriptor(definition, sourceName) : null;
+  }
+  /**
+   * The collection descriptor of a directory holding `schema.usl` (spec 06
+   * §2.4): one `_store.*` file for a single-table collection, or one
+   * `<Table>.*` file per table. Null when the directory is not a valid
+   * collection, so its files sync as ordinary files.
+   */
+  async collectionDescriptor(directory: string, fileNames: readonly string[]): Promise<ChildrenSourceDescriptor | null> {
+    const stores = fileNames.filter((name) => ["_store.csv", "_store.json", "_store.jsonl"].includes(name));
+    if (stores.length > 1) throw new Error(`Directory has more than one collection file: ${directory}`);
+    if (!stores.length) return describeCollectionTables(directory, fileNames, this.schemas);
+    const source = stores[0]!;
+    const description = await this.collectionFileDescriptor(directory, source);
+    return description ? {
+      version: 1,
+      type: "collection-file",
+      source: source as "_store.csv" | "_store.json" | "_store.jsonl",
+      schemaSource: "schema.usl",
+      ...description,
+    } : null;
   }
   async schemaTypes(directory: string) {
     return (await this.open(directory))?.schemaTypes() ?? null;

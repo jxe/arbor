@@ -63,8 +63,8 @@ export class WorkspaceNodes implements AsyncDisposable {
     return { tree: this.tree, path, stableKey: this.stableKeyByPath.get(path) ?? null };
   }
 
-  describeProtocolCollectionFile(directory: string, sourceName: string) {
-    return this.provider.collectionFileDescriptor(directory, sourceName);
+  describeProtocolCollection(directory: string, fileNames: readonly string[]) {
+    return this.provider.collectionDescriptor(directory, fileNames);
   }
 
   async snapshot(ref: NodeRef): Promise<NodeResponse> {

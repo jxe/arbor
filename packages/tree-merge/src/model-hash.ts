@@ -55,7 +55,9 @@ export class ModelHashes {
       return canonicalCBORHash({
         body,
         childSchema: object.childrenSource.schemaFingerprint,
-        childSet: object.childrenSource.childSetHash,
+        childSet: object.childrenSource.type === "collection-file"
+          ? object.childrenSource.childSetHash
+          : Object.fromEntries(object.childrenSource.tables.map((t) => [t.table, t.childSetHash])),
       });
     }
     const children: Record<string, Hash> = {};

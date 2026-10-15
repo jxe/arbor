@@ -578,7 +578,7 @@ export class StorySyncDaemon implements AsyncDisposable {
       workspace.root,
       this.canonicalBoundariesFor(workspace, remoteTrees),
       exclusions,
-      (directory, sourceName) => workspace.describeProtocolCollectionFile(directory, sourceName),
+      (directory, names) => workspace.describeProtocolCollection(directory, names),
       workspace.objectIndex(),
       also ? async (path, isDirectory) => await skip(path, isDirectory) || await also(path, isDirectory) : skip,
     );

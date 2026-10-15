@@ -11,12 +11,11 @@ import {
   type ObjectHash,
   type RowMember,
   type RowOperation,
+  withCollectionChildSetHash,
 } from "@ovst/protocol";
-import { sharedCollectionSchemaCache } from "./cache.ts";
 import type { CollectionSchema } from "./compile.ts";
-import { collectionFileRows, ProtocolCollectionFileError, type CollectionFileFormat } from "./collection-file.ts";
+import { collectionFileRows, collectionTables, ProtocolCollectionFileError, type CollectionFileFormat, type CollectionTable } from "./collection-file.ts";
 import { CsvEncodeError, encodeCsvRecord, SYSTEM_COLUMNS } from "./csv.ts";
-import { CollectionSchemaError } from "./diagnostics.ts";
 
 type Row = Record<string, JSONValue>;
 /** A changed row: `null` deletes it. Rows are named by their source position key. */
@@ -290,47 +289,60 @@ export function applyRowOperations(
   return { replaced, appended, rows };
 }
 
-/** The collection schema package's row replay (spec 10 §4.1): validate the
- * basis collection, apply the operations, splice the representation and
- * re-derive the descriptor's child-set hash. */
+/** The collection schema package's row replay (spec 10 §4.1): validate each
+ * table the operations touch, apply them, splice that table's file and
+ * re-derive its child-set hash in the descriptor. */
 export const replayCollectionRows: CollectionRowReplay = async (directoryHash, operations, read) => {
   const directory = decodeProtocolDirectory(await read(directoryHash));
-  const descriptor = directory.childrenSource;
+  let descriptor = directory.childrenSource;
   if (!descriptor) invalid("collection directory has no collection file");
-  const sourceEntry = directory.entries.find((entry) => entry.name === descriptor.source);
-  const schemaEntry = directory.entries.find((entry) => entry.name === descriptor.schemaSource);
-  if (!sourceEntry?.file || !schemaEntry?.file) invalid("collection file is missing");
-  let schema: CollectionSchema;
+  const fileOf = (name: string) => {
+    const entry = directory.entries.find((e) => e.name === name);
+    if (!entry?.file) invalid("collection file is missing");
+    return entry.file;
+  };
+  let tables: CollectionTable[];
   try {
-    schema = sharedCollectionSchemaCache.compile(await read(schemaEntry.file));
+    tables = collectionTables(descriptor, await read(fileOf(descriptor.schemaSource)));
   } catch (error) {
-    if (error instanceof CollectionSchemaError) invalid(`schema.usl: ${error.message}`);
+    if (error instanceof ProtocolCollectionFileError && error.kind === "schema") invalid(error.message);
     throw error;
   }
-  if (schema.revision !== descriptor.schemaFingerprint) invalid("schema fingerprint does not match schema.usl");
-  const sourceBytes = await read(sourceEntry.file);
-  const basis = collectionFileRows(descriptor.format, sourceBytes, schema);
-  if (basis.childSetHash !== descriptor.childSetHash) invalid("child-set hash does not match the basis rows");
-  const sourceText = new TextDecoder().decode(sourceBytes);
-  // A CSV file holds a row's times only where its header has their columns.
-  const header = descriptor.format === "csv"
-    ? (parseCSV(sourceText, { bom: true, to_line: 1, relax_column_count: true }) as string[][])[0] ?? []
-    : SYSTEM_COLUMNS;
-  const splice = applyRowOperations(schema, basis.rows, operations, new Set(SYSTEM_COLUMNS.filter((name) => header.includes(name))));
-  const text = spliceCollectionFile(descriptor.format, sourceText, schema, splice);
-  const bytes = new TextEncoder().encode(text);
-  const result = collectionFileRows(descriptor.format, bytes, schema);
-  const expected = [...splice.rows].filter(([, row]) => row !== null);
-  const written = new Map(result.rows.map((row) => [row.stableKey, row.properties]));
-  if (written.size !== expected.length || expected.some(([key, row]) => stableJSONString(written.get(key) ?? null) !== stableJSONString(row)))
-    throw new ProtocolCollectionFileError("source", "Collection file does not re-read as the rows written");
+  const byTable = new Map<CollectionTable, RowOperation[]>();
+  for (const operation of operations) {
+    const table = tables.find((t) => t.schema.model === operation.table);
+    if (!table) invalid(`table ${operation.table} is not in this collection`);
+    byTable.set(table, [...byTable.get(table) ?? [], operation]);
+  }
   const generated = new Map<ObjectHash, Uint8Array>();
-  const source = hashObject(bytes);
-  generated.set(source, bytes);
+  const files = new Map<string, ObjectHash>();
+  for (const [table, ops] of byTable) {
+    const { schema } = table;
+    const sourceBytes = await read(fileOf(table.source));
+    const basis = collectionFileRows(descriptor.format, sourceBytes, schema);
+    if (basis.childSetHash !== table.childSetHash) invalid("child-set hash does not match the basis rows");
+    const sourceText = new TextDecoder().decode(sourceBytes);
+    // A CSV file holds a row's times only where its header has their columns.
+    const header = descriptor.format === "csv"
+      ? (parseCSV(sourceText, { bom: true, to_line: 1, relax_column_count: true }) as string[][])[0] ?? []
+      : SYSTEM_COLUMNS;
+    const splice = applyRowOperations(schema, basis.rows, ops, new Set(SYSTEM_COLUMNS.filter((name) => header.includes(name))));
+    const text = spliceCollectionFile(descriptor.format, sourceText, schema, splice);
+    const bytes = new TextEncoder().encode(text);
+    const result = collectionFileRows(descriptor.format, bytes, schema);
+    const expected = [...splice.rows].filter(([, row]) => row !== null);
+    const written = new Map(result.rows.map((row) => [row.stableKey, row.properties]));
+    if (written.size !== expected.length || expected.some(([key, row]) => stableJSONString(written.get(key) ?? null) !== stableJSONString(row)))
+      throw new ProtocolCollectionFileError("source", "Collection file does not re-read as the rows written");
+    const source = hashObject(bytes);
+    generated.set(source, bytes);
+    files.set(table.source, source);
+    descriptor = withCollectionChildSetHash(descriptor, table.table, result.childSetHash);
+  }
   const next = encodeProtocolDirectory({
     ...directory,
-    entries: directory.entries.map((entry) => entry.name === descriptor.source ? { name: entry.name, file: source } : entry),
-    childrenSource: { ...descriptor, childSetHash: result.childSetHash },
+    entries: directory.entries.map((entry) => files.has(entry.name) ? { name: entry.name, file: files.get(entry.name)! } : entry),
+    childrenSource: descriptor,
   });
   const hash = hashObject(next);
   generated.set(hash, next);

@@ -1,4 +1,6 @@
 import {
+  collectionSourceNames,
+  collectionTableSources,
   decodeProtocolDirectory,
   encodeProtocolDirectory,
   hashObject,
@@ -195,9 +197,15 @@ export async function mergeProtocolTrees(
     const collectionInput = (directory: ProtocolDirectory): CollectionFileMergeInput | null => {
       const descriptor = directory.childrenSource;
       if (!descriptor) return null;
-      const source = directory.entries.find((entry) => entry.name === descriptor.source)?.file;
-      const schemaSource = directory.entries.find((entry) => entry.name === descriptor.schemaSource)?.file;
-      return source && schemaSource ? { descriptor, source, schemaSource } : null;
+      const file = (name: string) => directory.entries.find((entry) => entry.name === name)?.file;
+      const sources: Record<string, ObjectHash> = {};
+      for (const { source } of collectionTableSources(descriptor)) {
+        const hash = file(source);
+        if (!hash) return null;
+        sources[source] = hash;
+      }
+      const schemaSource = file(descriptor.schemaSource);
+      return schemaSource ? { descriptor, sources, schemaSource } : null;
     };
     const baseCollection = collectionInput(baseDirectory);
     const candidateCollection = collectionInput(candidateDirectory);
@@ -222,14 +230,11 @@ export async function mergeProtocolTrees(
       }
       if (conflicts.length > priorConflicts) unresolvedDirectories.add(parentPath);
       for (const directory of [baseDirectory, candidateDirectory, currentDirectory]) {
-        if (directory.childrenSource) {
-          handled.add(directory.childrenSource.source);
-          handled.add(directory.childrenSource.schemaSource);
-        }
+        if (directory.childrenSource) for (const name of collectionSourceNames(directory.childrenSource)) handled.add(name);
       }
       if (selectedCollection) {
         entries.push(
-          { name: selectedCollection.descriptor.source, file: selectedCollection.source },
+          ...Object.entries(selectedCollection.sources).map(([name, file]) => ({ name, file })),
           { name: selectedCollection.descriptor.schemaSource, file: selectedCollection.schemaSource },
         );
       }
