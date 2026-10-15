@@ -256,37 +256,57 @@ from it, can be dropped and rebuilt from it, and never changes what a root
 means. So history, merge, row operations, authorization and conformance are
 untouched.
 
-**Steps, each useful alone:**
+**How overstoryd does it** (as of 2026-10-15, overstoryd keeps one WAL
+SQLite, `overstoryd.sqlite3`; acceptance is serialized per tree by
+`withTreeLock`; derived indexes such as `entry_metadata` and `tree_policy`
+are prepared before and written inside `acceptedStore.commit`'s
+`withinTransaction` hook; the `/queries` and `/mutate` routes exist but no
+runtime is wired in):
 
-1. **Host materialization.** overstoryd keeps one SQLite database per
-   database collection, created from `setupSql(layoutOf(schema, database))`,
-   recording the accepted root it reflects. Accepting an update applies its
-   row operations to it (or replays the table diff when the update came as
-   files). A query or mutation first brings it up to the current root, so it
-   is never seen behind. A schema change rebuilds it.
-2. **Queries** (07 §4, §12.1) run on the materialization through
-   apps-runtime's `SQLiteQueryEngine`; `SQLiteStoreBroker`'s row-level
-   changes drive live invalidation.
-3. **Mutations** (07 §5, §12.2) take the "compute against a snapshot and
-   submit an ordinary update" path 07 §5 already allows: the handler runs in
-   a savepoint on the materialization, the broker's triggers capture its
-   effects (cascades included) as row operations, the savepoint rolls back,
-   and the operations are submitted as one update guarded by the root they
-   read. Acceptance then applies them as in step 1. A stale guard reruns the
-   handler. So a mutation, a device edit and a Story edit share one history,
-   one merge and one authorization path (milestone 5), and the receipt names
-   the accepted update (07 §12.3).
-4. **Chunked tables** (when a table gets big): a table's rows are split at
+1. **One file per collection, a cache of accepted state.**
+   `<dataRoot>/materialized/<tree>/<collection>.sqlite3` holds the schema's
+   database layout and a meta row `{ schemaFingerprint, appliedThrough }`,
+   the `accepted_updates` ordinal it reflects. It is never backed up,
+   retained or audited, and can be deleted at any time. It is a separate
+   file because a WAL database can't commit atomically with another, and
+   because it is disposable.
+2. **Catch-up, not two-phase commit.** After a commit, still holding the
+   tree lock, overstoryd compares the new root's collection descriptors with
+   the ones at `appliedThrough`: tables with the same hash are skipped,
+   changed ones are diffed row by row and applied with the new
+   `appliedThrough` in one transaction. Diffing results rather than trusting
+   intents covers every kind of acceptance (row operations, snapshots,
+   merges, resolutions). A reader whose `appliedThrough` is behind the
+   tree's ordinal catches up first; after a crash it catches up or rebuilds.
+   A schema change rebuilds.
+3. **Lifecycle.** Built on first use by a query, mutation or activated app
+   binding; evicted when idle under a disk budget; rebuilt on next use.
+4. **Queries** (07 §4, §12.1) run on the file through apps-runtime's
+   `SQLiteQueryEngine`, with `observedThrough` = `appliedThrough`, and the
+   catch-up's row changes drive live invalidation.
+5. **Mutations** (07 §5, §12.2) take the "compute against a snapshot and
+   submit an ordinary update" path: the handler runs in a transaction on
+   the file at ordinal U, the broker's triggers record its effects
+   (cascades included) as row operations, the transaction rolls back, and
+   the operations go in as one update whose `change` comes from the request
+   digest (so an exact retry is the same change), guarded on U. Accepted, it
+   is caught up like any update and the receipt names it; a failed guard
+   catches up and reruns, a bounded number of times. So mutations, devices
+   and Story share one history, merge and authorization path (milestone 5).
+   To keep unrelated edits from forcing reruns, the guard should be scoped
+   to the rows the handler read rather than the whole tree (a spec 01/07
+   addition).
+6. **Open field decisions:** queries see the projected value.
+7. **Chunked tables** (when a table gets big): a table's rows are split at
    content-defined boundaries over their sorted stable keys (a prolly tree
-   written as files), and the descriptor lists the chunks. An edit then makes
-   O(1) new chunk objects and the table's hash updates in O(log n), on the
-   host, on the wire and in history. Chunking is canonical over the rows, so
-   a CSV, JSONL or SQLite holding the same rows still hashes the same. This
-   replaces the LtHash design in milestone 2's original text.
-5. **Device scans by change, not by reread:** story-sync uses the broker's
-   triggers on the device database to know which rows changed since the last
-   scan, and rereads only those (a full scan stays the fallback after an
-   unobserved write).
+   written as files), and the descriptor lists the chunks. An edit then
+   makes O(1) new chunk objects, and catch-up diffs only changed chunks.
+   Chunking is canonical over the rows, so a CSV, JSONL or SQLite holding the
+   same rows still hashes the same. This replaces the LtHash design in
+   milestone 2's original text.
+8. **Device scans by change:** story-sync uses the broker's triggers on the
+   device database to reread only changed rows; a full scan stays the
+   fallback after an unobserved write.
 
 **Done when:**
 - A named query over Supplies runs on the host without loading table files,
