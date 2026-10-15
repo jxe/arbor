@@ -71,6 +71,10 @@ Story"):
   naming the other groups; a `Markdown` field in a table row expands inline,
   and a row stored as a Markdown file opens as its page.
 - View state (tab, collapsed groups) is the client's own.
+- Replaying a row operation re-derives the collection's representation and
+  descriptor deterministically; the frame's `after` must equal it (spec 10 §2
+  amended). Multi-table folders get a new descriptor form. Story gets USL
+  natively: `packages/usl`'s parser, checker and layout port to StoryKit.
 - No web views yet.
 
 ## Target result
@@ -517,11 +521,9 @@ an unknown selection) rather than fixing the byte-range shape.
 
 1. Is "property non-empty" the right size for `unless`/`when`? Revisit after
    Supplies and excellences use it.
-2. Exact replay for row operations: is "the host re-derives the
-   representation and descriptor deterministically, and `after` must equal
-   it" the right amendment to spec 10 §2, or should row operations carry no
-   candidate bytes at all for collections?
-3. The Swift schema: port `packages/usl` to StoryKit (proposed), or have the
-   sync helper hand Story a compiled schema (layout plus resolved views)?
-4. Does Postgres 002 adopt the logical multiset hash too, or stay with
-   observation only?
+2. Does Postgres 002 adopt the logical multiset hash? Proposed: not for
+   Postgres as a shared external authority. There the tree carries only the
+   descriptor, so no root needs the hash. Keeping it would mean a trigger on
+   every external writer and a hot per-table hash row (or sharded counters)
+   in a database Overstory may not own. Adopt it with Postgres 004's managed
+   bidirectional mode, where Overstory owns every write.
