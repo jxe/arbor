@@ -241,6 +241,61 @@ apps-runtime already has the pieces:
   merge per milestone 1's rules and both copies hold the same rows and hash.
 - An edit made with the `sqlite3` command line is picked up and published.
 
+### 2a. Rows on the host
+
+**As built in milestone 2** (spec 06 §3.1), a synced SQLite database is held
+in the tree as one canonical JSONL file per table. That keeps one data model,
+but every accepted edit writes a new whole-table object, every scan reads every
+row, and the host can't answer queries or run mutations (spec 07 §4, §5)
+without loading tables. Joe (2026-10-15): the host needs rows, especially for
+queries and mutations, ideally as an optimization over the tree model rather
+than a second source of truth.
+
+**The rule:** the accepted tree stays canonical. Everything below is derived
+from it, can be dropped and rebuilt from it, and never changes what a root
+means. So history, merge, row operations, authorization and conformance are
+untouched.
+
+**Steps, each useful alone:**
+
+1. **Host materialization.** overstoryd keeps one SQLite database per
+   database collection, created from `setupSql(layoutOf(schema, database))`,
+   recording the accepted root it reflects. Accepting an update applies its
+   row operations to it (or replays the table diff when the update came as
+   files). A query or mutation first brings it up to the current root, so it
+   is never seen behind. A schema change rebuilds it.
+2. **Queries** (07 §4, §12.1) run on the materialization through
+   apps-runtime's `SQLiteQueryEngine`; `SQLiteStoreBroker`'s row-level
+   changes drive live invalidation.
+3. **Mutations** (07 §5, §12.2) take the "compute against a snapshot and
+   submit an ordinary update" path 07 §5 already allows: the handler runs in
+   a savepoint on the materialization, the broker's triggers capture its
+   effects (cascades included) as row operations, the savepoint rolls back,
+   and the operations are submitted as one update guarded by the root they
+   read. Acceptance then applies them as in step 1. A stale guard reruns the
+   handler. So a mutation, a device edit and a Story edit share one history,
+   one merge and one authorization path (milestone 5), and the receipt names
+   the accepted update (07 §12.3).
+4. **Chunked tables** (when a table gets big): a table's rows are split at
+   content-defined boundaries over their sorted stable keys (a prolly tree
+   written as files), and the descriptor lists the chunks. An edit then makes
+   O(1) new chunk objects and the table's hash updates in O(log n), on the
+   host, on the wire and in history. Chunking is canonical over the rows, so
+   a CSV, JSONL or SQLite holding the same rows still hashes the same. This
+   replaces the LtHash design in milestone 2's original text.
+5. **Device scans by change, not by reread:** story-sync uses the broker's
+   triggers on the device database to know which rows changed since the last
+   scan, and rereads only those (a full scan stays the fallback after an
+   unobserved write).
+
+**Done when:**
+- A named query over Supplies runs on the host without loading table files,
+  and a subscriber sees a device's edit.
+- A named mutation commits as an accepted update that both devices' databases
+  receive, and its retry returns the same receipt.
+- Dropping the host materialization and restarting rebuilds it to the same
+  rows.
+
 ### 3. Presented views
 
 `presentPage` lives in `packages/protocol/src/documents/page-presentation.ts`,
