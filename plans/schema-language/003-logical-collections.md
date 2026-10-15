@@ -10,7 +10,11 @@ the two questions that decide the design. Nothing here is built.
 
 ## Status
 
-- **State:** PROPOSED, for discussion.
+- **State:** PROPOSED, for discussion. Settled by Joe (2026-10-15 11:07):
+  question 2 as recommended (option 3); a device's projection lives in
+  `placements.yaml`; Story Sync records what it finds on disk the first time;
+  host retention belongs to the host operator and the tree configuration.
+  Open: the logical form (below) and the open questions.
 - **Affects:** plan 002 milestones 2 and 2a; spec 01 (representations), 02
   (projection boundary), 06 (§2.1, §3.1, §4, §7), 10 (§4.1); Postgres 002, 004
   and 005.
@@ -99,16 +103,14 @@ able to read from it and write back into it without loss.
   the branch uses works now; chunking by key range keeps it from growing with
   table size.
 
-### Recommendation
+### Recommendation (revised; see "Exploring the logical form")
 
-**(1), the database layout, as the logical form**, with order kept as
-positions and `created`/`modified` derived from accepted operations. It is
-the most explicit form, every other projection is a lossless view of it
-(folding join tables into arrays, dropping timestamps and positions), row
-operations and merge already work on it, and the host's projection is then a
-plain copy. (3) is cleaner on paper, but it needs a new merge for arrays and
-sequences, and the database layout is the one that has to exist somewhere
-anyway.
+First pass recommended (1), because row operations and merge already work on
+it. Working through it further points to (3): the merge rules USL already
+states ("a row is a set of tuples", many-valued fields merge member by
+member, `@ordered` fields merge as sequences) are about models and
+connections, not tables, and row operations already have `rowConnect`,
+`rowDisconnect` and `rowMove`. Both layouts then become projections.
 
 ## Question 2: what happens to collection files people write by hand?
 
@@ -170,6 +172,109 @@ today, and that is what is at stake.
 choose, while keeping what (1) protects for the people who wrote the file,
 using the splicing that already exists. (2) throws away a working guarantee
 for no gain, and (1) keeps the coupling.
+
+## Exploring the logical form
+
+The logical form is the one thing every placement agrees on and every hash
+names; merge, access, presence and queries work on it, and replay produces
+it. So it must be total, canonical and typed, and hold nothing that is a
+placement's choice. Six things decide it.
+
+### 1. What is addressable
+
+The logical form fixes the collection's node paths, and those are durable:
+links, `NodeRef`s, locators, access rules and presence all use them.
+
+- **Models only (recommended).** `/games/Game/g1`, `/games/List/l1`. A model
+  with rows is a table; a connection model (one with fields or `@@id`, like
+  `Item` or `Contribution`) is a model, so its rows are addressable too. A
+  plain n:m connection is not a node set: it shows as a property on the rows
+  at both ends.
+- **Every layout table.** Adds `/games/List_games/…`. Join rows are facts
+  about two rows, not things anyone links to, and they would appear in Story's
+  browser as a folder nobody made.
+
+Today 10 §4.1 names tables by the data-file layout while the branch's
+database collections use the database layout, so the same connection has two
+names; fixing the logical form removes that.
+
+### 2. Connections
+
+- A plain n:m connection is a **set of pairs**, held once in the encoding.
+  Which end holds it is an encoding detail (the `@ordered` end, else the end
+  declared first). Either end's `rowConnect`/`rowDisconnect` names the same
+  fact, and acceptance records it once.
+- An `@ordered` connection is a **sequence** of member keys per owner, not
+  `_position` numbers. Positions are a database projection's detail: the
+  SQLite projection writes and renumbers them freely, and reading back turns
+  a position change into `rowMove`. Merge is the sequence merge USL already
+  names. Undecided: two devices moving the same member concurrently (later
+  `at` wins, or a decision).
+- A 1:1 or 1:n connection is a reference on the single side, as now.
+- **`@fold`, `@@fold`, `@column` and `@@table` stop shaping data.** They
+  become how the schema maps the logical form into file and database
+  layouts, so refolding a connection changes no data and no hash (README's
+  "refold, lossless" becomes free). Whether they stay in `schema.usl` as the
+  default mapping, or move to the placement, is a fork: `@column`/`@@table`
+  matter for matching an existing database (Supplies), which argues for
+  keeping them in the schema as defaults a placement may override.
+
+### 3. Timestamps
+
+`created` and `modified` are **row state**, stamped only from accepted
+operations' `at`, never set directly; on merge, `modified` takes the later
+value. The alternative, deriving them from history, fails once a host prunes
+history under its retention policy, and every database projection and every
+view sorted by `modified` needs them. Cost: two rows with equal fields and
+different histories are not equal states.
+
+### 4. Values
+
+One canonical typed encoding per USL type, so no projection's conventions
+leak in: `Int` and `Number` distinct (no `1` vs `1.0`), `Bool`, `Date` as
+`YYYY-MM-DD`, timestamps as RFC 3339 UTC at a fixed precision, `Text` and
+`Markdown` as UTF-8 strings, references as the target's key, `Person` as a
+profile id, value arrays as arrays. Absent and empty differ: an optional field
+with no value is omitted, never `null`, and an empty many-valued field is
+absent.
+
+### 5. Encoding and hash
+
+- **Canonical CBOR** like every other protocol object, rather than the
+  branch's JSONL: typed values without string conventions, and readability
+  comes from projections anyway.
+- **Rows sorted by key and chunked at content-defined boundaries**, a table
+  object listing its chunks. Define the hash this way from the start, even
+  though every table is one chunk today: a one-chunk table hashes the same
+  forever, so splitting big tables later changes no hashes. Doing it later
+  instead means a hash migration.
+
+### 6. What stays authored
+
+`schema.usl` stays authored bytes beside the collection, and the logical
+collection binds to its fingerprint. `_index.md` and other files in the folder
+stay ordinary entries: the folder is a page that has a logical collection.
+Schema changes become logical migrations (add a field with a default, widen
+arity, rename); the format-only ones in README stop touching data.
+
+## Open questions, worked through
+
+1. **Pages.** Keep them representation-first for now, but note the same
+   split would cost less than it seems: under question 2's rule a device keeps
+   its own front-matter formatting, and a page's body bytes are its content,
+   so they'd stay exact. What would change is that front-matter formatting no
+   longer travels between devices, and front matter would merge per property.
+   Revisit once collections work this way.
+2. **Content in rows.** Have the schema name the body: a `Markdown` field
+   marked `@body` is what a Markdown-records projection writes after the
+   front matter. The schema then stays the whole contract, a SQLite
+   projection has a column for it, and a row has no content outside its
+   fields. Rows have no children in a logical collection; a subpage belongs in
+   a separate folder that links to the row.
+3. **Order.** Sequences in the logical form, positions only in database
+   projections (§2 above).
+4. **Chunking.** Define the hash as chunked now; build splitting when the
+   first table needs it (§5 above).
 
 ## Where placement choices live
 
