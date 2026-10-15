@@ -24,6 +24,13 @@ databases and derives query relationships from its database layout.
   (direct columns or a join table), with people as the `Person` relation.
 - `validateRow(table, row)`, `typeDeclarations(tables)`.
 - `layoutOf(result, { store: "files" })` folds `@fold` connections into arrays, as data files store them.
+- `presentView(result, rows, options)` (`src/present.ts`): a collection's
+  data-file rows as one of its views presents them (tabs, groups, lines,
+  cells, per-row capabilities), with the default arrangement for a model
+  without `@@views`. `viewEdits` turns what a person does to a view into row
+  operations (spec 10 §4.1), `applyRowEdits` applies them, and `checkRows`
+  validates rows and references. StoryKit's `PresentedView` is the Swift
+  port; both run `docs/overstory-spec/conformance/presented-views.json`.
 - `@ovst/usl/verify`: `verifyStore(schema, location)` checks that a store
   implements a schema. Each kind of store is a `StoreBackend`: `sqlite` (a
   `.sqlite3` file), `postgres` (a `postgres://` URL, `?schema=` for a

@@ -48,3 +48,26 @@ export function compileUsl(source: string): CheckResult {
 export function formatDiagnostic(path: string, d: Diagnostic): string {
   return `${path}:${d.line}:${d.column}: ${d.code}: ${d.message}`;
 }
+export {
+  presentView,
+  viewEdits,
+  viewsOf,
+  presentedModel,
+  applyRowEdits,
+  checkRows,
+  checkFieldValue,
+  firstParagraph,
+  rowKey,
+  ViewError,
+  type Presentation,
+  type PresentedGroup,
+  type PresentedLine,
+  type PresentOptions,
+  type Cell,
+  type Chip,
+  type GroupKind,
+  type RowCapabilities,
+  type RowEdit,
+  type RowsDiagnostic,
+  type ViewIntent,
+} from "./present.ts";
