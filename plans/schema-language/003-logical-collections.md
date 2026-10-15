@@ -208,16 +208,14 @@ names; fixing the logical form removes that.
   `_position` numbers. Positions are a database projection's detail: the
   SQLite projection writes and renumbers them freely, and reading back turns
   a position change into `rowMove`. Merge is the sequence merge USL already
-  names. Undecided: two devices moving the same member concurrently (later
-  `at` wins, or a decision).
+  names. Two devices moving the same member concurrently: the later move
+  wins, with a merge note (Joe, 2026-10-15).
 - A 1:1 or 1:n connection is a reference on the single side, as now.
 - **`@fold`, `@@fold`, `@column` and `@@table` stop shaping data.** They
   become how the schema maps the logical form into file and database
   layouts, so refolding a connection changes no data and no hash (README's
-  "refold, lossless" becomes free). Whether they stay in `schema.usl` as the
-  default mapping, or move to the placement, is a fork: `@column`/`@@table`
-  matter for matching an existing database (Supplies), which argues for
-  keeping them in the schema as defaults a placement may override.
+  "refold, lossless" becomes free). They get their own sigil (see "Splitting
+  the schema").
 
 ### 3. Timestamps
 
@@ -285,6 +283,40 @@ more per-placement units". Sorting today's USL by what it decides:
 - **Existing databases** are what layouts are for: a layout says how the
   existing tables spell the logical form, and `usl verify` checks a database
   against schema plus layout.
+
+### Two sigils (Joe, 2026-10-15)
+
+Keep one file and one language, and make the split visible on every line:
+`@` for what the data is, `%` for how a store holds it.
+
+```usl
+model Book {
+  title   Text      %column("book_title")
+  authors Person[]
+  %%table("books")
+  %%index(title)
+}
+
+List.games[] @ordered %fold <-> Game.lists[]
+```
+
+- `%fold`, `%%fold`, `%column`, `%%table` and `%%index` are storage; the rest
+  stays `@`. `@path` stays `@`, because a row's name is its logical identity.
+  `@@views` and its line attributes are presentation and are already set apart
+  by where they appear.
+- **The `%` attributes in `schema.usl` are the shared default layout.** A
+  placement overrides them with the same syntax in `placements.yaml`, keyed by
+  `Model` or `Model.field`, so a placement over an existing database writes
+  only its differences, and most placements write nothing. That makes named
+  layout files unnecessary at first.
+- **The collection binds to a model fingerprint**: the checked schema with
+  `%` attributes, views and comments left out. Editing a `%` line or a view
+  changes no data and needs no migration; only `@` changes are model
+  migrations. `schema.usl` itself is still authored bytes with its own hash.
+- **`%` instead of `#`:** `##table` at the start of a line reads as a
+  Markdown heading wherever a schema is quoted in a page.
+- **Migration:** rename the spellings in the few schemas that use them, with
+  no deprecated aliases, as USL did when it replaced CDDL.
 
 ## Existing SQL databases and typed values
 
@@ -373,10 +405,10 @@ With representation per placement, retention is per placement too:
 
 1. Addressable: models only, with plain n:m connections as properties on both
    ends?
-2. Order as sequences, positions only in database projections? And a
-   concurrent move of the same member: later `at` wins, or a decision?
-3. Split USL into a logical `schema.usl` and named layouts in the tree that
-   placements choose (see "Splitting the schema")?
+2. Order as sequences, positions only in database projections? (A
+   concurrent move of the same member: the later move wins; settled.)
+3. Two sigils, `@` and `%`, with `%` defaults overridable per placement and a
+   model fingerprint that ignores `%`?
 4. Timestamps as row state stamped from `at`?
 5. Canonical CBOR with a chunked hash from the start, instead of the branch's
    JSONL?
