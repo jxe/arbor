@@ -430,6 +430,14 @@ Today:
 - Effects become semantic: row operations give exact `(row, field)` effects,
   and front-matter edits give property effects instead of `write`. Device
   updates are then authorized by effect, not only by whole-tree `canWrite`.
+- No snapshot edits of fine-grained data (Joe, 2026-10-15). A snapshot that
+  changes a schema-governed collection, or a SQLite database, is authorized
+  only as `write` on that collection's path. A caller whose access there comes
+  from a property rule, `unless`/`when`, or a narrower grant must send row
+  operations. Clients turn edits made outside Story into row operations
+  before publishing: story-sync's folder sync diffs the decoded rows locally
+  instead of publishing `trace: null`. So the host never authorizes
+  ownership from a row diff, and needs no tree-level mode switch.
 - Conformance: `resource-policy.json` gains valid and invalid property rules.
 - Remove `@@editableBy` from USL (`check.ts` `editableBy`, spec 11 §5), from
   `games.usl`, and from cranberries' `documentFromUsl`.
