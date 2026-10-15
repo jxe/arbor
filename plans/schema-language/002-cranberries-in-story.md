@@ -521,9 +521,14 @@ an unknown selection) rather than fixing the byte-range shape.
 
 1. Is "property non-empty" the right size for `unless`/`when`? Revisit after
    Supplies and excellences use it.
-2. Does Postgres 002 adopt the logical multiset hash? Proposed: not for
-   Postgres as a shared external authority. There the tree carries only the
-   descriptor, so no root needs the hash. Keeping it would mean a trigger on
-   every external writer and a hot per-table hash row (or sharded counters)
-   in a database Overstory may not own. Adopt it with Postgres 004's managed
-   bidirectional mode, where Overstory owns every write.
+2. Does Postgres 002 adopt the logical multiset hash? Not needed while
+   Postgres is the shared authority (the tree syncs only its descriptor).
+   Revisit with Postgres 004 (bidirectional projection) and 005
+   (representation equivalence), where comparing a Postgres store with a
+   SQLite copy is the point. Keep the construction computable in SQL, and
+   note that a single accumulator row per table serializes concurrent
+   writers unless it's sharded.
+
+Settled 2026-10-15: replay re-derives the collection's representation and
+descriptor deterministically and `after` must match; multi-table folders get a
+new descriptor form; `packages/usl` is ported to Swift in StoryKit.
