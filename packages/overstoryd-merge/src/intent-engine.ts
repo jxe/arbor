@@ -3421,6 +3421,8 @@ export async function checkpointIntent(
   const continuations: Array<{ decision: IntentDecision; apply: () => Promise<void> }> = [];
   for (const decision of state.decisions) {
     if (decision.context) continue;
+    // A field choice stays open, about its values, until it is resolved.
+    if (decision.kind === "field") continue;
     if (decision.placement) {
       const node = state.nodes[decision.placement.node];
       if (node?.active && node.pieces) {
@@ -3538,6 +3540,23 @@ export async function checkpointIntent(
   };
   for (const input of request.decisions) {
     if (stateKeys.has(input.key)) continue;
+    if (input.field && input.path) {
+      // A field choice: alternatives are value objects, outside the node graph.
+      const context = (await previousRecord()).state;
+      for (const a of input.alternatives) await objects.read(a.object);
+      addDecision({
+        key: input.key,
+        kind: "field",
+        affected: [],
+        selected: input.selected,
+        alternatives: input.alternatives.map((a) => ({ state: context, object: a.object, contributions: a.contributions })),
+        dependencies: input.dependencies ?? [],
+        reason: "Retained field choice",
+        subject: { material: { kind: "basis", path: "/" + input.path.join("/"), object: request.projection } },
+        row: input.field,
+      });
+      continue;
+    }
     if (input.path && input.range) {
       // A source choice: alternatives are each version's bytes for the range.
       let node = state.nodes[state.root]!;

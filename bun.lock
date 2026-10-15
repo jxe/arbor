@@ -119,6 +119,7 @@
       "name": "@ovst/overstoryd-merge",
       "version": "0.1.0",
       "dependencies": {
+        "@ovst/collection-schema": "workspace:*",
         "@ovst/merge-protocol": "workspace:*",
         "@ovst/object-store": "workspace:*",
         "@ovst/protocol": "workspace:*",
@@ -182,7 +183,7 @@
     },
     "packages/usl": {
       "name": "@ovst/usl",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "usl": "./src/cli.ts",
       },

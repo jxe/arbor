@@ -34,6 +34,11 @@ export async function logDecisions(
     const contributions = (list: LogDecision["alternatives"][number]["contributions"]) =>
       [...new Map(list.map((c) => [stableJSONString(c), c])).values()];
     const base = { key: d.key, dependencies: d.dependencies, selected: d.selected };
+    if (d.kind === "field" && d.row && d.subject?.material.kind === "basis") {
+      out.push({ ...base, path: names(d.subject.material.path), field: d.row,
+        alternatives: d.alternatives.map((a) => ({ object: a.object, contributions: contributions(a.contributions) })) });
+      continue;
+    }
     const subjectPath = d.subject?.material.kind === "basis" ? d.subject.material.path : undefined;
     const placed = d.placement ? nodeOf(d.placement.node) : undefined;
     const folder = d.kind === "directory" && subjectPath !== undefined && subjectPath !== "/";

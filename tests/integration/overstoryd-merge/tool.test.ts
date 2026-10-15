@@ -94,7 +94,7 @@ test("collection row rules merge through the process, and a row conflict is a ch
     const incoming = await collection(rows), { question, inputs } = await prepare(base, current, incoming);
     const expected = await mergeProtocolTrees(base.root, incoming.root, current.root, hash => store.load(hash, inputs));
     const { answer } = await tool.ask(question, inputs);
-    if (!expected.conflicts.length && !expected.unresolvedDirectories?.length) {
+    if (!expected.conflicts.length && !expected.unresolvedDirectories?.length && !expected.fields?.length) {
       expect(answer.root).toBe(expected.root);
       expect(answer.decisions).toEqual([]);
     } else expect(answer.decisions.length).toBeGreaterThan(0);

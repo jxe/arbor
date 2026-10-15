@@ -10,6 +10,7 @@ export interface UpdateConflict {
     | "page-id-move-conflict"
     | "binary-conflict"
     | "collection-file-row-conflict"
+    | "collection-file-field-conflict"
     | "collection-file-schema-conflict"
     | "collection-file-constraint-conflict"
     | "frontmatter-conflict"

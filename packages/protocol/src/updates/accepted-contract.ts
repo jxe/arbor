@@ -7,15 +7,18 @@
 import { decodeAcceptedTransitionJSON } from "./json.ts";
 import { decodeMaterialRef, type MaterialRef, type EntryDestination } from "./authored-contract.ts";
 import type { AcceptedTransition, AcceptedUpdate } from "./types.ts";
+import type { JSONValue } from "../model/node-model.ts";
 export interface StateLink { id: string; root: string }
 export interface Contribution { change: string; operation: string | null }
 export interface InspectedAlternative {
   id: string; revision: string;
-  value: { text: string } | { file: string } | { directory: string } | { tree: string } | { absent: true };
+  value: { text: string } | { file: string } | { directory: string } | { tree: string } | { absent: true } | { value: JSONValue };
   placement?: EntryDestination; contributions: Contribution[];
 }
 export interface InspectedDecision {
   id: string; kind: string; affected: MaterialRef[]; selected: string;
+  /** A field choice's row field (`field: null` is the row's existence). */
+  row?: { table: string; row: string; field: string | null };
   alternatives: InspectedAlternative[]; dependencies: string[]; actions: string[];
 }
 export interface DecisionPage {
@@ -78,6 +81,7 @@ export function decodeDecisionPage(raw: unknown, context?: {tree:string;state:st
         case "directory": hash(value.directory); break;
         case "tree": token(value.tree); break;
         case "absent": check(value.absent===true); break;
+        case "value": check(d.kind==="field"); break;
         default: check(false);
       }
       if(Object.hasOwn(a,"placement")) {

@@ -49,6 +49,8 @@ export interface CollectionSchema {
   readonly childName: ChildNameRule;
   readonly row: Extract<Check, { kind: "map" }>;
   readonly csvColumns: readonly CsvColumn[];
+  /** How each column's value merges (spec 10 §7): absent means as one value. */
+  readonly merge: ReadonlyMap<string, "many" | "ordered" | "markdown">;
   /** Proportional to the compiled check graph, so caches weigh entries by it. */
   readonly weight: number;
 }
@@ -142,6 +144,12 @@ export function compileCollectionSchema(input: Uint8Array | string): CollectionS
       optional: column.nullable || column.array,
       nullable: false,
       scalar: column.array ? "json" : SCALAR[column.type],
+    })),
+    merge: new Map(model.fields.flatMap((field): Array<[string, "many" | "ordered" | "markdown"]> => {
+      const column = field.column ?? field.name;
+      if (!table.columns.some((c) => c.name === column)) return [];
+      if (field.arity === "many") return [[column, field.ordered ? "ordered" : "many"]];
+      return field.type === "Markdown" ? [[column, "markdown"]] : [];
     })),
     weight: 1 + members.length + Math.ceil(bytes.byteLength / 64),
   };

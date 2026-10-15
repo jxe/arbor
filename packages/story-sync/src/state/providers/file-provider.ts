@@ -3,12 +3,13 @@ import { readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import type { Diagnostic, Hash, JSONValue } from "@ovst/protocol";
 import { commitPrepared, prepareAtomic, readRevision, removeIfExists } from "@ovst/fs";
-import { replaceCollectionFileRow } from "../collection-file-writes.ts";
 import {
   CollectionSchemaCache,
+  canonicalRow,
   collectionChildSetHash,
   decodeCollectionFileSource,
   logicalChildName,
+  spliceCollectionFile,
   validateRow,
   valueDiagnostic,
   type CollectionSchema,
@@ -215,7 +216,10 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
     try {
       const output = stableJSONString(current.values) === stableJSONString(candidate)
         ? source
-        : replaceCollectionFileRow(definition.provider, source, current.key, candidate);
+        // Written exactly as replaying the row operation would write it.
+        : spliceCollectionFile(definition.provider, source, loaded.description.schema!, {
+          replaced: new Map([[current.key, canonicalRow(loaded.description.schema!, candidate)]]), appended: [],
+        });
       temporaryPath = await prepareAtomic(definition.storePath, output);
       const prepared = await this.load({ ...definition, storePath: temporaryPath });
       const preparedRow = prepared.rows.find((row) => row.stableKey === current.stableKey);

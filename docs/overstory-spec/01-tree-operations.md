@@ -615,10 +615,11 @@ type Decision = {
   kind: string;
   affected: Ref[];
   selected: string;
+  row?: { table: string; row: string; field: string | null };
   alternatives: Array<{
     id: string; revision: string;
     value: { text: string } | { file: Hash } | { directory: Hash }
-         | { tree: TreeID } | { absent: true };
+         | { tree: TreeID } | { absent: true } | { value: JSONValue };
     placement?: EntryDestination;
     contributions: Array<{ change: string; operation: string | null }>;
   }>;
@@ -673,6 +674,15 @@ before attaching actionable controls. A text value must match the selected proje
 UTF-8 range. A directory/file kind is never guessed from bytes. Unknown decision
 kinds or actions may be displayed as unavailable, but cannot authorize invented
 mutation behavior. Core read fields may be extended without changing their meaning.
+
+A `field` decision is a choice about one field of one row of a collection
+([source intent §7](10-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution)).
+`affected` names the collection's directory and `row` names the table, the
+row's canonical stable key and the field; `field: null` is a choice about
+whether the row exists. Each alternative's `value` is that field's value, or
+the whole row, with `null` for absent. A client resolves it by writing the
+chosen value with row operations, or by keeping the projection with an empty
+trace, and declaring the resolution.
 
 Entry-valued alternatives are read through the ordinary
 [object route](#121-reading-an-object-at-a-time) by the hashes the decision page

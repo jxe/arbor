@@ -148,7 +148,8 @@ export interface ProtocolCollectionFileRow {
 export interface DecodedProtocolCollectionFile {
   format: CollectionFileDescriptor["format"];
   schema: CollectionSchema;
-  rows: ProtocolCollectionFileRow[];
+  /** Each row with its source position key (`line:N`, `item:N` or `row:N`). */
+  rows: Array<ProtocolCollectionFileRow & { sourceKey: string }>;
   childSetHash: Hash;
 }
 

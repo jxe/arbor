@@ -10,3 +10,5 @@ export { logicalChildName, RESERVED_CHILD_NAMES } from "./names.ts";
 export { CollectionSchemaCache, sharedCollectionSchemaCache } from "./cache.ts";
 export * from "./collection-file.ts";
 export { applyRowOperations, canonicalRow, replayCollectionRows, spliceCollectionFile, type CollectionRowSplice } from "./row-replay.ts";
+export { mergeCollectionRows, type RowFieldConflict, type TextMerge } from "./row-merge.ts";
+export { deriveRowOperations } from "./row-diff.ts";

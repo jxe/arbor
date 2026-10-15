@@ -96,6 +96,20 @@ async function collectionFileSnapshot(store: string, schema: string, source: str
   }
 }
 
+async function collectionText(result: { root: string; objects: Map<string, Uint8Array> }, objects: Map<string, Uint8Array>): Promise<string> {
+  const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
+  const directory = decodeProtocolDirectory(load(result.root));
+  return new TextDecoder().decode(load(directory.entries.find((entry) => entry.name === directory.childrenSource!.source)!.file!));
+}
+
+async function collectionRows(result: { root: string; objects: Map<string, Uint8Array> }, objects: Map<string, Uint8Array>) {
+  const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
+  const directory = decodeProtocolDirectory(load(result.root));
+  const descriptor = directory.childrenSource!;
+  const file = (name: string) => load(directory.entries.find((entry) => entry.name === name)!.file!);
+  return decodeProtocolCollectionFile(descriptor, file(descriptor.source), file(descriptor.schemaSource)).rows.map((row) => row.properties);
+}
+
 async function mergedSource(
   roots: { base: string; candidate: string; remote: string },
   objects: Map<string, Uint8Array>,
@@ -186,7 +200,7 @@ describe("reference host merge fixtures", () => {
     const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
     const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
     expect(result.conflicts).toEqual([]);
-    expect(result.summary).toEqual({ version: "collection-file-rows-v1", mergedRows: 1 });
+    expect(result.summary).toEqual({ version: "collection-file-fields-v1", mergedRows: 1 });
     const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
     const rootObject = decodeProtocolDirectory(load(result.root));
     if (rootObject.type !== "directory") throw new Error("Expected collection-file root");
@@ -240,7 +254,7 @@ describe("reference host merge fixtures", () => {
     expect(decoded.rows.map((row) => row.properties)).toEqual([{ id: "001", count: 1, color: "blue" }, { id: "002", count: 3, color: "green" }]);
   });
 
-  test("divergent changes to one stable row conflict", async () => {
+  test("one field set differently on both sides is a field conflict that keeps current's value", async () => {
     const [base, candidate, remote] = await Promise.all([
       jsonCollectionFileSnapshot([{ id: "a", title: "A" }]),
       jsonCollectionFileSnapshot([{ id: "a", title: "Candidate" }]),
@@ -248,9 +262,46 @@ describe("reference host merge fixtures", () => {
     ]);
     const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
     const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
-    expect(result.conflicts).toEqual([
-      expect.objectContaining({ reason: "collection-file-row-conflict", path: expect.stringMatching(/;overstory-key=id:a$/) }),
+    expect(result.conflicts).toEqual([]);
+    expect(result.fields).toEqual([{ path: "/", table: "Item", row: '[["id","a"]]', field: "title", current: "Remote", candidate: "Candidate" }]);
+    expect(await collectionRows(result, objects)).toEqual([{ id: "a", title: "Remote" }]);
+  });
+
+  test("one row merges field by field and member by member", async () => {
+    const schema = "model Item {\n  title Text\n  done Bool?\n  tags Text[]\n  steps Text[] @ordered\n  notes Markdown?\n}\n";
+    const row = (values: Record<string, unknown>) => JSON.stringify({ id: "a", title: "A", ...values });
+    const [base, candidate, remote] = await Promise.all([
+      collectionFileSnapshot("_store.jsonl", schema, `${row({ tags: ["x", "y"], steps: ["1", "2", "3"], notes: "one\ntwo\nthree\n" })}\n{"id":"b","title":"B"}\n`),
+      collectionFileSnapshot("_store.jsonl", schema, `${row({ title: "Alpha", tags: ["x", "c"], steps: ["3", "1", "2"], notes: "ONE\ntwo\nthree\n" })}\n{"id":"b","title":"B"}\n`),
+      collectionFileSnapshot("_store.jsonl", schema, `${row({ done: true, tags: ["y", "r"], steps: ["1", "2", "3", "4"], notes: "one\ntwo\nTHREE\n" })}\n{"id":"b",  "title":"B"}\n`),
     ]);
+    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
+    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    expect(result.conflicts).toEqual([]);
+    expect(result.fields).toBeUndefined();
+    expect(result.summary).toEqual({ version: "collection-file-fields-v1", mergedRows: 1 });
+    const source = await collectionText(result, objects);
+    // The row neither side changed keeps current's bytes.
+    expect(source.split("\n")[1]).toBe('{"id":"b",  "title":"B"}');
+    expect((await collectionRows(result, objects))[0]).toEqual({
+      id: "a", title: "Alpha", done: true, tags: ["r", "c"], steps: ["3", "4", "1", "2"], notes: "ONE\ntwo\nTHREE\n",
+    });
+  });
+
+  test("reordering an ordered field on both sides, or deleting a row the other side changed, conflicts", async () => {
+    const schema = "model Item {\n  title Text\n  steps Text[] @ordered\n}\n";
+    const [base, candidate, remote] = await Promise.all([
+      collectionFileSnapshot("_store.jsonl", schema, '{"id":"a","title":"A","steps":["1","2","3"]}\n{"id":"b","title":"B"}\n'),
+      collectionFileSnapshot("_store.jsonl", schema, '{"id":"a","title":"A","steps":["2","1","3"]}\n'),
+      collectionFileSnapshot("_store.jsonl", schema, '{"id":"a","title":"A","steps":["1","3","2"]}\n{"id":"b","title":"Bee"}\n'),
+    ]);
+    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
+    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    expect(result.fields).toEqual([
+      { path: "/", table: "Item", row: '[["id","a"]]', field: "steps", current: ["1", "3", "2"], candidate: ["2", "1", "3"] },
+      { path: "/", table: "Item", row: '[["id","b"]]', field: null, current: { id: "b", title: "Bee" }, candidate: null },
+    ]);
+    expect(await collectionRows(result, objects)).toEqual([{ id: "a", title: "A", steps: ["1", "3", "2"] }, { id: "b", title: "Bee" }]);
   });
 
   for (const fixture of fixtures.markdownCases) {

@@ -284,7 +284,8 @@ When a candidate changes a recognized collection file, the submitted root
 names the exact lossless encoding of that candidate tree state. The host
 decodes coherent base, current, and candidate representations under schema and
 resource bounds, recomputes logical row identities and `childSetHash`, applies
-`collection-file-rows-v1` to a conflicting collection file, validates all keys,
+`collection-file-fields-v1` ([source intent §7](10-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution))
+to a conflicting collection file, validates all keys,
 foreign keys, and constraints, and encodes the accepted representation. It
 never trusts a client-supplied schema fingerprint or child-set hash.
 Formatting-only changes advance the accepted root without changing

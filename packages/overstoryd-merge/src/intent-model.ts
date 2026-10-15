@@ -132,7 +132,7 @@ export interface IntentState extends View {
 }
 export interface IntentDecision {
   key: string;
-  kind: "content" | "placement" | "existence" | "directory";
+  kind: "content" | "placement" | "existence" | "directory" | "field";
   affected: string[];
   selected: number;
   alternatives: Array<{
@@ -146,6 +146,9 @@ export interface IntentDecision {
   subject?: MaterialRef;
   context?: string;
   placement?: { node: string; pieces: Piece[]; anchor: number };
+  /** A field choice: the row field it is about, in the collection its
+   * subject names. Its alternatives are value objects and name no node. */
+  row?: { table: string; row: string; field: string | null };
 }
 export const keyOf = (change: string, operation: string) =>
   JSON.stringify([change, operation]);

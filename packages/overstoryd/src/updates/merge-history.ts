@@ -12,9 +12,10 @@ import {
   type InspectedDecision,
   type MaterialRef,
   type ObjectHash,
+  type JSONValue,
   type SourceOperation,
 } from "@ovst/protocol";
-import { decodeLogEntry, validatedLogEntry, type AlternativeBinding, type LogDecision, type LogEntry } from "@ovst/merge-protocol";
+import { decodeLogEntry, rawAlternatives, validatedLogEntry, type AlternativeBinding, type LogDecision, type LogEntry } from "@ovst/merge-protocol";
 import type { ObjectStore } from "@ovst/object-store";
 import type { AcceptedUpdateStore } from "./store.ts";
 import { Recent } from "../recent.ts";
@@ -99,7 +100,7 @@ export class MergeHistory {
   async carry(decisions: readonly LogDecision[], root: ObjectHash, objects: Map<ObjectHash, Uint8Array>): Promise<LogDecision[] | null> {
     const carried: LogDecision[] = [];
     for (const d of decisions) {
-      if (!d.path || d.range) { carried.push(d); continue; }
+      if (!d.path || rawAlternatives(d)) { carried.push(d); continue; }
       const alternatives = [];
       for (const a of d.alternatives) {
         const object = await this.withEntry(root, d.path, await this.at(a.object, d.path, objects), objects);
@@ -162,6 +163,17 @@ export class MergeHistory {
     if (!d.path)
       return { ...common, kind: "directory", affected: [root], alternatives: d.alternatives.map((a, i) => alternative(i, { directory: a.object })) };
     const path = `/${d.path.join("/")}`;
+    if (d.field) {
+      const collection = d.path.length ? (await this.at(entry.root, d.path))?.directory : entry.root;
+      if (!collection) throw new Error("Field choice collection is absent");
+      const values = await Promise.all(d.alternatives.map(async (a) =>
+        JSON.parse(new TextDecoder().decode(await this.objects.load(a.object))) as JSONValue));
+      return {
+        ...common, kind: "field", row: d.field,
+        affected: [{ material: { kind: "basis", path, object: collection } }],
+        alternatives: d.alternatives.map((_, i) => alternative(i, { value: values[i]! })),
+      };
+    }
     if (d.range) {
       const file = d.at ?? (await this.at(entry.root, d.path))?.file;
       if (!file) throw new Error("Source choice file is absent");

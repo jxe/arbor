@@ -48,6 +48,7 @@ import {
   type UpdateState,
   type UpdateTransport,
 } from "@ovst/working-tree";
+import { deriveRowOperations } from "@ovst/collection-schema";
 import { ChangeLog, FileControlStore } from "@ovst/working-tree/node";
 import { differences, entryAt, maskDeclined, resolveDeclined, within, type LoadObject } from "./declined-paths.ts";
 import { forTrackedLookup, type TrackedRoot } from "./filesystem-object-source.ts";
@@ -587,7 +588,15 @@ export class FolderSync implements AcceptedTree {
         return bytes;
       }, { verified: true }), { known: retained })
       : { objects: [...objects].filter(([hash]) => !graph.objects.has(hash)).map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
-    const update = encodeCandidateUpdateJSON({ change, candidate: lazy.root, trace: null, resolves: [],
+    // A change that only edits collection rows goes as the row operations
+    // that replay to it exactly, so the host merges it field by field.
+    const operations = await deriveRowOperations(graph.root as ObjectHash, lazy.root as ObjectHash, async (hash) => {
+      const bytes = objects.get(hash) ?? graph.objects.get(hash) ?? await lazy.objects.get(hash)?.bytes() ?? await this.host.objectBytes(hash);
+      if (!bytes) throw new UpdateValidationError(`Object is unavailable: ${hash}`);
+      return bytes;
+    }).catch(() => null);
+    const update = encodeCandidateUpdateJSON({ change, candidate: lazy.root,
+      trace: operations ? [{ before: graph.root, after: lazy.root, operations }] : null, resolves: [],
       deltas: payload.deltas.sort((a, b) => a.result.localeCompare(b.result)),
       objects: payload.objects.sort((a, b) => a.hash.localeCompare(b.hash)) });
     return { change, tree: this.tree, basis: known.basis, graph: graphJSON ?? snapshotJSON(graph), sourcePath: null, document: null,

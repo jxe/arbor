@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { decodeLogEntry, OBJECT_HASH, type LogEntry } from "@ovst/merge-protocol";
+import { decodeLogEntry, OBJECT_HASH, rawAlternatives, type LogEntry } from "@ovst/merge-protocol";
 import type { ObjectStore } from "@ovst/object-store";
 import { decodeProtocolDirectory, protocolEntryObject, type ObjectHash } from "@ovst/protocol";
 
@@ -87,7 +87,7 @@ function entryPins(entry: LogEntry, required: Pin[], optional: Pin[]): void {
   };
   add(required, entry.root, "directory");
   for (const d of entry.decisions) {
-    for (const a of d.alternatives) add(required, a.object, d.range ? "file" : "directory");
+    for (const a of d.alternatives) add(required, a.object, rawAlternatives(d) ? "file" : "directory");
     add(required, d.at, "file");
   }
   const frames = (trace: LogEntry["trace"]) => {

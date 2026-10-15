@@ -291,6 +291,36 @@ sufficient decision evidence for explanation and reproducibility; it need not cr
 a user-visible conflict solely to resolve it immediately. Deterministic rule and
 projection behavior must be specified where promised by the format contract.
 
+### 7.1 Collection rows
+
+`collection-file-fields-v1` merges two changes to one collection by row
+identity, then field by field, whether they arrive as row operations or as
+snapshots of the collection file. A row only one side changed takes that side.
+For a row both sides changed:
+
+- A single value conflicts only when the two set different values.
+- A many-valued field merges per member: removals and additions from both
+  sides apply. An addition follows the member it follows on its own side; in
+  a field without `@ordered` it goes at the end.
+- An `@ordered` field merges as a sequence. If only one side reordered its
+  common members, that order holds; if both reordered them differently, the
+  field conflicts.
+- A `Markdown` field merges by lines. Edits that overlap conflict.
+- Deleting a row conflicts with a concurrent change to it, and with nothing
+  else.
+
+A conflict keeps current's value in the projection and becomes a `field`
+decision about that row field ([tree operations §1.2.3](01-tree-operations.md#123-reading-conflicts)),
+with current's value and the candidate's as alternatives. Every other field
+of the row still merges. The merged rows are written into current's
+collection file as replay writes them (§4.1), so rows neither side changed
+keep their bytes, and the result is validated against the schema; a result
+the schema rejects is a conflict on the collection's directory.
+
+A traced change of row operations is first replayed exactly on its basis;
+its candidate is then merged as above. A change that mixes row operations
+with other operations in one trace is not supported yet.
+
 The shared decision scenarios in [accepted ambiguity](conformance/accepted-ambiguity.json)
 cover these semantic obligations. They are scenario requirements, not an additional
 Overstory encoding or a claim that the reference implementation supports them already.

@@ -1,5 +1,5 @@
 import { stableJSONString, type ProtocolDirectoryEntry } from "@ovst/protocol";
-import type { LogDecision } from "@ovst/merge-protocol";
+import { rawAlternatives, type LogDecision } from "@ovst/merge-protocol";
 import { entryAt, entryValue, withEntry, type TreeIO } from "./trees.ts";
 
 type Contribution = { change: string; operation: null };
@@ -69,7 +69,7 @@ export async function snapshotDecisions(
   const open = current.decisions;
   // The path an open choice is about: its entry, or the file its range is in.
   const placed = (d: LogDecision) => (d.path ? `/${d.path.join("/")}` : null);
-  const entryPath = (d: LogDecision) => (d.path && !d.range ? placed(d) : null);
+  const entryPath = (d: LogDecision) => (d.path && !rawAlternatives(d) ? placed(d) : null);
   let projection = merged;
   const decisions: LogDecision[] = [], replaces: string[] = [];
   for (const path of [...scopes].filter((p) => ![...scopes].some((q) => q !== p && within(p, q))).sort()) {

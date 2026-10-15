@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hashObject, type ObjectHash } from "@ovst/protocol";
 import { absentFrom, ObjectStore } from "@ovst/object-store";
-import { MergeRefusal, parseAnswer, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
+import { MergeRefusal, parseAnswer, rawAlternatives, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
 import { PersistentMergeWorker } from "./merge-worker.ts";
 
 /** How long overstoryd waits for one answer before killing the sidecar. It sits
@@ -189,7 +189,7 @@ export class MergeTool {
       const available = new Map([...inputs, ...objects]);
       await this.shared.verifyReachable(answerRoots(answer.root, answer.decisions), available, { freshen: true });
       for (const d of answer.decisions)
-        if (d.range) for (const hash of [...d.alternatives.map((a) => a.object), ...(d.at ? [d.at] : [])]) {
+        if (rawAlternatives(d)) for (const hash of [...d.alternatives.map((a) => a.object), ...(d.at ? [d.at] : [])]) {
           await this.shared.load(hash, available);
           if (!available.has(hash)) await this.shared.freshen([hash]);
         }
@@ -256,5 +256,5 @@ export class MergeTool {
 
 /** Every root an answer names: the projection and each whole-root or entry alternative. */
 export function answerRoots(root: ObjectHash, decisions: readonly LogDecision[]): ObjectHash[] {
-  return [...new Set([root, ...decisions.flatMap((d) => (d.range ? [] : d.alternatives.map((a) => a.object)))])];
+  return [...new Set([root, ...decisions.flatMap((d) => (rawAlternatives(d) ? [] : d.alternatives.map((a) => a.object)))])];
 }

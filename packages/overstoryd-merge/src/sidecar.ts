@@ -1,8 +1,10 @@
-import { hashObject, stableJSONString } from "@ovst/protocol";
+import { hashObject, isRowOperation, stableJSONString, validateSourceTrace, type SourceFrame, type SourceOperation } from "@ovst/protocol";
+import { replayCollectionRows } from "@ovst/collection-schema";
 import {
   decodeLogEntry,
   MergeRefusal,
   parseQuestion,
+  rawAlternatives,
   type Candidate,
   type LogDecision,
   type LogEntry,
@@ -14,7 +16,7 @@ import { EvaluationFailure, treeDefaultConfig, type CheckpointRequest, type Merg
 import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
 import type { Node } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
-import { mergeProtocolTrees } from "@ovst/tree-merge";
+import { mergeProtocolTrees, type CollectionFieldConflict } from "@ovst/tree-merge";
 import { decodeRetainedState, encodeRetainedState, lookup, type RetainedState } from "./retained-state.ts";
 import { snapshotDecisions } from "./snapshot.ts";
 import { absentClosure, changedEntryPaths, type TreeIO } from "./trees.ts";
@@ -234,6 +236,7 @@ export class Sidecar {
     for (const prior of question.prefix ?? []) basis = await this.authored(head.tree, basis, prior, rules);
     const candidate = question.candidate;
     if (candidate.trace === null) return this.snapshot(question, head, basis.object, current);
+    if (await this.rowTrace(candidate, head, basis.object)) return this.snapshot(question, head, basis.object, current);
     const evaluated = await this.evaluate(head.tree, basis, question.validate ? basis : current, candidate, rules);
     return { result: evaluated.result, evidence: evaluated.evidence as unknown };
   }
@@ -522,10 +525,35 @@ export class Sidecar {
     }, this.objects);
   }
 
+  /** Whether a traced candidate is evaluated as rows: every frame holds row
+   * operations (spec 10 §4.1), or it carries no frames and resolves only
+   * field choices. Its trace is checked by exact replay on its basis, and its
+   * candidate is then merged like a snapshot, row by row and field by field. */
+  private async rowTrace(candidate: Candidate, head: LogEntry, basis: string): Promise<boolean> {
+    const trace = candidate.trace ?? [];
+    if (!trace.length)
+      return candidate.resolves.length > 0 && candidate.resolves.every((key) => head.decisions.some((d) => d.key === key && d.field));
+    const rows = trace.map((frame) => frame.operations.every((op) => isRowOperation(op as SourceOperation)));
+    if (!rows.some(Boolean)) return false;
+    if (!rows.every(Boolean))
+      throw new MergeRefusal("unsupported", "A trace that mixes row operations with other operations is not supported yet");
+    if (trace[0]!.before !== basis) throw new MergeRefusal("invalid", "Trace does not follow its basis");
+    if (trace.at(-1)!.after !== candidate.root) throw new MergeRefusal("invalid", "Trace does not end at the candidate");
+    try {
+      const checked = await validateSourceTrace(trace as SourceFrame[], (hash) => this.objects.read(hash), replayCollectionRows);
+      for (const [hash, bytes] of checked.generated) this.remember(hash, bytes);
+    } catch (error) {
+      if (error instanceof MergeRefusal) throw error;
+      throw new MergeRefusal("invalid", error instanceof Error ? error.message : "Invalid row operations");
+    }
+    return true;
+  }
+
   /** The author's own state after an earlier batch element: its trace
    * evaluated on the basis, or its snapshot checkpointed onto it. */
   private async authored(tree: string, basis: { object: string; state: string }, prior: Candidate, rules: TreeDefaultRules) {
-    if (prior.trace !== null) return (await this.evaluate(tree, basis, basis, prior, rules)).authored;
+    if (prior.trace !== null && !(prior.trace.length && prior.trace.every((f) => f.operations.every((op) => isRowOperation(op as SourceOperation)))))
+      return (await this.evaluate(tree, basis, basis, prior, rules)).authored;
     return checkpointIntent({ tree, current: basis, projection: prior.root, change: prior.change, decisions: [] }, this.objects);
   }
 
@@ -534,14 +562,15 @@ export class Sidecar {
   private async snapshot(question: MergeQuestion, head: LogEntry, baseRoot: string, current: Cached) {
     const candidate = question.candidate;
     const rule = { id: "tree-default", revision: 1 };
-    let merged: { root: string; conflicts: Array<{ path: string }>; folders: string[]; summary?: unknown };
+    let merged: { root: string; conflicts: Array<{ path: string }>; folders: string[]; summary?: unknown; fields?: CollectionFieldConflict[] };
     if (candidate.root === head.root || candidate.root === baseRoot) merged = { root: head.root, conflicts: [], folders: [] };
     else if (head.root === baseRoot) merged = { root: candidate.root, conflicts: [], folders: [] };
     else {
       try {
         const result = await this.treeMerge(baseRoot, candidate.root, head.root, (hash) => this.objects.read(hash));
         for (const [hash, bytes] of result.objects) this.remember(hash, bytes);
-        merged = { root: result.root, conflicts: result.conflicts, folders: result.unresolvedDirectories ?? [], ...(result.summary ? { summary: result.summary } : {}) };
+        merged = { root: result.root, conflicts: result.conflicts, folders: result.unresolvedDirectories ?? [],
+          ...(result.summary ? { summary: result.summary } : {}), ...(result.fields ? { fields: result.fields } : {}) };
       } catch (error) {
         // Ordinary content is preserved as a whole-root choice that keeps the current tree.
         process.stderr.write(`Tree merge failed; preserving ambiguity: ${error instanceof Error ? error.message.split("\n")[0] : "invalid result"}\n`);
@@ -550,10 +579,31 @@ export class Sidecar {
     }
     const conflictProjection = (question.rules.config as { conflictProjection?: "current" | "incoming" } | undefined)?.conflictProjection ?? "current";
     // Attribution is needed only for a choice.
+    const concurrent = merged.conflicts.length || merged.folders.length || merged.fields?.length
+      ? await this.concurrentChanges(question.base, question.head) : undefined;
     const { projection, decisions, replaces } = !merged.conflicts.length && !merged.folders.length
-      ? { projection: merged.root, decisions: [], replaces: [] }
-      : await snapshotDecisions(this.io, candidate.change, head, baseRoot, candidate.root, merged.root, merged.conflicts, merged.folders,
-        await this.concurrentChanges(question.base, question.head));
+      ? { projection: merged.root, decisions: [] as LogDecision[], replaces: [] as string[] }
+      : await snapshotDecisions(this.io, candidate.change, head, baseRoot, candidate.root, merged.root, merged.conflicts, merged.folders, concurrent!);
+    // A field both sides set differently is a choice about that field. A
+    // field inside a folder another choice is about is part of that choice.
+    for (const conflict of merged.fields ?? []) {
+      const path = conflict.path === "/" ? [] : conflict.path.slice(1).split("/");
+      if (decisions.some((d) => !d.path || (!rawAlternatives(d) && d.path.every((name, i) => path[i] === name)))) continue;
+      const value = (v: unknown) => {
+        const bytes = new TextEncoder().encode(stableJSONString(v ?? null)), hash = hashObject(bytes);
+        this.remember(hash, bytes);
+        return hash;
+      };
+      const scope = { table: conflict.table, row: conflict.row, field: conflict.field };
+      decisions.push({
+        key: `field:${candidate.change}:${hashObject(new TextEncoder().encode(stableJSONString([conflict.path, scope]))).slice(7, 39)}`,
+        path, field: scope, selected: 0, dependencies: [],
+        alternatives: [
+          { object: value(conflict.current), contributions: concurrent!(conflict.path) },
+          { object: value(conflict.candidate), contributions: [{ change: candidate.change, operation: null }] },
+        ],
+      });
+    }
     const result = await checkpointIntent({
       tree: head.tree, current: { object: current.object, state: current.state }, projection,
       candidate: candidate.root, continueSelected: baseRoot === head.root, conflictProjection,
@@ -593,7 +643,7 @@ export class Sidecar {
   private async export(root: string, decisions: LogDecision[]): Promise<string[]> {
     const roots = [root], raw: string[] = [];
     for (const d of decisions) {
-      if (d.range) raw.push(...d.alternatives.map((a) => a.object), ...(d.at ? [d.at] : []));
+      if (rawAlternatives(d)) raw.push(...d.alternatives.map((a) => a.object), ...(d.at ? [d.at] : []));
       else roots.push(...d.alternatives.map((a) => a.object));
     }
     const present = async (hash: string) => !this.memory.has(hash) || await this.stores.shared.has(hash);

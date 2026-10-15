@@ -2,13 +2,15 @@ import {
   type ObjectHash,
   type UpdateConflict,
 } from "@ovst/protocol";
-import { encodeStableKey, stableJSONString, type CollectionFileDescriptor } from "@ovst/protocol";
+import { stableJSONString, type CollectionFileDescriptor, type JSONValue } from "@ovst/protocol";
 import {
-  collectionChildSetHash,
+  collectionFileRows,
   decodeProtocolCollectionFile,
-  encodeProtocolCollectionFile,
+  mergeCollectionRows,
   ProtocolCollectionFileError,
+  spliceCollectionFile,
   type ProtocolCollectionFileRow,
+  type RowFieldConflict,
 } from "@ovst/collection-schema";
 
 /**
@@ -244,21 +246,25 @@ export interface CollectionFileMergeInput {
   schemaSource: ObjectHash;
 }
 
-/** `collection-file-rows-v1`: merge two collection-file changes by stable row identity. */
-export async function collectionFileRowsV1(
+/** A field conflict a collection merge kept for someone to pick. */
+export interface CollectionFieldConflict extends RowFieldConflict {
+  /** The collection's folder. */
+  path: string;
+  table: string;
+}
+
+/** `collection-file-fields-v1` (spec 10 §7): merge two collection-file
+ * changes by row identity and then field by field. The result splices the
+ * merged rows into current's file, so rows neither side changed keep their
+ * bytes. Field conflicts keep current's value and are reported for a
+ * decision; a merge the schema rejects is a conflict on the folder. */
+export async function collectionFileFieldsV1(
   path: string,
   base: CollectionFileMergeInput,
   candidate: CollectionFileMergeInput,
   current: CollectionFileMergeInput,
   context: RuleContext,
-): Promise<{ descriptor: CollectionFileDescriptor; source: ObjectHash; schemaSource: ObjectHash; mergedRows: number }> {
-  const collectionFile = async (hash: ObjectHash): Promise<Uint8Array> => {
-    const value = await context.file(hash);
-    return value;
-  };
-  const rowEqual = (left: ProtocolCollectionFileRow | undefined, right: ProtocolCollectionFileRow | undefined): boolean =>
-    left === undefined ? right === undefined
-      : right !== undefined && stableJSONString(left.properties) === stableJSONString(right.properties);
+): Promise<{ descriptor: CollectionFileDescriptor; source: ObjectHash; schemaSource: ObjectHash; mergedRows: number; fields: CollectionFieldConflict[] }> {
   const schemaState = (value: CollectionFileMergeInput) => stableJSONString({
     version: value.descriptor.version,
     type: value.descriptor.type,
@@ -270,58 +276,44 @@ export async function collectionFileRowsV1(
   });
   if (schemaState(base) !== schemaState(candidate) || schemaState(base) !== schemaState(current)) {
     context.conflicts.push({ path, reason: "collection-file-schema-conflict" });
-    return { ...candidate, mergedRows: 0 };
+    return { ...candidate, mergedRows: 0, fields: [] };
   }
-  let mergedRows = 0;
   try {
     const decode = async (value: CollectionFileMergeInput) => decodeProtocolCollectionFile(
       value.descriptor,
-      await collectionFile(value.source),
-      await collectionFile(value.schemaSource),
+      await context.file(value.source),
+      await context.file(value.schemaSource),
     );
     const [baseFile, candidateFile, currentFile] = [await decode(base), await decode(candidate), await decode(current)];
-    const baseRows = new Map(baseFile.rows.map((row) => [row.stableKey, row]));
-    const candidateRows = new Map(candidateFile.rows.map((row) => [row.stableKey, row]));
-    const currentRows = new Map(currentFile.rows.map((row) => [row.stableKey, row]));
-    const selected = new Map<string, ProtocolCollectionFileRow>();
-    for (const key of new Set([...baseRows.keys(), ...candidateRows.keys(), ...currentRows.keys()])) {
-      const before = baseRows.get(key);
-      const candidate = candidateRows.get(key);
-      const current = currentRows.get(key);
-      let row: ProtocolCollectionFileRow | undefined;
-      if (rowEqual(candidate, current)) row = candidate;
-      else if (rowEqual(candidate, before)) row = current;
-      else if (rowEqual(current, before)) {
-        row = candidate;
-        mergedRows += 1;
-      } else {
-        const name = candidate?.path ?? current?.path ?? before?.path ?? "row";
-        context.conflicts.push({ path: `${path === "/" ? "" : path}/${name};overstory-key=${encodeStableKey(key)}`, reason: "collection-file-row-conflict" });
-        row = candidate;
-      }
-      if (row) selected.set(key, row);
+    const byKey = (rows: readonly ProtocolCollectionFileRow[]) => new Map(rows.map((row) => [row.stableKey, row.properties]));
+    const merged = mergeCollectionRows(currentFile.schema, byKey(baseFile.rows), byKey(candidateFile.rows), byKey(currentFile.rows), (b, c, u) => {
+      const lines = mergeLines(splitLines(b), splitLines(c), splitLines(u));
+      return lines && !lines.approximate ? lines.lines.join("") : null;
+    });
+    const currentRows = byKey(currentFile.rows);
+    const replaced = new Map<string, Record<string, JSONValue> | null>();
+    for (const row of currentFile.rows) {
+      const next = merged.rows.get(row.stableKey) ?? null;
+      if (next === null || stableJSONString(next) !== stableJSONString(row.properties)) replaced.set(row.sourceKey, next);
     }
-    const ordered: ProtocolCollectionFileRow[] = [];
-    for (const row of [...currentFile.rows, ...candidateFile.rows]) {
-      const selectedRow = selected.get(row.stableKey);
-      if (selectedRow) {
-        ordered.push(selectedRow);
-        selected.delete(row.stableKey);
-      }
-    }
-    ordered.push(...[...selected.values()].sort((left, right) => left.stableKey < right.stableKey ? -1 : 1));
-    const childSetHash = collectionChildSetHash(ordered.map((row) => ({ key: row.stableKey, name: row.path, properties: row.properties })));
-    const source = context.store(encodeProtocolCollectionFile(current.descriptor.format, currentFile.schema, ordered));
+    // New rows follow candidate's order, then any others by key.
+    const appended = [...candidateFile.rows.map((row) => row.stableKey), ...[...merged.rows.keys()].sort()]
+      .filter((key, index, keys) => keys.indexOf(key) === index && !currentRows.has(key) && merged.rows.get(key))
+      .map((key) => merged.rows.get(key)!);
+    const currentSource = new TextDecoder().decode(await context.file(current.source));
+    const bytes = new TextEncoder().encode(spliceCollectionFile(current.descriptor.format, currentSource, currentFile.schema, { replaced, appended }));
+    const { childSetHash } = collectionFileRows(current.descriptor.format, bytes, currentFile.schema);
     return {
       descriptor: { ...current.descriptor, childSetHash },
-      source,
+      source: context.store(bytes),
       schemaSource: current.schemaSource,
-      mergedRows,
+      mergedRows: merged.mergedRows,
+      fields: merged.conflicts.map((conflict) => ({ ...conflict, path, table: currentFile.schema.model })),
     };
   } catch (error) {
     if (error instanceof ProtocolCollectionFileError) {
       context.conflicts.push({ path, reason: error.kind === "schema" ? "collection-file-schema-conflict" : "collection-file-constraint-conflict" });
-      return { ...candidate, mergedRows: 0 };
+      return { ...candidate, mergedRows: 0, fields: [] };
     }
     throw error;
   }

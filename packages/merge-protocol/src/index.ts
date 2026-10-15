@@ -9,6 +9,7 @@ export const OBJECT_HASH = /^sha256:[a-f0-9]{64}$/;
 export type ObjectHash = string;
 const hash = z.string().regex(OBJECT_HASH);
 const token = z.string().min(1).max(1024);
+const modelName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/);
 const name = z.string().min(1).refine((part) => part !== "." && part !== ".." && !/[\\/\0]/.test(part));
 const contribution = z.object({ change: z.string(), operation: z.string().nullable() }).strict();
 export type Contribution = z.infer<typeof contribution>;
@@ -35,11 +36,19 @@ export const LOG_ENTRY_FORMAT = "overstory-log-entry-v1";
  * `range` it is a source choice about those bytes of the file at `path`
  * (`at` names that file when it is not the one in the entry's root), and each
  * alternative object is that alternative's bytes for the range. */
+export interface RowFieldScope { table: string; row: string; field: string | null }
+/** Whether a decision's alternatives are single objects (a range's bytes or a
+ * field's value) rather than whole roots. */
+export const rawAlternatives = (d: Pick<LogDecision, "range" | "field">): boolean => !!(d.range || d.field);
 export interface LogDecision {
   key: string;
   path?: string[];
   range?: [number, number];
   at?: ObjectHash;
+  /** A choice about one field of a collection row at `path` (or, with
+   * `field: null`, about the row's existence). Its alternatives are values:
+   * each object holds the stable JSON of one, `null` for absent. */
+  field?: RowFieldScope;
   dependencies: string[];
   selected: number;
   alternatives: Array<{ object: ObjectHash; contributions: Contribution[] }>;
@@ -47,9 +56,10 @@ export interface LogDecision {
 const logDecisionSchema = z
   .object({
     key: token,
-    path: z.array(name).min(1).optional(),
+    path: z.array(name).optional(),
     range: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).optional(),
     at: hash.optional(),
+    field: z.object({ table: modelName, row: z.string().min(1).max(4096), field: modelName.nullable() }).strict().optional(),
     dependencies: z.array(token),
     selected: z.number().int().nonnegative(),
     alternatives: z.array(z.object({ object: hash, contributions: z.array(contribution) }).strict()).min(2),
@@ -60,6 +70,8 @@ const logDecisionSchema = z
     if ((d.range || d.at) && !d.path) context.addIssue({ code: "custom", message: "A range choice names its file" });
     if (d.range && d.range[1] < d.range[0]) context.addIssue({ code: "custom", message: "Invalid range" });
     if (d.at && !d.range) context.addIssue({ code: "custom", message: "Only a range choice names a file object" });
+    if (d.path && !d.path.length && !d.field) context.addIssue({ code: "custom", message: "Only a field choice is about the root" });
+    if (d.field && (!d.path || d.range)) context.addIssue({ code: "custom", message: "A field choice names its collection and no range" });
     if (d.dependencies.includes(d.key)) context.addIssue({ code: "custom", message: "A decision cannot depend on itself" });
   });
 const logDecisions = z.array(logDecisionSchema).superRefine((decisions, context) => {

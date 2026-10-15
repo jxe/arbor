@@ -1,0 +1,118 @@
+import {
+  decodeProtocolDirectory,
+  executeRowOperations,
+  stableJSONString,
+  type JSONValue,
+  type ObjectHash,
+  type ProtocolDirectory,
+  type RowMember,
+  type RowOperation,
+} from "@ovst/protocol";
+import { sharedCollectionSchemaCache } from "./cache.ts";
+import type { CollectionSchema } from "./compile.ts";
+import { collectionFileRows } from "./collection-file.ts";
+import { replayCollectionRows } from "./row-replay.ts";
+
+type Row = Record<string, JSONValue>;
+type Read = (hash: ObjectHash) => Promise<Uint8Array>;
+type Collection = RowOperation["collection"];
+
+const json = (value: unknown) => stableJSONString(value ?? null);
+const scalar = (value: JSONValue): value is RowMember => typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+
+/** The operations that turn one row into another, or null when its arrays
+ * cannot be stated member by member. */
+function rowEdits(schema: CollectionSchema, before: Row, after: Row, op: (fields: Record<string, unknown>) => void): boolean {
+  for (const field of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const b = before[field], a = after[field];
+    if (json(b) === json(a)) continue;
+    const kind = schema.merge.get(field);
+    const lists = [b ?? [], a ?? []];
+    if ((kind === "many" || kind === "ordered") && lists.every((l) => Array.isArray(l) && l.every(scalar))) {
+      const [from, to] = lists as [RowMember[], RowMember[]];
+      const target = new Set(to.map(json)), source = new Set(from.map(json));
+      const working = from.filter((m) => target.has(json(m)));
+      for (const member of from) if (!target.has(json(member))) op({ kind: "rowDisconnect", field, member });
+      for (const member of to) if (!source.has(json(member))) { op({ kind: "rowConnect", field, member }); working.push(member); }
+      for (const [index, member] of to.entries()) {
+        if (json(working[index]) === json(member)) continue;
+        if (kind !== "ordered") return false;
+        const after = index ? to[index - 1]! : null;
+        op({ kind: "rowMove", field, member, after });
+        working.splice(working.findIndex((m) => json(m) === json(member)), 1);
+        working.splice(index, 0, member);
+      }
+      continue;
+    }
+    op({ kind: "rowSet", field, before: b ?? null, value: a ?? null });
+  }
+  return true;
+}
+
+/** Row operations for one collection directory whose collection file changed. */
+async function collectionEdits(path: string, object: ObjectHash, before: ProtocolDirectory, after: ProtocolDirectory, read: Read): Promise<RowOperation[] | null> {
+  const descriptor = before.childrenSource!, next = after.childrenSource!;
+  if (stableJSONString({ ...descriptor, childSetHash: null }) !== stableJSONString({ ...next, childSetHash: null })) return null;
+  const entry = (directory: ProtocolDirectory, name: string) => directory.entries.find((e) => e.name === name);
+  const names = new Set([...before.entries, ...after.entries].map((e) => e.name));
+  for (const name of names)
+    if (name !== descriptor.source && stableJSONString(entry(before, name) ?? null) !== stableJSONString(entry(after, name) ?? null)) return null;
+  const schemaFile = entry(before, descriptor.schemaSource)?.file, sourceBefore = entry(before, descriptor.source)?.file, sourceAfter = entry(after, descriptor.source)?.file;
+  if (!schemaFile || !sourceBefore || !sourceAfter) return null;
+  let schema: CollectionSchema, rowsBefore: Map<string, Row>, rowsAfter: Map<string, Row>;
+  try {
+    schema = sharedCollectionSchemaCache.compile(await read(schemaFile));
+    const decode = async (hash: ObjectHash) => new Map(collectionFileRows(descriptor.format, await read(hash), schema).rows.map((row) => [row.stableKey, row.properties]));
+    [rowsBefore, rowsAfter] = [await decode(sourceBefore), await decode(sourceAfter)];
+  } catch {
+    return null;
+  }
+  const collection: Collection = { material: { kind: "basis", path, object } };
+  const operations: RowOperation[] = [];
+  for (const [row, value] of rowsAfter) {
+    const prior = rowsBefore.get(row);
+    const op = (fields: Record<string, unknown>) => operations.push({ key: "", collection, table: schema.model, row, ...fields } as RowOperation);
+    if (!prior) op({ kind: "rowCreate", values: value });
+    else if (!rowEdits(schema, prior, value, op)) return null;
+  }
+  for (const row of rowsBefore.keys())
+    if (!rowsAfter.has(row)) operations.push({ key: "", kind: "rowDelete", collection, table: schema.model, row });
+  return operations;
+}
+
+/**
+ * The row operations that explain a change from `basis` to `candidate`, when
+ * that change is only edits to collection rows and replaying the operations
+ * reproduces `candidate` exactly (spec 10 §4.1). Null otherwise: any other
+ * change, or bytes replay would write differently, stays a snapshot.
+ */
+export async function deriveRowOperations(basis: ObjectHash, candidate: ObjectHash, read: Read): Promise<RowOperation[] | null> {
+  const operations: RowOperation[] = [];
+  const walk = async (path: string, before: ObjectHash, after: ObjectHash): Promise<boolean> => {
+    if (before === after) return true;
+    const [left, right] = [decodeProtocolDirectory(await read(before)), decodeProtocolDirectory(await read(after))];
+    if (left.childrenSource && right.childrenSource) {
+      const edits = await collectionEdits(path, before, left, right, read);
+      if (!edits?.length) return false;
+      operations.push(...edits);
+      return true;
+    }
+    if (left.childrenSource || right.childrenSource) return false;
+    const names = new Set([...left.entries, ...right.entries].map((e) => e.name));
+    for (const name of names) {
+      const a = left.entries.find((e) => e.name === name), b = right.entries.find((e) => e.name === name);
+      if (stableJSONString(a ?? null) === stableJSONString(b ?? null)) continue;
+      if (!a?.directory || !b?.directory) return false;
+      if (!(await walk(`${path === "/" ? "" : path}/${name}`, a.directory, b.directory))) return false;
+    }
+    return true;
+  };
+  if (!(await walk("/", basis, candidate)) || !operations.length) return null;
+  operations.forEach((operation, index) => { operation.key = `row-${index + 1}`; });
+  try {
+    const replayed = await executeRowOperations(basis, operations, read, replayCollectionRows);
+    return replayed.root === candidate ? operations : null;
+  } catch {
+    return null;
+  }
+}
