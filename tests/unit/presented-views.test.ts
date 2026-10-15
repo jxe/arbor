@@ -16,11 +16,11 @@ import {
   type Presentation,
   type RowEdit,
   type RowsByTable,
-  type ViewIntent,
+  type ViewIntent, type Person,
 } from "@ovst/usl";
 import { verifyFiles } from "@ovst/usl/verify";
 
-interface Fixture { schema: string; rows: RowsByTable; people: Record<string, string> }
+interface Fixture { schema: string; rows: RowsByTable; people: Person[] }
 interface Vectors {
   fixtures: Record<string, Fixture>;
   presentations: Array<{ name: string; fixture: string; model?: string; view?: number; query?: string; expected: Presentation }>;

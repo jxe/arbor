@@ -63,6 +63,7 @@ export {
   type PresentedGroup,
   type PresentedLine,
   type PresentOptions,
+  type Person,
   type Cell,
   type Chip,
   type GroupKind,

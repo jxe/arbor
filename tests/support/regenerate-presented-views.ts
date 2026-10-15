@@ -7,11 +7,11 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { applyRowEdits, compileUsl, presentView, viewEdits, ViewError, type RowsByTable, type ViewIntent } from "@ovst/usl";
+import { applyRowEdits, compileUsl, presentView, viewEdits, ViewError, type RowsByTable, type ViewIntent, type Person } from "@ovst/usl";
 
 const path = join(import.meta.dir, "../../docs/overstory-spec/conformance/presented-views.json");
 const file = JSON.parse(readFileSync(path, "utf8"));
-type Fixture = { schema: string; rows: RowsByTable; people: Record<string, string> };
+type Fixture = { schema: string; rows: RowsByTable; people: Person[] };
 const fixtures = file.fixtures as Record<string, Fixture>;
 const compiled = Object.fromEntries(Object.entries(fixtures).map(([name, f]) => [name, compileUsl(f.schema)]));
 

@@ -102,6 +102,11 @@ export interface Presentation {
   capabilities: Record<string, RowCapabilities>;
 }
 
+export interface Person {
+  id: string;
+  name: string;
+}
+
 export interface PresentOptions {
   /** The model whose rows are the lines: by default the one with `@@views`, else the first with rows. */
   model?: string;
@@ -109,8 +114,8 @@ export interface PresentOptions {
   view?: number;
   /** A page's override of the model's views. */
   views?: ResolvedView[];
-  /** Display names of profile ids, in the order a `Person` grouping lists them. */
-  people?: Record<string, string>;
+  /** People's profile ids and display names, in the order a `Person` grouping and picker list them. */
+  people?: Person[];
   /** Filters lines by their text, choices and related names. */
   query?: string;
   /** Whether a row may be changed (ownership is access policy). Everything is editable by default. */
@@ -227,7 +232,10 @@ class Collection {
   private readonly byModel = new Map<string, Table>();
   rows: RowsByTable;
 
-  constructor(readonly schema: CheckResult, rows: RowsByTable, readonly people: Record<string, string> = {}) {
+  readonly people: Person[];
+
+  constructor(readonly schema: CheckResult, rows: RowsByTable, people: Person[] = []) {
+    this.people = people;
     if (schema.diagnostics.length > 0) throw new ViewError("The schema has errors; check it first");
     this.models = new Map(schema.models.map((m) => [m.name, m]));
     this.tables = layoutOf(schema, { store: "files" });
@@ -416,7 +424,7 @@ class Collection {
 
   /** A member's chip: its display name and color. */
   chip(target: string, member: Scalar): Chip {
-    if (target === "Person") return { member, name: this.people[String(member)] ?? scalarText(member) };
+    if (target === "Person") return { member, name: this.people.find((p) => p.id === member)?.name ?? scalarText(member) };
     if (VALUE_TYPES.has(target)) return { member, name: scalarText(member) };
     const model = this.models.get(target);
     if (model?.rows === "fixed") {
@@ -433,7 +441,7 @@ class Collection {
 
   /** Everything a field can refer to, for a picker and for groups. */
   candidates(target: string): Chip[] {
-    if (target === "Person") return Object.keys(this.people).map((id) => this.chip("Person", id));
+    if (target === "Person") return this.people.map((p) => this.chip("Person", p.id));
     const model = this.models.get(target);
     if (model?.rows === "fixed") return model.schemaRows.map((r) => this.chip(target, r.name));
     const table = this.tableOf(target);
