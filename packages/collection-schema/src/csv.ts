@@ -113,6 +113,31 @@ function quote(text: string): string {
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
+/** Encode one record in an existing file's header order, by the same exact
+ * round-trip rule as `encodeCsvRows`. A member with no column is rejected. */
+export function encodeCsvRecord(schema: CollectionSchema, header: readonly string[], row: Readonly<Record<string, JSONValue>>): string {
+  const missing = Object.keys(row).find((name) => !header.includes(name));
+  if (missing !== undefined) {
+    throw new CsvEncodeError({ code: "csv-unrepresentable-value", path: pointer("", missing), message: `CSV has no column for ${JSON.stringify(missing)}` });
+  }
+  const declared = new Map(schema.csvColumns.map((column) => [column.name, column]));
+  return header.map((name) => {
+    const column = declared.get(name) ?? { name, ...UNDECLARED };
+    const present = Object.hasOwn(row, name);
+    const value = present ? row[name] : undefined;
+    const text = cellText(value);
+    const decoded = convertCell(column, text);
+    if (decoded === null || !(decoded.absent ? !present : present && sameValue(decoded.value, value))) {
+      throw new CsvEncodeError({
+        code: "csv-unrepresentable-value",
+        path: pointer("", name),
+        message: `The value of ${JSON.stringify(name)} cannot be written to CSV without changing it`,
+      });
+    }
+    return quote(text);
+  }).join(",");
+}
+
 /**
  * Encode rows in `row` column order, followed by undeclared members in order
  * of first appearance. Every cell must convert back to its value exactly;

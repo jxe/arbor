@@ -48,7 +48,9 @@ several editor generations into one claim that no single basis explains.
 - The last frame's `after` MUST be `candidate`.
 - Every frame MUST reproduce its `after` exactly, including untouched bytes, when
   its operations execute against its `before` (§3). A frame that does not is
-  invalid; the host never falls back to the candidate's bytes.
+  invalid; the host never falls back to the candidate's bytes. Row operations
+  re-derive the collection they change (§4.1), and that derivation is the
+  frame's exact result.
 - Each frame carries at least one operation. A change with nothing to state uses
   an empty trace or, for snapshot semantics, `null`.
 
@@ -75,7 +77,7 @@ type OperationRef = { change: string; operation: string };
 
 ## 4. Operations
 
-The target host supports every operation below. Each has required `key` and
+The target host supports every operation below and the row operations of §4.1. Each has required `key` and
 `kind` fields. All listed fields are required except `lineage`. References may
 select projected material or alternatives; the reference determines the target,
 so there is no separate `editAlternative` operation.
@@ -133,6 +135,47 @@ Limits: at most 1024 operations per candidate across its trace, 64 frames,
 request/object limits. Grammar validation does not establish source reachability,
 UTF-8 boundaries in stored objects, candidate correspondence or authorization; the
 authority validates those before acceptance.
+
+### 4.1 Row operations
+
+A schema'd collection ([child backings §2.4](06-child-backings.md#24-collection-schemas)) is edited by
+row, never by the bytes of its collection file. Every row operation also has
+`collection: Ref` (an entry reference, never ranged, to the collection's
+directory), `table` (a model name in its `schema.usl`) and `row` (the row's
+canonical stable key: the RFC 8785 JSON of its key's property and value pairs,
+such as `[["id","g1"]]`). `field`
+names one member of the row; a key field is never one.
+
+| `kind` | Fields | Authored meaning |
+| --- | --- | --- |
+| `rowCreate` | `values` | Create the row with these members. `values` holds the row's key, which MUST equal `row`, and the row MUST be absent. |
+| `rowDelete` | | Delete the row. |
+| `rowSet` | `field, before, value` | Set one member. `before` is the value the author saw, and MUST equal the member on the basis; `null` means absent, and a `null` value removes the member. The two differ. |
+| `rowConnect` | `field, member` | Add a scalar `member` to a many-valued field, at its end. It MUST be absent. |
+| `rowDisconnect` | `field, member` | Remove `member`, which MUST be present. A field left empty is removed. |
+| `rowMove` | `field, member, after` | Place `member` directly after the member `after`, or first when `after` is `null`, in a many-valued field. Both are present and the order changes. |
+
+A row operation names a row by identity, so concurrent changes to one row merge
+member by member (§7). It has no material result to reference.
+
+Replay re-derives the representation. Operations on one collection apply in
+order to its validated basis rows. A touched row is re-encoded with its members
+in the schema's layout order and undeclared members after them by UTF-8 name.
+In `.jsonl` it replaces its line content, keeping the surrounding whitespace.
+In `.json` it replaces its array item. In `.csv` it is one record in the file's
+header order, by the exact round-trip rule of
+[child backings §2.4.3](06-child-backings.md#243-csv-cell-conversion). A deleted row is removed with
+its line ending. Created rows are appended in the order they were created.
+When a `.json` array gains or loses an item, its items are rejoined with the
+text between its first two items (with one item, a comma and the text before
+it; with none, a newline and two spaces), keeping the text before the first
+item and after the last. Every untouched byte is kept. The directory's
+descriptor takes the `childSetHash` of the resulting rows, which MUST validate
+against the schema.
+
+The frame's `after` MUST equal that re-derived tree; this is the exactness §2
+requires. A frame that carries row operations carries no other kind, and a
+change that also edits text uses separate frames.
 
 ## 5. Acceptance and explicit resolution
 

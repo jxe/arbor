@@ -5,6 +5,7 @@ import {
   encodeProtocolDirectory,
   hashObject,
   type ProtocolDirectoryEntry,
+  isRowOperation,
   stableJSONString,
   type AcceptedUpdate,
   type CandidateUpdate,
@@ -29,6 +30,7 @@ export interface OpenDecision {
 
 function operationReferences(op: SourceOperation): MaterialRef[] {
   if (op.kind === "addEntry") return [op.destination.parent];
+  if (isRowOperation(op)) return [op.collection];
   const refs = [op.source];
   if (op.kind === "editSource") refs.push(...(op.lineage ?? []).map((l) => l.source));
   if (op.kind === "moveSource" || op.kind === "copySource") refs.push(op.at);

@@ -3706,6 +3706,365 @@
           }
         ]
       }
+    },
+    {
+      "name": "row operations of every kind",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "create",
+                    "kind": "rowCreate",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "table": "Game",
+                    "row": "[[\"id\",\"g2\"]]",
+                    "values": {
+                      "id": "g2",
+                      "title": "Go"
+                    }
+                  },
+                  {
+                    "key": "set",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "table": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "title",
+                    "before": "Chess",
+                    "value": "Chess960"
+                  },
+                  {
+                    "key": "clear",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "table": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "rating",
+                    "before": 4,
+                    "value": null
+                  },
+                  {
+                    "key": "connect",
+                    "kind": "rowConnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "table": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l1"
+                  },
+                  {
+                    "key": "disconnect",
+                    "kind": "rowDisconnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "table": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l2"
+                  },
+                  {
+                    "key": "move",
+                    "kind": "rowMove",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "table": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "steps",
+                    "member": 3,
+                    "after": null
+                  },
+                  {
+                    "key": "delete",
+                    "kind": "rowDelete",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "table": "Game",
+                    "row": "[[\"id\",\"g3\"]]"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:5b060971a323faeca6dc1cc2e3e29101dbe9418d7cb22633252c7b45ea6eb4bb",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZXRhYmxlZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqGNrZXljc2V0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRmcm93U2V0ZWZpZWxkZXRpdGxlZXRhYmxlZEdhbWVldmFsdWVoQ2hlc3M5NjBmYmVmb3JlZUNoZXNzamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKoY2tleWVjbGVhcmNyb3dtW1siaWQiLCJnMSJdXWRraW5kZnJvd1NldGVmaWVsZGZyYXRpbmdldGFibGVkR2FtZWV2YWx1ZfZmYmVmb3JlBGpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlnY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kanJvd0Nvbm5lY3RlZmllbGRlbGlzdHNldGFibGVkR2FtZWZtZW1iZXJibDFqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqdja2V5amRpc2Nvbm5lY3Rjcm93bVtbImlkIiwiZzEiXV1ka2luZG1yb3dEaXNjb25uZWN0ZWZpZWxkZWxpc3RzZXRhYmxlZEdhbWVmbWVtYmVyYmwyamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKoY2tleWRtb3ZlY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRncm93TW92ZWVhZnRlcvZlZmllbGRlc3RlcHNldGFibGVkR2FtZWZtZW1iZXIDamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKlY2tleWZkZWxldGVjcm93bVtbImlkIiwiZzMiXV1ka2luZGlyb3dEZWxldGVldGFibGVkR2FtZWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyZmNoYW5nZWpjaGFuZ2Utb25lZmRvbWFpbm5hcmJvci11cGRhdGUvMmhyZXNvbHZlc4BpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2"
+        }
+      ]
+    },
+    {
+      "name": "row set states the value seen",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "set",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "table": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "title",
+                    "value": "Chess960"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "row key is canonical identity JSON",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "delete",
+                    "kind": "rowDelete",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "table": "Game",
+                    "row": "g1"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "row collection cannot select a range",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "delete",
+                    "kind": "rowDelete",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      },
+                      "range": [
+                        0,
+                        1
+                      ]
+                    },
+                    "table": "Game",
+                    "row": "[[\"id\",\"g1\"]]"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "row member is a scalar",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "connect",
+                    "kind": "rowConnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "table": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": {
+                      "id": "l1"
+                    }
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "row move anchor differs from its member",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "move",
+                    "kind": "rowMove",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "table": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "steps",
+                    "member": 3,
+                    "after": 3
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "row table is a model name",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "delete",
+                    "kind": "rowDelete",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "table": "Game/x",
+                    "row": "[[\"id\",\"g1\"]]"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
     }
   ]
 }

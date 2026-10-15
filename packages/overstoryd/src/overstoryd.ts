@@ -40,7 +40,7 @@ import {
   type DeviceSessionChallenge,
   type PublishedDeviceKeys,
 } from "@ovst/protocol";
-import { CollectionSchemaCache, decodeProtocolCollectionFile } from "@ovst/collection-schema";
+import { CollectionSchemaCache, decodeProtocolCollectionFile, replayCollectionRows } from "@ovst/collection-schema";
 import {
   validateUpdateRequestIntent,
   decodeProtocolDirectory,
@@ -1902,7 +1902,7 @@ export class HostDaemon implements AsyncDisposable {
     };
     if (!update.trace?.length) return miss("no frames");
     if (update.trace[0]!.before !== root) return miss("trace is not authored on the head");
-    const checked = await checkPlainTrace(update.trace, (hash) => this.objects.load(hash, objects));
+    const checked = await checkPlainTrace(update.trace, (hash) => this.objects.load(hash, objects), replayCollectionRows);
     if (!checked.plain) return miss(checked.reason);
     const concerned = open.find((d) => !d.path || checked.touched.some((path) => pathWithin(path, `/${d.path!.join("/")}`)));
     if (concerned) return miss("an open decision concerns the update");

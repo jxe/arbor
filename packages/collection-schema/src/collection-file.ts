@@ -185,19 +185,33 @@ export function decodeProtocolCollectionFile(
   if (schema.revision !== descriptor.schemaFingerprint) {
     throw new ProtocolCollectionFileError("schema", "Collection-file schema fingerprint does not match schema.usl");
   }
+  const { rows, childSetHash } = collectionFileRows(descriptor.format, sourceBytes, schema);
+  if (childSetHash !== descriptor.childSetHash) {
+    throw new ProtocolCollectionFileError("constraint", "Collection-file child-set hash does not match its validated rows");
+  }
+  return { format: descriptor.format, schema, rows, childSetHash };
+}
+
+/** Validated rows of exact collection-file bytes, each with its source
+ * position key (`line:N`, `item:N` or `row:N`), and their child-set hash. */
+export function collectionFileRows(
+  format: CollectionFileDescriptor["format"],
+  sourceBytes: Uint8Array,
+  schema: CollectionSchema,
+): { rows: Array<ProtocolCollectionFileRow & { sourceKey: string }>; childSetHash: Hash } {
   let source: string;
   try {
     source = new TextDecoder("utf-8", { fatal: true }).decode(sourceBytes);
   } catch {
     throw new ProtocolCollectionFileError("source", "Collection file must be UTF-8");
   }
-  const decoded = decodeCollectionFileSource(descriptor.format, source, `wire:_store.${descriptor.format}`, schema);
+  const decoded = decodeCollectionFileSource(format, source, `wire:_store.${format}`, schema);
   const fileDiagnostic = decoded.diagnostics[0];
   if (fileDiagnostic) {
     throw new ProtocolCollectionFileError(fileDiagnostic.code.startsWith("csv-") ? "constraint" : "source", fileDiagnostic.message);
   }
   if (decoded.rows.length > 100_000) throw new ProtocolCollectionFileError("source", "Collection file exceeds the 100,000 row limit");
-  const rows: ProtocolCollectionFileRow[] = [];
+  const rows: Array<ProtocolCollectionFileRow & { sourceKey: string }> = [];
   const keys = new Set<string>();
   const names = new Set<string>();
   for (const [index, raw] of decoded.rows.entries()) {
@@ -219,13 +233,10 @@ export function decodeProtocolCollectionFile(
     }
     if (names.has(path)) throw new ProtocolCollectionFileError("constraint", `Collection-file child name is duplicated: ${path}`);
     names.add(path);
-    rows.push({ stableKey, path, properties });
+    rows.push({ stableKey, path, properties, sourceKey: raw.key });
   }
   const childSetHash = collectionChildSetHash(rows.map((row) => ({ key: row.stableKey, name: row.path, properties: row.properties })));
-  if (childSetHash !== descriptor.childSetHash) {
-    throw new ProtocolCollectionFileError("constraint", "Collection-file child-set hash does not match its validated rows");
-  }
-  return { format: descriptor.format, schema, rows, childSetHash };
+  return { rows, childSetHash };
 }
 
 /** Encode rows for a collection file; CSV rejects any value its cells cannot reproduce. */

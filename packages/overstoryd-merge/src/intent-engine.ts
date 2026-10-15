@@ -1,5 +1,5 @@
 import { cloneState, copy, loadState, lookup, own, retainState, same, shareState, since, union, viewState, type RetainedState, type RetainedStates } from "./retained-state.ts";
-import { stableJSONString } from "@ovst/protocol";
+import { isRowOperation, stableJSONString } from "@ovst/protocol";
 import {
   decodeProtocolDirectory,
   encodeProtocolDirectory,
@@ -1031,6 +1031,9 @@ class Engine {
       before: Record<string, Node> = validatedBasisObject ? Object.create(null) : clone(state.nodes);
     if (Object.hasOwn(state.effects, key))
       return fail("Operation identity reused");
+    // Row operations are evaluated by the row merge, never by this engine.
+    if (isRowOperation(operation))
+      throw new MergeRefusal("unsupported", "Row operations are not evaluated here");
     let result: Material | undefined;
     if (
       operation.kind === "editSource" ||

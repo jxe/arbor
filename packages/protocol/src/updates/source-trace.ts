@@ -1,5 +1,5 @@
 import { compareProtocolNames, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "../objects.ts";
-import type { AuthoredOperation, MaterialRef } from "./authored-contract.ts";
+import { isRowOperation, type AuthoredOperation, type MaterialRef, type RowOperation } from "./authored-contract.ts";
 import { arrangeSources, UnsupportedSourceMove, type SourceReplacement } from "./source-moves.ts";
 
 type Edit = Extract<AuthoredOperation, { kind: "editSource" }>;
@@ -163,8 +163,11 @@ export async function validateSourceEditCandidate(
   candidate: ObjectHash,
   operations: readonly AuthoredOperation[],
   load: (hash: ObjectHash) => Promise<Uint8Array>,
-) {
-  const result = await executeExactSourceEdits(baseRoot, operations, load);
+  rows?: CollectionRowReplay,
+): Promise<{ root: ObjectHash; generated: Map<ObjectHash, Uint8Array>; evidence: SourceEditEvidence[] }> {
+  const result = operations.some(isRowOperation)
+    ? { ...await executeRowOperations(baseRoot, operations, load, rows), evidence: [] }
+    : await executeExactSourceEdits(baseRoot, operations, load);
   if (result.root !== candidate) invalid("operations do not explain candidate");
   return result;
 }
@@ -184,6 +187,7 @@ export interface SourceFrame {
 export async function validateSourceTrace(
   frames: readonly SourceFrame[],
   load: (hash: ObjectHash) => Promise<Uint8Array>,
+  rows?: CollectionRowReplay,
 ): Promise<{ root: ObjectHash; generated: Map<ObjectHash, Uint8Array>; evidence: SourceEditEvidence[] }> {
   if (!frames.length) invalid("trace has no frames");
   const generated = new Map<ObjectHash, Uint8Array>();
@@ -198,7 +202,7 @@ export async function validateSourceTrace(
       if (keys.has(operation.key)) invalid("duplicate operation key");
       keys.add(operation.key);
     }
-    const result = await validateSourceEditCandidate(frame.before, frame.after, frame.operations, read);
+    const result = await validateSourceEditCandidate(frame.before, frame.after, frame.operations, read, rows);
     for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
     evidence.push(...result.evidence);
   }
@@ -217,6 +221,7 @@ export async function validateSourceTrace(
 export async function checkPlainTrace(
   frames: readonly SourceFrame[],
   load: (hash: ObjectHash) => Promise<Uint8Array>,
+  rows?: CollectionRowReplay,
 ): Promise<{ plain: true; touched: string[]; generated: Map<ObjectHash, Uint8Array> } | { plain: false; reason: string }> {
   if (!frames.length) return { plain: false, reason: "empty trace" };
   const generated = new Map<ObjectHash, Uint8Array>();
@@ -227,6 +232,18 @@ export async function checkPlainTrace(
     for (const [index, frame] of frames.entries()) {
       if (index && frames[index - 1]!.after !== frame.before) return { plain: false, reason: "frame does not follow its basis" };
       if (!frame.operations.length) return { plain: false, reason: "frame carries no operations" };
+      if (frame.operations.some(isRowOperation)) {
+        for (const operation of frame.operations) {
+          if (keys.has(operation.key)) return { plain: false, reason: "duplicate operation key" };
+          keys.add(operation.key);
+        }
+        if (!rows) return { plain: false, reason: "row operations need a collection replay" };
+        const result = await executeRowOperations(frame.before, frame.operations, read, rows);
+        for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
+        for (const path of result.touched) touched.add(path);
+        if (result.root !== frame.after) return { plain: false, reason: "operations do not reproduce the frame" };
+        continue;
+      }
       const edits: AuthoredOperation[] = [], additions: Array<Extract<AuthoredOperation, { kind: "addEntry" }>> = [];
       for (const operation of frame.operations) {
         if (keys.has(operation.key)) return { plain: false, reason: "duplicate operation key" };
@@ -280,6 +297,86 @@ export async function checkPlainTrace(
     return { plain: false, reason: error instanceof Error ? error.message : "invalid trace" };
   }
   return { plain: true, touched: [...touched], generated };
+}
+
+/** Apply one collection directory's row operations, in order, and return its
+ * re-derived directory object (spec 10 §4.1). Protocol does not know a
+ * collection's representations, so the collection schema package supplies
+ * this; the client and the host use the same one. Throws on an invalid
+ * operation. */
+export type CollectionRowReplay = (
+  directory: ObjectHash,
+  operations: readonly RowOperation[],
+  read: (hash: ObjectHash) => Promise<Uint8Array>,
+) => Promise<{ directory: ObjectHash; generated: Map<ObjectHash, Uint8Array> }>;
+
+/** Execute a frame of row operations against `baseRoot`. Each operation names
+ * a basis collection directory; operations on one collection run in order,
+ * and each changed collection is re-derived by `replay`. A frame that carries
+ * row operations carries nothing else. */
+export async function executeRowOperations(
+  baseRoot: ObjectHash,
+  operations: readonly AuthoredOperation[],
+  load: (hash: ObjectHash) => Promise<Uint8Array>,
+  replay?: CollectionRowReplay,
+): Promise<{ root: ObjectHash; generated: Map<ObjectHash, Uint8Array>; touched: string[] }> {
+  if (!replay) throw new UnsupportedSourceEdit("Row operations need a collection replay");
+  const generated = new Map<ObjectHash, Uint8Array>();
+  const read = async (hash: ObjectHash) => generated.get(hash) ?? await load(hash);
+  const groups = new Map<string, { object: ObjectHash; parts: string[]; operations: RowOperation[] }>();
+  const keys = new Set<string>();
+  for (const operation of operations) {
+    if (!isRowOperation(operation)) invalid("a frame with row operations carries only row operations");
+    if (keys.has(operation.key)) invalid("duplicate operation key");
+    keys.add(operation.key);
+    const ref = operation.collection;
+    if (ref.material.kind !== "basis") throw new UnsupportedSourceEdit("Row operations name basis collections");
+    if (ref.range) invalid("a collection reference is never ranged");
+    const base = components(ref.material.path), within = ref.within ?? [];
+    if (within.length) components("/" + within.join("/"));
+    const parts = [...base, ...within], path = "/" + parts.join("/");
+    let group = groups.get(path);
+    if (!group) {
+      let object = baseRoot;
+      for (let depth = 0; depth <= parts.length; depth++) {
+        if (depth === base.length && object !== ref.material.object) invalid("basis object does not match path");
+        if (depth === parts.length) break;
+        const entry = decodeProtocolDirectory(await read(object)).entries.find((e) => e.name === parts[depth]);
+        if (!entry?.directory) invalid("collection is not a basis directory");
+        object = entry.directory;
+      }
+      groups.set(path, group = { object, parts, operations: [] });
+    } else if (base.length === parts.length && group.object !== ref.material.object) invalid("one path names two basis objects");
+    group.operations.push(operation);
+  }
+  let root = baseRoot;
+  for (const group of groups.values()) {
+    const result = await replay(group.object, group.operations, read);
+    for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
+    root = await setDirectoryAt(root, group.parts, result.directory, read, generated);
+  }
+  return { root, generated, touched: [...groups.keys()] };
+}
+
+/** Replace the directory at `path` below `root`, which must exist. */
+async function setDirectoryAt(
+  root: ObjectHash,
+  path: readonly string[],
+  directory: ObjectHash,
+  read: (hash: ObjectHash) => Promise<Uint8Array>,
+  generated: Map<ObjectHash, Uint8Array>,
+): Promise<ObjectHash> {
+  if (!path.length) return directory;
+  const parent = decodeProtocolDirectory(await read(root));
+  const [name, ...rest] = path as [string, ...string[]];
+  const prior = parent.entries.find((e) => e.name === name);
+  if (!prior?.directory) invalid("collection is not a directory");
+  const next = await setDirectoryAt(prior.directory, rest, directory, read, generated);
+  if (next === prior.directory) return root;
+  parent.entries = parent.entries.map((e) => e.name === name ? { name, directory: next } : e);
+  const bytes = encodeProtocolDirectory(parent), hash = hashObject(bytes);
+  generated.set(hash, bytes);
+  return hash;
 }
 
 /** Add `entry` at `path` below `root`; null when the name is taken. */

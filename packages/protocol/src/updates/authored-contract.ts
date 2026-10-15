@@ -2,6 +2,8 @@
  * Transport envelopes remain governed by the existing object/delta codecs.
  */
 import { updateRequestIdentities } from "./intent.ts";
+import type { JSONValue } from "../model/node-model.ts";
+import { parseCanonicalStableKey } from "../model/node-key.ts";
 export type Material =
   | { kind: "basis"; path: string; object: string }
   | { kind: "operation"; change: string; operation: string }
@@ -16,7 +18,26 @@ export type AuthoredOperation = { key: string } & (
   | { kind: "removeEntry"; source: MaterialRef }
   | { kind: "replaceEntry"; source: MaterialRef; value: { file: string } | { directory: string } | MaterialRef }
   | { kind: "addEntry"; destination: EntryDestination; value: { file: string } | { directory: string } }
+  | RowOperation
 );
+/** A scalar a many-valued field holds: a connected row's key value or a listed value. */
+export type RowMember = string | number | boolean;
+/** Fields every row operation carries: the collection directory (an entry
+ * reference, never ranged), the table and the row's canonical stable key. */
+interface RowTarget { collection: MaterialRef; table: string; row: string }
+/** Row operations (spec 10 §4.1): an edit to one row of a schema'd collection,
+ * named by identity, never by its bytes. */
+export type RowOperation = { key: string } & RowTarget & (
+  | { kind: "rowCreate"; values: Record<string, JSONValue> }
+  | { kind: "rowDelete" }
+  | { kind: "rowSet"; field: string; before: JSONValue; value: JSONValue }
+  | { kind: "rowConnect" | "rowDisconnect"; field: string; member: RowMember }
+  | { kind: "rowMove"; field: string; member: RowMember; after: RowMember | null }
+);
+export const ROW_OPERATION_KINDS = ["rowCreate", "rowDelete", "rowSet", "rowConnect", "rowDisconnect", "rowMove"] as const;
+export function isRowOperation(operation: { kind: string }): operation is RowOperation {
+  return (ROW_OPERATION_KINDS as readonly string[]).includes(operation.kind);
+}
 /** One tree-root to tree-root step of a change's authored evidence. Basis
  * references inside a frame name objects in that frame's `before` tree, and
  * operation references name an earlier key in the same change, so two traces
@@ -48,6 +69,18 @@ function path(v: unknown) { text(v, 4096); require(v.startsWith("/")); if (v !==
 function range(v: unknown): asserts v is [number, number] {
   require(Array.isArray(v) && v.length === 2 && v.every(n => Number.isSafeInteger(n) && n >= 0) && v[1] >= v[0]);
 }
+/** A USL model or field name. */
+function name(v: unknown) { require(typeof v === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(v)); }
+/** A JSON value of at most `max` UTF-8 bytes as JSON text. */
+function json(v: unknown, max = 1048576) {
+  const valid = (x: unknown, depth: number): boolean => depth <= 64 && (x === null || typeof x === "string" || typeof x === "boolean"
+    || (typeof x === "number" && Number.isFinite(x))
+    || (Array.isArray(x) && x.every((y) => valid(y, depth + 1)))
+    || (!!x && typeof x === "object" && Object.getPrototypeOf(x) === Object.prototype && Object.values(x).every((y) => valid(y, depth + 1))));
+  require(valid(v, 0));
+  const encoded = JSON.stringify(v); text(encoded, max);
+}
+function member(v: unknown) { require(typeof v === "string" || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v))); json(v, 4096); }
 function reference(raw: unknown, entry = false): MaterialRef {
   const v = obj(raw); keys(v, ["material"], ["within", "range"]); const m = obj(v.material);
   switch (m.kind) {
@@ -98,6 +131,18 @@ function operation(raw: unknown): AuthoredOperation {
       const value = obj(v.value);
       if (Object.hasOwn(value, "file")) { keys(value, ["file"]); hash(value.file); }
       else { keys(value, ["directory"]); hash(value.directory); }
+      break;
+    }
+    case "rowCreate": case "rowDelete": case "rowSet": case "rowConnect": case "rowDisconnect": case "rowMove": {
+      const fields = { rowCreate: ["values"], rowDelete: [], rowSet: ["field", "before", "value"], rowConnect: ["field", "member"],
+        rowDisconnect: ["field", "member"], rowMove: ["field", "member", "after"] }[v.kind as RowOperation["kind"]];
+      keys(v, ["key", "kind", "collection", "table", "row", ...fields]); reference(v.collection, true); name(v.table);
+      text(v.row, 4096); require(parseCanonicalStableKey(v.row) !== null);
+      if (Object.hasOwn(v, "field")) name(v.field);
+      if (v.kind === "rowCreate") { json(v.values); obj(v.values); Object.keys(v.values).forEach(name); }
+      if (v.kind === "rowSet") { json(v.before); json(v.value); }
+      if (Object.hasOwn(v, "member")) member(v.member);
+      if (v.kind === "rowMove" && v.after !== null) { member(v.after); require(JSON.stringify(v.after) !== JSON.stringify(v.member)); }
       break;
     }
     default: require(false);

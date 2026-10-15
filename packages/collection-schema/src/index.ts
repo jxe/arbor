@@ -4,8 +4,9 @@
 export * from "./diagnostics.ts";
 export { compileCollectionSchema, decodeSchemaSource, type Check, type ChildNameRule, type CollectionSchema, type CsvColumn } from "./compile.ts";
 export { validateRow, collectionValidationBudget, type ValidationBudget } from "./validate.ts";
-export { csvHeaderDiagnostics, csvRowValue, encodeCsvRows, CsvEncodeError } from "./csv.ts";
+export { csvHeaderDiagnostics, csvRowValue, encodeCsvRecord, encodeCsvRows, CsvEncodeError } from "./csv.ts";
 export { collectionTypeDeclarations } from "./typescript.ts";
 export { logicalChildName, RESERVED_CHILD_NAMES } from "./names.ts";
 export { CollectionSchemaCache, sharedCollectionSchemaCache } from "./cache.ts";
 export * from "./collection-file.ts";
+export { applyRowOperations, canonicalRow, replayCollectionRows, spliceCollectionFile, type CollectionRowSplice } from "./row-replay.ts";
