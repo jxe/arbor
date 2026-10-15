@@ -22,7 +22,7 @@ export const VALUE_TYPES = ["Text", "Markdown", "Int", "Number", "Bool", "Date"]
 export const BUILTIN_MODELS = ["Person"] as const;
 export const IMPLICIT_FIELDS = ["id", "created", "modified"] as const;
 
-const FIELD_ATTRIBUTES = ["ordered", "color", "unique", "as", "column", "fold", "path"];
+const FIELD_ATTRIBUTES = ["ordered", "sort", "color", "unique", "as", "column", "fold", "path"];
 const MODEL_ATTRIBUTES = ["views", "editableBy", "fold", "table", "id", "index"];
 const VIEW_OPTIONS = ["label", "line", "group", "sort"];
 // Presentation of one item in a view's line: `@bullet` draws a fixed value as
@@ -39,6 +39,8 @@ export interface ResolvedField {
   /** declared: written in the model. connection: gained from a connection. end: one of this connection model's ends. */
   origin: "declared" | "connection" | "end";
   ordered: boolean;
+  /** `@sort(field)` on an unordered connection end: the field of the target its members are listed by. */
+  sort?: string;
   unique: boolean;
   /** Holds the row's color (`@color`). */
   color: boolean;
@@ -52,6 +54,8 @@ export interface ResolvedEnd {
   field: string;
   arity: Arity;
   ordered: boolean;
+  /** `@sort(field)`: the field of the target its members are listed by. */
+  sort?: string;
   /** The field this end gets in its connection model (`@as`, or the model's name in lower case). */
   as: string;
   /** `@column("…")` on the end. */
@@ -138,6 +142,11 @@ const identArg = (attrs: Attribute[], name: string): string | undefined => {
 };
 /** The field a connection model gets for one of its ends: `@as(name)`, or the end's model in lower case. */
 const keyFieldOf = (end: EndDecl) => identArg(end.attrs, "as") ?? lowerFirst(end.model);
+/** `{ sort: "…" }` when `@sort(field)` is among the attributes. */
+const sortOf = (attrs: Attribute[]): { sort?: string } => {
+  const field = identArg(attrs, "sort");
+  return field ? { sort: field } : {};
+};
 /** `{ column: "…" }` when `@column("…")` is among the attributes. */
 const columnOf = (attrs: Attribute[]): { column?: string } => {
   const arg = attrs.find((a) => a.name === "column")?.args[0];
@@ -148,6 +157,7 @@ const resolvedEnd = (end: EndDecl): ResolvedEnd => ({
   field: end.field,
   arity: end.arity,
   ordered: end.attrs.some((a) => a.name === "ordered"),
+  ...sortOf(end.attrs),
   as: keyFieldOf(end),
   ...columnOf(end.attrs),
   fold: end.attrs.some((a) => a.name === "fold"),
@@ -306,6 +316,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
         arity: info.decl.arity,
         origin: "connection",
         ordered: info.decl.attrs.some((a) => a.name === "ordered"),
+        ...sortOf(info.decl.attrs),
         unique: false,
         color: false,
         ...columnOf(info.decl.attrs),
@@ -366,8 +377,21 @@ export function checkUsl(file: SchemaFile): CheckResult {
   }
 
   // 4. Field and end attributes.
+  const sorts: { at: Position; target: string; field: string }[] = [];
   const checkFieldAttrs = (attrs: Attribute[], arity: Arity, type: string | null, owner: string, end?: { decl: EndDecl; named: boolean }) => {
     for (const attr of attrs) {
+      if (attr.name === "sort") {
+        const field = attr.args[0];
+        if (!end) report("misplaced-attribute", attr.at, "`@sort` goes on a many-valued connection end");
+        else if (attr.args.length !== 1 || field?.kind !== "ident") report("attribute-arguments", attr.at, "`@sort` names one field of the members: `@sort(name)`");
+        else if (arity !== "many") report("sort-single", attr.at, "`@sort` only applies to a many-valued end (`[]`)");
+        else if (attrs.some((a) => a.name === "ordered")) report("sort-ordered", attr.at, "An `@ordered` end keeps its own order; it can't also `@sort`");
+        else {
+          const target = ends.get(`${end.decl.model}.${end.decl.field}`)?.target;
+          if (target) sorts.push({ at: field.at, target, field: field.name });
+        }
+        continue;
+      }
       const endOnly = attr.name === "as" || attr.name === "fold";
       if (attr.name === "column") {
         if (attr.args.length !== 1 || attr.args[0]!.kind !== "string" || attr.args[0]!.value === "") {
@@ -425,6 +449,15 @@ export function checkUsl(file: SchemaFile): CheckResult {
   for (const decl of file.declarations) {
     if (decl.kind !== "connection") continue;
     for (const member of decl.members) if (member.kind === "end") checkFieldAttrs(member.attrs, member.arity, null, member.model, { decl: member, named: false });
+  }
+
+  // A member is sorted by a field of its own model: `name` for a person or a
+  // fixed row, otherwise a field, `created` or `modified`.
+  for (const { at, target, field } of sorts) {
+    const known = target === "Person" || isFixed(target)
+      ? field === "name" || Boolean(fieldMaps.get(target)?.has(field))
+      : (IMPLICIT_FIELDS as readonly string[]).includes(field) || Boolean(fieldMaps.get(target)?.has(field));
+    if (!known) report("unknown-field", at, `\`${target}\` has no field \`${field}\` to sort by`);
   }
 
   // 5. Model attributes.

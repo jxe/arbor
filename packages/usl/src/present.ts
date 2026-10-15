@@ -14,7 +14,8 @@
 //   them. A row appears under every group it belongs to. A group stored as
 //   an `@ordered` list keeps that order and can be reordered; otherwise lines
 //   keep the rows' creation order. Unordered connection members are listed
-//   in the order they were connected.
+//   by the end's `@sort` field (groups by such a field too), else in the
+//   order they were connected.
 // - `sort` orders lines by a field (newest first for `created` and
 //   `modified`, rows without one last); in groups whose order is stored it
 //   orders the groups instead, by their own rows.
@@ -369,10 +370,28 @@ class Collection {
     return undefined;
   }
 
-  /** The members `row` of `model` holds in `field`, in their order. */
+  /** The members `row` of `model` holds in `field`, in their order: stored, by `@sort`, or as connected. */
   members(model: ResolvedModel, field: ResolvedField, row: Row): Scalar[] {
-    const access = this.access(model, field);
-    return this.membersBy(model, access, row);
+    const members = this.membersBy(model, this.access(model, field), row);
+    return field.sort ? this.sortMembers(field.type, field.sort, members) : members;
+  }
+
+  /** Members of `target` by one of its fields (`@sort`): newest first for `created` and `modified`, members without it last. */
+  sortMembers<T>(target: string, sort: string, items: T[], memberOf: (item: T) => Scalar = (item) => item as Scalar): T[] {
+    const descending = sort === "created" || sort === "modified";
+    return sortBy(items, (item) => this.memberSortKey(target, sort, memberOf(item)), descending);
+  }
+
+  memberSortKey(target: string, sort: string, member: Scalar): Scalar | undefined {
+    if (target === "Person") return sort === "name" ? this.chip(target, member).name : undefined;
+    const model = this.models.get(target);
+    if (model?.rows === "fixed") {
+      if (sort === "name") return member;
+      const value = model.schemaRows.find((r) => r.name === member)?.values[sort];
+      return isScalar(value) ? value : undefined;
+    }
+    const row = this.rowByMember(target, member);
+    return row && model ? sortKey(this, model, sort, row) : undefined;
   }
 
   membersBy(model: ResolvedModel, access: Access, row: Row): Scalar[] {
@@ -531,7 +550,8 @@ function arrange(collection: Collection, options: PresentOptions): Arrangement {
   const members = new Map(all.map((r) => [r, collection.membersBy(model, access, r)] as const));
 
   // The groups: everything the field can refer to, then members nobody listed (people, values).
-  const candidates = VALUE_TYPES.has(target) ? [] : collection.candidates(target);
+  const listedFirst = VALUE_TYPES.has(target) ? [] : collection.candidates(target);
+  const candidates = field.sort ? collection.sortMembers(target, field.sort, listedFirst, (c) => c.member) : listedFirst;
   const listed = new Set(candidates.map((c) => canonical(c.member)));
   if (target === "Person" || VALUE_TYPES.has(target)) {
     for (const r of all) {
@@ -581,6 +601,7 @@ function arrange(collection: Collection, options: PresentOptions): Arrangement {
 /** Newest first for `created` and `modified`; otherwise ascending. Rows without the field keep their place, last. */
 function sortKey(collection: Collection, model: ResolvedModel, sort: string, row: Row): Scalar | undefined {
   if (sort === "created" || sort === "modified") return typeof row[sort] === "string" ? (row[sort] as string) : undefined;
+  if (sort === "id") return isScalar(row.id) ? row.id : undefined;
   const field = model.fields.find((f) => f.name === sort);
   if (!field) return undefined;
   const members = collection.members(model, field, row);

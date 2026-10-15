@@ -192,6 +192,52 @@
           }
         ]
       }
+    },
+    "sorted": {
+      "schema": "// Members listed by a field of theirs (`@sort`) instead of the order\n// they were connected in.\n\nmodel Game {\n  name    Text\n  authors Person[]\n  tags    Tag[]\n\n  @@views([\n    { label: \"Games\",  line: [name, authors, tags] },\n    { label: \"By tag\", group: tags },\n  ])\n}\n\nmodel Tag {\n  name Text\n}\n\nGame.authors[] @fold @sort(name) <-> Person.games[]\nGame.tags[] @fold @sort(name) <-> Tag.games[]\n",
+      "people": [
+        {
+          "id": "p-zed",
+          "name": "Zed"
+        },
+        {
+          "id": "p-ada",
+          "name": "Ada"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "authors": [
+              "p-zed",
+              "p-ada"
+            ],
+            "tags": [
+              "t1",
+              "t2"
+            ]
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "tags": [
+              "t2"
+            ]
+          }
+        ],
+        "Tag": [
+          {
+            "id": "t1",
+            "name": "strategy"
+          },
+          {
+            "id": "t2",
+            "name": "cards"
+          }
+        ]
+      }
     }
   },
   "presentations": [
@@ -3076,6 +3122,329 @@
             "edit": true,
             "delete": true,
             "groups": []
+          }
+        }
+      }
+    },
+    {
+      "name": "sorted: members listed by their name, not as connected",
+      "fixture": "sorted",
+      "view": 0,
+      "expected": {
+        "model": "Game",
+        "table": "Game",
+        "tabs": [
+          {
+            "label": "Games"
+          },
+          {
+            "label": "By tag"
+          }
+        ],
+        "tab": 0,
+        "groups": [
+          {
+            "id": "",
+            "kind": "flat",
+            "heading": "",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g1\"]]",
+                "occurrence": "[\"Games\",\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Wingspan"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      },
+                      {
+                        "member": "p-zed",
+                        "name": "Zed"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tags",
+                    "chips": [
+                      {
+                        "member": "t2",
+                        "name": "cards"
+                      },
+                      {
+                        "member": "t1",
+                        "name": "strategy"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"g2\"]]",
+                "occurrence": "[\"Games\",\"\",\"[[\\\"id\\\",\\\"g2\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Hanabi"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": []
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tags",
+                    "chips": [
+                      {
+                        "member": "t2",
+                        "name": "cards"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "authors": [
+            {
+              "member": "p-zed",
+              "name": "Zed"
+            },
+            {
+              "member": "p-ada",
+              "name": "Ada"
+            }
+          ],
+          "tags": [
+            {
+              "member": "t1",
+              "name": "strategy"
+            },
+            {
+              "member": "t2",
+              "name": "cards"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"g1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          },
+          "[[\"id\",\"g2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          }
+        }
+      }
+    },
+    {
+      "name": "sorted: groups by a sorted field follow its order",
+      "fixture": "sorted",
+      "view": 1,
+      "expected": {
+        "model": "Game",
+        "table": "Game",
+        "tabs": [
+          {
+            "label": "Games"
+          },
+          {
+            "label": "By tag"
+          }
+        ],
+        "tab": 1,
+        "group": "tags",
+        "groups": [
+          {
+            "id": "\"t2\"",
+            "kind": "connection",
+            "heading": "cards",
+            "member": "t2",
+            "table": "Tag",
+            "row": "[[\"id\",\"t2\"]]",
+            "headingField": "name",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g1\"]]",
+                "occurrence": "[\"By tag\",\"\\\"t2\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Wingspan"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      },
+                      {
+                        "member": "p-zed",
+                        "name": "Zed"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tags",
+                    "chips": [
+                      {
+                        "member": "t2",
+                        "name": "cards"
+                      },
+                      {
+                        "member": "t1",
+                        "name": "strategy"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"g2\"]]",
+                "occurrence": "[\"By tag\",\"\\\"t2\\\"\",\"[[\\\"id\\\",\\\"g2\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Hanabi"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": []
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tags",
+                    "chips": [
+                      {
+                        "member": "t2",
+                        "name": "cards"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"t1\"",
+            "kind": "connection",
+            "heading": "strategy",
+            "member": "t1",
+            "table": "Tag",
+            "row": "[[\"id\",\"t1\"]]",
+            "headingField": "name",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g1\"]]",
+                "occurrence": "[\"By tag\",\"\\\"t1\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Wingspan"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      },
+                      {
+                        "member": "p-zed",
+                        "name": "Zed"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tags",
+                    "chips": [
+                      {
+                        "member": "t2",
+                        "name": "cards"
+                      },
+                      {
+                        "member": "t1",
+                        "name": "strategy"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "authors": [
+            {
+              "member": "p-zed",
+              "name": "Zed"
+            },
+            {
+              "member": "p-ada",
+              "name": "Ada"
+            }
+          ],
+          "tags": [
+            {
+              "member": "t1",
+              "name": "strategy"
+            },
+            {
+              "member": "t2",
+              "name": "cards"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"g1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"t2\"",
+              "\"t1\""
+            ]
+          },
+          "[[\"id\",\"g2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"t2\""
+            ]
           }
         }
       }

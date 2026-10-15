@@ -10,7 +10,7 @@ public let uslValueTypes = ["Text", "Markdown", "Int", "Number", "Bool", "Date"]
 public let uslBuiltinModels = ["Person"]
 public let uslImplicitFields = ["id", "created", "modified"]
 
-private let fieldAttributes = ["ordered", "color", "unique", "as", "column", "fold", "path"]
+private let fieldAttributes = ["ordered", "sort", "color", "unique", "as", "column", "fold", "path"]
 private let modelAttributes = ["views", "editableBy", "fold", "table", "id", "index"]
 private let viewOptions = ["label", "line", "group", "sort"]
 // Presentation of one item in a view's line: `@bullet` draws a fixed value as
@@ -36,6 +36,8 @@ public struct USLResolvedField: Sendable, Equatable {
     public var color: Bool
     /// The stored column's name when it differs from the field's (`@column("…")`).
     public var column: String?
+    /// `@sort(field)` on an unordered connection end: the field of the target its members are listed by.
+    public var sort: String? = nil
 }
 
 /// One end of a connection: the field `model` gains, and (for a connection model) the field the end gets there.
@@ -49,6 +51,8 @@ public struct USLResolvedEnd: Sendable, Equatable {
     public var column: String?
     /// `@fold`: in data files, this end's rows hold the connection as an array.
     public var fold: Bool
+    /// `@sort(field)`: the field of the target its members are listed by.
+    public var sort: String? = nil
 }
 
 /// A value written in the schema: a string, number, boolean, or a list of them.
@@ -188,7 +192,8 @@ private func resolvedEnd(_ end: USLEndDecl) -> USLResolvedEnd {
         ordered: end.attrs.contains { $0.name == "ordered" },
         as: keyFieldOf(end),
         column: columnOf(end.attrs),
-        fold: end.attrs.contains { $0.name == "fold" }
+        fold: end.attrs.contains { $0.name == "fold" },
+        sort: identArg(end.attrs, "sort")
     )
 }
 
@@ -359,7 +364,8 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
             }
             fields[field] = USLResolvedField(
                 name: field, type: info.target, arity: info.decl.arity, origin: .connection,
-                ordered: hasAttr(info.decl.attrs, "ordered"), unique: false, color: false, column: columnOf(info.decl.attrs)
+                ordered: hasAttr(info.decl.attrs, "ordered"), unique: false, color: false, column: columnOf(info.decl.attrs),
+                sort: identArg(info.decl.attrs, "sort")
             )
         }
 
@@ -403,8 +409,25 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
     }
 
     // 4. Field and end attributes.
+    var sorts: [(at: USLPosition, target: String, field: String)] = []
     func checkFieldAttrs(_ attrs: [USLAttribute], _ arity: USLArity, _ type: String?, _ owner: String, end: (decl: USLEndDecl, named: Bool)? = nil) {
         for attr in attrs {
+            if attr.name == "sort" {
+                var sortField: (name: String, at: USLPosition)?
+                if attr.args.count == 1, case .ident(let n, _, let at) = attr.args[0] { sortField = (n, at) }
+                if end == nil {
+                    report("misplaced-attribute", attr.at, "`@sort` goes on a many-valued connection end")
+                } else if sortField == nil {
+                    report("attribute-arguments", attr.at, "`@sort` names one field of the members: `@sort(name)`")
+                } else if arity != .many {
+                    report("sort-single", attr.at, "`@sort` only applies to a many-valued end (`[]`)")
+                } else if hasAttr(attrs, "ordered") {
+                    report("sort-ordered", attr.at, "An `@ordered` end keeps its own order; it can't also `@sort`")
+                } else if let target = ends["\(end!.decl.model).\(end!.decl.field)"]?.target {
+                    sorts.append((sortField!.at, target, sortField!.name))
+                }
+                continue
+            }
             let endOnly = attr.name == "as" || attr.name == "fold"
             if attr.name == "column" {
                 var ok = false
@@ -463,6 +486,16 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
     }
     for case .connection(let decl) in file.declarations {
         for case .end(let e) in decl.members { checkFieldAttrs(e.attrs, e.arity, nil, e.model, end: (e, false)) }
+    }
+
+    // A member is sorted by a field of its own model: `name` for a person or a
+    // fixed row, otherwise a field, `created` or `modified`.
+    for sort in sorts {
+        let hasField = fieldMaps[sort.target]?.has(sort.field) ?? false
+        let known = sort.target == "Person" || isFixed(sort.target)
+            ? sort.field == "name" || hasField
+            : uslImplicitFields.contains(sort.field) || hasField
+        if !known { report("unknown-field", sort.at, "`\(sort.target)` has no field `\(sort.field)` to sort by") }
     }
 
     // 5. Model attributes.

@@ -121,6 +121,7 @@ model needs a `name Text` field, and its colors are data in a `@color` field.
 | Attribute | On | Meaning |
 |---|---|---|
 | `@ordered` | a many-valued field or end | keeps its members in order; merges as a sequence |
+| `@sort(field)` | a many-valued end without `@ordered` | lists its members by one of their fields (`name` for a person or a fixed row; `created` and `modified` newest first); otherwise they are listed in the order they were connected. Presentation only |
 | `@unique` | a single value field | no two rows share its value |
 | `@color` | one single-valued `Text` field of a model without fixed rows | holds each row's color |
 | `@path` | one required `Text` field | its value is the row's name in the tree; otherwise the key names it |
@@ -140,7 +141,7 @@ unique `label` string, a `line` (the fields shown for each row), a `group`
 field, and a `sort` field (`created` and `modified` included). Items of a
 line take presentation attributes: `@bullet` (at most one) draws a fixed
 value as the row's colored bullet, `@summary` shows a many-valued field as a
-count, and `@label("lead")` names one of the field's members. A view without a `line` uses the first view's. A model
+count, and `@label("lead")` names one of the field's members. A line lists a connection's members, and a view grouped by a connection orders its groups, by the end's `@sort`. A view without a `line` uses the first view's. A model
 without `@@views` has one plain view plus one grouped by each connection. A
 page may override any of a schema's views; views never change data.
 

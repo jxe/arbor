@@ -464,8 +464,42 @@ final class USLRowCollection {
         return nil
     }
 
+    /// The members `row` of `model` holds in `field`, in their order: stored, by `@sort`, or as connected.
     func members(_ model: USLResolvedModel, _ field: USLResolvedField, _ row: USLRow) throws -> [JSONValue] {
-        try membersBy(model, try access(model, field), row)
+        let members = try membersBy(model, try access(model, field), row)
+        guard let sort = field.sort else { return members }
+        return try sortMembers(field.type, sort, members) { $0 }
+    }
+
+    /// Members of `target` by one of its fields (`@sort`): newest first for `created` and `modified`, members without it last.
+    func sortMembers<T>(_ target: String, _ sort: String, _ items: [T], _ memberOf: (T) -> JSONValue) throws -> [T] {
+        var failure: Error?
+        let sorted = sortBy(items, { item in
+            do { return try memberSortKey(target, sort, memberOf(item)) } catch {
+                failure = error
+                return nil
+            }
+        }, descending: sort == "created" || sort == "modified")
+        if let failure { throw failure }
+        return sorted
+    }
+
+    func memberSortKey(_ target: String, _ sort: String, _ member: JSONValue) throws -> JSONValue? {
+        if target == "Person" { return sort == "name" ? .string(chip(target, member).name) : nil }
+        let model = models[target]
+        if let model, model.rows == .fixed {
+            if sort == "name" { return member }
+            guard let row = model.schemaRows.first(where: { JSONValue.string($0.name) == member }),
+                  let value = row.values.first(where: { $0.key == sort })?.value else { return nil }
+            switch value {
+            case .string(let v): return .string(v)
+            case .number(let v): return .number(v)
+            case .bool(let v): return .bool(v)
+            case .list: return nil
+            }
+        }
+        guard let model, let row = rowByMember(target, member) else { return nil }
+        return try sortKey(self, model, sort, row)
     }
 
     /// The members `row` of `model` holds through `access`, in their order.
@@ -603,6 +637,7 @@ func arrangeView(_ collection: USLRowCollection, _ options: PresentOptions) thro
 
     // The groups: everything the field can refer to, then members nobody listed (people, values).
     var candidates = uslValueTypeSet.contains(target) ? [] : try collection.candidates(target)
+    if let sort = field.sort { candidates = try collection.sortMembers(target, sort, candidates) { $0.member } }
     var listed = Set(candidates.map(\.member.jsonText))
     if target == "Person" || uslValueTypeSet.contains(target) {
         for list in members {
@@ -658,6 +693,7 @@ private func sortKey(_ collection: USLRowCollection, _ model: USLResolvedModel, 
         if case .string(let s)? = row[sort] { return .string(s) }
         return nil
     }
+    if sort == "id" { return row["id"].flatMap { $0.isScalar ? $0 : nil } }
     guard let field = model.fields.first(where: { $0.name == sort }) else { return nil }
     let members = try collection.members(model, field, row)
     guard let first = members.first else { return nil }
