@@ -288,6 +288,18 @@ describe("reference host merge fixtures", () => {
     });
   });
 
+  test("row times never conflict: created keeps current's and modified takes the later", async () => {
+    const [base, candidate, remote] = await Promise.all([
+      collectionFileSnapshot("_store.jsonl", JSON_SCHEMA, '{"id":"a","title":"A","modified":"2026-01-01T00:00:00Z"}\n'),
+      collectionFileSnapshot("_store.jsonl", JSON_SCHEMA, '{"id":"a","title":"A","modified":"2026-01-03T00:00:00Z","note":"x"}\n'),
+      collectionFileSnapshot("_store.jsonl", JSON_SCHEMA, '{"id":"a","title":"Remote","modified":"2026-01-02T00:00:00.5Z"}\n'),
+    ]);
+    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
+    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    expect(result.fields).toBeUndefined();
+    expect(await collectionRows(result, objects)).toEqual([{ id: "a", title: "Remote", modified: "2026-01-03T00:00:00Z", note: "x" }]);
+  });
+
   test("reordering an ordered field on both sides, or deleting a row the other side changed, conflicts", async () => {
     const schema = "model Item {\n  title Text\n  steps Text[] @ordered\n}\n";
     const [base, candidate, remote] = await Promise.all([

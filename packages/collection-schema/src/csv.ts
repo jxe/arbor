@@ -21,6 +21,9 @@ export function csvHeaderDiagnostics(_schema: CollectionSchema, header: readonly
   return diagnostics;
 }
 
+/** Every row's implicit time columns (spec 11 §2). */
+export const SYSTEM_COLUMNS: readonly string[] = ["created", "modified"];
+
 /** How an undeclared column converts: an optional text member. */
 const UNDECLARED: Omit<CsvColumn, "name"> = { optional: true, nullable: false, scalar: "text" };
 
@@ -147,7 +150,10 @@ export function encodeCsvRows(schema: CollectionSchema, rows: readonly Readonly<
   const declared = new Set(schema.columns);
   const extra = new Set<string>();
   for (const row of rows) for (const name of Object.keys(row)) if (!declared.has(name)) extra.add(name);
-  const columns = [...schema.csvColumns, ...[...extra].map((name): CsvColumn => ({ name, ...UNDECLARED }))];
+  // `created` and `modified` get a column only when some row has them.
+  const stamped = new Set(rows.flatMap((row) => SYSTEM_COLUMNS.filter((name) => Object.hasOwn(row, name))));
+  const columns = [...schema.csvColumns.filter((c) => !SYSTEM_COLUMNS.includes(c.name) || stamped.has(c.name)),
+    ...[...extra].map((name): CsvColumn => ({ name, ...UNDECLARED }))];
   const lines = [columns.map((column) => quote(column.name)).join(",")];
   for (const row of rows) {
     const cells: string[] = [];

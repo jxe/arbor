@@ -22,7 +22,7 @@ model Status {
 }
 `;
 
-const expected = 'type Row = { "id": string; "note"?: string | null; "count": number; "flag": boolean; "due"?: string | null; "tags"?: string[]; "status": "draft" | "done"; "authors"?: string[]; [member: string]: unknown; };';
+const expected = 'type Row = { "id": string; "note"?: string | null; "count": number; "flag": boolean; "due"?: string | null; "tags"?: string[]; "status": "draft" | "done"; "authors"?: string[]; "created"?: string | null; "modified"?: string | null; [member: string]: unknown; };';
 
 describe("generated collection declarations", () => {
   test("are static, deterministic declarations of the declarative schema", () => {

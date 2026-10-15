@@ -204,6 +204,10 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
     const diagnostics = validateRow(loaded.description.schema!, properties);
     if (diagnostics.length) throw invalidWrite(diagnostics);
     const candidate = (toJSONValue(properties) ?? {}) as Record<string, JSONValue>;
+    // The edit's time, as the row operation Story Sync derives from it states it.
+    const timed = definition.provider !== "csv";
+    if (timed && stableJSONString({ ...current.values, modified: null }) !== stableJSONString({ ...candidate, modified: null }))
+      candidate.modified = new Date().toISOString();
     if (stableKeyFromProperties(loaded.identityRule.properties, candidate) !== current.stableKey) {
       throw new ProjectionProviderError("invalid-write", `Identity properties ${loaded.identityRule.properties.join(", ")} are immutable`);
     }

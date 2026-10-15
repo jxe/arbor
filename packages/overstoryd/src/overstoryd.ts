@@ -12,7 +12,7 @@ import { Recent } from "./recent.ts";
 import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { retainedObjects } from "./retention.ts";
-import { checkPlainTrace, TreeReader, type DecisionPage } from "@ovst/protocol";
+import { checkPlainTrace, isRowOperation, TreeReader, type DecisionPage } from "@ovst/protocol";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -1950,6 +1950,12 @@ export class HostDaemon implements AsyncDisposable {
     if (this.acceptedStore.acceptedChange(treeID, request.change)) {
       throw new Error("Authored change identity is already bound to a different accepted request");
     }
+    // A row operation's time may not run ahead of this host's clock.
+    const latest = Date.now() + 5 * 60_000;
+    for (const frame of request.trace ?? [])
+      for (const operation of frame.operations)
+        if (isRowOperation(operation) && operation.at !== undefined && Date.parse(operation.at) > latest)
+          throw new Error(`Row operation ${operation.key} is dated in the future`);
     await this.validateGraph(request.candidate, proposed, tree.ref);
     markPhase("validate-graph");
     await policy.validateCandidate(request.candidate, proposed);

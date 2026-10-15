@@ -1,6 +1,7 @@
 import {
   decodeProtocolDirectory,
   executeRowOperations,
+  ROW_TIME,
   stableJSONString,
   type JSONValue,
   type ObjectHash,
@@ -12,6 +13,7 @@ import { sharedCollectionSchemaCache } from "./cache.ts";
 import type { CollectionSchema } from "./compile.ts";
 import { collectionFileRows } from "./collection-file.ts";
 import { replayCollectionRows } from "./row-replay.ts";
+import { SYSTEM_COLUMNS } from "./csv.ts";
 
 type Row = Record<string, JSONValue>;
 type Read = (hash: ObjectHash) => Promise<Uint8Array>;
@@ -23,7 +25,19 @@ const scalar = (value: JSONValue): value is RowMember => typeof value === "strin
 /** The operations that turn one row into another, or null when its arrays
  * cannot be stated member by member. */
 function rowEdits(schema: CollectionSchema, before: Row, after: Row, op: (fields: Record<string, unknown>) => void): boolean {
+  // A row's times come from its operations' `at`, never from a set.
+  if (json(before.created) !== json(after.created)) return false;
+  const at = json(before.modified) === json(after.modified) ? undefined : after.modified;
+  if (at !== undefined && !(typeof at === "string" && ROW_TIME.test(at))) return false;
+  let count = 0;
+  const timed = (fields: Record<string, unknown>) => { count++; op(at === undefined ? fields : { ...fields, at }); };
+  if (!fieldEdits(schema, before, after, timed)) return false;
+  return at === undefined || count > 0;
+}
+
+function fieldEdits(schema: CollectionSchema, before: Row, after: Row, op: (fields: Record<string, unknown>) => void): boolean {
   for (const field of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (SYSTEM_COLUMNS.includes(field)) continue;
     const b = before[field], a = after[field];
     if (json(b) === json(a)) continue;
     const kind = schema.merge.get(field);
@@ -72,7 +86,13 @@ async function collectionEdits(path: string, object: ObjectHash, before: Protoco
   for (const [row, value] of rowsAfter) {
     const prior = rowsBefore.get(row);
     const op = (fields: Record<string, unknown>) => operations.push({ key: "", collection, table: schema.model, row, ...fields } as RowOperation);
-    if (!prior) op({ kind: "rowCreate", values: value });
+    if (!prior) {
+      // A row created with equal times was created by a timed operation.
+      const { created, modified, ...values } = value;
+      if (created !== undefined && json(created) === json(modified) && typeof created === "string" && ROW_TIME.test(created))
+        op({ kind: "rowCreate", values, at: created });
+      else op({ kind: "rowCreate", values: value });
+    }
     else if (!rowEdits(schema, prior, value, op)) return null;
   }
   for (const row of rowsBefore.keys())

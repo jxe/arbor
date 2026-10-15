@@ -20,6 +20,12 @@ export type TextMerge = (base: string, candidate: string, current: string) => st
 const json = (value: unknown) => stableJSONString(value ?? null);
 const same = (left: unknown, right: unknown) => json(left) === json(right);
 
+/** Whether time `a` is after `b`, by instant and then by text. */
+const later = (a: string, b: string) => {
+  const [x, y] = [Date.parse(a), Date.parse(b)];
+  return x !== y ? x > y : a > b;
+};
+
 function list(value: JSONValue | undefined): JSONValue[] | null {
   if (value === undefined || value === null) return [];
   return Array.isArray(value) ? value : null;
@@ -68,7 +74,10 @@ function mergeRow(
   for (const field of new Set([...Object.keys(current), ...Object.keys(candidate), ...Object.keys(base)])) {
     const b = base[field], c = candidate[field], u = current[field];
     let value: JSONValue | undefined;
-    if (same(c, u) || same(c, b)) value = u;
+    // Times never conflict: `created` keeps current's, `modified` the later.
+    if (field === "created") value = u ?? c;
+    else if (field === "modified") value = typeof c === "string" && typeof u === "string" ? (later(c, u) ? c : u) : u ?? c;
+    else if (same(c, u) || same(c, b)) value = u;
     else if (same(u, b)) value = c;
     else {
       const kind = schema.merge.get(field);

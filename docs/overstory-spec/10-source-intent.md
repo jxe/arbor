@@ -155,6 +155,13 @@ names one member of the row; a key field is never one.
 | `rowDisconnect` | `field, member` | Remove `member`, which MUST be present. A field left empty is removed. |
 | `rowMove` | `field, member, after` | Place `member` directly after the member `after`, or first when `after` is `null`, in a many-valued field. Both are present and the order changes. |
 
+Every row operation but `rowDelete` may also have `at`, when the edit was
+made, in UTC ISO 8601 (`2026-10-15T09:38:25.123Z`). Replay writes it to the
+row's `modified`, and on `rowCreate` to `created` too, except in a `.csv` file
+whose header has no such column. Those two members are written only this way:
+`rowSet` never names them, and a timed `rowCreate` never supplies them. An
+authority rejects an `at` more than five minutes ahead of its own clock.
+
 A row operation names a row by identity, so concurrent changes to one row merge
 member by member (§7). It has no material result to reference.
 
@@ -308,6 +315,8 @@ For a row both sides changed:
 - A `Markdown` field merges by lines. Edits that overlap conflict.
 - Deleting a row conflicts with a concurrent change to it, and with nothing
   else.
+- Times never conflict: `created` keeps current's value and `modified` takes
+  the later one.
 
 A conflict keeps current's value in the projection and becomes a `field`
 decision about that row field ([tree operations §1.2.3](01-tree-operations.md#123-reading-conflicts)),

@@ -13,8 +13,8 @@
 //   n:m connection is a join table named `Model_field` after its first end.
 // - `@ordered` on a many end adds a `field_position` column where the
 //   connection is stored.
-// - Every database table has `created` and `modified`. Data files leave them
-//   out: a tree's history already says when a row changed.
+// - Every table has `created` and `modified`. In data files they are optional:
+//   a row has them once an edit that stated its time wrote them.
 // - `@@table("…")` and `@column("…")` rename what is stored, so a schema can
 //   describe a database it didn't create.
 // - In data files, an n:m connection with a `@fold` end is an array on that
@@ -247,8 +247,9 @@ export function layoutOf(result: CheckResult, options: LayoutOptions = {}): Tabl
 
   for (const table of tables.values()) {
     if (options.store === "files") {
-      // Data files have no indexes, and leave timestamps to the tree's history.
-      table.columns = table.columns.filter((c) => c.type !== "timestamp");
+      // Data files have no indexes. Their rows keep `created` and `modified`
+      // when an edit stated its time (spec 10 §4.1), so both are optional.
+      table.columns = table.columns.map((c) => c.type === "timestamp" ? { ...c, nullable: true } : c);
       continue;
     }
     const model = models.get(table.stores);

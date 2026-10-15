@@ -145,3 +145,31 @@ describe("row operation replay", () => {
     ] as Array<[SourceOperation[], RegExp]>) await expect(replay(tree, operations)).rejects.toThrow(message);
   });
 });
+
+describe("row operation times", () => {
+  const at = "2026-10-15T09:00:00.000Z", later = "2026-10-15T10:00:00Z";
+  test("a timed operation writes created and modified, and a set of either is invalid", async () => {
+    const tree = collectionTree("jsonl", SCHEMA, '{"id":"a","title":"A"}\n');
+    const op = rowOps(tree);
+    const result = await replay(tree, [{ ...op.create("b", { title: "B" }), at }, { ...op.set("a", "title", "A", "Alpha"), at: later }]);
+    expect(result.source).toBe(`{"id":"a","title":"Alpha","modified":"${later}"}\n{"id":"b","title":"B","created":"${at}","modified":"${at}"}\n`);
+    await expect(replay(tree, [op.set("a", "modified", null, at)])).rejects.toThrow(/operation's time/);
+    await expect(replay(tree, [{ ...op.create("c", { title: "C", created: at }), at }])).rejects.toThrow(/times come from/);
+  });
+
+  test("a CSV file without time columns keeps none", async () => {
+    const tree = collectionTree("csv", "model Item {\n  title Text\n}\n", "id,title\na,A\n");
+    expect((await replay(tree, [{ ...rowOps(tree).set("a", "title", "A", "B"), at }])).source).toBe("id,title\na,B\n");
+  });
+
+  test("Story Sync's derived operations carry a changed row's time", async () => {
+    const { deriveRowOperations } = await import("@ovst/collection-schema");
+    const before = collectionTree("jsonl", SCHEMA, '{"id":"a","title":"A"}\n');
+    const after = collectionTree("jsonl", SCHEMA, `{"id":"a","title":"Alpha","modified":"${later}"}\n{"id":"b","title":"B","created":"${at}","modified":"${at}"}\n`, new Map(before.objects));
+    const operations = await deriveRowOperations(before.root, after.root, async (hash) => after.objects.get(hash)!);
+    expect(operations).toEqual([
+      expect.objectContaining({ kind: "rowSet", field: "title", before: "A", value: "Alpha", at: later }),
+      expect.objectContaining({ kind: "rowCreate", values: { id: "b", title: "B" }, at }),
+    ]);
+  });
+});

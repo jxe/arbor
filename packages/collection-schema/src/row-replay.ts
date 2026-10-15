@@ -15,7 +15,7 @@ import {
 import { sharedCollectionSchemaCache } from "./cache.ts";
 import type { CollectionSchema } from "./compile.ts";
 import { collectionFileRows, ProtocolCollectionFileError, type CollectionFileFormat } from "./collection-file.ts";
-import { CsvEncodeError, encodeCsvRecord } from "./csv.ts";
+import { CsvEncodeError, encodeCsvRecord, SYSTEM_COLUMNS } from "./csv.ts";
 import { CollectionSchemaError } from "./diagnostics.ts";
 
 type Row = Record<string, JSONValue>;
@@ -215,19 +215,29 @@ function setMembers(row: Row, field: string, value: JSONValue[]) {
   else delete row[field];
 }
 
-/** Apply one row operation to the decoded rows by stable key. */
-function applyRowOperation(schema: CollectionSchema, rows: Map<string, Row | null>, operation: RowOperation) {
+/** Apply one row operation to the decoded rows by stable key. `stamps`
+ * names the time columns the representation can hold. */
+function applyRowOperation(schema: CollectionSchema, rows: Map<string, Row | null>, operation: RowOperation, stamps: ReadonlySet<string>) {
   if (operation.table !== schema.model) invalid(`table ${operation.table} is not in this collection`);
   const current = rows.get(operation.row);
+  const stamp = (row: Row, created: boolean) => {
+    if (operation.at === undefined) return;
+    if (created && stamps.has("created")) row.created = operation.at;
+    if (stamps.has("modified")) row.modified = operation.at;
+  };
   if (operation.kind === "rowCreate") {
     if (current) invalid("row already exists");
     if (stableKeyFromProperties(schema.primaryKey, operation.values) !== operation.row) invalid("values do not have the row's key");
-    rows.set(operation.row, canonicalRow(schema, operation.values));
+    if (operation.at !== undefined && SYSTEM_COLUMNS.some((name) => Object.hasOwn(operation.values, name))) invalid("a timed row's times come from its operation");
+    const row = { ...operation.values };
+    stamp(row, true);
+    rows.set(operation.row, canonicalRow(schema, row));
     return;
   }
   if (!current) invalid("row is absent");
   if (operation.kind === "rowDelete") { rows.set(operation.row, null); return; }
   if (schema.primaryKey.includes(operation.field)) invalid("a key field is never set");
+  if (SYSTEM_COLUMNS.includes(operation.field)) invalid(`${operation.field} is set only by an operation's time`);
   const row = { ...current };
   if (operation.kind === "rowSet") {
     if (!same(row[operation.field], operation.before)) invalid(`${operation.field} does not have the value seen`);
@@ -255,6 +265,7 @@ function applyRowOperation(schema: CollectionSchema, rows: Map<string, Row | nul
       }
     }
   }
+  stamp(row, false);
   rows.set(operation.row, canonicalRow(schema, row));
 }
 
@@ -265,9 +276,10 @@ export function applyRowOperations(
   schema: CollectionSchema,
   basis: ReadonlyArray<{ stableKey: string; sourceKey: string; properties: Row }>,
   operations: readonly RowOperation[],
+  stamps: ReadonlySet<string> = new Set(SYSTEM_COLUMNS),
 ): CollectionRowSplice & { rows: Map<string, Row | null> } {
   const rows = new Map<string, Row | null>(basis.map((row) => [row.stableKey, row.properties]));
-  for (const operation of operations) applyRowOperation(schema, rows, operation);
+  for (const operation of operations) applyRowOperation(schema, rows, operation, stamps);
   const known = new Set(basis.map((row) => row.stableKey));
   const replaced = new Map<string, Row | null>();
   for (const row of basis) {
@@ -299,8 +311,13 @@ export const replayCollectionRows: CollectionRowReplay = async (directoryHash, o
   const sourceBytes = await read(sourceEntry.file);
   const basis = collectionFileRows(descriptor.format, sourceBytes, schema);
   if (basis.childSetHash !== descriptor.childSetHash) invalid("child-set hash does not match the basis rows");
-  const splice = applyRowOperations(schema, basis.rows, operations);
-  const text = spliceCollectionFile(descriptor.format, new TextDecoder().decode(sourceBytes), schema, splice);
+  const sourceText = new TextDecoder().decode(sourceBytes);
+  // A CSV file holds a row's times only where its header has their columns.
+  const header = descriptor.format === "csv"
+    ? (parseCSV(sourceText, { bom: true, to_line: 1, relax_column_count: true }) as string[][])[0] ?? []
+    : SYSTEM_COLUMNS;
+  const splice = applyRowOperations(schema, basis.rows, operations, new Set(SYSTEM_COLUMNS.filter((name) => header.includes(name))));
+  const text = spliceCollectionFile(descriptor.format, sourceText, schema, splice);
   const bytes = new TextEncoder().encode(text);
   const result = collectionFileRows(descriptor.format, bytes, schema);
   const expected = [...splice.rows].filter(([, row]) => row !== null);

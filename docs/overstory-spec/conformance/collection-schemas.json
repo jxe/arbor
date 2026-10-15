@@ -18,7 +18,9 @@
           "slug",
           "title",
           "description",
-          "quantity"
+          "quantity",
+          "created",
+          "modified"
         ],
         "primaryKey": [
           "id"
@@ -323,7 +325,9 @@
           "score",
           "done",
           "due",
-          "tags"
+          "tags",
+          "created",
+          "modified"
         ],
         "primaryKey": [
           "id"
@@ -635,7 +639,9 @@
         "columns": [
           "id",
           "name",
-          "status"
+          "status",
+          "created",
+          "modified"
         ],
         "primaryKey": [
           "id"
@@ -687,7 +693,9 @@
           "id",
           "name",
           "owner",
-          "authors"
+          "authors",
+          "created",
+          "modified"
         ],
         "primaryKey": [
           "id"
@@ -738,7 +746,9 @@
       "accept": {
         "columns": [
           "title",
-          "year"
+          "year",
+          "created",
+          "modified"
         ],
         "primaryKey": [
           "title",
@@ -762,7 +772,9 @@
       "accept": {
         "columns": [
           "id",
-          "book_title"
+          "book_title",
+          "created",
+          "modified"
         ],
         "primaryKey": [
           "id"

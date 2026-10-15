@@ -146,7 +146,11 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
             let fields: [String: [String]] = ["rowCreate": ["values"], "rowDelete": [], "rowSet": ["field", "before", "value"],
                 "rowConnect": ["field", "member"], "rowDisconnect": ["field", "member"], "rowMove": ["field", "member", "after"]]
             let kind = v["kind"]!.text!
-            try keys(v, ["key", "kind", "collection", "table", "row"] + fields[kind]!)
+            try keys(v, ["key", "kind", "collection", "table", "row"] + fields[kind]!, kind == "rowDelete" ? [] : ["at"])
+            if let at = v["at"] {
+                guard let s = at.text else { throw ProtocolValidationError.invalidValue("Expected time") }
+                try check(s.range(of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$"#, options: .regularExpression) != nil)
+            }
             try reference(v["collection"], entry: true); try name(v["table"])
             try check(canonicalStableKey(try text(v["row"], 4096)))
             if v["field"] != nil { try name(v["field"]) }
