@@ -274,6 +274,11 @@ sort}` (`packages/usl/src/check.ts`). Nothing in Swift parses `schema.usl`
 
   `canEdit` doesn't port; ownership is milestone 5.
 
+Note that `packages/protocol` depends only on `@noble/hashes` and `yaml`, not
+on `@ovst/usl`. Either protocol takes that dependency, or `presentView` lives in
+`packages/usl/src/present.ts` and protocol keeps only the presentation types.
+The second keeps protocol free of the schema language.
+
 **Swift.** Story needs the schema natively. Port `packages/usl`'s parser,
 checker and layout to StoryKit, which has no dependencies today. That's
 about 2,000 lines of TS. Native offline validation of collections
@@ -337,11 +342,42 @@ cleanly into a shared internal target:
 callbacks before a cell can reuse them, so a first version may use a plain
 text field.
 
+**Hard parts, from Quagmire's text editing.**
+- **Focus across cells.** Quagmire mounts one live text view per page; every
+  other row is `Text` (`EditorView.swift:813`). Tab from cell to cell needs
+  its keep-the-keyboard-up handoff (`iosTransitioningEditorID`), keyed by
+  occurrence and cell, and macOS Tab arrives as keyCode 48 while iOS uses key
+  commands and the accessory bar.
+- **Host updates while typing.** On an external change `BlockTextEditor`
+  reloads the text storage wholesale and drops the caret; only undo maps the
+  caret (`caretRangeAfterTextReplacement`). The cell editor must map the caret
+  for every host update, and the focused cell's live text wins until its
+  checkpoint commit (about 750 ms, or blur). Keep Quagmire's
+  `lastKnownBindingPlain` and `textStorageDirty` guards, which exist for
+  exactly this echo. `sort: modified` mustn't move the row being edited until
+  you leave it.
+- **Stable ids.** `RowSurface` caches heights by id, so occurrence ids must
+  be stable across re-presentations or the scroll position jumps.
+- **Undo** is the inverse intent from the `before` values the host already
+  has, not Quagmire's snapshot undo.
+- **Per-row locks** are new: Quagmire's read-only is one page-level boolean,
+  so tap, focus, Tab-skip and drag all need gating.
+
 **Story.**
 - `WorkspaceSurface.collection(kind:rowCount:)` (StoryKit
   `WorkspaceModels.swift`) gains the resolved schema and views.
 - `WorkspaceSurfaceView` in `StoryRootView.swift` renders it with the new
   editor instead of two labels.
+- Routing: `StoryAppModel.load` (around `StoryAppModel.swift:2460`) treats a
+  collection as a sidebar base and leases an editor only for document
+  surfaces. It needs a collection branch that leases the view session, a
+  field on its cached `PagePresentation`, and a branch in
+  `StoryRootView.pageFrameContent` before the `WorkspaceSurfaceView`
+  fallback. `WorkingTree.collection(for:)` and `WorkingTreeProvider` detect
+  `schema.usl`. `InMemoryWorkspaceProvider` already fakes a collection for
+  previews.
+- View tabs and the search box sit in Story's chrome. The selected tab and
+  collapsed groups are the client's own state.
 - A collection session beside `WorkspaceDocumentSession` sends row
   operations through milestone 1's `UpdateCoordinator` row-change kind.
 - Release: a Quagmire minor version. Pins in `swift/project.yml` and
@@ -394,6 +430,29 @@ Today:
 - Remove `@@editableBy` from USL (`check.ts` `editableBy`, spec 11 §5), from
   `games.usl`, and from cranberries' `documentFromUsl`.
 
+- Readers can't read `access.yaml` (spec 05 §4), so Story learns locks from
+  an advisory per-node answer: fill `NodeCapabilities.*.writable`
+  (`protocol/src/model/node-model.ts:28`), which today only the local
+  filesystem and app projections set, from the host's evaluation.
+- Every place `@@editableBy` appears today:
+  - `packages/usl/src/check.ts`: the attribute list, `editableBy` and the
+    `editable-by-person` code;
+  - `packages/usl/README.md` and the highlight-query comments;
+  - `tests/unit/usl-stores.test.ts` and the `invalid/model-attributes.usl`
+    expectation;
+  - spec 11's example and attribute table;
+  - `plans/schema-language/examples/games.usl` and `supplies.usl`;
+  - `examples/supplies/data/schema.usl`;
+  - `plans/schema-language/README.md` and `status.md`;
+  - cranberries `src/usl.ts`, which maps it to `owners`. Hand-written
+    configs keep `owners`.
+- Supplies' rule, `requireListEditor`
+  (`examples/supplies/scripts/mutations.ts`: owner, or `openToEdits`),
+  becomes two access rules: `{property: owner}`, and the community with
+  `when: {property: openToEdits}`.
+- `resource-policy.json` covers grammar only today. Add evaluation vectors
+  (rule, caller, node properties → allowed) so both stacks agree.
+
 **Done when:** in a shared games tree, an author edits only their own games,
 anyone in the community edits unowned ones, and nobody but an owner or
 administrator changes `authors`.
@@ -406,6 +465,12 @@ administrator changes `authors`.
   - `excellences.usl` likewise;
   - `created`/`modified` carried over from cranberries' stamps;
   - `@ordered` positions from `List_games.games_position`.
+- Cranberries has no export command. `readDocument` returns the whole
+  snapshot, so a small `cranberries export` that writes it through
+  `@ovst/usl`'s `rowsFromRecords` would serve both sites.
+- Use excellences' own `lib/schema.usl`, which has the `@fold`s;
+  `plans/schema-language/examples/excellences.usl` has drifted from it, so
+  replace the example.
 - Check with `usl verify`, then present the result next to the live site and
   compare.
 - **Blocked on identity.** Most authors and leads have no Story account.
@@ -417,6 +482,9 @@ administrator changes `authors`.
 - A page carrying `view "My games" of ../Games/Game { group: status }` shows
   that view, using milestone 3 with the page's override, and edits go back to
   the source collection's tree.
+- `view "…" of path` is parsed by USL (`ViewDecl`, `ast.ts`) but dropped by
+  the checker and specified nowhere, including how a Markdown page carries
+  it (a fenced block, or front matter). That's a spec decision first.
 - It needs relative collection resolution (06 §6) and authorization against
   the source tree.
 - Embedding the structured editor in a Quagmire page as one opaque block
