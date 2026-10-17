@@ -214,8 +214,7 @@ names; fixing the logical form removes that.
 - **`@fold`, `@@fold`, `@column` and `@@table` stop shaping data.** They
   become how the schema maps the logical form into file and database
   layouts, so refolding a connection changes no data and no hash (README's
-  "refold, lossless" becomes free). They get their own sigil (see "Splitting
-  the schema").
+  "refold, lossless" becomes free). They become `&` attributes (see "USL syntax").
 
 ### 3. Timestamps
 
@@ -255,68 +254,66 @@ stay ordinary entries: the folder is a page that has a logical collection.
 Schema changes become logical migrations (add a field with a default, widen
 arity, rename); the format-only ones in README stop touching data.
 
-## Splitting the schema: logical schema and layouts
+## USL syntax: model, storage and presentation
 
-Joe (2026-10-15): "maybe we want to split the usl into a more abstract and
-more per-placement units". Sorting today's USL by what it decides:
+Worked out with Joe on 2026-10-15 and 16. **Decided** means Joe said yes;
+the rest is proposed.
 
-| Decides | Attributes | Unit |
+### Three sigils, single only (decided)
+
+Every attribute says which layer it belongs to:
+
+| Sigil | Layer | Attributes (which go where is proposed) |
 |---|---|---|
-| what the data is | models, fields, types, arity, connections, `@ordered`, `@@id`, `@unique`, `@path`, `@@fixed`/`@@seed`, `@as` | logical schema |
-| who may change it | `@@editableBy` | logical schema |
-| default presentation | `@@views` | logical schema (shared by every placement) |
-| how a store holds it | `@fold`, `@@fold`, `@@table`, `@column`, `@@index`, position and timestamp columns, value encodings | layout |
+| `@` | the model: what the data is | types, arity, connections, `@ordered`, `@unique`, `@as`, `@id`, `@fixed`/`@seed`, `@editableBy` |
+| `&` | storage: how a store holds it | `&fold`, `&column`, `&table`, `&index` |
+| `~` | presentation | `~views`, `~bullet`, `~summary`, `~label`, `~sort`, `~color` |
 
-- **`schema.usl` keeps the logical part.** It's in the tree, its fingerprint
-  is the collection's, and every placement reads it.
-- **A layout maps that schema onto one store**: table and column names, folds,
-  indexes, and how values are stored (dates as text, flags as 0/1, a
-  timestamp column's name or its absence). With no layout, a projection uses
-  the default mapping (today's `layoutOf` rules), so most collections never
-  write one.
-- **Where layouts live.** A layout isn't secret and several machines often
-  want the same one (every device and the host matching an existing Supabase
-  database), so the natural home is a named file in the tree, beside the
-  schema (say `supabase.layout.usl`), which a placement chooses in
-  `placements.yaml`. A layout only shapes a projection: it never changes the
-  collection's hash, and changing it re-projects without an update.
-- **Existing databases** are what layouts are for: a layout says how the
-  existing tables spell the logical form, and `usl verify` checks a database
-  against schema plus layout.
+There are no doubled sigils (`@@`, `&&`, `~~`). An attribute after a field
+belongs to the field; one starting an item in the model belongs to the
+model.
 
-### Two sigils (Joe, 2026-10-15)
+- **Proposed:** each attribute name belongs to one level, so a misplaced one
+  is a clear diagnostic. `@color` (the field holding a seeded row's color)
+  becomes `~color`.
+- **Open:** `@path`. The Mac session proposed `&path`; this plan's §1 argued a
+  row's name is its logical identity, so it stays `@`.
+- **Open:** today's spellings (`@@views`, `@@id`, `@fold`, …) either stay as
+  deprecated aliases with a `usl` fix-up command, or are simply renamed in the
+  few schemas that use them, as USL did when it replaced CDDL.
 
-Keep one file and one language, and make the split visible on every line:
-`@` for what the data is, `%` for how a store holds it.
+### Separating model attributes from fields (open)
+
+Joe likes a separator inside a model between its fields and its model-level
+attributes. Candidates: a `---` line, a `with` line, or Ruby style
+(`model Game … with … end`, with `end` replacing the closing brace).
+Proposed rules whichever spelling wins: fields and connection ends above the
+separator, model attributes below it; no model attributes means no
+separator; an attribute standing alone above the separator is an error.
+
+### Annotating a model from another file (decided: `re`)
 
 ```usl
-model Book {
-  title   Text      %column("book_title")
-  authors Person[]
-  %%table("books")
-  %%index(title)
+re Game {
+  status ~bullet
+  ~views([ … ])
+  &table("games")
 }
-
-List.games[] @ordered %fold <-> Game.lists[]
 ```
 
-- `%fold`, `%%fold`, `%column`, `%%table` and `%%index` are storage; the rest
-  stays `@`. `@path` stays `@`, because a row's name is its logical identity.
-  `@@views` and its line attributes are presentation and are already set apart
-  by where they appear.
-- **The `%` attributes in `schema.usl` are the shared default layout.** A
-  placement overrides them with the same syntax in `placements.yaml`, keyed by
-  `Model` or `Model.field`, so a placement over an existing database writes
-  only its differences, and most placements write nothing. That makes named
-  layout files unnecessary at first.
-- **The collection binds to a model fingerprint**: the checked schema with
-  `%` attributes, views and comments left out. Editing a `%` line or a view
-  changes no data and needs no migration; only `@` changes are model
-  migrations. `schema.usl` itself is still authored bytes with its own hash.
-- **`%` instead of `#`:** `##table` at the start of a line reads as a
-  Markdown heading wherever a schema is quoted in a page.
-- **Migration:** rename the spellings in the few schemas that use them, with
-  no deprecated aliases, as USL did when it replaced CDDL.
+Proposed rules:
+
+- A `re` block only re-mentions existing fields by bare name and adds `&`
+  and `~` attributes. New fields, types and `@` attributes live only in the
+  `model` declaration, so there is one model definition.
+- **Precedence.** Storage: derived defaults, then shared `&` in the tree's
+  files, then the placement's own mapping. Presentation: shared `~`, then a
+  page's `view … of` override. The same attribute twice in one layer is an
+  error.
+- **Fingerprints.** The model fingerprint covers `@` only, and the logical
+  collection binds to it, so storage and presentation edits change no data
+  and need no migration. Storage gets a fingerprint per placement;
+  presentation gets none.
 
 ## Existing SQL databases and typed values
 
@@ -358,17 +355,34 @@ happens to hold, and a projection converts at its boundary:
 
 ## Where placement choices live
 
-- **Device:** the local placement map (`~/.story/placements.yaml`, which
-  already anticipates `{ tree, projection }`), per collection path, for
-  example `"/games": { driver: sqlite }`. Private, never synchronized
-  (04 §4). On first sight of a collection with no entry, Story Sync records
-  what it finds on disk (a database, a CSV, Markdown records) as that
-  placement's choice, so nothing changes for existing folders.
-- **A default for new placements:** something has to pick when a placement
-  doesn't say. Either each implementation's own default, or a hint carried in
-  the tree (for example in the collection's `_index.md`) that placements may
-  override. A hint keeps a new device looking like the old one; it must never
-  be read as truth.
+- **Device (decided):** the local placement map, `~/.story/placements.yaml`.
+  It is local, machine-managed (Story Sync and the CLI write it), never
+  synchronized (04 §4), and maps a placed folder to its tree. On first sight
+  of a collection with no entry, Story Sync records what it finds on disk (a
+  database, a CSV, Markdown records), so nothing changes for existing
+  folders. Proposed shape, per collection keyed by logical path:
+
+  ```yaml
+  tr_<configuration>:
+    /Users/joe/Games:
+      tree: tr_<games>
+      collections:
+        /Games: sqlite
+        /Archive: jsonl
+  ```
+
+- **Local storage mappings (decided: visible):** a placement's own `&`
+  overrides live in files under a visible folder such as
+  `~/.story/storage/<tree>/…`, not in `placements.yaml` and not in private
+  state, since they are a person's decisions about their own databases. They
+  can't live in the placed folder, because everything there synchronizes.
+  Proposed: found by convention, and written by Story Sync when it adopts an
+  existing database, recording its real table and column names.
+- **Shared storage defaults** that every placement starts from are `&`
+  attributes in the tree's `.usl` files (in the `model`, or a `re` block).
+- **A default for new placements:** something has to pick the format when a
+  placement doesn't say: each implementation's own default, or a hint in the
+  tree that placements may override. A hint must never be read as truth.
 - **Host:** its projection (a SQLite file for queries and mutations, plan 002
   §2a) is the host's operational choice, like 06 §4's host activation.
 
@@ -407,8 +421,8 @@ With representation per placement, retention is per placement too:
    ends?
 2. Order as sequences, positions only in database projections? (A
    concurrent move of the same member: the later move wins; settled.)
-3. Two sigils, `@` and `%`, with `%` defaults overridable per placement and a
-   model fingerprint that ignores `%`?
+3. USL syntax: the open points in "USL syntax" (`@path`, aliases, the
+   separator).
 4. Timestamps as row state stamped from `at`?
 5. Canonical CBOR with a chunked hash from the start, instead of the branch's
    JSONL?
