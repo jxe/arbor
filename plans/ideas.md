@@ -20,6 +20,19 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
   whitespace and line-ending differences, a freshness policy so unrelated accepted updates
   need not force renewed review, explanations of verified moves and deletions, rule-provided combination previews, bulk and
   offline resolution.
+- **Pages as logical nodes with placement-owned representation.** The split
+  that schema-language 002 makes for collections (the tree holds the logical
+  form, and each placement chooses how to write it to disk) could apply to
+  pages too:
+  - The logical page is its properties plus its content, and the body bytes
+    stay exact.
+  - Only the front matter's formatting (key order, quoting, comments) would
+    stop traveling between devices.
+  - Spec 02's byte-exact front-matter round trip would become per placement.
+
+  It would remove the representation-versus-model special cases in merge
+  and access (front-matter edits become property effects). Joe, 2026-10-15:
+  "probably a good idea eventually".
 
 ## Reliability
 

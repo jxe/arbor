@@ -1,0 +1,12 @@
+// The smallest case, in layered USL (plan 003).
+
+model Book {
+  title  Text
+  status Status
+}
+
+Book.status <-> Status.books[]
+
+model Status {
+  @fixed { Reading, Done }
+}

@@ -1,4 +1,4 @@
-# Schema language 003: logical collections, projected per placement
+# Schema language 004: logical collections, projected per placement
 
 **Why and when:** Joe, 2026-10-15, in the "Cranberries in Story" thread:
 "differentiate logical tree and projection on both sides of the wire", where
@@ -256,110 +256,15 @@ arity, rename); the format-only ones in README stop touching data.
 
 ## USL syntax: model, storage and presentation
 
-Worked out with Joe on 2026-10-15 and 16. **Decided** means Joe said yes;
-the rest is proposed.
+Decided and written up in [003](003-layers-and-sigils.md): `@` model, `&`
+storage, `~` presentation, `re` blocks, conventions rather than enforced
+separation, and `usl fmt` applying them. Examples are in
+[examples/layered](examples/layered).
 
-### Three sigils, single only (decided)
-
-Every attribute says which layer it belongs to:
-
-| Sigil | Layer | Attributes (which go where is proposed) |
-|---|---|---|
-| `@` | the model: what the data is | types, arity, connections, `@ordered`, `@unique`, `@as`, `@id`, `@fixed`/`@seed`, `@editableBy` |
-| `&` | storage: how a store holds it | `&fold`, `&column`, `&table`, `&index` |
-| `~` | presentation | `~views`, `~bullet`, `~summary`, `~label`, `~sort`, `~color` |
-
-There are no doubled sigils (`@@`, `&&`, `~~`). An attribute after a field
-belongs to the field; one starting an item in the model belongs to the
-model.
-
-- **Proposed:** each attribute name belongs to one level, so a misplaced one
-  is a clear diagnostic. `@color` (the field holding a seeded row's color)
-  becomes `~color`.
-- **Open:** `@path`. The Mac session proposed `&path`; this plan's §1 argued a
-  row's name is its logical identity, so it stays `@`.
-- **Open:** today's spellings (`@@views`, `@@id`, `@fold`, …) either stay as
-  deprecated aliases with a `usl` fix-up command, or are simply renamed in the
-  few schemas that use them, as USL did when it replaced CDDL.
-
-### Where each layer is written (decided: convention, not a rule)
-
-Any sigil is legal in a `model` block and in a `re` block, and the checker
-never requires the layers to be kept apart. The sigil alone says which layer
-a mark belongs to, which is all the tooling needs.
-
-The convention for a schema in the tree: the model and its storage are
-written inline in `model` blocks and connection lines, and presentation goes
-in `re` blocks. A small schema may put a `~bullet` inline when a `re` block
-would be heavier than the mark. A `re` block in another file (a page's
-view, a placement's storage mapping) is the same construct used where the
-layer belongs to someone else.
-
-```usl
-model Game {
-  name        Text
-  status      Status
-  description Markdown?
-  authors     Person[]
-  lists       List[]
-
-  @editableBy(authors)
-  &table("games")
-}
-
-Game.authors[] &fold <-> Person.games[]
-List.games[] @ordered &fold <-> Game.lists[]
-
-model Status {
-  @fixed { Draft, Playtested, Polished }
-}
-
-re Game {
-  ~views([
-    { label: "By game",   line: [status ~bullet, name, authors, description] },
-    { label: "By author", group: authors },
-  ])
-}
-re Status { Draft ~color("#9aa0aa")  Playtested ~color("#bd861a") }
-```
-
-### Separating model attributes from fields (decided: a blank line, by convention)
-
-Model-level items sit after a blank line at the end of a block, as in the
-example above. Like the layer split, this is a convention the checker does
-not enforce; position alone decides whether an attribute is on a field or on
-the model.
-
-**Decided:** `usl fmt` applies the conventions. It moves `~` marks into a
-`re` block for their model, puts model-level items after a blank line at the
-end of a block, and tidies spacing. The checker still accepts a file that
-doesn't follow them.
-
-The examples in `003-examples/` are written this way.
-
-### Annotating a model from another file (decided: `re`)
-
-```usl
-re Game {
-  status ~bullet
-  ~views([ … ])
-  &table("games")
-}
-```
-
-Proposed rules:
-
-- A `re` block only re-mentions existing fields by bare name and adds `&`
-  and `~` attributes. New fields, types and `@` attributes live only in the
-  `model` declaration, so there is one model definition.
-- **Precedence.** Storage: derived defaults, then shared `&` in the tree's
-  files, then the placement's own mapping. Presentation: shared `~`, then a
-  page's `view … of` override. The same attribute twice in one layer is an
-  error.
-- **Fingerprints.** The model fingerprint covers `@` only, and the logical
-  collection binds to it, so storage and presentation edits change no data
-  and need no migration. Storage gets a fingerprint per placement;
-  presentation gets none.
+One point there touches this plan: 003 files `@path` under storage as
+`&path`. §1 above argues a row's name is its logical identity, which would
+keep it `@`. If `&path` stands, a row's name is a storage detail and the
+logical form identifies rows by id alone.
 
 ## Existing SQL databases and typed values
 
@@ -467,7 +372,8 @@ With representation per placement, retention is per placement too:
    ends?
 2. Order as sequences, positions only in database projections? (A
    concurrent move of the same member: the later move wins; settled.)
-3. USL syntax: the open points in "USL syntax" (`@path`, aliases).
+3. A row's name: storage (`&path`, as 003 has it) or logical identity
+   (`@path`)?
 4. Timestamps as row state stamped from `at`?
 5. Canonical CBOR with a chunked hash from the start, instead of the branch's
    JSONL?

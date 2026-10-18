@@ -1,5 +1,7 @@
-// ~/src/supplies-remake: games, their authors, and lists of games.
-// Authors are Story accounts, so there is no Person model to declare.
+// ~/src/supplies-remake: games, their authors, and lists of games, in
+// layered USL (plan 003). Authors are Story accounts, so there is no Person
+// model to declare. Who may edit a game is access policy now
+// (`who: {property: authors}` in access.yaml), not schema.
 
 model Game {
   name        Text
@@ -8,8 +10,6 @@ model Game {
   tags        Text[]                            // values, stored on the row
   authors     Person[]                          // cross-reference: declared below
   lists       List[]                            // cross-reference: declared below
-
-  @editableBy(authors)
 }
 
 model List {
@@ -17,8 +17,8 @@ model List {
   games Game[]                                  // cross-reference
 }
 
-// In data files, &fold keeps these as arrays on Game and List rows instead
-// of files of their own. Databases still use join tables.
+// &fold: in data files, these are arrays on Game and List rows rather than
+// files of their own. A storage default; a placement may choose otherwise.
 Game.authors[] &fold <-> Person.games[]
 List.games[] @ordered &fold <-> Game.lists[]
 Game.status <-> Status.games[]

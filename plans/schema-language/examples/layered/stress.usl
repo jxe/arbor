@@ -1,4 +1,4 @@
-// Cases the real examples don't reach.
+// Cases the real examples don't reach, in layered USL (plan 003).
 
 // A self-relation: pages nest, and a page's children keep their order.
 model Page {
@@ -57,7 +57,8 @@ model Episode {
   title Text
 }
 
-// &table and &column name what is stored, for a database the schema didn't create.
+// &table and &column name what is stored, for a database the schema didn't
+// create. Storage defaults; a placement's own mapping may override them.
 model Series {
   title Text  &column("series_title")
 
@@ -86,8 +87,8 @@ model Genre2 {
 
 // 3. An actual table people can add to. Each row keeps its old name as its
 // id, so stored references stay valid, and gains an editable `name`. Colors
-// become data, because a new row needs one; ~color marks the field that
-// holds each row's color. @seed inserts rows whose id is missing and never overwrites.
+// become data, because a new row needs one. @seed inserts rows whose id is
+// missing and never overwrites.
 model Genre3 {
   name  Text
   color Text
@@ -98,6 +99,7 @@ model Genre3 {
   }
 }
 
+// Presentation: fixed rows' colors, and the field that holds each row's color.
 re Genre1 {
   Puzzle    ~color("#4278c0")
   Strategy  ~color("#27815a")
@@ -108,4 +110,6 @@ re Genre2 {
   Strategy  ~color("#27815a")
 }
 
-re Genre3 { color ~color }
+re Genre3 {
+  color ~color
+}

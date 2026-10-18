@@ -1,6 +1,6 @@
-// meaningalignment/excellences: the MAI roles document.
-// Leads were a `person` collection with a portrait; now they are Story
-// accounts, and portraits come from their profiles.
+// meaningalignment/excellences: the MAI roles document, in layered USL
+// (plan 003). Leads were a `person` collection with a portrait; now they are
+// Story accounts, and portraits come from their profiles.
 
 model Excellence {
   name       Text

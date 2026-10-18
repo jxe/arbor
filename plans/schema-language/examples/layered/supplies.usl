@@ -1,6 +1,8 @@
-// examples/supplies/data: schema.sql and relationships.json, as one schema.
-// created_at / updated_at become the implicit `created` / `modified`.
-// Connections here use the { A, B } spelling; the other examples use A <-> B.
+// examples/supplies/data: schema.sql and relationships.json, as one schema,
+// in layered USL (plan 003). created_at / updated_at become the implicit
+// `created` / `modified`. Connections here use the { A, B } spelling; the
+// other examples use A <-> B. Who may edit a list (its owner, or anyone when
+// openToEdits) is access policy in access.yaml, not schema.
 
 model List {
   name        Text
@@ -12,7 +14,6 @@ model List {
   items       Item[]                        // cross-references, declared below
   tags        Tag[]
 
-  @editableBy(owner)
   &index(owner, modified)                   // my lists, newest first
 }
 
@@ -21,8 +22,8 @@ model List {
 { List.kind, ListKind.lists[] }
 
 model Practice {
-  name  Text   @unique                      // no two practices share a name
-  about Markdown?
+  name    Text   @unique                    // no two practices share a name
+  about   Markdown?
   authors Person[]                          // cross-reference
 }
 
@@ -75,4 +76,6 @@ model ListKind {
   @fixed { Standard, Tagged }
 }
 
-re Tag { color ~color }
+re Tag {
+  color ~color                              // the field that holds each tag's color
+}
