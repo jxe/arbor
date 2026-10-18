@@ -282,6 +282,47 @@ model.
   deprecated aliases with a `usl` fix-up command, or are simply renamed in the
   few schemas that use them, as USL did when it replaced CDDL.
 
+### Where each layer is written (decided: convention, not a rule)
+
+Any sigil is legal in a `model` block and in a `re` block, and the checker
+never requires the layers to be kept apart. The sigil alone says which layer
+a mark belongs to, which is all the tooling needs.
+
+The convention for a schema in the tree: the model and its storage are
+written inline in `model` blocks and connection lines, and presentation goes
+in `re` blocks. A small schema may put a `~bullet` inline when a `re` block
+would be heavier than the mark. A `re` block in another file (a page's
+view, a placement's storage mapping) is the same construct used where the
+layer belongs to someone else.
+
+```usl
+model Game {
+  name        Text
+  status      Status
+  description Markdown?
+  authors     Person[]
+  lists       List[]
+
+  @editableBy(authors)
+  &table("games")
+}
+
+Game.authors[] &fold <-> Person.games[]
+List.games[] @ordered &fold <-> Game.lists[]
+
+model Status {
+  @fixed { Draft, Playtested, Polished }
+}
+
+re Game {
+  ~views([
+    { label: "By game",   line: [status ~bullet, name, authors, description] },
+    { label: "By author", group: authors },
+  ])
+}
+re Status { Draft ~color("#9aa0aa")  Playtested ~color("#bd861a") }
+```
+
 ### Separating model attributes from fields (open)
 
 Joe likes a separator inside a model between its fields and its model-level
