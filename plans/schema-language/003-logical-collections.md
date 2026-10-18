@@ -323,14 +323,16 @@ re Game {
 re Status { Draft ~color("#9aa0aa")  Playtested ~color("#bd861a") }
 ```
 
-### Separating model attributes from fields (open)
+### Separating model attributes from fields (convention: a blank line)
 
-Joe likes a separator inside a model between its fields and its model-level
-attributes. Candidates: a `---` line, a `with` line, or Ruby style
-(`model Game … with … end`, with `end` replacing the closing brace).
-Proposed rules whichever spelling wins: fields and connection ends above the
-separator, model attributes below it; no model attributes means no
-separator; an attribute standing alone above the separator is an error.
+Model-level items sit after a blank line at the end of a block, as in the
+example above. Like the layer split, this is a convention the checker does
+not enforce; position alone decides whether an attribute is on a field or on
+the model.
+
+**Open:** whether `usl fmt` applies the conventions (moves `~` into a `re`
+block, orders items) or only tidies spacing. Proposed: spacing only by
+default, with an opt-in such as `usl fmt --conventional` that rearranges.
 
 ### Annotating a model from another file (decided: `re`)
 
@@ -462,8 +464,8 @@ With representation per placement, retention is per placement too:
    ends?
 2. Order as sequences, positions only in database projections? (A
    concurrent move of the same member: the later move wins; settled.)
-3. USL syntax: the open points in "USL syntax" (`@path`, aliases, the
-   separator).
+3. USL syntax: the open points in "USL syntax" (`@path`, aliases, what
+   `usl fmt` rearranges).
 4. Timestamps as row state stamped from `at`?
 5. Canonical CBOR with a chunked hash from the start, instead of the branch's
    JSONL?
