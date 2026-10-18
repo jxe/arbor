@@ -6,7 +6,9 @@ Overstory's schema language. The language as implemented is specified in
 and implemented in `packages/usl` (`bun packages/usl/src/cli.ts check|show
 file.usl`); every collection reads its `schema.usl` through it. What remains
 is [002](002-cranberries-in-story.md): presenting and merging collections the
-way cranberries does. `examples/invalid/` holds one broken file per
+way cranberries does; and [003](003-layers-and-sigils.md): the model, storage
+and presentation layers (`@`, `&`, `~`, and `re`), with the examples
+rewritten in that form in `examples/layered/`. `examples/invalid/` holds one broken file per
 invariant. Background and the history of the design are in the project thread
 "Cranberries in Story".
 
