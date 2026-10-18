@@ -1,0 +1,42 @@
+// ~/src/supplies-remake: games, their authors, and lists of games.
+// Authors are Story accounts, so there is no Person model to declare.
+
+model Game {
+  name        Text
+  status      Status                            // stored as "Draft"
+  description Markdown?
+  tags        Text[]                            // values, stored on the row
+  authors     Person[]                          // cross-reference: declared below
+  lists       List[]                            // cross-reference: declared below
+
+  @editableBy(authors)
+}
+
+model List {
+  name  Text
+  games Game[]                                  // cross-reference
+}
+
+// In data files, &fold keeps these as arrays on Game and List rows instead
+// of files of their own. Databases still use join tables.
+Game.authors[] &fold <-> Person.games[]
+List.games[] @ordered &fold <-> Game.lists[]
+Game.status <-> Status.games[]
+
+model Status {
+  @fixed { Draft, Playtested, Polished }
+}
+
+re Game {
+  ~views([
+    { label: "By game",   line: [status ~bullet, name, authors, description], sort: modified },
+    { label: "By author", group: authors },
+    { label: "By list",   group: lists, sort: modified },
+  ])
+}
+
+re Status {
+  Draft       ~color("#9aa0aa")
+  Playtested  ~color("#bd861a")
+  Polished    ~color("#27815a")
+}

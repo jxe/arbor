@@ -1,0 +1,39 @@
+// meaningalignment/excellences: the MAI roles document.
+// Leads were a `person` collection with a portrait; now they are Story
+// accounts, and portraits come from their profiles.
+
+model Excellence {
+  name       Text
+  assessment Assessment
+  leads      Person[]                           // cross-reference
+  projects   Project[]                          // cross-reference
+}
+
+model Project {
+  name        Text
+  excellences Excellence[]                      // cross-reference
+}
+
+Excellence.leads[] <-> Person.excellences[]
+Excellence.projects[] <-> Project.excellences[]
+Excellence.assessment <-> Assessment.excellences[]
+
+model Assessment {
+  @fixed { Good, Improving, Bad, "Current focus", "Not recorded" }
+}
+
+re Excellence {
+  ~views([
+    { label: "By project",    line: [name, leads ~label("lead"), assessment ~bullet, projects ~summary ~label("project")], group: projects },
+    { label: "By lead",       group: leads },
+    { label: "By assessment", group: assessment },
+  ])
+}
+
+re Assessment {
+  Good             ~color("#27815a")
+  Improving        ~color("#bd861a")
+  Bad              ~color("#c25357")
+  "Current focus"  ~color("#4278c0")
+  "Not recorded"   ~color("#9aa0aa")
+}
