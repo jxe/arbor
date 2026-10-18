@@ -6,3 +6,4 @@ export * from "./profile.ts";
 export * from "./collect-objects.ts";
 export * from "./retention.ts";
 export * from "./pack-maintenance.ts";
+export * from "./report.ts";

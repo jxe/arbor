@@ -4,12 +4,14 @@ import { mkdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { AccountDirectory } from "./accounts.ts";
 import { HostDaemon, SchemaMismatchError, serveHost, type HostBootstrapAccount } from "./index.ts";
+import { formatHostReport, hostReport } from "./report.ts";
 import { hardenResponse } from "./response-policy.ts";
 
 const USAGE = `Usage:
   overstoryd init <community> --founder <handle>=<TreeID> [--data <directory>]
   overstoryd [serve] [<directory>] [--url <canonical-url>] [--port <number>] [--hostname <host>]
   overstoryd recover <handle> [--data <directory>] [--url <canonical-url>]
+  overstoryd report [--data <directory>] [--json]
 
 init creates a new community once: its handle, and the founder account that
 only the named self-certifying profile may claim. The data directory defaults
@@ -22,7 +24,10 @@ recover is the operator's help for a person who has lost every administrator
 device: it prints a one-day recovery pairing code for their account, which they
 claim from a new device as an ordinary pairing. That device becomes the
 account's only one; until then every existing device keeps working. Run it
-where the data lives (on Railway, over \`railway ssh\`), never in logs.`;
+where the data lives (on Railway, over \`railway ssh\`), never in logs.
+report prints the operator's overview, read beside a running server: members
+and open invitations, accounts and their devices, and each tree's
+administrators, current size, and updates. --json prints it as JSON.`;
 
 function usage(): never {
   console.error(USAGE);
@@ -295,10 +300,22 @@ export async function recoverAccount(args: string[]): Promise<void> {
   }
 }
 
+/** `overstoryd report [--data <directory>] [--json]` */
+export async function reportHost(args: string[]): Promise<void> {
+  const valued = ["--data"];
+  rejectUnknown(args, [...valued, "--json"]);
+  if (positionals(args, valued).length) usage();
+  const dataRoot = resolve(option(args, "--data") ?? process.env.OVERSTORYD_DATA ?? process.env.RAILWAY_VOLUME_MOUNT_PATH ?? ".overstoryd");
+  if (!await hasCommunity(dataRoot)) throw new Error(`No community at ${dataRoot}`);
+  const report = await hostReport(dataRoot);
+  console.log(args.includes("--json") ? JSON.stringify(report, null, 2) : formatHostReport(report));
+}
+
 export async function runHostDaemon(args = process.argv.slice(2)): Promise<void> {
   const [first, ...rest] = args;
   if (first === "init") return initCommunity(rest);
   if (first === "recover") return recoverAccount(rest);
+  if (first === "report") return reportHost(rest);
   if (first === "serve") return serveCommunity(rest);
   if (first === "--help" || first === "-h" || first === "help") usage();
   return serveCommunity(args);
