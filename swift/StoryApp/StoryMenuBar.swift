@@ -258,6 +258,11 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
 
     /// AppKit lists the open windows, and adds its tiling and tab items, in `NSApp.windowsMenu`.
     private func fillWindowMenu() -> NSMenu {
+        windowMenu.addItem(window("New Tab", "t") { $0.newTab() })
+        windowMenu.addItem(item("New Window", "n", [.command, .option]) { [unowned self] in
+            if let commands = self.commands { commands.newWindow() }
+        })
+        windowMenu.addItem(.separator())
         // With one tab left, Command-W closes the window, as it does in Safari.
         windowMenu.addItem(item("Close Tab", "w", when: { NSApp.keyWindow != nil }) { [unowned self] in
             if let commands = self.commands, commands.canCloseTab {

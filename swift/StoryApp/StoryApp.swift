@@ -1,5 +1,6 @@
 import Quagmire
 import Overstory
+import StoryKit
 import SwiftUI
 #if os(macOS)
 import AppKit
@@ -21,11 +22,11 @@ struct StoryApplication: App {
 #endif
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(for: StoryWindowRequest.self) { $request in
 #if os(iOS)
             StoryIOSLaunchView(workspace: workspace)
 #else
-            StoryMacLaunchView(workspace: workspace)
+            StoryMacLaunchView(workspace: workspace, initialLocation: request?.location)
                 .task { appDelegate.workspace = workspace }
 #endif
         }
@@ -35,6 +36,13 @@ struct StoryApplication: App {
         }
 #endif
     }
+}
+
+/// What a new window opens on: a page, or the tree's home. Each request is
+/// its own window, even for a page another window already shows.
+struct StoryWindowRequest: Codable, Hashable {
+    var id = UUID()
+    var location: WorkspaceLocation?
 }
 
 #if os(iOS)

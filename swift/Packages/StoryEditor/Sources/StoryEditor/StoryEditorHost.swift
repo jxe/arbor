@@ -169,6 +169,7 @@ public final class StoryEditorHost: EditorHost {
     /// a node's file. Filled from suggestions, lookups and created pages.
     @ObservationIgnored private var knownBodies: [String: MarkdownBodyOrigin?] = [:]
     private let openAction: @MainActor (WorkspaceReference) -> Void
+    private let openAtAction: (@MainActor (WorkspaceReference, DocumentOpenTarget) -> Void)?
     private let backAction: @MainActor () -> Void
     private let errorAction: @MainActor (String) -> Void
     private let performStructuralAction: @MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?
@@ -185,6 +186,7 @@ public final class StoryEditorHost: EditorHost {
         linkPreviewService: LinkPreviewService,
         sourceDirectory: String? = nil,
         open: @escaping @MainActor (WorkspaceReference) -> Void = { _ in },
+        openAt: (@MainActor (WorkspaceReference, DocumentOpenTarget) -> Void)? = nil,
         navigateBack: @escaping @MainActor () -> Void = {},
         reportError: @escaping @MainActor (String) -> Void = { _ in },
         performStructuralAction: (@MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?)? = nil,
@@ -196,6 +198,7 @@ public final class StoryEditorHost: EditorHost {
         self.sourceDirectory = sourceDirectory
             ?? markdownSourceDirectory(nodePath: binding.reference.path, body: .sibling)
         self.openAction = open
+        self.openAtAction = openAt
         self.backAction = navigateBack
         self.errorAction = reportError
         self.performStructuralAction = performStructuralAction ?? { action in
@@ -336,6 +339,21 @@ public final class StoryEditorHost: EditorHost {
     public func openDocument(_ reference: DocumentReference) {
         guard let decoded = workspaceReference(for: reference) else { return }
         openAction(decoded)
+    }
+
+    /// New tabs and windows, when the app gives this editor a way to open them.
+    public var documentOpenTargets: DocumentOpenTargets {
+        guard openAtAction != nil else { return [] }
+        #if os(macOS)
+        return [.newTab, .newWindow]
+        #else
+        return [.newTab]
+        #endif
+    }
+
+    public func openDocument(_ reference: DocumentReference, at target: DocumentOpenTarget) {
+        guard let decoded = workspaceReference(for: reference) else { return }
+        if let openAtAction, target != .current { openAtAction(decoded, target) } else { openAction(decoded) }
     }
 
     public func setDocumentIcon(_ emoji: String, for reference: DocumentReference) async -> Bool {

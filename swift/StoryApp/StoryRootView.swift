@@ -998,6 +998,7 @@ struct StoryRootView: View {
     @State private var reviewingChoices = false
     @State private var reviewAccessoryReveal: EditorAccessoryReveal?
     @State private var sidebarKeyboardSelection: WorkspaceIdentity?
+    @Environment(\.openWindow) private var openWindow
     @State private var sidebarListSelection: WorkspaceIdentity?
     @State private var pageRenameLocation: WorkspaceLocation?
     @State private var pageRenameDraft = ""
@@ -1043,11 +1044,12 @@ struct StoryRootView: View {
     init(
         workspace: StoryWorkspaceState,
         onDisconnect: @escaping @MainActor () -> Void = {},
-        model: StoryAppModel? = nil
+        model: StoryAppModel? = nil,
+        initialLocation: WorkspaceLocation? = nil
     ) {
         self.workspace = workspace
         self.onDisconnect = onDisconnect
-        let model = model ?? StoryAppModel(workspace: workspace)
+        let model = model ?? StoryAppModel(workspace: workspace, initialLocation: initialLocation)
         let recordingSession = VoiceRecordingSession(
             recoveryStore: PendingVoiceRecordingStore(
                 directoryURL: StorySupportDirectories.pendingVoiceRecordings
@@ -1085,6 +1087,9 @@ struct StoryRootView: View {
 
     var body: some View {
         platformNavigation
+        .onAppear {
+            model.openWindowAction = { [openWindow] location in openWindow(value: StoryWindowRequest(location: location)) }
+        }
         .task(id: workspace.providerRevision) {
             await model.reloadForProviderRevision()
         }
@@ -1867,6 +1872,12 @@ struct StoryRootView: View {
                     Button("Open", systemImage: "arrow.right") {
                         openFromSidebar(.reference(result.reference))
                     }
+                    Button("Open in New Tab", systemImage: "plus.square.on.square") {
+                        openFromSidebarInNewTab(.reference(result.reference), selecting: true)
+                    }
+                    Button("Open in New Window", systemImage: "macwindow.badge.plus") {
+                        model.openInNewWindow(.reference(result.reference))
+                    }
                     Divider()
                     Button("Move Page…", systemImage: "folder") {
                         Task { _ = await model.editorHost?.moveDocument(result.reference) }
@@ -1942,7 +1953,9 @@ struct StoryRootView: View {
                 acceptsBlockDrop: !isCurrent(.reference(result.reference)),
                 movePage: {
                     Task { _ = await model.editorHost?.moveDocument(result.reference) }
-                }
+                },
+                openInNewTab: { selecting in openFromSidebarInNewTab(.reference(result.reference), selecting: selecting) },
+                openInNewWindow: macOpenInNewWindow(.reference(result.reference))
             ) {
                 openFromSidebar(.reference(result.reference))
             }
@@ -2167,6 +2180,30 @@ struct StoryRootView: View {
         location == model.currentLocation
     }
 
+    /// Open a sidebar page in a new tab. A tab opened behind this one leaves
+    /// the sidebar's selection on the page this tab shows.
+    private func openFromSidebarInNewTab(_ location: WorkspaceLocation, selecting: Bool) {
+#if os(iOS)
+        if selecting { closeIOSSidebar() }
+#endif
+        Task {
+            await model.openInNewTab(location, selecting: selecting)
+#if os(macOS)
+            let identity = model.currentReference.identity
+            sidebarListSelection = model.searchResults.contains { $0.id == identity } ? identity : nil
+#endif
+        }
+    }
+
+    /// Opening a page in a new window is offered on the Mac.
+    private func macOpenInNewWindow(_ location: WorkspaceLocation) -> (() -> Void)? {
+#if os(macOS)
+        return { model.openInNewWindow(location) }
+#else
+        return nil
+#endif
+    }
+
     private func openFromSidebar(_ location: WorkspaceLocation) {
 #if os(iOS)
         guard !sidebarDismissDragSuppressesTap else { return }
@@ -2226,6 +2263,7 @@ struct StoryRootView: View {
             goForward: { Task { await model.goForward() } },
             goParent: { Task { await model.goParent() } },
             newTab: { Task { await model.newTab() } },
+            newWindow: { model.openInNewWindow(nil) },
             closeTab: { Task { await model.closeSelectedTab() } },
             newPage: { Task { await model.newDraftPage() } },
             openLocation: { presentedSheet = .openLocation },

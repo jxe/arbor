@@ -7,6 +7,7 @@ import Overstory
 import CryptoKit
 import Foundation
 import Observation
+import Quagmire
 import QuagmireExtras
 import Network
 
@@ -2318,11 +2319,15 @@ final class StoryAppModel {
 
     init(
         workspace: StoryWorkspaceState,
-        openNavigationTree: (@MainActor (TreeID) async throws -> Void)? = nil
+        openNavigationTree: (@MainActor (TreeID) async throws -> Void)? = nil,
+        initialLocation: WorkspaceLocation? = nil
     ) {
         self.workspace = workspace
         self.openNavigationTree = openNavigationTree ?? { try await workspace.openNestedTree($0) }
-        self.tabs = BrowserTabController(launchLocation: workspace.launchLocation)
+        let tabs = BrowserTabController(launchLocation: workspace.launchLocation)
+        // A window opened on a page starts there, with the tree's home as its launch location.
+        if let initialLocation { tabs.replaceCurrent(with: initialLocation) }
+        self.tabs = tabs
         self.sidebarLocation = workspace.launchLocation
         self.observedWorkspaceGeneration = workspace.generation
         self.observedProviderRevision = workspace.providerRevision
@@ -2515,6 +2520,7 @@ final class StoryAppModel {
             linkPreviewService: workspace.linkPreviewService,
             sourceDirectory: sourceDirectory,
             open: { [weak self] reference in Task { await self?.navigate(to: reference) } },
+            openAt: { [weak self] reference, target in Task { await self?.open(reference, at: target) } },
             navigateBack: { [weak self] in Task { await self?.goBack() } },
             reportError: { [weak self] message in self?.errorMessage = message },
             performStructuralAction: { [weak self, weak workspace] action in
@@ -2821,8 +2827,30 @@ final class StoryAppModel {
         await transition { tabs.newTab() }
     }
 
-    func openInNewTab(_ location: WorkspaceLocation) async {
-        await transition { tabs.newTab(at: location) }
+    /// Open `location` in a new tab after this one: behind it, as ⌘-click
+    /// does, or selected.
+    func openInNewTab(_ location: WorkspaceLocation, selecting: Bool) async {
+        if selecting {
+            await transition { tabs.openTab(at: location, selecting: true) }
+        } else {
+            tabs.openTab(at: location, selecting: false)
+        }
+    }
+
+    /// Opens a new window, on `location` or the tree's home. Set by the window.
+    @ObservationIgnored var openWindowAction: ((WorkspaceLocation?) -> Void)?
+
+    func openInNewWindow(_ location: WorkspaceLocation?) {
+        openWindowAction?(location)
+    }
+
+    /// Where a link to `reference` opens, for the editor's ⌘-click and link menus.
+    func open(_ reference: WorkspaceReference, at target: DocumentOpenTarget) async {
+        switch target {
+        case .current: await navigate(to: reference)
+        case .newTab(let selecting): await openInNewTab(location(for: reference), selecting: selecting)
+        case .newWindow: openInNewWindow(location(for: reference))
+        }
     }
 
     func closeSelectedTab() async {

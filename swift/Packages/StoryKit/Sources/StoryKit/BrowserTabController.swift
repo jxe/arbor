@@ -71,6 +71,16 @@ public final class BrowserTabController {
         return tab.id
     }
 
+    /// Open `location` in a new tab just after the selected one, as a link
+    /// opened in a new tab does; it becomes the selected tab only when asked.
+    @discardableResult
+    public func openTab(at location: WorkspaceLocation, selecting: Bool) -> UUID {
+        let tab = BrowserTab(current: location)
+        tabs.insert(tab, at: index(of: selectedTabID) + 1)
+        if selecting { selectedTabID = tab.id }
+        return tab.id
+    }
+
     public func closeTab(_ id: UUID) {
         guard tabs.count > 1, let position = tabs.firstIndex(where: { $0.id == id }) else { return }
         tabs.remove(at: position)

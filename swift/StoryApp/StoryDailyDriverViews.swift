@@ -25,6 +25,7 @@ struct StoryWindowCommands {
     var goForward: () -> Void
     var goParent: () -> Void
     var newTab: () -> Void
+    var newWindow: () -> Void
     var closeTab: () -> Void
     var newPage: () -> Void
     var openLocation: () -> Void
@@ -192,23 +193,31 @@ private struct StorySidebarNativeSelectionStyle: NSViewRepresentable {
 /// the pointer rather than the List's previous selection.
 struct StorySidebarControlClickMenu: NSViewRepresentable {
     let open: () -> Void
+    let openInNewTab: ((Bool) -> Void)?
+    let openInNewWindow: (() -> Void)?
     let movePage: (() -> Void)?
 
     func makeNSView(context: Context) -> MenuView { MenuView() }
 
     func updateNSView(_ view: MenuView, context: Context) {
         view.open = open
+        view.openInNewTab = openInNewTab
+        view.openInNewWindow = openInNewWindow
         view.movePage = movePage
     }
 
     static func dismantleNSView(_ view: MenuView, coordinator: ()) {
         view.stopMonitoring()
         view.open = nil
+        view.openInNewTab = nil
+        view.openInNewWindow = nil
         view.movePage = nil
     }
 
     final class MenuView: NSView {
         var open: (() -> Void)?
+        var openInNewTab: ((Bool) -> Void)?
+        var openInNewWindow: (() -> Void)?
         var movePage: (() -> Void)?
         private var monitor: Any?
 
@@ -253,6 +262,12 @@ struct StorySidebarControlClickMenu: NSViewRepresentable {
             let menu = NSMenu()
             let openItem = menu.addItem(withTitle: "Open", action: #selector(openPage), keyEquivalent: "")
             openItem.target = self
+            if openInNewTab != nil {
+                menu.addItem(withTitle: "Open in New Tab", action: #selector(openTab), keyEquivalent: "").target = self
+            }
+            if openInNewWindow != nil {
+                menu.addItem(withTitle: "Open in New Window", action: #selector(openWindow), keyEquivalent: "").target = self
+            }
             if movePage != nil {
                 menu.addItem(.separator())
                 let moveItem = menu.addItem(withTitle: "Move Page…", action: #selector(move), keyEquivalent: "")
@@ -262,6 +277,8 @@ struct StorySidebarControlClickMenu: NSViewRepresentable {
         }
 
         @objc private func openPage() { open?() }
+        @objc private func openTab() { openInNewTab?(true) }
+        @objc private func openWindow() { openInNewWindow?() }
         @objc private func move() { movePage?() }
     }
 }
@@ -275,13 +292,30 @@ struct StorySidebarSearchRow: View {
     var isSelected = false
     var acceptsBlockDrop = true
     var movePage: (() -> Void)?
+    /// Opens the page in a new tab, selected or behind this one.
+    var openInNewTab: ((_ selecting: Bool) -> Void)?
+    var openInNewWindow: (() -> Void)?
     let open: () -> Void
+
+    /// A click opens the page here; with ⌘ in a new tab behind this one, and
+    /// with ⌘⇧ in a new, selected tab.
+    private func activate() {
+#if os(macOS)
+        let flags = NSEvent.modifierFlags
+        if flags.contains(.command), let openInNewTab {
+            openInNewTab(flags.contains(.shift))
+            return
+        }
+#endif
+        open()
+    }
 
     var body: some View {
 #if os(macOS)
         if opensThroughListSelection {
             rowContent
-                .background(StorySidebarControlClickMenu(open: open, movePage: movePage))
+                .background(StorySidebarControlClickMenu(open: open, openInNewTab: openInNewTab,
+                                                         openInNewWindow: openInNewWindow, movePage: movePage))
         } else {
             rowContent.contextMenu { contextMenuActions }
         }
@@ -304,10 +338,10 @@ struct StorySidebarSearchRow: View {
                     // AppKit is preparing the menu for this row.
                     .simultaneousGesture(TapGesture().onEnded {
                         guard !NSEvent.modifierFlags.contains(.control) else { return }
-                        open()
+                        activate()
                     })
             } else {
-                Button(action: open) {
+                Button(action: activate) {
                     rowLabel(titleParts: titleParts, contextPath: contextPath)
                 }
                 .buttonStyle(.plain)
@@ -327,6 +361,12 @@ struct StorySidebarSearchRow: View {
     @ViewBuilder
     private var contextMenuActions: some View {
         Button("Open", systemImage: "arrow.right", action: open)
+        if let openInNewTab {
+            Button("Open in New Tab", systemImage: "plus.square.on.square") { openInNewTab(true) }
+        }
+        if let openInNewWindow {
+            Button("Open in New Window", systemImage: "macwindow.badge.plus", action: openInNewWindow)
+        }
         if let movePage {
             Divider()
             Button("Move Page…", systemImage: "folder", action: movePage)
