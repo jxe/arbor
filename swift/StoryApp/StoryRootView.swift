@@ -1677,7 +1677,7 @@ struct StoryRootView: View {
 #endif
         } label: {
             sidebarFooterRow(
-                symbol: "tree",
+                symbol: "folder",
                 title: currentSidebarTreeTitle,
                 accessory: "chevron.up.chevron.down",
                 hovered: treeFooterHovered
