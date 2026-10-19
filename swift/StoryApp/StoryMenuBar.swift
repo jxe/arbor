@@ -389,22 +389,48 @@ struct StoryMenuBarBridge: View {
                     commands, editorCommands: editorCommands, undoController: undoController, for: window
                 )
             }
-            if let window = view.window { view.register?(window) }
+            view.registerWindow()
         }
 
         static func dismantleNSView(_ view: WindowView, coordinator: ()) {
-            if let window = view.window { StoryMenuBar.shared.unregister(window) }
+            if let window = view.window, !view.windowIsClosing { StoryMenuBar.shared.unregister(window) }
         }
     }
 
     final class WindowView: NSView {
         var register: ((NSWindow) -> Void)?
+        /// Set when the window starts to close. SwiftUI updates the window's
+        /// views once more while it is deallocating, and the registry holds
+        /// windows weakly: registering one then aborts the app.
+        private(set) var windowIsClosing = false
+        private var closeObserver: NSObjectProtocol?
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let window { register?(window) }
+            if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+            closeObserver = nil
+            guard let window else { return }
+            closeObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.windowIsClosing = true
+                    if let window = self.window { StoryMenuBar.shared.unregister(window) }
+                }
+            }
+            registerWindow()
+        }
+
+        func registerWindow() {
+            guard !windowIsClosing, let window else { return }
+            register?(window)
+        }
+
+        isolated deinit {
+            if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
         }
     }
 }
