@@ -270,7 +270,7 @@ async function up() {
     control.server.stop(true);
     await control.service[Symbol.asyncDispose]();
   }
-  const { loadLocalPlacements } = await import("@ovst/story-sync/state");
+  const { loadLocalPlacements } = await import("@ovst/client");
   const placed = (await loadLocalPlacements()).placements.find((candidate) => candidate.path === folder || candidate.path.endsWith("/conflicts/tree"));
   if (!placed) throw new Error("The lab tree was not placed");
   const state = { ...(await loadState()), tree: placed.tree };
@@ -282,7 +282,7 @@ async function serve(fresh: boolean) {
   const { serveHost } = await import("@ovst/overstoryd");
   let community;
   if (fresh) {
-    const { ProfileIdentityStore } = await import("@ovst/story-sync/state");
+    const { ProfileIdentityStore } = await import("@ovst/client");
     const profile = join(lab, "profile");
     await mkdir(profile, { recursive: true });
     const identity = await new ProfileIdentityStore().create(profile);
