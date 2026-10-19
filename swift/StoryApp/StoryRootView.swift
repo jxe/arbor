@@ -1270,7 +1270,7 @@ struct StoryRootView: View {
                 presentedSheet = next
             }
         }) {
-            IOSAccountPanel(workspace: workspace, syncSections: AnyView(syncStatusPanel.sections), openProfile: { profile in
+            IOSAccountPanel(workspace: workspace, syncSections: AnyView(syncStatusPanel.sections), treePicker: AnyView(accountTreePicker), openProfile: { profile in
                 accountFollowUpProfile = profile
                 accountPresented = false
             }, onDisconnect: onDisconnect)
@@ -1645,6 +1645,27 @@ struct StoryRootView: View {
     private var currentSidebarTreeTitle: String {
         let tree = model.currentReference.tree.rawValue
         return sidebarTrees.first { $0.id == tree }?.title ?? tree
+    }
+
+    /// The Sync & Accounts sheet's tree switch: the same trees as the sidebar's picker.
+    private var accountTreePicker: some View {
+        let trees = sidebarTrees
+        let current = model.currentReference.tree.rawValue
+        let accounts = trees.reduce(into: [String]()) { if !$0.contains($1.account) { $0.append($1.account) } }
+        return Section {
+            Picker("Tree", selection: Binding(get: { current }, set: { if $0 != current { openSidebarTree($0) } })) {
+                if !trees.contains(where: { $0.id == current }) {
+                    Text(currentSidebarTreeTitle).tag(current)
+                }
+                ForEach(accounts, id: \.self) { account in
+                    Section(account) {
+                        ForEach(trees.filter { $0.account == account }) { tree in
+                            Text(tree.title).tag(tree.id)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Switches the window to another placed tree, grouped by account.
@@ -2459,6 +2480,7 @@ struct StoryRootView: View {
         MacStorySyncAccountPanel(
             workspace: workspace,
             syncSections: AnyView(syncStatusPanel.sections),
+            treePicker: AnyView(accountTreePicker),
             openProfile: { tree in
                 profileAfterManagementDismiss = tree
                 managementPresented = false
@@ -2654,6 +2676,9 @@ struct StoryRootView: View {
                 detailPathHeading(for: location)
             }
             .sharedBackgroundVisibility(.hidden)
+            // With the title removed nothing else fills the middle, so the
+            // actions would sit beside the path instead of at the trailing edge.
+            ToolbarSpacer(.flexible)
 #endif
             ToolbarItemGroup(placement: .primaryAction) {
 #if os(iOS)
@@ -3853,6 +3878,24 @@ private struct StoryDevicesHeader: View {
     }
 }
 
+/// Few people place trees on other hosts, so the sheet keeps those sections
+/// behind one quiet button.
+private struct StoryOtherHostsReveal: View {
+    let reveal: () -> Void
+
+    var body: some View {
+        Section {
+        } footer: {
+            Button("Other Hosts…", action: reveal)
+#if os(macOS)
+                .buttonStyle(.link)
+#endif
+                .font(.caption)
+                .textCase(nil)
+        }
+    }
+}
+
 /// One account's placements on other hosts (accounts §1.3): the placement
 /// connections this device holds, an action to place the account on
 /// another host, and removing a connection from this device. Placing
@@ -3984,7 +4027,9 @@ private struct MacStorySyncAccountPanel: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: StoryWorkspaceState
     let syncSections: AnyView
+    let treePicker: AnyView
     let openProfile: (String) -> Void
+    @State private var showsOtherHosts = false
     @State private var pairing: StoryPairingOffer?
     @State private var pairingConfigurationTree: String?
     @State private var changingDeviceID: String?
@@ -3998,6 +4043,8 @@ private struct MacStorySyncAccountPanel: View {
     var body: some View {
         NavigationStack {
             Form {
+                syncSections
+                treePicker
                 if let account {
                     ForEach(account.accounts, id: \.profileSectionID) { hostAccount in
                         Section { accountHeader(hostAccount) }
@@ -4014,7 +4061,6 @@ private struct MacStorySyncAccountPanel: View {
                         )
                     }
                 }
-                syncSections
                 if let account {
                     if !account.accounts.isEmpty {
                         ForEach(account.accounts, id: \.devicesSectionID) { hostAccount in
@@ -4054,12 +4100,16 @@ private struct MacStorySyncAccountPanel: View {
                                 .disabled(!hostAccount.credentialAvailable)
                             }
                         }
-                        ForEach(account.accounts, id: \.placementsSectionID) { hostAccount in
-                            StoryPlacementsSection(
-                                workspace: workspace,
-                                configurationTree: hostAccount.configurationTree,
-                                title: account.accounts.count > 1 ? "Other Hosts · \(hostAccount.accountDisplayName)" : "Other Hosts"
-                            )
+                        if showsOtherHosts {
+                            ForEach(account.accounts, id: \.placementsSectionID) { hostAccount in
+                                StoryPlacementsSection(
+                                    workspace: workspace,
+                                    configurationTree: hostAccount.configurationTree,
+                                    title: account.accounts.count > 1 ? "Other Hosts · \(hostAccount.accountDisplayName)" : "Other Hosts"
+                                )
+                            }
+                        } else {
+                            StoryOtherHostsReveal { showsOtherHosts = true }
                         }
                     }
                     if account.accounts.isEmpty {
@@ -4900,7 +4950,9 @@ private struct IOSAccountPanel: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: StoryWorkspaceState
     let syncSections: AnyView
+    let treePicker: AnyView
     let openProfile: (String) -> Void
+    @State private var showsOtherHosts = false
     let onDisconnect: @MainActor () -> Void
     @State private var placement: NativePlacementRecord?
     @State private var accounts: [HostAccount] = []
@@ -4914,6 +4966,8 @@ private struct IOSAccountPanel: View {
     var body: some View {
         NavigationStack {
             Form {
+                syncSections
+                treePicker
                 ForEach(accounts, id: \.profileSectionID) { account in
                     Section {
                         let profile = snapshots[account.configurationTree]?.profileTree ?? account.profileTree
@@ -4927,7 +4981,6 @@ private struct IOSAccountPanel: View {
                         )
                     }
                 }
-                syncSections
                 ForEach(accounts, id: \.devicesSectionID) { account in
                     Section {
                         if let device = snapshots[account.configurationTree]?.device {
@@ -4949,12 +5002,16 @@ private struct IOSAccountPanel: View {
                         )
                     }
                 }
-                ForEach(accounts, id: \.placementsSectionID) { account in
-                    StoryPlacementsSection(
-                        workspace: workspace,
-                        configurationTree: account.configurationTree,
-                        title: accounts.count > 1 ? "Other Hosts · \(account.accountDisplayName)" : "Other Hosts"
-                    )
+                if showsOtherHosts {
+                    ForEach(accounts, id: \.placementsSectionID) { account in
+                        StoryPlacementsSection(
+                            workspace: workspace,
+                            configurationTree: account.configurationTree,
+                            title: accounts.count > 1 ? "Other Hosts · \(account.accountDisplayName)" : "Other Hosts"
+                        )
+                    }
+                } else if !accounts.isEmpty {
+                    StoryOtherHostsReveal { showsOtherHosts = true }
                 }
                 if accounts.isEmpty, message == nil {
                     Section {
