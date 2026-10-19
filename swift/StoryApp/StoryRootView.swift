@@ -2594,7 +2594,10 @@ struct StoryRootView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: model.binding?.lastError != nil)
 #if os(macOS)
-        .navigationTitle("")
+        // The page's title names the window, and so its native tab and its
+        // Window menu item; the toolbar does not show it.
+        .navigationTitle(model.node?.title ?? "Story")
+        .toolbar(removing: .title)
         .navigationBarBackButtonHidden(true)
 #endif
         .toolbar {
