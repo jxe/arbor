@@ -1239,7 +1239,7 @@ struct StoryAppTests {
         #expect(model.canGoBack)
     }
 
-    @Test("Two windows share one PageID binding without sharing tabs")
+    @Test("Two windows share one PageID binding; tabs and windows open as windows")
     func windowsSharePersistenceNotPresentation() async throws {
         let workspace = StoryWorkspaceState(provider: .sample())
         let first = StoryAppModel(workspace: workspace)
@@ -1249,11 +1249,29 @@ struct StoryAppTests {
         let welcome = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         await first.navigate(to: welcome)
         await second.navigate(to: welcome)
-
         #expect(first.binding === second.binding)
-        await first.newTab()
-        #expect(first.tabItems.count == 2)
-        #expect(second.tabItems.count == 1)
+
+        var requests: [(WorkspaceLocation?, Bool, Bool)] = []
+        first.openWindowAction = { requests.append(($0, $1, $2)) }
+        first.newTab()
+        first.openInNewTab(.reference(welcome), selecting: false)
+        first.openInNewWindow(.reference(welcome))
+        #expect(requests.map(\.0) == [nil, .reference(welcome), .reference(welcome)])
+        #expect(requests.map(\.1) == [true, true, false])
+        #expect(requests.map(\.2) == [true, false, true])
+        #expect(first.currentReference.path == "/welcome", "opening elsewhere leaves this window's page")
+
+        // A window opened on a page shows it in place of home, without a Back step.
+        let third = StoryAppModel(workspace: workspace)
+        await third.load()
+        await third.showRequestedLocation(.reference(welcome))
+        #expect(third.currentReference.path == "/welcome")
+        #expect(!third.canGoBack)
+
+        // Closing a window releases its page; the other window keeps the binding.
+        await first.windowClosed()
+        #expect(first.editorLease == nil)
+        #expect(second.binding != nil)
     }
 
     @Test("Structural receipts refresh workspace chrome without replacing the editor lease")

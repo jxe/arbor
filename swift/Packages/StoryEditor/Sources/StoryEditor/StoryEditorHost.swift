@@ -341,13 +341,14 @@ public final class StoryEditorHost: EditorHost {
         openAction(decoded)
     }
 
-    /// New tabs and windows, when the app gives this editor a way to open them.
+    /// New tabs and windows (iPad has windows only), when the app gives this
+    /// editor a way to open them.
     public var documentOpenTargets: DocumentOpenTargets {
         guard openAtAction != nil else { return [] }
         #if os(macOS)
         return [.newTab, .newWindow]
         #else
-        return [.newTab]
+        return [.newWindow]
         #endif
     }
 

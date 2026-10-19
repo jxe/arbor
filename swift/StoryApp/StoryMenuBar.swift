@@ -263,15 +263,15 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
             if let commands = self.commands { commands.newWindow() }
         })
         windowMenu.addItem(.separator())
-        // With one tab left, Command-W closes the window, as it does in Safari.
-        windowMenu.addItem(item("Close Tab", "w", when: { NSApp.keyWindow != nil }) { [unowned self] in
-            if let commands = self.commands, commands.canCloseTab {
-                commands.closeTab()
-            } else {
-                NSApp.keyWindow?.performClose(nil)
-            }
+        // Each tab is a window: Command-W closes it, and Shift-Command-W closes
+        // every tab of the window, as in Safari.
+        let closeTab = item("Close Tab", "w", when: { NSApp.keyWindow != nil }) { NSApp.keyWindow?.performClose(nil) }
+        closeTab.refresh = { $0.title = (NSApp.keyWindow?.tabbedWindows?.count ?? 0) > 1 ? "Close Tab" : "Close Window" }
+        windowMenu.addItem(closeTab)
+        windowMenu.addItem(item("Close Window", "w", [.command, .shift], when: { NSApp.keyWindow != nil }) {
+            guard let window = NSApp.keyWindow else { return }
+            for tab in window.tabbedWindows ?? [window] { tab.performClose(nil) }
         })
-        windowMenu.addItem(standard("Close Window", #selector(NSWindow.performClose(_:)), "w", [.command, .shift]))
         windowMenu.addItem(.separator())
         windowMenu.addItem(standard("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"))
         windowMenu.addItem(standard("Zoom", #selector(NSWindow.performZoom(_:))))

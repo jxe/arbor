@@ -26,7 +26,6 @@ struct StoryWindowCommands {
     var goParent: () -> Void
     var newTab: () -> Void
     var newWindow: () -> Void
-    var closeTab: () -> Void
     var newPage: () -> Void
     var openLocation: () -> Void
     var focusSidebarSearch: () -> Void
@@ -54,7 +53,6 @@ struct StoryWindowCommands {
     var canGoForward: Bool
     var canGoParent: Bool
     var canGoHome: Bool
-    var canCloseTab: Bool
     var canCreatePage: Bool
     var hasDocument: Bool
     var hasNode: Bool
@@ -1351,49 +1349,6 @@ struct StorySyncStatusView: View {
     private func overallStatusTint(_ diagnostic: StorySaveDiagnostic?) -> Color {
         if diagnostic != nil { return .red }
         return sync.state == .current ? .green : .secondary
-    }
-}
-
-struct StoryTabStrip: View {
-    let tabs: [BrowserTab]
-    let selected: UUID
-    let title: (BrowserTab) -> String
-    let select: (UUID) -> Void
-    let close: () -> Void
-    let create: () -> Void
-
-    var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 4) {
-                ForEach(tabs) { tab in
-                    Button {
-                        select(tab.id)
-                    } label: {
-                        Text(title(tab))
-                            .lineLimit(1)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(tab.id == selected ? Color.accentColor.opacity(0.16) : .clear)
-                            .clipShape(.rect(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Tab: \(title(tab))")
-                }
-                Button("New Tab", systemImage: "plus", action: create)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                Button("Close Tab", systemImage: "xmark", action: close)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .disabled(tabs.count == 1)
-            }
-            .padding(.horizontal, 8)
-        }
-        .scrollIndicators(.hidden)
-        .frame(height: 38)
-        .background(.bar)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Tabs")
     }
 }
 

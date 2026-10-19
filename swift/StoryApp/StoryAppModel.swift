@@ -2379,7 +2379,6 @@ final class StoryAppModel {
         return currentLocation != home
     }
     var selectedTabID: UUID { tabs.selectedTabID }
-    var tabItems: [BrowserTab] { tabs.tabs }
     var binding: StoryDocumentBinding? { editorLease?.binding }
     /// The open page is new and is not created until its H1 has a title.
     var isShowingDraft: Bool { editorLease.map { drafts[$0.identity] != nil } ?? false }
@@ -2819,25 +2818,23 @@ final class StoryAppModel {
         }
     }
 
-    func newTab() async {
-        await transition { tabs.newTab() }
+    /// Opens a window on `location` (or the tree's home): on its own, or on
+    /// the Mac as a tab of this window, selected or behind. Set by the window.
+    @ObservationIgnored var openWindowAction: ((WorkspaceLocation?, _ asTab: Bool, _ selecting: Bool) -> Void)?
+
+    /// A new tab on the tree's home. Each tab is its own window on the Mac.
+    func newTab() {
+        openWindowAction?(nil, true, true)
     }
 
-    /// Open `location` in a new tab after this one: behind it, as ⌘-click
-    /// does, or selected.
-    func openInNewTab(_ location: WorkspaceLocation, selecting: Bool) async {
-        if selecting {
-            await transition { tabs.openTab(at: location, selecting: true) }
-        } else {
-            tabs.openTab(at: location, selecting: false)
-        }
+    /// Open `location` in a new tab of this window: behind this one, as
+    /// ⌘-click does, or selected. On iPad, where there are no tabs, a window.
+    func openInNewTab(_ location: WorkspaceLocation, selecting: Bool) {
+        openWindowAction?(location, true, selecting)
     }
-
-    /// Opens a new window, on `location` or the tree's home. Set by the window.
-    @ObservationIgnored var openWindowAction: ((WorkspaceLocation?) -> Void)?
 
     func openInNewWindow(_ location: WorkspaceLocation?) {
-        openWindowAction?(location)
+        openWindowAction?(location, false, true)
     }
 
     /// A window opened on a page shows it in place of the home page it
@@ -2851,24 +2848,9 @@ final class StoryAppModel {
     func open(_ reference: WorkspaceReference, at target: DocumentOpenTarget) async {
         switch target {
         case .current: await navigate(to: reference)
-        case .newTab(let selecting): await openInNewTab(location(for: reference), selecting: selecting)
+        case .newTab(let selecting): openInNewTab(location(for: reference), selecting: selecting)
         case .newWindow: openInNewWindow(location(for: reference))
         }
-    }
-
-    func closeSelectedTab() async {
-        await binding?.flush()
-        await createDraftPageIfTitled()
-        let closedTabID = selectedTabID
-        retainCurrentPagePresentation()
-        tabs.closeTab(selectedTabID)
-        await releaseRetainedPagePresentations(for: closedTabID)
-        await loadOrRestoreCurrentPage()
-    }
-
-    func selectTab(_ id: UUID) async {
-        guard id != selectedTabID else { return }
-        await transition { tabs.selectTab(id) }
     }
 
     /// Answer any move the editor host is waiting on with no destination.
@@ -2959,12 +2941,11 @@ final class StoryAppModel {
         }
     }
 
-    private func releaseRetainedPagePresentations(for tabID: UUID) async {
-        let keys = retainedPagePresentations.keys.filter { $0.tabID == tabID }
-        for key in keys {
-            guard let presentation = retainedPagePresentations.removeValue(forKey: key) else { continue }
-            await release(presentation)
-        }
+    /// The window closed: make its edits durable and release its pages.
+    func windowClosed() async {
+        await binding?.flush()
+        await createDraftPageIfTitled()
+        await releaseAllPagePresentations()
     }
 
     private func release(_ presentation: PagePresentation) async {

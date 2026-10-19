@@ -1001,6 +1001,8 @@ struct StoryRootView: View {
     @Environment(\.openWindow) private var openWindow
     /// The request this window was opened with, if another window opened it.
     private let windowRequest: UUID?
+    /// That request, once this window has taken it.
+    @State private var openedRequest: StoryWindowRequest?
     @State private var sidebarListSelection: WorkspaceIdentity?
     @State private var pageRenameLocation: WorkspaceLocation?
     @State private var pageRenameDraft = ""
@@ -1091,16 +1093,27 @@ struct StoryRootView: View {
     var body: some View {
         platformNavigation
         .onAppear {
-            model.openWindowAction = { [openWindow] location in
-                let request = StoryWindowRequest(location: location)
+            model.openWindowAction = { [openWindow] location, asTab, selecting in
+                var request = StoryWindowRequest(location: location, selecting: selecting)
+#if os(macOS)
+                // A Mac tab is a window in this window's tab group.
+                if asTab { request.tabGroupWindow = NSApp.keyWindow?.windowNumber }
+#endif
                 StoryWindowRequests.add(request)
                 openWindow(value: request)
             }
         }
-        .task(id: windowRequest) {
-            guard let location = StoryWindowRequests.take(windowRequest) else { return }
-            await model.showRequestedLocation(location)
+        .onDisappear {
+            Task { await model.windowClosed() }
         }
+        .task(id: windowRequest) {
+            guard let request = StoryWindowRequests.take(windowRequest) else { return }
+            openedRequest = request
+            if let location = request.location { await model.showRequestedLocation(location) }
+        }
+#if os(macOS)
+        .background(StoryWindowTabbing(request: openedRequest))
+#endif
         .task(id: workspace.providerRevision) {
             await model.reloadForProviderRevision()
         }
@@ -1884,7 +1897,7 @@ struct StoryRootView: View {
                         openFromSidebar(.reference(result.reference))
                     }
                     Button("Open in New Tab", systemImage: "plus.square.on.square") {
-                        openFromSidebarInNewTab(.reference(result.reference), selecting: true)
+                        model.openInNewTab(.reference(result.reference), selecting: true)
                     }
                     Button("Open in New Window", systemImage: "macwindow.badge.plus") {
                         model.openInNewWindow(.reference(result.reference))
@@ -1965,8 +1978,8 @@ struct StoryRootView: View {
                 movePage: {
                     Task { _ = await model.editorHost?.moveDocument(result.reference) }
                 },
-                openInNewTab: { selecting in openFromSidebarInNewTab(.reference(result.reference), selecting: selecting) },
-                openInNewWindow: macOpenInNewWindow(.reference(result.reference))
+                openInNewTab: macOpenInNewTab(.reference(result.reference)),
+                openInNewWindow: { model.openInNewWindow(.reference(result.reference)) }
             ) {
                 openFromSidebar(.reference(result.reference))
             }
@@ -2191,25 +2204,15 @@ struct StoryRootView: View {
         location == model.currentLocation
     }
 
-    /// Open a sidebar page in a new tab. A tab opened behind this one leaves
-    /// the sidebar's selection on the page this tab shows.
-    private func openFromSidebarInNewTab(_ location: WorkspaceLocation, selecting: Bool) {
-#if os(iOS)
-        if selecting { closeIOSSidebar() }
-#endif
-        Task {
-            await model.openInNewTab(location, selecting: selecting)
+    /// Open a sidebar page in a new tab (on the Mac, where tabs are windows).
+    /// The sidebar's selection stays on the page this window shows.
+    private func macOpenInNewTab(_ location: WorkspaceLocation) -> ((Bool) -> Void)? {
 #if os(macOS)
+        return { selecting in
+            model.openInNewTab(location, selecting: selecting)
             let identity = model.currentReference.identity
             sidebarListSelection = model.searchResults.contains { $0.id == identity } ? identity : nil
-#endif
         }
-    }
-
-    /// Opening a page in a new window is offered on the Mac.
-    private func macOpenInNewWindow(_ location: WorkspaceLocation) -> (() -> Void)? {
-#if os(macOS)
-        return { model.openInNewWindow(location) }
 #else
         return nil
 #endif
@@ -2273,9 +2276,8 @@ struct StoryRootView: View {
             goBack: { Task { await model.goBack() } },
             goForward: { Task { await model.goForward() } },
             goParent: { Task { await model.goParent() } },
-            newTab: { Task { await model.newTab() } },
+            newTab: { model.newTab() },
             newWindow: { model.openInNewWindow(nil) },
-            closeTab: { Task { await model.closeSelectedTab() } },
             newPage: { Task { await model.newDraftPage() } },
             openLocation: { presentedSheet = .openLocation },
             focusSidebarSearch: {
@@ -2324,7 +2326,6 @@ struct StoryRootView: View {
             canGoForward: model.canGoForward,
             canGoParent: model.canGoParent,
             canGoHome: model.canGoHome,
-            canCloseTab: model.tabItems.count > 1,
             canCreatePage: model.node?.isWritable == true && !currentPageIsInTrash,
             hasDocument: model.binding != nil,
             hasNode: model.node != nil,
@@ -2531,16 +2532,6 @@ struct StoryRootView: View {
     @ViewBuilder
     private func pageFrame(for location: WorkspaceLocation) -> some View {
         VStack(spacing: 0) {
-            if model.tabItems.count > 1 {
-                StoryTabStrip(
-                    tabs: model.tabItems,
-                    selected: model.selectedTabID,
-                    title: { tab in tab.current.path == "/" ? "Home" : tab.current.path.split(separator: "/").last.map(String.init) ?? "Story" },
-                    select: { id in Task { await model.selectTab(id) } },
-                    close: { Task { await model.closeSelectedTab() } },
-                    create: { Task { await model.newTab() } }
-                )
-            }
             if location == model.currentLocation, !hostsReviewAccessory(location), let review = workspace.conflictReview {
                 let choices = review.decisions.filter {
                     $0.path.map { reviewLogicalPath($0) == model.currentReference.path } ?? false
@@ -4336,6 +4327,8 @@ struct StoryIOSLaunchView: View {
 
     let workspace: StoryWorkspaceState
     var accountAdditionComplete: (() -> Void)?
+    /// The request a window opened from another was made with.
+    var windowRequest: UUID?
     @State private var phase: Phase = .restoring
     @State private var ready = false
     @State private var started = false
@@ -4353,9 +4346,7 @@ struct StoryIOSLaunchView: View {
             if ready, accountAdditionComplete != nil {
                 Color.clear
             } else if ready {
-                StoryRootView(workspace: workspace) {
-                    resetForPairing()
-                }
+                StoryRootView(workspace: workspace, onDisconnect: { resetForPairing() }, windowRequest: windowRequest)
                 .safeAreaInset(edge: .bottom) {
                     if workspace.isShowingTour {
                         HStack {
@@ -4378,6 +4369,11 @@ struct StoryIOSLaunchView: View {
             started = true
             if accountAdditionComplete != nil {
                 phase = .scanning
+                return
+            }
+            // Another window already opened the tree: this one shows it too.
+            if workspace.launchPhase.showsTree {
+                ready = true
                 return
             }
             if await workspace.restoreNativePlacementIfAvailable() {
@@ -5797,3 +5793,42 @@ private struct StoryResourcePermissionPanel: View {
         } catch { self.error = error.localizedDescription }
     }
 }
+
+#if os(macOS)
+/// Joins a window opened as a tab to the tab group it was opened from, and
+/// keeps that group's current tab selected when the new one opens behind it.
+private struct StoryWindowTabbing: NSViewRepresentable {
+    let request: StoryWindowRequest?
+
+    func makeNSView(context _: Context) -> TabbingView { TabbingView() }
+
+    func updateNSView(_ view: TabbingView, context _: Context) {
+        view.request = request
+        view.apply()
+    }
+
+    final class TabbingView: NSView {
+        var request: StoryWindowRequest?
+        private var applied: UUID?
+
+        override func hitTest(_: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            apply()
+        }
+
+        func apply() {
+            guard let request, applied != request.id, let window, let number = request.tabGroupWindow,
+                  let group = NSApp.window(withWindowNumber: number), group !== window else { return }
+            applied = request.id
+            group.addTabbedWindow(window, ordered: .above)
+            if request.selecting {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                group.makeKeyAndOrderFront(nil)
+            }
+        }
+    }
+}
+#endif

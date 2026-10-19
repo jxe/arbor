@@ -211,24 +211,6 @@ struct BrowserTabControllerTests {
         #expect(controller.canGoBack)
     }
 
-    @Test("A link opened in a new tab lands beside the current tab, behind it unless selected")
-    func linkTabs() {
-        let controller = BrowserTabController(home: .init(tree: "tr_sample", path: "/"))
-        let first = controller.selectedTabID
-        let last = controller.newTab(at: .reference(.init(tree: "tr_sample", path: "/last")))
-        controller.selectTab(first)
-
-        let behind = controller.openTab(at: .reference(.init(tree: "tr_sample", path: "/behind")), selecting: false)
-        #expect(controller.selectedTabID == first)
-        #expect(controller.tabs.map(\.id) == [first, behind, last])
-
-        let selected = controller.openTab(at: .reference(.init(tree: "tr_sample", path: "/selected")), selecting: true)
-        #expect(controller.selectedTabID == selected)
-        #expect(controller.selectedTab.current.path == "/selected")
-        #expect(!controller.canGoBack)
-        #expect(controller.tabs.map(\.id) == [first, selected, behind, last])
-    }
-
     @Test("Tabs retain independent navigation and presentation")
     func independentTabs() {
         let home = WorkspaceReference(tree: "tr_sample", path: "/")
