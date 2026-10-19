@@ -30,7 +30,10 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         var refresh: ((NSMenuItem) -> Void)?
     }
 
-    private let entries = NSMapTable<NSWindow, WindowEntry>.weakToStrongObjects()
+    /// By window number, not by a weak reference to the window: SwiftUI can
+    /// update a window's views while the window is deallocating, and forming
+    /// a weak reference to it then aborts the app.
+    private var entries: [Int: WindowEntry] = [:]
     private let menu = NSMenu(title: "Main Menu")
     private var items: [NSMenuItem] = []
     private let windowMenu = NSMenu(title: "Window")
@@ -57,15 +60,20 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         undoController: DocumentUndoController?,
         for window: NSWindow
     ) {
-        let entry = entries.object(forKey: window) ?? WindowEntry(commands: commands)
+        // A window off screen (not yet shown, or being torn down) has no number.
+        guard window.windowNumber > 0 else { return }
+        let entry = entries[window.windowNumber] ?? WindowEntry(commands: commands)
         entry.commands = commands
         entry.editorCommands = editorCommands
         entry.undoController = undoController
-        entries.setObject(entry, forKey: window)
+        entries[window.windowNumber] = entry
+        // Drop entries of windows that are gone.
+        let open = Set(NSApp.windows.map(\.windowNumber))
+        entries = entries.filter { open.contains($0.key) }
     }
 
     func unregister(_ window: NSWindow) {
-        entries.removeObject(forKey: window)
+        entries.removeValue(forKey: window.windowNumber)
     }
 
     // MARK: - The key window's commands
@@ -74,10 +82,10 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
     private var entry: WindowEntry? {
         var window = NSApp.keyWindow ?? NSApp.mainWindow
         while let current = window {
-            if let entry = entries.object(forKey: current) { return entry }
+            if let entry = entries[current.windowNumber] { return entry }
             window = current.sheetParent ?? current.parent
         }
-        return NSApp.mainWindow.flatMap { entries.object(forKey: $0) }
+        return NSApp.mainWindow.flatMap { entries[$0.windowNumber] }
     }
 
     private var commands: StoryWindowCommands? { entry?.commands }
@@ -404,14 +412,22 @@ struct StoryMenuBarBridge: View {
         /// windows weakly: registering one then aborts the app.
         private(set) var windowIsClosing = false
         private var closeObserver: NSObjectProtocol?
+        /// A window is registered by its number, which it has once on screen.
+        private var keyObserver: NSObjectProtocol?
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+            for observer in [closeObserver, keyObserver].compactMap({ $0 }) { NotificationCenter.default.removeObserver(observer) }
             closeObserver = nil
+            keyObserver = nil
             guard let window else { return }
+            keyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.registerWindow() }
+            }
             closeObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification, object: window, queue: .main
             ) { [weak self] _ in
@@ -430,7 +446,7 @@ struct StoryMenuBarBridge: View {
         }
 
         isolated deinit {
-            if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+            for observer in [closeObserver, keyObserver].compactMap({ $0 }) { NotificationCenter.default.removeObserver(observer) }
         }
     }
 }
