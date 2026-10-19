@@ -1147,8 +1147,11 @@ struct StoryRootView: View {
             let environment = ProcessInfo.processInfo.environment
             if environment["STORY_TEST_BUNDLED_HELPER"] != "1" {
                 await workspace.restoreLocalWorkspaceIfAvailable()
-            } else if let tree = environment["STORY_TEST_TREE"], !tree.isEmpty {
+            } else if let tree = environment["STORY_TEST_TREE"], !tree.isEmpty,
+                      workspace.home.tree.rawValue != tree || !workspace.launchPhase.showsTree {
                 // A hosted smoke run names its disposable placed tree explicitly.
+                // Opened once: reopening it for another window would replace
+                // the provider and send every window back home.
                 do {
                     try await workspace.openPlacedTree(tree)
                 } catch {
