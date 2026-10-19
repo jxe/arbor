@@ -26,7 +26,7 @@ struct StoryApplication: App {
 #if os(iOS)
             StoryIOSLaunchView(workspace: workspace)
 #else
-            StoryMacLaunchView(workspace: workspace, initialLocation: request?.location)
+            StoryMacLaunchView(workspace: workspace, windowRequest: request?.id)
                 .task { appDelegate.workspace = workspace }
 #endif
         }
@@ -43,6 +43,27 @@ struct StoryApplication: App {
 struct StoryWindowRequest: Codable, Hashable {
     var id = UUID()
     var location: WorkspaceLocation?
+}
+
+/// Requested windows' pages, until each new window takes its own. The
+/// window's request value names it; a window that appears without one (the
+/// value can arrive after the window's first view) takes the newest request
+/// made moments ago.
+@MainActor
+enum StoryWindowRequests {
+    private static var pending: [(request: StoryWindowRequest, at: Date)] = []
+
+    static func add(_ request: StoryWindowRequest) {
+        pending.removeAll { Date().timeIntervalSince($0.at) > 30 }
+        pending.append((request, Date()))
+    }
+
+    static func take(_ id: UUID?) -> WorkspaceLocation? {
+        let index = id.flatMap { id in pending.firstIndex { $0.request.id == id } }
+            ?? pending.indices.last.flatMap { Date().timeIntervalSince(pending[$0].at) < 5 ? $0 : nil }
+        guard let index else { return nil }
+        return pending.remove(at: index).request.location
+    }
 }
 
 #if os(iOS)

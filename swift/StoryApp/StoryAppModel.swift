@@ -2319,15 +2319,11 @@ final class StoryAppModel {
 
     init(
         workspace: StoryWorkspaceState,
-        openNavigationTree: (@MainActor (TreeID) async throws -> Void)? = nil,
-        initialLocation: WorkspaceLocation? = nil
+        openNavigationTree: (@MainActor (TreeID) async throws -> Void)? = nil
     ) {
         self.workspace = workspace
         self.openNavigationTree = openNavigationTree ?? { try await workspace.openNestedTree($0) }
-        let tabs = BrowserTabController(launchLocation: workspace.launchLocation)
-        // A window opened on a page starts there, with the tree's home as its launch location.
-        if let initialLocation { tabs.replaceCurrent(with: initialLocation) }
-        self.tabs = tabs
+        self.tabs = BrowserTabController(launchLocation: workspace.launchLocation)
         self.sidebarLocation = workspace.launchLocation
         self.observedWorkspaceGeneration = workspace.generation
         self.observedProviderRevision = workspace.providerRevision
@@ -2842,6 +2838,13 @@ final class StoryAppModel {
 
     func openInNewWindow(_ location: WorkspaceLocation?) {
         openWindowAction?(location)
+    }
+
+    /// A window opened on a page shows it in place of the home page it
+    /// started on, without a Back step.
+    func showRequestedLocation(_ location: WorkspaceLocation) async {
+        guard currentLocation != location else { return }
+        await transition(preparing: location) { tabs.replaceCurrent(with: location) }
     }
 
     /// Where a link to `reference` opens, for the editor's ⌘-click and link menus.

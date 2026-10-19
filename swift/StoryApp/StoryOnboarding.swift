@@ -8,16 +8,16 @@ import UniformTypeIdentifiers
 
 struct StoryMacLaunchView: View {
     let workspace: StoryWorkspaceState
-    /// The page a window opened from another starts on.
-    var initialLocation: WorkspaceLocation?
+    /// The request a window opened from another was made with.
+    var windowRequest: UUID?
     @State private var ready: Bool
     @State private var joinAccount: String?
     @State private var joinCode: String?
     @State private var showingJoin = false
 
-    init(workspace: StoryWorkspaceState, initialLocation: WorkspaceLocation? = nil) {
+    init(workspace: StoryWorkspaceState, windowRequest: UUID? = nil) {
         self.workspace = workspace
-        self.initialLocation = initialLocation
+        self.windowRequest = windowRequest
         // A window opened beside one already showing a tree skips onboarding.
         _ready = State(initialValue: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
             || workspace.launchPhase.showsTree)
@@ -26,7 +26,7 @@ struct StoryMacLaunchView: View {
     var body: some View {
         Group {
             if ready {
-                StoryRootView(workspace: workspace, initialLocation: initialLocation)
+                StoryRootView(workspace: workspace, windowRequest: windowRequest)
             } else {
                 StoryMacOnboarding(workspace: workspace, resumeExisting: true, initialCommunity: joinAccount, initialCode: joinCode) { ready = true }
             }

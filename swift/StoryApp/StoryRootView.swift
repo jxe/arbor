@@ -999,6 +999,8 @@ struct StoryRootView: View {
     @State private var reviewAccessoryReveal: EditorAccessoryReveal?
     @State private var sidebarKeyboardSelection: WorkspaceIdentity?
     @Environment(\.openWindow) private var openWindow
+    /// The request this window was opened with, if another window opened it.
+    private let windowRequest: UUID?
     @State private var sidebarListSelection: WorkspaceIdentity?
     @State private var pageRenameLocation: WorkspaceLocation?
     @State private var pageRenameDraft = ""
@@ -1045,11 +1047,12 @@ struct StoryRootView: View {
         workspace: StoryWorkspaceState,
         onDisconnect: @escaping @MainActor () -> Void = {},
         model: StoryAppModel? = nil,
-        initialLocation: WorkspaceLocation? = nil
+        windowRequest: UUID? = nil
     ) {
         self.workspace = workspace
         self.onDisconnect = onDisconnect
-        let model = model ?? StoryAppModel(workspace: workspace, initialLocation: initialLocation)
+        self.windowRequest = windowRequest
+        let model = model ?? StoryAppModel(workspace: workspace)
         let recordingSession = VoiceRecordingSession(
             recoveryStore: PendingVoiceRecordingStore(
                 directoryURL: StorySupportDirectories.pendingVoiceRecordings
@@ -1088,7 +1091,15 @@ struct StoryRootView: View {
     var body: some View {
         platformNavigation
         .onAppear {
-            model.openWindowAction = { [openWindow] location in openWindow(value: StoryWindowRequest(location: location)) }
+            model.openWindowAction = { [openWindow] location in
+                let request = StoryWindowRequest(location: location)
+                StoryWindowRequests.add(request)
+                openWindow(value: request)
+            }
+        }
+        .task(id: windowRequest) {
+            guard let location = StoryWindowRequests.take(windowRequest) else { return }
+            await model.showRequestedLocation(location)
         }
         .task(id: workspace.providerRevision) {
             await model.reloadForProviderRevision()
