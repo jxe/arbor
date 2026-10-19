@@ -171,6 +171,30 @@ public enum StoryPagePresentation {
         return walk(roots)
     }
 
+    /// `transferable(originals, in:)` applied to `blocks`, which have the
+    /// originals' shape but possibly other identities (copies).
+    static func transferable(_ blocks: [Block], matching originals: [Block], in document: [Block]) -> [Block] {
+        var untouched = Set<BlockID>(), generated = Set<BlockID>()
+        func collect(_ values: [Block], underChildren: Bool) {
+            for block in values {
+                if isUntouched(block) { untouched.insert(block.id) }
+                if underChildren, StoryMarkdownCodec.isProjectedChild(block) { generated.insert(block.id) }
+                collect(block.children, underChildren: heading(block) == .children)
+            }
+        }
+        collect(document, underChildren: false)
+        func walk(_ values: [Block], _ sources: [Block]) -> [Block] {
+            zip(values, sources).flatMap { block, source -> [Block] in
+                if generated.contains(source.id) { return [] }
+                if untouched.contains(source.id) { return walk(block.children, source.children) }
+                var value = block
+                value.children = walk(block.children, source.children)
+                return [value]
+            }
+        }
+        return walk(blocks, originals)
+    }
+
     /// Where a block appended to the page's authored source stands in a
     /// presented tree: before the presented Children heading, and under the
     /// presented title when that is all that precedes it.

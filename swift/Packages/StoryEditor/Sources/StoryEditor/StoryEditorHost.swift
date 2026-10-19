@@ -164,7 +164,7 @@ public final class StoryEditorHost: EditorHost {
     private let linkPreviewService: LinkPreviewService
     /// The tree directory holding this document's body file: relative links in it resolve from
     /// here, and same-tree links this host writes are relative to it.
-    private let sourceDirectory: String
+    let sourceDirectory: String
     /// Where known same-tree nodes keep their bodies, so a synchronous link conversion can name
     /// a node's file. Filled from suggestions, lookups and created pages.
     @ObservationIgnored private var knownBodies: [String: MarkdownBodyOrigin?] = [:]
@@ -766,6 +766,102 @@ public final class StoryEditorHost: EditorHost {
         }
         errorAction("Couldn’t move these blocks together. They remain in the original page.")
         return false
+    }
+
+    /// Blocks dragged from another editor window land here at `path`. From a
+    /// page of this tree a move is one change over both pages, as Move to
+    /// Document is, landing at `path`; a copy keeps its source as provenance.
+    /// Relative links are rewritten to lead where they did from this page's
+    /// directory. Blocks from another tree land as new text, through each
+    /// editor's own capture.
+    public func receiveBlocks(_ transfer: EditorBlockTransfer, at path: DropPath, in document: Document) async -> [Block]? {
+        guard document === binding.document else { return nil }
+        guard let origin = transfer.sourceHost as? StoryEditorHost, origin.binding !== binding,
+              origin.binding.reference.tree == binding.reference.tree,
+              origin.binding.reference.identity != binding.reference.identity else { return transfer.blocks }
+        let relink = origin.sourceDirectory == sourceDirectory ? nil : (from: origin.sourceDirectory, to: sourceDirectory)
+        // Presented headings and generated child links are not source to move or copy.
+        let landing = StoryPagePresentation.transferable(transfer.blocks, matching: transfer.originals, in: origin.binding.document.children)
+        let blocks = relink.map { StoryMarkdownCodec.rebasingLinks(in: landing, from: $0.from, to: $0.to) } ?? landing
+        guard !blocks.isEmpty else {
+            errorAction("There is nothing to move: this heading belongs to the page.")
+            return nil
+        }
+        if transfer.isCopy {
+            return await receiveCopies(blocks, of: transfer, from: origin) ? blocks : nil
+        }
+        let roots = StoryPagePresentation.transferable(transfer.originals, in: origin.binding.document.children)
+        await origin.binding.flush()
+        // Blocks this page's source does not record land as new text.
+        guard roots.allSatisfy({ origin.binding.ledger.records[$0.id] != nil }) else { return blocks }
+        return await receiveMove(roots, at: path, from: origin, relink: relink) ? blocks : nil
+    }
+
+    private func receiveMove(_ roots: [Block], at path: DropPath, from origin: StoryEditorHost,
+                             relink: (from: String, to: String)?) async -> Bool {
+        func attempt() async throws -> Bool {
+            guard let landing = await binding.landing(of: roots, at: path) else { return false }
+            binding.expectReceipt()
+            do {
+                let result = try await origin.binding.transferBlocks(roots, into: binding.session, landing: landing, relink: relink)
+                binding.completeReceipt(result?.destination)
+                return result != nil
+            } catch {
+                binding.completeReceipt(nil)
+                throw error
+            }
+        }
+        do {
+            if try await attempt() { return true }
+            Self.diagnosticLog.notice("drop into \(self.binding.reference.path, privacy: .private) is not one exact change; leaving the origin intact")
+        } catch WorkspaceTransferError.basesDiverged {
+            await origin.binding.session.publishPending()
+            await origin.binding.adoptCurrentSnapshot()
+            await binding.adoptCurrentSnapshot()
+            do { if try await attempt() { return true } }
+            catch WorkspaceTransferError.basesDiverged {}
+            catch {
+                errorAction("Couldn't move blocks: \(error.localizedDescription)")
+                return false
+            }
+        } catch {
+            errorAction("Couldn't move blocks: \(error.localizedDescription)")
+            return false
+        }
+        errorAction("Couldn’t move these blocks together. They remain in the original page.")
+        return false
+    }
+
+    /// The editor inserts `copies` (fresh identities, in the shape of the
+    /// dragged originals); their bytes are the origin's as this editor's
+    /// capture states them, so the copy keeps its provenance.
+    private func receiveCopies(_ copies: [Block], of transfer: EditorBlockTransfer, from origin: StoryEditorHost) async -> Bool {
+        await origin.binding.flush()
+        if let error = origin.binding.lastError {
+            errorAction("Couldn't copy blocks: that page has changes that are not saved yet (\(error.localizedDescription))")
+            return false
+        }
+        let ledger = origin.binding.ledger
+        let document: WorkspaceCopyDocument
+        do {
+            guard let copied = try await origin.binding.session.copyDocument() else { return true }
+            document = copied
+        } catch {
+            errorAction("Couldn't copy blocks: \(error.localizedDescription)")
+            return false
+        }
+        guard document.source == ledger.source else {
+            errorAction("Couldn't copy blocks: that page changed while copying. Try again.")
+            return false
+        }
+        var foreign: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]
+        func map(_ copy: Block, _ original: Block) {
+            if let record = ledger.records[original.id] { foreign[copy.id] = (record, document) }
+            for (a, b) in zip(copy.children, original.children) { map(a, b) }
+        }
+        for (copy, original) in zip(transfer.blocks, transfer.originals) { map(copy, original) }
+        binding.expectCopies(foreign)
+        return true
     }
 
     /// This page's source directory and `destination`'s, when a relative link
