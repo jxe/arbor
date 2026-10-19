@@ -68,6 +68,11 @@ export interface FolderSyncHost {
   /** The folder's root on disk. */
   readonly root: string;
   excludedMounts(): readonly string[];
+  /**
+   * List the account's trees again, so a scan sees every tree the host mounts
+   * in this one, including one mounted since the last listing.
+   */
+  refreshListing?(): Promise<void>;
   /** Verified bytes by hash: the folder's index, then the host. */
   objectBytes(hash: ObjectHash): Promise<Uint8Array | undefined>;
   /** Accepted bytes were written to the folder. */
@@ -413,6 +418,8 @@ export class FolderSync implements AcceptedTree {
   async install(base: AcceptedBase, source: AcceptedSource, local: { pending: boolean }): Promise<void> {
     let rescan = false;
     let uncovered = false;
+    // A new root can mount a tree the last listing lacks; the folder's scan must see it as a mount.
+    await this.host.refreshListing?.().catch(() => {});
     await this.host.withWorkspaceIO(async () => {
       const known = await this.loadKnown();
       if (!local.pending && known) {
@@ -621,6 +628,7 @@ export class FolderSync implements AcceptedTree {
     if (!placement) throw new UpdateValidationError(`Tree has no placement: ${this.tree}`);
     const client = await this.host.client(placement);
     const current = await client.descriptor(this.tree);
+    await this.host.refreshListing?.().catch(() => {});
     await this.host.withWorkspaceIO(async () => {
       // Nothing is tracked before a first placement: ignore rules apply to the first snapshot.
       const lazy = await this.host.scan(null);

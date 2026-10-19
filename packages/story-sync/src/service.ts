@@ -12,11 +12,11 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@ovst/protocol";
-import { canonicalNodePath, normalizeLegacyLocator, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@ovst/protocol";
+import { canonicalNodePath, HostAccountStore, normalizeLegacyLocator, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@ovst/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@ovst/client";
-import { type SharedTreePlacement } from "./state/index.ts";
-import { resolveUserPath } from "@ovst/client";
+import { savePlacementSyncMetadata, type SharedTreePlacement } from "./state/index.ts";
+import { ensureProfilePlacement, resolveUserPath } from "@ovst/client";
 import { EventBus } from "./events.ts";
 import { decodeRequestPath } from "./http.ts";
 import { TreeObjectCache } from "./object-cache.ts";
@@ -98,6 +98,26 @@ async function sparseSpine(
   await visit(snapshotRoot);
   verifyTreeSnapshotGraph({ root: snapshotRoot, objects: spine }, "sparse-files");
   return encodeSparseSnapshotBundle(spine);
+}
+
+/**
+ * A data home that joined before claims placed the profile folder gets that
+ * placement at start. The host's profile is the claim's upload of this same
+ * folder, so the placement starts from the host's current update: edits made
+ * since then publish as changes instead of meeting the host as a conflict.
+ */
+async function placeEarlierProfileFolder(): Promise<void> {
+  try {
+    const placement = await ensureProfilePlacement();
+    if (!placement) return;
+    const connection = await new HostAccountStore(placement.configurationTree).get();
+    if (!connection) return;
+    const { tree } = await new ProtocolClient(connection.record.origin, connection.accountToken).descriptor(placement.tree);
+    if (!tree.root || !tree.update) return;
+    await savePlacementSyncMetadata(placement.tree, { ref: tree.root, update: tree.update, access: tree.access }, placement.configurationTree);
+  } catch (error) {
+    console.warn(`The profile folder could not be placed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /**
@@ -226,6 +246,7 @@ export class StorySyncDaemon implements AsyncDisposable {
     options: Omit<WorkspaceOptions, "events" | "tree" | "tracking"> = {},
     daemon: StorySyncDaemonOptions = {},
   ): Promise<StorySyncDaemon> {
+    await placeEarlierProfileFolder();
     const events = new EventBus();
     const trees = new TreeManager(events);
     await trees.init();
@@ -238,6 +259,7 @@ export class StorySyncDaemon implements AsyncDisposable {
 
   /** Open system/account services without attaching Story to a filesystem session. */
   static async openControl(options: StorySyncDaemonOptions = {}): Promise<StorySyncDaemon> {
+    await placeEarlierProfileFolder();
     const events = new EventBus();
     const trees = new TreeManager(events);
     await trees.init();
@@ -532,6 +554,10 @@ export class StorySyncDaemon implements AsyncDisposable {
       scan: (tracked, also) => this.scanWorkspace(workspace, this.listings.get(accountKey) ?? [], tracked, also),
       root: workspace.root,
       excludedMounts: () => this.trees.excludedMountsWithin(workspace.root),
+      refreshListing: async () => {
+        const current = this.trees.placementFor(tree);
+        if (current) this.listings.set(accountKey, (await (await this.accountClient(current)).list()).snapshot);
+      },
       objectBytes: (hash) => this.objectCache.bytes(tree, hash),
       materialized: () => this.events.emit({ tree, kind: "updated", ref: { tree, path: "/", stableKey: null }, origin: "sync" }),
       // A 401 ends the session at the host that sent it: the home's, or a placement host's.
@@ -553,6 +579,7 @@ export class StorySyncDaemon implements AsyncDisposable {
     const boundaries = this.trees.sharedBoundariesWithin(workspace.root);
     const parent = remoteTrees.find((tree) => tree.id === workspace.tree);
     if (!parent) return boundaries;
+    const placed = new Set(this.trees.excludedMountsWithin(workspace.root));
     const parentPath = parent.canonical?.path.replace(/\/$/, "") || "/";
     for (const child of remoteTrees) {
       if (child.canonical?.parentTree !== workspace.tree) continue;
@@ -560,6 +587,8 @@ export class StorySyncDaemon implements AsyncDisposable {
         ? child.canonical!.path.slice(1)
         : child.canonical!.path.slice(parentPath.length + 1);
       if (!relativeCanonical || relativeCanonical.startsWith("../")) continue;
+      // The host's listing is newer than a local placement's last canonical path: a renamed mount is only where the host says.
+      for (const [path, tree] of boundaries) if (tree === child.id && !placed.has(path)) boundaries.delete(path);
       boundaries.set(join(workspace.root, ...relativeCanonical.split("/").map(decodeURIComponent)), child.id);
     }
     return boundaries;

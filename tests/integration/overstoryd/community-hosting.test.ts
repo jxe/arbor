@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
 import { StorySyncDaemon } from "@ovst/story-sync";
-import { ProfileIdentityStore } from "@ovst/client";
+import { loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
 import { initialPersonConfig, readTreeConfigGraph, snapshotTreeConfig, snapshotTreeConfigFiles, treeConfigurationID, type TreeConfigValues } from "@ovst/protocol";
 import { editTreeConfig, hostTree, readTreeConfig } from "../../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
@@ -360,10 +360,9 @@ describe("client-generated profile and account bootstrap", () => {
       expect(await readFile(join(home, "configurations", configurationTree, "devices.yaml"), "utf8"))
         .not.toContain("placements");
       await expect(readFile(join(home, "configurations", configurationTree, "account.yaml"), "utf8")).rejects.toThrow();
-      // The claim activated the profile from the local folder, at the community's /~charlie.
+      // The claim activated the profile from the local folder, at the community's /~charlie, and placed that folder.
       expect(running.overstoryd.boundary("/~charlie")?.id).toBe(localProfileTree);
-      expect(await readFile(join(home, "placements.yaml"), "utf8"))
-        .toBe("{}\n");
+      expect((await loadLocalPlacements()).placements).toEqual([{ configurationTree, path: await realpath(profilePath), tree: localProfileTree }]);
       await expect(readFile(join(home, "account.yaml"), "utf8")).rejects.toThrow();
 
       // The claiming device signs in with a key, which devices.yaml lists.
