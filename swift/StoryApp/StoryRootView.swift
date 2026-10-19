@@ -2612,6 +2612,10 @@ struct StoryRootView: View {
                     Divider()
                 }
             }
+            if location == model.currentLocation, let node = model.node,
+               node.reference.path == "/", workspace.isOwnProfile(node.reference.tree.rawValue) {
+                StoryOwnProfileBar()
+            }
             pageFrameContent(for: location)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 #if os(macOS)
@@ -5226,6 +5230,19 @@ private struct MacPopoverKeyWindow: NSViewRepresentable {
     func updateNSView(_: Probe, context _: Context) {}
 }
 #endif
+
+/// Marks your own profile page, which everyone can read, so it is not
+/// mistaken for a private page or for someone else's profile.
+private struct StoryOwnProfileBar: View {
+    var body: some View {
+        Label("Your profile · Public · Anyone can see this page", systemImage: "person.crop.circle.badge.checkmark")
+            .font(.callout.weight(.medium))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(Color.accentColor)
+    }
+}
 
 private struct StoryProfileWidget: View {
     let profile: StoryProfileDocument

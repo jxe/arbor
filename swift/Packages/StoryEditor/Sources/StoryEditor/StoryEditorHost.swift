@@ -174,6 +174,7 @@ public final class StoryEditorHost: EditorHost {
     private let errorAction: @MainActor (String) -> Void
     private let performStructuralAction: @MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?
     private let offerTrashAfterDeletingLink: @MainActor (WorkspaceNode, WorkspaceReference) -> Void
+    private let describeTree: (@MainActor (WorkspaceReference) async -> String?)?
     private var lookups: [DocumentReference: DocumentLookup] = [:]
     private var lookupTasks: [DocumentReference: Task<Void, Never>] = [:]
     private var deferredPersistTask: Task<Void, Never>?
@@ -190,7 +191,8 @@ public final class StoryEditorHost: EditorHost {
         navigateBack: @escaping @MainActor () -> Void = {},
         reportError: @escaping @MainActor (String) -> Void = { _ in },
         performStructuralAction: (@MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?)? = nil,
-        offerTrashAfterDeletingLink: @escaping @MainActor (WorkspaceNode, WorkspaceReference) -> Void = { _, _ in }
+        offerTrashAfterDeletingLink: @escaping @MainActor (WorkspaceNode, WorkspaceReference) -> Void = { _, _ in },
+        describeTree: (@MainActor (WorkspaceReference) async -> String?)? = nil
     ) {
         self.binding = binding
         self.provider = provider
@@ -205,6 +207,7 @@ public final class StoryEditorHost: EditorHost {
             try await provider.perform(action)
         }
         self.offerTrashAfterDeletingLink = offerTrashAfterDeletingLink
+        self.describeTree = describeTree
     }
 
     public var supportsDocumentCreation: Bool { true }
@@ -396,6 +399,17 @@ public final class StoryEditorHost: EditorHost {
         if decoded.tree != binding.reference.tree {
             let lookup = DocumentLookup.present(.init(title: nil, capabilities: [.navigate]))
             lookups[reference] = lookup
+            // The row says what it leads to: another tree, who sees it, and whether this device holds it.
+            if let describeTree, lookupTasks[reference] == nil {
+                lookupTasks[reference] = Task { @MainActor [weak self] in
+                    let subtitle = await describeTree(decoded)
+                    guard let self else { return }
+                    if let subtitle {
+                        lookups[reference] = .present(.init(title: nil, subtitle: subtitle, capabilities: [.navigate]))
+                    }
+                    lookupTasks[reference] = nil
+                }
+            }
             return lookup
         }
         lookups[reference] = .pending
