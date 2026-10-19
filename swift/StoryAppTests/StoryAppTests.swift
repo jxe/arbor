@@ -987,6 +987,27 @@ struct StoryAppTests {
         #expect(storySidebarContextPath("/March-Out-My-Work/story-demo")
             == "/March-Out-My-Work")
     }
+
+    @Test("Folder groups give each directory a path-titled section led by its own page")
+    func folderGroups() {
+        func page(_ path: String) -> WorkspaceSearchResult {
+            WorkspaceSearchResult(reference: WorkspaceReference(tree: "tr_sample", path: path), title: path)
+        }
+        let results = [
+            page("/projects/arbor/plan"), page("/zebra"), page("/projects"), page("/"),
+            page("/projects/arbor"), page("/projects-old"), page("/projects/beta"), page("/notes/today"),
+        ]
+        let groups = StorySidebarPages.folderGroups(results)
+        #expect(groups.map(\.title) == ["/", "/notes", "/projects", "/projects/arbor"])
+        #expect(groups.map { $0.results.map(\.reference.path) } == [
+            ["/", "/projects-old", "/zebra"],
+            ["/notes/today"],
+            ["/projects", "/projects/beta"],
+            ["/projects/arbor", "/projects/arbor/plan"],
+        ])
+        #expect(StorySidebarPages.displayOrder(results, by: .folders) == groups.flatMap(\.results))
+    }
+
     @Test("Recent groups use exclusive rolling boundaries across midnight and month changes")
     func recentGroupBoundaries() throws {
         var calendar = Calendar(identifier: .gregorian)

@@ -238,7 +238,7 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
             ("Alphabetical Pages", "1", .alphabetical),
             ("Recent Pages", "2", .recent),
             ("Pages by Link Count", "3", .linkCount),
-            ("Trees", "4", .trees),
+            ("Pages by Folder", "4", .folders),
         ]
         for (title, key, order) in orders {
             let item = window(title, key, [.command, .option]) { $0.setSidebarPageOrder(order) }

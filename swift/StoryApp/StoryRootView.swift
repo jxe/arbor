@@ -122,9 +122,7 @@ enum StorySidebarPageOrder: String, CaseIterable, Identifiable {
     case alphabetical
     case recent
     case linkCount
-    case trees
-
-    static var pageOrders: [Self] { [.alphabetical, .recent, .linkCount] }
+    case folders
 
     var id: Self { self }
 
@@ -133,7 +131,7 @@ enum StorySidebarPageOrder: String, CaseIterable, Identifiable {
         case .alphabetical: "Alphabetical"
         case .recent: "Recent"
         case .linkCount: "Link Count"
-        case .trees: "Trees"
+        case .folders: "Folders"
         }
     }
 
@@ -142,7 +140,7 @@ enum StorySidebarPageOrder: String, CaseIterable, Identifiable {
         case .alphabetical: "textformat"
         case .recent: "clock"
         case .linkCount: "link"
-        case .trees: "tree"
+        case .folders: "folder"
         }
     }
 }
@@ -212,9 +210,36 @@ enum StorySidebarPages {
         switch order {
         case .recent: recentGroups(results).flatMap(\.results)
         case .linkCount: linkCountGroups(results).flatMap(\.results)
+        case .folders: folderGroups(results).flatMap(\.results)
         case .alphabetical: sorted(results, by: order)
-        case .trees: []
         }
+    }
+
+    /// One section per directory, titled with its logical path and ordered by
+    /// path so subdirectories follow their parent. A page with children is
+    /// the first row of its own section; every other page sits in its parent's.
+    static func folderGroups(_ results: [WorkspaceSearchResult]) -> [StorySidebarPageGroup] {
+        func parent(_ path: String) -> String {
+            guard path != "/", let slash = path.lastIndex(of: "/") else { return "/" }
+            return slash == path.startIndex ? "/" : String(path[..<slash])
+        }
+        let directories = Set(results.map { parent($0.reference.path) })
+        var sections: [String: [WorkspaceSearchResult]] = [:]
+        for result in sorted(results, by: .alphabetical) {
+            let path = result.reference.path
+            if directories.contains(path) {
+                sections[path, default: []].insert(result, at: 0)
+            } else {
+                sections[parent(path), default: []].append(result)
+            }
+        }
+        func components(_ path: String) -> [Substring] { path.split(separator: "/") }
+        return sections.keys.sorted { lhs, rhs in
+            for (left, right) in zip(components(lhs), components(rhs)) where left != right {
+                return left.localizedStandardCompare(right) == .orderedAscending
+            }
+            return components(lhs).count < components(rhs).count
+        }.map { StorySidebarPageGroup(title: $0, results: sections[$0] ?? []) }
     }
 
     static func linkCountGroups(_ results: [WorkspaceSearchResult]) -> [StorySidebarPageGroup] {
@@ -258,6 +283,16 @@ struct StoryOrderedPageSections<Row: View>: View {
                     ForEach(group.results) { row($0, group.showsBacklinkCounts) }
                 } header: {
                     Text(group.title)
+                        .padding(.top, index == 0 ? topSpacing : 0)
+                }
+            }
+        } else if order == .folders {
+            ForEach(Array(StorySidebarPages.folderGroups(results).enumerated()), id: \.element.id) { index, group in
+                Section {
+                    ForEach(group.results) { row($0, false) }
+                } header: {
+                    Text(group.title)
+                        .textCase(nil)
                         .padding(.top, index == 0 ? topSpacing : 0)
                 }
             }
@@ -543,8 +578,7 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
 }
 
 private struct MacPageOrderPicker: NSViewRepresentable {
-    var includesTrees = false
-    private var orders: [StorySidebarPageOrder] { includesTrees ? StorySidebarPageOrder.allCases : StorySidebarPageOrder.pageOrders }
+    private var orders: [StorySidebarPageOrder] { StorySidebarPageOrder.allCases }
     @Binding var selection: StorySidebarPageOrder
 
     func makeCoordinator() -> Coordinator {
@@ -559,8 +593,8 @@ private struct MacPageOrderPicker: NSViewRepresentable {
         button.imageScaling = .scaleProportionallyDown
         button.target = context.coordinator
         button.action = #selector(Coordinator.selectionChanged(_:))
-        button.toolTip = includesTrees ? "Sidebar view" : "Page order"
-        button.setAccessibilityLabel(includesTrees ? "Sidebar view" : "Page order")
+        button.toolTip = "Page order"
+        button.setAccessibilityLabel("Page order")
         if let cell = button.cell as? NSPopUpButtonCell {
             cell.highlightsBy = []
             cell.arrowPosition = .noArrow
@@ -653,10 +687,9 @@ private struct StorySidebarSearchControls: View {
 
     var body: some View {
         StoryPageSearchControls(
-            includesTrees: true,
             query: $query,
             order: $order,
-            prompt: order == .trees ? "Search trees" : "Search pages",
+            prompt: "Search pages",
             focused: $fieldFocused,
             showsFocus: isFocused,
             handleKeyPress: handleKeyPress,
@@ -804,7 +837,6 @@ private struct MacToolbarSearchFieldFocus: NSViewRepresentable {
 #endif
 
 struct StoryPageSearchControls: View {
-    var includesTrees = false
     @Binding var query: String
     @Binding var order: StorySidebarPageOrder
     var prompt = "Search pages"
@@ -873,13 +905,13 @@ struct StoryPageSearchControls: View {
             }
 
 #if os(macOS)
-            MacPageOrderPicker(includesTrees: includesTrees, selection: $order)
+            MacPageOrderPicker(selection: $order)
                 .frame(width: 32, height: 32)
                 .mutedMacToolbarHover()
-                .help("\(includesTrees ? "Sidebar view" : "Page order"): \(order.label)")
+                .help("Page order: \(order.label)")
 #else
             Menu {
-                ForEach(includesTrees ? StorySidebarPageOrder.allCases : StorySidebarPageOrder.pageOrders) { candidate in
+                ForEach(StorySidebarPageOrder.allCases) { candidate in
                     Button {
                         order = candidate
                     } label: {
@@ -896,7 +928,7 @@ struct StoryPageSearchControls: View {
             .frame(width: 48, height: 48)
             .contentShape(.circle)
             .tint(.gray)
-            .accessibilityLabel(includesTrees ? "Sidebar view" : "Page order")
+            .accessibilityLabel("Page order")
             .accessibilityValue(order.label)
 #endif
         }
@@ -980,7 +1012,6 @@ struct StoryRootView: View {
     @State private var recordingSession: VoiceRecordingSession<String>
     @State private var pinchDictation: EditorPinchDictation
     @State private var peoplePresented = false
-    @State private var sidebarTreeSelection: String?
     @State private var sidebarAccounts: [HostAccount] = []
     @State private var sidebarAccountError: String?
     @State private var accountFollowUpProfile: String?
@@ -1042,6 +1073,7 @@ struct StoryRootView: View {
     @State private var sidebarDismissDragSuppressesTap = false
 #endif
     @State private var peopleFooterHovered = false
+    @State private var treeFooterHovered = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
 
@@ -1516,13 +1548,11 @@ struct StoryRootView: View {
 #endif
             .onChange(of: sidebarSearchText) { _, query in
                 sidebarKeyboardSelection = nil
-                sidebarTreeSelection = nil
-                if sidebarPageOrder != .trees { Task { await model.search(query) } }
+                Task { await model.search(query) }
             }
             .task(id: sidebarPageOrder) {
                 sidebarKeyboardSelection = nil
-                if sidebarPageOrder == .trees { await refreshSidebarAccounts() }
-                else { await model.search(sidebarSearchText) }
+                await model.search(sidebarSearchText)
             }
     }
 
@@ -1600,94 +1630,114 @@ struct StoryRootView: View {
                 account: placement.configurationTree.flatMap { accountLabels[$0] } ?? "Other Trees")
         }
 #endif
-        let query = sidebarSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return values.filter { query.isEmpty || $0.title.localizedStandardContains(query) || $0.account.localizedStandardContains(query) }
-            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-    }
-
-    private var sidebarTreesList: some View {
-        ScrollViewReader { proxy in
-            let trees = sidebarTrees
-            List {
-                ForEach(trees) { tree in
-                    Button { openSidebarTree(tree.id) } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "tree").font(.system(size: 18)).frame(width: 20)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(tree.title).lineLimit(1)
-                                Text(tree.account).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            }
-                            Spacer(minLength: 0)
-                            if tree.id == model.currentReference.tree.rawValue {
-                                Image(systemName: "checkmark").foregroundStyle(.secondary)
-                            }
-                        }
-                        .foregroundStyle(StorySidebarPalette.foreground(colorScheme))
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-#if os(iOS)
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-#endif
-                    .storyKeyboardSelectedRow(sidebarTreeSelection == tree.id)
-                    .id(tree.id)
-                }
-                if trees.isEmpty { Text(sidebarSearchText.isEmpty ? "No trees available" : "No matching trees").foregroundStyle(.secondary) }
-                if let sidebarAccountError { Text(sidebarAccountError).font(.caption).foregroundStyle(.secondary) }
-#if os(macOS)
-                Button("Open Tree…", systemImage: "folder.badge.plus") { presentedSheet = .openLocation }
-#else
-                Button("Add Tree…", systemImage: "folder.badge.plus") {
-                    closeIOSSidebar()
-                    placementPresented = true
-                }
-#endif
-            }
-            .listStyle(.sidebar)
-#if os(iOS)
-            .contentMargins(.horizontal, 0, for: .scrollContent)
-#endif
-            .scrollContentBackground(.hidden)
-            .onChange(of: sidebarTreeSelection) { _, id in
-                if let id { proxy.scrollTo(id) }
-            }
-        }
+        return values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
     private var sidebarFooter: some View {
-        Button(action: showPeoplePanel) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Image(systemName: "person.crop.square")
-                    .font(.system(size: 18))
-                    .frame(width: 20)
-                Text("People")
-#if os(macOS)
-                    .font(.system(size: 14))
-#endif
-                Spacer(minLength: 0)
+        VStack(spacing: 0) {
+            sidebarTreePicker
+            sidebarPeopleButton
+        }
+        .overlay(alignment: .top) { Divider() }
+        .task { await refreshSidebarAccounts() }
+    }
+
+    private var currentSidebarTreeTitle: String {
+        let tree = model.currentReference.tree.rawValue
+        return sidebarTrees.first { $0.id == tree }?.title ?? tree
+    }
+
+    /// Switches the window to another placed tree, grouped by account.
+    private var sidebarTreePicker: some View {
+        let trees = sidebarTrees
+        let accounts = trees.reduce(into: [String]()) { if !$0.contains($1.account) { $0.append($1.account) } }
+        return Menu {
+            ForEach(accounts, id: \.self) { account in
+                Section(account) {
+                    ForEach(trees.filter { $0.account == account }) { tree in
+                        Button { openSidebarTree(tree.id) } label: {
+                            if tree.id == model.currentReference.tree.rawValue {
+                                Label(tree.title, systemImage: "checkmark")
+                            } else {
+                                Text(tree.title)
+                            }
+                        }
+                    }
+                }
             }
-            .foregroundStyle(StorySidebarPalette.foreground(colorScheme))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-#if os(iOS)
-            .frame(minHeight: 44)
+            if let sidebarAccountError { Text(sidebarAccountError) }
+            Divider()
+#if os(macOS)
+            Button("Open Tree…", systemImage: "folder.badge.plus") { presentedSheet = .openLocation }
+#else
+            Button("Add Tree…", systemImage: "folder.badge.plus") {
+                closeIOSSidebar()
+                placementPresented = true
+            }
 #endif
-            .contentShape(.rect)
+        } label: {
+            sidebarFooterRow(
+                symbol: "tree",
+                title: currentSidebarTreeTitle,
+                accessory: "chevron.up.chevron.down",
+                hovered: treeFooterHovered
+            )
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+#if os(macOS)
+        .onHover { treeFooterHovered = $0 }
+#endif
+        .accessibilityLabel("Tree")
+        .accessibilityValue(currentSidebarTreeTitle)
+    }
+
+    private var sidebarPeopleButton: some View {
+        Button(action: showPeoplePanel) {
+            sidebarFooterRow(symbol: "person.crop.square", title: "People", hovered: peopleFooterHovered)
         }
         .buttonStyle(.plain)
 #if os(macOS)
+        .onHover { peopleFooterHovered = $0 }
+#endif
+    }
+
+    private func sidebarFooterRow(symbol: String, title: String, accessory: String? = nil, hovered: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 18))
+                .frame(width: 20)
+            Text(title)
+                .lineLimit(1)
+                .truncationMode(.middle)
+#if os(macOS)
+                .font(.system(size: 14))
+#endif
+            Spacer(minLength: 0)
+            if let accessory {
+                Image(systemName: accessory)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .foregroundStyle(StorySidebarPalette.foreground(colorScheme))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+#if os(iOS)
+        .frame(minHeight: 44)
+#endif
+        .contentShape(.rect)
+#if os(macOS)
         .background {
-            if peopleFooterHovered {
+            if hovered {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.primary.opacity(0.06))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
             }
         }
-        .onHover { peopleFooterHovered = $0 }
 #endif
-        .overlay(alignment: .top) { Divider() }
-        .task { await refreshSidebarAccounts() }
     }
 
     private func refreshSidebarAccounts() async {
@@ -1700,14 +1750,6 @@ struct StoryRootView: View {
             sidebarAccountError = nil
         } catch { sidebarAccountError = error.localizedDescription }
 #endif
-    }
-
-    private func moveTreeSelection(_ delta: Int) {
-        sidebarTreeSelection = StoryPagePickerSelection.moved(sidebarTreeSelection, by: delta, in: sidebarTrees.map(\.id))
-    }
-
-    private func openSelectedSidebarTree() {
-        if let id = sidebarTreeSelection ?? sidebarTrees.first?.id { openSidebarTree(id) }
     }
 
     private func openSidebarTree(_ id: String) {
@@ -1824,13 +1866,8 @@ struct StoryRootView: View {
         openReviewChoice(choices[next])
     }
 
-    @ViewBuilder
     private var sidebarList: some View {
-        if sidebarPageOrder == .trees {
-            sidebarTreesList
-        } else {
-            sidebarPagesContent
-        }
+        sidebarPagesContent
     }
 
     private var sidebarPagesContent: some View {
@@ -2019,15 +2056,6 @@ struct StoryRootView: View {
 
     private func handleSidebarSearchKeyPress(_ press: KeyPress) -> KeyPress.Result {
         guard press.phase == .down, sidebarSearchFocused else { return .ignored }
-        if sidebarPageOrder == .trees {
-            switch press.key {
-            case .upArrow: moveTreeSelection(-1)
-            case .downArrow: moveTreeSelection(1)
-            case .return: openSelectedSidebarTree()
-            default: return .ignored
-            }
-            return .handled
-        }
         let results = keyboardNavigableSidebarResults
         guard !results.isEmpty else { return .ignored }
         switch press.key {
