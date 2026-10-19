@@ -718,6 +718,39 @@ final class StoryWorkspaceState {
     }
 #endif
 
+    /// Whether `tree` is the profile of an account on this device.
+    func isOwnProfile(_ tree: String) -> Bool {
+        if knownAccounts.contains(where: { $0.profileTree == tree }) { return true }
+#if os(macOS)
+        return localStorySyncOverview?.accounts.contains { $0.profileTree == tree } == true
+#else
+        return false
+#endif
+    }
+
+    /// The second line of a link into another tree, such as "Tree · Private · On this Mac".
+    /// Who can see it is left out when this device cannot read the tree's rules.
+    func treeLinkSubtitle(tree: String) async -> String {
+#if os(iOS)
+        let device = UIDevice.current.model
+        let placement = nativePlacements.first { $0.tree.id == tree }
+        var access: NativeTreeAccessPresentation?
+        if let placement {
+            access = try? await NativeAccountService(origin: placement.origin, configurationTree: placement.configurationTree).access(tree: tree)
+        }
+        let placed = placement != nil
+#else
+        let device = "Mac"
+        if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
+        let placed = localStorySyncOverview?.trees.contains { $0.id == tree && $0.path != nil } == true
+        let access = placed ? try? await loadLocalTreeAccess(tree: tree) : nil
+#endif
+        var parts = ["Tree"]
+        if let access { parts.append(access.entries.contains { $0.subject == .everyone && $0.access != "none" } ? "Public" : "Private") }
+        parts.append(placed ? "On this \(device)" : "Not on this \(device)")
+        return parts.joined(separator: " · ")
+    }
+
 #if os(macOS)
     // MARK: Account configuration on disk
     //
@@ -978,38 +1011,6 @@ final class StoryWorkspaceState {
 
     private func loadLocalTreeAccess(tree: String) async throws -> NativeTreeAccessPresentation {
         try await treeConfigurationClient(for: tree).access(tree: tree)
-    }
-
-    /// Whether `tree` is the profile of an account on this device.
-    func isOwnProfile(_ tree: String) -> Bool {
-        if knownAccounts.contains(where: { $0.profileTree == tree }) { return true }
-#if os(macOS)
-        return localStorySyncOverview?.accounts.contains { $0.profileTree == tree } == true
-#else
-        return false
-#endif
-    }
-
-    /// The second line of a link into another tree, such as "Tree · Private · On this Mac".
-    /// Who can see it is left out when this device cannot read the tree's rules.
-    func treeLinkSubtitle(tree: String) async -> String {
-#if os(iOS)
-        let device = UIDevice.current.model
-        let placement = nativePlacements.first { $0.tree.id == tree }
-        let access = try? await placement.map {
-            try await NativeAccountService(origin: $0.origin, configurationTree: $0.configurationTree).access(tree: tree)
-        }
-        let placed = placement != nil
-#else
-        let device = "Mac"
-        if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
-        let placed = localStorySyncOverview?.trees.contains { $0.id == tree && $0.path != nil } == true
-        let access = placed ? try? await loadLocalTreeAccess(tree: tree) : nil
-#endif
-        var parts = ["Tree"]
-        if let access { parts.append(access.entries.contains { $0.subject == .everyone && $0.access != "none" } ? "Public" : "Private") }
-        parts.append(placed ? "On this \(device)" : "Not on this \(device)")
-        return parts.joined(separator: " · ")
     }
 
     /// A person or group as a profile TreeID: a bare TreeID, a `~handle` on the
