@@ -8,15 +8,25 @@ import UniformTypeIdentifiers
 
 struct StoryMacLaunchView: View {
     let workspace: StoryWorkspaceState
-    @State private var ready = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    /// The request a window opened from another was made with.
+    var windowRequest: UUID?
+    @State private var ready: Bool
     @State private var joinAccount: String?
     @State private var joinCode: String?
     @State private var showingJoin = false
 
+    init(workspace: StoryWorkspaceState, windowRequest: UUID? = nil) {
+        self.workspace = workspace
+        self.windowRequest = windowRequest
+        // A window opened beside one already showing a tree skips onboarding.
+        _ready = State(initialValue: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || workspace.launchPhase.showsTree)
+    }
+
     var body: some View {
         Group {
             if ready {
-                StoryRootView(workspace: workspace)
+                StoryRootView(workspace: workspace, windowRequest: windowRequest)
             } else {
                 StoryMacOnboarding(workspace: workspace, resumeExisting: true, initialCommunity: joinAccount, initialCode: joinCode) { ready = true }
             }

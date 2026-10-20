@@ -111,7 +111,7 @@ from the stored sibling/index Markdown body, or an empty implicit body. Authored
 placement and child membership are distinct:
 
 1. Walk standalone links in source order. The first link that resolves to each immediate child represents that child at its authored position. Inline links never qualify, and later standalone links to the same child remain ordinary duplicate links.
-2. A standalone `<!-- overstory:children -->` marker represents every otherwise-unmentioned immediate child at that position. When source contains no marker, one implicit marker exists after the authored source. More than one marker is `duplicate-children-marker` and blocks authored placement edits until repaired.
+2. A standalone `<!-- overstory:children -->` marker represents every otherwise-unmentioned immediate child at that position. When source contains no marker, one implicit marker exists after the authored source. More than one marker is `duplicate-children-marker` and blocks authored placement edits until repaired. Clients do not write a marker: a page's children stand at its end ([§4.1](#41-presented-headings)), and an explicit marker in source is honored but not shown.
 3. The provider enumerates the marker's remainder in canonical logical-path order and may page or virtualize it. The operational document retains the marker rather than expanding one literal source link per child. Reading, rendering, indexing, searching, backlinks, hosted output, and export consume the same placement model.
 
 Reading an implicit body or marker does not materialize it. The first authored
@@ -152,12 +152,17 @@ that its source may lack. Neither is authored source.
   presented H1 naming the node: the last segment of its logical path, which is
   the body file's name without its extension, or the directory's name for
   `_index.md`, with each hyphen shown as a space.
-- **Children.** When the document has no explicit `<!-- overstory:children -->`
-  marker and the implicit marker's remainder is not empty, the page ends with a
-  presented `# Children` H1 followed by that remainder. It closes every authored
-  section above it, so the remainder never reads as part of the last authored
-  section. An explicit marker presents its remainder where it stands, with no
-  presented heading.
+- **Children.** When the implicit marker's remainder is not empty, the page
+  ends with it. If the body's last H1 is an authored `# Children`, the
+  remainder stands at the end of that section with nothing added. Otherwise
+  the page ends with a presented `# Children` H1 followed by the remainder. It
+  closes every authored section above it, so the remainder never reads as part
+  of the last authored section. An explicit marker presents its remainder
+  where it stands, with no presented heading.
+
+Clients show a presented heading, and the generated links of a remainder, so
+that they read as derived from the tree rather than written: Story mutes
+them. Once written they read like any other content.
 
 Indexing, searching, fragment targets, and transfers of authored blocks
 ignore presented headings, and a presented heading cannot be deleted: adding an
@@ -167,11 +172,13 @@ presented headings as a client does.
 
 Editing a presented heading materializes it through an ordinary content write.
 Editing the title writes it as the body's first H1; it does not rename the
-node. Renaming the Children
-heading, or adding content under it, writes `# Children` followed by an
-explicit marker after the authored source, and the remainder stays where it was
-under the now-authored heading. Materializing one heading never materializes
-the other.
+node. Editing anywhere in a presented Children section materializes the whole
+section: renaming its heading, adding content under it, or reordering its
+links writes the heading followed by everything under it, each generated link
+as an authored standalone link, in the order shown. No marker is written; the
+authored `# Children` now holds the children, and a child added later joins
+its end. Moving one generated link elsewhere materializes only that link.
+Materializing one heading never materializes the other.
 
 ## 5. Recognized authored files
 

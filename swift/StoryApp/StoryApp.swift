@@ -1,5 +1,6 @@
 import Quagmire
 import Overstory
+import StoryKit
 import SwiftUI
 #if os(macOS)
 import AppKit
@@ -21,11 +22,11 @@ struct StoryApplication: App {
 #endif
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(for: StoryWindowRequest.self) { $request in
 #if os(iOS)
-            StoryIOSLaunchView(workspace: workspace)
+            StoryIOSLaunchView(workspace: workspace, windowRequest: request?.id)
 #else
-            StoryMacLaunchView(workspace: workspace)
+            StoryMacLaunchView(workspace: workspace, windowRequest: request?.id)
                 .task { appDelegate.workspace = workspace }
 #endif
         }
@@ -34,6 +35,38 @@ struct StoryApplication: App {
             StoryNavigationCommands()
         }
 #endif
+    }
+}
+
+/// What a new window opens on: a page, or the tree's home. Each request is
+/// its own window, even for a page another window already shows.
+struct StoryWindowRequest: Codable, Hashable {
+    var id = UUID()
+    var location: WorkspaceLocation?
+    /// On the Mac, the window whose tab group the new window joins as a tab.
+    var tabGroupWindow: Int?
+    /// Whether a new tab becomes the selected one, or opens behind.
+    var selecting = true
+}
+
+/// Requested windows' pages, until each new window takes its own. The
+/// window's request value names it; a window that appears without one (the
+/// value can arrive after the window's first view) takes the newest request
+/// made moments ago.
+@MainActor
+enum StoryWindowRequests {
+    private static var pending: [(request: StoryWindowRequest, at: Date)] = []
+
+    static func add(_ request: StoryWindowRequest) {
+        pending.removeAll { Date().timeIntervalSince($0.at) > 30 }
+        pending.append((request, Date()))
+    }
+
+    static func take(_ id: UUID?) -> StoryWindowRequest? {
+        let index = id.flatMap { id in pending.firstIndex { $0.request.id == id } }
+            ?? pending.indices.last.flatMap { Date().timeIntervalSince(pending[$0].at) < 5 ? $0 : nil }
+        guard let index else { return nil }
+        return pending.remove(at: index).request
     }
 }
 
@@ -53,11 +86,8 @@ private struct StoryNavigationCommands: Commands {
                 .keyboardShortcut("l", modifiers: .command)
                 .disabled(commands == nil)
             Divider()
-            Button("New Tab") { commands?.newTab() }
-                .keyboardShortcut("t", modifiers: .command)
-            Button("Close Tab") { commands?.closeTab() }
-                .keyboardShortcut("w", modifiers: .command)
-                .disabled(commands?.canCloseTab != true)
+            Button("New Window") { commands?.newWindow() }
+                .keyboardShortcut("n", modifiers: [.command, .option])
             Button("Recover…") { commands?.showHistory() }
                 .keyboardShortcut("\\", modifiers: [.command, .shift])
                 .disabled(commands?.hasDocument != true)

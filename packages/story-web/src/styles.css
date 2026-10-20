@@ -762,6 +762,8 @@ nav small { margin-left: auto; color: var(--story-warning); }
   text-decoration: none;
 }
 .child-page:hover { background: var(--story-hover); }
+.child-page.generated { opacity: 0.6; }
+.child-page.generated:hover, .child-page.generated.selected { opacity: 1; }
 .child-page > span:first-child, .child-page-kind {
   display: flex;
   align-items: center;

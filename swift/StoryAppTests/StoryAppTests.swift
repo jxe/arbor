@@ -959,7 +959,7 @@ struct StoryAppTests {
             result("Older", "/older", "2026-08-01T11:00:00Z", 4),
         ]
 
-        #expect(StorySidebarPages.sorted(results, by: .alphabetical).map(\.title)
+        #expect(StorySidebarPages.sorted(results).map(\.title)
             == ["🌲 Alpha", "Beta", "Monthly", "Older"])
         #expect(StorySidebarPages.sorted(results, by: .recent).map(\.title)
             == ["Beta", "🌲 Alpha", "Monthly", "Older"])
@@ -982,11 +982,39 @@ struct StoryAppTests {
         // Arrow keys walk pages in the order the sidebar draws them.
         #expect(StorySidebarPages.displayOrder(results, by: .linkCount).map(\.title)
             == ["Beta", "🌲 Alpha", "Older", "Monthly"])
-        #expect(StorySidebarPages.displayOrder(results, by: .alphabetical) == StorySidebarPages.sorted(results, by: .alphabetical))
+        var collapsed = StoryCollapsedPageSections()
+        collapsed.toggle("Multiple Links", in: .linkCount)
+        #expect(StorySidebarPages.displayOrder(results, by: .linkCount, collapsed: collapsed).map(\.title)
+            == ["Beta", "🌲 Alpha"])
+        #expect(StorySidebarPages.displayOrder(results, by: .recent, collapsed: collapsed).count == results.count)
+        #expect(StoryCollapsedPageSections(rawValue: collapsed.rawValue) == collapsed)
+        collapsed.toggle("Multiple Links", in: .linkCount)
+        #expect(collapsed.rawValue.isEmpty)
         #expect(storySidebarContextPath("/story-demo") == nil)
         #expect(storySidebarContextPath("/March-Out-My-Work/story-demo")
             == "/March-Out-My-Work")
     }
+
+    @Test("Folder groups give each directory a path-titled section led by its own page")
+    func folderGroups() {
+        func page(_ path: String) -> WorkspaceSearchResult {
+            WorkspaceSearchResult(reference: WorkspaceReference(tree: "tr_sample", path: path), title: path)
+        }
+        let results = [
+            page("/projects/arbor/plan"), page("/zebra"), page("/projects"), page("/"),
+            page("/projects/arbor"), page("/projects-old"), page("/projects/beta"), page("/notes/today"),
+        ]
+        let groups = StorySidebarPages.folderGroups(results)
+        #expect(groups.map(\.title) == ["/", "/notes", "/projects", "/projects/arbor"])
+        #expect(groups.map { $0.results.map(\.reference.path) } == [
+            ["/", "/projects-old", "/zebra"],
+            ["/notes/today"],
+            ["/projects", "/projects/beta"],
+            ["/projects/arbor", "/projects/arbor/plan"],
+        ])
+        #expect(StorySidebarPages.displayOrder(results, by: .folders) == groups.flatMap(\.results))
+    }
+
     @Test("Recent groups use exclusive rolling boundaries across midnight and month changes")
     func recentGroupBoundaries() throws {
         var calendar = Calendar(identifier: .gregorian)
@@ -1239,7 +1267,7 @@ struct StoryAppTests {
         #expect(model.canGoBack)
     }
 
-    @Test("Two windows share one PageID binding without sharing tabs")
+    @Test("Two windows share one PageID binding; tabs and windows open as windows")
     func windowsSharePersistenceNotPresentation() async throws {
         let workspace = StoryWorkspaceState(provider: .sample())
         let first = StoryAppModel(workspace: workspace)
@@ -1249,11 +1277,29 @@ struct StoryAppTests {
         let welcome = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         await first.navigate(to: welcome)
         await second.navigate(to: welcome)
-
         #expect(first.binding === second.binding)
-        await first.newTab()
-        #expect(first.tabItems.count == 2)
-        #expect(second.tabItems.count == 1)
+
+        var requests: [(WorkspaceLocation?, Bool, Bool)] = []
+        first.openWindowAction = { requests.append(($0, $1, $2)) }
+        first.newTab()
+        first.openInNewTab(.reference(welcome), selecting: false)
+        first.openInNewWindow(.reference(welcome))
+        #expect(requests.map(\.0) == [nil, .reference(welcome), .reference(welcome)])
+        #expect(requests.map(\.1) == [true, true, false])
+        #expect(requests.map(\.2) == [true, false, true])
+        #expect(first.currentReference.path == "/welcome", "opening elsewhere leaves this window's page")
+
+        // A window opened on a page shows it in place of home, without a Back step.
+        let third = StoryAppModel(workspace: workspace)
+        await third.load()
+        await third.showRequestedLocation(.reference(welcome))
+        #expect(third.currentReference.path == "/welcome")
+        #expect(!third.canGoBack)
+
+        // Closing a window releases its page; the other window keeps the binding.
+        await first.windowClosed()
+        #expect(first.editorLease == nil)
+        #expect(second.binding != nil)
     }
 
     @Test("Structural receipts refresh workspace chrome without replacing the editor lease")

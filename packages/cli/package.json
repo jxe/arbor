@@ -1,6 +1,6 @@
 {
   "name": "@ovst/cli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "The story command: daemon, identity, placement, cloud sessions, and tree operations.",
   "type": "module",
   "dependencies": {

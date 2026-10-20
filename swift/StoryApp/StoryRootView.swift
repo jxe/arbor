@@ -29,9 +29,7 @@ private protocol HostAccountPresentable {
 }
 
 private extension HostAccountPresentable {
-    var profileSectionID: String { "profile:\(configurationTree)" }
-    var devicesSectionID: String { "devices:\(configurationTree)" }
-    var placementsSectionID: String { "placements:\(configurationTree)" }
+    var accountSectionID: String { "account:\(configurationTree)" }
 
     var accountDisplayName: String {
         guard let handle, !handle.isEmpty else { return "Host account" }
@@ -119,30 +117,25 @@ private func startStoryVoiceRecording(
 }
 
 enum StorySidebarPageOrder: String, CaseIterable, Identifiable {
-    case alphabetical
+    case folders
     case recent
     case linkCount
-    case trees
-
-    static var pageOrders: [Self] { [.alphabetical, .recent, .linkCount] }
 
     var id: Self { self }
 
     var label: String {
         switch self {
-        case .alphabetical: "Alphabetical"
+        case .folders: "Folders"
         case .recent: "Recent"
         case .linkCount: "Link Count"
-        case .trees: "Trees"
         }
     }
 
     var symbol: String {
         switch self {
-        case .alphabetical: "textformat"
+        case .folders: "folder"
         case .recent: "clock"
         case .linkCount: "link"
-        case .trees: "tree"
         }
     }
 }
@@ -154,10 +147,38 @@ struct StorySidebarPageGroup: Identifiable, Equatable {
     var id: String { title }
 }
 
+/// The page sections a list has collapsed, per order, kept in `AppStorage`
+/// as one section key per line.
+struct StoryCollapsedPageSections: RawRepresentable, Equatable {
+    private var keys: Set<String>
+
+    init() { keys = [] }
+
+    init(rawValue: String) {
+        keys = Set(rawValue.split(separator: "\n").map(String.init))
+    }
+
+    var rawValue: String { keys.sorted().joined(separator: "\n") }
+
+    func contains(_ title: String, in order: StorySidebarPageOrder) -> Bool {
+        keys.contains(Self.key(title, order))
+    }
+
+    mutating func toggle(_ title: String, in order: StorySidebarPageOrder) {
+        let key = Self.key(title, order)
+        if keys.remove(key) == nil { keys.insert(key) }
+    }
+
+    private static func key(_ title: String, _ order: StorySidebarPageOrder) -> String {
+        "\(order.rawValue):\(title)"
+    }
+}
+
 enum StorySidebarPages {
+    /// Pages by title, or first by date or link count for those orders.
     static func sorted(
         _ results: [WorkspaceSearchResult],
-        by order: StorySidebarPageOrder
+        by order: StorySidebarPageOrder? = nil
     ) -> [WorkspaceSearchResult] {
         // Derive each title's sort key once, not once per comparison.
         let keyed = results.map { (result: $0, title: storySidebarTitleParts($0.title).text) }
@@ -172,6 +193,14 @@ enum StorySidebarPages {
             if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
             return lhs.result.reference.path.localizedStandardCompare(rhs.result.reference.path) == .orderedAscending
         }.map { $0.result }
+    }
+
+    static func groups(_ results: [WorkspaceSearchResult], by order: StorySidebarPageOrder) -> [StorySidebarPageGroup] {
+        switch order {
+        case .folders: folderGroups(results)
+        case .recent: recentGroups(results)
+        case .linkCount: linkCountGroups(results)
+        }
     }
 
     static func recentGroups(
@@ -207,14 +236,42 @@ enum StorySidebarPages {
     }
 
     /// Pages in exactly the order `StoryOrderedPageSections` draws them, so
-    /// arrow keys move through the list top to bottom.
-    static func displayOrder(_ results: [WorkspaceSearchResult], by order: StorySidebarPageOrder) -> [WorkspaceSearchResult] {
-        switch order {
-        case .recent: recentGroups(results).flatMap(\.results)
-        case .linkCount: linkCountGroups(results).flatMap(\.results)
-        case .alphabetical: sorted(results, by: order)
-        case .trees: []
+    /// arrow keys move through the list top to bottom, skipping collapsed sections.
+    static func displayOrder(
+        _ results: [WorkspaceSearchResult],
+        by order: StorySidebarPageOrder,
+        collapsed: StoryCollapsedPageSections = .init()
+    ) -> [WorkspaceSearchResult] {
+        groups(results, by: order)
+            .filter { !collapsed.contains($0.title, in: order) }
+            .flatMap(\.results)
+    }
+
+    /// One section per directory, titled with its logical path and ordered by
+    /// path so subdirectories follow their parent. A page with children is
+    /// the first row of its own section; every other page sits in its parent's.
+    static func folderGroups(_ results: [WorkspaceSearchResult]) -> [StorySidebarPageGroup] {
+        func parent(_ path: String) -> String {
+            guard path != "/", let slash = path.lastIndex(of: "/") else { return "/" }
+            return slash == path.startIndex ? "/" : String(path[..<slash])
         }
+        let directories = Set(results.map { parent($0.reference.path) })
+        var sections: [String: [WorkspaceSearchResult]] = [:]
+        for result in sorted(results) {
+            let path = result.reference.path
+            if directories.contains(path) {
+                sections[path, default: []].insert(result, at: 0)
+            } else {
+                sections[parent(path), default: []].append(result)
+            }
+        }
+        func components(_ path: String) -> [Substring] { path.split(separator: "/") }
+        return sections.keys.sorted { lhs, rhs in
+            for (left, right) in zip(components(lhs), components(rhs)) where left != right {
+                return left.localizedStandardCompare(right) == .orderedAscending
+            }
+            return components(lhs).count < components(rhs).count
+        }.map { StorySidebarPageGroup(title: $0, results: sections[$0] ?? []) }
     }
 
     static func linkCountGroups(_ results: [WorkspaceSearchResult]) -> [StorySidebarPageGroup] {
@@ -238,42 +295,82 @@ enum StorySidebarPages {
 struct StoryOrderedPageSections<Row: View>: View {
     let results: [WorkspaceSearchResult]
     let order: StorySidebarPageOrder
-    var alphabeticalSectionTitle: String?
+    @Binding var collapsed: StoryCollapsedPageSections
+    /// Off while searching, so a collapsed section never hides a match.
+    var allowsCollapse = true
     var topSpacing: CGFloat = 0
     @ViewBuilder let row: (WorkspaceSearchResult, Bool) -> Row
 
     var body: some View {
-        if order == .recent {
-            ForEach(Array(StorySidebarPages.recentGroups(results).enumerated()), id: \.element.id) { index, group in
-                Section {
-                    ForEach(group.results) { row($0, false) }
-                } header: {
-                    Text(group.title)
-                        .padding(.top, index == 0 ? topSpacing : 0)
-                }
-            }
-        } else if order == .linkCount {
-            ForEach(Array(StorySidebarPages.linkCountGroups(results).enumerated()), id: \.element.id) { index, group in
-                Section {
-                    ForEach(group.results) { row($0, group.showsBacklinkCounts) }
-                } header: {
-                    Text(group.title)
-                        .padding(.top, index == 0 ? topSpacing : 0)
-                }
-            }
-        } else if let alphabeticalSectionTitle {
+        ForEach(Array(StorySidebarPages.groups(results, by: order).enumerated()), id: \.element.id) { index, group in
+            let isCollapsed = allowsCollapse && collapsed.contains(group.title, in: order)
             Section {
-                ForEach(StorySidebarPages.sorted(results, by: order)) { row($0, false) }
+                if !isCollapsed {
+                    ForEach(group.results) { row($0, group.showsBacklinkCounts) }
+                }
             } header: {
-                Text(alphabeticalSectionTitle)
-                    .padding(.top, topSpacing)
-            }
-        } else {
-            ForEach(Array(StorySidebarPages.sorted(results, by: order).enumerated()), id: \.element.id) { index, result in
-                row(result, false)
-                    .padding(.top, index == 0 ? topSpacing : 0)
+                StoryCollapsiblePageSectionHeader(
+                    title: group.title,
+                    isCollapsed: isCollapsed,
+                    allowsCollapse: allowsCollapse,
+                    // Folder sections are titled with paths, which keep their case.
+                    keepsCase: order == .folders
+                ) {
+                    withAnimation(.snappy(duration: 0.2)) { collapsed.toggle(group.title, in: order) }
+                }
+                .padding(.top, index == 0 ? topSpacing : 0)
             }
         }
+    }
+}
+
+/// A grey section title that collapses its section when clicked. On Mac the
+/// chevron shows while the pointer is over it; on iOS, with no hover, it
+/// always shows.
+private struct StoryCollapsiblePageSectionHeader: View {
+    let title: String
+    let isCollapsed: Bool
+    let allowsCollapse: Bool
+    let keepsCase: Bool
+    let toggle: () -> Void
+    @Environment(\.textCase) private var inheritedTextCase
+    @State private var isHovering = false
+
+    var body: some View {
+        label.textCase(keepsCase ? nil : inheritedTextCase)
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        if allowsCollapse {
+            Button(action: toggle) {
+                HStack(spacing: 4) {
+                    Text(title)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                        .opacity(chevronVisible ? 1 : 0)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .onHover { isHovering = $0 }
+            .accessibilityLabel(title)
+            .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
+            .accessibilityHint(isCollapsed ? "Shows this section's pages" : "Hides this section's pages")
+        } else {
+            Text(title)
+        }
+    }
+
+    private var chevronVisible: Bool {
+#if os(macOS)
+        isHovering
+#else
+        true
+#endif
     }
 }
 
@@ -543,8 +640,7 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
 }
 
 private struct MacPageOrderPicker: NSViewRepresentable {
-    var includesTrees = false
-    private var orders: [StorySidebarPageOrder] { includesTrees ? StorySidebarPageOrder.allCases : StorySidebarPageOrder.pageOrders }
+    private var orders: [StorySidebarPageOrder] { StorySidebarPageOrder.allCases }
     @Binding var selection: StorySidebarPageOrder
 
     func makeCoordinator() -> Coordinator {
@@ -559,8 +655,8 @@ private struct MacPageOrderPicker: NSViewRepresentable {
         button.imageScaling = .scaleProportionallyDown
         button.target = context.coordinator
         button.action = #selector(Coordinator.selectionChanged(_:))
-        button.toolTip = includesTrees ? "Sidebar view" : "Page order"
-        button.setAccessibilityLabel(includesTrees ? "Sidebar view" : "Page order")
+        button.toolTip = "Page order"
+        button.setAccessibilityLabel("Page order")
         if let cell = button.cell as? NSPopUpButtonCell {
             cell.highlightsBy = []
             cell.arrowPosition = .noArrow
@@ -653,10 +749,9 @@ private struct StorySidebarSearchControls: View {
 
     var body: some View {
         StoryPageSearchControls(
-            includesTrees: true,
             query: $query,
             order: $order,
-            prompt: order == .trees ? "Search trees" : "Search pages",
+            prompt: "Search pages",
             focused: $fieldFocused,
             showsFocus: isFocused,
             handleKeyPress: handleKeyPress,
@@ -804,7 +899,6 @@ private struct MacToolbarSearchFieldFocus: NSViewRepresentable {
 #endif
 
 struct StoryPageSearchControls: View {
-    var includesTrees = false
     @Binding var query: String
     @Binding var order: StorySidebarPageOrder
     var prompt = "Search pages"
@@ -873,13 +967,13 @@ struct StoryPageSearchControls: View {
             }
 
 #if os(macOS)
-            MacPageOrderPicker(includesTrees: includesTrees, selection: $order)
+            MacPageOrderPicker(selection: $order)
                 .frame(width: 32, height: 32)
                 .mutedMacToolbarHover()
-                .help("\(includesTrees ? "Sidebar view" : "Page order"): \(order.label)")
+                .help("Page order: \(order.label)")
 #else
             Menu {
-                ForEach(includesTrees ? StorySidebarPageOrder.allCases : StorySidebarPageOrder.pageOrders) { candidate in
+                ForEach(StorySidebarPageOrder.allCases) { candidate in
                     Button {
                         order = candidate
                     } label: {
@@ -896,7 +990,7 @@ struct StoryPageSearchControls: View {
             .frame(width: 48, height: 48)
             .contentShape(.circle)
             .tint(.gray)
-            .accessibilityLabel(includesTrees ? "Sidebar view" : "Page order")
+            .accessibilityLabel("Page order")
             .accessibilityValue(order.label)
 #endif
         }
@@ -980,7 +1074,6 @@ struct StoryRootView: View {
     @State private var recordingSession: VoiceRecordingSession<String>
     @State private var pinchDictation: EditorPinchDictation
     @State private var peoplePresented = false
-    @State private var sidebarTreeSelection: String?
     @State private var sidebarAccounts: [HostAccount] = []
     @State private var sidebarAccountError: String?
     @State private var accountFollowUpProfile: String?
@@ -993,11 +1086,17 @@ struct StoryRootView: View {
     @State private var trashConfirmationPresented = false
     @State private var storySyncLogs = ""
     @State private var voiceLaunchReady = false
-    @AppStorage("pageOrder.sidebar") private var sidebarPageOrder = StorySidebarPageOrder.alphabetical
+    @AppStorage("pageOrder.sidebar") private var sidebarPageOrder = StorySidebarPageOrder.folders
+    @AppStorage("collapsedSections.sidebar") private var sidebarCollapsedSections = StoryCollapsedPageSections()
     @State private var sidebarSearchText = ""
     @State private var reviewingChoices = false
     @State private var reviewAccessoryReveal: EditorAccessoryReveal?
     @State private var sidebarKeyboardSelection: WorkspaceIdentity?
+    @Environment(\.openWindow) private var openWindow
+    /// The request this window was opened with, if another window opened it.
+    private let windowRequest: UUID?
+    /// That request, once this window has taken it.
+    @State private var openedRequest: StoryWindowRequest?
     @State private var sidebarListSelection: WorkspaceIdentity?
     @State private var pageRenameLocation: WorkspaceLocation?
     @State private var pageRenameDraft = ""
@@ -1037,16 +1136,19 @@ struct StoryRootView: View {
     @State private var sidebarDismissDragSuppressesTap = false
 #endif
     @State private var peopleFooterHovered = false
+    @State private var treeFooterHovered = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
 
     init(
         workspace: StoryWorkspaceState,
         onDisconnect: @escaping @MainActor () -> Void = {},
-        model: StoryAppModel? = nil
+        model: StoryAppModel? = nil,
+        windowRequest: UUID? = nil
     ) {
         self.workspace = workspace
         self.onDisconnect = onDisconnect
+        self.windowRequest = windowRequest
         let model = model ?? StoryAppModel(workspace: workspace)
         let recordingSession = VoiceRecordingSession(
             recoveryStore: PendingVoiceRecordingStore(
@@ -1085,6 +1187,28 @@ struct StoryRootView: View {
 
     var body: some View {
         platformNavigation
+        .onAppear {
+            model.openWindowAction = { [openWindow] location, asTab, selecting in
+                var request = StoryWindowRequest(location: location, selecting: selecting)
+#if os(macOS)
+                // A Mac tab is a window in this window's tab group.
+                if asTab { request.tabGroupWindow = NSApp.keyWindow?.windowNumber }
+#endif
+                StoryWindowRequests.add(request)
+                openWindow(value: request)
+            }
+        }
+        .onDisappear {
+            Task { await model.windowClosed() }
+        }
+        .task(id: windowRequest) {
+            guard let request = StoryWindowRequests.take(windowRequest) else { return }
+            openedRequest = request
+            if let location = request.location { await model.showRequestedLocation(location) }
+        }
+#if os(macOS)
+        .background(StoryWindowTabbing(request: openedRequest))
+#endif
         .task(id: workspace.providerRevision) {
             await model.reloadForProviderRevision()
         }
@@ -1118,8 +1242,11 @@ struct StoryRootView: View {
             let environment = ProcessInfo.processInfo.environment
             if environment["STORY_TEST_BUNDLED_HELPER"] != "1" {
                 await workspace.restoreLocalWorkspaceIfAvailable()
-            } else if let tree = environment["STORY_TEST_TREE"], !tree.isEmpty {
+            } else if let tree = environment["STORY_TEST_TREE"], !tree.isEmpty,
+                      workspace.home.tree.rawValue != tree || !workspace.launchPhase.showsTree {
                 // A hosted smoke run names its disposable placed tree explicitly.
+                // Opened once: reopening it for another window would replace
+                // the provider and send every window back home.
                 do {
                     try await workspace.openPlacedTree(tree)
                 } catch {
@@ -1191,22 +1318,15 @@ struct StoryRootView: View {
         .sheet(isPresented: $accountPresented, onDismiss: {
             if let profile = accountFollowUpProfile {
                 accountFollowUpProfile = nil
-                Task {
-                    await workspace.refreshDirectory()
-                    guard let person = workspace.directory.first(where: { $0.entry.profile == profile }) else {
-                        workspace.errorMessage = "This profile is not available in People yet."
-                        return
-                    }
-                    do { try await workspace.openDirectoryProfile(person) }
-                    catch { workspace.errorMessage = error.localizedDescription }
-                }
+                // Pushed onto this tab's history, as People does, so Back returns to the previous tree.
+                Task { await model.openProfile(tree: profile) }
             }
             if let next = accountFollowUpSheet {
                 accountFollowUpSheet = nil
                 presentedSheet = next
             }
         }) {
-            IOSAccountPanel(workspace: workspace, syncSections: AnyView(syncStatusPanel.sections), openProfile: { profile in
+            IOSAccountPanel(workspace: workspace, syncSections: AnyView(accountSyncPanel.sections), openProfile: { profile in
                 accountFollowUpProfile = profile
                 accountPresented = false
             }, onDisconnect: onDisconnect)
@@ -1394,21 +1514,34 @@ struct StoryRootView: View {
         GeometryReader { geometry in
             let drawerWidth = min(430, max(280, geometry.size.width - 28))
             ZStack(alignment: .leading) {
-                Color.black.opacity(0.22 * sidebarRevealProgress)
-                    .ignoresSafeArea()
-                    .contentShape(.rect)
-                    .onTapGesture { closeIOSSidebar() }
+                ZStack(alignment: .leading) {
+                    Color.black.opacity(0.22 * sidebarRevealProgress)
+                        .ignoresSafeArea()
+                        .contentShape(.rect)
+                        .onTapGesture { closeIOSSidebar() }
 
-                VStack(spacing: 0) {
-                    sidebarContent
+                    VStack(spacing: 0) {
+                        sidebarContent
+                    }
+                    .frame(width: drawerWidth)
+                    .frame(maxHeight: .infinity)
+                    .modifier(StorySidebarSurface(showsDivider: true))
+                    .offset(x: -drawerWidth * (1 - sidebarRevealProgress))
+                    .simultaneousGesture(closeSidebarDragGesture)
                 }
-                .frame(width: drawerWidth)
-                .frame(maxHeight: .infinity)
-                .modifier(StorySidebarSurface(showsDivider: true))
-                .offset(x: -drawerWidth * (1 - sidebarRevealProgress))
-                .simultaneousGesture(closeSidebarDragGesture)
+                .allowsHitTesting(sidebarRevealProgress > 0)
+
+                // The drawer's tab rides on its trailing edge, so a sliver of
+                // it peeks in at the bottom left while it is closed.
+                IOSSidebarTab(isOpen: sidebarRevealProgress > 0.5) {
+                    if sidebarRevealProgress > 0.5 { closeIOSSidebar() } else { openIOSSidebar() }
+                }
+                .gesture(openSidebarEdgeGesture, isEnabled: sidebarRevealProgress == 0)
+                .offset(x: drawerWidth * sidebarRevealProgress)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, 28)
             }
-            .allowsHitTesting(sidebarRevealProgress > 0)
+            .ignoresSafeArea(.keyboard)
             .onAppear { sidebarDrawerWidth = drawerWidth }
             .onChange(of: drawerWidth) { _, width in sidebarDrawerWidth = width }
         }
@@ -1466,6 +1599,12 @@ struct StoryRootView: View {
             }
     }
 
+    private func openIOSSidebar() {
+        withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
+            sidebarRevealProgress = 1
+        }
+    }
+
     private func closeIOSSidebar() {
         sidebarSearchFocused = false
         withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
@@ -1484,13 +1623,11 @@ struct StoryRootView: View {
 #endif
             .onChange(of: sidebarSearchText) { _, query in
                 sidebarKeyboardSelection = nil
-                sidebarTreeSelection = nil
-                if sidebarPageOrder != .trees { Task { await model.search(query) } }
+                Task { await model.search(query) }
             }
             .task(id: sidebarPageOrder) {
                 sidebarKeyboardSelection = nil
-                if sidebarPageOrder == .trees { await refreshSidebarAccounts() }
-                else { await model.search(sidebarSearchText) }
+                await model.search(sidebarSearchText)
             }
     }
 
@@ -1568,94 +1705,161 @@ struct StoryRootView: View {
                 account: placement.configurationTree.flatMap { accountLabels[$0] } ?? "Other Trees")
         }
 #endif
-        let query = sidebarSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return values.filter { query.isEmpty || $0.title.localizedStandardContains(query) || $0.account.localizedStandardContains(query) }
-            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-    }
-
-    private var sidebarTreesList: some View {
-        ScrollViewReader { proxy in
-            let trees = sidebarTrees
-            List {
-                ForEach(trees) { tree in
-                    Button { openSidebarTree(tree.id) } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "tree").font(.system(size: 18)).frame(width: 20)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(tree.title).lineLimit(1)
-                                Text(tree.account).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            }
-                            Spacer(minLength: 0)
-                            if tree.id == model.currentReference.tree.rawValue {
-                                Image(systemName: "checkmark").foregroundStyle(.secondary)
-                            }
-                        }
-                        .foregroundStyle(StorySidebarPalette.foreground(colorScheme))
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-#if os(iOS)
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-#endif
-                    .storyKeyboardSelectedRow(sidebarTreeSelection == tree.id)
-                    .id(tree.id)
-                }
-                if trees.isEmpty { Text(sidebarSearchText.isEmpty ? "No trees available" : "No matching trees").foregroundStyle(.secondary) }
-                if let sidebarAccountError { Text(sidebarAccountError).font(.caption).foregroundStyle(.secondary) }
-#if os(macOS)
-                Button("Open Tree…", systemImage: "folder.badge.plus") { presentedSheet = .openLocation }
-#else
-                Button("Add Tree…", systemImage: "folder.badge.plus") {
-                    closeIOSSidebar()
-                    placementPresented = true
-                }
-#endif
-            }
-            .listStyle(.sidebar)
-#if os(iOS)
-            .contentMargins(.horizontal, 0, for: .scrollContent)
-#endif
-            .scrollContentBackground(.hidden)
-            .onChange(of: sidebarTreeSelection) { _, id in
-                if let id { proxy.scrollTo(id) }
-            }
-        }
+        return values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
     private var sidebarFooter: some View {
-        Button(action: showPeoplePanel) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Image(systemName: "person.crop.square")
-                    .font(.system(size: 18))
-                    .frame(width: 20)
-                Text("People")
+        VStack(spacing: 0) {
+            sidebarTreePicker
+            sidebarPeopleButton
+        }
+        .overlay(alignment: .top) { Divider() }
+        .task { await refreshSidebarAccounts() }
+    }
+
+    private var currentSidebarTreeTitle: String {
+        let tree = model.currentReference.tree.rawValue
+        return sidebarTrees.first { $0.id == tree }?.title ?? tree
+    }
+
+    /// The Sync & Accounts sheet's status card, named after the open tree.
+    private var accountSyncPanel: StorySyncStatusView {
+        var panel = syncStatusPanel
+        panel.treeTitle = currentSidebarTreeTitle
+        panel.treeSwitcher = AnyView(accountTreeSwitcher)
 #if os(macOS)
-                    .font(.system(size: 14))
+        let tree = model.currentReference.tree.rawValue
+        if let path = workspace.localStorySyncOverview?.trees.first(where: { $0.id == tree && $0.missing != true })?.path {
+            panel.revealFolder = { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
+        }
 #endif
-                Spacer(minLength: 0)
+        return panel
+    }
+
+    /// Under the status card: switches to the same trees as the sidebar's
+    /// picker, for the iPhone, where the sidebar is easy to miss.
+    private var accountTreeSwitcher: some View {
+        let trees = sidebarTrees
+        let current = model.currentReference.tree.rawValue
+        let accounts = trees.reduce(into: [String]()) { if !$0.contains($1.account) { $0.append($1.account) } }
+        return Menu {
+            ForEach(accounts, id: \.self) { account in
+                Section(account) {
+                    ForEach(trees.filter { $0.account == account }) { tree in
+                        Button { if tree.id != current { openSidebarTree(tree.id) } } label: {
+                            if tree.id == current { Label(tree.title, systemImage: "checkmark") } else { Text(tree.title) }
+                        }
+                    }
+                }
             }
-            .foregroundStyle(StorySidebarPalette.foreground(colorScheme))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-#if os(iOS)
-            .frame(minHeight: 44)
+        } label: {
+            Label("Switch Tree", systemImage: "chevron.up.chevron.down")
+                .font(.caption)
+                .labelStyle(.titleAndIcon)
+        }
+        .menuIndicator(.hidden)
+#if os(macOS)
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+#else
+        .buttonStyle(.borderless)
+        .textCase(nil)
 #endif
-            .contentShape(.rect)
+        .accessibilityLabel("Tree")
+        .accessibilityValue(currentSidebarTreeTitle)
+    }
+
+    /// Switches the window to another placed tree, grouped by account.
+    private var sidebarTreePicker: some View {
+        let trees = sidebarTrees
+        let accounts = trees.reduce(into: [String]()) { if !$0.contains($1.account) { $0.append($1.account) } }
+        return Menu {
+            ForEach(accounts, id: \.self) { account in
+                Section(account) {
+                    ForEach(trees.filter { $0.account == account }) { tree in
+                        Button { openSidebarTree(tree.id) } label: {
+                            if tree.id == model.currentReference.tree.rawValue {
+                                Label(tree.title, systemImage: "checkmark")
+                            } else {
+                                Text(tree.title)
+                            }
+                        }
+                    }
+                }
+            }
+            if let sidebarAccountError { Text(sidebarAccountError) }
+            Divider()
+#if os(macOS)
+            Button("Open Tree…", systemImage: "folder.badge.plus") { presentedSheet = .openLocation }
+#else
+            Button("Add Tree…", systemImage: "folder.badge.plus") {
+                closeIOSSidebar()
+                placementPresented = true
+            }
+#endif
+        } label: {
+            sidebarFooterRow(
+                symbol: "folder",
+                title: currentSidebarTreeTitle,
+                accessory: "chevron.up.chevron.down",
+                hovered: treeFooterHovered
+            )
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+#if os(macOS)
+        .onHover { treeFooterHovered = $0 }
+#endif
+        .accessibilityLabel("Tree")
+        .accessibilityValue(currentSidebarTreeTitle)
+    }
+
+    private var sidebarPeopleButton: some View {
+        Button(action: showPeoplePanel) {
+            sidebarFooterRow(symbol: "person.crop.square", title: "People", hovered: peopleFooterHovered)
         }
         .buttonStyle(.plain)
 #if os(macOS)
+        .onHover { peopleFooterHovered = $0 }
+#endif
+    }
+
+    private func sidebarFooterRow(symbol: String, title: String, accessory: String? = nil, hovered: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 18))
+                .frame(width: 20)
+            Text(title)
+                .lineLimit(1)
+                .truncationMode(.middle)
+#if os(macOS)
+                .font(.system(size: 14))
+#endif
+            Spacer(minLength: 0)
+            if let accessory {
+                Image(systemName: accessory)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .foregroundStyle(StorySidebarPalette.foreground(colorScheme))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+#if os(iOS)
+        .frame(minHeight: 44)
+#endif
+        .contentShape(.rect)
+#if os(macOS)
         .background {
-            if peopleFooterHovered {
+            if hovered {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.primary.opacity(0.06))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
             }
         }
-        .onHover { peopleFooterHovered = $0 }
 #endif
-        .overlay(alignment: .top) { Divider() }
-        .task { await refreshSidebarAccounts() }
     }
 
     private func refreshSidebarAccounts() async {
@@ -1668,14 +1872,6 @@ struct StoryRootView: View {
             sidebarAccountError = nil
         } catch { sidebarAccountError = error.localizedDescription }
 #endif
-    }
-
-    private func moveTreeSelection(_ delta: Int) {
-        sidebarTreeSelection = StoryPagePickerSelection.moved(sidebarTreeSelection, by: delta, in: sidebarTrees.map(\.id))
-    }
-
-    private func openSelectedSidebarTree() {
-        if let id = sidebarTreeSelection ?? sidebarTrees.first?.id { openSidebarTree(id) }
     }
 
     private func openSidebarTree(_ id: String) {
@@ -1792,13 +1988,8 @@ struct StoryRootView: View {
         openReviewChoice(choices[next])
     }
 
-    @ViewBuilder
     private var sidebarList: some View {
-        if sidebarPageOrder == .trees {
-            sidebarTreesList
-        } else {
-            sidebarPagesContent
-        }
+        sidebarPagesContent
     }
 
     private var sidebarPagesContent: some View {
@@ -1808,7 +1999,8 @@ struct StoryRootView: View {
                 StoryOrderedPageSections(
                     results: model.searchResults,
                     order: sidebarPageOrder,
-                    alphabeticalSectionTitle: nil,
+                    collapsed: $sidebarCollapsedSections,
+                    allowsCollapse: sidebarSearchText.isEmpty,
                     topSpacing: 8
                 ) { result, showsBacklinkCount in
                     sidebarSearchRow(
@@ -1866,6 +2058,12 @@ struct StoryRootView: View {
                 if let result = model.searchResults.first(where: { identities.contains($0.id) }) {
                     Button("Open", systemImage: "arrow.right") {
                         openFromSidebar(.reference(result.reference))
+                    }
+                    Button("Open in New Tab", systemImage: "plus.square.on.square") {
+                        model.openInNewTab(.reference(result.reference), selecting: true)
+                    }
+                    Button("Open in New Window", systemImage: "macwindow.badge.plus") {
+                        model.openInNewWindow(.reference(result.reference))
                     }
                     Divider()
                     Button("Move Page…", systemImage: "folder") {
@@ -1942,7 +2140,9 @@ struct StoryRootView: View {
                 acceptsBlockDrop: !isCurrent(.reference(result.reference)),
                 movePage: {
                     Task { _ = await model.editorHost?.moveDocument(result.reference) }
-                }
+                },
+                openInNewTab: macOpenInNewTab(.reference(result.reference)),
+                openInNewWindow: { model.openInNewWindow(.reference(result.reference)) }
             ) {
                 openFromSidebar(.reference(result.reference))
             }
@@ -1966,7 +2166,11 @@ struct StoryRootView: View {
     }
 
     private var keyboardNavigableSidebarResults: [WorkspaceSearchResult] {
-        StorySidebarPages.displayOrder(model.searchResults, by: sidebarPageOrder)
+        StorySidebarPages.displayOrder(
+            model.searchResults,
+            by: sidebarPageOrder,
+            collapsed: sidebarSearchText.isEmpty ? sidebarCollapsedSections : .init()
+        )
     }
 
     private func sidebarPageRowIsSelected(_ result: WorkspaceSearchResult) -> Bool {
@@ -1979,15 +2183,6 @@ struct StoryRootView: View {
 
     private func handleSidebarSearchKeyPress(_ press: KeyPress) -> KeyPress.Result {
         guard press.phase == .down, sidebarSearchFocused else { return .ignored }
-        if sidebarPageOrder == .trees {
-            switch press.key {
-            case .upArrow: moveTreeSelection(-1)
-            case .downArrow: moveTreeSelection(1)
-            case .return: openSelectedSidebarTree()
-            default: return .ignored
-            }
-            return .handled
-        }
         let results = keyboardNavigableSidebarResults
         guard !results.isEmpty else { return .ignored }
         switch press.key {
@@ -2167,6 +2362,20 @@ struct StoryRootView: View {
         location == model.currentLocation
     }
 
+    /// Open a sidebar page in a new tab (on the Mac, where tabs are windows).
+    /// The sidebar's selection stays on the page this window shows.
+    private func macOpenInNewTab(_ location: WorkspaceLocation) -> ((Bool) -> Void)? {
+#if os(macOS)
+        return { selecting in
+            model.openInNewTab(location, selecting: selecting)
+            let identity = model.currentReference.identity
+            sidebarListSelection = model.searchResults.contains { $0.id == identity } ? identity : nil
+        }
+#else
+        return nil
+#endif
+    }
+
     private func openFromSidebar(_ location: WorkspaceLocation) {
 #if os(iOS)
         guard !sidebarDismissDragSuppressesTap else { return }
@@ -2225,8 +2434,8 @@ struct StoryRootView: View {
             goBack: { Task { await model.goBack() } },
             goForward: { Task { await model.goForward() } },
             goParent: { Task { await model.goParent() } },
-            newTab: { Task { await model.newTab() } },
-            closeTab: { Task { await model.closeSelectedTab() } },
+            newTab: { model.newTab() },
+            newWindow: { model.openInNewWindow(nil) },
             newPage: { Task { await model.newDraftPage() } },
             openLocation: { presentedSheet = .openLocation },
             focusSidebarSearch: {
@@ -2275,7 +2484,6 @@ struct StoryRootView: View {
             canGoForward: model.canGoForward,
             canGoParent: model.canGoParent,
             canGoHome: model.canGoHome,
-            canCloseTab: model.tabItems.count > 1,
             canCreatePage: model.node?.isWritable == true && !currentPageIsInTrash,
             hasDocument: model.binding != nil,
             hasNode: model.node != nil,
@@ -2377,7 +2585,7 @@ struct StoryRootView: View {
     private var macManagementPanel: some View {
         MacStorySyncAccountPanel(
             workspace: workspace,
-            syncSections: AnyView(syncStatusPanel.sections),
+            syncSections: AnyView(accountSyncPanel.sections),
             openProfile: { tree in
                 profileAfterManagementDismiss = tree
                 managementPresented = false
@@ -2389,16 +2597,8 @@ struct StoryRootView: View {
     private func finishManagementDismissal() {
         if let profileTree = profileAfterManagementDismiss {
             profileAfterManagementDismiss = nil
-            Task {
-                do {
-                    if let person = workspace.directory.first(where: { $0.entry.profile == profileTree }) {
-                        try await workspace.openDirectoryProfile(person)
-                    } else {
-                        try await workspace.openPlacedTree(profileTree)
-                    }
-                }
-                catch { workspace.errorMessage = error.localizedDescription }
-            }
+            // Pushed onto this tab's history, as People does, so Back returns to the previous tree.
+            Task { await model.openProfile(tree: profileTree) }
         } else if let sheet = sheetAfterManagementDismiss {
             sheetAfterManagementDismiss = nil
             presentedSheet = sheet
@@ -2482,16 +2682,6 @@ struct StoryRootView: View {
     @ViewBuilder
     private func pageFrame(for location: WorkspaceLocation) -> some View {
         VStack(spacing: 0) {
-            if model.tabItems.count > 1 {
-                StoryTabStrip(
-                    tabs: model.tabItems,
-                    selected: model.selectedTabID,
-                    title: { tab in tab.current.path == "/" ? "Home" : tab.current.path.split(separator: "/").last.map(String.init) ?? "Story" },
-                    select: { id in Task { await model.selectTab(id) } },
-                    close: { Task { await model.closeSelectedTab() } },
-                    create: { Task { await model.newTab() } }
-                )
-            }
             if location == model.currentLocation, !hostsReviewAccessory(location), let review = workspace.conflictReview {
                 let choices = review.decisions.filter {
                     $0.path.map { reviewLogicalPath($0) == model.currentReference.path } ?? false
@@ -2519,6 +2709,10 @@ struct StoryRootView: View {
                     Divider()
                 }
             }
+            if location == model.currentLocation, let node = model.node,
+               node.reference.path == "/", workspace.isOwnProfile(node.reference.tree.rawValue) {
+                StoryOwnProfileBar()
+            }
             pageFrameContent(for: location)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 #if os(macOS)
@@ -2539,7 +2733,8 @@ struct StoryRootView: View {
                         IOSTopOverscrollIndicator(
                             progress: topOverscrollProgress,
                             isArmed: topOverscrollArmed,
-                            status: toolbarSyncStatus
+                            status: toolbarSyncStatus,
+                            treeTitle: currentSidebarTreeTitle
                         )
                         .offset(y: 4 + elasticOverscrollIndicatorTravel)
                         .opacity(min(1, topOverscrollProgress * 2.6))
@@ -2551,7 +2746,10 @@ struct StoryRootView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: model.binding?.lastError != nil)
 #if os(macOS)
-        .navigationTitle("")
+        // The page's title names the window, and so its native tab and its
+        // Window menu item; the toolbar does not show it.
+        .navigationTitle(model.node?.title ?? "Story")
+        .toolbar(removing: .title)
         .navigationBarBackButtonHidden(true)
 #endif
         .toolbar {
@@ -2580,6 +2778,9 @@ struct StoryRootView: View {
                 detailPathHeading(for: location)
             }
             .sharedBackgroundVisibility(.hidden)
+            // With the title removed nothing else fills the middle, so the
+            // actions would sit beside the path instead of at the trailing edge.
+            ToolbarSpacer(.flexible)
 #endif
             ToolbarItemGroup(placement: .primaryAction) {
 #if os(iOS)
@@ -2797,10 +2998,8 @@ struct StoryRootView: View {
                             readOnly: !node.isWritable
                         ) {
                             StoryDocumentFooter(
-                                status: syncStatus(for: lease.binding),
                                 backlinks: presentation.backlinks,
-                                open: { destination in Task { await model.navigate(to: destination) } },
-                                showStatus: showStatusPanel
+                                open: { destination in Task { await model.navigate(to: destination) } }
                             )
                         }
                     }
@@ -3751,150 +3950,137 @@ private struct StoryAgentBundlePage: View {
 
 private struct StoryDevicesHeader: View {
     var title = "Devices"
-    var showsAddAccount = true
-    let addAccount: () -> Void
 
     var body: some View {
-        HStack {
-            Text(title)
-            Spacer()
-            if showsAddAccount {
-                Button(action: addAccount) {
-                    Image(systemName: "person.badge.plus")
-                        .font(.body)
-#if os(iOS)
-                        .frame(width: 44, height: 44)
-#else
-                        .frame(width: 24, height: 24)
-#endif
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Add account")
-                .help("Add account…")
-            }
-        }
-        .textCase(nil)
+        Text(title).textCase(nil)
     }
 }
 
-/// One account's placements on other hosts (accounts §1.3): the placement
-/// connections this device holds, an action to place the account on
-/// another host, and removing a connection from this device. Placing
-/// folders under a placement root is not here.
-private struct StoryPlacementsSection: View {
+/// One placement (accounts §1.3) as its own one-row section: the profile's
+/// account on a host other than its home, which this device signs in to
+/// through the home host.
+private struct StoryPlacementSection: View {
     let workspace: StoryWorkspaceState
-    let configurationTree: String
-    var title = "Other Hosts"
-    @State private var placements: [StoryPlacement] = []
-    @State private var hostPromptPresented = false
+    let placement: StoryPlacement
+    let removed: () -> Void
+    @State private var confirming = false
+    @State private var working = false
+    @State private var message: String?
+
+    var body: some View {
+        Section {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(placement.handle.map { "~\($0) on \(placement.hostName)" } ?? placement.hostName)
+                    Text(message ?? "Signs in through \(placement.homeHostName)")
+                        .font(.caption)
+                        .foregroundStyle(message == nil ? Color.secondary : Color.red)
+                }
+                Spacer(minLength: 12)
+                Button(role: .destructive) {
+                    confirming = true
+                } label: {
+                    Image(systemName: "minus.circle")
+                }
+                .buttonStyle(.borderless)
+                .disabled(working)
+                .accessibilityLabel("Remove \(placement.hostName) from this device")
+                .help("Remove from this device…")
+            }
+        }
+        .confirmationDialog(
+            "Remove \(placement.hostName) from this device?",
+            isPresented: $confirming
+        ) {
+            Button("Remove", role: .destructive) { Task { await forget() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The account stays on \(placement.hostName); adding the host again reconnects this device.")
+        }
+    }
+
+    private func forget() async {
+        working = true
+        defer { working = false }
+        do {
+            try await workspace.accountService.forgetPlacement(placement)
+            removed()
+        } catch { message = error.localizedDescription }
+    }
+}
+
+/// The one way onto another host: place an existing account there (keeping
+/// its identity and signing in through its home host), or join that host's
+/// community as a new account.
+private struct StoryAddAccountOrHostSection<Account: HostAccountPresentable>: View {
+    let workspace: StoryWorkspaceState
+    let accounts: [Account]
+    let joinCommunity: () -> Void
+    let placed: () -> Void
+    @State private var choosingKind = false
+    @State private var placing: Account?
     @State private var host = ""
     @State private var working = false
     @State private var message: String?
-    @State private var removal: StoryPlacement?
 
     private var canPlace: Bool { workspace.accountService.capabilities.contains(.connectPlacement) }
 
     var body: some View {
         Section {
-            ForEach(placements) { placement in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(placement.handle.map { "~\($0) on \(placement.hostName)" } ?? placement.hostName)
-                        Text("Signs in through \(placement.homeHostName)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 12)
-                    Button(role: .destructive) {
-                        removal = placement
-                    } label: {
-                        Image(systemName: "minus.circle")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(working)
-                    .accessibilityLabel("Remove \(placement.hostName) from this device")
-                    .help("Remove from this device…")
-                }
+            Button("Add Account or Host…") {
+                if canPlace, !accounts.isEmpty { choosingKind = true } else { joinCommunity() }
             }
-            if placements.isEmpty {
-                Text("This account is on no other host.").foregroundStyle(.secondary)
-            }
+            .disabled(working)
             if working { ProgressView() }
             if let message {
                 Text(message).font(.caption).foregroundStyle(.red)
             }
-        } header: {
-            Text(title).textCase(nil)
-        } footer: {
-            if canPlace {
-                Button("Add another host…") {
-                    host = ""
-                    hostPromptPresented = true
-                }
-#if os(macOS)
-                .buttonStyle(.link)
-#endif
-                .textCase(nil)
-                .disabled(working)
-            }
         }
-        .task(id: configurationTree) { await load() }
-        .alert("Add another host", isPresented: $hostPromptPresented) {
+        .confirmationDialog("Add an account or host", isPresented: $choosingKind) {
+            ForEach(accounts, id: \.configurationTree) { account in
+                Button(accounts.count > 1 ? "Place \(account.accountDisplayName) on Another Host…" : "Place This Account on Another Host…") {
+                    host = ""
+                    placing = account
+                }
+            }
+            Button("Join Another Community…", action: joinCommunity)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Placing an account keeps one identity and signs in through its home host. Joining a community makes a separate account there.")
+        }
+        .alert(
+            "Place this account on a host",
+            isPresented: Binding(get: { placing != nil }, set: { if !$0 { placing = nil } }),
+            presenting: placing
+        ) { account in
             TextField("https://host.example", text: $host)
 #if os(iOS)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 #endif
-            Button("Add") { Task { await place() } }
+            Button("Add") { Task { await place(account) } }
                 .disabled(host.trimmingCharacters(in: .whitespaces).isEmpty)
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Once that host's administrators have added your profile URL as a member, your trees can live under its addresses. It signs your devices in through your home host.")
-        }
-        .confirmationDialog(
-            "Remove \(removal?.hostName ?? "this host") from this device?",
-            isPresented: Binding(get: { removal != nil }, set: { if !$0 { removal = nil } }),
-            presenting: removal
-        ) { placement in
-            Button("Remove", role: .destructive) { Task { await forget(placement) } }
-            Button("Cancel", role: .cancel) {}
-        } message: { placement in
-            Text("The account stays on \(placement.hostName); adding the host again reconnects this device.")
+        } message: { account in
+            Text("Once that host's administrators have added your profile URL as a member, your trees can live under its addresses. It signs your devices in through \(account.accountDisplayDetail).")
         }
     }
 
-    private func load() async {
-        do {
-            placements = try await workspace.accountService.placements(configurationTree: configurationTree)
-        } catch { message = error.localizedDescription }
-    }
-
-    private func place() async {
+    private func place(_ account: Account) async {
         working = true
         defer { working = false }
         do {
 #if os(macOS)
             try await workspace.ensureStorySync()
 #endif
-            try await workspace.accountService.connectPlacement(configurationTree: configurationTree, host: host)
+            try await workspace.accountService.connectPlacement(configurationTree: account.configurationTree, host: host)
             message = nil
         } catch {
             // A placement host's 403 and 503 name the home host (ProtocolHTTPError.placementDescription).
             message = error.localizedDescription
         }
-        await load()
-    }
-
-    private func forget(_ placement: StoryPlacement) async {
-        do {
-            try await workspace.accountService.forgetPlacement(placement)
-            message = nil
-        } catch { message = error.localizedDescription }
-        removal = nil
-        await load()
+        placed()
     }
 }
 
@@ -3917,6 +4103,7 @@ private struct MacStorySyncAccountPanel: View {
     @State private var deauthorizationTarget: DeviceDeauthorizationTarget?
     @State private var setupPresented = false
     @State private var identityState: HostAccountState?
+    @State private var placements: [String: [StoryPlacement]] = [:]
     @State private var message: String?
 
     private var account: LocalStorySyncOverview? { workspace.localStorySyncOverview }
@@ -3924,11 +4111,7 @@ private struct MacStorySyncAccountPanel: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let account {
-                    ForEach(account.accounts, id: \.profileSectionID) { hostAccount in
-                        Section { accountHeader(hostAccount) }
-                    }
-                }
+                syncSections
                 if account?.accounts.isEmpty != false, let identity = identityState?.identity {
                     Section {
                         StoryProfileRow(
@@ -3940,53 +4123,50 @@ private struct MacStorySyncAccountPanel: View {
                         )
                     }
                 }
-                syncSections
                 if let account {
-                    if !account.accounts.isEmpty {
-                        ForEach(account.accounts, id: \.devicesSectionID) { hostAccount in
-                            Section {
-                                if let devices = workspace.localHostDevicesByConfigurationTree[hostAccount.configurationTree] {
-                                    ForEach(devices) { device in
-                                        hostDeviceRow(
-                                            device,
-                                            configurationTree: hostAccount.configurationTree,
-                                            devices: devices
-                                        )
-                                    }
-                                } else {
-                                    ProgressView("Loading devices…")
+                    // Each account is one section: its profile, then its devices.
+                    ForEach(account.accounts, id: \.accountSectionID) { hostAccount in
+                        Section {
+                            accountHeader(hostAccount)
+                            if let devices = workspace.localHostDevicesByConfigurationTree[hostAccount.configurationTree] {
+                                ForEach(devices) { device in
+                                    hostDeviceRow(
+                                        device,
+                                        configurationTree: hostAccount.configurationTree,
+                                        devices: devices
+                                    )
                                 }
-                                if pairingConfigurationTree == hostAccount.configurationTree, let pairing {
-                                    VStack(spacing: 10) {
-                                        PairingQRCode(payload: pairing.payload)
-                                            .frame(width: 220, height: 220)
-                                        LabeledContent("Confirm on both devices", value: pairing.confirmationCode)
-                                            .font(.headline.monospacedDigit())
-                                    }
-                                    .frame(maxWidth: .infinity)
+                            } else {
+                                ProgressView("Loading devices…")
+                            }
+                            if pairingConfigurationTree == hostAccount.configurationTree, let pairing {
+                                VStack(spacing: 10) {
+                                    PairingQRCode(payload: pairing.payload)
+                                        .frame(width: 220, height: 220)
+                                    LabeledContent("Confirm on both devices", value: pairing.confirmationCode)
+                                        .font(.headline.monospacedDigit())
                                 }
-                            } header: {
-                                StoryDevicesHeader(
-                                    title: account.accounts.count > 1 ? "Devices · \(hostAccount.accountDisplayName)" : "Devices",
-                                    showsAddAccount: account.accounts.first?.id == hostAccount.id,
-                                    addAccount: { setupPresented = true }
-                                )
-                            } footer: {
-                                Button("Pair another device…") {
-                                    Task { await createPairing(configurationTree: hostAccount.configurationTree) }
-                                }
-                                .buttonStyle(.link)
-                                .textCase(nil)
-                                .disabled(!hostAccount.credentialAvailable)
+                                .frame(maxWidth: .infinity)
+                            }
+                            Button("Pair Another Device…") {
+                                Task { await createPairing(configurationTree: hostAccount.configurationTree) }
+                            }
+                            .buttonStyle(.link)
+                            .disabled(!hostAccount.credentialAvailable)
+                        }
+                        ForEach(placements[hostAccount.configurationTree] ?? []) { placement in
+                            StoryPlacementSection(workspace: workspace, placement: placement) {
+                                Task { await loadPlacements() }
                             }
                         }
-                        ForEach(account.accounts, id: \.placementsSectionID) { hostAccount in
-                            StoryPlacementsSection(
-                                workspace: workspace,
-                                configurationTree: hostAccount.configurationTree,
-                                title: account.accounts.count > 1 ? "Other Hosts · \(hostAccount.accountDisplayName)" : "Other Hosts"
-                            )
-                        }
+                    }
+                    if !account.accounts.isEmpty {
+                        StoryAddAccountOrHostSection(
+                            workspace: workspace,
+                            accounts: account.accounts,
+                            joinCommunity: { setupPresented = true },
+                            placed: { Task { await loadPlacements() } }
+                        )
                     }
                     if account.accounts.isEmpty {
                         ContentUnavailableView(
@@ -4016,8 +4196,9 @@ private struct MacStorySyncAccountPanel: View {
                 if account?.accounts.isEmpty != false, account?.handle == nil {
                     Section {
                         Text("Connect to a community or pair an existing account.").foregroundStyle(.secondary)
+                        Button("Set Up…") { setupPresented = true }
                     } header: {
-                        StoryDevicesHeader(addAccount: { setupPresented = true })
+                        StoryDevicesHeader()
                     }
                 }
             }
@@ -4056,6 +4237,7 @@ private struct MacStorySyncAccountPanel: View {
             person: workspace.directory.first { $0.entry.profile == account.profileTree },
             fallbackTitle: account.accountDisplayName,
             fallbackSubtitle: account.accountDisplayDetail,
+            subtitle: account.accountDisplayLabel,
             canOpen: account.profileTree != nil,
             accessory: AnyView(identityMenu),
             open: { if let profile = account.profileTree { openProfile(profile) } }
@@ -4067,7 +4249,7 @@ private struct MacStorySyncAccountPanel: View {
         if let identity = identityState?.identity {
             if identity.keyAvailable {
                 Menu {
-                    Button("Back up identity…") { backupIdentity() }
+                    Button("Back Up Identity…") { backupIdentity() }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -4076,7 +4258,7 @@ private struct MacStorySyncAccountPanel: View {
                 .fixedSize()
                 .help("Identity options")
             } else {
-                Button("Recover identity…") { recoverIdentity() }
+                Button("Recover Identity…") { recoverIdentity() }
             }
         }
     }
@@ -4112,12 +4294,22 @@ private struct MacStorySyncAccountPanel: View {
             identityState = try await workspace.accountService.state()
         } catch { message = error.localizedDescription }
         guard let accounts = workspace.localStorySyncOverview?.accounts else { return }
+        await loadPlacements()
         for account in accounts {
             do {
                 _ = try await workspace.localHostDevices(configurationTree: account.configurationTree)
             } catch {
                 message = error.localizedDescription
             }
+        }
+    }
+
+    private func loadPlacements() async {
+        for account in workspace.localStorySyncOverview?.accounts ?? [] {
+            do {
+                placements[account.configurationTree] = try await workspace.accountService
+                    .placements(configurationTree: account.configurationTree)
+            } catch { message = error.localizedDescription }
         }
     }
 
@@ -4130,12 +4322,17 @@ private struct MacStorySyncAccountPanel: View {
         let isLastAdministrator = device.isAdministrator
             && devices.filter(\.isAdministrator).count == 1
         return HStack {
-            Text(device.label)
+            if device.isCurrent {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("This Mac")
+                    Text(device.label).font(.caption).foregroundStyle(.secondary)
+                }
+            } else {
+                Text(device.label)
+            }
             Spacer(minLength: 12)
             HStack(spacing: 5) {
-                if device.isCurrent {
-                    statusTag("This Mac")
-                } else if !device.isAdministrator {
+                if !device.isCurrent, !device.isAdministrator {
                     statusTag("Active")
                 }
                 if device.isAdministrator {
@@ -4287,8 +4484,11 @@ struct StoryIOSLaunchView: View {
 
     let workspace: StoryWorkspaceState
     var accountAdditionComplete: (() -> Void)?
+    /// The request a window opened from another was made with.
+    var windowRequest: UUID?
     @State private var phase: Phase = .restoring
     @State private var ready = false
+    @State private var restoreError: String?
     @State private var started = false
     @State private var scanError: String?
     @State private var treeError: String?
@@ -4304,9 +4504,7 @@ struct StoryIOSLaunchView: View {
             if ready, accountAdditionComplete != nil {
                 Color.clear
             } else if ready {
-                StoryRootView(workspace: workspace) {
-                    resetForPairing()
-                }
+                StoryRootView(workspace: workspace, onDisconnect: { resetForPairing() }, windowRequest: windowRequest)
                 .safeAreaInset(edge: .bottom) {
                     if workspace.isShowingTour {
                         HStack {
@@ -4331,13 +4529,14 @@ struct StoryIOSLaunchView: View {
                 phase = .scanning
                 return
             }
-            if await workspace.restoreNativePlacementIfAvailable() {
+            // Another window already opened the tree: this one shows it too.
+            // A fresh launch also starts `.ready`, on the disconnected "local"
+            // home, and must still reopen the saved tree.
+            if workspace.launchPhase.showsTree, workspace.home.tree.rawValue != "local" {
                 ready = true
-            } else {
-                workspace.errorMessage = nil
-                await loadAccounts()
-                phase = .accounts
+                return
             }
+            await restoreSavedTree()
         }
         .onChange(of: ready) { _, ready in
             if ready { accountAdditionComplete?() }
@@ -4382,9 +4581,32 @@ struct StoryIOSLaunchView: View {
         }
     }
 
+    /// Reopen the tree this iPhone last had open. A failure is shown above
+    /// the accounts rather than dropped, so a tree that could not be reopened
+    /// doesn't look forgotten.
+    private func restoreSavedTree() async {
+        if await workspace.restoreNativePlacementIfAvailable() {
+            restoreError = nil
+            ready = true
+        } else {
+            restoreError = workspace.errorMessage
+            workspace.errorMessage = nil
+            await loadAccounts()
+            phase = .accounts
+        }
+    }
+
     private var accountList: some View {
         NavigationStack {
             List {
+                if let restoreError {
+                    Section {
+                        Text(restoreError).foregroundStyle(.red)
+                        Button("Try Again", systemImage: "arrow.clockwise") {
+                            Task { await restoreSavedTree() }
+                        }
+                    }
+                }
                 if let confirmationCode {
                     Section("Account added") {
                         LabeledContent("Confirm on your Mac", value: confirmationCode)
@@ -4615,10 +4837,50 @@ struct StoryIOSLaunchView: View {
 #endif
 
 #if os(iOS)
+/// A small tab on the sidebar drawer's trailing edge. While the drawer is
+/// closed it peeks in from the bottom left, so the sidebar can be found
+/// without knowing the edge swipe; tapping it opens or closes the drawer.
+private struct IOSSidebarTab: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let isOpen: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            Image(systemName: isOpen ? "chevron.compact.left" : "chevron.compact.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 44)
+                .background(
+                    StorySidebarPalette.background(colorScheme),
+                    in: UnevenRoundedRectangle(bottomTrailingRadius: 9, topTrailingRadius: 9)
+                )
+                .overlay(
+                    UnevenRoundedRectangle(bottomTrailingRadius: 9, topTrailingRadius: 9)
+                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
+                )
+                .shadow(color: .black.opacity(0.08), radius: 3, x: 1, y: 0)
+                // A larger target than the visible tab.
+                .padding(.trailing, 14)
+                .padding(.vertical, 8)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isOpen ? "Hide Pages" : "Show Pages")
+    }
+}
+
 private struct IOSTopOverscrollIndicator: View {
     let progress: CGFloat
     let isArmed: Bool
     let status: StorySyncStatus
+    /// The open tree, named in place of "Synced" so the pull also says where you are.
+    let treeTitle: String
+
+    private var title: String {
+        if isArmed { return "Release for Sync & Accounts" }
+        return status == .synchronized ? treeTitle : "\(treeTitle) · \(status.pullTitle)"
+    }
 
     var body: some View {
         HStack(spacing: 9) {
@@ -4640,7 +4902,8 @@ private struct IOSTopOverscrollIndicator: View {
             }
             .frame(width: 24, height: 24)
 
-            Text(isArmed ? "Release for Sync & Accounts" : status.pullTitle)
+            Text(title)
+                .lineLimit(1)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(isArmed ? .primary : .secondary)
         }
@@ -4827,6 +5090,7 @@ private struct IOSAccountPanel: View {
     @State private var accounts: [HostAccount] = []
     @State private var snapshots: [String: ProtocolAccountDescriptor] = [:]
     @State private var accountErrors: [String: String] = [:]
+    @State private var placements: [String: [StoryPlacement]] = [:]
     @State private var message: String?
     @State private var disconnectConfirmation = false
     @State private var loading = true
@@ -4835,7 +5099,9 @@ private struct IOSAccountPanel: View {
     var body: some View {
         NavigationStack {
             Form {
-                ForEach(accounts, id: \.profileSectionID) { account in
+                syncSections
+                // Each account is one section: its profile, then this device.
+                ForEach(accounts, id: \.accountSectionID) { account in
                     Section {
                         let profile = snapshots[account.configurationTree]?.profileTree ?? account.profileTree
                         StoryProfileRow(
@@ -4843,14 +5109,10 @@ private struct IOSAccountPanel: View {
                             person: workspace.directory.first { $0.entry.profile == profile },
                             fallbackTitle: account.accountDisplayName,
                             fallbackSubtitle: account.accountDisplayDetail,
+                            subtitle: account.accountDisplayLabel,
                             canOpen: profile != nil,
                             open: { if let profile { openProfile(profile) } }
                         )
-                    }
-                }
-                syncSections
-                ForEach(accounts, id: \.devicesSectionID) { account in
-                    Section {
                         if let device = snapshots[account.configurationTree]?.device {
                             LabeledContent("This device", value: device.label)
                         }
@@ -4862,27 +5124,30 @@ private struct IOSAccountPanel: View {
                         if let error = accountErrors[account.configurationTree] {
                             Text(error).font(.caption).foregroundStyle(.secondary)
                         }
-                    } header: {
-                        StoryDevicesHeader(
-                            title: accounts.count > 1 ? "Devices · \(account.accountDisplayName)" : "Devices",
-                            showsAddAccount: accounts.first?.id == account.id,
-                            addAccount: { addingAccount = true }
-                        )
+                    }
+                    ForEach(placements[account.configurationTree] ?? []) { placement in
+                        StoryPlacementSection(workspace: workspace, placement: placement) {
+                            Task { await loadPlacements() }
+                        }
                     }
                 }
-                ForEach(accounts, id: \.placementsSectionID) { account in
-                    StoryPlacementsSection(
+                if !accounts.isEmpty {
+                    StoryAddAccountOrHostSection(
                         workspace: workspace,
-                        configurationTree: account.configurationTree,
-                        title: accounts.count > 1 ? "Other Hosts · \(account.accountDisplayName)" : "Other Hosts"
+                        accounts: accounts,
+                        joinCommunity: { addingAccount = true },
+                        placed: { Task { await loadPlacements() } }
                     )
                 }
                 if accounts.isEmpty, message == nil {
                     Section {
                         if loading { ProgressView("Loading accounts…") }
-                        else { Text("No accounts on this device").foregroundStyle(.secondary) }
+                        else {
+                            Text("No accounts on this device").foregroundStyle(.secondary)
+                            Button("Set Up…") { addingAccount = true }
+                        }
                     } header: {
-                        StoryDevicesHeader(addAccount: { addingAccount = true })
+                        StoryDevicesHeader()
                     }
                 }
                 if let message { Section { Text(message).foregroundStyle(.red) } }
@@ -4925,6 +5190,16 @@ private struct IOSAccountPanel: View {
             }
             message = nil
         } catch { message = error.localizedDescription }
+        await loadPlacements()
+    }
+
+    private func loadPlacements() async {
+        for account in accounts {
+            do {
+                placements[account.configurationTree] = try await workspace.accountService
+                    .placements(configurationTree: account.configurationTree)
+            } catch { accountErrors[account.configurationTree] = error.localizedDescription }
+        }
     }
 
     private func disconnect() async {
@@ -5090,6 +5365,19 @@ private struct MacPopoverKeyWindow: NSViewRepresentable {
     func updateNSView(_: Probe, context _: Context) {}
 }
 #endif
+
+/// Marks your own profile page, which everyone can read, so it is not
+/// mistaken for a private page or for someone else's profile.
+private struct StoryOwnProfileBar: View {
+    var body: some View {
+        Label("Your profile · Public · Anyone can see this page", systemImage: "person.crop.circle.badge.checkmark")
+            .font(.callout.weight(.medium))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(Color.accentColor)
+    }
+}
 
 private struct StoryProfileWidget: View {
     let profile: StoryProfileDocument
@@ -5748,3 +6036,42 @@ private struct StoryResourcePermissionPanel: View {
         } catch { self.error = error.localizedDescription }
     }
 }
+
+#if os(macOS)
+/// Joins a window opened as a tab to the tab group it was opened from, and
+/// keeps that group's current tab selected when the new one opens behind it.
+private struct StoryWindowTabbing: NSViewRepresentable {
+    let request: StoryWindowRequest?
+
+    func makeNSView(context _: Context) -> TabbingView { TabbingView() }
+
+    func updateNSView(_ view: TabbingView, context _: Context) {
+        view.request = request
+        view.apply()
+    }
+
+    final class TabbingView: NSView {
+        var request: StoryWindowRequest?
+        private var applied: UUID?
+
+        override func hitTest(_: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            apply()
+        }
+
+        func apply() {
+            guard let request, applied != request.id, let window, let number = request.tabGroupWindow,
+                  let group = NSApp.window(withWindowNumber: number), group !== window else { return }
+            applied = request.id
+            group.addTabbedWindow(window, ordered: .above)
+            if request.selecting {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                group.makeKeyAndOrderFront(nil)
+            }
+        }
+    }
+}
+#endif

@@ -93,6 +93,21 @@
       ]
     },
     {
+      "name": "authored-children-heading-holds-the-remainder",
+      "node": { "path": "/dir", "body": "index" },
+      "source": "# Directory\n\n# Children\n\nHey\n\n[A](a.md)\n",
+      "children": [
+        { "name": "a", "path": "/dir/a", "body": "sibling" },
+        { "name": "b", "path": "/dir/b", "body": "sibling" }
+      ],
+      "expectedOutline": [
+        { "heading": 1, "text": "Directory" },
+        { "heading": 1, "text": "Children" },
+        { "link": "a.md", "generated": false },
+        { "link": "b.md", "generated": true }
+      ]
+    },
+    {
       "name": "every-child-linked-presents-no-children-heading",
       "node": { "path": "/dir", "body": "index" },
       "source": "# Directory\n\n[A](a.md)\n\n[B](b.md)\n",
@@ -146,24 +161,35 @@
       "expectedSource": "## notes\n\nBody.\n"
     },
     {
-      "name": "renaming-children-writes-the-heading-and-a-marker",
+      "name": "renaming-children-writes-the-section",
       "node": { "path": "/dir", "body": "index" },
       "source": "# Directory\n\nIntro.\n",
       "children": [
         { "name": "a", "path": "/dir/a", "body": "sibling" }
       ],
       "edit": { "retitle": "children", "text": "Pages" },
-      "expectedSource": "# Directory\n\nIntro.\n\n# Pages\n\n<!-- overstory:children -->\n"
+      "expectedSource": "# Directory\n\nIntro.\n\n# Pages\n\n[a](a.md)\n\n"
     },
     {
-      "name": "content-under-children-writes-the-heading-and-a-marker",
+      "name": "content-under-children-writes-the-section",
       "node": { "path": "/dir", "body": "index" },
       "source": "Intro.\n",
       "children": [
         { "name": "a", "path": "/dir/a", "body": "sibling" }
       ],
       "edit": { "append": "See also the archive." },
-      "expectedSource": "Intro.\n\n# Children\n\n<!-- overstory:children -->\n\nSee also the archive.\n\n"
+      "expectedSource": "Intro.\n\n# Children\n\n[a](a.md)\n\nSee also the archive.\n\n"
+    },
+    {
+      "name": "reordering-children-writes-the-section",
+      "node": { "path": "/dir", "body": "index" },
+      "source": "Intro.\n",
+      "children": [
+        { "name": "a", "path": "/dir/a", "body": "sibling" },
+        { "name": "b", "path": "/dir/b", "body": "sibling" }
+      ],
+      "edit": { "reverse": "children" },
+      "expectedSource": "Intro.\n\n# Children\n\n[b](b.md)\n\n[a](a.md)\n\n"
     },
     {
       "name": "an-untouched-page-writes-nothing",

@@ -2200,6 +2200,95 @@ struct TransferPlanTests {
     }
 }
 
+@MainActor @Suite("A drop from another window lands where it was dropped, as one exact transfer")
+struct PositionalTransferPlanTests {
+    /// Move `pick(origin)` to `path` of the destination's tree (`parent` picks
+    /// the parent from the destination's blocks), as the destination editor
+    /// would insert them.
+    func plan(_ origin: String, _ destination: String, moving pick: ([Block]) -> [Block],
+              parent: (([Block]) -> BlockID)? = nil, position: Int,
+              relink: (from: String, to: String)? = nil) throws -> (transfer: WorkspaceDocumentTransfer, planned: StoryMarkdownCodec.PlannedTransfer)? {
+        let a = StoryMarkdownCodec.open(source: origin, revision: "a1", identitySeed: "origin")
+        let b = StoryMarkdownCodec.open(source: destination, revision: "b1", identitySeed: "destination")
+        let roots = pick(a.blocks)
+        let document = Document(id: DocumentID("b"), children: b.blocks)
+        _ = document.insertSubtrees(roots, at: DropPath(parent: parent?(b.blocks), position: position))
+        guard let planned = StoryMarkdownCodec.transfer(roots, from: a.blocks, ledger: a.ledger, into: b.ledger,
+                                                        landing: StoryPagePresentation.authored(document.children), relink: relink) else { return nil }
+        let transfer = try WorkspaceDocumentTransfer(
+            origin: .init(reference: .init(tree: "tr_move", path: "/a"), source: origin, contentRevision: "a1"),
+            destination: .init(reference: .init(tree: "tr_move", path: "/b"), source: destination, contentRevision: "b1"),
+            moves: planned.moves, edits: planned.edits, originSource: planned.originSource, destinationSource: planned.destinationSource)
+        return (transfer, planned)
+    }
+
+    @Test("A paragraph lands between two blocks, after the one above it")
+    func between() throws {
+        let result = try #require(try plan("One\n\nMoved\n\nThree\n", "Top\n\nBottom\n", moving: { [$0[1]] }, position: 1))
+        #expect(result.planned.originSource == "One\n\nThree\n")
+        #expect(result.planned.destinationSource == "Top\n\nMoved\n\nBottom\n")
+        #expect(result.transfer.moves.count == 1)
+        #expect(result.transfer.moves[0].side == .after)
+        #expect(result.transfer.edits.isEmpty)
+        #expect(result.planned.originLedger.records.count == 2)
+    }
+
+    @Test("At the top of a page the move lands before its first block, or after its front matter")
+    func top() throws {
+        let plain = try #require(try plan("One\n\nMoved\n\nThree\n", "Top\n\nBottom\n", moving: { [$0[1]] }, position: 0))
+        #expect(plain.planned.destinationSource == "Moved\n\nTop\n\nBottom\n")
+        #expect(plain.transfer.moves[0].side == .before)
+        let envelope = "---\nid: pg_target\n---\n\n"
+        let fronted = try #require(try plan("One\n\nMoved\n\nThree\n", envelope + "Top\n", moving: { [$0[1]] }, position: 0))
+        #expect(fronted.planned.destinationSource == envelope + "Moved\n\nTop\n")
+        #expect(fronted.transfer.moves[0].anchor.range == 0..<envelope.utf8.count)
+    }
+
+    @Test("A last block gains the blank line it needs before the block below it, as do the blocks above it")
+    func separators() throws {
+        let moved = try #require(try plan("One\n\nLast\n", "Top\n\nBottom\n", moving: { [$0[1]] }, position: 1))
+        #expect(moved.planned.destinationSource == "Top\n\nLast\n\nBottom\n")
+        #expect(moved.transfer.edits.map(\.document) == [.origin])
+        let tight = try #require(try plan("One\n\nMoved\n\nThree\n", "Top\n", moving: { [$0[1]] }, position: 1))
+        #expect(tight.planned.destinationSource == "Top\n\nMoved\n\n")
+        #expect(tight.transfer.edits.map(\.document) == [.destination])
+    }
+
+    @Test("A block dropped into a list lands re-indented as an item's child")
+    func nested() throws {
+        let result = try #require(try plan("- moved\n\nPara\n", "- a\n- b\n", moving: { [$0[0]] }, parent: { $0[0].id }, position: 0))
+        #expect(result.planned.destinationSource == "- a\n  - moved\n\n- b\n", "the moved item keeps its own bytes")
+        #expect(result.planned.originSource == "Para\n")
+        let out = try #require(try plan("- one\n  - child\n- two\n\nPara\n", "Target\n\nEnd\n",
+                                        moving: { [$0[0].children[0]] }, position: 1))
+        #expect(out.planned.destinationSource == "Target\n\n- child\n\nEnd\n")
+        #expect(out.planned.originSource == "- one\n- two\n\nPara\n")
+    }
+
+    @Test("A block dropped inside a heading's section lands within it")
+    func section() throws {
+        let result = try #require(try plan("Moved\n\nStays\n", "# A\n\nx\n\n# B\n\ny\n", moving: { [$0[0]] }, parent: { $0[0].id }, position: 1))
+        #expect(result.planned.destinationSource == "# A\n\nx\n\nMoved\n\n# B\n\ny\n")
+        let first = try #require(try plan("Moved\n\nStays\n", "# A\n\nx\n\n# B\n\ny\n", moving: { [$0[0]] }, parent: { $0[1].id }, position: 0))
+        #expect(first.planned.destinationSource == "# A\n\nx\n\n# B\n\nMoved\n\ny\n")
+    }
+
+    @Test("A section moves with its body, and relative links are rewritten")
+    func sectionWithLinks() throws {
+        let origin = "Intro\n\n# Search\n\n[Plan](Plans/2026.md)\n\n# Next\n\nTail\n"
+        let result = try #require(try plan(origin, "Top\n\nBottom\n", moving: { [$0[1]] }, position: 1, relink: (from: "/Social", to: "/")))
+        #expect(result.planned.originSource == "Intro\n\n# Next\n\nTail\n")
+        #expect(result.planned.destinationSource == "Top\n\n# Search\n\n[Plan](Social/Plans/2026.md)\n\nBottom\n")
+        #expect(result.transfer.edits.filter { $0.document == .origin }.map(\.edit.replacement) == ["Social/Plans/2026.md"])
+    }
+
+    @Test("Blocks the destination's bytes cannot place exactly are refused")
+    func refused() throws {
+        #expect(try plan("One\n\nTwo\n\nThree\n\n", "Target\n\n", moving: { [$0[0], $0[2]] }, position: 1) == nil)
+        #expect(try plan("One\n\nTwo\n", "", moving: { [$0[0]] }, position: 0) == nil)
+    }
+}
+
 extension Document {
     /// The page's authored blocks: what the tree holds under its presented
     /// headings, without them or the generated child links.

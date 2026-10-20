@@ -6,7 +6,7 @@ import { activationElement, configurationCheckoutPath, deviceKeyFromSeed, genera
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { withLocalStateLock } from "./local-state-lock.ts";
 import { ProfileIdentityStore } from "./profile-identity.ts";
-import { loadLocalPlacements } from "./placements.ts";
+import { addLocalPlacement, loadLocalPlacements, type LocalPlacement } from "./placements.ts";
 import type { AccountBootstrapDeps } from "./ports.ts";
 
 interface PendingAccountClaimBootstrap {
@@ -278,11 +278,32 @@ async function claimAccountProfileBootstrap(
     const hosted = new ProtocolClient(origin, (await store.get())!.accountToken);
     await hosted.submitUpdate(pending.profileTree, null, await resolveSnapshot(await snapshotDirectory(path)));
   })().catch((error: unknown) => console.warn(`The profile ${pending.profileTree} was claimed but not yet activated: ${error instanceof Error ? error.message : String(error)}`));
+  await ensureProfilePlacement();
   await deps.trees.refreshConfiguration();
   return [
     { kind: "created", ref: { tree: result.configuration.id, path: "/access.yaml", stableKey: null } },
     { kind: "created", ref: { tree: result.configuration.id, path: "/devices.yaml", stableKey: null } },
   ];
+}
+
+/**
+ * Place the local identity's profile tree at its profile folder under the
+ * home account that claimed it, so Story Sync keeps the folder synced like
+ * any other placed tree. Returns the placement it added; a data home without
+ * an identity, without that account, or with the tree or folder already
+ * placed is left as it is.
+ */
+export async function ensureProfilePlacement(): Promise<LocalPlacement | null> {
+  const identity = await new ProfileIdentityStore().status().catch(() => null);
+  if (!identity) return null;
+  const configurationTree = treeConfigurationID(identity.profileTree);
+  if (!await new HostAccountStore(configurationTree).safe()) return null;
+  const local = await loadLocalPlacements();
+  if (local.diagnostics.length) return null;
+  if (local.placements.some((placement) => placement.tree === identity.profileTree || placement.path === identity.profilePath)) return null;
+  const placement = { configurationTree, path: identity.profilePath, tree: identity.profileTree };
+  await addLocalPlacement(placement);
+  return placement;
 }
 
 /**

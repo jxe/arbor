@@ -29,7 +29,7 @@ packages:
     path: Packages/StoryEditor
   Quagmire:
     url: https://github.com/jxe/quagmire.git
-    exactVersion: 0.10.0
+    exactVersion: 0.11.0
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle.git
     exactVersion: 2.10.0
@@ -76,6 +76,9 @@ targets:
         NSMicrophoneUsageDescription: Record voice notes to add to Overstory pages.
         NSSpeechRecognitionUsageDescription: Transcribe voice notes into Overstory pages.
         UILaunchScreen: {}
+        # iPad: a page can open in its own window.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
         # Only the system's standard cryptography (CryptoKit, TLS), which is exempt from export documentation.
         ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations:

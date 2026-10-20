@@ -25,7 +25,7 @@ struct StoryWindowCommands {
     var goForward: () -> Void
     var goParent: () -> Void
     var newTab: () -> Void
-    var closeTab: () -> Void
+    var newWindow: () -> Void
     var newPage: () -> Void
     var openLocation: () -> Void
     var focusSidebarSearch: () -> Void
@@ -53,7 +53,6 @@ struct StoryWindowCommands {
     var canGoForward: Bool
     var canGoParent: Bool
     var canGoHome: Bool
-    var canCloseTab: Bool
     var canCreatePage: Bool
     var hasDocument: Bool
     var hasNode: Bool
@@ -192,23 +191,31 @@ private struct StorySidebarNativeSelectionStyle: NSViewRepresentable {
 /// the pointer rather than the List's previous selection.
 struct StorySidebarControlClickMenu: NSViewRepresentable {
     let open: () -> Void
+    let openInNewTab: ((Bool) -> Void)?
+    let openInNewWindow: (() -> Void)?
     let movePage: (() -> Void)?
 
     func makeNSView(context: Context) -> MenuView { MenuView() }
 
     func updateNSView(_ view: MenuView, context: Context) {
         view.open = open
+        view.openInNewTab = openInNewTab
+        view.openInNewWindow = openInNewWindow
         view.movePage = movePage
     }
 
     static func dismantleNSView(_ view: MenuView, coordinator: ()) {
         view.stopMonitoring()
         view.open = nil
+        view.openInNewTab = nil
+        view.openInNewWindow = nil
         view.movePage = nil
     }
 
     final class MenuView: NSView {
         var open: (() -> Void)?
+        var openInNewTab: ((Bool) -> Void)?
+        var openInNewWindow: (() -> Void)?
         var movePage: (() -> Void)?
         private var monitor: Any?
 
@@ -253,6 +260,12 @@ struct StorySidebarControlClickMenu: NSViewRepresentable {
             let menu = NSMenu()
             let openItem = menu.addItem(withTitle: "Open", action: #selector(openPage), keyEquivalent: "")
             openItem.target = self
+            if openInNewTab != nil {
+                menu.addItem(withTitle: "Open in New Tab", action: #selector(openTab), keyEquivalent: "").target = self
+            }
+            if openInNewWindow != nil {
+                menu.addItem(withTitle: "Open in New Window", action: #selector(openWindow), keyEquivalent: "").target = self
+            }
             if movePage != nil {
                 menu.addItem(.separator())
                 let moveItem = menu.addItem(withTitle: "Move Page…", action: #selector(move), keyEquivalent: "")
@@ -262,6 +275,8 @@ struct StorySidebarControlClickMenu: NSViewRepresentable {
         }
 
         @objc private func openPage() { open?() }
+        @objc private func openTab() { openInNewTab?(true) }
+        @objc private func openWindow() { openInNewWindow?() }
         @objc private func move() { movePage?() }
     }
 }
@@ -275,13 +290,30 @@ struct StorySidebarSearchRow: View {
     var isSelected = false
     var acceptsBlockDrop = true
     var movePage: (() -> Void)?
+    /// Opens the page in a new tab, selected or behind this one.
+    var openInNewTab: ((_ selecting: Bool) -> Void)?
+    var openInNewWindow: (() -> Void)?
     let open: () -> Void
+
+    /// A click opens the page here; with ⌘ in a new tab behind this one, and
+    /// with ⌘⇧ in a new, selected tab.
+    private func activate() {
+#if os(macOS)
+        let flags = NSEvent.modifierFlags
+        if flags.contains(.command), let openInNewTab {
+            openInNewTab(flags.contains(.shift))
+            return
+        }
+#endif
+        open()
+    }
 
     var body: some View {
 #if os(macOS)
         if opensThroughListSelection {
             rowContent
-                .background(StorySidebarControlClickMenu(open: open, movePage: movePage))
+                .background(StorySidebarControlClickMenu(open: open, openInNewTab: openInNewTab,
+                                                         openInNewWindow: openInNewWindow, movePage: movePage))
         } else {
             rowContent.contextMenu { contextMenuActions }
         }
@@ -304,10 +336,10 @@ struct StorySidebarSearchRow: View {
                     // AppKit is preparing the menu for this row.
                     .simultaneousGesture(TapGesture().onEnded {
                         guard !NSEvent.modifierFlags.contains(.control) else { return }
-                        open()
+                        activate()
                     })
             } else {
-                Button(action: open) {
+                Button(action: activate) {
                     rowLabel(titleParts: titleParts, contextPath: contextPath)
                 }
                 .buttonStyle(.plain)
@@ -327,6 +359,12 @@ struct StorySidebarSearchRow: View {
     @ViewBuilder
     private var contextMenuActions: some View {
         Button("Open", systemImage: "arrow.right", action: open)
+        if let openInNewTab {
+            Button("Open in New Tab", systemImage: "plus.square.on.square") { openInNewTab(true) }
+        }
+        if let openInNewWindow {
+            Button("Open in New Window", systemImage: "macwindow.badge.plus", action: openInNewWindow)
+        }
         if let movePage {
             Divider()
             Button("Move Page…", systemImage: "folder", action: movePage)
@@ -609,7 +647,8 @@ struct StoryMoveDestinationSheet: View {
     @State private var documentResults: [WorkspaceSearchResult] = []
     @State private var isLoading = false
     @State private var showAllInDocument = false
-    @AppStorage("pageOrder.moveTo") private var order = StorySidebarPageOrder.alphabetical
+    @AppStorage("pageOrder.moveTo") private var order = StorySidebarPageOrder.folders
+    @AppStorage("collapsedSections.moveTo") private var collapsedSections = StoryCollapsedPageSections()
     @State private var keyboardSelection: MoveDestination?
 
     private static let collapsedLimit = 5
@@ -738,7 +777,11 @@ struct StoryMoveDestinationSheet: View {
     }
 
     private var orderedDocumentResults: [WorkspaceSearchResult] {
-        StorySidebarPages.displayOrder(documentResults, by: order)
+        StorySidebarPages.displayOrder(
+            documentResults,
+            by: order,
+            collapsed: query.isEmpty ? collapsedSections : .init()
+        )
     }
 
     @ViewBuilder
@@ -746,7 +789,8 @@ struct StoryMoveDestinationSheet: View {
         StoryOrderedPageSections(
             results: documentResults,
             order: order,
-            alphabeticalSectionTitle: "Documents"
+            collapsed: $collapsedSections,
+            allowsCollapse: query.isEmpty
         ) { result, showsBacklinkCount in
             documentRow(result, showsBacklinkCount: showsBacklinkCount)
         }
@@ -846,7 +890,8 @@ struct StoryStructuralMoveSheet: View {
     @State private var query = ""
     @State private var destinations: [StoryStructuralDestination] = []
     @State private var isLoading = false
-    @AppStorage("pageOrder.movePage") private var order = StorySidebarPageOrder.alphabetical
+    @AppStorage("pageOrder.movePage") private var order = StorySidebarPageOrder.folders
+    @AppStorage("collapsedSections.movePage") private var collapsedSections = StoryCollapsedPageSections()
     @State private var keyboardSelection: WorkspaceIdentity?
 
     init(
@@ -948,7 +993,11 @@ struct StoryStructuralMoveSheet: View {
 
     private var orderedDestinations: [StoryStructuralDestination] {
         let byIdentity = destinationsByIdentity
-        return StorySidebarPages.sorted(destinationResults, by: order).compactMap { byIdentity[$0.id] }
+        return StorySidebarPages.displayOrder(
+            destinationResults,
+            by: order,
+            collapsed: query.isEmpty ? collapsedSections : .init()
+        ).compactMap { byIdentity[$0.id] }
     }
 
     @ViewBuilder
@@ -958,7 +1007,8 @@ struct StoryStructuralMoveSheet: View {
         StoryOrderedPageSections(
             results: destinationResults,
             order: order,
-            alphabeticalSectionTitle: nil
+            collapsed: $collapsedSections,
+            allowsCollapse: query.isEmpty
         ) { result, showsBacklinkCount in
             if let destination = byIdentity[result.id] {
                 destinationRow(destination, showsBacklinkCount: showsBacklinkCount)
@@ -1081,11 +1131,11 @@ struct StoryAttentionBanner: View {
     }
 }
 
+/// What follows a page: the pages that link to it. Sync status is in the
+/// Mac toolbar and the iPhone's pull-down, not here.
 struct StoryDocumentFooter: View {
-    let status: StorySyncStatus
     let backlinks: [WorkspaceSearchResult]
     let open: (WorkspaceReference) -> Void
-    let showStatus: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -1114,23 +1164,6 @@ struct StoryDocumentFooter: View {
                     }
                 }
             }
-
-            Button(action: showStatus) {
-                HStack(spacing: 5) {
-                    StorySyncToolbarIndicator(status: status)
-                        .frame(width: 13, height: 13)
-                        .background(.bar, in: Circle())
-                    Text(status.label)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .help(status.accessibilityDescription)
-            .accessibilityLabel(status.accessibilityDescription)
-            .accessibilityHint("Shows local durability and synchronization details")
         }
         .padding(.top, 24)
         .padding(.bottom, 12)
@@ -1149,6 +1182,13 @@ struct StorySyncStatusView: View {
     let reconnectStorySync: () -> Void
     let showStorySyncLogs: () -> Void
     var showNetworkLog: () -> Void = {}
+    /// Names the card after the open tree; the card then says only the
+    /// tree's state, not "Story is up to date".
+    var treeTitle: String?
+    /// Switches to another tree, out of the way under the card.
+    var treeSwitcher: AnyView?
+    /// Shows the open tree's folder in the Finder, when it is placed on this Mac.
+    var revealFolder: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingDiscard = false
@@ -1180,60 +1220,53 @@ struct StorySyncStatusView: View {
                     .foregroundStyle(overallStatusTint(diagnostic))
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(overallStatusTitle(diagnostic)).font(.headline)
-                    Text(overallStatusDetail(diagnostic))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if let treeTitle {
+                        Text(treeTitle).font(.headline)
+                        Text(statusLine(diagnostic))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(overallStatusTitle(diagnostic)).font(.headline)
+                    }
+                    if let detail = attentionDetail(diagnostic) {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer(minLength: 16)
-                if diagnostic != nil {
-                    Button("Retry Save", systemImage: "arrow.clockwise", action: retrySave)
-                } else if sync.state == .conflict {
-                    Button("Discard Refused Changes…", systemImage: "trash", role: .destructive) { confirmingDiscard = true }
-                        .confirmationDialog("Discard the changes the host refused?", isPresented: $confirmingDiscard) {
-                            Button("Discard Changes", role: .destructive, action: discardHeldChanges)
-                        } message: {
-                            Text("The refused change and every edit made after it on this device are removed. This cannot be undone.")
-                        }
-                } else {
-                    Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
-                        .disabled(sync.state == .offline)
+                Group {
+                    if diagnostic != nil {
+                        Button("Retry Save", systemImage: "arrow.clockwise", action: retrySave)
+                    } else if sync.state == .conflict {
+                        Button("Discard Refused Changes…", systemImage: "trash", role: .destructive) { confirmingDiscard = true }
+                            .confirmationDialog("Discard the changes the host refused?", isPresented: $confirmingDiscard) {
+                                Button("Discard Changes", role: .destructive, action: discardHeldChanges)
+                            } message: {
+                                Text("The refused change and every edit made after it on this device are removed. This cannot be undone.")
+                            }
+                    } else {
+                        Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
+                            .disabled(sync.state == .offline)
+                    }
                 }
-                Button("Network Log…", systemImage: "waveform.path.ecg", action: showNetworkLog)
-                    .help("Timings for updates, watch frames, and reads")
-#if os(macOS)
-                Menu {
-                    Button("Reconnect to Story Sync", systemImage: "arrow.clockwise", action: reconnectStorySync)
-                    Button("View Story Sync Logs…", systemImage: "doc.text.magnifyingglass", action: showStorySyncLogs)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Story Sync options")
-#endif
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .font(.title3)
+                optionsMenu
             }
             .padding(.vertical, 4)
 #if os(iOS)
-            // In an iOS Form row every tap goes to one button unless each is borderless;
-            // icons keep the status text from wrapping mid-word.
+            // In an iOS Form row every tap goes to one button unless each is borderless.
             .buttonStyle(.borderless)
-            .labelStyle(.iconOnly)
 #endif
         } footer: {
-#if os(macOS)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(provider)
-                if diagnostic?.synchronizationOverride != nil {
-                    Text("Last reported: \(sync.state.label). Story cannot verify that state while the provider connection is unavailable.")
-                } else if let detail = sync.detail {
-                    Text(detail)
+            if let treeSwitcher {
+                HStack {
+                    Spacer()
+                    treeSwitcher
                 }
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-#endif
         }
         if binding?.isSaving == true || diagnostic != nil {
             Section("Current document") {
@@ -1271,6 +1304,54 @@ struct StorySyncStatusView: View {
     }
 
     var overallStatusTitle: String { overallStatusTitle(diagnostic) }
+
+    /// Everything that is not the next thing to do: logs, the folder, and
+    /// the provider's technical description.
+    private var optionsMenu: some View {
+        Menu {
+            Button("Network Log…", systemImage: "waveform.path.ecg", action: showNetworkLog)
+            if let revealFolder {
+                Button("Show in Finder", systemImage: "folder", action: revealFolder)
+            }
+#if os(macOS)
+            Button("Reconnect to Story Sync", systemImage: "arrow.clockwise", action: reconnectStorySync)
+            Button("View Story Sync Logs…", systemImage: "doc.text.magnifyingglass", action: showStorySyncLogs)
+#endif
+            Section("Details") {
+                Text(provider)
+                if diagnostic?.synchronizationOverride != nil {
+                    Text("Last reported: \(sync.state.label). Story cannot verify that state while the provider connection is unavailable.")
+                } else if let detail = sync.detail {
+                    Text(detail)
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.title3)
+        }
+#if os(macOS)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+#endif
+        .help("Sync options")
+        .accessibilityLabel("Sync options")
+    }
+
+    /// The tree's state in a few words, under its name.
+    private func statusLine(_ diagnostic: StorySaveDiagnostic?) -> String {
+        if diagnostic == nil, sync.state == .current, binding?.isSaving != true { return "Up to date" }
+        return overallStatusTitle(diagnostic)
+    }
+
+    /// The explanation shown only when something needs the reader.
+    private func attentionDetail(_ diagnostic: StorySaveDiagnostic?) -> String? {
+        if diagnostic != nil { return overallStatusDetail(diagnostic) }
+        switch sync.state {
+        case .offline, .conflict, .authenticationFailure, .revoked: return overallStatusDetail(diagnostic)
+        default: return nil
+        }
+    }
 
     private func overallStatusTitle(_ diagnostic: StorySaveDiagnostic?) -> String {
         if diagnostic != nil { return "A document needs attention" }
@@ -1311,49 +1392,6 @@ struct StorySyncStatusView: View {
     private func overallStatusTint(_ diagnostic: StorySaveDiagnostic?) -> Color {
         if diagnostic != nil { return .red }
         return sync.state == .current ? .green : .secondary
-    }
-}
-
-struct StoryTabStrip: View {
-    let tabs: [BrowserTab]
-    let selected: UUID
-    let title: (BrowserTab) -> String
-    let select: (UUID) -> Void
-    let close: () -> Void
-    let create: () -> Void
-
-    var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 4) {
-                ForEach(tabs) { tab in
-                    Button {
-                        select(tab.id)
-                    } label: {
-                        Text(title(tab))
-                            .lineLimit(1)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(tab.id == selected ? Color.accentColor.opacity(0.16) : .clear)
-                            .clipShape(.rect(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Tab: \(title(tab))")
-                }
-                Button("New Tab", systemImage: "plus", action: create)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                Button("Close Tab", systemImage: "xmark", action: close)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .disabled(tabs.count == 1)
-            }
-            .padding(.horizontal, 8)
-        }
-        .scrollIndicators(.hidden)
-        .frame(height: 38)
-        .background(.bar)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Tabs")
     }
 }
 

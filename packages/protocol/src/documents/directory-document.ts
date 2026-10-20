@@ -109,7 +109,7 @@ export function placeDirectoryChildren(
   }
 
   const missing = children.filter((child) => !matched.has(child));
-  const generated = missing.map((child): OverstoryBlock => {
+  const generated = missing.map((child, ordinal): OverstoryBlock => {
     const path = canonicalNodePath(child.path);
     const key = child.stableKey ?? null;
     return {
@@ -119,6 +119,7 @@ export function placeDirectoryChildren(
       props: {
         path: buildMarkdownLink(sourceDirectory, { path, body: child.body, stableKey: key }),
         storyGenerated: true,
+        storyOrdinal: ordinal,
       },
       children: [],
     };

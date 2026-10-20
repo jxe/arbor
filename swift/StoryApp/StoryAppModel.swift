@@ -7,8 +7,12 @@ import Overstory
 import CryptoKit
 import Foundation
 import Observation
+import Quagmire
 import QuagmireExtras
 import Network
+#if os(iOS)
+import UIKit
+#endif
 
 /// Where a new tree can go: an account's home host, or one of its placement
 /// accounts on another host (accounts §1.3). Either way the profile's home
@@ -713,6 +717,39 @@ final class StoryWorkspaceState {
         )
     }
 #endif
+
+    /// Whether `tree` is the profile of an account on this device.
+    func isOwnProfile(_ tree: String) -> Bool {
+        if knownAccounts.contains(where: { $0.profileTree == tree }) { return true }
+#if os(macOS)
+        return localStorySyncOverview?.accounts.contains { $0.profileTree == tree } == true
+#else
+        return false
+#endif
+    }
+
+    /// The second line of a link into another tree, such as "Tree · Private · On this Mac".
+    /// Who can see it is left out when this device cannot read the tree's rules.
+    func treeLinkSubtitle(tree: String) async -> String {
+#if os(iOS)
+        let device = UIDevice.current.model
+        let placement = nativePlacements.first { $0.tree.id == tree }
+        var access: NativeTreeAccessPresentation?
+        if let placement {
+            access = try? await NativeAccountService(origin: placement.origin, configurationTree: placement.configurationTree).access(tree: tree)
+        }
+        let placed = placement != nil
+#else
+        let device = "Mac"
+        if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
+        let placed = localStorySyncOverview?.trees.contains { $0.id == tree && $0.path != nil } == true
+        let access = placed ? try? await loadLocalTreeAccess(tree: tree) : nil
+#endif
+        var parts = ["Tree"]
+        if let access { parts.append(access.entries.contains { $0.subject == .everyone && $0.access != "none" } ? "Public" : "Private") }
+        parts.append(placed ? "On this \(device)" : "Not on this \(device)")
+        return parts.joined(separator: " · ")
+    }
 
 #if os(macOS)
     // MARK: Account configuration on disk
@@ -1930,6 +1967,7 @@ final class StoryWorkspaceState {
             return
         }
 #endif
+        if try await openHostedTree(tree) { return }
         guard let person = directory.first(where: {
             $0.entry.profile == tree.rawValue && $0.entry.locator != nil
         }) else {
@@ -1938,6 +1976,38 @@ final class StoryWorkspaceState {
             )
         }
         try await openDirectoryProfile(person)
+    }
+
+    /// Open `tree` from the first connected account's host that answers for
+    /// it: a tree mounted in another, such as a project under a profile, need
+    /// not be placed or listed in the directory. The Mac opens its locator,
+    /// which opens a placed tree or visits one; the iPhone places it.
+    private func openHostedTree(_ tree: TreeID) async throws -> Bool {
+        let accounts: [HostAccount]
+        do { accounts = try await accountService.accounts() } catch {
+            Self.recordDiagnostic("account-list", error)
+            return false
+        }
+        for account in accounts where account.credentialAvailable {
+            guard let origin = account.origin else { continue }
+            let descriptor: ProtocolTreeDescriptor
+            do {
+                descriptor = try await accountService.client(for: account).descriptor(tree: tree.rawValue).tree
+            } catch {
+                Self.recordDiagnostic("nested-tree-lookup", error)
+                continue
+            }
+#if os(macOS)
+            guard let locator = descriptor.httpURL
+                ?? descriptor.canonicalPath.flatMap({ path in OverstoryRemoteLocator(origin.absoluteString)?.locator(path: path) })
+            else { continue }
+            try await openRemoteLocator(locator)
+#else
+            try await place(tree: descriptor, from: origin, configurationTree: account.configurationTree)
+#endif
+            return true
+        }
+        return false
     }
 
     /// Leave `held` by discarding the refused change and the changes made on it.
@@ -2378,7 +2448,6 @@ final class StoryAppModel {
         return currentLocation != home
     }
     var selectedTabID: UUID { tabs.selectedTabID }
-    var tabItems: [BrowserTab] { tabs.tabs }
     var binding: StoryDocumentBinding? { editorLease?.binding }
     /// The open page is new and is not created until its H1 has a title.
     var isShowingDraft: Bool { editorLease.map { drafts[$0.identity] != nil } ?? false }
@@ -2515,6 +2584,7 @@ final class StoryAppModel {
             linkPreviewService: workspace.linkPreviewService,
             sourceDirectory: sourceDirectory,
             open: { [weak self] reference in Task { await self?.navigate(to: reference) } },
+            openAt: { [weak self] reference, target in Task { await self?.open(reference, at: target) } },
             navigateBack: { [weak self] in Task { await self?.goBack() } },
             reportError: { [weak self] message in self?.errorMessage = message },
             performStructuralAction: { [weak self, weak workspace] action in
@@ -2524,6 +2594,9 @@ final class StoryAppModel {
             },
             offerTrashAfterDeletingLink: { [weak self] target, source in
                 self?.offerToTrashLinkedPage(target, from: source)
+            },
+            describeTree: { [weak workspace] reference in
+                await workspace?.treeLinkSubtitle(tree: reference.tree.rawValue)
             }
         )
     }
@@ -2817,27 +2890,39 @@ final class StoryAppModel {
         }
     }
 
-    func newTab() async {
-        await transition { tabs.newTab() }
+    /// Opens a window on `location` (or the tree's home): on its own, or on
+    /// the Mac as a tab of this window, selected or behind. Set by the window.
+    @ObservationIgnored var openWindowAction: ((WorkspaceLocation?, _ asTab: Bool, _ selecting: Bool) -> Void)?
+
+    /// A new tab on the tree's home. Each tab is its own window on the Mac.
+    func newTab() {
+        openWindowAction?(nil, true, true)
     }
 
-    func openInNewTab(_ location: WorkspaceLocation) async {
-        await transition { tabs.newTab(at: location) }
+    /// Open `location` in a new tab of this window: behind this one, as
+    /// ⌘-click does, or selected. On iPad, where there are no tabs, a window.
+    func openInNewTab(_ location: WorkspaceLocation, selecting: Bool) {
+        openWindowAction?(location, true, selecting)
     }
 
-    func closeSelectedTab() async {
-        await binding?.flush()
-        await createDraftPageIfTitled()
-        let closedTabID = selectedTabID
-        retainCurrentPagePresentation()
-        tabs.closeTab(selectedTabID)
-        await releaseRetainedPagePresentations(for: closedTabID)
-        await loadOrRestoreCurrentPage()
+    func openInNewWindow(_ location: WorkspaceLocation?) {
+        openWindowAction?(location, false, true)
     }
 
-    func selectTab(_ id: UUID) async {
-        guard id != selectedTabID else { return }
-        await transition { tabs.selectTab(id) }
+    /// A window opened on a page shows it in place of the home page it
+    /// started on, without a Back step.
+    func showRequestedLocation(_ location: WorkspaceLocation) async {
+        guard currentLocation != location else { return }
+        await transition(preparing: location) { tabs.replaceCurrent(with: location) }
+    }
+
+    /// Where a link to `reference` opens, for the editor's ⌘-click and link menus.
+    func open(_ reference: WorkspaceReference, at target: DocumentOpenTarget) async {
+        switch target {
+        case .current: await navigate(to: reference)
+        case .newTab(let selecting): openInNewTab(location(for: reference), selecting: selecting)
+        case .newWindow: openInNewWindow(location(for: reference))
+        }
     }
 
     /// Answer any move the editor host is waiting on with no destination.
@@ -2928,12 +3013,11 @@ final class StoryAppModel {
         }
     }
 
-    private func releaseRetainedPagePresentations(for tabID: UUID) async {
-        let keys = retainedPagePresentations.keys.filter { $0.tabID == tabID }
-        for key in keys {
-            guard let presentation = retainedPagePresentations.removeValue(forKey: key) else { continue }
-            await release(presentation)
-        }
+    /// The window closed: make its edits durable and release its pages.
+    func windowClosed() async {
+        await binding?.flush()
+        await createDraftPageIfTitled()
+        await releaseAllPagePresentations()
     }
 
     private func release(_ presentation: PagePresentation) async {

@@ -30,7 +30,10 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         var refresh: ((NSMenuItem) -> Void)?
     }
 
-    private let entries = NSMapTable<NSWindow, WindowEntry>.weakToStrongObjects()
+    /// By window number, not by a weak reference to the window: SwiftUI can
+    /// update a window's views while the window is deallocating, and forming
+    /// a weak reference to it then aborts the app.
+    private var entries: [Int: WindowEntry] = [:]
     private let menu = NSMenu(title: "Main Menu")
     private var items: [NSMenuItem] = []
     private let windowMenu = NSMenu(title: "Window")
@@ -57,15 +60,20 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         undoController: DocumentUndoController?,
         for window: NSWindow
     ) {
-        let entry = entries.object(forKey: window) ?? WindowEntry(commands: commands)
+        // A window off screen (not yet shown, or being torn down) has no number.
+        guard window.windowNumber > 0 else { return }
+        let entry = entries[window.windowNumber] ?? WindowEntry(commands: commands)
         entry.commands = commands
         entry.editorCommands = editorCommands
         entry.undoController = undoController
-        entries.setObject(entry, forKey: window)
+        entries[window.windowNumber] = entry
+        // Drop entries of windows that are gone.
+        let open = Set(NSApp.windows.map(\.windowNumber))
+        entries = entries.filter { open.contains($0.key) }
     }
 
     func unregister(_ window: NSWindow) {
-        entries.removeObject(forKey: window)
+        entries.removeValue(forKey: window.windowNumber)
     }
 
     // MARK: - The key window's commands
@@ -74,10 +82,10 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
     private var entry: WindowEntry? {
         var window = NSApp.keyWindow ?? NSApp.mainWindow
         while let current = window {
-            if let entry = entries.object(forKey: current) { return entry }
+            if let entry = entries[current.windowNumber] { return entry }
             window = current.sheetParent ?? current.parent
         }
-        return NSApp.mainWindow.flatMap { entries.object(forKey: $0) }
+        return NSApp.mainWindow.flatMap { entries[$0.windowNumber] }
     }
 
     private var commands: StoryWindowCommands? { entry?.commands }
@@ -227,10 +235,9 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         let menu = NSMenu(title: "View")
         menu.addItem(window("Toggle Sidebar", "\\") { $0.toggleSidebar() })
         let orders: [(String, String, StorySidebarPageOrder)] = [
-            ("Alphabetical Pages", "1", .alphabetical),
+            ("Pages by Folder", "1", .folders),
             ("Recent Pages", "2", .recent),
             ("Pages by Link Count", "3", .linkCount),
-            ("Trees", "4", .trees),
         ]
         for (title, key, order) in orders {
             let item = window(title, key, [.command, .option]) { $0.setSidebarPageOrder(order) }
@@ -258,15 +265,20 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
 
     /// AppKit lists the open windows, and adds its tiling and tab items, in `NSApp.windowsMenu`.
     private func fillWindowMenu() -> NSMenu {
-        // With one tab left, Command-W closes the window, as it does in Safari.
-        windowMenu.addItem(item("Close Tab", "w", when: { NSApp.keyWindow != nil }) { [unowned self] in
-            if let commands = self.commands, commands.canCloseTab {
-                commands.closeTab()
-            } else {
-                NSApp.keyWindow?.performClose(nil)
-            }
+        windowMenu.addItem(window("New Tab", "t") { $0.newTab() })
+        windowMenu.addItem(item("New Window", "n", [.command, .option]) { [unowned self] in
+            if let commands = self.commands { commands.newWindow() }
         })
-        windowMenu.addItem(standard("Close Window", #selector(NSWindow.performClose(_:)), "w", [.command, .shift]))
+        windowMenu.addItem(.separator())
+        // Each tab is a window: Command-W closes it, and Shift-Command-W closes
+        // every tab of the window, as in Safari.
+        let closeTab = item("Close Tab", "w", when: { NSApp.keyWindow != nil }) { NSApp.keyWindow?.performClose(nil) }
+        closeTab.refresh = { $0.title = (NSApp.keyWindow?.tabbedWindows?.count ?? 0) > 1 ? "Close Tab" : "Close Window" }
+        windowMenu.addItem(closeTab)
+        windowMenu.addItem(item("Close Window", "w", [.command, .shift], when: { NSApp.keyWindow != nil }) {
+            guard let window = NSApp.keyWindow else { return }
+            for tab in window.tabbedWindows ?? [window] { tab.performClose(nil) }
+        })
         windowMenu.addItem(.separator())
         windowMenu.addItem(standard("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"))
         windowMenu.addItem(standard("Zoom", #selector(NSWindow.performZoom(_:))))
@@ -384,22 +396,56 @@ struct StoryMenuBarBridge: View {
                     commands, editorCommands: editorCommands, undoController: undoController, for: window
                 )
             }
-            if let window = view.window { view.register?(window) }
+            view.registerWindow()
         }
 
         static func dismantleNSView(_ view: WindowView, coordinator: ()) {
-            if let window = view.window { StoryMenuBar.shared.unregister(window) }
+            if let window = view.window, !view.windowIsClosing { StoryMenuBar.shared.unregister(window) }
         }
     }
 
     final class WindowView: NSView {
         var register: ((NSWindow) -> Void)?
+        /// Set when the window starts to close. SwiftUI updates the window's
+        /// views once more while it is deallocating, and the registry holds
+        /// windows weakly: registering one then aborts the app.
+        private(set) var windowIsClosing = false
+        private var closeObserver: NSObjectProtocol?
+        /// A window is registered by its number, which it has once on screen.
+        private var keyObserver: NSObjectProtocol?
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let window { register?(window) }
+            for observer in [closeObserver, keyObserver].compactMap({ $0 }) { NotificationCenter.default.removeObserver(observer) }
+            closeObserver = nil
+            keyObserver = nil
+            guard let window else { return }
+            keyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.registerWindow() }
+            }
+            closeObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.windowIsClosing = true
+                    if let window = self.window { StoryMenuBar.shared.unregister(window) }
+                }
+            }
+            registerWindow()
+        }
+
+        func registerWindow() {
+            guard !windowIsClosing, let window else { return }
+            register?(window)
+        }
+
+        isolated deinit {
+            for observer in [closeObserver, keyObserver].compactMap({ $0 }) { NotificationCenter.default.removeObserver(observer) }
         }
     }
 }

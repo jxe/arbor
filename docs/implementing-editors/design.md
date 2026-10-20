@@ -77,11 +77,12 @@ remains host-controlled and durable, including recovery after failed delivery.
 
 ## Profile control and Claim
 
-The native sidebar's order picker offers **Alphabetical**, **Recent**, **Link
-Count**, and **Trees**. Trees replaces the current tree's page list with the local
-tree inventory; search filters tree names and account labels, and keyboard
-navigation opens the selected tree. The page-only pickers used for moving pages
-retain their three page orders. The sidebar footer opens **People** directly.
+The native sidebar's order picker offers **Folders** (the default), **Recent**,
+and **Link Count**; the pickers used for moving pages offer the same orders. Each
+order groups pages under grey section headings, and clicking a heading collapses
+its section (on Mac a chevron appears on hover). Collapsed sections are skipped by
+keyboard navigation and ignored while searching. Switching trees is a menu above
+**People** in the sidebar footer, which opens People directly.
 
 The management modal is one scrolling pane ordered **profile, sync status,
 devices**. Profile and sync rows use grouped backgrounds; the working-tree detail

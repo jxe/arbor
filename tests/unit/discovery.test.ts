@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { discoverWorkspace, WorkspaceFS } from "@ovst/fs";
@@ -82,7 +82,9 @@ describe("workspace discovery", () => {
 
       const recursive = await discoverWorkspace(root);
       expect(recursive.files.map((file) => file.treePath)).toContain("/nested/deep.md");
-      expect(recursive.directories.map((directory) => directory.treePath)).not.toContain("/protected");
+      // Root reads a mode-000 directory anyway, so only a process that cannot see it expects it skipped.
+      const unreadable = await readdir(protectedDirectory).then(() => false, () => true);
+      if (unreadable) expect(recursive.directories.map((directory) => directory.treePath)).not.toContain("/protected");
     } finally {
       await chmod(protectedDirectory, 0o700);
     }

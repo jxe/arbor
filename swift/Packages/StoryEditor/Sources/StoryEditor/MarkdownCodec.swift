@@ -51,6 +51,8 @@ public enum StoryMarkdownCodec {
         text == childrenMarker || text == legacyChildrenMarker
     }
     static let projectedChildMetadataKey = "story.projected-child"
+    /// Where a generated child link was placed among its siblings, so a reorder can be told.
+    static let projectedOrdinalMetadataKey = "story.projected-ordinal"
 
     private struct ParsedBlock {
         var block: Block
@@ -122,7 +124,7 @@ public enum StoryMarkdownCodec {
             .sorted { Array($0.reference.path.utf8).lexicographicallyPrecedes(Array($1.reference.path.utf8)) }
         guard !missing.isEmpty else { return DirectoryPlacement(blocks: authored, remainder: []) }
 
-        let generated = missing.map { child -> Block in
+        let generated = missing.enumerated().map { ordinal, child -> Block in
             let rawReference = if child.reference.tree != directory.tree {
                 StoryDocumentReferenceCodec.encode(child.reference).rawValue
             } else {
@@ -135,7 +137,7 @@ public enum StoryMarkdownCodec {
                     label: AttributedString(child.title),
                     reference: DocumentReference(rawReference)
                 ),
-                metadata: [projectedChildMetadataKey: "true"]
+                metadata: [projectedChildMetadataKey: "true", projectedOrdinalMetadataKey: String(ordinal)]
             )
         }
 
@@ -715,6 +717,129 @@ public enum StoryMarkdownCodec {
             destinationSource: relinked.map { landing + $0.joined() } ?? destinationSource)
     }
 
+    /// Move to a place in an open page: as `transfer(_:from:ledger:into:relink:)`,
+    /// but the roots land where they stand in `landing`, the destination's
+    /// authored tree once they are dropped there. Every other block of
+    /// `landing` is recorded in `destination`, which must be the ledger of
+    /// that page's current source, and keeps its bytes and indentation; the
+    /// moved source lands after the block before it (or the envelope), or
+    /// before the first block, re-indented to its new depth. Blank lines are
+    /// added only where the exact bytes would read as a different tree. Nil
+    /// when that cannot be stated exactly.
+    static func transfer(_ roots: [Block], from blocks: [Block], ledger: StorySourceLedger,
+                         into destination: StorySourceLedger, landing: [Block],
+                         relink: (from: String, to: String)? = nil) -> PlannedTransfer? {
+        var projected: Set<BlockID> = []
+        walk(blocks) { block, _ in if isProjectedChild(block) { projected.insert(block.id) } }
+        let roots = removingSubtrees(projected, from: StoryPagePresentation.transferable(roots, in: blocks))
+        var movedIDs: Set<BlockID> = []
+        walk(roots) { block, _ in movedIDs.insert(block.id) }
+        let landing = removingSubtrees(projected, from: landing)
+        struct Placed { var record: SourceRecord; var raw: String; var edits: [WorkspaceSourceEdit]; var moved: Bool; var indent: Int }
+        var placed: [Placed] = []
+        var seen: Set<BlockID> = []
+        func place(_ block: Block, indent: Int) -> Bool {
+            guard !isProjectedChild(block) else { return true }
+            let moved = movedIDs.contains(block.id)
+            guard let record = (moved ? ledger : destination).records[block.id], record.block.kind == block.kind,
+                  seen.insert(block.id).inserted,
+                  let shifted = reindented(record, by: indent - record.indent),
+                  moved || shifted.edits.isEmpty else { return false }
+            placed.append(Placed(record: record, raw: shifted.raw, edits: shifted.edits, moved: moved, indent: indent))
+            let child = indent + (isIndentContainer(block) ? 1 : 0)
+            return block.children.allSatisfy { place($0, indent: child) }
+        }
+        guard !roots.isEmpty, landing.allSatisfy({ place($0, indent: 0) }), seen.isSuperset(of: movedIDs),
+              placed.filter({ !$0.moved }).count == destination.records.count,
+              let first = placed.firstIndex(where: \.moved), let last = placed.lastIndex(where: \.moved),
+              placed[first...last].allSatisfy(\.moved) else { return nil }
+        // The destination keeps its source exactly: its blocks tile it in order.
+        var cursor = destination.envelope.utf8.count
+        for item in placed where !item.moved {
+            guard item.record.range.lowerBound == cursor else { return nil }
+            cursor = item.record.range.upperBound
+        }
+        guard cursor == destination.source.utf8.count else { return nil }
+        // The moved blocks' recorded source travels as one span (see above).
+        var span = placed[first].record.range
+        for item in placed[first...last].dropFirst() {
+            guard item.record.range.lowerBound == span.upperBound else { return nil }
+            span = span.lowerBound..<item.record.range.upperBound
+        }
+        let anchor: WorkspaceDocumentTransfer.Span, side: WorkspaceSourceMove.Side
+        if first > 0 {
+            anchor = .init(document: .destination, range: placed[first - 1].record.range); side = .after
+        } else if !destination.envelope.isEmpty {
+            anchor = .init(document: .destination, range: 0..<destination.envelope.utf8.count); side = .after
+        } else if last + 1 < placed.count {
+            anchor = .init(document: .destination, range: placed[last + 1].record.range); side = .before
+        } else { return nil }
+        let successors = Dictionary(uniqueKeysWithValues: zip(ledger.records.values.sorted { $0.range.lowerBound < $1.range.lowerBound }.map(\.block.id),
+            ledger.records.values.sorted { $0.range.lowerBound < $1.range.lowerBound }.dropFirst().map(\.block.id).map(Optional.some) + [nil]))
+        let removed = Set(placed[first...last].map(\.record.block.id))
+        let remaining = removingSubtrees(removed, from: StoryPagePresentation.authored(blocks))
+        let intended = foldHeadingsInScopes(removingProjectedBlocks(from: landing.map(stripped)))
+        // The origin without the moved span, and its ledger.
+        let original = Data(ledger.source.utf8)
+        var originBytes = Data(original[..<span.lowerBound])
+        originBytes.append(original[span.upperBound...])
+        guard let originSource = String(data: originBytes, encoding: .utf8),
+              sameShape(open(source: originSource, revision: "transfer", identitySeed: "origin").blocks, remaining) else { return nil }
+        var records: [BlockID: SourceRecord] = [:]
+        for (id, record) in ledger.records where !removed.contains(id) {
+            let shift = record.range.lowerBound >= span.upperBound ? span.count : 0
+            var kept = record; kept.range = (record.range.lowerBound - shift)..<(record.range.upperBound - shift)
+            records[id] = kept
+        }
+        let newline = destination.newline, blank = newline + newline, width = newline.utf8.count
+        func listItem(_ block: Block) -> Bool {
+            switch block.kind { case .bullet, .numbered, .todo: true; default: false }
+        }
+        func attempt(separating: Bool) -> PlannedTransfer? {
+            var items = placed
+            var edits: [WorkspaceDocumentTransfer.Edit] = []
+            // A block recorded without a blank line after it needs one before
+            // a different successor: the destination block the span lands
+            // after, and the moved blocks themselves. A top-level block always
+            // gets one, as an emitted block does, unless both are list items;
+            // elsewhere only when the exact bytes would read differently.
+            for index in max(first - 1, 0)...last where index + 1 < items.count && !items[index].raw.hasSuffix(blank) {
+                let next = items[index + 1]
+                if items[index].moved, next.moved, successors[items[index].record.block.id] == .some(next.record.block.id) { continue }
+                let topLevel = next.indent == 0 && !(listItem(items[index].record.block) && listItem(next.record.block))
+                guard separating || topLevel else { continue }
+                guard items[index].raw.hasSuffix(newline) else { return nil }
+                let end = items[index].record.range.upperBound
+                let edit = WorkspaceSourceEdit(utf8Range: (end - width)..<end, replacement: blank,
+                                               lineage: [.init(source: (end - width)..<end, replacement: 0..<width)])
+                items[index].raw += newline
+                if items[index].moved { items[index].edits.append(edit) } else { edits.append(.init(document: .destination, edit: edit)) }
+            }
+            let destinationSource = destination.envelope + items.map(\.raw).joined()
+            guard sameShape(open(source: destinationSource, revision: "transfer", identitySeed: "destination").blocks, intended) else { return nil }
+            let moving = items[first...last]
+            edits += moving.flatMap(\.edits).map { WorkspaceDocumentTransfer.Edit(document: .origin, edit: $0) }
+            var landed = destinationSource
+            if let relink {
+                for item in moving {
+                    for edit in markdownLinkRebasingEdits(item.record.raw, from: relink.from, to: relink.to) {
+                        let start = item.record.range.lowerBound + edit.utf8Range.lowerBound
+                        edits.append(.init(document: .origin, edit: .init(
+                            utf8Range: start..<(start + edit.utf8Range.count), replacement: edit.replacement, expected: edit.expected)))
+                    }
+                }
+                landed = destination.envelope + items.enumerated().map { index, item in
+                    (first...last).contains(index) ? rebaseMarkdownLinks(item.raw, from: relink.from, to: relink.to) : item.raw
+                }.joined()
+            }
+            edits.sort { ($0.document == .origin ? 0 : 1, $0.edit.utf8Range.lowerBound) < ($1.document == .origin ? 0 : 1, $1.edit.utf8Range.lowerBound) }
+            return PlannedTransfer(moves: [.init(source: span, anchor: anchor, side: side)], edits: edits, originSource: originSource,
+                originLedger: StorySourceLedger(source: originSource, revision: ledger.revision, envelope: ledger.envelope, newline: ledger.newline, records: records),
+                destinationSource: landed)
+        }
+        return attempt(separating: false) ?? attempt(separating: true)
+    }
+
     private static func removingSubtrees(_ ids: Set<BlockID>, from blocks: [Block]) -> [Block] {
         blocks.compactMap { block in
             guard !ids.contains(block.id) else { return nil }
@@ -1165,7 +1290,7 @@ public enum StoryMarkdownCodec {
         )))
     }
 
-    private static func isChildrenMarker(_ block: Block) -> Bool {
+    static func isChildrenMarker(_ block: Block) -> Bool {
         guard case let .unsupported(payload, _) = block.kind else { return false }
         return isChildrenMarkerText(payload.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -1224,6 +1349,7 @@ public enum StoryMarkdownCodec {
         func materialize(_ block: Block) -> Block {
             var value = block
             value.metadata.removeValue(forKey: projectedChildMetadataKey)
+            value.metadata.removeValue(forKey: projectedOrdinalMetadataKey)
             value.children = block.children.map(materialize)
             return value
         }

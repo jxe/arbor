@@ -262,6 +262,13 @@ recovered by the operator: `railway ssh -- bun run overstoryd recover <handle>`
 prints a day-long recovery pairing code to pass to them out of band, never
 through logs.
 
+For an overview of the host, run `railway ssh -- bun run overstoryd report`. It
+lists the community's members (joined, open invitations, reserved), the accounts
+with their devices and when each was last seen, and every tree with its
+administrators, current size, and accepted updates over the last 7 and 30 days.
+Add `--json` for the same data as JSON. It only reads, so it is safe beside the
+running server.
+
 ## Coordinated alpha upgrades
 
 Story Sync, overstoryd, the TypeScript and Swift clients, the specification, and

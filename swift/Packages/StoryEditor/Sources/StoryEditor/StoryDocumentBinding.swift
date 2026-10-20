@@ -210,6 +210,22 @@ public final class StoryDocumentBinding {
     /// source's relative links are rewritten to lead where they did.
     public func transferBlocks(_ roots: [Block], into destination: any WorkspaceDocumentSession,
                                relink: (from: String, to: String)? = nil) async throws -> WorkspaceDocumentTransferResult? {
+        try await transferBlocks(roots, into: destination, landing: nil, relink: relink)
+    }
+
+    /// Where a move lands in a page open in another editor: that page's
+    /// authored tree once the blocks are dropped, and the ledger of the source
+    /// that editor holds. See `landing(of:at:)`.
+    struct TransferLanding {
+        var blocks: [Block]
+        var ledger: StorySourceLedger
+    }
+
+    /// As `transferBlocks(_:into:relink:)`, landing where `landing` places the
+    /// roots instead of at the end, when the destination still holds the
+    /// source that landing was read from.
+    func transferBlocks(_ roots: [Block], into destination: any WorkspaceDocumentSession, landing: TransferLanding?,
+                        relink: (from: String, to: String)? = nil) async throws -> WorkspaceDocumentTransferResult? {
         await flush()
         if let failure = lastError { throw failure }
         guard source.isSettled, !holdsTransferred, ledger.source.utf8.elementsEqual(source.basis.source.utf8),
@@ -219,8 +235,16 @@ public final class StoryDocumentBinding {
         let opened = StoryMarkdownCodec.open(source: target.source, revision: target.contentRevision,
                                               identitySeed: String(describing: target.reference.identity))
         // The editor may have moved on while the destination was read.
-        guard source.isSettled, basis == source.basis, mountedSource.utf8.elementsEqual(source.latestSource.utf8),
-              let planned = StoryMarkdownCodec.transfer(roots, from: document.children, ledger: ledger, into: opened, relink: relink) else { return nil }
+        guard source.isSettled, basis == source.basis, mountedSource.utf8.elementsEqual(source.latestSource.utf8) else { return nil }
+        let planned: StoryMarkdownCodec.PlannedTransfer?
+        if let landing {
+            guard landing.ledger.source.utf8.elementsEqual(target.source.utf8) else { return nil }
+            planned = StoryMarkdownCodec.transfer(roots, from: document.children, ledger: ledger, into: landing.ledger,
+                                                  landing: landing.blocks, relink: relink)
+        } else {
+            planned = StoryMarkdownCodec.transfer(roots, from: document.children, ledger: ledger, into: opened, relink: relink)
+        }
+        guard let planned else { return nil }
         let transfer = try WorkspaceDocumentTransfer(origin: basis, destination: target, moves: planned.moves, edits: planned.edits,
                                                      originSource: planned.originSource, destinationSource: planned.destinationSource)
         func ids(_ blocks: [Block]) -> [BlockID] { blocks.flatMap { [$0.id] + ids($0.children) } }
@@ -237,6 +261,95 @@ public final class StoryDocumentBinding {
         trace("transferred \(roots.count) blocks to \(target.reference.path)")
         refreshState()
         return result
+    }
+
+    // MARK: Receiving dragged blocks
+
+    /// A page open here is receiving blocks dragged from another editor.
+    /// While a transfer into it is in flight its live updates are held; once
+    /// the transfer lands, the editor inserts the same blocks itself and the
+    /// next capture adopts the transferred source rather than stating them
+    /// again. Copies carry their sources' records until they are captured.
+    private enum Receipt {
+        case pending
+        case landed(WorkspaceDocumentSnapshot)
+    }
+    private var receipt: Receipt?
+    private var receivedCopies: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]
+
+    /// The authored tree this page has once `roots` are inserted at `path`
+    /// of the editor's tree, with the ledger of the source it holds now. Nil
+    /// while the editor holds work that is not yet durable.
+    func landing(of roots: [Block], at path: DropPath) async -> TransferLanding? {
+        await flush()
+        guard lastError == nil, receipt == nil, source.isSettled, !holdsTransferred,
+              ledger.source.utf8.elementsEqual(source.basis.source.utf8),
+              mountedSource.utf8.elementsEqual(source.latestSource.utf8) else { return nil }
+        func inserting(_ blocks: [Block]) -> [Block]? {
+            guard let parent = path.parent else {
+                var value = blocks
+                value.insert(contentsOf: roots, at: max(0, min(path.position, value.count)))
+                return value
+            }
+            var found = false
+            func visit(_ values: [Block]) -> [Block] {
+                values.map { block in
+                    var value = block
+                    if block.id == parent {
+                        found = true
+                        value.children.insert(contentsOf: roots, at: max(0, min(path.position, value.children.count)))
+                    } else if !found {
+                        value.children = visit(block.children)
+                    }
+                    return value
+                }
+            }
+            let result = visit(blocks)
+            return found ? result : nil
+        }
+        guard let presented = inserting(document.children) else { return nil }
+        return TransferLanding(blocks: StoryPagePresentation.authored(presented), ledger: ledger)
+    }
+
+    /// Hold live updates while a transfer into this page is in flight.
+    func expectReceipt() { receipt = .pending }
+
+    /// The transfer landed as `snapshot`, or failed (nil).
+    func completeReceipt(_ snapshot: WorkspaceDocumentSnapshot?) {
+        receipt = snapshot.map(Receipt.landed)
+    }
+
+    /// The editor is about to insert copies of another page's blocks: their
+    /// source records, so the capture states them as copies.
+    func expectCopies(_ copies: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)]) {
+        receivedCopies.merge(copies) { _, newest in newest }
+    }
+
+    /// Adopt a landed transfer as this editor's basis. When the editor already
+    /// shows exactly the landed source (it inserted the moved blocks), nothing
+    /// is captured. When it shows that and more, the rest is captured on top.
+    /// Otherwise the landed source replaces the editor's tree.
+    private func adoptReceipt() -> Bool {
+        guard case let .landed(snapshot)? = receipt else { return false }
+        receipt = nil
+        let opened = StoryMarkdownCodec.open(source: snapshot.source, revision: snapshot.contentRevision,
+                                             identitySeed: String(describing: snapshot.reference.identity), reusing: ledger.parsedKinds)
+        let rebased = StoryMarkdownCodec.rebased(opened, preserving: document.children)
+        var shown = Set<BlockID>()
+        func collect(_ blocks: [Block]) { for block in blocks { shown.insert(block.id); collect(block.children) } }
+        collect(document.children)
+        reference = snapshot.reference
+        source.adopt(snapshot)
+        guard rebased.ledger.records.keys.allSatisfy(shown.contains) else {
+            trace("received transfer replaces the editor tree")
+            applyAcceptedReplacementNow(snapshot)
+            return true
+        }
+        ledger = rebased.ledger
+        basisLedgers = [snapshot.contentRevision: rebased.ledger]
+        acceptedTitle = Self.authoredTitle(of: document)
+        trace("adopted received transfer source=\(EditorSourceID.of(snapshot.source))")
+        return false
     }
 
     /// Adopt the session's current view as the next change's basis when it is
@@ -257,6 +370,8 @@ public final class StoryDocumentBinding {
     /// Capture the editor's current tree as one generation and append it.
     func appendCurrentGeneration() {
         guard !holdsTransferred else { return }
+        if case .pending? = receipt { return }
+        if adoptReceipt() { return }
         // Presented headings cannot be deleted or moved, and an edit can call
         // for one or retire one, so every commit is followed by presentation.
         representAfterCommit()
@@ -264,7 +379,10 @@ public final class StoryDocumentBinding {
         // The patch is captured against the previous generation's ledger,
         // exactly as the editor produced it; the change states it in its own
         // frame (docs/overstory-spec/09-client-synchronization.md §4).
-        let (captured, nextLedger) = StoryMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources, moved: document.movedBlocksForCurrentCommit)
+        let shown = receivedCopies.filter { document.find($0.key) != nil }
+        let (captured, nextLedger) = StoryMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources,
+                                                                  moved: document.movedBlocksForCurrentCommit, foreignCopies: shown)
+        if !shown.isEmpty { receivedCopies = [:] }
         ledger = nextLedger
         guard !captured.patch.isEmpty || !captured.source.utf8.elementsEqual(source.latestSource.utf8) else { return }
         generation += 1
@@ -279,6 +397,7 @@ public final class StoryDocumentBinding {
     public func flush() async {
         // Capture a final keystroke even if the editor's commit callback has
         // not run yet (navigation, backgrounding, or process termination).
+        if case .landed? = receipt { appendCurrentGeneration() }
         if mountedSource != source.latestSource { appendCurrentGeneration() }
         await source.settle()
         refreshState()
@@ -417,7 +536,8 @@ public final class StoryDocumentBinding {
     }
 
     private func receiveAuthoritativeUpdate(_ snapshot: WorkspaceDocumentSnapshot) async {
-        guard snapshot.contentRevision != source.basis.contentRevision else { return }
+        // A received transfer is adopted when the editor inserts its blocks.
+        guard receipt == nil, snapshot.contentRevision != source.basis.contentRevision else { return }
         // Captured work reads its own writes when its append returns. A live
         // update never replaces it, and never replaces a keystroke Quagmire has
         // not committed yet: neither has reached the change log.
@@ -432,7 +552,7 @@ public final class StoryDocumentBinding {
             trace("authoritative update not read: \(String(describing: error))")
             return
         }
-        guard anchor == (source.acknowledgements, generation), source.isSettled,
+        guard receipt == nil, anchor == (source.acknowledgements, generation), source.isSettled,
               mountedSource == source.latestSource,
               current.contentRevision != source.basis.contentRevision else { return }
         if current.source.utf8.elementsEqual(source.latestSource.utf8) {

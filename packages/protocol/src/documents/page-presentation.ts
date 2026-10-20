@@ -1,6 +1,6 @@
 import type { OverstoryBlock, Diagnostic, MarkdownDocument } from "../index.ts";
 import { canonicalNodePath, nodeDisplayName } from "../model/logical-path.ts";
-import { CHILDREN_MARKER, placeDirectoryChildren, type DirectoryPlacementChild, type PlacementDirectory } from "./directory-document.ts";
+import { placeDirectoryChildren, type DirectoryPlacementChild, type PlacementDirectory } from "./directory-document.ts";
 import { serializeBlocks } from "./markdown.ts";
 
 /** The text of the presented Children heading. */
@@ -61,10 +61,11 @@ function presented(kind: PresentedHeading, text: string): OverstoryBlock {
  * Every client shows a page through this function rather than through
  * directory placement. It adds what the page shows and its source lacks: a
  * title when the body does not begin with an H1, and, for a node with
- * children whose document has no explicit marker, a closing Children section
- * holding the children no authored link names. With an explicit marker those
- * children stand at the marker and no heading is added. `children` is null
- * for a node that has none to place.
+ * children whose document has no explicit marker, the children no authored
+ * link names at the page's end: under the body's last H1 when that is an
+ * authored `# Children`, otherwise in a presented Children section. With an
+ * explicit marker those children stand at the marker and no heading is added.
+ * `children` is null for a node that has none to place.
  *
  * Everything added carries `storyGenerated`, which the Markdown serializer
  * omits, so an untouched page serializes to its source. `authorPage` is the
@@ -85,7 +86,14 @@ export function presentPage(
     const first = blocks.findIndex((block) => !isBlank(block));
     blocks.splice(first === -1 ? blocks.length : first, 0, presented("title", title));
   }
-  if (placement.remainder.length) blocks.push(presented("children", PRESENTED_CHILDREN_HEADING), ...placement.remainder);
+  if (placement.remainder.length) {
+    // An authored `# Children` that is the body's last H1 holds the remainder at its end.
+    const lastH1 = blocks.findLast((block) => isH1(block));
+    const authoredChildren = lastH1 !== undefined && presentedHeading(lastH1) === null
+      && (lastH1.content ?? "") === PRESENTED_CHILDREN_HEADING;
+    if (!authoredChildren) blocks.push(presented("children", PRESENTED_CHILDREN_HEADING));
+    blocks.push(...placement.remainder);
+  }
   return {
     document: { ...placement.document, blocks },
     placedChildren: placement.placedChildren,
@@ -95,7 +103,7 @@ export function presentPage(
 }
 
 function authoredProps(block: OverstoryBlock): OverstoryBlock {
-  const { storyGenerated: _generated, storyPresented: _presented, ...props } = block.props ?? {};
+  const { storyGenerated: _generated, storyPresented: _presented, storyOrdinal: _ordinal, ...props } = block.props ?? {};
   return { ...block, props };
 }
 
@@ -105,10 +113,10 @@ function authoredProps(block: OverstoryBlock): OverstoryBlock {
  *
  * A presented heading the reader left alone stays out of the source. An
  * edited title (new text, or another kind of block) is written where it
- * stands, which is the head of the body. A renamed Children heading, or one
- * with authored content under it, is written with its text followed by an
- * explicit marker, so the generated children stay under the now-authored
- * heading. Generated child links are never written.
+ * stands, which is the head of the body. A Children section the reader
+ * edited (renamed, added content under, or reordered) is written whole: its
+ * heading, then everything under it in the order shown, each generated link
+ * as an authored link. Generated links are otherwise never written.
  */
 export function authorPage(node: PlacementDirectory, blocks: readonly OverstoryBlock[]): OverstoryBlock[] {
   const title = presentedPageTitle(node.path);
@@ -128,7 +136,9 @@ export function authorPage(node: PlacementDirectory, blocks: readonly OverstoryB
     }
     const following = blocks.slice(index + 1);
     const authoredFollows = following.some((item) => item.props?.storyGenerated !== true && !isBlank(item));
-    if (untouched(block, PRESENTED_CHILDREN_HEADING) && !authoredFollows) {
+    const ordinals = following.flatMap((item) => typeof item.props?.storyOrdinal === "number" ? [item.props.storyOrdinal] : []);
+    const reordered = ordinals.some((ordinal, position) => position > 0 && ordinal < ordinals[position - 1]!);
+    if (untouched(block, PRESENTED_CHILDREN_HEADING) && !authoredFollows && !reordered) {
       result.push({ ...block, props: { ...block.props, storyGenerated: true } });
       continue;
     }
@@ -140,19 +150,8 @@ export function authorPage(node: PlacementDirectory, blocks: readonly OverstoryB
       result.push({ id: "story-presented-children-separator", type: "rawMarkdown", content: separator, props: { blank: true }, children: [] });
     }
     result.push(authoredProps(block));
-    // The marker stands where the generated children are shown: before the
-    // first of them, after any content the reader put above them.
-    const firstGenerated = following.findIndex((item) => item.props?.storyGenerated === true);
-    const lead = firstGenerated === -1 ? following : following.slice(0, firstGenerated);
-    const rest = firstGenerated === -1 ? [] : following.slice(firstGenerated);
-    const authoredAfterMarker = rest.some((item) => item.props?.storyGenerated !== true && !isBlank(item));
-    result.push(...lead, {
-      id: "story-presented-children-marker",
-      type: "rawMarkdown",
-      content: `${CHILDREN_MARKER}\n${authoredAfterMarker ? "\n" : ""}`,
-      props: { storyChildrenMarker: true },
-      children: [],
-    }, ...rest);
+    // Everything under the heading is written where it is shown.
+    result.push(...following.map((item) => item.props?.storyGenerated === true ? authoredProps(item) : item));
     break;
   }
   return result;

@@ -11,7 +11,9 @@ thread "Cranberries in Story" and its sketch.
 - **Effort:** XL, in milestones.
 - **Risk:** HIGH. It needs field-level merge, which changes the merge
   protocol, and a new kind of editing surface in Story.
-- **State:** PLANNED.
+- **State:** IN PROGRESS. Milestones 1–3 are built on branch
+  `claude/project-thread-6kt6l8` (the Swift is untested); 2a is designed;
+  4–7 are not started.
 - **Depends on:** nothing.
 - **Unblocks:** porting excellences and supplies-remake off Supabase.
 
