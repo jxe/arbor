@@ -26,6 +26,7 @@ let configurationTree: string;
 let a: Awaited<ReturnType<typeof serveHost>>;
 let b: Awaited<ReturnType<typeof serveHost>>;
 let c: Awaited<ReturnType<typeof serveHost>>;
+let d: Awaited<ReturnType<typeof serveHost>>;
 let daemon: { child: ReturnType<typeof Bun.spawn>; url: string };
 
 const repository = join(import.meta.dir, "../..");
@@ -55,9 +56,10 @@ beforeAll(async () => {
     community: { handle, name: handle }, accounts: [testAccount("owner", `${name}-owner`, { communityWriter: true })],
     ...(lifetimes ? { lifetimes } : {}),
   });
-  [b, c] = await Promise.all([
+  [b, c, d] = await Promise.all([
     placementHost("placement", "orchard"),
     placementHost("third", "meadow", { deviceKeyLifetimeMs: STALE_MS / 2, deviceKeyRefetchMs: STALE_MS / 4, deviceKeyStaleMs: STALE_MS }),
+    placementHost("invited", "grove"),
   ]);
   const local = await StorySyncDaemon.open(profile);
   try {
@@ -84,7 +86,7 @@ beforeAll(async () => {
 afterAll(async () => {
   daemon?.child.kill();
   await daemon?.child.exited;
-  for (const host of [c, b, a]) {
+  for (const host of [d, c, b, a]) {
     host?.server.stop(true);
     await host?.overstoryd[Symbol.asyncDispose]();
   }
@@ -134,6 +136,21 @@ describe("POST /v1/bootstrap/placements", () => {
     expect(again.body).toEqual({ placement: claimed.body.placement });
     // The home connection is untouched.
     expect((await new HostAccountStore(configurationTree).safe())!.origin).toBe(new URL(a.url).origin);
+  }, 30_000);
+
+  test("an invitation link to another host is accepted with this profile, which that host places (accounts §1.4)", async () => {
+    const dOrigin = new URL(d.url).origin;
+    const code = "groveInvitationCode_01";
+    await reserveMembers(await deviceClient(d.url, "invited-owner"), sandbox, { joe: `sha256:${new Bun.CryptoHasher("sha256").update(code).digest("hex")}` });
+    const placed = await post("/v1/bootstrap/placements", { host: `${dOrigin}/~joe#overstory-invite=${code}` });
+    expect(placed.status).toBe(200);
+    expect(placed.body).toMatchObject({
+      placement: { configurationTree, origin: dOrigin, account: `${dOrigin}/~joe`, profileTree, homeHost: new URL(a.url).origin, placed: true },
+    });
+    expect(d.overstoryd.account(profileTree)).toMatchObject({ handle: "joe", homeHost: new URL(a.url).origin });
+    // The code is spent: the same link now fails, and the placement stands.
+    expect((await post("/v1/bootstrap/placements", { host: `${dOrigin}/~joe#overstory-invite=${code}` })).status).toBeGreaterThanOrEqual(400);
+    expect((await post("/v1/bootstrap/placements", { host: d.url })).status).toBe(200);
   }, 30_000);
 
   test("keeps a placement host's error code and details.homeHost when the home host is unreachable", async () => {

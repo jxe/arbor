@@ -20,7 +20,7 @@ function expectClaim(before: string, removed: string, inserted: string) {
   expect(before.split(removed)).toHaveLength(2);
   // The profile reader sees the pending entry in this layout to begin with.
   expect(members(before)).toContainEqual({ handle, inviteDigest: digest });
-  const claimed = claimInvitationEntry(before, handle, digest, profileTree);
+  const claimed = claimInvitationEntry(before, handle, digest, profile);
   expect(claimed).toBe(before.replace(removed, inserted));
   expect(members(claimed!)).toContainEqual({ profile, handle });
   expect(members(claimed!).length).toBe(members(before).length);
@@ -81,7 +81,7 @@ describe("claiming a pending invitation entry", () => {
     const before = index(`members:\n  - profile: "${other}"\n  - handle: guest\n    inviteDigest: ${digest}`, "\r\n");
     expect(before).not.toMatch(/[^\r]\n/);
     expectClaim(before, `handle: guest\r\n    inviteDigest: ${digest}`, `profile: "${profile}"\r\n    handle: "guest"`);
-    expect(claimInvitationEntry(before, handle, digest, profileTree)).not.toMatch(/[^\r]\n/);
+    expect(claimInvitationEntry(before, handle, digest, profile)).not.toMatch(/[^\r]\n/);
   });
 
   test("comments between entries, and after the entry's own values, are kept", () => {
@@ -94,12 +94,12 @@ describe("claiming a pending invitation entry", () => {
 
   test("a document with no trailing newline after the closing marker", () => {
     const before = `---\ntype: group\nmembers:\n  - handle: guest\n    inviteDigest: ${digest}\n---`;
-    expect(claimInvitationEntry(before, handle, digest, profileTree)).toBe(`---\ntype: group\nmembers:\n  - profile: "${profile}"\n    handle: "guest"\n---`);
+    expect(claimInvitationEntry(before, handle, digest, profile)).toBe(`---\ntype: group\nmembers:\n  - profile: "${profile}"\n    handle: "guest"\n---`);
   });
 
   test("a duplicate entry is refused, in any mix of layouts", () => {
-    expect(claimInvitationEntry(index(`members:\n  - handle: guest\n    inviteDigest: ${digest}\n  - handle: guest\n    inviteDigest: ${digest}`), handle, digest, profileTree)).toBeNull();
-    expect(claimInvitationEntry(index(`members:\n  - handle: guest\n    inviteDigest: ${digest}\n  - { inviteDigest: "${digest}", handle: 'guest' }`), handle, digest, profileTree)).toBeNull();
+    expect(claimInvitationEntry(index(`members:\n  - handle: guest\n    inviteDigest: ${digest}\n  - handle: guest\n    inviteDigest: ${digest}`), handle, digest, profile)).toBeNull();
+    expect(claimInvitationEntry(index(`members:\n  - handle: guest\n    inviteDigest: ${digest}\n  - { inviteDigest: "${digest}", handle: 'guest' }`), handle, digest, profile)).toBeNull();
   });
 
   test("anything that is not exactly this invitation is refused", () => {
@@ -118,12 +118,12 @@ describe("claiming a pending invitation entry", () => {
       `# Garden\n\nmembers:\n  - handle: guest\n    inviteDigest: ${digest}\n`,
       `---\nmembers:\n  - handle: guest\n    inviteDigest: ${digest}\n`,
     ];
-    for (const source of refused) expect(claimInvitationEntry(source, handle, digest, profileTree), source).toBeNull();
+    for (const source of refused) expect(claimInvitationEntry(source, handle, digest, profile), source).toBeNull();
   });
 
   test("the entry is matched by value, not by text elsewhere in the document", () => {
     const before = index(`description: "handle: guest inviteDigest: ${digest}"\nmembers:\n  - handle: guest\n    inviteDigest: ${digest}`);
-    const claimed = claimInvitationEntry(before, handle, digest, profileTree)!;
+    const claimed = claimInvitationEntry(before, handle, digest, profile)!;
     expect(claimed).toContain(`description: "handle: guest inviteDigest: ${digest}"`);
     expect(claimed).toContain(`  - profile: "${profile}"\n    handle: "guest"\n---`);
     expect(claimed.endsWith("handle: guest stays in the body\n")).toBe(true);

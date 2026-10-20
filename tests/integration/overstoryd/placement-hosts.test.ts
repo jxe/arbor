@@ -511,3 +511,80 @@ test("removing ~alice from B's members disables her placement account and ends i
   expect(b.overstoryd.placementRootOf(b.overstoryd.account(alice.profileTree)!)).toBe(placementRoot);
   expect((await (await openSession(b.url, alice.profileTree, macID, mac)).placementAccount()).account.placementRoot.id).toBe(placementRoot);
 });
+
+describe("accepting an invitation as a placement (accounts §1.4)", () => {
+  let c: Awaited<ReturnType<typeof serveHost>>;
+  const inviteCode = "placementInviteCode_01";
+
+  /** C's community, with ~alice held for an invitation. */
+  async function invite(): Promise<string> {
+    const owner = await deviceClient(c.url, "placement-owner-c");
+    const account = await owner.account();
+    const community = await owner.descriptor(account.account.community.id);
+    const source = join(sandbox, `community-${crypto.randomUUID()}`);
+    await mkdir(source, { recursive: true });
+    const digest = `sha256:${new Bun.CryptoHasher("sha256").update(inviteCode).digest("hex")}`;
+    await writeFile(join(source, "_index.md"), ["---", "type: group", "members:",
+      "  -", `    profile: "overstory://${account.account.profileTree!}/"`, `    handle: "owner"`,
+      "  -", `    handle: "alice"`, `    inviteDigest: "${digest}"`,
+      "---", "", "# Meadow", ""].join("\n"));
+    const head = await owner.snapshot(community.tree.id, community.tree.root);
+    const mounted = decodeProtocolDirectory(head.objects.get(head.root)!).entries.flatMap((entry) =>
+      entry.tree ? [[join(source, entry.name), entry.tree] as [string, string]] : []);
+    await owner.submitUpdate(community.tree.id, community.tree.update, await resolveSnapshot(await snapshotDirectory(source, new Map(mounted))));
+    return digest;
+  }
+
+  beforeAll(async () => {
+    c = await serveHost({
+      dataRoot: join(sandbox, "c"), publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
+      community: { handle: "meadow", name: "Meadow" },
+      accounts: [testAccount("owner", "placement-owner-c", { communityWriter: true })],
+    });
+  });
+
+  afterAll(async () => {
+    c?.server.stop(true);
+    await c?.overstoryd[Symbol.asyncDispose]();
+  });
+
+  test("alice accepts C's invitation with her profile at A: C places her, and her devices open sessions there", async () => {
+    homeReachable = true;
+    await invite();
+    const origin = new URL(c.url).origin;
+    const configurationTree = treeConfigurationID(alice.profileTree);
+    const profile = `${homeHost}/~alice`;
+    const client = new ProtocolClient(c.url);
+    // A placement names the profile at another host.
+    await expect(client.createAccountChallenge({ profileTree: alice.profileTree, configurationTree, inviteCode, profile: `${origin}/~alice` }))
+      .rejects.toThrow("claims its account here");
+    const challenge = await client.createAccountChallenge({ profileTree: alice.profileTree, configurationTree, inviteCode, profile });
+    expect(challenge.account).toBe(`${origin}/~alice`);
+    const request = {
+      account: challenge.account, profile, profileTree: alice.profileTree, configurationTree, inviteCode, challenge,
+      publicKey: alice.publicKey, signature: alice.sign(accountChallengeBytes(challenge)),
+    };
+    await expect(client.acceptInvitationAsPlacement({ ...request, inviteCode: "wrongInviteCode_000000" })).rejects.toThrow("Invitation code is invalid");
+    // Bob cannot accept it for alice's profile: the key must be hers.
+    await expect(client.acceptInvitationAsPlacement({ ...request, publicKey: bob.publicKey, signature: bob.sign(accountChallengeBytes(challenge)) }))
+      .rejects.toThrow();
+    const placed = await client.acceptInvitationAsPlacement(request);
+    expect(placed).toMatchObject({ profileTree: alice.profileTree, handle: "alice", homeHost, placementRoot: { path: "/~alice" } });
+    expect(c.overstoryd.account(alice.profileTree)).toEqual({ id: alice.profileTree, handle: "alice", enabled: true, homeHost });
+    // The invitation became a member naming her profile at A.
+    expect(c.overstoryd.accountReservation(`${origin}/~alice`)).not.toHaveProperty("inviteDigest");
+    // An exact retry returns the same account; the code is spent.
+    expect((await client.acceptInvitationAsPlacement(request)).placementRoot.id).toBe(placed.placementRoot.id);
+    const macAtC = await openSession(c.url, alice.profileTree, macID, mac);
+    expect((await macAtC.placementAccount()).account.placementRoot.id).toBe(placed.placementRoot.id);
+  });
+
+  test("a profile whose locator names someone else is refused, changing nothing", async () => {
+    const meadow = c.overstoryd.community().ref;
+    const configurationTree = treeConfigurationID(bob.profileTree);
+    const challenge = await new ProtocolClient(c.url).createAccountChallenge({ profileTree: bob.profileTree, configurationTree, inviteCode, profile: `${homeHost}/~alice` }).catch((error: unknown) => error);
+    // The invitation is already spent, so even the challenge is refused.
+    expect(challenge).toBeInstanceOf(Error);
+    expect(c.overstoryd.community().ref).toBe(meadow);
+  });
+});

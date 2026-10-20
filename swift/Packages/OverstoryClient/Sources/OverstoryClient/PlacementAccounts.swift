@@ -82,6 +82,9 @@ public enum NativePlacementError: Error, LocalizedError, Equatable, Sendable {
     case notReserved(host: String, account: String)
     /// The placement host answered for another profile, home host or root.
     case mismatch(String)
+    /// Accepting an invitation needs the profile key, which this device
+    /// does not hold (a paired device has only its device key).
+    case noProfileKey
 
     public var errorDescription: String? {
         switch self {
@@ -91,6 +94,7 @@ public enum NativePlacementError: Error, LocalizedError, Equatable, Sendable {
         case let .notReserved(host, account):
             "\(host) has no account for this profile. Ask its administrators to reserve \(account) as a member; then add the host again."
         case let .mismatch(message): message
+        case .noProfileKey: "Accepting an invitation needs your profile's identity key, which isn't on this device. Open the link on the device that created your profile."
         }
     }
 }
@@ -112,6 +116,19 @@ func originString(_ url: URL?) -> String? {
 
 /// A placement host URL: its origin and, when a path names one, the exact
 /// account URL. Mirrors `placementTarget` in `@ovst/client`.
+/// An invitation link's account URL and code (locators §2.2), or nil for
+/// anything else. Matches `invitationLink` in `@ovst/client`.
+func placementInvitation(_ input: String) -> (account: String, code: String)? {
+    let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let match = value.wholeMatch(of: /(?i)(https?|overstory):\/\/([^\/?#;@]+)(\/[^?#;]*)?#overstory-invite=([A-Za-z0-9._~-]+)/) else { return nil }
+    let host = String(match.2)
+    let loopback = host.wholeMatch(of: /(?i)(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?/) != nil
+    let scheme = match.1.lowercased() == "overstory" ? (loopback ? "http" : "https") : match.1.lowercased()
+    var path = match.3.map(String.init) ?? ""
+    while path.hasSuffix("/") { path.removeLast() }
+    return ("\(scheme)://\(host)\(path)", String(match.4))
+}
+
 func placementTarget(_ input: String) throws -> (origin: String, account: String?) {
     guard let url = URL(string: input.trimmingCharacters(in: .whitespacesAndNewlines)),
           let origin = originString(url), isHomeHostOrigin(origin),

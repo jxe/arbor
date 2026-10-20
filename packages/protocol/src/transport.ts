@@ -346,6 +346,8 @@ export class ProtocolClient {
     profileTree: TreeID;
     configurationTree: TreeID;
     inviteCode?: string;
+    /** The profile's locator at its home host, to accept the invitation as a placement (accounts §1.4). */
+    profile?: string;
   }): Promise<AccountChallenge> {
     const response = await this.checked(await this.request("/.overstory/account-challenges", {
       method: "POST",
@@ -371,6 +373,25 @@ export class ProtocolClient {
         device: input.device,
         configuration: encodeCandidateUpdateJSON(input.configuration, encoding),
       }, encoding) as Uint8Array<ArrayBuffer>,
+    }));
+    return response.json();
+  }
+
+  /** Accept an invitation with a profile homed at another host: this host places it (accounts §1.4). */
+  async acceptInvitationAsPlacement(input: {
+    account: string;
+    profile: string;
+    profileTree: TreeID;
+    configurationTree: TreeID;
+    inviteCode: string;
+    challenge: AccountChallenge;
+    publicKey: string;
+    signature: string;
+  }): Promise<RemotePlacementAccountDescriptor> {
+    const response = await this.checked(await this.request("/.overstory/placements", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
     }));
     return response.json();
   }

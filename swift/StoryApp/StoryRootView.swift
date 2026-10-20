@@ -26,6 +26,8 @@ private protocol HostAccountPresentable {
     var handle: String? { get }
     /// The account's host, when known.
     var accountHost: String? { get }
+    /// The account's host origin (`https://host`), when known.
+    var accountOrigin: String? { get }
 }
 
 private extension HostAccountPresentable {
@@ -51,11 +53,16 @@ extension LocalHostAccountDescriptor: HostAccountPresentable {
         guard let host, !host.isEmpty else { return nil }
         return URL(string: host)?.host() ?? host
     }
+    fileprivate var accountOrigin: String? {
+        guard let host, !host.isEmpty else { return nil }
+        return host.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
 }
 #endif
 
 extension HostAccount: HostAccountPresentable {
     fileprivate var accountHost: String? { origin?.host() }
+    fileprivate var accountOrigin: String? { origin?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
 }
 
 /// Keep the focused editor-command dependency at the toolbar leaf. Reading it
@@ -4009,78 +4016,108 @@ private struct StoryPlacementSection: View {
     }
 }
 
-/// The one way onto another host: place an existing account there (keeping
-/// its identity and signing in through its home host), or join that host's
-/// community as a new account.
-private struct StoryAddAccountOrHostSection<Account: HostAccountPresentable>: View {
+/// The one way into another community: with an invite link, your profile
+/// accepts it and that host places you there (accounts §1.4); without one,
+/// you send your profile URL to its administrators and add the host once
+/// they have added you (§1.3). Either way you keep one identity, signing in
+/// through your home host; Story makes no second account.
+private struct StoryJoinCommunitySection<Account: HostAccountPresentable>: View {
     let workspace: StoryWorkspaceState
-    let accounts: [Account]
-    let joinCommunity: () -> Void
+    let account: Account
     let placed: () -> Void
-    @State private var choosingKind = false
-    @State private var placing: Account?
+    @State private var asking = false
+    @State private var pastingLink = false
+    @State private var addingHost = false
+    @State private var link = ""
     @State private var host = ""
     @State private var working = false
     @State private var message: String?
 
-    private var canPlace: Bool { workspace.accountService.capabilities.contains(.connectPlacement) }
+    private var profileURL: String? {
+        guard let handle = account.handle, !handle.isEmpty, let origin = account.accountOrigin else { return nil }
+        return "\(origin)/~\(handle)"
+    }
+
+    /// The pasted invite link in its `https://` spelling, or nil.
+    private var invitation: String? {
+        guard case let .join(account, code)? = StoryIncomingLocator.pastedJoinLink(link) else { return nil }
+        return buildInviteLocator(account: account, code: code)
+    }
 
     var body: some View {
         Section {
-            Button("Add Account or Host…") {
-                if canPlace, !accounts.isEmpty { choosingKind = true } else { joinCommunity() }
-            }
-            .disabled(working)
+            Button("Join Another Community…") { asking = true }
+                .disabled(working)
             if working { ProgressView() }
             if let message {
                 Text(message).font(.caption).foregroundStyle(.red)
             }
         }
-        .confirmationDialog("Add an account or host", isPresented: $choosingKind) {
-            ForEach(accounts, id: \.configurationTree) { account in
-                Button(accounts.count > 1 ? "Place \(account.accountDisplayName) on Another Host…" : "Place This Account on Another Host…") {
-                    host = ""
-                    placing = account
-                }
-            }
-            Button("Join Another Community…", action: joinCommunity)
+        .confirmationDialog("Do you have an invite link?", isPresented: $asking, titleVisibility: .visible) {
+            Button("Paste Invite Link…") { link = ""; pastingLink = true }
+            Button("I Don’t Have One") { host = ""; addingHost = true }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Placing an account keeps one identity and signs in through its home host. Joining a community makes a separate account there.")
+            Text("You join with your own profile, \(account.accountDisplayName). The community’s host signs you in through \(account.accountDisplayDetail).")
         }
-        .alert(
-            "Place this account on a host",
-            isPresented: Binding(get: { placing != nil }, set: { if !$0 { placing = nil } }),
-            presenting: placing
-        ) { account in
-            TextField("https://host.example", text: $host)
-#if os(iOS)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-#endif
-            Button("Add") { Task { await place(account) } }
-                .disabled(host.trimmingCharacters(in: .whitespaces).isEmpty)
+        .alert("Paste your invite link", isPresented: $pastingLink) {
+            TextField(text: $link, prompt: Text(verbatim: "https://host.example/~you#overstory-invite=…")) { Text("Invite link") }
+                .storyURLField()
+            Button("Join") { if let invitation { Task { await connect(invitation) } } }
+                .disabled(invitation == nil)
             Button("Cancel", role: .cancel) {}
-        } message: { account in
-            Text("Once that host's administrators have added your profile URL as a member, your trees can live under its addresses. It signs your devices in through \(account.accountDisplayDetail).")
+        } message: {
+            Text("Someone in that community sent it to you.")
+        }
+        .alert("Ask to be added", isPresented: $addingHost) {
+            TextField(text: $host, prompt: Text(verbatim: "https://host.example")) { Text("Host") }
+                .storyURLField()
+            Button("Add Host") { Task { await connect(host) } }
+                .disabled(host.trimmingCharacters(in: .whitespaces).isEmpty)
+            if let profileURL {
+                Button("Copy Profile URL") { copyToPasteboard(profileURL) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Send \(profileURL ?? "your profile URL") to that community’s administrators. Once they’ve added you as a member, enter their host here.")
         }
     }
 
-    private func place(_ account: Account) async {
+    private func connect(_ target: String) async {
         working = true
         defer { working = false }
         do {
 #if os(macOS)
             try await workspace.ensureStorySync()
 #endif
-            try await workspace.accountService.connectPlacement(configurationTree: account.configurationTree, host: host)
+            try await workspace.accountService.connectPlacement(configurationTree: account.configurationTree, host: target)
             message = nil
         } catch {
             // A placement host's 403 and 503 name the home host (ProtocolHTTPError.placementDescription).
             message = error.localizedDescription
         }
         placed()
+    }
+
+    private func copyToPasteboard(_ text: String) {
+#if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+#else
+        UIPasteboard.general.string = text
+#endif
+    }
+}
+
+private extension View {
+    func storyURLField() -> some View {
+#if os(iOS)
+        keyboardType(.URL)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+#else
+        self
+#endif
     }
 }
 
@@ -4160,13 +4197,9 @@ private struct MacStorySyncAccountPanel: View {
                             }
                         }
                     }
-                    if !account.accounts.isEmpty {
-                        StoryAddAccountOrHostSection(
-                            workspace: workspace,
-                            accounts: account.accounts,
-                            joinCommunity: { setupPresented = true },
-                            placed: { Task { await loadPlacements() } }
-                        )
+                    // Story supports one identity: the first account is it.
+                    if let home = account.accounts.first, workspace.accountService.capabilities.contains(.connectPlacement) {
+                        StoryJoinCommunitySection(workspace: workspace, account: home) { Task { await loadPlacements() } }
                     }
                     if account.accounts.isEmpty {
                         ContentUnavailableView(
@@ -5131,13 +5164,9 @@ private struct IOSAccountPanel: View {
                         }
                     }
                 }
-                if !accounts.isEmpty {
-                    StoryAddAccountOrHostSection(
-                        workspace: workspace,
-                        accounts: accounts,
-                        joinCommunity: { addingAccount = true },
-                        placed: { Task { await loadPlacements() } }
-                    )
+                // Story supports one identity: the first account is it.
+                if let home = accounts.first, workspace.accountService.capabilities.contains(.connectPlacement) {
+                    StoryJoinCommunitySection(workspace: workspace, account: home) { Task { await loadPlacements() } }
                 }
                 if accounts.isEmpty, message == nil {
                     Section {

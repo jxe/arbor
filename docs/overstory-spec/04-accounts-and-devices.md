@@ -117,8 +117,8 @@ The operation refuses to replace a different local identity or silently adopt
 an ordinary random TreeID as a person identity. Repeating it for the same
 profile and available key is idempotent. This version has one permanent key and
 defines no rotation, successor key or delegation. The profile key claims
-accounts (§1.2, §1.3); it does not recover lost devices, which is the home
-host's help (§5.3).
+accounts and accepts invitations as placements (§1.2, §1.4); it does not
+recover lost devices, which is the home host's help (§5.3).
 
 A backup contains the same private key, not another authority. Because that
 key claims accounts for the profile, a conforming backup operation offers to
@@ -159,8 +159,10 @@ That page is the same for every reserved, unclaimed address, whether it is
 held for one profile or for an invitation, and the code, being a fragment, is
 not sent to the host.
 
-A client that opens one creates or selects the local profile identity, then
-requests a challenge from the host the locator's authority names, with the
+A client that opens one selects the local profile identity, or creates one
+when the device has none. If that profile already has a home host, the client
+accepts the invitation as a placement there (§1.4) and claims nothing. Otherwise
+it requests a challenge from the host the locator's authority names, with the
 link's account as `account` and its code, and claims that account as below. The
 code is a secret until the claim consumes it: a client sends it only to that
 host, in the challenge request and the claim body, and keeps it out of logs,
@@ -277,9 +279,11 @@ TreeID, its local allocation such as a handle, and the home host's origin),
 and declares the account's placement root (below). If the locator cannot be
 resolved, or resolves to a profile the host already holds, it refuses the
 update with a retryable error naming the home host in `details.homeHost`,
-changing nothing. There is no placement claim and no proof from the profile
-key: the community's administrators say whom they mean, and the profile's
-devices then open sessions (§5.4) with no further step. Removing the member
+changing nothing. When the administrators add the member themselves there is
+no placement claim and no proof from the profile key: they say whom they mean,
+and the profile's devices then open sessions (§5.4) with no further step. A
+pending invitation becomes such a member when the invited person accepts it
+with a profile homed elsewhere (§1.4). Removing the member
 disables the placement account, ending its sessions and watches as a device
 deletion does; its placement root and the trees under it stay. If the locator
 later resolves to another TreeID, the account opens no sessions until the
@@ -325,6 +329,64 @@ profile's device keys and for nothing else. A compromised home host can act as
 those profiles on the placement host, which is no more than it holds already;
 an administrator can reserve any public profile, whose devices can then act
 there, and nobody else's.
+
+### 1.4 Accepting an invitation as a placement
+
+```text
+POST /.overstory/account-challenges
+PUT /.overstory/placements
+```
+
+A person has one profile identity and one home host. An invitation link
+(§1.2) opened by a client whose profile is already claimed at another host
+is accepted as a placement: the pending entry becomes a member naming the
+profile by its canonical locator at its home host, exactly as if the
+community's administrators had authored it (§1.3). A profile is never
+claimed at a second host.
+
+The client requests a challenge as for a claim, with the link's `account`,
+its code as `inviteCode`, `profileTree`, its derived `configurationTree`, and
+`profile`: the profile's canonical locator at its home host. The host refuses
+a `profile` whose authority is itself. The challenge has the same fields as a
+claim's and is signed the same way with the profile key.
+
+The acceptance body carries `account`, `profile`, `profileTree`,
+`configurationTree`, `inviteCode`, the `challenge`, the raw `publicKey` and
+the Ed25519 `signature`. It carries no device and no configuration: those stay
+at the home host.
+
+```json
+{
+  "account": "https://community.example/~alice",
+  "profile": "https://home.example/~alice",
+  "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
+  "configurationTree": "tr_5huybo3bjxyloxdeohrtlyfwrkwbotahsxjnhy74722jqirpo7ca",
+  "inviteCode": "…",
+  "challenge": { "version": 1, "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa", "…": "…" },
+  "publicKey": "…",
+  "signature": "…"
+}
+```
+
+The host verifies the challenge, the key and signature as for a claim, and the
+code against the reservation's digest. It then replaces that one pending
+entry, keeping its handle, with the member `profile: <profile>`, and accepts
+the result as an update of the community profile, so the locator is resolved
+and pinned, and the placement account and its placement root are created, in
+the same commit as for any member a community adds by locator (§1.3). A
+`profile` that does not resolve, at its authority, to `profileTree` is
+refused. The challenge is consumed in that commit.
+A home host that does not publish the profile's device keys refuses the
+acceptance as §1.3 refuses the update, naming it in `details.homeHost`, and
+changes nothing. The response is the placement account's descriptor (§1.3).
+Exact retry after success returns the same descriptor; any other attempt on
+the consumed invitation returns `already-claimed`.
+
+A client that already holds the profile's key needs no new device step: the
+profile's devices open sessions at the placement host with the keys their
+home host publishes (§5.4). A client keeps one identity per person. Holding
+several profile identities on one device is possible but is not a
+configuration a client needs to offer.
 
 ## 2. Tree configuration graph
 
