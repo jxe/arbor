@@ -2078,7 +2078,7 @@ final class StoryWorkspaceState {
             ?? WorkspaceSyncPresentation(state: .offline, detail: "Immediate synchronization failed")
         if previous != syncPresentation {
             var note = ProtocolNetworkLogEntry(kind: .note, name: "presentation")
-            note.error = "\(syncPresentation.state) · \(syncPresentation.detail ?? "")"
+            note.detail = "\(syncPresentation.state) · \(syncPresentation.detail ?? "")"
             ProtocolNetworkLog.current?.record(note)
         }
         // Choices only change with the accepted state, so re-inspect when the

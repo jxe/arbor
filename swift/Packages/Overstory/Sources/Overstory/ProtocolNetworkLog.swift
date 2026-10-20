@@ -13,7 +13,8 @@ public struct ProtocolNetworkLogEntry: Codable, Sendable, Identifiable, Equatabl
         case watchDisconnect = "watch-disconnect"
         case read
         /// Client-side diagnostic with no request of its own (for example why a
-        /// delta was not sent); `name` says what, `error` says why.
+        /// delta was not sent); `name` says what, and `error` says why it
+        /// failed or `detail` what it observed.
         case note
     }
 
@@ -41,6 +42,8 @@ public struct ProtocolNetworkLogEntry: Codable, Sendable, Identifiable, Equatabl
     public var afterResponseMs: Double?
     /// Server phase timings copied from the `Server-Timing` response header.
     public var serverTiming: [String: Double]?
+    /// What a note observed when nothing failed (for example a sync state change).
+    public var detail: String?
     public var error: String?
 
     public init(kind: Kind, name: String, tree: String? = nil, at: Date = Date()) {
@@ -210,6 +213,7 @@ public final class ProtocolNetworkLog: @unchecked Sendable {
                 let ordered = timing.sorted { $0.key == "total" ? true : $1.key == "total" ? false : $0.value > $1.value }
                 parts.append("server=" + ordered.map { "\($0.key):\(Int($0.value.rounded()))" }.joined(separator: " "))
             }
+            if let detail = entry.detail { parts.append("detail=\(detail)") }
             if let error = entry.error { parts.append("error=\(error)") }
             return parts.joined(separator: " ")
         }.joined(separator: "\n")
