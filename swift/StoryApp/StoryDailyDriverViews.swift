@@ -647,7 +647,8 @@ struct StoryMoveDestinationSheet: View {
     @State private var documentResults: [WorkspaceSearchResult] = []
     @State private var isLoading = false
     @State private var showAllInDocument = false
-    @AppStorage("pageOrder.moveTo") private var order = StorySidebarPageOrder.alphabetical
+    @AppStorage("pageOrder.moveTo") private var order = StorySidebarPageOrder.folders
+    @AppStorage("collapsedSections.moveTo") private var collapsedSections = StoryCollapsedPageSections()
     @State private var keyboardSelection: MoveDestination?
 
     private static let collapsedLimit = 5
@@ -776,7 +777,11 @@ struct StoryMoveDestinationSheet: View {
     }
 
     private var orderedDocumentResults: [WorkspaceSearchResult] {
-        StorySidebarPages.displayOrder(documentResults, by: order)
+        StorySidebarPages.displayOrder(
+            documentResults,
+            by: order,
+            collapsed: query.isEmpty ? collapsedSections : .init()
+        )
     }
 
     @ViewBuilder
@@ -784,7 +789,8 @@ struct StoryMoveDestinationSheet: View {
         StoryOrderedPageSections(
             results: documentResults,
             order: order,
-            alphabeticalSectionTitle: "Documents"
+            collapsed: $collapsedSections,
+            allowsCollapse: query.isEmpty
         ) { result, showsBacklinkCount in
             documentRow(result, showsBacklinkCount: showsBacklinkCount)
         }
@@ -884,7 +890,8 @@ struct StoryStructuralMoveSheet: View {
     @State private var query = ""
     @State private var destinations: [StoryStructuralDestination] = []
     @State private var isLoading = false
-    @AppStorage("pageOrder.movePage") private var order = StorySidebarPageOrder.alphabetical
+    @AppStorage("pageOrder.movePage") private var order = StorySidebarPageOrder.folders
+    @AppStorage("collapsedSections.movePage") private var collapsedSections = StoryCollapsedPageSections()
     @State private var keyboardSelection: WorkspaceIdentity?
 
     init(
@@ -986,7 +993,11 @@ struct StoryStructuralMoveSheet: View {
 
     private var orderedDestinations: [StoryStructuralDestination] {
         let byIdentity = destinationsByIdentity
-        return StorySidebarPages.sorted(destinationResults, by: order).compactMap { byIdentity[$0.id] }
+        return StorySidebarPages.displayOrder(
+            destinationResults,
+            by: order,
+            collapsed: query.isEmpty ? collapsedSections : .init()
+        ).compactMap { byIdentity[$0.id] }
     }
 
     @ViewBuilder
@@ -996,7 +1007,8 @@ struct StoryStructuralMoveSheet: View {
         StoryOrderedPageSections(
             results: destinationResults,
             order: order,
-            alphabeticalSectionTitle: nil
+            collapsed: $collapsedSections,
+            allowsCollapse: query.isEmpty
         ) { result, showsBacklinkCount in
             if let destination = byIdentity[result.id] {
                 destinationRow(destination, showsBacklinkCount: showsBacklinkCount)

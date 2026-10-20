@@ -235,10 +235,9 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         let menu = NSMenu(title: "View")
         menu.addItem(window("Toggle Sidebar", "\\") { $0.toggleSidebar() })
         let orders: [(String, String, StorySidebarPageOrder)] = [
-            ("Alphabetical Pages", "1", .alphabetical),
+            ("Pages by Folder", "1", .folders),
             ("Recent Pages", "2", .recent),
             ("Pages by Link Count", "3", .linkCount),
-            ("Pages by Folder", "4", .folders),
         ]
         for (title, key, order) in orders {
             let item = window(title, key, [.command, .option]) { $0.setSidebarPageOrder(order) }

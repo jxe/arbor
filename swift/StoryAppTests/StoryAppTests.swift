@@ -959,7 +959,7 @@ struct StoryAppTests {
             result("Older", "/older", "2026-08-01T11:00:00Z", 4),
         ]
 
-        #expect(StorySidebarPages.sorted(results, by: .alphabetical).map(\.title)
+        #expect(StorySidebarPages.sorted(results).map(\.title)
             == ["🌲 Alpha", "Beta", "Monthly", "Older"])
         #expect(StorySidebarPages.sorted(results, by: .recent).map(\.title)
             == ["Beta", "🌲 Alpha", "Monthly", "Older"])
@@ -982,7 +982,14 @@ struct StoryAppTests {
         // Arrow keys walk pages in the order the sidebar draws them.
         #expect(StorySidebarPages.displayOrder(results, by: .linkCount).map(\.title)
             == ["Beta", "🌲 Alpha", "Older", "Monthly"])
-        #expect(StorySidebarPages.displayOrder(results, by: .alphabetical) == StorySidebarPages.sorted(results, by: .alphabetical))
+        var collapsed = StoryCollapsedPageSections()
+        collapsed.toggle("Multiple Links", in: .linkCount)
+        #expect(StorySidebarPages.displayOrder(results, by: .linkCount, collapsed: collapsed).map(\.title)
+            == ["Beta", "🌲 Alpha"])
+        #expect(StorySidebarPages.displayOrder(results, by: .recent, collapsed: collapsed).count == results.count)
+        #expect(StoryCollapsedPageSections(rawValue: collapsed.rawValue) == collapsed)
+        collapsed.toggle("Multiple Links", in: .linkCount)
+        #expect(collapsed.rawValue.isEmpty)
         #expect(storySidebarContextPath("/story-demo") == nil)
         #expect(storySidebarContextPath("/March-Out-My-Work/story-demo")
             == "/March-Out-My-Work")

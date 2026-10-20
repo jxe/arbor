@@ -117,28 +117,25 @@ private func startStoryVoiceRecording(
 }
 
 enum StorySidebarPageOrder: String, CaseIterable, Identifiable {
-    case alphabetical
+    case folders
     case recent
     case linkCount
-    case folders
 
     var id: Self { self }
 
     var label: String {
         switch self {
-        case .alphabetical: "Alphabetical"
+        case .folders: "Folders"
         case .recent: "Recent"
         case .linkCount: "Link Count"
-        case .folders: "Folders"
         }
     }
 
     var symbol: String {
         switch self {
-        case .alphabetical: "textformat"
+        case .folders: "folder"
         case .recent: "clock"
         case .linkCount: "link"
-        case .folders: "folder"
         }
     }
 }
@@ -150,10 +147,38 @@ struct StorySidebarPageGroup: Identifiable, Equatable {
     var id: String { title }
 }
 
+/// The page sections a list has collapsed, per order, kept in `AppStorage`
+/// as one section key per line.
+struct StoryCollapsedPageSections: RawRepresentable, Equatable {
+    private var keys: Set<String>
+
+    init() { keys = [] }
+
+    init(rawValue: String) {
+        keys = Set(rawValue.split(separator: "\n").map(String.init))
+    }
+
+    var rawValue: String { keys.sorted().joined(separator: "\n") }
+
+    func contains(_ title: String, in order: StorySidebarPageOrder) -> Bool {
+        keys.contains(Self.key(title, order))
+    }
+
+    mutating func toggle(_ title: String, in order: StorySidebarPageOrder) {
+        let key = Self.key(title, order)
+        if keys.remove(key) == nil { keys.insert(key) }
+    }
+
+    private static func key(_ title: String, _ order: StorySidebarPageOrder) -> String {
+        "\(order.rawValue):\(title)"
+    }
+}
+
 enum StorySidebarPages {
+    /// Pages by title, or first by date or link count for those orders.
     static func sorted(
         _ results: [WorkspaceSearchResult],
-        by order: StorySidebarPageOrder
+        by order: StorySidebarPageOrder? = nil
     ) -> [WorkspaceSearchResult] {
         // Derive each title's sort key once, not once per comparison.
         let keyed = results.map { (result: $0, title: storySidebarTitleParts($0.title).text) }
@@ -168,6 +193,14 @@ enum StorySidebarPages {
             if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
             return lhs.result.reference.path.localizedStandardCompare(rhs.result.reference.path) == .orderedAscending
         }.map { $0.result }
+    }
+
+    static func groups(_ results: [WorkspaceSearchResult], by order: StorySidebarPageOrder) -> [StorySidebarPageGroup] {
+        switch order {
+        case .folders: folderGroups(results)
+        case .recent: recentGroups(results)
+        case .linkCount: linkCountGroups(results)
+        }
     }
 
     static func recentGroups(
@@ -203,14 +236,15 @@ enum StorySidebarPages {
     }
 
     /// Pages in exactly the order `StoryOrderedPageSections` draws them, so
-    /// arrow keys move through the list top to bottom.
-    static func displayOrder(_ results: [WorkspaceSearchResult], by order: StorySidebarPageOrder) -> [WorkspaceSearchResult] {
-        switch order {
-        case .recent: recentGroups(results).flatMap(\.results)
-        case .linkCount: linkCountGroups(results).flatMap(\.results)
-        case .folders: folderGroups(results).flatMap(\.results)
-        case .alphabetical: sorted(results, by: order)
-        }
+    /// arrow keys move through the list top to bottom, skipping collapsed sections.
+    static func displayOrder(
+        _ results: [WorkspaceSearchResult],
+        by order: StorySidebarPageOrder,
+        collapsed: StoryCollapsedPageSections = .init()
+    ) -> [WorkspaceSearchResult] {
+        groups(results, by: order)
+            .filter { !collapsed.contains($0.title, in: order) }
+            .flatMap(\.results)
     }
 
     /// One section per directory, titled with its logical path and ordered by
@@ -223,7 +257,7 @@ enum StorySidebarPages {
         }
         let directories = Set(results.map { parent($0.reference.path) })
         var sections: [String: [WorkspaceSearchResult]] = [:]
-        for result in sorted(results, by: .alphabetical) {
+        for result in sorted(results) {
             let path = result.reference.path
             if directories.contains(path) {
                 sections[path, default: []].insert(result, at: 0)
@@ -261,52 +295,82 @@ enum StorySidebarPages {
 struct StoryOrderedPageSections<Row: View>: View {
     let results: [WorkspaceSearchResult]
     let order: StorySidebarPageOrder
-    var alphabeticalSectionTitle: String?
+    @Binding var collapsed: StoryCollapsedPageSections
+    /// Off while searching, so a collapsed section never hides a match.
+    var allowsCollapse = true
     var topSpacing: CGFloat = 0
     @ViewBuilder let row: (WorkspaceSearchResult, Bool) -> Row
 
     var body: some View {
-        if order == .recent {
-            ForEach(Array(StorySidebarPages.recentGroups(results).enumerated()), id: \.element.id) { index, group in
-                Section {
-                    ForEach(group.results) { row($0, false) }
-                } header: {
-                    Text(group.title)
-                        .padding(.top, index == 0 ? topSpacing : 0)
-                }
-            }
-        } else if order == .linkCount {
-            ForEach(Array(StorySidebarPages.linkCountGroups(results).enumerated()), id: \.element.id) { index, group in
-                Section {
-                    ForEach(group.results) { row($0, group.showsBacklinkCounts) }
-                } header: {
-                    Text(group.title)
-                        .padding(.top, index == 0 ? topSpacing : 0)
-                }
-            }
-        } else if order == .folders {
-            ForEach(Array(StorySidebarPages.folderGroups(results).enumerated()), id: \.element.id) { index, group in
-                Section {
-                    ForEach(group.results) { row($0, false) }
-                } header: {
-                    Text(group.title)
-                        .textCase(nil)
-                        .padding(.top, index == 0 ? topSpacing : 0)
-                }
-            }
-        } else if let alphabeticalSectionTitle {
+        ForEach(Array(StorySidebarPages.groups(results, by: order).enumerated()), id: \.element.id) { index, group in
+            let isCollapsed = allowsCollapse && collapsed.contains(group.title, in: order)
             Section {
-                ForEach(StorySidebarPages.sorted(results, by: order)) { row($0, false) }
+                if !isCollapsed {
+                    ForEach(group.results) { row($0, group.showsBacklinkCounts) }
+                }
             } header: {
-                Text(alphabeticalSectionTitle)
-                    .padding(.top, topSpacing)
-            }
-        } else {
-            ForEach(Array(StorySidebarPages.sorted(results, by: order).enumerated()), id: \.element.id) { index, result in
-                row(result, false)
-                    .padding(.top, index == 0 ? topSpacing : 0)
+                StoryCollapsiblePageSectionHeader(
+                    title: group.title,
+                    isCollapsed: isCollapsed,
+                    allowsCollapse: allowsCollapse,
+                    // Folder sections are titled with paths, which keep their case.
+                    keepsCase: order == .folders
+                ) {
+                    withAnimation(.snappy(duration: 0.2)) { collapsed.toggle(group.title, in: order) }
+                }
+                .padding(.top, index == 0 ? topSpacing : 0)
             }
         }
+    }
+}
+
+/// A grey section title that collapses its section when clicked. On Mac the
+/// chevron shows while the pointer is over it; on iOS, with no hover, it
+/// always shows.
+private struct StoryCollapsiblePageSectionHeader: View {
+    let title: String
+    let isCollapsed: Bool
+    let allowsCollapse: Bool
+    let keepsCase: Bool
+    let toggle: () -> Void
+    @Environment(\.textCase) private var inheritedTextCase
+    @State private var isHovering = false
+
+    var body: some View {
+        label.textCase(keepsCase ? nil : inheritedTextCase)
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        if allowsCollapse {
+            Button(action: toggle) {
+                HStack(spacing: 4) {
+                    Text(title)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                        .opacity(chevronVisible ? 1 : 0)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .onHover { isHovering = $0 }
+            .accessibilityLabel(title)
+            .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
+            .accessibilityHint(isCollapsed ? "Shows this section's pages" : "Hides this section's pages")
+        } else {
+            Text(title)
+        }
+    }
+
+    private var chevronVisible: Bool {
+#if os(macOS)
+        isHovering
+#else
+        true
+#endif
     }
 }
 
@@ -1022,7 +1086,8 @@ struct StoryRootView: View {
     @State private var trashConfirmationPresented = false
     @State private var storySyncLogs = ""
     @State private var voiceLaunchReady = false
-    @AppStorage("pageOrder.sidebar") private var sidebarPageOrder = StorySidebarPageOrder.alphabetical
+    @AppStorage("pageOrder.sidebar") private var sidebarPageOrder = StorySidebarPageOrder.folders
+    @AppStorage("collapsedSections.sidebar") private var sidebarCollapsedSections = StoryCollapsedPageSections()
     @State private var sidebarSearchText = ""
     @State private var reviewingChoices = false
     @State private var reviewAccessoryReveal: EditorAccessoryReveal?
@@ -1934,7 +1999,8 @@ struct StoryRootView: View {
                 StoryOrderedPageSections(
                     results: model.searchResults,
                     order: sidebarPageOrder,
-                    alphabeticalSectionTitle: nil,
+                    collapsed: $sidebarCollapsedSections,
+                    allowsCollapse: sidebarSearchText.isEmpty,
                     topSpacing: 8
                 ) { result, showsBacklinkCount in
                     sidebarSearchRow(
@@ -2100,7 +2166,11 @@ struct StoryRootView: View {
     }
 
     private var keyboardNavigableSidebarResults: [WorkspaceSearchResult] {
-        StorySidebarPages.displayOrder(model.searchResults, by: sidebarPageOrder)
+        StorySidebarPages.displayOrder(
+            model.searchResults,
+            by: sidebarPageOrder,
+            collapsed: sidebarSearchText.isEmpty ? sidebarCollapsedSections : .init()
+        )
     }
 
     private func sidebarPageRowIsSelected(_ result: WorkspaceSearchResult) -> Bool {
