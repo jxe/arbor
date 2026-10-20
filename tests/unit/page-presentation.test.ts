@@ -15,6 +15,7 @@ type Edit =
   | { retitle: "title" | "children"; text: string }
   | { retype: "title"; level: number }
   | { append: string }
+  | { reverse: "children" }
   | null;
 
 interface Fixture {
@@ -55,6 +56,9 @@ describe("page presentation", () => {
         blocks = blocks.map((block) => presentedHeading(block) === edit.retitle ? { ...block, content: edit.text } : block);
       } else if (edit && "retype" in edit) {
         blocks = blocks.map((block) => presentedHeading(block) === edit.retype ? { ...block, props: { ...block.props, level: edit.level } } : block);
+      } else if (edit && "reverse" in edit) {
+        const heading = blocks.findIndex((block) => presentedHeading(block) === edit.reverse);
+        blocks = [...blocks.slice(0, heading + 1), ...blocks.slice(heading + 1).reverse()];
       } else if (edit) {
         blocks = [...blocks, { id: "appended", type: "paragraph", content: edit.append, props: {}, children: [] }];
       }

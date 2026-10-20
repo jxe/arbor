@@ -1119,11 +1119,11 @@ struct StoryAttentionBanner: View {
     }
 }
 
+/// What follows a page: the pages that link to it. Sync status is in the
+/// Mac toolbar and the iPhone's pull-down, not here.
 struct StoryDocumentFooter: View {
-    let status: StorySyncStatus
     let backlinks: [WorkspaceSearchResult]
     let open: (WorkspaceReference) -> Void
-    let showStatus: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -1152,23 +1152,6 @@ struct StoryDocumentFooter: View {
                     }
                 }
             }
-
-            Button(action: showStatus) {
-                HStack(spacing: 5) {
-                    StorySyncToolbarIndicator(status: status)
-                        .frame(width: 13, height: 13)
-                        .background(.bar, in: Circle())
-                    Text(status.label)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .help(status.accessibilityDescription)
-            .accessibilityLabel(status.accessibilityDescription)
-            .accessibilityHint("Shows local durability and synchronization details")
         }
         .padding(.top, 24)
         .padding(.bottom, 12)

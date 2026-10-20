@@ -7,10 +7,11 @@ import Quagmire
 ///
 /// The editor shows every page through `present`, never through directory
 /// placement alone. It adds a title when the body does not begin with an H1,
-/// and, for a node with children whose document has no explicit marker, a
-/// closing Children section holding the children no authored link names. With
-/// an explicit marker those children stand at the marker and no heading is
-/// added. `authored` is the inverse: the blocks an edited page writes. The
+/// and, for a node with children whose document has no explicit marker, the
+/// children no authored link names at the page's end: under the body's last
+/// H1 when that is an authored `# Children`, otherwise in a presented
+/// Children section. With an explicit marker those children stand at the
+/// marker and no heading is added. `authored` is the inverse: the blocks an edited page writes. The
 /// TypeScript twin is `packages/protocol/src/documents/page-presentation.ts`,
 /// and both run `docs/overstory-spec/conformance/page-presentation.json`.
 public enum StoryPagePresentation {
@@ -87,7 +88,10 @@ public enum StoryPagePresentation {
                 metadata: [headingMetadataKey: Heading.title.rawValue, textMetadataKey: title])
             result.replaceSubrange(..<end, with: [block])
         }
-        if !remainder.isEmpty {
+        if !remainder.isEmpty, let last = result.indices.last, isAuthoredChildrenHeading(result[last]) {
+            // An authored `# Children` that is the body's last H1 holds them at its end.
+            result[last].children += remainder
+        } else if !remainder.isEmpty {
             // An H1 closes every authored section above it.
             result.append(Block(
                 id: unusedID("children", in: &used),
@@ -96,6 +100,25 @@ public enum StoryPagePresentation {
                 metadata: [headingMetadataKey: Heading.children.rawValue, textMetadataKey: childrenHeading]))
         }
         return hidingChildrenMarker(result)
+    }
+
+    /// Whether a block is an authored `# Children`, which holds the page's
+    /// remainder when it is the body's last H1.
+    private static func isAuthoredChildrenHeading(_ block: Block) -> Bool {
+        guard heading(block) == nil, case let .heading(.h1, text) = block.kind else { return false }
+        return String(text.characters) == childrenHeading
+    }
+
+    /// Whether a row reads as derived rather than written: a generated child
+    /// link, or the Children heading presented over them.
+    public static func isMuted(_ block: Block) -> Bool {
+        StoryMarkdownCodec.isProjectedChild(block) || (heading(block) == .children && isUntouched(block))
+    }
+
+    /// Whether generated links stand in another order than they were placed.
+    private static func isReordered(_ blocks: [Block]) -> Bool {
+        let ordinals = blocks.compactMap { $0.metadata[StoryMarkdownCodec.projectedOrdinalMetadataKey].flatMap(Int.init) }
+        return zip(ordinals, ordinals.dropFirst()).contains { $0 > $1 }
     }
 
     /// An explicit children marker is source, not something to read. Where the
@@ -123,11 +146,11 @@ public enum StoryPagePresentation {
     ///
     /// A presented heading the reader left alone is not source; what stands
     /// under a title is written where the title stood. An edited title (new
-    /// text, or another kind of block) is written as it reads. A renamed
-    /// Children heading, or one with authored content under it, is written
-    /// with its text and an explicit marker where its generated children
-    /// were shown, so they stay under the now-authored heading. Generated
-    /// child links are never written.
+    /// text, or another kind of block) is written as it reads. A Children
+    /// section the reader edited (renamed, added content under, or
+    /// reordered) is written whole: its heading, then everything under it in
+    /// the order shown, each generated link as an authored link. Generated
+    /// links are otherwise never written.
     public static func authored(_ blocks: [Block]) -> [Block] {
         var used: Set<BlockID>?
         func usedIDs() -> Set<BlockID> {
@@ -174,14 +197,15 @@ public enum StoryPagePresentation {
                 case .title:
                     return isUntouched(block) ? children : [plain(block, children: children)]
                 case .children:
-                    if isUntouched(block), children.isEmpty { return [] }
-                    var ids = usedIDs()
-                    let marker = Block(
-                        id: unusedID("children-marker", in: &ids),
-                        kind: .unsupported(payload: StoryMarkdownCodec.childrenMarker + "\n", display: childrenHeading))
-                    let generated = block.children.firstIndex(where: StoryMarkdownCodec.isProjectedChild) ?? 0
-                    let before = walk(Array(block.children[..<generated]))
-                    return [plain(block, children: before + [marker] + walk(Array(block.children[generated...])))]
+                    if isUntouched(block), children.isEmpty, !isReordered(block.children) { return [] }
+                    // An edited section is written whole: every generated
+                    // link becomes authored where it stands.
+                    let written = block.children.flatMap { child in
+                        StoryMarkdownCodec.isProjectedChild(child)
+                            ? StoryMarkdownCodec.materializingProjectedChildren([child])
+                            : walk([child])
+                    }
+                    return [plain(block, children: written)]
                 }
             }
         }

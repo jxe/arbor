@@ -380,7 +380,7 @@ const ChildPageBlock = createReactBlockSpec(
       }
       const renaming = controller.renamingPath === path;
       return <div
-        className={`child-page managed-child-page${controller.selected(path) ? " selected" : ""}`}
+        className={`child-page managed-child-page${block.props.storyGenerated ? " generated" : ""}${controller.selected(path) ? " selected" : ""}`}
         data-managed-row={path}
         contentEditable={false}
         onClick={(event) => {
@@ -858,6 +858,9 @@ export function fromBlockNote(block: OverstoryEditorBlock, originals: Map<string
   if (block.type === "standaloneLink") {
     props.path = block.props.path;
     props.storyGenerated = block.props.storyGenerated;
+    // Where a generated link was placed, so `authorPage` can tell a reorder.
+    const ordinal = original?.props?.storyOrdinal;
+    if (block.props.storyGenerated && typeof ordinal === "number") props.storyOrdinal = ordinal;
   }
   return {
     id: block.id,

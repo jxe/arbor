@@ -37,6 +37,7 @@ struct PagePresentationTests {
             var text: String?
             var level: Int?
             var append: String?
+            var reverse: String?
         }
         struct EditCase: Decodable {
             var name: String
@@ -135,6 +136,10 @@ struct PagePresentationTests {
                     let heading = try #require(Self.find(kind, in: document.children), comment)
                     _ = document.mutate(heading.id) { $0.kind = .heading(level: level, text: $0.text) }
                     document.enforceHeadingContainment()
+                } else if let name = edit.reverse {
+                    let kind = try #require(StoryPagePresentation.Heading(rawValue: name), comment)
+                    let heading = try #require(Self.find(kind, in: document.children), comment)
+                    _ = document.moveSubtrees(heading.children.reversed().map(\.id), to: DropPath(parent: heading.id, position: 0))
                 } else if let text = edit.append {
                     let children = try #require(Self.find(.children, in: document.children), comment)
                     _ = document.insertSubtree(.paragraph(text: AttributedString(text)), at: DropPath(parent: children.id, position: children.children.count))
@@ -171,13 +176,22 @@ struct PagePresentationTests {
         #expect(page[1].children.last?.children.contains(where: StoryMarkdownCodec.isProjectedChild) == false)
     }
 
-    @Test("Content placed above the generated children keeps them below it")
-    func markerStandsWhereChildrenAreShown() throws {
+    @Test("Content placed above the generated children writes the section with its links")
+    func editedSectionWritesItsLinks() throws {
         let opened = StoryMarkdownCodec.open(source: "# Dir\n", revision: "r1", identitySeed: "above")
         var page = Self.present(opened.blocks, .init(path: "/dir", body: .index), [.init(name: "a", path: "/dir/a", body: .sibling)])
         page[1].children.insert(.paragraph(text: AttributedString("Start here.")), at: 0)
-        #expect(StoryMarkdownCodec.admission(blocks: page, ledger: opened.ledger).0.source
-            == "# Dir\n\n# Children\n\nStart here.\n\n<!-- overstory:children -->\n")
+        let source = StoryMarkdownCodec.admission(blocks: page, ledger: opened.ledger).0.source
+        #expect(source == "# Dir\n\n# Children\n\nStart here.\n\n[a](a.md)\n", "\(source.debugDescription)")
+        // The authored heading holds a child added later, with nothing presented.
+        let reopened = StoryMarkdownCodec.open(source: source, revision: "r2", identitySeed: "above")
+        let next = Self.present(reopened.blocks, .init(path: "/dir", body: .index),
+                                [.init(name: "a", path: "/dir/a", body: .sibling), .init(name: "b", path: "/dir/b", body: .sibling)])
+        #expect(next.count == 2)
+        #expect(StoryPagePresentation.heading(next[1]) == nil)
+        #expect(next[1].children.map(StoryMarkdownCodec.isProjectedChild) == [false, false, true])
+        #expect(StoryPagePresentation.isMuted(next[1].children[2]))
+        #expect(!StoryPagePresentation.isMuted(next[1]))
     }
 
     @Test("An explicit marker is not shown where the generated children stand, and is written back before them")
@@ -268,17 +282,18 @@ struct PagePresentationTests {
         #expect((try await session.snapshot()).source == "Intro.\n")
         #expect(document.children.map(StoryPagePresentation.heading) == [.title, .children])
 
-        // Renaming Children writes the heading and an explicit marker; the
-        // title stays presented, and the generated child stays under the heading.
+        // Renaming Children writes the section with its link; the title
+        // stays presented, and the link stays under the heading.
         let heading = try #require(document.children.last)
         _ = document.setText(heading.id, AttributedString("Pages"))
         binding.appendCurrentGeneration()
         await binding.flush()
-        #expect((try await session.snapshot()).source == "Intro.\n\n# Pages\n\n<!-- overstory:children -->\n")
+        let renamed = (try await session.snapshot()).source
+        #expect(renamed == "Intro.\n\n# Pages\n\n[a](a.md)\n", "\(renamed.debugDescription)")
         binding.represent()
         #expect(document.children.map(StoryPagePresentation.heading) == [.title, nil])
         #expect(document.children.last?.id == heading.id)
-        #expect(document.children.last?.children.last.map(StoryMarkdownCodec.isProjectedChild) == true)
+        #expect(document.children.last?.children.last.map(StoryMarkdownCodec.isProjectedChild) == false)
 
         // Editing the title writes the body's first H1 and names the page.
         _ = document.setText(try #require(document.children.first).id, AttributedString("Field Notes"))
@@ -286,7 +301,7 @@ struct PagePresentationTests {
         await binding.flush()
         binding.represent()
         let finalSource = (try await session.snapshot()).source
-        #expect(finalSource == "# Field Notes\n\nIntro.\n\n# Pages\n\n<!-- overstory:children -->\n", "\(finalSource.debugDescription)")
+        #expect(finalSource == "# Field Notes\n\nIntro.\n\n# Pages\n\n[a](a.md)\n", "\(finalSource.debugDescription)")
         #expect(document.children.map(StoryPagePresentation.heading) == [nil, nil])
         #expect(binding.acceptedTitle == "Field Notes")
         #expect(binding.lastError == nil)

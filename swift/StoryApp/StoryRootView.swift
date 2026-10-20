@@ -2900,10 +2900,8 @@ struct StoryRootView: View {
                             readOnly: !node.isWritable
                         ) {
                             StoryDocumentFooter(
-                                status: syncStatus(for: lease.binding),
                                 backlinks: presentation.backlinks,
-                                open: { destination in Task { await model.navigate(to: destination) } },
-                                showStatus: showStatusPanel
+                                open: { destination in Task { await model.navigate(to: destination) } }
                             )
                         }
                     }

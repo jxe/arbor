@@ -51,6 +51,8 @@ public enum StoryMarkdownCodec {
         text == childrenMarker || text == legacyChildrenMarker
     }
     static let projectedChildMetadataKey = "story.projected-child"
+    /// Where a generated child link was placed among its siblings, so a reorder can be told.
+    static let projectedOrdinalMetadataKey = "story.projected-ordinal"
 
     private struct ParsedBlock {
         var block: Block
@@ -122,7 +124,7 @@ public enum StoryMarkdownCodec {
             .sorted { Array($0.reference.path.utf8).lexicographicallyPrecedes(Array($1.reference.path.utf8)) }
         guard !missing.isEmpty else { return DirectoryPlacement(blocks: authored, remainder: []) }
 
-        let generated = missing.map { child -> Block in
+        let generated = missing.enumerated().map { ordinal, child -> Block in
             let rawReference = if child.reference.tree != directory.tree {
                 StoryDocumentReferenceCodec.encode(child.reference).rawValue
             } else {
@@ -135,7 +137,7 @@ public enum StoryMarkdownCodec {
                     label: AttributedString(child.title),
                     reference: DocumentReference(rawReference)
                 ),
-                metadata: [projectedChildMetadataKey: "true"]
+                metadata: [projectedChildMetadataKey: "true", projectedOrdinalMetadataKey: String(ordinal)]
             )
         }
 
@@ -1347,6 +1349,7 @@ public enum StoryMarkdownCodec {
         func materialize(_ block: Block) -> Block {
             var value = block
             value.metadata.removeValue(forKey: projectedChildMetadataKey)
+            value.metadata.removeValue(forKey: projectedOrdinalMetadataKey)
             value.children = block.children.map(materialize)
             return value
         }
