@@ -1095,6 +1095,7 @@ struct StoryRootView: View {
     @State private var voiceLaunchReady = false
     @AppStorage("pageOrder.sidebar") private var sidebarPageOrder = StorySidebarPageOrder.folders
     @AppStorage("collapsedSections.sidebar") private var sidebarCollapsedSections = StoryCollapsedPageSections()
+    @AppStorage(StoryIOSSettings.showsSidebarHandleKey) private var showsSidebarHandle = true
     @State private var sidebarSearchText = ""
     @State private var reviewingChoices = false
     @State private var reviewAccessoryReveal: EditorAccessoryReveal?
@@ -1540,13 +1541,15 @@ struct StoryRootView: View {
 
                 // The drawer's tab rides on its trailing edge, so a sliver of
                 // it peeks in at the bottom left while it is closed.
-                IOSSidebarTab(isOpen: sidebarRevealProgress > 0.5) {
-                    if sidebarRevealProgress > 0.5 { closeIOSSidebar() } else { openIOSSidebar() }
+                if showsSidebarHandle {
+                    IOSSidebarTab(isOpen: sidebarRevealProgress > 0.5) {
+                        if sidebarRevealProgress > 0.5 { closeIOSSidebar() } else { openIOSSidebar() }
+                    }
+                    .gesture(openSidebarEdgeGesture, isEnabled: sidebarRevealProgress == 0)
+                    .offset(x: drawerWidth * sidebarRevealProgress)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .padding(.bottom, 28)
                 }
-                .gesture(openSidebarEdgeGesture, isEnabled: sidebarRevealProgress == 0)
-                .offset(x: drawerWidth * sidebarRevealProgress)
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                .padding(.bottom, 28)
             }
             .ignoresSafeArea(.keyboard)
             .onAppear { sidebarDrawerWidth = drawerWidth }
@@ -5183,7 +5186,11 @@ private struct IOSAccountPanel: View {
             }
             .navigationTitle("Sync & Accounts")
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { StoryAppIconPicker() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink { StoryIOSSettingsView() } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
