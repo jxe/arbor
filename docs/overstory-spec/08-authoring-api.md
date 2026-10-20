@@ -60,7 +60,7 @@ Expansion beyond existing resource rules requires renewed consent; module/export
 renames within a code TreeID do not discard grants. Omission never confers ambient
 authority. Ordinary caller read permission, including `everyone`, works through code.
 
-The following is illustrative authoring syntax; [Apps 006](../../plans/apps/006-durable-authoring.md)
+The following is illustrative authoring syntax; [Apps 006](../../plans/later/apps-006-durable-authoring.md)
 freezes the exact overloads, resource-selection typing and step API using the Supplies
 corpus before implementation. The previous `permission()` and `{ requires }` forms
 are superseded, not compatibility obligations.

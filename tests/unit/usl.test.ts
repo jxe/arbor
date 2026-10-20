@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { compileUsl, parseUsl } from "@ovst/usl";
 
-const examples = join(import.meta.dir, "../../plans/schema-language/examples");
+const examples = join(import.meta.dir, "../../plans/soon/schema-language/examples");
 const usl = (dir: string) => readdirSync(dir).filter((f) => f.endsWith(".usl"));
 
 describe("usl examples", () => {

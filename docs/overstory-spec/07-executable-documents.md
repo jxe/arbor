@@ -571,7 +571,7 @@ The query/mutation Overstory shapes above describe single-domain values and rema
 basis for the runtime bridge, not a compatibility requirement for unused APIs.
 Workflow calls additionally expose `pending`, `blocked`, `failed`, or `completed`
 status and domain-specific receipts. They must not invent one `observedThrough`
-that promises atomic cross-domain visibility. [Apps 006](../../plans/apps/006-durable-authoring.md)
+that promises atomic cross-domain visibility. [Apps 006](../../plans/later/apps-006-durable-authoring.md)
 owns the paired language-neutral request/progress/receipt encoding before implementation.
 
 A durable step key is unique within an invocation, has canonical input, and is

@@ -70,7 +70,7 @@ Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-peop
 
 Formerly overstoryd 017; the first live run is recorded in
 [status](../status.md#known-gaps). A bound on `document_versions`, which holds most retained
-bytes, is part of [overstoryd 007](history/007-document-history-routes-and-restore.md).
+bytes, is part of [overstoryd 007](later/history-007-document-history-routes-and-restore.md).
 
 - [ ] Schedule the `railway ssh` collection command
   ([deployment](../packages/overstoryd/deploy/README.md#collecting-unreferenced-objects))
@@ -86,6 +86,10 @@ index with excerpts as marked ranges.
 
 ### Smaller candidates
 
+- **Mac app acknowledgements.** Left from Release 001: add an acknowledgements file to the
+  Mac app for Bun, `@parcel/watcher`, Quagmire, Yams and Sparkle.
+- **Remove the intro video's demo account.** Left from Release 004: with Joe's go-ahead,
+  remove the throwaway demo account from the host, if it is still there.
 - **`story untrack`.** Ignore rules never untrack an already-published path; today the
   recipe is move out, sync the deletion, move back. One command could publish the deletion
   and leave the bytes. The bytes stay in accepted history, so a leaked secret still needs
@@ -143,7 +147,7 @@ passes its Swift tests on a Mac.
 
 ## Server refinements
 
-Owner: [overstoryd 014](merge/014-merge-handles-many-cases.md). Everything here is on main
+Owner: [overstoryd 014](when-needed/merge-014-merge-handles-many-cases.md). Everything here is on main
 and so deployed (the host builds from main; Joe pushed on 2026-10-11): independent
 source-range inspection, the Markdown transfer and list-insertion refinements, the transfer
 extensions (list items, table rows and contextual links; same-anchor ordering; keyed
@@ -177,7 +181,7 @@ A live second overstoryd is Joe's decision.
 - [ ] Once a live placement host exists, try by hand the iPhone opening a tree there
   (Place a Tree lists the account's other hosts). The iPhone pairs only with an HTTPS host.
 - Making a folder into a tree from the Mac app after setup, onto any host, is
-  [Filesystem 024](filesystem/024-open-plain-folders-on-the-mac.md).
+  [Filesystem 024](later/filesystem-024-open-plain-folders-on-the-mac.md).
 
 ## Observation and soak closeout
 
@@ -215,4 +219,4 @@ discards a saved head or alters protocol semantics.
 **Resource policy soak.** Exercise Story consent and revocation and configuration
 conflict resolution on the isolated production copy, including queued configuration writes.
 Keep the schema 13 migration backups until this soak closes. Required before enabling a
-real application ([Apps 005](apps/005-source-resolution-and-sidecar.md)).
+real application ([Apps 005](later/apps-005-source-resolution-and-sidecar.md)).

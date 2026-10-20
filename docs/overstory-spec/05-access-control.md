@@ -1,7 +1,7 @@
 # Access control
 *Part of the [Overstory spec](README.md): resource policy, execution authority, authentication, and authorization of reads, updates, and observations.*
 
-*Owns: `who` / `app` / `allow` rules, administrators and lending. References: [tree configurations](04-accounts-and-devices.md), [executable documents](07-executable-documents.md), and [locator resolution](03-locators.md#4-resolution-rules). This is the target contract; the deployed subset is in [status](../../status.md), and provider enforcement is [Apps 005](../../plans/apps/005-source-resolution-and-sidecar.md).*
+*Owns: `who` / `app` / `allow` rules, administrators and lending. References: [tree configurations](04-accounts-and-devices.md), [executable documents](07-executable-documents.md), and [locator resolution](03-locators.md#4-resolution-rules). This is the target contract; the deployed subset is in [status](../../status.md), and provider enforcement is [Apps 005](../../plans/later/apps-005-source-resolution-and-sidecar.md).*
 
 ## 1. Subjects and rules
 
@@ -149,9 +149,9 @@ are opaque, limited to that execution authority, and contain no general
 caller credentials. Their encoding is host-private. The authority evaluates
 underlying access without recursively treating the proposed delegation as its
 own justification. An `apps.yaml` entry applies only on its profile's home
-host ([Apps 008](../../plans/apps/008-app-approvals-on-placement-hosts.md)),
+host ([Apps 008](../../plans/later/apps-008-app-approvals-on-placement-hosts.md)),
 and cross-server delegation transport is not defined
-([Apps 009](../../plans/apps/009-cross-host-delegation.md)).
+([Apps 009](../../plans/later/apps-009-cross-host-delegation.md)).
 
 **On a placement host**
 ([accounts §1.3](04-accounts-and-devices.md#13-placement-accounts)),
