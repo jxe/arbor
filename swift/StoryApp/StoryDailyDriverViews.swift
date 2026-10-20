@@ -1170,6 +1170,11 @@ struct StorySyncStatusView: View {
     let reconnectStorySync: () -> Void
     let showStorySyncLogs: () -> Void
     var showNetworkLog: () -> Void = {}
+    /// Names the card after the open tree and switches it; the card then says
+    /// only the tree's state, not "Story is up to date".
+    var treeSwitcher: AnyView?
+    /// Shows the open tree's folder in the Finder, when it is placed on this Mac.
+    var revealFolder: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingDiscard = false
@@ -1201,59 +1206,45 @@ struct StorySyncStatusView: View {
                     .foregroundStyle(overallStatusTint(diagnostic))
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(overallStatusTitle(diagnostic)).font(.headline)
-                    Text(overallStatusDetail(diagnostic))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if let treeSwitcher {
+                        treeSwitcher
+                        Text(statusLine(diagnostic))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(overallStatusTitle(diagnostic)).font(.headline)
+                    }
+                    if let detail = attentionDetail(diagnostic) {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer(minLength: 16)
-                if diagnostic != nil {
-                    Button("Retry Save", systemImage: "arrow.clockwise", action: retrySave)
-                } else if sync.state == .conflict {
-                    Button("Discard Refused Changes…", systemImage: "trash", role: .destructive) { confirmingDiscard = true }
-                        .confirmationDialog("Discard the changes the host refused?", isPresented: $confirmingDiscard) {
-                            Button("Discard Changes", role: .destructive, action: discardHeldChanges)
-                        } message: {
-                            Text("The refused change and every edit made after it on this device are removed. This cannot be undone.")
-                        }
-                } else {
-                    Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
-                        .disabled(sync.state == .offline)
+                Group {
+                    if diagnostic != nil {
+                        Button("Retry Save", systemImage: "arrow.clockwise", action: retrySave)
+                    } else if sync.state == .conflict {
+                        Button("Discard Refused Changes…", systemImage: "trash", role: .destructive) { confirmingDiscard = true }
+                            .confirmationDialog("Discard the changes the host refused?", isPresented: $confirmingDiscard) {
+                                Button("Discard Changes", role: .destructive, action: discardHeldChanges)
+                            } message: {
+                                Text("The refused change and every edit made after it on this device are removed. This cannot be undone.")
+                            }
+                    } else {
+                        Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
+                            .disabled(sync.state == .offline)
+                    }
                 }
-                Button("Network Log…", systemImage: "waveform.path.ecg", action: showNetworkLog)
-                    .help("Timings for updates, watch frames, and reads")
-#if os(macOS)
-                Menu {
-                    Button("Reconnect to Story Sync", systemImage: "arrow.clockwise", action: reconnectStorySync)
-                    Button("View Story Sync Logs…", systemImage: "doc.text.magnifyingglass", action: showStorySyncLogs)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Story Sync options")
-#endif
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .font(.title3)
+                optionsMenu
             }
             .padding(.vertical, 4)
 #if os(iOS)
-            // In an iOS Form row every tap goes to one button unless each is borderless;
-            // icons keep the status text from wrapping mid-word.
+            // In an iOS Form row every tap goes to one button unless each is borderless.
             .buttonStyle(.borderless)
-            .labelStyle(.iconOnly)
-#endif
-        } footer: {
-#if os(macOS)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(provider)
-                if diagnostic?.synchronizationOverride != nil {
-                    Text("Last reported: \(sync.state.label). Story cannot verify that state while the provider connection is unavailable.")
-                } else if let detail = sync.detail {
-                    Text(detail)
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
 #endif
         }
         if binding?.isSaving == true || diagnostic != nil {
@@ -1292,6 +1283,54 @@ struct StorySyncStatusView: View {
     }
 
     var overallStatusTitle: String { overallStatusTitle(diagnostic) }
+
+    /// Everything that is not the next thing to do: logs, the folder, and
+    /// the provider's technical description.
+    private var optionsMenu: some View {
+        Menu {
+            Button("Network Log…", systemImage: "waveform.path.ecg", action: showNetworkLog)
+            if let revealFolder {
+                Button("Show in Finder", systemImage: "folder", action: revealFolder)
+            }
+#if os(macOS)
+            Button("Reconnect to Story Sync", systemImage: "arrow.clockwise", action: reconnectStorySync)
+            Button("View Story Sync Logs…", systemImage: "doc.text.magnifyingglass", action: showStorySyncLogs)
+#endif
+            Section("Details") {
+                Text(provider)
+                if diagnostic?.synchronizationOverride != nil {
+                    Text("Last reported: \(sync.state.label). Story cannot verify that state while the provider connection is unavailable.")
+                } else if let detail = sync.detail {
+                    Text(detail)
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.title3)
+        }
+#if os(macOS)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+#endif
+        .help("Sync options")
+        .accessibilityLabel("Sync options")
+    }
+
+    /// The tree's state in a few words, under its name.
+    private func statusLine(_ diagnostic: StorySaveDiagnostic?) -> String {
+        if diagnostic == nil, sync.state == .current, binding?.isSaving != true { return "Up to date" }
+        return overallStatusTitle(diagnostic)
+    }
+
+    /// The explanation shown only when something needs the reader.
+    private func attentionDetail(_ diagnostic: StorySaveDiagnostic?) -> String? {
+        if diagnostic != nil { return overallStatusDetail(diagnostic) }
+        switch sync.state {
+        case .offline, .conflict, .authenticationFailure, .revoked: return overallStatusDetail(diagnostic)
+        default: return nil
+        }
+    }
 
     private func overallStatusTitle(_ diagnostic: StorySaveDiagnostic?) -> String {
         if diagnostic != nil { return "A document needs attention" }

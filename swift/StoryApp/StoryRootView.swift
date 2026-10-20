@@ -29,7 +29,6 @@ private protocol HostAccountPresentable {
 }
 
 private extension HostAccountPresentable {
-    var profileSectionID: String { "profile:\(configurationTree)" }
     var devicesSectionID: String { "devices:\(configurationTree)" }
     var placementsSectionID: String { "placements:\(configurationTree)" }
 
@@ -1270,7 +1269,7 @@ struct StoryRootView: View {
                 presentedSheet = next
             }
         }) {
-            IOSAccountPanel(workspace: workspace, syncSections: AnyView(syncStatusPanel.sections), treePicker: AnyView(accountTreePicker), openProfile: { profile in
+            IOSAccountPanel(workspace: workspace, syncSections: AnyView(accountSyncPanel.sections), openProfile: { profile in
                 accountFollowUpProfile = profile
                 accountPresented = false
             }, onDisconnect: onDisconnect)
@@ -1647,25 +1646,55 @@ struct StoryRootView: View {
         return sidebarTrees.first { $0.id == tree }?.title ?? tree
     }
 
-    /// The Sync & Accounts sheet's tree switch: the same trees as the sidebar's picker.
-    private var accountTreePicker: some View {
+    /// The Sync & Accounts sheet's status card, named after the open tree.
+    private var accountSyncPanel: StorySyncStatusView {
+        var panel = syncStatusPanel
+        panel.treeSwitcher = AnyView(accountTreeSwitcher)
+#if os(macOS)
+        let tree = model.currentReference.tree.rawValue
+        if let path = workspace.localStorySyncOverview?.trees.first(where: { $0.id == tree && $0.missing != true })?.path {
+            panel.revealFolder = { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
+        }
+#endif
+        return panel
+    }
+
+    /// The status card's title: the open tree, which switches to the same
+    /// trees as the sidebar's picker.
+    private var accountTreeSwitcher: some View {
         let trees = sidebarTrees
         let current = model.currentReference.tree.rawValue
         let accounts = trees.reduce(into: [String]()) { if !$0.contains($1.account) { $0.append($1.account) } }
-        return Section {
-            Picker("Tree", selection: Binding(get: { current }, set: { if $0 != current { openSidebarTree($0) } })) {
-                if !trees.contains(where: { $0.id == current }) {
-                    Text(currentSidebarTreeTitle).tag(current)
-                }
-                ForEach(accounts, id: \.self) { account in
-                    Section(account) {
-                        ForEach(trees.filter { $0.account == account }) { tree in
-                            Text(tree.title).tag(tree.id)
+        return Menu {
+            ForEach(accounts, id: \.self) { account in
+                Section(account) {
+                    ForEach(trees.filter { $0.account == account }) { tree in
+                        Button { if tree.id != current { openSidebarTree(tree.id) } } label: {
+                            if tree.id == current { Label(tree.title, systemImage: "checkmark") } else { Text(tree.title) }
                         }
                     }
                 }
             }
+        } label: {
+            HStack(spacing: 4) {
+                Text(currentSidebarTreeTitle)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(.rect)
         }
+        .menuIndicator(.hidden)
+#if os(macOS)
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+#else
+        .buttonStyle(.borderless)
+#endif
+        .accessibilityLabel("Tree")
+        .accessibilityValue(currentSidebarTreeTitle)
     }
 
     /// Switches the window to another placed tree, grouped by account.
@@ -2479,8 +2508,7 @@ struct StoryRootView: View {
     private var macManagementPanel: some View {
         MacStorySyncAccountPanel(
             workspace: workspace,
-            syncSections: AnyView(syncStatusPanel.sections),
-            treePicker: AnyView(accountTreePicker),
+            syncSections: AnyView(accountSyncPanel.sections),
             openProfile: { tree in
                 profileAfterManagementDismiss = tree
                 managementPresented = false
@@ -3852,36 +3880,14 @@ private struct StoryAgentBundlePage: View {
 
 private struct StoryDevicesHeader: View {
     var title = "Devices"
-    var showsAddAccount = true
-    let addAccount: () -> Void
 
     var body: some View {
-        HStack {
-            Text(title)
-            Spacer()
-            if showsAddAccount {
-                Button(action: addAccount) {
-                    Image(systemName: "person.badge.plus")
-                        .font(.body)
-#if os(iOS)
-                        .frame(width: 44, height: 44)
-#else
-                        .frame(width: 24, height: 24)
-#endif
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Add account")
-                .help("Add account…")
-            }
-        }
-        .textCase(nil)
+        Text(title).textCase(nil)
     }
 }
 
-/// Few people place trees on other hosts, so the sheet keeps those sections
-/// behind one quiet button.
+/// Few people use another host, whether by placing their account there or by
+/// joining another community, so the sheet keeps both behind one quiet button.
 private struct StoryOtherHostsReveal: View {
     let reveal: () -> Void
 
@@ -3906,6 +3912,8 @@ private struct StoryPlacementsSection: View {
     let workspace: StoryWorkspaceState
     let configurationTree: String
     var title = "Other Hosts"
+    /// Join another community with a new account, the other way onto another host.
+    var joinCommunity: (() -> Void)?
     @State private var placements: [StoryPlacement] = []
     @State private var hostPromptPresented = false
     @State private var host = ""
@@ -3947,17 +3955,22 @@ private struct StoryPlacementsSection: View {
         } header: {
             Text(title).textCase(nil)
         } footer: {
-            if canPlace {
-                Button("Add another host…") {
-                    host = ""
-                    hostPromptPresented = true
+            VStack(alignment: .leading, spacing: 6) {
+                if canPlace {
+                    Button("Place this account on another host…") {
+                        host = ""
+                        hostPromptPresented = true
+                    }
+                    .disabled(working)
                 }
-#if os(macOS)
-                .buttonStyle(.link)
-#endif
-                .textCase(nil)
-                .disabled(working)
+                if let joinCommunity {
+                    Button("Join another community…", action: joinCommunity)
+                }
             }
+#if os(macOS)
+            .buttonStyle(.link)
+#endif
+            .textCase(nil)
         }
         .task(id: configurationTree) { await load() }
         .alert("Add another host", isPresented: $hostPromptPresented) {
@@ -4029,7 +4042,6 @@ private struct MacStorySyncAccountPanel: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: StoryWorkspaceState
     let syncSections: AnyView
-    let treePicker: AnyView
     let openProfile: (String) -> Void
     @State private var showsOtherHosts = false
     @State private var pairing: StoryPairingOffer?
@@ -4046,21 +4058,12 @@ private struct MacStorySyncAccountPanel: View {
         NavigationStack {
             Form {
                 syncSections
-                treePicker
-                if let account {
-                    ForEach(account.accounts, id: \.profileSectionID) { hostAccount in
-                        Section { accountHeader(hostAccount) }
-                    }
-                }
-                if account?.accounts.isEmpty != false, let identity = identityState?.identity {
+                // Your profile is in People; here only a missing key needs you.
+                if let identity = identityState?.identity, !identity.keyAvailable {
                     Section {
-                        StoryProfileRow(
-                            workspace: workspace,
-                            person: workspace.directory.first { $0.entry.profile == identity.profileTree },
-                            fallbackTitle: "My profile", fallbackSubtitle: "",
-                            accessory: AnyView(identityMenu),
-                            open: { openProfile(identity.profileTree) }
-                        )
+                        Label("This Mac doesn’t have your identity’s key.", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Button("Recover Identity…") { recoverIdentity() }
                     }
                 }
                 if let account {
@@ -4088,11 +4091,7 @@ private struct MacStorySyncAccountPanel: View {
                                     .frame(maxWidth: .infinity)
                                 }
                             } header: {
-                                StoryDevicesHeader(
-                                    title: account.accounts.count > 1 ? "Devices · \(hostAccount.accountDisplayName)" : "Devices",
-                                    showsAddAccount: account.accounts.first?.id == hostAccount.id,
-                                    addAccount: { setupPresented = true }
-                                )
+                                StoryDevicesHeader(title: hostAccount.accountDisplayLabel)
                             } footer: {
                                 Button("Pair another device…") {
                                     Task { await createPairing(configurationTree: hostAccount.configurationTree) }
@@ -4107,8 +4106,18 @@ private struct MacStorySyncAccountPanel: View {
                                 StoryPlacementsSection(
                                     workspace: workspace,
                                     configurationTree: hostAccount.configurationTree,
-                                    title: account.accounts.count > 1 ? "Other Hosts · \(hostAccount.accountDisplayName)" : "Other Hosts"
+                                    title: account.accounts.count > 1 ? "Other Hosts · \(hostAccount.accountDisplayName)" : "Other Hosts",
+                                    joinCommunity: hostAccount.id == account.accounts.last?.id ? { setupPresented = true } : nil
                                 )
+                            }
+                            if identityState?.identity?.keyAvailable == true {
+                                Section {
+                                    Button("Back Up Identity…") { backupIdentity() }
+                                } header: {
+                                    Text("Identity").textCase(nil)
+                                } footer: {
+                                    Text("A backup lets you recover this identity if you lose every device.")
+                                }
                             }
                         } else {
                             StoryOtherHostsReveal { showsOtherHosts = true }
@@ -4142,8 +4151,9 @@ private struct MacStorySyncAccountPanel: View {
                 if account?.accounts.isEmpty != false, account?.handle == nil {
                     Section {
                         Text("Connect to a community or pair an existing account.").foregroundStyle(.secondary)
+                        Button("Set Up…") { setupPresented = true }
                     } header: {
-                        StoryDevicesHeader(addAccount: { setupPresented = true })
+                        StoryDevicesHeader()
                     }
                 }
             }
@@ -4173,37 +4183,6 @@ private struct MacStorySyncAccountPanel: View {
             Button("Cancel", role: .cancel) {}
         } message: { target in
             Text("\(target.label) will lose access to this account.")
-        }
-    }
-
-    private func accountHeader(_ account: LocalHostAccountDescriptor) -> some View {
-        StoryProfileRow(
-            workspace: workspace,
-            person: workspace.directory.first { $0.entry.profile == account.profileTree },
-            fallbackTitle: account.accountDisplayName,
-            fallbackSubtitle: account.accountDisplayDetail,
-            canOpen: account.profileTree != nil,
-            accessory: AnyView(identityMenu),
-            open: { if let profile = account.profileTree { openProfile(profile) } }
-        )
-    }
-
-    @ViewBuilder
-    private var identityMenu: some View {
-        if let identity = identityState?.identity {
-            if identity.keyAvailable {
-                Menu {
-                    Button("Back up identity…") { backupIdentity() }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Identity options")
-            } else {
-                Button("Recover identity…") { recoverIdentity() }
-            }
         }
     }
 
@@ -4256,12 +4235,17 @@ private struct MacStorySyncAccountPanel: View {
         let isLastAdministrator = device.isAdministrator
             && devices.filter(\.isAdministrator).count == 1
         return HStack {
-            Text(device.label)
+            if device.isCurrent {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("This Mac")
+                    Text(device.label).font(.caption).foregroundStyle(.secondary)
+                }
+            } else {
+                Text(device.label)
+            }
             Spacer(minLength: 12)
             HStack(spacing: 5) {
-                if device.isCurrent {
-                    statusTag("This Mac")
-                } else if !device.isAdministrator {
+                if !device.isCurrent, !device.isAdministrator {
                     statusTag("Active")
                 }
                 if device.isAdministrator {
@@ -4952,7 +4936,6 @@ private struct IOSAccountPanel: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: StoryWorkspaceState
     let syncSections: AnyView
-    let treePicker: AnyView
     let openProfile: (String) -> Void
     @State private var showsOtherHosts = false
     let onDisconnect: @MainActor () -> Void
@@ -4969,20 +4952,6 @@ private struct IOSAccountPanel: View {
         NavigationStack {
             Form {
                 syncSections
-                treePicker
-                ForEach(accounts, id: \.profileSectionID) { account in
-                    Section {
-                        let profile = snapshots[account.configurationTree]?.profileTree ?? account.profileTree
-                        StoryProfileRow(
-                            workspace: workspace,
-                            person: workspace.directory.first { $0.entry.profile == profile },
-                            fallbackTitle: account.accountDisplayName,
-                            fallbackSubtitle: account.accountDisplayDetail,
-                            canOpen: profile != nil,
-                            open: { if let profile { openProfile(profile) } }
-                        )
-                    }
-                }
                 ForEach(accounts, id: \.devicesSectionID) { account in
                     Section {
                         if let device = snapshots[account.configurationTree]?.device {
@@ -4997,11 +4966,7 @@ private struct IOSAccountPanel: View {
                             Text(error).font(.caption).foregroundStyle(.secondary)
                         }
                     } header: {
-                        StoryDevicesHeader(
-                            title: accounts.count > 1 ? "Devices · \(account.accountDisplayName)" : "Devices",
-                            showsAddAccount: accounts.first?.id == account.id,
-                            addAccount: { addingAccount = true }
-                        )
+                        StoryDevicesHeader(title: account.accountDisplayLabel)
                     }
                 }
                 if showsOtherHosts {
@@ -5009,7 +4974,8 @@ private struct IOSAccountPanel: View {
                         StoryPlacementsSection(
                             workspace: workspace,
                             configurationTree: account.configurationTree,
-                            title: accounts.count > 1 ? "Other Hosts · \(account.accountDisplayName)" : "Other Hosts"
+                            title: accounts.count > 1 ? "Other Hosts · \(account.accountDisplayName)" : "Other Hosts",
+                            joinCommunity: account.id == accounts.last?.id ? { addingAccount = true } : nil
                         )
                     }
                 } else if !accounts.isEmpty {
@@ -5018,9 +4984,12 @@ private struct IOSAccountPanel: View {
                 if accounts.isEmpty, message == nil {
                     Section {
                         if loading { ProgressView("Loading accounts…") }
-                        else { Text("No accounts on this device").foregroundStyle(.secondary) }
+                        else {
+                            Text("No accounts on this device").foregroundStyle(.secondary)
+                            Button("Set Up…") { addingAccount = true }
+                        }
                     } header: {
-                        StoryDevicesHeader(addAccount: { addingAccount = true })
+                        StoryDevicesHeader()
                     }
                 }
                 if let message { Section { Text(message).foregroundStyle(.red) } }

@@ -228,9 +228,12 @@ struct StoryDirectoryView: View {
         let people = DirectoryMatcher.matches(query: query, in: workspace.directory)
         let communities = people.filter(isCommunity)
         let groups = people.filter { $0.entry.kind == "group" && !isCommunity($0) }
-        let individuals = people.filter { $0.entry.kind != "group" }
+        // Your own profiles lead the list; the account sheet no longer shows them.
+        let own = people.filter { $0.entry.kind != "group" && workspace.isOwnProfile($0.id) }
+        let individuals = people.filter { $0.entry.kind != "group" && !workspace.isOwnProfile($0.id) }
         let members = individuals.filter { $0.entry.sources.contains("community") }
         List {
+            directorySection("You", values: own)
             directorySection("People", values: members)
             if !communities.isEmpty || !groups.isEmpty {
                 Section("Groups") {
