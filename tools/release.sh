@@ -26,7 +26,10 @@ set -eu
 # Connect API key named in ~/.appstoreconnect/story.env (STORY_ASC_KEY_ID and
 # STORY_ASC_ISSUER_ID), the uploaded build is also added to the TestFlight group
 # STORY_TESTFLIGHT_GROUP (default Friends) and submitted for beta review;
-# without it, do that by hand. Approve the npm publish if npm stages it.
+# without it, do that by hand. npm publishes right after "Publish?", asking for a
+# one-time password if the login needs one, so the waits that follow (GitHub,
+# Apple) need no one at the keyboard.
+# Every step prints its number and the time since the start.
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repository_root"
 
@@ -44,6 +47,13 @@ while [ $# -gt 0 ]; do
     *) usage ;;
   esac
 done
+started=$(date +%s)
+step_number=0
+step() {
+  step_number=$((step_number + 1))
+  elapsed=$(( $(date +%s) - started ))
+  printf '\n== [%d] %s  (%d:%02d)\n' "$step_number" "$1" $((elapsed / 60)) $((elapsed % 60))
+}
 wants() { case ",$parts," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
 for part in $(printf '%s' "$parts" | tr ',' ' '); do
   case $part in mac|ios|npm) ;; *) echo "error: unknown part $part" >&2; exit 2 ;; esac
@@ -92,7 +102,8 @@ if wants mac || wants ios; then
       fi
       git -C "$quagmire" rev-parse --verify --quiet "refs/tags/$target" >/dev/null \
         && { echo "error: Quagmire $target already exists; pass --quagmire with a new version" >&2; exit 1; }
-      echo "== Quagmire main is $(git -C "$quagmire" rev-list --count "refs/tags/$pinned..HEAD") commits past $pinned:"
+      step "Releasing Quagmire $target"
+      echo "Quagmire main is $(git -C "$quagmire" rev-list --count "refs/tags/$pinned..HEAD") commits past $pinned:"
       git -C "$quagmire" log --format='  %s' "refs/tags/$pinned..HEAD"
       printf 'Release Quagmire %s now (pushes its main and tag)? Type yes: ' "$target"
       read answer
@@ -109,7 +120,7 @@ if wants mac || wants ios; then
   fi
 
   if [ "$target" != "$pinned" ]; then
-    echo "== Moving the Quagmire pins from $pinned to $target"
+    step "Moving the Quagmire pins from $pinned to $target"
     sed -i '' "/^  Quagmire:\$/,/exactVersion/s/^    exactVersion: $pinned\$/    exactVersion: $target/" swift/project.yml
     sed -i '' "s|\"https://github.com/jxe/quagmire.git\", exact: \"$pinned\"|\"https://github.com/jxe/quagmire.git\", exact: \"$target\"|" swift/Packages/StoryEditor/Package.swift
     # The generated project, edited to match project.yml as xcodegen would write it.
@@ -143,18 +154,18 @@ if [ "$current" != "$version" ]; then
 fi
 build=$(git rev-list --count HEAD)
 
-echo "== Checking"
+step "Checking"
 bun run typecheck
 if wants npm; then bun run test:cli:package; fi
 
 if wants mac; then
-  echo "== Building and notarizing the Mac app ($version, build $build)"
+  step "Building and notarizing the Mac app ($version, build $build)"
   swift/scripts/release-mac.sh "$version" "$build"
   # A name that never changes, for a download link that never changes.
   cp "dist/mac/Story-$version.dmg" dist/mac/Story.dmg
 fi
 if wants npm; then
-  echo "== Building the story command package"
+  step "Building the story command package"
   bun run build:cli:package
 fi
 
@@ -174,17 +185,51 @@ printf 'Publish? Type yes: '
 read answer
 [ "$answer" = "yes" ] || { echo "Nothing published. The builds are in dist/."; exit 1; }
 
+# Publishes a package directory unless its version is already on npm. When npm
+# wants a one-time password (none with a token that bypasses two-factor), it asks
+# for one, reuses it for the next packages, and asks again once it expires.
+npm_otp=
+publish_npm() {
+  directory=$1
+  shift
+  package=$(node -p "const p = require('./$directory/package.json'); p.name + '@' + p.version")
+  if npm view "$package" version >/dev/null 2>&1; then echo "$package is already on npm"; return 0; fi
+  for attempt in 1 2 3 4; do
+    if output=$(cd "$directory" && npm publish ${npm_otp:+--otp="$npm_otp"} "$@" 2>&1); then echo "Published $package"; return 0; fi
+    # A staged version waits for npm's review; publishing it again is a conflict.
+    if printf '%s' "$output" | grep -q E409; then echo "$package is staged on npm"; return 0; fi
+    printf '%s' "$output" | grep -q EOTP || { printf '%s\n' "$output" | tail -n 5; break; }
+    printf 'npm one-time password for %s: ' "$package"
+    read npm_otp
+  done
+  echo "error: $package was not published" >&2
+  return 1
+}
+if wants npm; then
+  step "Publishing the story command"
+  # The platform builds first, so @ovst/cli never names an optional dependency npm cannot find.
+  for platform in dist/npm-cli-*/; do publish_npm "${platform%/}"; done
+  publish_npm dist/npm-cli
+  if [ -n "$publish_usl" ]; then publish_npm packages/usl --access public; fi
+fi
+
+step "Pushing main"
 git push origin main
 if wants mac; then
+  step "Publishing the GitHub release"
   git tag -a "$tag" -m "Story $version"
   git push origin "refs/tags/$tag"
+  # The DMG upload sometimes times out, and gh then removes the release; one retry.
   gh release create "$tag" --title "Story $version" --generate-notes \
-    "dist/mac/Story-$version.dmg" dist/mac/Story.dmg dist/mac/appcast.xml
+    "dist/mac/Story-$version.dmg" dist/mac/Story.dmg dist/mac/appcast.xml \
+    || { sleep 5; gh release create "$tag" --title "Story $version" --generate-notes \
+      "dist/mac/Story-$version.dmg" dist/mac/Story.dmg dist/mac/appcast.xml; }
 fi
 if wants ios; then
-  echo "== Uploading the iPhone app"
+  step "Uploading the iPhone app"
   swift/scripts/release-ios.sh "$version" "$build"
   if [ -f "$HOME/.appstoreconnect/story.env" ]; then
+    step "Waiting for Apple, then adding the build to TestFlight"
     # In a subshell: the key is for this step, and the upload above signs in through Xcode.
     (
       set -a
@@ -198,20 +243,13 @@ if wants ios; then
     testflight_failed=1
   fi
 fi
-if wants npm; then
-  echo "== Publishing the story command"
-  # The platform builds first, so @ovst/cli never names an optional dependency npm cannot find.
-  for platform in dist/npm-cli-*/; do npm publish "$platform"; done
-  npm publish ./dist/npm-cli
-  if [ -n "$publish_usl" ]; then (cd packages/usl && npm publish --access public); fi
-fi
-
+elapsed=$(( $(date +%s) - started ))
 echo
-echo "Released $version."
+printf 'Released %s in %d:%02d.\n' "$version" $((elapsed / 60)) $((elapsed % 60))
 wants mac && echo "  Mac: https://github.com/jxe/arbor/releases/tag/$tag  (stable link: https://github.com/jxe/arbor/releases/latest/download/Story.dmg)"
 if wants ios; then
   if [ "${testflight_failed:-}" = "1" ]; then echo "  iPhone: add build $build to its group in App Store Connect > TestFlight once it has processed."
   else echo "  iPhone: build $build is in its TestFlight group."; fi
 fi
-wants npm && echo "  npm: if the publish was staged, approve it on npmjs.com; then npx @ovst/cli@$version --version"
+wants npm && echo "  npm: a staged version appears once npm's review finishes; then npx @ovst/cli@$version --version"
 exit 0
