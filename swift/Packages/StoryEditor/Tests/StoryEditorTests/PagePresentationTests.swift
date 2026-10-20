@@ -194,10 +194,14 @@ struct PagePresentationTests {
         #expect(StoryMarkdownCodec.admission(blocks: page, ledger: opened.ledger).0.source == source)
         // Presenting the presented page again changes nothing.
         #expect(Self.present(page, .init(path: "/", body: .index), [.init(name: "story", path: "/story", body: .sibling)]) == page)
-        // Text added after the children stays after the marker.
-        page[0].children.append(.paragraph(text: AttributedString("Later.")))
+        // Text added after the children stays after the marker, as it would
+        // on the unpresented page.
+        let later = Block.paragraph(text: AttributedString("Later."))
+        page[0].children.append(later)
+        var unpresented = opened.blocks
+        unpresented[0].children.append(later)
         #expect(StoryMarkdownCodec.admission(blocks: page, ledger: opened.ledger).0.source
-            == "# Children\n\nHey\n\n<!-- overstory:children -->\n\nLater.\n")
+            == StoryMarkdownCodec.admission(blocks: unpresented, ledger: opened.ledger).0.source)
     }
 
     @Test("A selection that includes a presented heading moves only authored source")

@@ -38,6 +38,8 @@ public enum StoryPagePresentation {
     /// On the parent of an explicit children marker the page does not show:
     /// the marker's source, written back before the generated children.
     static let markerMetadataKey = "story.children-marker"
+    /// The hidden marker's block ID, so it is written back as the same block.
+    static let markerIDMetadataKey = "story.children-marker-id"
 
     /// The title a page presents when its body does not begin with an H1: the
     /// last segment of the node's logical path with each hyphen shown as a
@@ -108,6 +110,7 @@ public enum StoryPagePresentation {
                StoryMarkdownCodec.isProjectedChild(value.children[index + 1]),
                case let .unsupported(payload, _) = value.children[index].kind {
                 value.metadata[markerMetadataKey] = payload
+                value.metadata[markerIDMetadataKey] = value.children[index].id.value.uuidString
                 value.children.remove(at: index)
             }
             value.children = hidingChildrenMarker(value.children)
@@ -141,6 +144,7 @@ public enum StoryPagePresentation {
             value.metadata.removeValue(forKey: headingMetadataKey)
             value.metadata.removeValue(forKey: textMetadataKey)
             value.metadata.removeValue(forKey: markerMetadataKey)
+            value.metadata.removeValue(forKey: markerIDMetadataKey)
             return value
         }
         /// A block's authored children, with a hidden marker written back
@@ -148,8 +152,10 @@ public enum StoryPagePresentation {
         func authoredChildren(_ block: Block) -> [Block] {
             guard let payload = block.metadata[markerMetadataKey] else { return walk(block.children) }
             var ids = usedIDs()
+            let id = block.metadata[markerIDMetadataKey].flatMap(UUID.init(uuidString:)).map { BlockID($0) }
+                .flatMap { ids.contains($0) ? nil : $0 }
             let marker = Block(
-                id: unusedID("children-marker", in: &ids),
+                id: id ?? unusedID("children-marker", in: &ids),
                 kind: .unsupported(payload: payload, display: childrenHeading))
             let generated = block.children.firstIndex(where: StoryMarkdownCodec.isProjectedChild) ?? block.children.count
             return walk(Array(block.children[..<generated])) + [marker] + walk(Array(block.children[generated...]))
@@ -163,6 +169,7 @@ public enum StoryPagePresentation {
                     var value = block
                     value.children = children
                     value.metadata.removeValue(forKey: markerMetadataKey)
+                    value.metadata.removeValue(forKey: markerIDMetadataKey)
                     return [value]
                 case .title:
                     return isUntouched(block) ? children : [plain(block, children: children)]
@@ -201,6 +208,7 @@ public enum StoryPagePresentation {
                 var value = block
                 value.children = walk(block.children)
                 value.metadata.removeValue(forKey: markerMetadataKey)
+                value.metadata.removeValue(forKey: markerIDMetadataKey)
                 return [value]
             }
         }
@@ -226,6 +234,7 @@ public enum StoryPagePresentation {
                 var value = block
                 value.children = walk(block.children, source.children)
                 value.metadata.removeValue(forKey: markerMetadataKey)
+                value.metadata.removeValue(forKey: markerIDMetadataKey)
                 return [value]
             }
         }
