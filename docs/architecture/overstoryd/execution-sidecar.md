@@ -1,7 +1,7 @@
 # overstoryd execution sidecar boundary
 
 This is the target reference implementation boundary, not a claim of deployed
-support. [Apps 005](../../../plans/apps/005-source-resolution-and-sidecar.md) owns its
+support. [Apps 005](../../../plans/later/apps-005-source-resolution-and-sidecar.md) owns its
 implementation. Portable contracts live in [locator resolution](../../overstory-spec/03-locators.md#4-resolution-rules),
 [execution authority](../../overstory-spec/05-access-control.md#21-execution-tokens), and
 [executable documents](../../overstory-spec/07-executable-documents.md#8-host-and-server-boundaries).

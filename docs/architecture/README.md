@@ -66,7 +66,7 @@ and the CLI share them ([local state](story-browser/local-state.md)).
 | `apps-runtime` | Query core and node queries, the SQLite engine, live streams and observers, mutations, authoring API, host integration, and `collections/` (the projection-provider contract types) ([README](../../packages/apps-runtime/README.md)) | protocol, usl |
 | `story-sync` | The daemon: workspace and editor, tree manager, sync and account HTTP, browser routes, filesystem object source and node surfaces, events, and `state/` (tree registry and placement sync metadata, connections, local accounts, providers, object index); `recovery/`, the separate tree-recovery tool, which merges candidates with `tree-merge` | protocol, client, fs, apps-runtime, collection-schema, tree-merge |
 | `cli` | `story`: daemon supervision, identity, placement, moves, cloud sessions; `daemon-client.ts` is its `StorySyncRESTClient` for the daemon's loopback surface | story-sync, protocol, fs |
-| `story-web` | The browser editor (React, BlockNote, Vite); out of the build and typecheck until [Web 025](../../plans/story-web/025-story-web.md) rebuilds it as a working-tree client; its stale imports of the deleted `@ovst/story-sync-client` are Web 025's to replace | protocol |
+| `story-web` | The browser editor (React, BlockNote, Vite); out of the build and typecheck until [Web 025](../../plans/later/story-web-025-story-web.md) rebuilds it as a working-tree client; its stale imports of the deleted `@ovst/story-sync-client` are Web 025's to replace | protocol |
 
 ### Swift packages
 

@@ -114,7 +114,7 @@ The token appears in exactly two places, one per kind of surface:
 | `overstory://`, canonical HTTP, and tree-rooted locators; any locator that also carries a revision or a content fragment | `;overstory-key=<key-token>` on the final path segment |
 | Relative link written in Markdown | `<file>#overstory-key=<key-token>` (§2.1) |
 | Markdown document identity | frontmatter `id: x7f3q2`, which is the key `[["id","x7f3q2"]]` ([directory format](02-directory-format.md#3-properties-markdown-content-and-identity)) |
-| Collection row child segment | the row segment rule of [child backings](06-child-backings.md) (still under review, [Postgres 005](../../plans/postgres/005-representation-equivalence.md)) |
+| Collection row child segment | the row segment rule of [child backings](06-child-backings.md) (still under review, [Postgres 005](../../plans/later/postgres-005-representation-equivalence.md)) |
 
 The suffix supplies the third component of `(TreeID, path, stable key or
 null)`; it is not part of the decoded logical path.
