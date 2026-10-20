@@ -1449,21 +1449,34 @@ struct StoryRootView: View {
         GeometryReader { geometry in
             let drawerWidth = min(430, max(280, geometry.size.width - 28))
             ZStack(alignment: .leading) {
-                Color.black.opacity(0.22 * sidebarRevealProgress)
-                    .ignoresSafeArea()
-                    .contentShape(.rect)
-                    .onTapGesture { closeIOSSidebar() }
+                ZStack(alignment: .leading) {
+                    Color.black.opacity(0.22 * sidebarRevealProgress)
+                        .ignoresSafeArea()
+                        .contentShape(.rect)
+                        .onTapGesture { closeIOSSidebar() }
 
-                VStack(spacing: 0) {
-                    sidebarContent
+                    VStack(spacing: 0) {
+                        sidebarContent
+                    }
+                    .frame(width: drawerWidth)
+                    .frame(maxHeight: .infinity)
+                    .modifier(StorySidebarSurface(showsDivider: true))
+                    .offset(x: -drawerWidth * (1 - sidebarRevealProgress))
+                    .simultaneousGesture(closeSidebarDragGesture)
                 }
-                .frame(width: drawerWidth)
-                .frame(maxHeight: .infinity)
-                .modifier(StorySidebarSurface(showsDivider: true))
-                .offset(x: -drawerWidth * (1 - sidebarRevealProgress))
-                .simultaneousGesture(closeSidebarDragGesture)
+                .allowsHitTesting(sidebarRevealProgress > 0)
+
+                // The drawer's tab rides on its trailing edge, so a sliver of
+                // it peeks in at the bottom left while it is closed.
+                IOSSidebarTab(isOpen: sidebarRevealProgress > 0.5) {
+                    if sidebarRevealProgress > 0.5 { closeIOSSidebar() } else { openIOSSidebar() }
+                }
+                .gesture(openSidebarEdgeGesture, isEnabled: sidebarRevealProgress == 0)
+                .offset(x: drawerWidth * sidebarRevealProgress)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, 28)
             }
-            .allowsHitTesting(sidebarRevealProgress > 0)
+            .ignoresSafeArea(.keyboard)
             .onAppear { sidebarDrawerWidth = drawerWidth }
             .onChange(of: drawerWidth) { _, width in sidebarDrawerWidth = width }
         }
@@ -1519,6 +1532,12 @@ struct StoryRootView: View {
                     sidebarDismissDragSuppressesTap = false
                 }
             }
+    }
+
+    private func openIOSSidebar() {
+        withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
+            sidebarRevealProgress = 1
+        }
     }
 
     private func closeIOSSidebar() {
@@ -4727,6 +4746,39 @@ struct StoryIOSLaunchView: View {
 #endif
 
 #if os(iOS)
+/// A small tab on the sidebar drawer's trailing edge. While the drawer is
+/// closed it peeks in from the bottom left, so the sidebar can be found
+/// without knowing the edge swipe; tapping it opens or closes the drawer.
+private struct IOSSidebarTab: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let isOpen: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            Image(systemName: isOpen ? "chevron.compact.left" : "chevron.compact.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 44)
+                .background(
+                    StorySidebarPalette.background(colorScheme),
+                    in: UnevenRoundedRectangle(bottomTrailingRadius: 9, topTrailingRadius: 9)
+                )
+                .overlay(
+                    UnevenRoundedRectangle(bottomTrailingRadius: 9, topTrailingRadius: 9)
+                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
+                )
+                .shadow(color: .black.opacity(0.08), radius: 3, x: 1, y: 0)
+                // A larger target than the visible tab.
+                .padding(.trailing, 14)
+                .padding(.vertical, 8)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isOpen ? "Hide Pages" : "Show Pages")
+    }
+}
+
 private struct IOSTopOverscrollIndicator: View {
     let progress: CGFloat
     let isArmed: Bool
