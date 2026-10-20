@@ -85,8 +85,11 @@ private struct StoryVoiceRecordingToolbarButton: View {
 /// Covers the page while a button, menu or Shortcut recording runs, so a tap
 /// or click anywhere stops it, as a held pinch lock does. The tap is consumed
 /// rather than placing the caret; inline delivery already captured its block.
+/// A recording headed for the page rather than a caret shows its live
+/// transcript here as a caption.
 private struct StoryRecordingStopLayer: View {
     let session: VoiceRecordingSession<String>
+    let draft: String?
 
     var body: some View {
         Color.clear
@@ -95,10 +98,36 @@ private struct StoryRecordingStopLayer: View {
             .accessibilityElement()
             .accessibilityLabel("Recording")
             .accessibilityAction(named: "Stop Recording", stop)
+            .overlay(alignment: .bottom) {
+                if let draft, !draft.isEmpty {
+                    StoryVoiceDraftCaption(text: draft)
+                }
+            }
     }
 
     private func stop() {
         Task { await session.stopAndDeliver() }
+    }
+}
+
+/// The latest few lines of a live transcript, above the bottom of the page.
+private struct StoryVoiceDraftCaption: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.body)
+            .lineLimit(4)
+            .truncationMode(.head)
+            .frame(maxWidth: 560, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
+            .transition(.opacity)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -112,15 +141,19 @@ private func startStoryVoiceRecording(
     workspace: StoryWorkspaceState,
     editorCommands commands: EditorCommands?
 ) async {
-    let target = commands?.activeEditingBlock()
-    var inlineDelivery: VoiceTranscriptDelivery<String>?
-    if let target {
-        inlineDelivery = { transcript, destination in
+    guard let target = commands?.activeEditingBlock() else {
+        await model.startVoiceRecording(session)
+        return
+    }
+    // The live transcript previews at the caret it will land at.
+    await model.startVoiceRecording(
+        session,
+        delivery: { transcript, destination in
             if commands?.insertText(transcript, target) == true { return }
             try await workspace.deliverVoiceTranscript(transcript, to: destination)
-        }
-    }
-    await model.startVoiceRecording(session, delivery: inlineDelivery)
+        },
+        onDraft: { draft in _ = commands?.previewText(draft, target) }
+    )
 }
 
 enum StorySidebarPageOrder: String, CaseIterable, Identifiable {
@@ -3023,7 +3056,7 @@ struct StoryRootView: View {
                         if location == model.currentLocation,
                            recordingSession.state == .recording,
                            !model.isPinchRecording {
-                            StoryRecordingStopLayer(session: recordingSession)
+                            StoryRecordingStopLayer(session: recordingSession, draft: model.voiceDraft)
                         }
                     }
                 } else {

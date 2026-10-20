@@ -2342,6 +2342,9 @@ final class StoryAppModel {
     /// The shared recording session is running for a pinch-open dictation,
     /// whose lock overlay in the editor owns taps on the page.
     private(set) var isPinchRecording = false
+    /// The live transcript of a button or Shortcut recording headed for the
+    /// page rather than an editor's caret, for the page to show as a caption.
+    var voiceDraft: String?
     private(set) var tabs: BrowserTabController
     private(set) var node: WorkspaceNode?
     private(set) var children: [WorkspaceNode] = []
@@ -3342,13 +3345,19 @@ final class StoryAppModel {
 
     func startVoiceRecording(
         _ session: VoiceRecordingSession<String>,
-        delivery: VoiceTranscriptDelivery<String>? = nil
+        delivery: VoiceTranscriptDelivery<String>? = nil,
+        onDraft: (@MainActor @Sendable (String) -> Void)? = nil
     ) async {
         guard let node, node.isWritable, let stableKey = binding?.reference.stableKey else {
             session.reportError("Open a writable page before starting a recording.")
             return
         }
-        await session.start(destination: stableKey, delivery: delivery)
+        voiceDraft = nil
+        await session.start(
+            destination: stableKey,
+            delivery: delivery,
+            onDraft: onDraft ?? { [weak self] draft in self?.voiceDraft = draft }
+        )
     }
 
     func startPinchVoiceRecording(
@@ -3381,7 +3390,10 @@ final class StoryAppModel {
                     return
                 }
                 await returnTo(location(for: homeNode.reference))
-                await session.start(destination: stableKey)
+                voiceDraft = nil
+                await session.start(destination: stableKey, onDraft: { [weak self] draft in
+                    self?.voiceDraft = draft
+                })
             } catch {
                 session.reportError("Story could not open Home for recording: \(error.localizedDescription)")
             }
