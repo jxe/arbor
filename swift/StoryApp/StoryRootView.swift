@@ -2663,7 +2663,8 @@ struct StoryRootView: View {
                         IOSTopOverscrollIndicator(
                             progress: topOverscrollProgress,
                             isArmed: topOverscrollArmed,
-                            status: toolbarSyncStatus
+                            status: toolbarSyncStatus,
+                            treeTitle: currentSidebarTreeTitle
                         )
                         .offset(y: 4 + elasticOverscrollIndicatorTravel)
                         .opacity(min(1, topOverscrollProgress * 2.6))
@@ -4417,6 +4418,7 @@ struct StoryIOSLaunchView: View {
     var windowRequest: UUID?
     @State private var phase: Phase = .restoring
     @State private var ready = false
+    @State private var restoreError: String?
     @State private var started = false
     @State private var scanError: String?
     @State private var treeError: String?
@@ -4458,17 +4460,13 @@ struct StoryIOSLaunchView: View {
                 return
             }
             // Another window already opened the tree: this one shows it too.
-            if workspace.launchPhase.showsTree {
+            // A fresh launch also starts `.ready`, on the disconnected "local"
+            // home, and must still reopen the saved tree.
+            if workspace.launchPhase.showsTree, workspace.home.tree.rawValue != "local" {
                 ready = true
                 return
             }
-            if await workspace.restoreNativePlacementIfAvailable() {
-                ready = true
-            } else {
-                workspace.errorMessage = nil
-                await loadAccounts()
-                phase = .accounts
-            }
+            await restoreSavedTree()
         }
         .onChange(of: ready) { _, ready in
             if ready { accountAdditionComplete?() }
@@ -4513,9 +4511,32 @@ struct StoryIOSLaunchView: View {
         }
     }
 
+    /// Reopen the tree this iPhone last had open. A failure is shown above
+    /// the accounts rather than dropped, so a tree that could not be reopened
+    /// doesn't look forgotten.
+    private func restoreSavedTree() async {
+        if await workspace.restoreNativePlacementIfAvailable() {
+            restoreError = nil
+            ready = true
+        } else {
+            restoreError = workspace.errorMessage
+            workspace.errorMessage = nil
+            await loadAccounts()
+            phase = .accounts
+        }
+    }
+
     private var accountList: some View {
         NavigationStack {
             List {
+                if let restoreError {
+                    Section {
+                        Text(restoreError).foregroundStyle(.red)
+                        Button("Try Again", systemImage: "arrow.clockwise") {
+                            Task { await restoreSavedTree() }
+                        }
+                    }
+                }
                 if let confirmationCode {
                     Section("Account added") {
                         LabeledContent("Confirm on your Mac", value: confirmationCode)
@@ -4783,6 +4804,13 @@ private struct IOSTopOverscrollIndicator: View {
     let progress: CGFloat
     let isArmed: Bool
     let status: StorySyncStatus
+    /// The open tree, named in place of "Synced" so the pull also says where you are.
+    let treeTitle: String
+
+    private var title: String {
+        if isArmed { return "Release for Sync & Accounts" }
+        return status == .synchronized ? treeTitle : "\(treeTitle) · \(status.pullTitle)"
+    }
 
     var body: some View {
         HStack(spacing: 9) {
@@ -4804,7 +4832,8 @@ private struct IOSTopOverscrollIndicator: View {
             }
             .frame(width: 24, height: 24)
 
-            Text(isArmed ? "Release for Sync & Accounts" : status.pullTitle)
+            Text(title)
+                .lineLimit(1)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(isArmed ? .primary : .secondary)
         }
