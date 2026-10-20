@@ -331,9 +331,9 @@ struct StoryOrderedPageSections<Row: View>: View {
     }
 }
 
-/// A grey section title that collapses its section when clicked. On Mac the
-/// chevron shows while the pointer is over it; on iOS, with no hover, it
-/// always shows.
+/// A grey section title that collapses its section when clicked. On Mac an
+/// open section's chevron shows while the pointer is over it, and a collapsed
+/// one's always shows; on iOS, with no hover, it always shows.
 private struct StoryCollapsiblePageSectionHeader: View {
     let title: String
     let isCollapsed: Bool
@@ -374,7 +374,7 @@ private struct StoryCollapsiblePageSectionHeader: View {
 
     private var chevronVisible: Bool {
 #if os(macOS)
-        isHovering
+        isHovering || isCollapsed
 #else
         true
 #endif
