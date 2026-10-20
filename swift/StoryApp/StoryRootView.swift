@@ -1764,7 +1764,7 @@ struct StoryRootView: View {
             }
         } label: {
             Label("Switch Tree", systemImage: "chevron.up.chevron.down")
-                .font(.caption)
+                .font(.subheadline)
                 .labelStyle(.titleAndIcon)
         }
         .menuIndicator(.hidden)
@@ -3972,6 +3972,8 @@ private struct StoryDevicesHeader: View {
 private struct StoryPlacementSection: View {
     let workspace: StoryWorkspaceState
     let placement: StoryPlacement
+    /// Shown under the section: the last account section carries "Join Another Community…".
+    var footer: AnyView? = nil
     let removed: () -> Void
     @State private var confirming = false
     @State private var working = false
@@ -3997,6 +3999,8 @@ private struct StoryPlacementSection: View {
                 .accessibilityLabel("Remove \(placement.hostName) from this device")
                 .help("Remove from this device…")
             }
+        } footer: {
+            if let footer { footer }
         }
         .confirmationDialog(
             "Remove \(placement.hostName) from this device?",
@@ -4024,7 +4028,7 @@ private struct StoryPlacementSection: View {
 /// you send your profile URL to its administrators and add the host once
 /// they have added you (§1.3). Either way you keep one identity, signing in
 /// through your home host; Story makes no second account.
-private struct StoryJoinCommunitySection<Account: HostAccountPresentable>: View {
+private struct StoryJoinCommunityButton<Account: HostAccountPresentable>: View {
     let workspace: StoryWorkspaceState
     let account: Account
     let placed: () -> Void
@@ -4047,15 +4051,26 @@ private struct StoryJoinCommunitySection<Account: HostAccountPresentable>: View 
         return buildInviteLocator(account: account, code: code)
     }
 
+    /// Tucked under the account rows on the right, sized like "Switch Tree".
     var body: some View {
-        Section {
-            Button("Join Another Community…") { asking = true }
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 6) {
+                Spacer()
+                if working { ProgressView().controlSize(.small) }
+                Button { asking = true } label: {
+                    Label("Join Another Community…", systemImage: "plus")
+                        .font(.subheadline)
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.borderless)
                 .disabled(working)
-            if working { ProgressView() }
+            }
             if let message {
                 Text(message).font(.caption).foregroundStyle(.red)
+                    .multilineTextAlignment(.trailing)
             }
         }
+        .textCase(nil)
         .confirmationDialog("Do you have an invite link?", isPresented: $asking, titleVisibility: .visible) {
             Button("Paste Invite Link…") { link = ""; pastingLink = true }
             Button("I Don’t Have One") { host = ""; addingHost = true }
@@ -4166,6 +4181,8 @@ private struct MacStorySyncAccountPanel: View {
                 if let account {
                     // Each account is one section: its profile, then its devices.
                     ForEach(account.accounts, id: \.accountSectionID) { hostAccount in
+                        let accountPlacements = placements[hostAccount.configurationTree] ?? []
+                        let join = hostAccount.configurationTree == account.accounts.first?.configurationTree ? joinCommunity(hostAccount) : nil
                         Section {
                             accountHeader(hostAccount)
                             if let devices = workspace.localHostDevicesByConfigurationTree[hostAccount.configurationTree] {
@@ -4193,16 +4210,18 @@ private struct MacStorySyncAccountPanel: View {
                             }
                             .buttonStyle(.link)
                             .disabled(!hostAccount.credentialAvailable)
+                        } footer: {
+                            if accountPlacements.isEmpty, let join { join }
                         }
-                        ForEach(placements[hostAccount.configurationTree] ?? []) { placement in
-                            StoryPlacementSection(workspace: workspace, placement: placement) {
+                        ForEach(accountPlacements) { placement in
+                            StoryPlacementSection(
+                                workspace: workspace,
+                                placement: placement,
+                                footer: placement.id == accountPlacements.last?.id ? join : nil
+                            ) {
                                 Task { await loadPlacements() }
                             }
                         }
-                    }
-                    // Story supports one identity: the first account is it.
-                    if let home = account.accounts.first, workspace.accountService.capabilities.contains(.connectPlacement) {
-                        StoryJoinCommunitySection(workspace: workspace, account: home) { Task { await loadPlacements() } }
                     }
                     if account.accounts.isEmpty {
                         ContentUnavailableView(
@@ -4338,6 +4357,13 @@ private struct MacStorySyncAccountPanel: View {
                 message = error.localizedDescription
             }
         }
+    }
+
+    /// "Join Another Community…" for the home account. Story supports one
+    /// identity, so it goes under the first account's rows.
+    private func joinCommunity(_ home: LocalHostAccountDescriptor) -> AnyView? {
+        guard workspace.accountService.capabilities.contains(.connectPlacement) else { return nil }
+        return AnyView(StoryJoinCommunityButton(workspace: workspace, account: home) { Task { await loadPlacements() } })
     }
 
     private func loadPlacements() async {
@@ -5138,6 +5164,8 @@ private struct IOSAccountPanel: View {
                 syncSections
                 // Each account is one section: its profile, then this device.
                 ForEach(accounts, id: \.accountSectionID) { account in
+                    let accountPlacements = placements[account.configurationTree] ?? []
+                    let join = account.configurationTree == accounts.first?.configurationTree ? joinCommunity(account) : nil
                     Section {
                         let profile = snapshots[account.configurationTree]?.profileTree ?? account.profileTree
                         StoryProfileRow(
@@ -5160,16 +5188,18 @@ private struct IOSAccountPanel: View {
                         if let error = accountErrors[account.configurationTree] {
                             Text(error).font(.caption).foregroundStyle(.secondary)
                         }
+                    } footer: {
+                        if accountPlacements.isEmpty, let join { join }
                     }
-                    ForEach(placements[account.configurationTree] ?? []) { placement in
-                        StoryPlacementSection(workspace: workspace, placement: placement) {
+                    ForEach(accountPlacements) { placement in
+                        StoryPlacementSection(
+                            workspace: workspace,
+                            placement: placement,
+                            footer: placement.id == accountPlacements.last?.id ? join : nil
+                        ) {
                             Task { await loadPlacements() }
                         }
                     }
-                }
-                // Story supports one identity: the first account is it.
-                if let home = accounts.first, workspace.accountService.capabilities.contains(.connectPlacement) {
-                    StoryJoinCommunitySection(workspace: workspace, account: home) { Task { await loadPlacements() } }
                 }
                 if accounts.isEmpty, message == nil {
                     Section {
@@ -5227,6 +5257,13 @@ private struct IOSAccountPanel: View {
             message = nil
         } catch { message = error.localizedDescription }
         await loadPlacements()
+    }
+
+    /// "Join Another Community…" for the home account. Story supports one
+    /// identity, so it goes under the first account's rows.
+    private func joinCommunity(_ home: HostAccount) -> AnyView? {
+        guard workspace.accountService.capabilities.contains(.connectPlacement) else { return nil }
+        return AnyView(StoryJoinCommunityButton(workspace: workspace, account: home) { Task { await loadPlacements() } })
     }
 
     private func loadPlacements() async {
