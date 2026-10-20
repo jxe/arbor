@@ -30,8 +30,6 @@ private protocol HostAccountPresentable {
 
 private extension HostAccountPresentable {
     var accountSectionID: String { "account:\(configurationTree)" }
-    var devicesSectionID: String { "devices:\(configurationTree)" }
-    var placementsSectionID: String { "placements:\(configurationTree)" }
 
     var accountDisplayName: String {
         guard let handle, !handle.isEmpty else { return "Host account" }
@@ -1255,15 +1253,8 @@ struct StoryRootView: View {
         .sheet(isPresented: $accountPresented, onDismiss: {
             if let profile = accountFollowUpProfile {
                 accountFollowUpProfile = nil
-                Task {
-                    await workspace.refreshDirectory()
-                    guard let person = workspace.directory.first(where: { $0.entry.profile == profile }) else {
-                        workspace.errorMessage = "This profile is not available in People yet."
-                        return
-                    }
-                    do { try await workspace.openDirectoryProfile(person) }
-                    catch { workspace.errorMessage = error.localizedDescription }
-                }
+                // Pushed onto this tab's history, as People does, so Back returns to the previous tree.
+                Task { await model.openProfile(tree: profile) }
             }
             if let next = accountFollowUpSheet {
                 accountFollowUpSheet = nil
@@ -2517,16 +2508,8 @@ struct StoryRootView: View {
     private func finishManagementDismissal() {
         if let profileTree = profileAfterManagementDismiss {
             profileAfterManagementDismiss = nil
-            Task {
-                do {
-                    if let person = workspace.directory.first(where: { $0.entry.profile == profileTree }) {
-                        try await workspace.openDirectoryProfile(person)
-                    } else {
-                        try await workspace.openPlacedTree(profileTree)
-                    }
-                }
-                catch { workspace.errorMessage = error.localizedDescription }
-            }
+            // Pushed onto this tab's history, as People does, so Back returns to the previous tree.
+            Task { await model.openProfile(tree: profileTree) }
         } else if let sheet = sheetAfterManagementDismiss {
             sheetAfterManagementDismiss = nil
             presentedSheet = sheet
@@ -3883,138 +3866,131 @@ private struct StoryDevicesHeader: View {
     }
 }
 
-/// The hosts an account is on: its home host, then its placements on other
-/// hosts (accounts §1.3) that this device holds. Add Host… offers both ways
-/// onto another host: placing this account there, or joining its community
-/// with a new account. Placing folders under a placement root is not here.
-private struct StoryPlacementsSection: View {
+/// One placement (accounts §1.3) as its own one-row section: the profile's
+/// account on a host other than its home, which this device signs in to
+/// through the home host.
+private struct StoryPlacementSection: View {
     let workspace: StoryWorkspaceState
-    let configurationTree: String
-    let homeHost: String
-    var title = "Hosts"
-    /// Join another community with a new account, the other way onto another host.
-    var joinCommunity: (() -> Void)?
+    let placement: StoryPlacement
+    let removed: () -> Void
+    @State private var confirming = false
+    @State private var working = false
+    @State private var message: String?
+
+    var body: some View {
+        Section {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(placement.handle.map { "~\($0) on \(placement.hostName)" } ?? placement.hostName)
+                    Text(message ?? "Signs in through \(placement.homeHostName)")
+                        .font(.caption)
+                        .foregroundStyle(message == nil ? Color.secondary : Color.red)
+                }
+                Spacer(minLength: 12)
+                Button(role: .destructive) {
+                    confirming = true
+                } label: {
+                    Image(systemName: "minus.circle")
+                }
+                .buttonStyle(.borderless)
+                .disabled(working)
+                .accessibilityLabel("Remove \(placement.hostName) from this device")
+                .help("Remove from this device…")
+            }
+        }
+        .confirmationDialog(
+            "Remove \(placement.hostName) from this device?",
+            isPresented: $confirming
+        ) {
+            Button("Remove", role: .destructive) { Task { await forget() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The account stays on \(placement.hostName); adding the host again reconnects this device.")
+        }
+    }
+
+    private func forget() async {
+        working = true
+        defer { working = false }
+        do {
+            try await workspace.accountService.forgetPlacement(placement)
+            removed()
+        } catch { message = error.localizedDescription }
+    }
+}
+
+/// The one way onto another host: place an existing account there (keeping
+/// its identity and signing in through its home host), or join that host's
+/// community as a new account.
+private struct StoryAddAccountOrHostSection<Account: HostAccountPresentable>: View {
+    let workspace: StoryWorkspaceState
+    let accounts: [Account]
+    let joinCommunity: () -> Void
+    let placed: () -> Void
     @State private var choosingKind = false
-    @State private var placements: [StoryPlacement] = []
-    @State private var hostPromptPresented = false
+    @State private var placing: Account?
     @State private var host = ""
     @State private var working = false
     @State private var message: String?
-    @State private var removal: StoryPlacement?
 
     private var canPlace: Bool { workspace.accountService.capabilities.contains(.connectPlacement) }
 
     var body: some View {
         Section {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(homeHost)
-                Text("Home host").font(.caption).foregroundStyle(.secondary)
+            Button("Add Account or Host…") {
+                if canPlace, !accounts.isEmpty { choosingKind = true } else { joinCommunity() }
             }
-            ForEach(placements) { placement in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(placement.handle.map { "~\($0) on \(placement.hostName)" } ?? placement.hostName)
-                        Text("Signs in through \(placement.homeHostName)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 12)
-                    Button(role: .destructive) {
-                        removal = placement
-                    } label: {
-                        Image(systemName: "minus.circle")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(working)
-                    .accessibilityLabel("Remove \(placement.hostName) from this device")
-                    .help("Remove from this device…")
-                }
-            }
+            .disabled(working)
             if working { ProgressView() }
             if let message {
                 Text(message).font(.caption).foregroundStyle(.red)
             }
-        } header: {
-            Text(title).textCase(nil)
-        } footer: {
-            if canPlace || joinCommunity != nil {
-                Button("Add Host…") { choosingKind = true }
-#if os(macOS)
-                    .buttonStyle(.link)
-#endif
-                    .textCase(nil)
-                    .disabled(working)
-            }
         }
-        .confirmationDialog("Add a host", isPresented: $choosingKind) {
-            if canPlace {
-                Button("Place This Account There…") {
+        .confirmationDialog("Add an account or host", isPresented: $choosingKind) {
+            ForEach(accounts, id: \.configurationTree) { account in
+                Button(accounts.count > 1 ? "Place \(account.accountDisplayName) on Another Host…" : "Place This Account on Another Host…") {
                     host = ""
-                    hostPromptPresented = true
+                    placing = account
                 }
             }
-            if let joinCommunity {
-                Button("Join Its Community as a New Account…", action: joinCommunity)
-            }
+            Button("Join Another Community…", action: joinCommunity)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Placing this account keeps one identity and signs in through \(homeHost). Joining makes a separate account there.")
+            Text("Placing an account keeps one identity and signs in through its home host. Joining a community makes a separate account there.")
         }
-        .task(id: configurationTree) { await load() }
-        .alert("Place this account on a host", isPresented: $hostPromptPresented) {
+        .alert(
+            "Place this account on a host",
+            isPresented: Binding(get: { placing != nil }, set: { if !$0 { placing = nil } }),
+            presenting: placing
+        ) { account in
             TextField("https://host.example", text: $host)
 #if os(iOS)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 #endif
-            Button("Add") { Task { await place() } }
+            Button("Add") { Task { await place(account) } }
                 .disabled(host.trimmingCharacters(in: .whitespaces).isEmpty)
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Once that host's administrators have added your profile URL as a member, your trees can live under its addresses. It signs your devices in through your home host.")
-        }
-        .confirmationDialog(
-            "Remove \(removal?.hostName ?? "this host") from this device?",
-            isPresented: Binding(get: { removal != nil }, set: { if !$0 { removal = nil } }),
-            presenting: removal
-        ) { placement in
-            Button("Remove", role: .destructive) { Task { await forget(placement) } }
-            Button("Cancel", role: .cancel) {}
-        } message: { placement in
-            Text("The account stays on \(placement.hostName); adding the host again reconnects this device.")
+        } message: { account in
+            Text("Once that host's administrators have added your profile URL as a member, your trees can live under its addresses. It signs your devices in through \(account.accountDisplayDetail).")
         }
     }
 
-    private func load() async {
-        do {
-            placements = try await workspace.accountService.placements(configurationTree: configurationTree)
-        } catch { message = error.localizedDescription }
-    }
-
-    private func place() async {
+    private func place(_ account: Account) async {
         working = true
         defer { working = false }
         do {
 #if os(macOS)
             try await workspace.ensureStorySync()
 #endif
-            try await workspace.accountService.connectPlacement(configurationTree: configurationTree, host: host)
+            try await workspace.accountService.connectPlacement(configurationTree: account.configurationTree, host: host)
             message = nil
         } catch {
             // A placement host's 403 and 503 name the home host (ProtocolHTTPError.placementDescription).
             message = error.localizedDescription
         }
-        await load()
-    }
-
-    private func forget(_ placement: StoryPlacement) async {
-        do {
-            try await workspace.accountService.forgetPlacement(placement)
-            message = nil
-        } catch { message = error.localizedDescription }
-        removal = nil
-        await load()
+        placed()
     }
 }
 
@@ -4037,6 +4013,7 @@ private struct MacStorySyncAccountPanel: View {
     @State private var deauthorizationTarget: DeviceDeauthorizationTarget?
     @State private var setupPresented = false
     @State private var identityState: HostAccountState?
+    @State private var placements: [String: [StoryPlacement]] = [:]
     @State private var message: String?
 
     private var account: LocalStorySyncOverview? { workspace.localStorySyncOverview }
@@ -4045,11 +4022,6 @@ private struct MacStorySyncAccountPanel: View {
         NavigationStack {
             Form {
                 syncSections
-                if let account {
-                    ForEach(account.accounts, id: \.accountSectionID) { hostAccount in
-                        Section { accountHeader(hostAccount) } header: { Text("Account").textCase(nil) }
-                    }
-                }
                 if account?.accounts.isEmpty != false, let identity = identityState?.identity {
                     Section {
                         StoryProfileRow(
@@ -4059,54 +4031,52 @@ private struct MacStorySyncAccountPanel: View {
                             accessory: AnyView(identityMenu),
                             open: { openProfile(identity.profileTree) }
                         )
-                    } header: { Text("Account").textCase(nil) }
+                    }
                 }
                 if let account {
-                    if !account.accounts.isEmpty {
-                        ForEach(account.accounts, id: \.devicesSectionID) { hostAccount in
-                            Section {
-                                if let devices = workspace.localHostDevicesByConfigurationTree[hostAccount.configurationTree] {
-                                    ForEach(devices) { device in
-                                        hostDeviceRow(
-                                            device,
-                                            configurationTree: hostAccount.configurationTree,
-                                            devices: devices
-                                        )
-                                    }
-                                } else {
-                                    ProgressView("Loading devices…")
+                    // Each account is one section: its profile, then its devices.
+                    ForEach(account.accounts, id: \.accountSectionID) { hostAccount in
+                        Section {
+                            accountHeader(hostAccount)
+                            if let devices = workspace.localHostDevicesByConfigurationTree[hostAccount.configurationTree] {
+                                ForEach(devices) { device in
+                                    hostDeviceRow(
+                                        device,
+                                        configurationTree: hostAccount.configurationTree,
+                                        devices: devices
+                                    )
                                 }
-                                if pairingConfigurationTree == hostAccount.configurationTree, let pairing {
-                                    VStack(spacing: 10) {
-                                        PairingQRCode(payload: pairing.payload)
-                                            .frame(width: 220, height: 220)
-                                        LabeledContent("Confirm on both devices", value: pairing.confirmationCode)
-                                            .font(.headline.monospacedDigit())
-                                    }
-                                    .frame(maxWidth: .infinity)
+                            } else {
+                                ProgressView("Loading devices…")
+                            }
+                            if pairingConfigurationTree == hostAccount.configurationTree, let pairing {
+                                VStack(spacing: 10) {
+                                    PairingQRCode(payload: pairing.payload)
+                                        .frame(width: 220, height: 220)
+                                    LabeledContent("Confirm on both devices", value: pairing.confirmationCode)
+                                        .font(.headline.monospacedDigit())
                                 }
-                            } header: {
-                                StoryDevicesHeader(
-                                    title: account.accounts.count > 1 ? "Devices · \(hostAccount.accountDisplayName)" : "Devices"
-                                )
-                            } footer: {
-                                Button("Pair another device…") {
-                                    Task { await createPairing(configurationTree: hostAccount.configurationTree) }
-                                }
-                                .buttonStyle(.link)
-                                .textCase(nil)
-                                .disabled(!hostAccount.credentialAvailable)
+                                .frame(maxWidth: .infinity)
+                            }
+                            Button("Pair Another Device…") {
+                                Task { await createPairing(configurationTree: hostAccount.configurationTree) }
+                            }
+                            .buttonStyle(.link)
+                            .disabled(!hostAccount.credentialAvailable)
+                        }
+                        ForEach(placements[hostAccount.configurationTree] ?? []) { placement in
+                            StoryPlacementSection(workspace: workspace, placement: placement) {
+                                Task { await loadPlacements() }
                             }
                         }
-                        ForEach(account.accounts, id: \.placementsSectionID) { hostAccount in
-                            StoryPlacementsSection(
-                                workspace: workspace,
-                                configurationTree: hostAccount.configurationTree,
-                                homeHost: hostAccount.accountDisplayDetail,
-                                title: account.accounts.count > 1 ? "Hosts · \(hostAccount.accountDisplayName)" : "Hosts",
-                                joinCommunity: { setupPresented = true }
-                            )
-                        }
+                    }
+                    if !account.accounts.isEmpty {
+                        StoryAddAccountOrHostSection(
+                            workspace: workspace,
+                            accounts: account.accounts,
+                            joinCommunity: { setupPresented = true },
+                            placed: { Task { await loadPlacements() } }
+                        )
                     }
                     if account.accounts.isEmpty {
                         ContentUnavailableView(
@@ -4177,6 +4147,7 @@ private struct MacStorySyncAccountPanel: View {
             person: workspace.directory.first { $0.entry.profile == account.profileTree },
             fallbackTitle: account.accountDisplayName,
             fallbackSubtitle: account.accountDisplayDetail,
+            subtitle: account.accountDisplayLabel,
             canOpen: account.profileTree != nil,
             accessory: AnyView(identityMenu),
             open: { if let profile = account.profileTree { openProfile(profile) } }
@@ -4233,12 +4204,22 @@ private struct MacStorySyncAccountPanel: View {
             identityState = try await workspace.accountService.state()
         } catch { message = error.localizedDescription }
         guard let accounts = workspace.localStorySyncOverview?.accounts else { return }
+        await loadPlacements()
         for account in accounts {
             do {
                 _ = try await workspace.localHostDevices(configurationTree: account.configurationTree)
             } catch {
                 message = error.localizedDescription
             }
+        }
+    }
+
+    private func loadPlacements() async {
+        for account in workspace.localStorySyncOverview?.accounts ?? [] {
+            do {
+                placements[account.configurationTree] = try await workspace.accountService
+                    .placements(configurationTree: account.configurationTree)
+            } catch { message = error.localizedDescription }
         }
     }
 
@@ -4958,6 +4939,7 @@ private struct IOSAccountPanel: View {
     @State private var accounts: [HostAccount] = []
     @State private var snapshots: [String: ProtocolAccountDescriptor] = [:]
     @State private var accountErrors: [String: String] = [:]
+    @State private var placements: [String: [StoryPlacement]] = [:]
     @State private var message: String?
     @State private var disconnectConfirmation = false
     @State private var loading = true
@@ -4967,6 +4949,7 @@ private struct IOSAccountPanel: View {
         NavigationStack {
             Form {
                 syncSections
+                // Each account is one section: its profile, then this device.
                 ForEach(accounts, id: \.accountSectionID) { account in
                     Section {
                         let profile = snapshots[account.configurationTree]?.profileTree ?? account.profileTree
@@ -4975,13 +4958,10 @@ private struct IOSAccountPanel: View {
                             person: workspace.directory.first { $0.entry.profile == profile },
                             fallbackTitle: account.accountDisplayName,
                             fallbackSubtitle: account.accountDisplayDetail,
+                            subtitle: account.accountDisplayLabel,
                             canOpen: profile != nil,
                             open: { if let profile { openProfile(profile) } }
                         )
-                    } header: { Text("Account").textCase(nil) }
-                }
-                ForEach(accounts, id: \.devicesSectionID) { account in
-                    Section {
                         if let device = snapshots[account.configurationTree]?.device {
                             LabeledContent("This device", value: device.label)
                         }
@@ -4993,17 +4973,19 @@ private struct IOSAccountPanel: View {
                         if let error = accountErrors[account.configurationTree] {
                             Text(error).font(.caption).foregroundStyle(.secondary)
                         }
-                    } header: {
-                        StoryDevicesHeader(title: accounts.count > 1 ? "Devices · \(account.accountDisplayName)" : "Devices")
+                    }
+                    ForEach(placements[account.configurationTree] ?? []) { placement in
+                        StoryPlacementSection(workspace: workspace, placement: placement) {
+                            Task { await loadPlacements() }
+                        }
                     }
                 }
-                ForEach(accounts, id: \.placementsSectionID) { account in
-                    StoryPlacementsSection(
+                if !accounts.isEmpty {
+                    StoryAddAccountOrHostSection(
                         workspace: workspace,
-                        configurationTree: account.configurationTree,
-                        homeHost: account.accountDisplayDetail,
-                        title: accounts.count > 1 ? "Hosts · \(account.accountDisplayName)" : "Hosts",
-                        joinCommunity: { addingAccount = true }
+                        accounts: accounts,
+                        joinCommunity: { addingAccount = true },
+                        placed: { Task { await loadPlacements() } }
                     )
                 }
                 if accounts.isEmpty, message == nil {
@@ -5057,6 +5039,16 @@ private struct IOSAccountPanel: View {
             }
             message = nil
         } catch { message = error.localizedDescription }
+        await loadPlacements()
+    }
+
+    private func loadPlacements() async {
+        for account in accounts {
+            do {
+                placements[account.configurationTree] = try await workspace.accountService
+                    .placements(configurationTree: account.configurationTree)
+            } catch { accountErrors[account.configurationTree] = error.localizedDescription }
+        }
     }
 
     private func disconnect() async {
