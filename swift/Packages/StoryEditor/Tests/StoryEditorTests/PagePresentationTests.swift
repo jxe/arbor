@@ -139,7 +139,10 @@ struct PagePresentationTests {
                 } else if let name = edit.reverse {
                     let kind = try #require(StoryPagePresentation.Heading(rawValue: name), comment)
                     let heading = try #require(Self.find(kind, in: document.children), comment)
-                    _ = document.moveSubtrees(heading.children.reversed().map(\.id), to: DropPath(parent: heading.id, position: 0))
+                    // A bulk move keeps document order, so each row moves on its own.
+                    for (position, child) in heading.children.reversed().enumerated() {
+                        #expect(document.moveSubtrees([child.id], to: DropPath(parent: heading.id, position: position)), comment)
+                    }
                 } else if let text = edit.append {
                     let children = try #require(Self.find(.children, in: document.children), comment)
                     _ = document.insertSubtree(.paragraph(text: AttributedString(text)), at: DropPath(parent: children.id, position: children.children.count))
@@ -182,7 +185,7 @@ struct PagePresentationTests {
         var page = Self.present(opened.blocks, .init(path: "/dir", body: .index), [.init(name: "a", path: "/dir/a", body: .sibling)])
         page[1].children.insert(.paragraph(text: AttributedString("Start here.")), at: 0)
         let source = StoryMarkdownCodec.admission(blocks: page, ledger: opened.ledger).0.source
-        #expect(source == "# Dir\n\n# Children\n\nStart here.\n\n[a](a.md)\n", "\(source.debugDescription)")
+        #expect(source == "# Dir\n\n# Children\n\nStart here.\n\n[a](a.md)\n\n", "\(source.debugDescription)")
         // The authored heading holds a child added later, with nothing presented.
         let reopened = StoryMarkdownCodec.open(source: source, revision: "r2", identitySeed: "above")
         let next = Self.present(reopened.blocks, .init(path: "/dir", body: .index),
@@ -289,7 +292,7 @@ struct PagePresentationTests {
         binding.appendCurrentGeneration()
         await binding.flush()
         let renamed = (try await session.snapshot()).source
-        #expect(renamed == "Intro.\n\n# Pages\n\n[a](a.md)\n", "\(renamed.debugDescription)")
+        #expect(renamed == "Intro.\n\n# Pages\n\n[a](a.md)\n\n", "\(renamed.debugDescription)")
         binding.represent()
         #expect(document.children.map(StoryPagePresentation.heading) == [.title, nil])
         #expect(document.children.last?.id == heading.id)
@@ -301,7 +304,7 @@ struct PagePresentationTests {
         await binding.flush()
         binding.represent()
         let finalSource = (try await session.snapshot()).source
-        #expect(finalSource == "# Field Notes\n\nIntro.\n\n# Pages\n\n[a](a.md)\n", "\(finalSource.debugDescription)")
+        #expect(finalSource == "# Field Notes\n\nIntro.\n\n# Pages\n\n[a](a.md)\n\n", "\(finalSource.debugDescription)")
         #expect(document.children.map(StoryPagePresentation.heading) == [nil, nil])
         #expect(binding.acceptedTitle == "Field Notes")
         #expect(binding.lastError == nil)
