@@ -787,6 +787,14 @@ public final class StoryEditorHost: EditorHost {
             }
         }
         do {
+            // An empty page has no source for moved blocks to land beside.
+            // It first gets the title it presents, as editing it would write.
+            if let title = StoryPagePresentation.presentedTitle(path: destination.path),
+               try await withDocumentSession(destination, { try await $0.snapshot().source.isEmpty }) {
+                _ = try await withDocumentSession(destination) { session in
+                    try await admitBlockEdit(in: session) { $0 = [Block(kind: .heading(level: .h1, text: AttributedString(title)))] }
+                }
+            }
             if try await attempt() { return true }
             Self.diagnosticLog.notice("move to \(destination.path, privacy: .private) is not one exact change; leaving the origin intact")
         } catch WorkspaceTransferError.basesDiverged {

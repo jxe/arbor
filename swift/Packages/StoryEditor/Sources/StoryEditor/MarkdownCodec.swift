@@ -630,19 +630,32 @@ public enum StoryMarkdownCodec {
         let newline = target.newline, blank = newline + newline, width = newline.utf8.count
         var edits: [WorkspaceDocumentTransfer.Edit] = []
         // The destination's last block, or its envelope, is the landing place;
-        // it needs a blank line before what lands after it.
+        // it needs exactly one blank line before what lands after it. A last
+        // line without a line break, or extra blank lines, are made that.
         let last = target.records.values.max { $0.range.lowerBound < $1.range.lowerBound }
+        let bytes = Array(target.source.utf8)
+        var end = bytes.count
+        while end > 0, bytes[end - 1] == UInt8(ascii: "\n") || bytes[end - 1] == UInt8(ascii: "\r") { end -= 1 }
+        let landingSource: String
         let anchor: Range<Int>
         if let last {
-            anchor = last.range
-            if !target.source.hasSuffix(blank) {
-                guard target.source.hasSuffix(newline), last.range.upperBound == target.source.utf8.count else { return nil }
-                let end = last.range.upperBound
-                edits.append(.init(document: .destination, edit: .init(utf8Range: (end - width)..<end, replacement: blank,
-                    lineage: [.init(source: (end - width)..<end, replacement: 0..<width)])))
+            guard last.range.upperBound >= end else { return nil }
+            anchor = last.range.lowerBound..<bytes.count
+            landingSource = String(decoding: bytes[..<end], as: UTF8.self) + blank
+            if !target.source.utf8.elementsEqual(landingSource.utf8) {
+                if end < bytes.count {
+                    edits.append(.init(document: .destination, edit: .init(utf8Range: end..<bytes.count, replacement: blank,
+                        lineage: [.init(source: end..<min(end + width, bytes.count), replacement: 0..<min(width, bytes.count - end))])))
+                } else {
+                    guard let scalar = target.source.unicodeScalars.last else { return nil }
+                    let tail = String(scalar), start = end - tail.utf8.count
+                    edits.append(.init(document: .destination, edit: .init(utf8Range: start..<end, replacement: tail + blank,
+                        lineage: [.init(source: start..<end, replacement: 0..<tail.utf8.count)])))
+                }
             }
         } else if !target.envelope.isEmpty, target.source.utf8.count == target.envelope.utf8.count {
             anchor = 0..<target.envelope.utf8.count
+            landingSource = target.source
         } else { return nil }
         // A moved block recorded without a blank line after it needs one
         // before a different successor, as a rearrangement does.
@@ -704,17 +717,15 @@ public enum StoryMarkdownCodec {
             records[id] = moved
         }
         guard let originSource = String(data: originBytes, encoding: .utf8) else { return nil }
-        let destinationSource = (edits.contains { $0.document == .destination } ? String(target.source.dropLast(newline.count)) + blank : target.source)
-            + placed.map(\.raw).joined()
+        let destinationSource = landingSource + placed.map(\.raw).joined()
         // Both results must mean the intended trees.
         let remaining = removingSubtrees(removed, from: StoryPagePresentation.authored(blocks))
         guard sameShape(open(source: originSource, revision: "transfer", identitySeed: "origin").blocks, remaining),
               sameShape(open(source: destinationSource, revision: "transfer", identitySeed: "destination").blocks,
                         foldHeadingsInScopes(removingProjectedBlocks(from: destination.blocks) + roots.map(stripped))) else { return nil }
-        let landing = edits.contains { $0.document == .destination } ? String(target.source.dropLast(newline.count)) + blank : target.source
         return PlannedTransfer(moves: moves, edits: edits, originSource: originSource,
             originLedger: StorySourceLedger(source: originSource, revision: ledger.revision, envelope: ledger.envelope, newline: ledger.newline, records: records),
-            destinationSource: relinked.map { landing + $0.joined() } ?? destinationSource)
+            destinationSource: relinked.map { landingSource + $0.joined() } ?? destinationSource)
     }
 
     /// Move to a place in an open page: as `transfer(_:from:ledger:into:relink:)`,
