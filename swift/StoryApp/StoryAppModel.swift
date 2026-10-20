@@ -2597,7 +2597,9 @@ final class StoryAppModel {
             },
             describeTree: { [weak workspace] reference in
                 await workspace?.treeLinkSubtitle(tree: reference.tree.rawValue)
-            }
+            },
+            voiceRecordings: StoryVoiceRecordings.store,
+            voiceRecordingPlayer: StoryVoiceRecordings.player
         )
     }
 

@@ -1162,11 +1162,14 @@ struct StoryRootView: View {
             recoveryStore: PendingVoiceRecordingStore(
                 directoryURL: StorySupportDirectories.pendingVoiceRecordings
             ),
+            transcribedStore: StoryVoiceRecordings.store,
+            pageKey: { pageID in pageID },
             loggingSubsystem: "org.nxhx.Arbor",
             recoveryDelivery: { transcript, pageID in
                 try await workspace.deliverVoiceTranscript(transcript, to: pageID)
             }
         )
+        StoryVoiceRecordings.store.prune()
         _model = State(initialValue: model)
         _recordingSession = State(initialValue: recordingSession)
         _pinchDictation = State(initialValue: EditorPinchDictation(
@@ -1180,7 +1183,10 @@ struct StoryRootView: View {
             finish: { [weak model, weak recordingSession] in
                 defer { model?.endPinchVoiceRecording() }
                 guard let recordingSession else { return .failed }
-                return switch await recordingSession.stopAndReturnTranscript() {
+                // The same page key the toolbar destination and the editor's
+                // Play Recording action use.
+                let pageKey = model?.binding?.reference.stableKey
+                return switch await recordingSession.stopAndReturnTranscript(pageKey: pageKey) {
                 case .transcript(let text): EditorPinchDictation.Completion.transcript(text)
                 case .noSpeech: EditorPinchDictation.Completion.noSpeech
                 case .failed: EditorPinchDictation.Completion.failed

@@ -36,6 +36,15 @@ The first presentation is an optional read-only **Line provenance** view in the
 native Source and Properties inspector (`StorySourceInspector`,
 `swift/StoryApp/StoryDailyDriverViews.swift`).
 
+## Use case: replaying voice recordings
+
+Story keeps transcribed voice recordings on the device for a while, so a block
+offers Play Recording for the audio its text came from. Today it matches blocks to
+recordings by page and by in-order words, which is a stopgap. With line provenance,
+Story would store the ID of the change that inserted each transcript in its local
+recordings index, and look up a block's recording through blame. No recording
+reference would ever sync.
+
 ## What exists
 
 - **Per-document lineage.** `document_versions (tree_id, stable_key, update_id,

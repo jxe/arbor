@@ -175,6 +175,8 @@ public final class StoryEditorHost: EditorHost {
     private let performStructuralAction: @MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?
     private let offerTrashAfterDeletingLink: @MainActor (WorkspaceNode, WorkspaceReference) -> Void
     private let describeTree: (@MainActor (WorkspaceReference) async -> String?)?
+    private let voiceRecordings: TranscribedVoiceRecordingStore?
+    private let voiceRecordingPlayer: VoiceRecordingPlayer?
     private var lookups: [DocumentReference: DocumentLookup] = [:]
     private var lookupTasks: [DocumentReference: Task<Void, Never>] = [:]
     private var deferredPersistTask: Task<Void, Never>?
@@ -192,8 +194,12 @@ public final class StoryEditorHost: EditorHost {
         reportError: @escaping @MainActor (String) -> Void = { _ in },
         performStructuralAction: (@MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?)? = nil,
         offerTrashAfterDeletingLink: @escaping @MainActor (WorkspaceNode, WorkspaceReference) -> Void = { _, _ in },
-        describeTree: (@MainActor (WorkspaceReference) async -> String?)? = nil
+        describeTree: (@MainActor (WorkspaceReference) async -> String?)? = nil,
+        voiceRecordings: TranscribedVoiceRecordingStore? = nil,
+        voiceRecordingPlayer: VoiceRecordingPlayer? = nil
     ) {
+        self.voiceRecordings = voiceRecordings
+        self.voiceRecordingPlayer = voiceRecordingPlayer
         self.binding = binding
         self.provider = provider
         self.linkPreviewService = linkPreviewService
@@ -1169,7 +1175,16 @@ public final class StoryEditorHost: EditorHost {
     }
 
     public func blockActions(in _: Document) -> [EditorBlockAction] {
-        TranscriptPolishingActions.actions()
+        var actions = TranscriptPolishingActions.actions()
+        if let voiceRecordings, let voiceRecordingPlayer {
+            // Keyed like voice destinations: by the page's stable key.
+            actions += VoiceRecordingPlaybackActions.actions(
+                store: voiceRecordings,
+                player: voiceRecordingPlayer,
+                pageKey: binding.reference.stableKey
+            )
+        }
+        return actions
     }
 
     private func assetsDirectory() async throws -> WorkspaceReference {
