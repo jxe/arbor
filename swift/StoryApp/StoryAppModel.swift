@@ -1967,6 +1967,7 @@ final class StoryWorkspaceState {
             return
         }
 #endif
+        if try await openHostedTree(tree) { return }
         guard let person = directory.first(where: {
             $0.entry.profile == tree.rawValue && $0.entry.locator != nil
         }) else {
@@ -1975,6 +1976,38 @@ final class StoryWorkspaceState {
             )
         }
         try await openDirectoryProfile(person)
+    }
+
+    /// Open `tree` from the first connected account's host that answers for
+    /// it: a tree mounted in another, such as a project under a profile, need
+    /// not be placed or listed in the directory. The Mac opens its locator,
+    /// which opens a placed tree or visits one; the iPhone places it.
+    private func openHostedTree(_ tree: TreeID) async throws -> Bool {
+        let accounts: [HostAccount]
+        do { accounts = try await accountService.accounts() } catch {
+            Self.recordDiagnostic("account-list", error)
+            return false
+        }
+        for account in accounts where account.credentialAvailable {
+            guard let origin = account.origin else { continue }
+            let descriptor: ProtocolTreeDescriptor
+            do {
+                descriptor = try await accountService.client(for: account).descriptor(tree: tree.rawValue).tree
+            } catch {
+                Self.recordDiagnostic("nested-tree-lookup", error)
+                continue
+            }
+#if os(macOS)
+            guard let locator = descriptor.httpURL
+                ?? descriptor.canonicalPath.flatMap({ path in OverstoryRemoteLocator(origin.absoluteString)?.locator(path: path) })
+            else { continue }
+            try await openRemoteLocator(locator)
+#else
+            try await place(tree: descriptor, from: origin, configurationTree: account.configurationTree)
+#endif
+            return true
+        }
+        return false
     }
 
     /// Leave `held` by discarding the refused change and the changes made on it.

@@ -1288,7 +1288,7 @@ public enum StoryMarkdownCodec {
         )))
     }
 
-    private static func isChildrenMarker(_ block: Block) -> Bool {
+    static func isChildrenMarker(_ block: Block) -> Bool {
         guard case let .unsupported(payload, _) = block.kind else { return false }
         return isChildrenMarkerText(payload.trimmingCharacters(in: .whitespacesAndNewlines))
     }

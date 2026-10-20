@@ -35,6 +35,9 @@ public enum StoryPagePresentation {
     static let headingMetadataKey = "story.presented-heading"
     /// The text the heading was presented with; any other text is an edit.
     static let textMetadataKey = "story.presented-text"
+    /// On the parent of an explicit children marker the page does not show:
+    /// the marker's source, written back before the generated children.
+    static let markerMetadataKey = "story.children-marker"
 
     /// The title a page presents when its body does not begin with an H1: the
     /// last segment of the node's logical path with each hyphen shown as a
@@ -90,7 +93,26 @@ public enum StoryPagePresentation {
                 children: remainder,
                 metadata: [headingMetadataKey: Heading.children.rawValue, textMetadataKey: childrenHeading]))
         }
-        return result
+        return hidingChildrenMarker(result)
+    }
+
+    /// An explicit children marker is source, not something to read. Where the
+    /// generated children stand right after it, it leaves the presented tree,
+    /// and its parent keeps it for `authored` to write back before them. A
+    /// marker no generated child follows stays shown, so it keeps its place.
+    private static func hidingChildrenMarker(_ blocks: [Block]) -> [Block] {
+        blocks.map { block in
+            var value = block
+            if let index = value.children.firstIndex(where: StoryMarkdownCodec.isChildrenMarker),
+               value.children.indices.contains(index + 1),
+               StoryMarkdownCodec.isProjectedChild(value.children[index + 1]),
+               case let .unsupported(payload, _) = value.children[index].kind {
+                value.metadata[markerMetadataKey] = payload
+                value.children.remove(at: index)
+            }
+            value.children = hidingChildrenMarker(value.children)
+            return value
+        }
     }
 
     /// The authored blocks of a presented page: the inverse of `present`,
@@ -118,16 +140,29 @@ public enum StoryPagePresentation {
             value.children = children
             value.metadata.removeValue(forKey: headingMetadataKey)
             value.metadata.removeValue(forKey: textMetadataKey)
+            value.metadata.removeValue(forKey: markerMetadataKey)
             return value
+        }
+        /// A block's authored children, with a hidden marker written back
+        /// where its generated children begin.
+        func authoredChildren(_ block: Block) -> [Block] {
+            guard let payload = block.metadata[markerMetadataKey] else { return walk(block.children) }
+            var ids = usedIDs()
+            let marker = Block(
+                id: unusedID("children-marker", in: &ids),
+                kind: .unsupported(payload: payload, display: childrenHeading))
+            let generated = block.children.firstIndex(where: StoryMarkdownCodec.isProjectedChild) ?? block.children.count
+            return walk(Array(block.children[..<generated])) + [marker] + walk(Array(block.children[generated...]))
         }
         func walk(_ values: [Block]) -> [Block] {
             values.flatMap { block -> [Block] in
                 if StoryMarkdownCodec.isProjectedChild(block) { return [] }
-                let children = walk(block.children)
+                let children = authoredChildren(block)
                 switch heading(block) {
                 case nil:
                     var value = block
                     value.children = children
+                    value.metadata.removeValue(forKey: markerMetadataKey)
                     return [value]
                 case .title:
                     return isUntouched(block) ? children : [plain(block, children: children)]
@@ -165,6 +200,7 @@ public enum StoryPagePresentation {
                 if untouched.contains(block.id) { return walk(block.children) }
                 var value = block
                 value.children = walk(block.children)
+                value.metadata.removeValue(forKey: markerMetadataKey)
                 return [value]
             }
         }
@@ -189,6 +225,7 @@ public enum StoryPagePresentation {
                 if untouched.contains(source.id) { return walk(block.children, source.children) }
                 var value = block
                 value.children = walk(block.children, source.children)
+                value.metadata.removeValue(forKey: markerMetadataKey)
                 return [value]
             }
         }

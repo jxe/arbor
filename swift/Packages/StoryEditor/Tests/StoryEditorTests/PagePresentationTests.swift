@@ -180,6 +180,26 @@ struct PagePresentationTests {
             == "# Dir\n\n# Children\n\nStart here.\n\n<!-- overstory:children -->\n")
     }
 
+    @Test("An explicit marker is not shown where the generated children stand, and is written back before them")
+    func markerHiddenAtGeneratedChildren() throws {
+        let source = "# Children\n\nHey\n\n<!-- overstory:children -->\n"
+        let opened = StoryMarkdownCodec.open(source: source, revision: "r1", identitySeed: "hidden-marker")
+        var page = Self.present(opened.blocks, .init(path: "/", body: .index), [.init(name: "story", path: "/story", body: .sibling)])
+        func markers(_ blocks: [Block]) -> Int {
+            blocks.reduce(0) { $0 + (StoryMarkdownCodec.isChildrenMarker($1) ? 1 : 0) + markers($1.children) }
+        }
+        #expect(markers(page) == 0)
+        #expect(page.count == 1)
+        #expect(page[0].children.map(StoryMarkdownCodec.isProjectedChild) == [false, true])
+        #expect(StoryMarkdownCodec.admission(blocks: page, ledger: opened.ledger).0.source == source)
+        // Presenting the presented page again changes nothing.
+        #expect(Self.present(page, .init(path: "/", body: .index), [.init(name: "story", path: "/story", body: .sibling)]) == page)
+        // Text added after the children stays after the marker.
+        page[0].children.append(.paragraph(text: AttributedString("Later.")))
+        #expect(StoryMarkdownCodec.admission(blocks: page, ledger: opened.ledger).0.source
+            == "# Children\n\nHey\n\n<!-- overstory:children -->\n\nLater.\n")
+    }
+
     @Test("A selection that includes a presented heading moves only authored source")
     func transferLeavesPresentedHeadings() throws {
         let origin = "Intro\n\n## Last\n\n- two\n"
