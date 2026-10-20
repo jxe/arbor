@@ -1170,8 +1170,10 @@ struct StorySyncStatusView: View {
     let reconnectStorySync: () -> Void
     let showStorySyncLogs: () -> Void
     var showNetworkLog: () -> Void = {}
-    /// Names the card after the open tree and switches it; the card then says
-    /// only the tree's state, not "Story is up to date".
+    /// Names the card after the open tree; the card then says only the
+    /// tree's state, not "Story is up to date".
+    var treeTitle: String?
+    /// Switches to another tree, out of the way under the card.
     var treeSwitcher: AnyView?
     /// Shows the open tree's folder in the Finder, when it is placed on this Mac.
     var revealFolder: (() -> Void)?
@@ -1206,8 +1208,8 @@ struct StorySyncStatusView: View {
                     .foregroundStyle(overallStatusTint(diagnostic))
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 3) {
-                    if let treeSwitcher {
-                        treeSwitcher
+                    if let treeTitle {
+                        Text(treeTitle).font(.headline)
                         Text(statusLine(diagnostic))
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -1246,6 +1248,13 @@ struct StorySyncStatusView: View {
             // In an iOS Form row every tap goes to one button unless each is borderless.
             .buttonStyle(.borderless)
 #endif
+        } footer: {
+            if let treeSwitcher {
+                HStack {
+                    Spacer()
+                    treeSwitcher
+                }
+            }
         }
         if binding?.isSaving == true || diagnostic != nil {
             Section("Current document") {

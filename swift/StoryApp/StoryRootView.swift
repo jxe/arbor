@@ -29,6 +29,7 @@ private protocol HostAccountPresentable {
 }
 
 private extension HostAccountPresentable {
+    var accountSectionID: String { "account:\(configurationTree)" }
     var devicesSectionID: String { "devices:\(configurationTree)" }
     var placementsSectionID: String { "placements:\(configurationTree)" }
 
@@ -1649,6 +1650,7 @@ struct StoryRootView: View {
     /// The Sync & Accounts sheet's status card, named after the open tree.
     private var accountSyncPanel: StorySyncStatusView {
         var panel = syncStatusPanel
+        panel.treeTitle = currentSidebarTreeTitle
         panel.treeSwitcher = AnyView(accountTreeSwitcher)
 #if os(macOS)
         let tree = model.currentReference.tree.rawValue
@@ -1659,8 +1661,8 @@ struct StoryRootView: View {
         return panel
     }
 
-    /// The status card's title: the open tree, which switches to the same
-    /// trees as the sidebar's picker.
+    /// Under the status card: switches to the same trees as the sidebar's
+    /// picker, for the iPhone, where the sidebar is easy to miss.
     private var accountTreeSwitcher: some View {
         let trees = sidebarTrees
         let current = model.currentReference.tree.rawValue
@@ -1676,15 +1678,9 @@ struct StoryRootView: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Text(currentSidebarTreeTitle)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .contentShape(.rect)
+            Label("Switch Tree", systemImage: "chevron.up.chevron.down")
+                .font(.caption)
+                .labelStyle(.titleAndIcon)
         }
         .menuIndicator(.hidden)
 #if os(macOS)
@@ -1692,6 +1688,7 @@ struct StoryRootView: View {
         .fixedSize()
 #else
         .buttonStyle(.borderless)
+        .textCase(nil)
 #endif
         .accessibilityLabel("Tree")
         .accessibilityValue(currentSidebarTreeTitle)
@@ -3886,34 +3883,18 @@ private struct StoryDevicesHeader: View {
     }
 }
 
-/// Few people use another host, whether by placing their account there or by
-/// joining another community, so the sheet keeps both behind one quiet button.
-private struct StoryOtherHostsReveal: View {
-    let reveal: () -> Void
-
-    var body: some View {
-        Section {
-        } footer: {
-            Button("Other Hosts…", action: reveal)
-#if os(macOS)
-                .buttonStyle(.link)
-#endif
-                .font(.caption)
-                .textCase(nil)
-        }
-    }
-}
-
-/// One account's placements on other hosts (accounts §1.3): the placement
-/// connections this device holds, an action to place the account on
-/// another host, and removing a connection from this device. Placing
-/// folders under a placement root is not here.
+/// The hosts an account is on: its home host, then its placements on other
+/// hosts (accounts §1.3) that this device holds. Add Host… offers both ways
+/// onto another host: placing this account there, or joining its community
+/// with a new account. Placing folders under a placement root is not here.
 private struct StoryPlacementsSection: View {
     let workspace: StoryWorkspaceState
     let configurationTree: String
-    var title = "Other Hosts"
+    let homeHost: String
+    var title = "Hosts"
     /// Join another community with a new account, the other way onto another host.
     var joinCommunity: (() -> Void)?
+    @State private var choosingKind = false
     @State private var placements: [StoryPlacement] = []
     @State private var hostPromptPresented = false
     @State private var host = ""
@@ -3925,6 +3906,10 @@ private struct StoryPlacementsSection: View {
 
     var body: some View {
         Section {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(homeHost)
+                Text("Home host").font(.caption).foregroundStyle(.secondary)
+            }
             ForEach(placements) { placement in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -3945,9 +3930,6 @@ private struct StoryPlacementsSection: View {
                     .help("Remove from this device…")
                 }
             }
-            if placements.isEmpty {
-                Text("This account is on no other host.").foregroundStyle(.secondary)
-            }
             if working { ProgressView() }
             if let message {
                 Text(message).font(.caption).foregroundStyle(.red)
@@ -3955,25 +3937,31 @@ private struct StoryPlacementsSection: View {
         } header: {
             Text(title).textCase(nil)
         } footer: {
-            VStack(alignment: .leading, spacing: 6) {
-                if canPlace {
-                    Button("Place this account on another host…") {
-                        host = ""
-                        hostPromptPresented = true
-                    }
+            if canPlace || joinCommunity != nil {
+                Button("Add Host…") { choosingKind = true }
+#if os(macOS)
+                    .buttonStyle(.link)
+#endif
+                    .textCase(nil)
                     .disabled(working)
-                }
-                if let joinCommunity {
-                    Button("Join another community…", action: joinCommunity)
+            }
+        }
+        .confirmationDialog("Add a host", isPresented: $choosingKind) {
+            if canPlace {
+                Button("Place This Account There…") {
+                    host = ""
+                    hostPromptPresented = true
                 }
             }
-#if os(macOS)
-            .buttonStyle(.link)
-#endif
-            .textCase(nil)
+            if let joinCommunity {
+                Button("Join Its Community as a New Account…", action: joinCommunity)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Placing this account keeps one identity and signs in through \(homeHost). Joining makes a separate account there.")
         }
         .task(id: configurationTree) { await load() }
-        .alert("Add another host", isPresented: $hostPromptPresented) {
+        .alert("Place this account on a host", isPresented: $hostPromptPresented) {
             TextField("https://host.example", text: $host)
 #if os(iOS)
                 .keyboardType(.URL)
@@ -4043,7 +4031,6 @@ private struct MacStorySyncAccountPanel: View {
     let workspace: StoryWorkspaceState
     let syncSections: AnyView
     let openProfile: (String) -> Void
-    @State private var showsOtherHosts = false
     @State private var pairing: StoryPairingOffer?
     @State private var pairingConfigurationTree: String?
     @State private var changingDeviceID: String?
@@ -4058,13 +4045,21 @@ private struct MacStorySyncAccountPanel: View {
         NavigationStack {
             Form {
                 syncSections
-                // Your profile is in People; here only a missing key needs you.
-                if let identity = identityState?.identity, !identity.keyAvailable {
-                    Section {
-                        Label("This Mac doesn’t have your identity’s key.", systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                        Button("Recover Identity…") { recoverIdentity() }
+                if let account {
+                    ForEach(account.accounts, id: \.accountSectionID) { hostAccount in
+                        Section { accountHeader(hostAccount) } header: { Text("Account").textCase(nil) }
                     }
+                }
+                if account?.accounts.isEmpty != false, let identity = identityState?.identity {
+                    Section {
+                        StoryProfileRow(
+                            workspace: workspace,
+                            person: workspace.directory.first { $0.entry.profile == identity.profileTree },
+                            fallbackTitle: "My profile", fallbackSubtitle: "",
+                            accessory: AnyView(identityMenu),
+                            open: { openProfile(identity.profileTree) }
+                        )
+                    } header: { Text("Account").textCase(nil) }
                 }
                 if let account {
                     if !account.accounts.isEmpty {
@@ -4091,7 +4086,9 @@ private struct MacStorySyncAccountPanel: View {
                                     .frame(maxWidth: .infinity)
                                 }
                             } header: {
-                                StoryDevicesHeader(title: hostAccount.accountDisplayLabel)
+                                StoryDevicesHeader(
+                                    title: account.accounts.count > 1 ? "Devices · \(hostAccount.accountDisplayName)" : "Devices"
+                                )
                             } footer: {
                                 Button("Pair another device…") {
                                     Task { await createPairing(configurationTree: hostAccount.configurationTree) }
@@ -4101,26 +4098,14 @@ private struct MacStorySyncAccountPanel: View {
                                 .disabled(!hostAccount.credentialAvailable)
                             }
                         }
-                        if showsOtherHosts {
-                            ForEach(account.accounts, id: \.placementsSectionID) { hostAccount in
-                                StoryPlacementsSection(
-                                    workspace: workspace,
-                                    configurationTree: hostAccount.configurationTree,
-                                    title: account.accounts.count > 1 ? "Other Hosts · \(hostAccount.accountDisplayName)" : "Other Hosts",
-                                    joinCommunity: hostAccount.id == account.accounts.last?.id ? { setupPresented = true } : nil
-                                )
-                            }
-                            if identityState?.identity?.keyAvailable == true {
-                                Section {
-                                    Button("Back Up Identity…") { backupIdentity() }
-                                } header: {
-                                    Text("Identity").textCase(nil)
-                                } footer: {
-                                    Text("A backup lets you recover this identity if you lose every device.")
-                                }
-                            }
-                        } else {
-                            StoryOtherHostsReveal { showsOtherHosts = true }
+                        ForEach(account.accounts, id: \.placementsSectionID) { hostAccount in
+                            StoryPlacementsSection(
+                                workspace: workspace,
+                                configurationTree: hostAccount.configurationTree,
+                                homeHost: hostAccount.accountDisplayDetail,
+                                title: account.accounts.count > 1 ? "Hosts · \(hostAccount.accountDisplayName)" : "Hosts",
+                                joinCommunity: { setupPresented = true }
+                            )
                         }
                     }
                     if account.accounts.isEmpty {
@@ -4183,6 +4168,37 @@ private struct MacStorySyncAccountPanel: View {
             Button("Cancel", role: .cancel) {}
         } message: { target in
             Text("\(target.label) will lose access to this account.")
+        }
+    }
+
+    private func accountHeader(_ account: LocalHostAccountDescriptor) -> some View {
+        StoryProfileRow(
+            workspace: workspace,
+            person: workspace.directory.first { $0.entry.profile == account.profileTree },
+            fallbackTitle: account.accountDisplayName,
+            fallbackSubtitle: account.accountDisplayDetail,
+            canOpen: account.profileTree != nil,
+            accessory: AnyView(identityMenu),
+            open: { if let profile = account.profileTree { openProfile(profile) } }
+        )
+    }
+
+    @ViewBuilder
+    private var identityMenu: some View {
+        if let identity = identityState?.identity {
+            if identity.keyAvailable {
+                Menu {
+                    Button("Back Up Identity…") { backupIdentity() }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Identity options")
+            } else {
+                Button("Recover Identity…") { recoverIdentity() }
+            }
         }
     }
 
@@ -4937,7 +4953,6 @@ private struct IOSAccountPanel: View {
     let workspace: StoryWorkspaceState
     let syncSections: AnyView
     let openProfile: (String) -> Void
-    @State private var showsOtherHosts = false
     let onDisconnect: @MainActor () -> Void
     @State private var placement: NativePlacementRecord?
     @State private var accounts: [HostAccount] = []
@@ -4952,6 +4967,19 @@ private struct IOSAccountPanel: View {
         NavigationStack {
             Form {
                 syncSections
+                ForEach(accounts, id: \.accountSectionID) { account in
+                    Section {
+                        let profile = snapshots[account.configurationTree]?.profileTree ?? account.profileTree
+                        StoryProfileRow(
+                            workspace: workspace,
+                            person: workspace.directory.first { $0.entry.profile == profile },
+                            fallbackTitle: account.accountDisplayName,
+                            fallbackSubtitle: account.accountDisplayDetail,
+                            canOpen: profile != nil,
+                            open: { if let profile { openProfile(profile) } }
+                        )
+                    } header: { Text("Account").textCase(nil) }
+                }
                 ForEach(accounts, id: \.devicesSectionID) { account in
                     Section {
                         if let device = snapshots[account.configurationTree]?.device {
@@ -4966,20 +4994,17 @@ private struct IOSAccountPanel: View {
                             Text(error).font(.caption).foregroundStyle(.secondary)
                         }
                     } header: {
-                        StoryDevicesHeader(title: account.accountDisplayLabel)
+                        StoryDevicesHeader(title: accounts.count > 1 ? "Devices · \(account.accountDisplayName)" : "Devices")
                     }
                 }
-                if showsOtherHosts {
-                    ForEach(accounts, id: \.placementsSectionID) { account in
-                        StoryPlacementsSection(
-                            workspace: workspace,
-                            configurationTree: account.configurationTree,
-                            title: accounts.count > 1 ? "Other Hosts · \(account.accountDisplayName)" : "Other Hosts",
-                            joinCommunity: account.id == accounts.last?.id ? { addingAccount = true } : nil
-                        )
-                    }
-                } else if !accounts.isEmpty {
-                    StoryOtherHostsReveal { showsOtherHosts = true }
+                ForEach(accounts, id: \.placementsSectionID) { account in
+                    StoryPlacementsSection(
+                        workspace: workspace,
+                        configurationTree: account.configurationTree,
+                        homeHost: account.accountDisplayDetail,
+                        title: accounts.count > 1 ? "Hosts · \(account.accountDisplayName)" : "Hosts",
+                        joinCommunity: { addingAccount = true }
+                    )
                 }
                 if accounts.isEmpty, message == nil {
                     Section {
