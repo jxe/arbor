@@ -69,6 +69,13 @@ Opening an ordinary folder in the Mac app, and making it into a tree from there,
 with the daemon's editor path; after setup a new tree needs `story place`. Joe wants this
 before the web editor. Mac only; the browser half is an open question in Web 025.
 
+**[People 001: a directory you own, and Go to…](later/people-001-directory-and-go-to.md).**
+Joe wants People to remember everyone and every tree he has come across, and to make forming
+groups to share with easy: see whether a group exists, drag people into it, invite whoever is
+missing. A Go to… field finds visited trees and pages by title. The directory is a private
+tree of collections with a grouped arrangement, so it waits for Schema language 002's
+presented views and structured editor.
+
 **[Apps 005: source resolution and the execution sidecar](later/apps-005-source-resolution-and-sidecar.md).**
 Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
 lending models against real code. This is the first step: a headless sidecar that runs them
