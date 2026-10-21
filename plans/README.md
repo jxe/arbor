@@ -117,11 +117,12 @@ When Joe shares by link, alongside Web 025: an access link must not leak its sec
 URLs, history or logs. Nothing is in production yet, so until then the spec carries the
 requirement.
 
-**[Performance 003: fast catch-up from an older authored basis](later/performance-003-fast-historical-catch-up.md).**
-Joe requested this on 2026-10-09 after the iPhone caught up but needed several minutes
-of server history reconstruction. Retain useful historical checkpoints within a byte
-budget, reduce replay work as history grows, and measure end-to-end catch-up after
-restart and with an empty cache. Preserve exact authored and conflict semantics.
+**[Performance 004: a provenance index kept at acceptance](later/performance-004-provenance-index.md).**
+Joe chose this on 2026-10-21 instead of Performance 003 (fast catch-up from an older basis,
+after the iPhone needed several minutes of history replay on 2026-10-09). Every acceptance
+records which change inserted each run of each file's bytes, so the merge engine reads
+states instead of replaying history, and line provenance becomes a lookup. It starts with a
+spike on the iPhone's catch-up proving the engine can evaluate from the index.
 
 **[Clients 002: more identity-preserving coalescing](later/merge-002-identity-preserving-coalescing.md).**
 Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
@@ -157,7 +158,8 @@ Seeing and restoring earlier versions of a page; it also decides how long docume
 versions are kept, which is most of what overstoryd retains.
 
 **[overstoryd 006: line provenance](later/history-006-line-provenance.md).** After
-overstoryd 007: who submitted each current line.
+overstoryd 007: who submitted each current line. With Performance 004's index it reads
+pieces instead of matching lines.
 
 **Postgres [001](later/postgres-001-child-provider.md), [002](later/postgres-002-observation-and-semantic-sync.md),
 [003](later/postgres-003-read-only-sqlite-projection.md), [004](later/postgres-004-bidirectional-projection.md),
@@ -197,7 +199,7 @@ gives every automatic outcome its explanation, which 014's "merge with a note" c
 for. The numbers are identifiers, not an execution order. History and provenance support
 explanation but do not improve merge decisions; [server refinements](small-work.md#server-refinements)
 tracks hand checks of merge rules already deployed; Web 025 owns rebuilding the web reviewer;
-merge replay cost is Performance 003. The [testing candidates](ideas.md#testing) in ideas
+merge replay cost is Performance 004. The [testing candidates](ideas.md#testing) in ideas
 include editor alignment and round-trip characterization.
 
 ### History and revisions
@@ -212,7 +214,7 @@ merge work.
 
 Latency, transfer size and storage overhead: take a plan when its stated problem occurs, and
 measure both the benefit and the cost to correctness, recovery and offline use.
-[Performance 003](later/performance-003-fast-historical-catch-up.md) and
+[Performance 004](later/performance-004-provenance-index.md) and
 [Native 006](when-needed/performance-006-sparse-ios-placement.md) are the plans; the shared
 merge cache and object packing are live, with their leftovers in the cleanups above. Client
 coalescing also reduces wire traffic but stays with merge work. [Performance ideas](ideas.md#speed)
