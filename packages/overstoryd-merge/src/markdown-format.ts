@@ -340,7 +340,7 @@ export function markdownTransferShape(document: string | MarkdownSource, formatt
 
 const proseLine = /^(?:[ \t]| {0,3}(?:#{1,6}(?:\s|$)|>|[-+]\s|\d+[.)]\s|[-=]+\s*$))/;
 const blockStart = /^(?:#{1,6}(?:\s|$)|>|[-+*]\s|\d+[.)]\s|[-=]+\s*$)/;
-const itemLine = /^([-+*]) (\[[ xX]\] )?(\S(?:.*\S)?)\s*$/;
+const itemLine = /^([-+*]) (\[[ xX]\] )?(\S(?:.*\S)?)?\s*$/;
 const delimiterCell = /^\s*:?-+:?\s*$/;
 
 /** The structure an identity-verified transfer may move list items and table
@@ -352,19 +352,19 @@ const delimiterCell = /^\s*:?-+:?\s*$/;
  * - a plain paragraph (every line self-contained inline prose), omitted;
  * - a list host: a block of one or more single-line, top-level items with one
  *   bullet character, one space after the marker, and self-contained inline
- *   content that begins no other block. It is recorded as `list <bullet>`,
- *   without its items. Ordered, nested, indented, multi-line, loose-in-block
- *   and continuation items keep the whole block exact;
+ *   content that begins no other block, including an empty item. It is
+ *   omitted, like a plain paragraph. Ordered, nested, indented, multi-line
+ *   and continuation items keep the whole block and their parent exact;
  * - a table host: a pipe table whose every line starts and ends with `|`, with
  *   no escapes, a delimiter row, and every row's cell count equal to the
  *   header's. It is recorded by its exact header and delimiter rows, without
  *   its body rows, whose cells are self-contained inline prose.
  *
  * So two versions have the same shape exactly when they have the same
- * sequence of exact protected blocks, list hosts by bullet and table hosts by
- * header; they may differ only in paragraphs, in list items within a host of
- * the same bullet, and in body rows within a table of the same columns and
- * alignment. Each of those renders from its own source and its host alone,
+ * sequence of exact protected blocks and table hosts by header; they may
+ * differ only in paragraphs, self-contained top-level bullet items, and body
+ * rows within a table of the same columns and alignment. Each of those
+ * renders from its own source and its host alone,
  * which is why reordering, moving or editing one cannot change another.
  *
  * `links` admits contextual links into that prose and records each kind used;
@@ -382,6 +382,12 @@ export function markdownTransferStructure(
     const blocks = text.split(/(?:\r?\n){2,}/);
     const open = followed && !/(?:\r?\n)[ \t]*\r?\n$/.test(text);
     const last = blocks.findLastIndex((block) => !!block.trim());
+    const following: Array<string | undefined> = new Array(blocks.length);
+    let nextBlock: string | undefined;
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      following[i] = nextBlock;
+      if (blocks[i]!.trim()) nextBlock = blocks[i];
+    }
     for (const [index, block] of blocks.entries()) {
       if (!block.trim()) continue;
       if (open && index === last) {
@@ -398,12 +404,19 @@ export function markdownTransferStructure(
       }
       uses.clear();
       const items = lines.map((line) => itemLine.exec(line));
+      const next = following[index];
+      // Across a blank line, indented text can still belong to the preceding
+      // list item. Retain that parent's exact block as well as the child, so
+      // moving/inserting a bullet cannot silently reparent unchanged text.
+      const ownsContinuation = next !== undefined && /^[ \t]/.test(next.replace(/^(?:\r?\n)+/, ""));
       if (
-        items.every((item) => item && item[1] === items[0]![1] &&
-          !blockStart.test(item[3]!) && admitted(item[3]!))
+        !ownsContinuation && items.every((item) => item &&
+          !blockStart.test(item[3] ?? "") && admitted(item[3] ?? ""))
       ) {
         uses.forEach((kind) => found.add(kind));
-        shape.push(`list ${items[0]![1]}`);
+        // Self-contained top-level bullets render independently, like plain
+        // paragraphs. Their presence, marker and blank-line spacing do not
+        // establish nesting; continued or indented items stay exact below.
         continue;
       }
       uses.clear();

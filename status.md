@@ -12,6 +12,33 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Todo list merge and conflict scope — 2026-10-22
+
+Implemented locally, not deployed: identity-verified Markdown transfers now
+allow self-contained top-level bullet items to appear, disappear, change marker
+or be empty. Nesting and continuation remain protected, including the parent
+block before an indented child across a blank line. Regression coverage includes
+an empty bullet authored before concurrent list moves and later task additions,
+in both arrival orders with LF and CRLF, plus cases that would reparent children.
+
+When identity replay succeeds but Markdown format review refuses a single
+insertion within one document, the engine can retain only absent versus inserted
+source. Removing that insertion must reproduce current by piece identity, and
+no prior choices may be open. Replacements and cross-document or failed replay
+still use conservative fallback. Regressions cover nearby task additions, edits
+at both selected projections' boundaries, hidden-branch typing and resolution
+without growing the alternatives.
+
+Validation: the affected gate passes on Bun 1.4.2: typecheck, 799 product tests
+across 63 files, documentation links and whitespace.
+
+The live todos conflict was separately resolved with Joe's approval at update
+12014, preserving the latest order and restoring the three unique hidden tasks.
+Accepted bytes matched the prepared preview, conflict inspection returned no
+decisions, the placed folder matched those bytes, and Native adopted an
+unconflicted state. This used the already deployed host; it does not establish
+deployment of the code changes above.
+
 ## Plans closed out — 2026-10-20
 
 Joe asked for the plans to be filed by timing (`plans/soon/`, `plans/later/`,

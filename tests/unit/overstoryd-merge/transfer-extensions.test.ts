@@ -135,9 +135,15 @@ const policy = (a: string, b: string, context?: TransferContext) =>
 const local: TransferContext = { directories: ["", "", "", ""], crossDocument: "none", transfers: [] };
 
 test.each([
+  ["bullet change", "- a\n- b\n", "* a\n* b\n"],
+  ["mixed bullets", "- a\n- b\n", "- a\n+ b\n"],
+  ["emptied list", "- a\n\nText\n\n- b\n", "Text\n\n- b\n- a\n"],
+  ["new list", "Text\n", "Text\n\n- a\n"],
   ["item reorder", "- a\n- b\n- c\n", "- c\n- a\n- b\n"],
   ["item into another list of that bullet", "- a\n- b\n\nText\n\n- c\n", "- a\n\nText\n\n- b\n- c\n"],
   ["task item", "- [ ] a\n- [x] b\n", "- [x] b\n- [ ] a\n"],
+  ["loose items added within a list", "- a\n\n- b\n", "- b\n\n- new\n\n- a\n"],
+  ["empty item added within a list", "- a\n\n- b\n", "- \n\n- a\n\n- b\n"],
   ["formatted item", "* a\n* **b** and `c`\n", "* **b** and `c`\n* a\n"],
   ["table row", "| a | b |\n|:--|--:|\n| 1 | 2 |\n| 3 | 4 |\n", "| a | b |\n|:--|--:|\n| 3 | 4 |\n| 1 | 2 |\n"],
   ["row into an empty body", "| a |\n|---|\n| 1 |\n\n| b |\n|---|\n", "| a |\n|---|\n\n| b |\n|---|\n| 1 |\n"],
@@ -146,12 +152,11 @@ test.each([
 });
 
 test.each([
-  ["bullet change", "- a\n- b\n", "* a\n* b\n"],
-  ["mixed bullets", "- a\n- b\n", "- a\n+ b\n"],
-  ["emptied list", "- a\n\nText\n\n- b\n", "Text\n\n- b\n- a\n"],
-  ["new list", "Text\n", "Text\n\n- a\n"],
   ["ordered list", "1. a\n2. b\n", "1. b\n2. a\n"],
   ["nested item", "- a\n- b\n", "- a\n  - b\n"],
+  ["loose child reparented", "- parent\n\n  - child\n\n- sibling\n", "- sibling\n\n  - child\n\n- parent\n"],
+  ["new parent before a loose child", "- parent\n\n  - child\n", "- parent\n\n- new\n\n  - child\n"],
+  ["loose continuation reparented", "- parent\n\n  continuation\n\n- sibling\n", "- sibling\n\n  continuation\n\n- parent\n"],
   ["two spaces", "- a\n- b\n", "- a\n-  b\n"],
   ["item begins a block", "- a\n- b\n", "- a\n- # b\n"],
   ["thematic break", "- a\n- b\n", "- a\n- - -\n"],
@@ -229,16 +234,15 @@ test("a copied table row merges with a cell edit in another row", async () => {
   );
 });
 
-test("a list item move keeps review when the other side changes the list's bullet", async () => {
+test("a list item move merges with a top-level bullet style change", async () => {
   const note = "- a\n- b\n\nText\n\n- c\n";
   const files = { "n.md": note };
-  const bullet = "- a\n- b\n\nText\n\n* c\n";
-  await reviews(
+  await merges(
     files,
     transfer(files, "moveSource", "n.md", [0, at(note, "- b")], "n.md", size(note)),
     edit(files, "n.md", [at(note, "- c"), at(note, "- c") + 1], "*"),
+    { "n.md": "- b\n\nText\n\n* c\n- a\n" },
   );
-  void bullet;
 });
 
 test("a relative link moves between documents of one directory, but not across directories", async () => {

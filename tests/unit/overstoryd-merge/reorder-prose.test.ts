@@ -10,6 +10,109 @@ const pieces = (order: number[]): Piece[] => order.map(start => ({
 const positions = (source: Piece[]) => source.flatMap(p =>
   Array.from({ length: p.length }, (_, i) => `${p.origin}:${p.start + i}`));
 
+test("a refused insertion beside a transfer stays small through later nearby edits", async () => {
+  const f = new Fixture(), head = "# Next up!\n\n", one = "- First task\n\n", two = "- Second task\n\n";
+  const source = head + one + two + "# Later\n", base = f.tree({ "note.md": source });
+  const moved = head + two + one + "# Later\n";
+  const current = await f.run(f.request(base, f.tree({ "note.md": moved }), [{
+    key: "move", kind: "moveSource", source: f.ref("/note.md", source, [head.length, (head + one).length]),
+    at: f.ref("/note.md", source, [(head + one + two).length, (head + one + two).length]), side: "before",
+  }], "mac"));
+  // Structural syntax still needs review, but only the insertion is uncertain.
+  const inserted = "\n\n# New section\n\n- ", at = head.length + 2;
+  const incoming = f.request(base, f.tree({ "note.md": head + "- " + inserted + one.slice(2) + two + "# Later\n" }), [{
+    key: "insert", kind: "editSource", source: f.ref("/note.md", source, [at, at]), text: inserted,
+  }], "phone", current.result);
+  incoming.rules.config = { conflictProjection: "current" };
+  const conflict = await f.run(incoming);
+  expect(conflict.decisions).toHaveLength(1);
+  const choice = conflict.decisions[0]!;
+  expect(choice.alternatives.map(a => a.object)).toEqual([f.put(""), f.put(inserted)]);
+  expect(f.content(conflict.result.object, "note.md")).toBe(moved);
+  const original = structuredClone(choice.alternatives);
+  // A nearby new task must remain outside the choice's values.
+  const task = "- Printer paper\n\n", updated = head + task + two + one + "# Later\n";
+  const later = await f.run(f.request(conflict.result, f.tree({ "note.md": updated }), [{
+    key: "task", kind: "editSource", source: f.ref("/note.md", moved, [head.length, head.length]), text: task,
+  }], "later"));
+  expect(later.decisions).toHaveLength(1);
+  expect(later.decisions[0]!.key).toBe(choice.key);
+  expect(later.decisions[0]!.alternatives).toEqual(original);
+  expect(f.content(later.result.object, "note.md")).toBe(updated);
+  // The hidden author's queued typing continues only the inserted fragment.
+  const authored = head + "- " + inserted + one.slice(2) + two + "# Later\n";
+  const start = at + inserted.indexOf("New");
+  const hidden = await f.run(f.request(conflict.authored!, f.tree({ "note.md": authored.replace("New section", "New topic") }), [{
+    key: "type", kind: "editSource", source: f.ref("/note.md", authored, [start, start + "New section".length]), text: "New topic",
+  }], "typing", later.result));
+  expect(hidden.decisions).toHaveLength(1);
+  expect(hidden.decisions[0]!.alternatives.map(a => a.object)).toEqual([f.put(""), f.put(inserted.replace("New section", "New topic"))]);
+  expect(f.content(hidden.result.object, "note.md")).toBe(updated);
+  // Keeping current is an explicit resolution; it leaves the nearby task intact.
+  const resolve = f.request(hidden.result, hidden.result.object, [], "resolve");
+  resolve.incoming.resolves = [choice.key];
+  const resolved = await f.run(resolve);
+  expect(resolved.decisions).toEqual([]);
+  expect(f.content(resolved.result.object, "note.md")).toBe(updated);
+});
+
+for (const projection of ["current", "incoming"] as const)
+  test(`an insertion review keeps edits at its boundary outside the alternatives (${projection})`, async () => {
+    const f = new Fixture(), source = "# T\n\n- First\n\n- Second\n\n", base = f.tree({ "note.md": source });
+    const currentText = "# T\n\n- Second\n\n- First\n\n";
+    const current = await f.run(f.request(base, f.tree({ "note.md": currentText }), [{
+      key: "move", kind: "moveSource", source: f.ref("/note.md", source, [5, 14]),
+      at: f.ref("/note.md", source, [24, 24]), side: "before",
+    }], "mac"));
+    const inserted = "\n\n# Heading\n\n- ", candidate = source.slice(0, 7) + inserted + source.slice(7);
+    const request = f.request(base, f.tree({ "note.md": candidate }), [{
+      key: "insert", kind: "editSource", source: f.ref("/note.md", source, [7, 7]), text: inserted,
+    }], "phone", current.result);
+    request.rules.config = { conflictProjection: projection };
+    const conflict = await f.run(request), choice = conflict.decisions[0]!;
+    expect(conflict.decisions).toHaveLength(1);
+    expect(choice.alternatives.map(a => a.object)).toEqual([f.put(""), f.put(inserted)]);
+    const text = f.content(conflict.result.object, "note.md"), at = text.indexOf("First");
+    const updated = text.slice(0, at) + "Updated " + text.slice(at);
+    const later = await f.run(f.request(conflict.result, f.tree({ "note.md": updated }), [{
+      key: "boundary", kind: "editSource", source: f.ref("/note.md", text, [at, at]), text: "Updated ",
+    }], "later"));
+    expect(later.decisions).toHaveLength(1);
+    expect(later.decisions[0]!.alternatives).toEqual(choice.alternatives);
+    expect(f.content(later.result.object, "note.md")).toBe(updated);
+  });
+
+for (const newline of ["\n", "\r\n"])
+  for (const reverse of [false, true])
+    test(`an empty bullet merges with a moved loose list and later tasks (${JSON.stringify(newline)}, reverse=${reverse})`, async () => {
+      const f = new Fixture(), head = `# Next up!${newline}${newline}`;
+      const first = `- Fetch equipment${newline}${newline}`, second = `- café meditation${newline}${newline}`;
+      const tail = `# Later${newline}${newline}Keep this.${newline}`;
+      const source = head + first + second + tail, base = f.tree({ "note.md": source });
+      const moved = head + second + first + tail;
+      const move: SourceOperation = { key: "move", kind: "moveSource",
+        source: f.ref("/note.md", source, [Buffer.byteLength(head), Buffer.byteLength(head + first)]),
+        at: f.ref("/note.md", source, [Buffer.byteLength(head + first + second), Buffer.byteLength(head + first + second)]), side: "before" };
+      const at = Buffer.byteLength(head + "- "), insert = `${newline}${newline}- `;
+      const empty: SourceOperation = { key: "empty", kind: "editSource", source: f.ref("/note.md", source, [at, at]), text: insert };
+      const withEmpty = head + `- ${newline}${newline}` + first + second + tail;
+      const phone = f.request(base, f.tree({ "note.md": withEmpty }), [empty], "phone");
+      const mac = f.request(base, f.tree({ "note.md": moved }), [move], "mac");
+      let current = await f.run(reverse ? phone : mac);
+      const added = `- Printer paper${newline}${newline}`;
+      const visible = f.content(current.result.object, "note.md"), offset = Buffer.byteLength(head);
+      const withTask = head + added + visible.slice(head.length);
+      current = await f.run(f.request(current.result, f.tree({ "note.md": withTask }), [{
+        key: "task", kind: "editSource", source: f.ref("/note.md", visible, [offset, offset]), text: added,
+      }], "later"));
+      const last = reverse ? mac : phone;
+      last.current = current.result;
+      const result = await f.run(last);
+      expect(result.decisions).toEqual([]);
+      // The split follows the identity of Fetch, even after that item moves.
+      expect(f.content(result.result.object, "note.md")).toBe(head + added + second + `- ${newline}${newline}` + first + tail);
+    });
+
 test("reorders retain stable boundaries and independent changes between moves", () => {
   const base = pieces([0, 1, 2, 3, 4, 5, 6, 7, 8]);
   const changed = pieces([0, 2, 1, 3, 4, 6, 5, 7, 8]);
