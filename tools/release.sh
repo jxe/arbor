@@ -22,7 +22,8 @@ set -eu
 #
 # Needs: a clean main, the Developer ID certificate and the story-notary
 # keychain profile (swift/scripts/release-mac.sh), Xcode signed in to the team
-# (swift/scripts/release-ios.sh), `gh` and `npm` logged in. With an App Store
+# (swift/scripts/release-ios.sh), `gh` and `npm` logged in, dmgbuild installed
+# (swift/scripts/make-dmg.sh). With an App Store
 # Connect API key named in ~/.appstoreconnect/story.env (STORY_ASC_KEY_ID and
 # STORY_ASC_ISSUER_ID), the uploaded build is also added to the TestFlight group
 # STORY_TESTFLIGHT_GROUP (default Friends) and submitted for beta review;
@@ -69,6 +70,7 @@ if wants npm && npm view "@ovst/cli@$version" version >/dev/null 2>&1; then
   echo "error: @ovst/cli $version is already on npm" >&2; exit 1
 fi
 if wants mac; then gh auth status >/dev/null 2>&1 || { echo "error: gh is not logged in" >&2; exit 1; }; fi
+if wants mac; then python3 -c 'import dmgbuild' 2>/dev/null || { echo "error: dmgbuild is not installed; run python3 -m pip install dmgbuild" >&2; exit 1; }; fi
 if wants npm; then npm whoami >/dev/null 2>&1 || { echo "error: npm is not logged in; run npm login" >&2; exit 1; }; fi
 
 # The apps build against the pinned Quagmire release. If Quagmire's main has
@@ -158,6 +160,19 @@ step "Checking"
 bun run typecheck
 if wants npm; then bun run test:cli:package; fi
 
+# The iPhone archive builds beside the Mac app, and mostly while Apple notarizes it.
+ios_archive=
+stop_ios_archive() {
+  if [ -n "$ios_archive" ]; then pkill -P "$ios_archive" 2>/dev/null || true; kill "$ios_archive" 2>/dev/null || true; fi
+}
+trap stop_ios_archive EXIT
+if wants ios; then
+  step "Archiving the iPhone app in the background (log: dist/ios/archive.log)"
+  mkdir -p dist/ios
+  swift/scripts/release-ios.sh "$version" "$build" --archive-only > dist/ios/archive.log 2>&1 &
+  ios_archive=$!
+fi
+
 if wants mac; then
   step "Building and notarizing the Mac app ($version, build $build)"
   swift/scripts/release-mac.sh "$version" "$build"
@@ -168,12 +183,23 @@ if wants npm; then
   step "Building the story command package"
   bun run build:cli:package
 fi
+if [ -n "$ios_archive" ]; then
+  step "Finishing the iPhone archive"
+  archive_status=0
+  wait "$ios_archive" || archive_status=$?
+  ios_archive=
+  if [ "$archive_status" != 0 ]; then
+    tail -n 30 dist/ios/archive.log >&2
+    echo "error: the iPhone archive failed; its log is dist/ios/archive.log" >&2
+    exit 1
+  fi
+fi
 
 echo
 echo "Ready to publish $version (build $build): $parts"
 { wants mac || wants ios; } && echo "  - built with Quagmire $target"
 wants mac && echo "  - push main and $tag (deploys the host); GitHub release with Story-$version.dmg, Story.dmg, appcast.xml"
-wants ios && echo "  - archive and upload the iPhone app to App Store Connect, then add it to its TestFlight group"
+wants ios && echo "  - upload the iPhone app to App Store Connect, then add it to its TestFlight group"
 wants npm && echo "  - npm publish @ovst/cli@$version and its four platform builds (@ovst/cli-darwin-arm64 and so on)"
 usl_version=$(node -p 'require("./packages/usl/package.json").version')
 publish_usl=
@@ -227,7 +253,7 @@ if wants mac; then
 fi
 if wants ios; then
   step "Uploading the iPhone app"
-  swift/scripts/release-ios.sh "$version" "$build"
+  swift/scripts/release-ios.sh "$version" "$build" --upload-only
   if [ -f "$HOME/.appstoreconnect/story.env" ]; then
     step "Waiting for Apple, then adding the build to TestFlight"
     # In a subshell: the key is for this step, and the upload above signs in through Xcode.
