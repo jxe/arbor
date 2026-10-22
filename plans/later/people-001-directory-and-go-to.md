@@ -7,8 +7,10 @@ already exists, whether it covers everyone needed, inviting whoever is missing, 
 person whose tree ID you don't know. He also wants a way back to any tree or page he has
 visited without remembering its host URL or path, like Chrome's address bar. The directory is a
 collection with a grouped arrangement, so this plan waits for
-[Schema language 002](../soon/schema-language/002-cranberries-in-story.md) to present and edit
-collections natively. The UX was worked out first in the doc
+[Schema language 005](../soon/schema-language/005-collections-that-sync.md): collections that sync
+correctly, offline on every device. Joe, 2026-10-22: that foundation is what has to come first;
+the general database views of [Schema language 002](schema-language-002-cranberries-in-story.md)
+are separate and later. The UX was worked out first in the doc
 [People directory UX](https://claude.ai/code/artifact/b3c3e9a9-aeee-49f9-b973-b9bee2d256bb)
 (thread "People directory memory").
 
@@ -22,11 +24,14 @@ collections natively. The UX was worked out first in the doc
 - **Risk:** MEDIUM. It's the first collection Story keeps for itself, and group edits write
   to group profile trees on hosts.
 - **State:** TODO.
-- **Gated on:** Schema language 002 milestones 1 (row operations and field merge), 3 (presented
-  views), 4 (the structured editor) and 7 (pages that present collections kept elsewhere), on
-  main and working on Mac and iPhone. Rows must be readable offline on the iPhone, which is
-  [Apps 010](apps-010-native-offline-collection-file-projection.md) or whatever 004's logical
-  collections make of it.
+- **Gated on:** [Schema language 005](../soon/schema-language/005-collections-that-sync.md)
+  milestones 1 to 5 (the logical form, layered USL, logical collections, row operations with
+  field merge, and collections that sync natively on Mac and iPhone, offline), on main. Not
+  milestone 6 (rows on the host).
+- **Not gated on:** [Schema language 002](schema-language-002-cranberries-in-story.md)'s
+  presented views and structured editor. People's screens are Story's own SwiftUI over the
+  directory's rows, as `StoryDirectoryView` is today; if 002's editor lands first, the People
+  arrangement can move onto it.
 - **Relates to:** [Links 001](../soon/links-001-tree-id-links.md), whose lookup searches visited
   trees. Phase 3 here replaces the store that plan extends.
 
@@ -94,9 +99,9 @@ model Visited {
 
 **Group membership is not copied.** Groups stay group profile trees on hosts, because
 sharing needs them there. The People arrangement groups contacts by the groups they are in,
-read from those trees; moving a row under a heading edits that group tree's `members`. This is
-milestone 7's "view of a collection kept elsewhere", with a group's member list as the
-collection.
+read from those trees; moving a row under a heading edits that group tree's `members`. People
+does this itself; 002's milestone 7 ("pages that present collections kept elsewhere") would
+generalize it.
 
 **What arrives on its own.** A contact row is added when there is a real tie: an invite either
 way, a share either way, a group in common, or opening their profile or tree. A link that only

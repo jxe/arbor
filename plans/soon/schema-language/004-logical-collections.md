@@ -3,7 +3,8 @@
 **Why and when:** Joe, 2026-10-15, in the "Cranberries in Story" thread:
 "differentiate logical tree and projection on both sides of the wire", where
 the projection is "a property of a *placement*", not of `schema.usl`. It came
-up because plan 002 milestone 2 put `store: "sqlite"` in the accepted tree,
+up because plan 002's milestone 2 (now [005](005-collections-that-sync.md)'s
+milestone 5) put `store: "sqlite"` in the accepted tree,
 which tied a device's storage choice, and then the host's history promise, to
 whether a database file happened to sit in a folder. This note works through
 the two questions that decide the design. Nothing here is built.
@@ -15,7 +16,8 @@ the two questions that decide the design. Nothing here is built.
   `placements.yaml`; Story Sync records what it finds on disk the first time;
   host retention belongs to the host operator and the tree configuration.
   Open: the logical form (below) and the open questions.
-- **Affects:** plan 002 milestones 2 and 2a; spec 01 (representations), 02
+- **Built by:** [005](005-collections-that-sync.md), milestones 1 and 3.
+- **Affects:** 005 milestones 4 to 6 (002's former 1, 2 and 2a); spec 01 (representations), 02
   (projection boundary), 06 (§2.1, §3.1, §4, §7), 10 (§4.1); Postgres 002, 004
   and 005.
 
@@ -334,8 +336,8 @@ happens to hold, and a projection converts at its boundary:
 - **A default for new placements:** something has to pick the format when a
   placement doesn't say: each implementation's own default, or a hint in the
   tree that placements may override. A hint must never be read as truth.
-- **Host:** its projection (a SQLite file for queries and mutations, plan 002
-  §2a) is the host's operational choice, like 06 §4's host activation.
+- **Host:** its projection (a SQLite file for queries and mutations, 005
+  milestone 6) is the host's operational choice, like 06 §4's host activation.
 
 ## The history promise follows
 
@@ -352,7 +354,7 @@ With representation per placement, retention is per placement too:
   stays a valid name, and reading its pruned rows gets a distinct "pruned"
   answer (spec 01), not a 404.
 
-## What it changes on the plan 002 branch
+## What it changes on the branch `claude/project-thread-6kt6l8`
 
 - `store: "sqlite"` leaves the descriptor; a collection's descriptor names its
   logical tables only. The canonical table encoding stays, as the logical

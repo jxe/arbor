@@ -21,7 +21,7 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
   need not force renewed review, explanations of verified moves and deletions, rule-provided combination previews, bulk and
   offline resolution.
 - **Pages as logical nodes with placement-owned representation.** The split
-  that schema-language 002 makes for collections (the tree holds the logical
+  that schema-language 004 makes for collections (the tree holds the logical
   form, and each placement chooses how to write it to disk) could apply to
   pages too:
   - The logical page is its properties plus its content, and the body bytes

@@ -5,8 +5,9 @@
 logical model every placement shares, storage that each placement may
 choose, and presentation. Each layer should be visible on every line, and any
 layer should be able to live in another file. That's needed for
-[002](002-cranberries-in-story.md)'s logical collections, whose storage is a
-property of a placement, not of the schema. The examples rewritten in this
+[004](004-logical-collections.md)'s logical collections, whose storage is a
+property of a placement, not of the schema. It is built as
+[005](005-collections-that-sync.md)'s milestone 2. The examples rewritten in this
 form are in [examples/layered](examples/layered).
 
 ## Status
@@ -16,7 +17,7 @@ form are in [examples/layered](examples/layered).
   `packages/usl` and the StoryKit port), plus the editor grammars.
 - **State:** PLANNED.
 - **Depends on:** nothing.
-- **Unblocks:** placement-owned storage in 002; per-placement storage
+- **Unblocks:** placement-owned storage in 005; per-placement storage
   mappings.
 
 ## Joe's decisions
@@ -64,7 +65,9 @@ form are in [examples/layered](examples/layered).
 - Inside `~views`, line items take `~bullet`, `~summary`, `~label` and
   `~sort`.
 - A fixed row's color is `~color` on that row, in a `re` block.
-- `@@editableBy` is gone: ownership is access policy (002 milestone 5).
+- `@@editableBy` is gone: ownership is access policy
+  ([002](../../later/schema-language-002-cranberries-in-story.md) milestone 5).
+  Until that lands it parses as a deprecated spelling (005 milestone 2).
 
 ## Rules
 
@@ -106,8 +109,8 @@ form are in [examples/layered](examples/layered).
    `games.usl` in supplies-remake follows.
 7. **Placement storage mappings** in Story Sync: per-collection formats in
    `placements.yaml`, mapping files under `~/.story/`, and writing a mapping
-   when it adopts an existing database. This step belongs with 002's
-   logical collections.
+   when it adopts an existing database. This step belongs with
+   005's milestone 3, logical collections.
 
 ## Open questions
 

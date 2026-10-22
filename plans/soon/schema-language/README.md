@@ -5,17 +5,21 @@ Overstory's schema language. The language as implemented is specified in
 [the schema language chapter](../../../docs/overstory-spec/11-schema-language.md)
 and implemented in `packages/usl` (`bun packages/usl/src/cli.ts check|show
 file.usl`); every collection reads its `schema.usl` through it. What remains
-is [002](002-cranberries-in-story.md): presenting and merging collections the
-way cranberries does; [003](003-layers-and-sigils.md): the model, storage
-and presentation layers (`@`, `&`, `~`, and `re`), with the examples
-rewritten in that form in `examples/layered/`; and
-[004](004-logical-collections.md) (proposed), which makes a collection's rows
-the tree's content and every file or database a placement's projection of
-them. `examples/invalid/` holds one broken file per
-invariant. Background and the history of the design are in the project thread
+is in two parts, done at different times. First,
+[005](005-collections-that-sync.md): collections that sync, the build plan
+for [003](003-layers-and-sigils.md) (the model, storage and presentation
+layers: `@`, `&`, `~`, and `re`, with the examples rewritten in that form in
+`examples/layered/`) and [004](004-logical-collections.md) (a collection's
+rows are the tree's content and every file or database a placement's
+projection of them), plus row operations, field-level merge and SQLite that
+syncs. People 001 waits for it. Later,
+[002](../../later/schema-language-002-cranberries-in-story.md): presenting,
+editing and embedding collections in Story the way cranberries does,
+ownership, and porting excellences and supplies-remake.
+`examples/invalid/` holds one broken file per invariant. Background and the history of the design are in the project thread
 "Cranberries in Story".
 
-**Merge follows arity** (002). A row is a set of tuples. A single-valued field
+**Merge follows arity** (005). A row is a set of tuples. A single-valued field
 with two different concurrent values is a conflict; many-valued fields merge
 member by member; `@ordered` fields merge as sequences; `Markdown` merges by
 lines.

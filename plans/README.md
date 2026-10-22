@@ -14,13 +14,14 @@ its evidence in status.
 
 ## Soon
 
-**[Schema language 002: cranberries documents in Story](soon/schema-language/002-cranberries-in-story.md)**,
-with [003: model, storage and presentation layers](soon/schema-language/003-layers-and-sigils.md),
-[004: logical collections](soon/schema-language/004-logical-collections.md) (proposed) and the [group overview](soon/schema-language/README.md). Joe wants excellences and
-supplies-remake to run natively in Story on the Overstory data model, which reads every
-collection through `schema.usl`: presented views, a native editor, field-level merge, and ports
-of both sites. Milestones 1 to 3 are built on branch `claude/project-thread-6kt6l8`, not yet on
-main; 003's syntax is decided but not implemented.
+**[Schema language 005: collections that sync](soon/schema-language/005-collections-that-sync.md)**,
+building [003: model, storage and presentation layers](soon/schema-language/003-layers-and-sigils.md)
+and [004: logical collections](soon/schema-language/004-logical-collections.md) (proposed), with the
+[group overview](soon/schema-language/README.md). Joe split it out of Schema language 002 on
+2026-10-22 to do first, because People 001 needs it: the layered USL, collections whose rows are
+the tree's content while each placement chooses files or SQLite, row operations with field-level
+merge, and SQLite that syncs on every device. Row operations, field merge and SQLite sync are
+built on branch `claude/project-thread-6kt6l8` in a pre-004 form; 004's forks are open.
 
 **[Live 001: see who else is here](soon/live-001-presence.md).**
 Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which
@@ -73,8 +74,14 @@ before the web editor. Mac only; the browser half is an open question in Web 025
 Joe wants People to remember everyone and every tree he has come across, and to make forming
 groups to share with easy: see whether a group exists, drag people into it, invite whoever is
 missing. A Go to… field finds visited trees and pages by title. The directory is a private
-tree of collections with a grouped arrangement, so it waits for Schema language 002's
-presented views and structured editor.
+tree of collections with a grouped arrangement, so it waits for Schema language 005's
+collections that sync.
+
+**[Schema language 002: database views in Story](later/schema-language-002-cranberries-in-story.md).**
+Joe wants excellences and supplies-remake to run natively in Story: collections presented as
+views and edited in a native structured editor, embedded in pages, with row ownership as access
+policy, and ports of both sites. The data underneath moved to Schema language 005 on 2026-10-22,
+so this comes after it, at a different time.
 
 **[Apps 005: source resolution and the execution sidecar](later/apps-005-source-resolution-and-sidecar.md).**
 Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
