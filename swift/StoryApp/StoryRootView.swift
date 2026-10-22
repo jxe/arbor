@@ -588,7 +588,7 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
                 return
             }
             let center = NotificationCenter.default
-            let resizeOnNotification: (Notification) -> Void = { [weak self] _ in
+            let resizeOnNotification: @Sendable (Notification) -> Void = { [weak self] _ in
                 MainActor.assumeIsolated { self?.resize() }
             }
             if let splitView {
