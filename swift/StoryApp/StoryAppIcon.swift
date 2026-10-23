@@ -70,7 +70,7 @@ final class StoryAppIconSelection {
 }
 
 enum StoryIOSSettings {
-    /// Whether the sidebar drawer's tab peeks in at the bottom left on iOS.
+    /// Whether the page shows a grip at its bottom left edge on iOS for revealing the sidebar.
     static let showsSidebarHandleKey = "sidebar.showsHandle"
 }
 
@@ -89,7 +89,7 @@ struct StoryIOSSettingsView: View {
             } header: {
                 Text("Sidebar")
             } footer: {
-                Text("The handle peeks in at the bottom left. Without it, swipe in from the left edge to open the sidebar.")
+                Text("A grip on the page's left edge, near the bottom, slides the page aside to show the sidebar. Without it, swipe in from the left edge.")
             }
         }
         .navigationTitle("Settings")
