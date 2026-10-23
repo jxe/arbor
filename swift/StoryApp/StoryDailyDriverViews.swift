@@ -94,9 +94,17 @@ extension View {
 // Opaque warm neutrals keep the sidebar and its titlebar search surface identical.
 enum StorySidebarPalette {
     static func background(_ scheme: ColorScheme) -> Color {
+#if os(macOS)
+        // A shade under the page in dark mode, so the sidebar reads as the
+        // layer beneath it, as it does on iOS.
+        scheme == .dark
+            ? Color(red: 0.082, green: 0.079, blue: 0.074)
+            : Color(red: 0.973, green: 0.969, blue: 0.961)
+#else
         scheme == .dark
             ? Color(red: 0.118, green: 0.114, blue: 0.106)
             : Color(red: 0.973, green: 0.969, blue: 0.961)
+#endif
     }
 
     static func foreground(_ scheme: ColorScheme) -> Color {
