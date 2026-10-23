@@ -34,6 +34,8 @@ struct StoryWindowCommands {
     var recordAudioLabel: String
     var share: () -> Void
     var revealPageInFinder: () -> Void
+    var copyPageLink: () -> Void
+    var copyPagePath: () -> Void
     var localTrees: [StoryLocalTreeMenuItem]
     var jumpToLocalTree: (String) -> Void
     var showHistory: () -> Void
@@ -59,6 +61,7 @@ struct StoryWindowCommands {
     var canRecordAudio: Bool
     var canShare: Bool
     var canRevealPageInFinder: Bool
+    var canCopyPageLink: Bool
     var canMovePage: Bool
     var canRenamePage: Bool
     var canMovePageToTrash: Bool

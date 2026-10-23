@@ -228,7 +228,9 @@ final class StoryWorkspaceState {
     private(set) var providerDetail = "No tree open"
     /// overstoryd's canonical `/` tree is its membership profile. Handles in
     /// that profile reserve account locators; ordinary group handles do not.
-    private(set) var currentTreeCanonicalPath: String?
+    var currentTreeCanonicalPath: String? { currentTreeCanonical?.path }
+    /// Where the open tree is published, when it has a canonical location.
+    private(set) var currentTreeCanonical: ProtocolCanonicalDescriptor?
     var isCommunityMembershipTree: Bool { currentTreeCanonicalPath == "/" }
     private(set) var syncPresentation = WorkspaceSyncPresentation(
         state: .offline,
@@ -413,7 +415,7 @@ final class StoryWorkspaceState {
             nextProvider,
             home: WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/"),
             detail: "Offline replica · \(tree.canonicalPath ?? tree.id)",
-            canonicalPath: tree.canonicalPath
+            canonical: tree.canonical
         )
         try await installSyncCoordinator(coordinator, client: client, tree: tree)
     }
@@ -1275,7 +1277,8 @@ final class StoryWorkspaceState {
     /// every other file a hash the daemon's `/v1/objects` serves on demand.
     /// The folder client has independent pending/conflict state; it neither
     /// seeds nor blocks this client's direct host update coordinator.
-    func openPlacedTree(_ treeID: String) async throws {
+    /// `page`, a path within the tree, is opened instead of its home page.
+    func openPlacedTree(_ treeID: String, page: String? = nil) async throws {
         try await editorWorkspace.flushAll()
         try await closeOpenTree()
         let runtime = try await ensureStorySync()
@@ -1351,8 +1354,9 @@ final class StoryWorkspaceState {
         await switchProvider(
             nextProvider,
             home: nextHome,
+            launchLocation: page.map { .reference(WorkspaceReference(tree: TreeID(rawValue: treeID), path: $0)) },
             detail: "Working tree · \(placeName) · \(placed.osPath ?? "")",
-            canonicalPath: descriptor.canonicalPath,
+            canonical: descriptor.canonical,
             // The confirmed tree replaces its own preview at the same
             // locations: keep every window's navigation and reload in place.
             preservingNavigation: launchPhase.isPreviewing && home == nextHome
@@ -1401,8 +1405,11 @@ final class StoryWorkspaceState {
                     ?? localStorySyncOverview?.accounts.first { $0.configurationTree == candidate.configurationTree }?.host)
                     .flatMap(URL.init(string:)).map { Self.sameOrigin($0, remote.origin) } == true
         }) {
-            // The locator names a tree placed on this Mac: open the working tree instead of visiting.
-            try await openPlacedTree(placed.id)
+            // The locator names a tree placed on this Mac: open the working tree instead of visiting,
+            // at the page it names below the tree's root.
+            let root = placed.canonicalPath ?? "/"
+            let page = root == "/" ? remote.path : String(remote.path.dropFirst(root.count))
+            try await openPlacedTree(placed.id, page: page.isEmpty || page == "/" ? nil : page)
             return
         }
         let client = try await accountClient(origin: remote.origin)
@@ -1417,6 +1424,13 @@ final class StoryWorkspaceState {
             return
         }
         let tree = resolution.enclosingTree
+        // A tree placed on this Mac opens as its working tree, which knows its
+        // folder, even when the locator's address did not match the placement's.
+        if !remote.configuration, await isPlacedOnThisMac(tree.id) {
+            let page = resolution.ref.tree == tree.id && resolution.ref.path != "/" ? resolution.ref.path : nil
+            try await openPlacedTree(tree.id, page: page)
+            return
+        }
         let treeID = TreeID(rawValue: tree.id)
         let platform: any ObjectStore = if let daemon = storySyncClient {
             DaemonObjectStore(client: daemon, tree: tree.id, origin: remote.origin)
@@ -1459,7 +1473,7 @@ final class StoryWorkspaceState {
                 stableKey: resolution.ref.stableKey
             )),
             detail: "Visiting \(rootLocator) · read-only",
-            canonicalPath: tree.canonicalPath
+            canonical: tree.canonical
         )
         openVisitLocator = rootLocator
         syncPresentation = WorkspaceSyncPresentation(
@@ -1505,7 +1519,7 @@ final class StoryWorkspaceState {
             provider,
             home: WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/"),
             detail: "Working tree · \(locator)",
-            canonicalPath: tree.canonicalPath
+            canonical: tree.canonical
         )
         openVisitLocator = locator
         try await installSyncCoordinator(coordinator, client: client, tree: tree)
@@ -1577,7 +1591,7 @@ final class StoryWorkspaceState {
                     ),
                     home: WorkspaceReference(tree: tree, path: "/"),
                     detail: "Connecting · \(record.displayName) · \(osPath)",
-                    canonicalPath: record.tree.canonicalPath
+                    canonical: record.tree.canonical
                 )
                 launchPhase = .confirming(record.displayName)
             }
@@ -1946,6 +1960,18 @@ final class StoryWorkspaceState {
 #endif
     }
 
+    /// Whether story-sync keeps `tree` in a folder on this Mac, asking it again
+    /// when the overview does not list the tree yet.
+    private func isPlacedOnThisMac(_ tree: String) async -> Bool {
+        func listed() -> Bool {
+            localStorySyncOverview?.trees.contains { $0.id == tree && $0.path != nil && $0.missing != true } == true
+        }
+        if listed() { return true }
+        guard storySyncClient != nil else { return false }
+        await refreshLocalStorySyncOverview()
+        return listed()
+    }
+
     /// Follow a nested-tree boundary through the same account-aware paths used
     /// by People. Prefer an existing Mac placement, then the hosted profile
     /// locator carried by the directory.
@@ -2176,7 +2202,7 @@ final class StoryWorkspaceState {
         home nextHome: WorkspaceReference,
         launchLocation nextLaunchLocation: WorkspaceLocation? = nil,
         detail: String,
-        canonicalPath: String? = nil,
+        canonical: ProtocolCanonicalDescriptor? = nil,
         preservingNavigation: Bool = false
     ) async {
 #if os(macOS)
@@ -2189,7 +2215,7 @@ final class StoryWorkspaceState {
         home = nextHome
         launchLocation = nextLaunchLocation ?? .reference(nextHome)
         providerDetail = detail
-        currentTreeCanonicalPath = canonicalPath
+        currentTreeCanonical = canonical
         capabilities = await nextProvider.capabilities()
         latestStructuralReceipt = nil
         if preservingNavigation { providerRevision += 1 } else { generation += 1 }

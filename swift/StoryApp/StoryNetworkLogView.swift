@@ -288,3 +288,22 @@ func storyCopyToPasteboard(_ text: String) {
     UIPasteboard.general.string = text
 #endif
 }
+
+#if os(macOS)
+/// Put a link on the general pasteboard: the URL as text for plain pastes,
+/// and titled for apps that read a link's name (Safari, Notes, Mail).
+@MainActor
+func storyCopyLink(_ url: URL, title: String) {
+    let escaped = title
+        .replacingOccurrences(of: "&", with: "&amp;")
+        .replacingOccurrences(of: "<", with: "&lt;")
+        .replacingOccurrences(of: ">", with: "&gt;")
+    let href = url.absoluteString.replacingOccurrences(of: "\"", with: "%22")
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    pasteboard.setString(url.absoluteString, forType: .string)
+    pasteboard.setString(url.absoluteString, forType: .URL)
+    pasteboard.setString(title, forType: NSPasteboard.PasteboardType("public.url-name"))
+    pasteboard.setString("<a href=\"\(href)\">\(escaped)</a>", forType: .html)
+}
+#endif

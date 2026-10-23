@@ -2561,6 +2561,18 @@ struct StoryRootView: View {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
 #endif
             },
+            copyPageLink: {
+#if os(macOS)
+                guard let link = pageLink, let node = model.node else { return }
+                storyCopyLink(link, title: node.title)
+#endif
+            },
+            copyPagePath: {
+#if os(macOS)
+                guard let url = revealablePageURL else { return }
+                storyCopyToPasteboard(url.path)
+#endif
+            },
             localTrees: localTreeMenuItems,
             jumpToLocalTree: jumpToLocalTree,
             showHistory: { Task { await model.loadHistory(); presentedSheet = .history } },
@@ -2589,6 +2601,7 @@ struct StoryRootView: View {
             ),
             canShare: model.node != nil && !model.isShowingDraft,
             canRevealPageInFinder: revealablePageURL != nil,
+            canCopyPageLink: pageLink != nil,
             canMovePage: currentPageIsMovable && model.binding != nil,
             canRenamePage: canRenameCurrentPage,
             canMovePageToTrash: currentPageIsMovable,
@@ -2610,15 +2623,23 @@ struct StoryRootView: View {
         guard let node = model.node else { return nil }
         switch node.surface {
         case .markdown, .directoryDocument:
-            guard let url = node.provenance.physicalURL,
-                  FileManager.default.fileExists(atPath: url.path) else { return nil }
-            return url
+            return node.provenance.physicalURL
         default:
             return nil
         }
 #else
         return nil
 #endif
+    }
+
+    /// The page's public address: its tree's canonical location and the page's
+    /// path within it. Nil for a tree with no canonical location.
+    private var pageLink: URL? {
+        guard let node = model.node, let canonical = workspace.currentTreeCanonical,
+              node.reference.tree == workspace.home.tree else { return nil }
+        let page = node.reference.path == "/" ? "" : node.reference.path
+        let path = canonical.path == "/" ? (page.isEmpty ? "/" : page) : canonical.path + page
+        return URL(string: ProtocolCanonicalDescriptor(path: path, endpoint: canonical.endpoint).httpURL)
     }
 
     private var voiceRecordingCommandLabel: String {

@@ -225,8 +225,10 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
 
     /// Resolve the authored filesystem representation, not merely the logical
     /// page path. Directory documents can be backed by either `_index.md` or a
-    /// sibling Markdown file; only the selected, currently materialized source
-    /// is exposed to callers such as Reveal Page in Finder.
+    /// sibling Markdown file; only the selected source is exposed to callers
+    /// such as Reveal Page in Finder. The file is not checked for here: story-sync
+    /// may write it after the page loads, and a placement under ~/Documents is
+    /// one Story itself may not be allowed to read (Finder reveals it anyway).
     private func physicalURL(for record: WorkingTreeNode) -> URL? {
         guard let materializedRoot else { return nil }
         let sourcePath: String
@@ -244,8 +246,7 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
         let url = sourcePath.split(separator: "/").reduce(materializedRoot) {
             $0.appending(path: String($1))
         }.standardizedFileURL
-        guard url.path.hasPrefix(materializedRoot.path + "/"),
-              FileManager.default.fileExists(atPath: url.path) else { return nil }
+        guard url.path.hasPrefix(materializedRoot.path + "/") else { return nil }
         return url
     }
 
