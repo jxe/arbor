@@ -3,7 +3,7 @@
 Plans are filed by when Joe wants them: [`soon/`](soon), [`later/`](later) and
 [`when-needed/`](when-needed), which holds plans that wait on a trigger ("when merges bite",
 "when size hurts") rather than a date. Within a folder a file is named by its topic and number,
-such as `soon/links-001-tree-id-links.md`. Move a file when its timing changes, and move its
+such as `soon/live-001-presence.md`. Move a file when its timing changes, and move its
 paragraph here with it.
 
 Each plan starts with why and when Joe wants it; the same paragraph is below. Small tasks
@@ -28,12 +28,6 @@ and its cards showed only older alternatives. overstoryd should clear choices it
 prove reconciled, and Story should explain the current result and make explicit
 resolution easy. It starts with the portable explanation every automatic outcome
 needs (merge notes, rule revisions), which overstoryd 014's menu reuses.
-
-**[Links 001: follow a link that names a tree by its ID](soon/links-001-tree-id-links.md).**
-Story writes `overstory://tr_…` links between trees but can follow one only when the tree
-is already placed or was just visited, and ignores them when the OS opens one. Joe wants
-them honored wherever the device can find the tree. The plan starts by making the spec
-say how such a link resolves, with the host form as the hint.
 
 ### Cleanups
 
@@ -66,12 +60,14 @@ Opening an ordinary folder in the Mac app, and making it into a tree from there,
 with the daemon's editor path; after setup a new tree needs `story place`. Joe wants this
 before the web editor. Mac only; the browser half is an open question in Web 025.
 
-**[People 001: a directory you own, and Go to…](later/people-001-directory-and-go-to.md).**
+**[People 001: a directory you own, Go to…, and links by tree ID](later/people-001-directory-and-go-to.md).**
 Joe wants People to remember everyone and every tree he has come across, and to make forming
 groups to share with easy: see whether a group exists, drag people into it, invite whoever is
 missing. A Go to… field finds visited trees and pages by title. The directory is a private
 tree of collections with a grouped arrangement, which Schema language 005's collections that
-sync (on main since 2026-10-24) made possible.
+sync (on main since 2026-10-24) made possible. Links 001 is folded in as its phase 4
+(2026-10-24): following an `overstory://tr_…` link asks the directory, then the account hosts,
+and records what answers. That phase can start before the others.
 
 **[Schema language 002: database views in Story](later/schema-language-002-cranberries-in-story.md).**
 Joe wants excellences and supplies-remake to run natively in Story: collections presented as
@@ -140,7 +136,7 @@ using shared examples and the host merge engine to prove the result.
 An invitation link is usually tapped on a phone, where today it ends at an app that can only
 pair with a Mac. Join from the iPhone with the same link, then add a Mac by scanning a code
 the Mac shows. After Release 001. It owns what an invitation link does on the iPhone;
-Links 001 owns the iPhone's other link opens.
+People 001 phase 4 owns the iPhone's other link opens.
 
 **[Sharing 002: invite from the command line, through a client library](later/sharing-002-invite-from-the-command-line.md).**
 Setting up the intro video, Joe could make an invitation only in the Mac app. He wants
