@@ -125,9 +125,11 @@ answered 004's forks.
 
 003's steps 1 to 6: spec 11, the TS parser and checker, `usl fmt`, the
 StoryKit port, the editor grammars, and the examples moved to
-`examples/layered/`. `@@editableBy` keeps parsing as a deprecated spelling
-until 002's ownership milestone replaces it with access policy, because
-cranberries' `documentFromUsl` maps it to `owners` for the live sites.
+`examples/layered/`. No old spellings are kept (Joe, 2026-10-24: no
+collections are live), and `@@editableBy` goes with them. The new syntax ships
+as `@ovst/usl` 0.3.0; cranberries pins `^0.2.0`, whose `documentFromUsl` maps
+`@@editableBy` to `owners` for the live sites, so they keep working until
+they move.
 
 **The StoryKit port** (moved here from 002 milestone 3; built on the branch for
 the old syntax): `packages/usl`'s parser, checker and layout in StoryKit,
