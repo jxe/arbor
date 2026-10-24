@@ -50,6 +50,11 @@ edits like any other, such as his standard day outline, that expands where he is
 picks it from @ or says its name in a pinch recording. Template buttons go away. Forks open:
 where a page is marked as a snippet, and exactly what the spoken trigger is.
 
+**[Editor 002: dictate several items in one recording](soon/editor-002-dictated-lists.md).**
+Joe chose spoken breaks on 2026-10-24: "next item", "next item indented" and an outdent
+phrase split one pinch recording into several bullets, so a day plan of time rows and tasks
+can be dictated in one go. A recording without commands stays one paragraph.
+
 ### Cleanups
 
 What a finished project left behind: old readers to delete, notes to write. Each is small and
