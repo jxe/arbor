@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
@@ -38,7 +38,8 @@ const NOW = "2026-10-24T09:00:00.000Z";
 const key = (id: string) => JSON.stringify([["id", id]]);
 
 let sandbox: string;
-beforeAll(async () => { sandbox = await mkdtemp(join(tmpdir(), "story-collection-tables-")); });
+// realpath: on macOS tmpdir is under /var, a symlink, and snapshots read the resolved path.
+beforeAll(async () => { sandbox = await realpath(await mkdtemp(join(tmpdir(), "story-collection-tables-"))); });
 afterAll(async () => { await rm(sandbox, { recursive: true, force: true }); });
 
 /** Snapshot a tree whose `games` folder holds `schema.usl` and `files`, as Story Sync reads it. */
