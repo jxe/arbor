@@ -1222,6 +1222,14 @@ public final class StoryEditorHost: EditorHost {
         return actions
     }
 
+    public func filterCommandRunner(for _: Document) -> FilterCommandRunner? {
+        #if os(macOS)
+        ShellFilterCommand.runner()
+        #else
+        nil
+        #endif
+    }
+
     private func assetsDirectory() async throws -> WorkspaceReference {
         let reference = WorkspaceReference(tree: binding.reference.tree, path: "/Assets")
         if let node = try? await provider.resolve(reference), node.surface.isDirectory {

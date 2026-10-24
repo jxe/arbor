@@ -212,6 +212,7 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         menu.addItem(standard("Delete", #selector(NSText.delete(_:))))
         menu.addItem(standard("Select All", #selector(NSText.selectAll(_:)), "a"))
         menu.addItem(editor("Find in Page…", "f", .findInPage))
+        menu.addItem(editor("Filter Through Command…", "|", .filterThroughCommand, requires: .canFilterThroughCommand))
         menu.addItem(.separator())
         menu.addItem(editor("Block Actions…", "/", .openBlockActionMenu))
         menu.addItem(editor("Create Page from Selected Block…", "k", .toggleLinkOrDocument))
