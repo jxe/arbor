@@ -44,6 +44,12 @@ is already placed or was just visited, and ignores them when the OS opens one. J
 them honored wherever the device can find the tree. The plan starts by making the spec
 say how such a link resolves, with the host form as the hint.
 
+**[Editor 001: snippets you type or say](soon/editor-001-snippets.md).**
+Joe asked on 2026-10-24 for TextMate-style snippets in place of template buttons: a page he
+edits like any other, such as his standard day outline, that expands where he is when he
+picks it from @ or says its name in a pinch recording. Template buttons go away. Forks open:
+where a page is marked as a snippet, and exactly what the spoken trigger is.
+
 ### Cleanups
 
 What a finished project left behind: old readers to delete, notes to write. Each is small and
