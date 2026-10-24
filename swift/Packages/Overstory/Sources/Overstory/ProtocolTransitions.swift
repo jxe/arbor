@@ -86,7 +86,7 @@ public enum ProtocolTransitionReplay {
 
         var visiting = Set<String>()
         var visited = Set<String>()
-        func visit(_ hash: String, kind: ProtocolEntryKind) throws {
+        func visit(_ hash: String, kind: ProtocolObjectKind) throws {
             if visiting.contains(hash) { throw ProtocolValidationError.cyclicGraph(hash) }
             if visited.contains(hash) { return }
             guard let bytes = bytesByHash[hash] else {
@@ -95,11 +95,7 @@ public enum ProtocolTransitionReplay {
             }
             let object = try ProtocolObjectCodec.decode(bytes, kind: kind)
             visiting.insert(hash)
-            if case let .directory(entries, _) = object {
-                for entry in entries {
-                    if let child = entry.hash, let kind = entry.kind { try visit(child, kind: kind) }
-                }
-            }
+            for child in object.references { try visit(child.hash, kind: child.kind) }
             visiting.remove(hash)
             visited.insert(hash)
         }

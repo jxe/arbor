@@ -156,23 +156,23 @@ struct UpdateCoordinatorTests {
         }
     }
 
-    @Test("Native materialization preserves exact protocol collection-file descriptors")
-    func collectionFileDescriptorRoundTrip() async throws {
+    @Test("Native materialization preserves a collection and serves its tables and rows")
+    func collectionRoundTrip() async throws {
         try await withTemporaryRoot { root in
-            let source = try ProtocolObjectCodec.object(.file(Data(#"[{"id":"one"}]"#.utf8)))
-            let schema = try ProtocolObjectCodec.object(.file(Data("model Row { name Text? }\n".utf8)))
-            let descriptor = ProtocolCollectionFileDescriptor(
-                format: "json",
-                source: "_store.json",
-                schemaSource: "schema.usl",
-                schemaFingerprint: "sha256:" + String(repeating: "3", count: 64),
-                childSetHash: "sha256:" + String(repeating: "4", count: 64)
+            let vectors = fixtureDirectory().appending(path: "protocol-objects.json")
+            let fixture = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: vectors)) as? [String: Any])
+            let vector = try #require((fixture["objects"] as? [[String: Any]])?.first { $0["name"] as? String == "rows" })
+            let rows = ProtocolObjectEnvelope(hash: vector["hash"] as! String, bytes: try #require(Data(base64Encoded: vector["bytesBase64"] as! String)))
+            let table = try ProtocolObjectCodec.object(.table(ProtocolTable(rows: 2, chunks: [.init(rows: 2, chunk: rows.hash)])))
+            let schema = try ProtocolObjectCodec.object(.file(Data("main model Game (id)\n".utf8)))
+            let reference = ProtocolCollectionReference(
+                modelFingerprint: "sha256:" + String(repeating: "3", count: 64),
+                tables: [.init(model: "Game", table: table.hash)]
             )
             let directory = try ProtocolObjectCodec.object(.directory([
-                .init(name: "_store.json", file: source.hash),
                 .init(name: "schema.usl", file: schema.hash),
-            ], childrenSource: descriptor))
-            let snapshot = ProtocolSnapshot(root: directory.hash, objects: [directory, schema, source])
+            ], collection: reference))
+            let snapshot = ProtocolSnapshot(root: directory.hash, objects: [directory, schema, table, rows])
             let replacement = try SnapshotBridge.replacement(
                 snapshot: snapshot,
                 tree: TreeID(rawValue: "tr_collection"),
@@ -183,6 +183,9 @@ struct UpdateCoordinatorTests {
             let rebuilt = try await workingTree.currentSnapshot()
             #expect(rebuilt.root == snapshot.root)
             #expect(Set(rebuilt.objects.map(\.hash)) == Set(snapshot.objects.map(\.hash)))
+            // The overlay holds the rows: the complete graph needs no platform store.
+            let complete = try await workingTree.completeSnapshot()
+            #expect(try ProtocolObjectGraph.validate(complete).count == 4)
         }
     }
 

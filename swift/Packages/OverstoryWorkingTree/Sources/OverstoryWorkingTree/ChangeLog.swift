@@ -148,7 +148,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
                 addedBody = (depth == 0 ? "/" : "/" + parts[..<depth].joined(separator: "/"), hash, body)
                 entries.append(ProtocolDirectoryEntry(name: parts[depth], file: body))
                 entries.sort { Array($0.name.utf8).lexicographicallyPrecedes(Array($1.name.utf8)) }
-                return try store(.directory(entries, childrenSource: descriptor))
+                return try store(.directory(entries, collection: descriptor))
             }
             guard let index = entries.firstIndex(where: { $0.name == parts[depth] }) else { throw Self.invalid("Source path is not in basis") }
             if depth == parts.count - 1 {
@@ -160,7 +160,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
                 guard let directory = entries[index].directory else { throw Self.invalid("Source path crosses a file or tree boundary") }
                 entries[index].directory = try replace(directory, depth + 1, from: previous, to: source, first: first)
             }
-            let result = try store(.directory(entries, childrenSource: descriptor))
+            let result = try store(.directory(entries, collection: descriptor))
             if first { baseDirectories[depth] = hash }
             resultDirectories[depth] = result
             return result
@@ -441,7 +441,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
         let captured = try prepared?.operations ?? creation.map { try Self.creationOperations($0, graph: graph, candidate: candidate) } ?? []
         var suppliedObjects = self.candidate.objects.filter { !known.contains($0.hash) }
         if entryActions?.promotedParent != nil {
-            let bytes = try ProtocolObjectCodec.encode(.directory([], childrenSource: nil))
+            let bytes = try ProtocolObjectCodec.encode(.directory([], collection: nil))
             let hash = ProtocolObjectCodec.hash(bytes)
             if !known.contains(hash), !suppliedObjects.contains(where: { $0.hash == hash }) {
                 suppliedObjects.append(.init(hash: hash, bytes: bytes))

@@ -88,8 +88,10 @@ struct WorkingTreeFixtureTests {
             case "directory":
                 bytes = ProtocolObjectCodec.directoryBytes(
                     vector.model.entries!.map { ProtocolDirectoryEntry(name: $0.name, file: $0.file, directory: $0.directory, tree: $0.tree) },
-                    childrenSource: vector.model.childrenSource
+                    collection: vector.model.collection
                 )
+            // Table and rows objects are Overstory's to encode; its own vector test covers them.
+            case "table", "rows": continue
             default: throw WorkingTreeError.corruptState("Unknown fixture object")
             }
             #expect(bytes.base64EncodedString() == vector.bytesBase64)
@@ -725,7 +727,7 @@ private func withTemporaryReplica(_ operation: (URL) async throws -> Void) async
     try await operation(root)
 }
 
-private func fixtureDirectory() -> URL {
+func fixtureDirectory() -> URL {
     if let configured = ProcessInfo.processInfo.environment["STORY_PROTOCOL_FIXTURES"] { return URL(filePath: configured) }
     var current = URL(filePath: #filePath).deletingLastPathComponent()
     while current.path != "/" {
@@ -869,7 +871,7 @@ private struct ProtocolFixture: Decodable {
             var type: String
             var bytesBase64: String?
             var entries: [Entry]?
-            var childrenSource: ProtocolCollectionFileDescriptor?
+            var collection: ProtocolCollectionReference?
         }
         var model: Model
         var bytesBase64: String

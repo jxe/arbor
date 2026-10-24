@@ -9,18 +9,17 @@ enum ProtocolGraph {
     static func reachable(
         from root: String,
         in objects: [String: Data],
-        missing: (String, ProtocolEntryKind) throws -> Void = { _, _ in }
+        missing: (String, ProtocolObjectKind) throws -> Void = { _, _ in }
     ) throws -> ProtocolSnapshot {
         var reachable = Set<String>()
-        var pending: [(hash: String, kind: ProtocolEntryKind)] = [(root, .directory)]
+        var pending: [(hash: String, kind: ProtocolObjectKind)] = [(root, .directory)]
         while let next = pending.popLast() {
             guard reachable.insert(next.hash).inserted else { continue }
             guard let bytes = objects[next.hash] else {
                 try missing(next.hash, next.kind)
                 continue
             }
-            guard next.kind == .directory, case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else { continue }
-            for entry in entries { if let hash = entry.hash, let kind = entry.kind { pending.append((hash, kind)) } }
+            pending += try ProtocolObjectCodec.references(bytes, kind: next.kind)
         }
         return ProtocolSnapshot(root: root, objects: reachable.sorted().compactMap { hash in
             objects[hash].map { ProtocolObjectEnvelope(hash: hash, bytes: $0) }

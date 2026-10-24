@@ -47,7 +47,7 @@ extension LocalChange {
                 let replaced = try replace(directory, parts.dropFirst(), from: previous, to: source)
                 entries[index].directory = replaced.root; file = replaced.file
             }
-            return (try store(.directory(entries, childrenSource: descriptor)), file)
+            return (try store(.directory(entries, collection: descriptor)), file)
         }
         let origin = try replace(graph.root, try components(originPath)[...], from: transfer.origin.source, to: transfer.originSource)
         let destination = try replace(origin.root, try components(destinationPath)[...], from: transfer.destination.source, to: transfer.destinationSource)

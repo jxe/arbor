@@ -31,7 +31,7 @@ struct LiveEditorAdmissionTests {
         let file = Data(content.utf8), hash = ProtocolObjectCodec.hash(file)
         var entries = original; entries.append(.init(name: name + ".md", file: hash))
         entries.sort { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
-        let bytes = try ProtocolObjectCodec.encode(.directory(entries, childrenSource: descriptor))
+        let bytes = try ProtocolObjectCodec.encode(.directory(entries, collection: descriptor))
         let update = ProtocolCandidateUpdate(candidate: ProtocolObjectCodec.hash(bytes), change: UUID().uuidString,
             trace: nil, objects: [.init(hash: hash, bytes: file), .init(hash: ProtocolObjectCodec.hash(bytes), bytes: bytes)])
         let request = try await client.prepareUpdates(tree: tree, base: .init(root: snapshot.root, update: current.tree.update), updates: [update])

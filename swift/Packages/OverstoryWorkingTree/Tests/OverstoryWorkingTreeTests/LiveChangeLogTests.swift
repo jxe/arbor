@@ -370,7 +370,7 @@ extension LiveChangeLogTests {
         let fixtureObjects = Dictionary(uniqueKeysWithValues:fixture.graph.objects.map { ($0.hash,$0.bytes) })
         guard case let .directory(existing,descriptor) = try ProtocolObjectCodec.decode(#require(objects[snapshot.root]),kind:.directory),
               case let .directory(additions,_) = try ProtocolObjectCodec.decode(#require(fixtureObjects[fixture.graph.root]),kind:.directory) else { Issue.record("Expected directories"); return }
-        let bytes = try ProtocolObjectCodec.encode(.directory((existing + additions).sorted { $0.name < $1.name },childrenSource:descriptor))
+        let bytes = try ProtocolObjectCodec.encode(.directory((existing + additions).sorted { $0.name < $1.name },collection:descriptor))
         let seed = ProtocolCandidateUpdate(candidate:ProtocolObjectCodec.hash(bytes),change:UUID().uuidString,objects:fixture.graph.objects + [.init(hash:ProtocolObjectCodec.hash(bytes),bytes:bytes)])
         _ = try await client.submitUpdateResponse(client.prepareUpdates(tree:treeID,base:.init(root:current.tree.root,update:current.tree.update),updates:[seed]))
         let initial = try await client.descriptor(tree:treeID), tree = try await place(initial,client:client)
@@ -474,7 +474,7 @@ extension LiveChangeLogTests {
             let projected = try await client.snapshot(tree: treeID, root: inspection.root)
             let rootBytes = try #require(projected.objects.first { $0.hash == projected.root }?.bytes)
             guard case let .directory(entries, metadata) = try ProtocolObjectCodec.decode(rootBytes, kind: .directory) else { throw ConflictReviewError.unavailable }
-            let deletionBytes = try ProtocolObjectCodec.encode(.directory(entries.filter { $0.name != "page.md" }, childrenSource: metadata))
+            let deletionBytes = try ProtocolObjectCodec.encode(.directory(entries.filter { $0.name != "page.md" }, collection: metadata))
             let deletionRoot = ProtocolObjectCodec.hash(deletionBytes)
             let deletion = ProtocolCandidateUpdate(candidate: deletionRoot, trace: nil,
                 objects: [.init(hash: deletionRoot, bytes: deletionBytes)])

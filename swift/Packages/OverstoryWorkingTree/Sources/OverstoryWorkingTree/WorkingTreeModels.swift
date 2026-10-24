@@ -202,7 +202,10 @@ public struct WorkingTreeSystemNode: Sendable, Equatable {
     public var path: String
     public var pageID: String?
     public var content: WorkingTreeSystemNodeContent
-    public var childrenSource: ProtocolCollectionFileDescriptor?
+    public var collection: ProtocolCollectionReference?
+    /// The bytes of the collection's table and rows objects, which the
+    /// working tree keeps in its overlay rather than in its state.
+    public var collectionObjects: [String: Data]
     public var directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement?
     public var shadowedSiblingMarkdownSource: String?
 
@@ -211,7 +214,8 @@ public struct WorkingTreeSystemNode: Sendable, Equatable {
         metadata: EntryMetadata = EntryMetadata(),
         pageID: String? = nil,
         content: WorkingTreeSystemNodeContent,
-        childrenSource: ProtocolCollectionFileDescriptor? = nil,
+        collection: ProtocolCollectionReference? = nil,
+        collectionObjects: [String: Data] = [:],
         directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil
     ) {
@@ -219,7 +223,8 @@ public struct WorkingTreeSystemNode: Sendable, Equatable {
         self.path = path
         self.pageID = pageID
         self.content = content
-        self.childrenSource = childrenSource
+        self.collection = collection
+        self.collectionObjects = collectionObjects
         self.directoryBodyPlacement = directoryBodyPlacement
         self.shadowedSiblingMarkdownSource = shadowedSiblingMarkdownSource
     }
@@ -288,7 +293,10 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
     var mediaType: String?
     var trashedFrom: String?
     var boundaryTree: String?
-    var childrenSource: ProtocolCollectionFileDescriptor?
+    var collection: ProtocolCollectionReference?
+    /// The hashes of the collection's table and rows objects, in hash order.
+    /// The overlay or the platform store serves their bytes.
+    var collectionObjects: [String]?
     // `nil` preserves the original encoding: a directory source is `_index.md`.
     // Contentless legacy directory records also decode unchanged.
     var directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement?
@@ -323,7 +331,7 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case path, pageID, kind, source, ref, mediaType, trashedFrom, boundaryTree, childrenSource
+        case path, pageID, kind, source, ref, mediaType, trashedFrom, boundaryTree, collection, collectionObjects
         case directoryBodyPlacement, shadowedSiblingMarkdownSource, metadata
     }
 
@@ -336,7 +344,8 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
         mediaType: String? = nil,
         trashedFrom: String? = nil,
         boundaryTree: String? = nil,
-        childrenSource: ProtocolCollectionFileDescriptor? = nil,
+        collection: ProtocolCollectionReference? = nil,
+        collectionObjects: [String]? = nil,
         directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil,
         metadata: EntryMetadata? = nil
@@ -349,7 +358,8 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
         self.mediaType = mediaType
         self.trashedFrom = trashedFrom
         self.boundaryTree = boundaryTree
-        self.childrenSource = childrenSource
+        self.collection = collection
+        self.collectionObjects = collectionObjects
         self.directoryBodyPlacement = directoryBodyPlacement
         self.shadowedSiblingMarkdownSource = shadowedSiblingMarkdownSource
         self.metadata = metadata

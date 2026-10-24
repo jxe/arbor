@@ -227,8 +227,8 @@ public struct ConflictReviewChange: Codable, Equatable, Sendable, Identifiable {
     public let path: String
     public let before: ProtocolDirectoryEntry?
     public let after: ProtocolDirectoryEntry?
-    public let beforeMetadata: ProtocolCollectionFileDescriptor?
-    public let afterMetadata: ProtocolCollectionFileDescriptor?
+    public let beforeMetadata: ProtocolCollectionReference?
+    public let afterMetadata: ProtocolCollectionReference?
     public var summary: String { before == nil ? "Add" : after == nil ? "Remove" : "Change" }
 }
 public struct ConflictReviewPreview: Sendable {

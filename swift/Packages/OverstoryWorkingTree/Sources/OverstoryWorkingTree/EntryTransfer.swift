@@ -62,7 +62,7 @@ public struct EntryTransfer: Codable, Equatable, Sendable {
             guard ProtocolObjectCodec.hash(envelope.bytes) == envelope.hash else { throw invalid() }
             objects[envelope.hash] = envelope.bytes
         }
-        func directory(_ hash:String) throws -> ([ProtocolDirectoryEntry], ProtocolCollectionFileDescriptor?) {
+        func directory(_ hash:String) throws -> ([ProtocolDirectoryEntry], ProtocolCollectionReference?) {
             guard let bytes = objects[hash], case let .directory(entries,descriptor) = try ProtocolObjectCodec.decode(bytes,kind:.directory) else { throw invalid() }
             return (entries,descriptor)
         }
@@ -85,7 +85,7 @@ public struct EntryTransfer: Codable, Equatable, Sendable {
                 entries[i].directory = try change(child,Array(parts.dropFirst()),mutate)
             }
             entries.sort { Array($0.name.utf8).lexicographicallyPrecedes(Array($1.name.utf8)) }
-            let bytes = try ProtocolObjectCodec.encode(.directory(entries,childrenSource:descriptor)), next = ProtocolObjectCodec.hash(bytes)
+            let bytes = try ProtocolObjectCodec.encode(.directory(entries,collection:descriptor)), next = ProtocolObjectCodec.hash(bytes)
             objects[next] = bytes; return next
         }
         var root = graph.root
@@ -118,7 +118,7 @@ public struct EntryTransfer: Codable, Equatable, Sendable {
                 if let i = entries.firstIndex(where: { $0.name == filePath.last }) { entries[i].file = rewrite.value }
             }
         }
-        let result = try ProtocolGraph.reachable(from: root, in: objects) { _, kind in if kind == .directory { throw invalid() } }
+        let result = try ProtocolGraph.reachable(from: root, in: objects) { _, kind in if kind != .file { throw invalid() } }
         return (result, operations)
     }
 }

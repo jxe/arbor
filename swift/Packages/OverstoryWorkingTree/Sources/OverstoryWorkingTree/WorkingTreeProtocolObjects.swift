@@ -77,7 +77,8 @@ enum WorkingTreeProtocolCodec {
                 }
             }
             entries.sort { WorkingTreeSemantics.compareUTF8($0.name, $1.name) }
-            return store(ProtocolObjectCodec.directoryBytes(entries, childrenSource: node.childrenSource))
+            for hash in node.collectionObjects ?? [] where objects[hash] == nil { objects[hash] = .some(nil) }
+            return store(ProtocolObjectCodec.directoryBytes(entries, collection: node.collection))
         }
 
         let root = try buildDirectory(at: "/")

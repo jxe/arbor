@@ -304,6 +304,9 @@ public actor WorkingTree {
         let replacementState = try state(from: replacement)
         let computed = try WorkingTreeProtocolCodec.snapshot(for: replacementState)
         guard computed.root == replacement.root else { throw WorkingTreeError.corruptState("System replacement root mismatch") }
+        // Collection objects are referenced from the state, not carried in it;
+        // the overlay holds them first, and retention keeps what stays reachable.
+        try overlay.store(replacement.nodes.reduce(into: [String: Data]()) { $0.merge($1.collectionObjects) { first, _ in first } })
         try transact(
             mutation: mutation,
             pageKey: "_system",
@@ -369,7 +372,8 @@ public actor WorkingTree {
                     pageID: node.pageID ?? source.flatMap(WorkingTreeSemantics.pageID(in:)),
                     kind: .directory,
                     source: source,
-                    childrenSource: node.childrenSource,
+                    collection: node.collection,
+                    collectionObjects: node.collectionObjects.isEmpty ? nil : node.collectionObjects.keys.sorted(),
                     directoryBodyPlacement: node.directoryBodyPlacement,
                     shadowedSiblingMarkdownSource: node.shadowedSiblingMarkdownSource,
                     metadata: node.metadata
@@ -477,6 +481,16 @@ public actor WorkingTree {
 
     func collection(for directory: WorkingTreeNode) async -> (kind: String, rows: Int?)? {
         guard directory.kind == .directory else { return nil }
+        // A logical collection's rows are in the tree. A one-table collection
+        // counts its rows without the schema; with more tables, only the
+        // schema says which one is the main model's.
+        if let reference = directory.collection {
+            if reference.tables.isEmpty { return ("Collection", 0) }
+            guard reference.tables.count == 1,
+                  let bytes = try? await objectBytes(hash: reference.tables[0].table),
+                  case let .table(table)? = try? ProtocolObjectCodec.decode(bytes, kind: .table) else { return ("Collection", nil) }
+            return ("Collection", table.rows)
+        }
         guard let storeFile = childNodes(of: directory.path).first(where: WorkingTreeSemantics.isStoreFile) else { return nil }
         let name = WorkingTreeSemantics.name(of: storeFile.path)
         switch name {
@@ -1115,8 +1129,8 @@ public actor WorkingTree {
             if node.kind == .file, WorkingTreeSemantics.name(of: node.path) == "_index.md" {
                 throw WorkingTreeError.corruptState("Reserved directory body appears as an ordinary file")
             }
-            if node.childrenSource != nil && node.kind != .directory {
-                throw WorkingTreeError.corruptState("Collection-file descriptor is attached to a non-directory node")
+            if (node.collection != nil || node.collectionObjects != nil) && node.kind != .directory {
+                throw WorkingTreeError.corruptState("A collection is attached to a non-directory node")
             }
             if node.kind != .directory,
                node.directoryBodyPlacement != nil || node.shadowedSiblingMarkdownSource != nil {

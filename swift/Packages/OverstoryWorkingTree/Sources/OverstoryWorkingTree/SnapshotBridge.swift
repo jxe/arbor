@@ -17,6 +17,7 @@ public enum SnapshotBridge {
     ) throws -> WorkingTreeSystemReplacement {
         let sparse = mode == .sparseFiles
         let objects = try ProtocolObjectGraph.validate(snapshot, mode: mode)
+        let bytesByHash = Dictionary(snapshot.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
         var nodes: [WorkingTreeSystemNode] = []
         var logicalPaths = Set<String>()
 
@@ -28,6 +29,11 @@ public enum SnapshotBridge {
             guard case let .file(bytes)? = objects[hash] else {
                 throw ProtocolValidationError.incompleteGraph(hash)
             }
+            return bytes
+        }
+
+        func snapshotBytes(_ hash: String) throws -> Data {
+            guard let bytes = bytesByHash[hash] else { throw ProtocolValidationError.incompleteGraph(hash) }
             return bytes
         }
 
@@ -49,7 +55,7 @@ public enum SnapshotBridge {
         }
 
         func visitDirectory(_ hash: String, path: String, siblingMarkdownSource: String? = nil) throws {
-            guard case let .directory(entries, childrenSource)? = objects[hash] else {
+            guard case let .directory(entries, collection)? = objects[hash] else {
                 throw ProtocolValidationError.incompleteGraph(hash)
             }
             let directoryNames = Set(entries.compactMap { entry -> String? in
@@ -74,10 +80,18 @@ public enum SnapshotBridge {
                 indexSource = try markdownSource(indexHash)
             }
             let source = indexSource ?? siblingMarkdownSource
+            // A collection's tables and rows are present in every mode.
+            var collectionObjects: [String: Data] = [:]
+            for table in collection?.tables ?? [] {
+                guard case let .table(object)? = objects[table.table] else { throw ProtocolValidationError.incompleteGraph(table.table) }
+                collectionObjects[table.table] = try snapshotBytes(table.table)
+                for chunk in object.chunks { collectionObjects[chunk.chunk] = try snapshotBytes(chunk.chunk) }
+            }
             try appendNode(WorkingTreeSystemNode(
                 path: path,
                 content: .directory(source: source),
-                childrenSource: childrenSource,
+                collection: collection,
+                collectionObjects: collectionObjects,
                 directoryBodyPlacement: indexSource == nil && siblingMarkdownSource != nil ? .siblingMarkdown : nil,
                 shadowedSiblingMarkdownSource: indexSource != nil ? siblingMarkdownSource : nil
             ))
@@ -132,6 +146,8 @@ public enum SnapshotBridge {
                     } else {
                         try appendNode(WorkingTreeSystemNode(path: destination, content: .file(ref: .inline(bytes))))
                     }
+                case .table, .rows:
+                    throw ProtocolValidationError.invalidValue("A directory entry names a collection object")
                 }
             }
         }

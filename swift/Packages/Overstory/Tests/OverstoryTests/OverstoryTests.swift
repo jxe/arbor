@@ -64,51 +64,45 @@ struct ProtocolObjectTests {
         for vector in vectors {
             let model = try #require(vector["model"] as? [String: Any])
             let object: ProtocolObject
-            if model["type"] as? String == "file" {
+            let kind = try #require(ProtocolObjectKind(rawValue: model["type"] as? String ?? ""))
+            switch kind {
+            case .file:
                 let base64 = try #require(model["bytesBase64"] as? String)
                 object = .file(try #require(Data(base64Encoded: base64)))
-            } else {
+            case .table:
+                let chunks = try #require(model["chunks"] as? [[String: Any]])
+                object = .table(ProtocolTable(
+                    rows: model["rows"] as! Int,
+                    chunks: chunks.map { ProtocolTable.Chunk(rows: $0["rows"] as! Int, chunk: $0["chunk"] as! String) }
+                ))
+            case .rows:
+                // Rows stay encoded: the vector's bytes must decode as a rows object.
+                let base64 = try #require(vector["bytesBase64"] as? String)
+                object = .rows(try #require(Data(base64Encoded: base64)))
+            case .directory:
                 let entries = try #require(model["entries"] as? [[String: Any]])
-                let childrenSource = (model["childrenSource"] as? [String: Any]).map { value in
-                    if let tables = value["tables"] as? [[String: Any]] {
-                        return ProtocolCollectionFileDescriptor(
-                            version: value["version"] as! Int,
-                            format: value["format"] as! String,
-                            schemaSource: value["schemaSource"] as! String,
-                            schemaFingerprint: value["schemaFingerprint"] as! String,
-                            tables: tables.map {
-                                ProtocolCollectionTable(
-                                    table: $0["table"] as! String,
-                                    source: $0["source"] as! String,
-                                    childSetHash: $0["childSetHash"] as! String
-                                )
-                            },
-                            store: value["store"] as? String
-                        )
-                    }
-                    return ProtocolCollectionFileDescriptor(
-                            version: value["version"] as! Int,
-                            type: value["type"] as! String,
-                            format: value["format"] as! String,
-                            source: value["source"] as! String,
-                            schemaSource: value["schemaSource"] as! String,
-                            schemaFingerprint: value["schemaFingerprint"] as! String,
-                            childSetHash: value["childSetHash"] as! String
-                        )
+                let collection = (model["collection"] as? [String: Any]).map { value in
+                    ProtocolCollectionReference(
+                        version: value["version"] as! Int,
+                        modelFingerprint: value["modelFingerprint"] as! String,
+                        tables: (value["tables"] as! [[String: Any]]).map {
+                            ProtocolCollectionTableReference(model: $0["model"] as! String, table: $0["table"] as! String)
+                        }
+                    )
                 }
                 object = .directory(entries.map {
-                    return ProtocolDirectoryEntry(
+                    ProtocolDirectoryEntry(
                         name: $0["name"] as! String,
                         file: $0["file"] as? String,
                         directory: $0["directory"] as? String,
                         tree: $0["tree"] as? String
                     )
-                }, childrenSource: childrenSource)
+                }, collection: collection)
             }
             let bytes = try ProtocolObjectCodec.encode(object)
             #expect(bytes.base64EncodedString() == vector["bytesBase64"] as? String)
             #expect(ProtocolObjectCodec.hash(bytes) == vector["hash"] as? String)
-            #expect(try ProtocolObjectCodec.decode(bytes, kind: model["type"] as? String == "file" ? .file : .directory) == object)
+            #expect(try ProtocolObjectCodec.decode(bytes, kind: kind) == object)
         }
     }
 
@@ -117,7 +111,7 @@ struct ProtocolObjectTests {
         let data = try Data(contentsOf: fixtures.appending(path: "protocol-objects.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let vectors = try #require(fixture["invalid"] as? [[String: Any]])
-        #expect(vectors.count == 8)
+        #expect(vectors.count == 11)
         for vector in vectors {
             let base64 = try #require(vector["canonicalCborBase64"] as? String)
             let bytes = try #require(Data(base64Encoded: base64))
@@ -137,6 +131,35 @@ struct ProtocolObjectTests {
         let extra = try ProtocolObjectCodec.object(.file(Data("extra".utf8)))
         #expect(throws: ProtocolValidationError.self) {
             _ = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, file, extra]))
+        }
+    }
+
+    @Test("Graph validation follows a collection's tables and rows")
+    func collectionGraphValidation() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "protocol-objects.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let vector = try #require((fixture["objects"] as? [[String: Any]])?.first { $0["name"] as? String == "rows" })
+        let rows = ProtocolObjectEnvelope(
+            hash: vector["hash"] as! String,
+            bytes: try #require(Data(base64Encoded: vector["bytesBase64"] as! String))
+        )
+        let table = try ProtocolObjectCodec.object(.table(ProtocolTable(rows: 2, chunks: [.init(rows: 2, chunk: rows.hash)])))
+        let schema = try ProtocolObjectCodec.object(.file(Data("main model Game (id)\n".utf8)))
+        let root = try ProtocolObjectCodec.object(.directory(
+            [.init(name: "schema.usl", file: schema.hash)],
+            collection: ProtocolCollectionReference(modelFingerprint: schema.hash, tables: [.init(model: "Game", table: table.hash)])
+        ))
+        let objects = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, schema, table, rows]))
+        #expect(objects[table.hash] == .table(ProtocolTable(rows: 2, chunks: [.init(rows: 2, chunk: rows.hash)])))
+        #expect(throws: ProtocolValidationError.self) {
+            _ = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, schema, table]))
+        }
+        // Sparse graphs may leave out files, never a collection's rows.
+        #expect(throws: ProtocolValidationError.self) {
+            _ = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, table]), mode: .sparseFiles)
+        }
+        #expect(throws: (any Error).self) {
+            _ = try ProtocolObjectCodec.encode(.directory([], collection: ProtocolCollectionReference(modelFingerprint: schema.hash, tables: [])))
         }
     }
 

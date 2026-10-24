@@ -215,7 +215,7 @@ extension LocalChange {
         }
         let end = members.last!, split = members[shared - 1]
         var objects = Dictionary((members + branch).flatMap { ($0.graph.objects + $0.candidate.objects).map { ($0.hash, $0.bytes) } }, uniquingKeysWith: { first, _ in first })
-        func directory(_ hash: String) throws -> ([ProtocolDirectoryEntry], ProtocolCollectionFileDescriptor?) {
+        func directory(_ hash: String) throws -> ([ProtocolDirectoryEntry], ProtocolCollectionReference?) {
             guard let bytes = objects[hash], case let .directory(entries, source) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else {
                 throw ProtocolValidationError.invalidValue("Missing publication branch directory")
             }
@@ -254,7 +254,7 @@ extension LocalChange {
                             guard let child = entry.directory else { throw ProtocolValidationError.invalidValue("Publication branch crosses file") }
                             return .init(name: entry.name, directory: try replace(child, depth + 1))
                         }
-                        let object = try ProtocolObjectCodec.object(.directory(changed, childrenSource: source))
+                        let object = try ProtocolObjectCodec.object(.directory(changed, collection: source))
                         objects[object.hash] = object.bytes; supplied[object.hash] = object
                         return object.hash
                     }

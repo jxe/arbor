@@ -22,7 +22,7 @@ public struct EntryActions: Codable, Equatable, Sendable {
             throw ProtocolValidationError.invalidValue("Invalid promoted destination")
         }
         var objects = Dictionary(uniqueKeysWithValues: graph.objects.map { ($0.hash, $0.bytes) })
-        let empty = try ProtocolObjectCodec.encode(.directory([], childrenSource: nil))
+        let empty = try ProtocolObjectCodec.encode(.directory([], collection: nil))
         let emptyHash = ProtocolObjectCodec.hash(empty)
         objects[emptyHash] = empty
         var parentHash = ""
@@ -44,7 +44,7 @@ public struct EntryActions: Codable, Equatable, Sendable {
                 entries[index].directory = try add(child, remaining.dropFirst())
             }
             entries.sort { Array($0.name.utf8).lexicographicallyPrecedes(Array($1.name.utf8)) }
-            let encoded = try ProtocolObjectCodec.encode(.directory(entries, childrenSource: descriptor))
+            let encoded = try ProtocolObjectCodec.encode(.directory(entries, collection: descriptor))
             let result = ProtocolObjectCodec.hash(encoded); objects[result] = encoded
             return result
         }
@@ -116,7 +116,7 @@ public struct EntryActions: Codable, Equatable, Sendable {
                 guard let child = entries[index].directory else { throw invalid() }
                 entries[index].directory = try remove(child,parts.dropFirst())
             }
-            let bytesOut = try ProtocolObjectCodec.encode(.directory(entries,childrenSource:descriptor)), result = ProtocolObjectCodec.hash(bytesOut)
+            let bytesOut = try ProtocolObjectCodec.encode(.directory(entries,collection:descriptor)), result = ProtocolObjectCodec.hash(bytesOut)
             objects[result] = bytesOut; return result
         }
         for (index, path) in removals.enumerated() {
@@ -131,7 +131,7 @@ public struct EntryActions: Codable, Equatable, Sendable {
             operations.append(try ProtocolSourceOperation(["key":.string("remove-\(index)"),"kind":.string("removeEntry"),"source":.object(["material":.object(["kind":.string("basis"),"path":.string(path),"object":.string(hash)])])]))
             current.root = try remove(current.root,parts[...])
         }
-        let result = try ProtocolGraph.reachable(from: current.root, in: objects) { _, kind in if kind == .directory { throw invalid() } }
+        let result = try ProtocolGraph.reachable(from: current.root, in: objects) { _, kind in if kind != .file { throw invalid() } }
         return (result, operations)
     }
 }

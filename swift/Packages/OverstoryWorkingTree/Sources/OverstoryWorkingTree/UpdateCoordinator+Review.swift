@@ -201,7 +201,7 @@ extension UpdateCoordinator {
             guard let selection = draft.selection(for: decision.id), let alternative = decision.alternatives.first(where: { $0.id == selection.alternative }) else {
                 throw ConflictReviewError.unsupported
             }
-            var pending: [(String, ProtocolEntryKind)] = []
+            var pending: [(hash: String, kind: ProtocolObjectKind)] = []
             if let file = alternative.value.file { pending.append((file, .file)) }
             if let directory = alternative.value.directory { pending.append((directory, .directory)) }
             var visited = Set<String>()
@@ -214,9 +214,7 @@ extension UpdateCoordinator {
                 }
                 guard ProtocolObjectCodec.hash(bytes) == hash else { throw UpdateError.returnedSnapshotMismatch }
                 material[hash] = bytes
-                if kind == .directory, case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: kind) {
-                    for entry in entries { if let hash = entry.hash, let kind = entry.kind { pending.append((hash, kind)) } }
-                }
+                pending += try ProtocolObjectCodec.references(bytes, kind: kind)
             }
         }
         return (base, try ConflictReviewCompiler.compile(draft, base: base, material: material, allDecisions: current.decisions))
@@ -226,13 +224,18 @@ extension UpdateCoordinator {
     /// it introduces: the sparse form every change-log record carries.
     static func spine(of snapshot: ProtocolSnapshot, keeping extra: Set<String>) throws -> ProtocolSnapshot {
         let objects = Dictionary(uniqueKeysWithValues: snapshot.objects.map { ($0.hash, $0) })
-        var kept: [ProtocolObjectEnvelope] = [], pending = [snapshot.root], seen = Set<String>()
-        while let hash = pending.popLast() {
+        var kept: [ProtocolObjectEnvelope] = [], pending: [(hash: String, kind: ProtocolObjectKind)] = [(snapshot.root, .directory)], seen = Set<String>()
+        while let (hash, kind) = pending.popLast() {
             guard seen.insert(hash).inserted, let object = objects[hash] else { continue }
             kept.append(object)
-            guard case let .directory(entries, _) = try ProtocolObjectCodec.decode(object.bytes, kind: .directory) else { continue }
+            // A collection's tables and rows are structure, kept like directories.
+            guard kind == .directory, case let .directory(entries, collection) = try ProtocolObjectCodec.decode(object.bytes, kind: kind) else {
+                for child in try ProtocolObjectCodec.references(object.bytes, kind: kind) { pending.append(child) }
+                continue
+            }
+            for table in collection?.tables ?? [] { pending.append((table.table, .table)) }
             for entry in entries {
-                if let directory = entry.directory { pending.append(directory); continue }
+                if let directory = entry.directory { pending.append((directory, .directory)); continue }
                 guard let file = entry.hash, seen.insert(file).inserted, let object = objects[file] else { continue }
                 if entry.name.hasSuffix(".md") || entry.name.hasSuffix(".mdx") || extra.contains(file) { kept.append(object) }
             }

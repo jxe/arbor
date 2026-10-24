@@ -41,7 +41,7 @@ struct ConflictReviewCompilerTests {
         var objects: [String: Data] = [:]
         mutating func file(_ source: String) throws -> String { try store(.file(Data(source.utf8))) }
         mutating func directory(_ entries: [ProtocolDirectoryEntry]) throws -> String {
-            try store(.directory(entries.sorted { $0.name < $1.name }, childrenSource: nil))
+            try store(.directory(entries.sorted { $0.name < $1.name }, collection: nil))
         }
         mutating func store(_ object: ProtocolObject) throws -> String {
             let bytes = try ProtocolObjectCodec.encode(object), hash = ProtocolObjectCodec.hash(bytes)

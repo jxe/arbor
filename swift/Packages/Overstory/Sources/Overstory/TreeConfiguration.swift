@@ -71,10 +71,10 @@ public extension ProtocolSnapshot {
     func settingRootFile(named name: String, to bytes: Data) throws -> ProtocolSnapshot {
         if (try? rootFile(named: name)) != nil { return try replacingRootFile(named: name, with: bytes) }
         let objects = try ProtocolObjectGraph.validate(self)
-        guard case let .directory(entries, childrenSource)? = objects[root] else { throw ProtocolValidationError.incompleteGraph("/") }
+        guard case let .directory(entries, collection)? = objects[root] else { throw ProtocolValidationError.incompleteGraph("/") }
         let file = try ProtocolObjectCodec.object(.file(bytes))
         let nextEntries = (entries + [ProtocolDirectoryEntry(name: name, file: file.hash)]).sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
-        let nextRoot = try ProtocolObjectCodec.object(.directory(nextEntries, childrenSource: childrenSource))
+        let nextRoot = try ProtocolObjectCodec.object(.directory(nextEntries, collection: collection))
         return ProtocolSnapshot(root: nextRoot.hash, objects: self.objects.filter { $0.hash != root } + [
             ProtocolObjectEnvelope(hash: file.hash, bytes: file.bytes),
             ProtocolObjectEnvelope(hash: nextRoot.hash, bytes: nextRoot.bytes),

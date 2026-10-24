@@ -1,83 +1,60 @@
 import CryptoKit
 import Foundation
 
-/// One stored table of a multi-table collection (spec 06 §2.4).
-public struct ProtocolCollectionTable: Hashable, Codable, Sendable {
+/// One model's table in a directory's collection (spec 06 §2.1).
+public struct ProtocolCollectionTableReference: Hashable, Codable, Sendable {
+    public var model: String
     public var table: String
-    public var source: String
-    public var childSetHash: String
 
-    public init(table: String, source: String, childSetHash: String) {
+    public init(model: String, table: String) {
+        self.model = model
         self.table = table
-        self.source = source
-        self.childSetHash = childSetHash
     }
 }
 
-/// Version 1 selects the collection's `schema.usl` (spec 06 §2.1). A
-/// `collection-file` descriptor names one `_store.*` source and its child-set
-/// hash; a `collection-tables` descriptor names one `<Table>.*` file per
-/// table, each with its own.
-public struct ProtocolCollectionFileDescriptor: Hashable, Codable, Sendable {
+/// A directory's logical collection: the fingerprint of its `schema.usl`
+/// model layer and one `table` object per model with data rows, in UTF-8
+/// order of model. The rows live in the tree; files and databases that hold
+/// them on a device are projections.
+public struct ProtocolCollectionReference: Hashable, Codable, Sendable {
     public var version: Int
-    public var type: String
-    public var format: String
-    public var source: String?
-    public var schemaSource: String
-    public var schemaFingerprint: String
-    public var childSetHash: String?
-    public var tables: [ProtocolCollectionTable]?
-    /// `sqlite`: the tables are the schema's database layout, in canonical
-    /// form, and a device keeps them as `_store.sqlite3`.
-    public var store: String?
+    public var modelFingerprint: String
+    public var tables: [ProtocolCollectionTableReference]
 
-    public init(
-        version: Int = 1,
-        type: String = "collection-file",
-        format: String,
-        source: String,
-        schemaSource: String,
-        schemaFingerprint: String,
-        childSetHash: String
-    ) {
+    public init(version: Int = 1, modelFingerprint: String, tables: [ProtocolCollectionTableReference]) {
         self.version = version
-        self.type = type
-        self.format = format
-        self.source = source
-        self.schemaSource = schemaSource
-        self.schemaFingerprint = schemaFingerprint
-        self.childSetHash = childSetHash
-        self.tables = nil
-        self.store = nil
-    }
-
-    public init(
-        version: Int = 1,
-        format: String,
-        schemaSource: String = "schema.usl",
-        schemaFingerprint: String,
-        tables: [ProtocolCollectionTable],
-        store: String? = nil
-    ) {
-        self.version = version
-        self.type = "collection-tables"
-        self.format = format
-        self.source = nil
-        self.schemaSource = schemaSource
-        self.schemaFingerprint = schemaFingerprint
-        self.childSetHash = nil
+        self.modelFingerprint = modelFingerprint
         self.tables = tables
-        self.store = store
-    }
-
-    /// The files the collection stores its rows in.
-    public var sources: [String] {
-        if let tables { return tables.map(\.source) }
-        return source.map { [$0] } ?? []
     }
 }
 
-public enum ProtocolEntryKind: String, Codable, Sendable { case file, directory }
+/// A `table` object: its rows count and the `rows` chunks that hold them.
+public struct ProtocolTable: Hashable, Codable, Sendable {
+    public struct Chunk: Hashable, Codable, Sendable {
+        public var rows: Int
+        public var chunk: String
+
+        public init(rows: Int, chunk: String) {
+            self.rows = rows
+            self.chunk = chunk
+        }
+    }
+
+    public var rows: Int
+    public var chunks: [Chunk]
+
+    public init(rows: Int, chunks: [Chunk]) {
+        self.rows = rows
+        self.chunks = chunks
+    }
+}
+
+/// What an object is, which its referrer says: an entry's file or directory,
+/// or a collection's table or rows chunk.
+public enum ProtocolObjectKind: String, Codable, Sendable { case file, directory, table, rows }
+
+/// An entry's object is only ever a file or a directory.
+public typealias ProtocolEntryKind = ProtocolObjectKind
 
 public struct ProtocolDirectoryEntry: Hashable, Codable, Sendable {
     public var name: String
@@ -99,7 +76,10 @@ public struct ProtocolDirectoryEntry: Hashable, Codable, Sendable {
 /// directory entries, never payload sniffing, supply the interpretation.
 public enum ProtocolObject: Hashable, Sendable {
     case file(Data)
-    case directory([ProtocolDirectoryEntry], childrenSource: ProtocolCollectionFileDescriptor? = nil)
+    case directory([ProtocolDirectoryEntry], collection: ProtocolCollectionReference? = nil)
+    case table(ProtocolTable)
+    /// A `rows` chunk, checked for shape; its rows stay encoded.
+    case rows(Data)
 }
 
 public enum ProtocolObjectCodec {
@@ -108,15 +88,19 @@ public enum ProtocolObjectCodec {
         switch object {
         case let .file(bytes):
             return bytes
-        case let .directory(entries, childrenSource):
-            return directoryBytes(entries, childrenSource: childrenSource)
+        case let .directory(entries, collection):
+            return directoryBytes(entries, collection: collection)
+        case let .table(table):
+            return CanonicalCBOR.encode(tableValue(table))
+        case let .rows(bytes):
+            return bytes
         }
     }
 
     /// A directory object's canonical CBOR as given: entries in the order
     /// passed, nothing validated. `encode` validates first; a working tree
     /// that has already ordered its entries encodes with this directly.
-    public static func directoryBytes(_ entries: [ProtocolDirectoryEntry], childrenSource: ProtocolCollectionFileDescriptor? = nil) -> Data {
+    public static func directoryBytes(_ entries: [ProtocolDirectoryEntry], collection: ProtocolCollectionReference? = nil) -> Data {
         var fields: [(String, CanonicalCBORValue)] = [
             ("type", .text("directory")),
             ("entries", .array(entries.map { entry in
@@ -128,12 +112,29 @@ public enum ProtocolObjectCodec {
                 ])
             }))
         ]
-        if let childrenSource { fields.append(("childrenSource", collectionFileValue(childrenSource))) }
+        if let collection { fields.append(("collection", collectionValue(collection))) }
         return CanonicalCBOR.encode(.map(fields))
     }
 
-    public static func decode(_ bytes: Data, kind: ProtocolEntryKind) throws -> ProtocolObject {
-        if kind == .file { return .file(bytes) }
+    /// The objects an object of `kind` reaches directly: a directory's entries
+    /// and then its collection's tables, a table's rows chunks. Files and rows
+    /// reach nothing. Every walk of the object graph follows these edges.
+    public static func references(_ bytes: Data, kind: ProtocolObjectKind) throws -> [(hash: String, kind: ProtocolObjectKind)] {
+        switch kind {
+        case .file, .rows:
+            return []
+        case .directory, .table:
+            return try decode(bytes, kind: kind).references
+        }
+    }
+
+    public static func decode(_ bytes: Data, kind: ProtocolObjectKind) throws -> ProtocolObject {
+        switch kind {
+        case .file: return .file(bytes)
+        case .table: return .table(try decodeTable(bytes))
+        case .rows: try checkRows(bytes); return .rows(bytes)
+        case .directory: break
+        }
         guard case let .map(entries) = try CanonicalCBOR.decode(bytes) else {
             throw ProtocolValidationError.invalidCBOR("Wire object is not a map")
         }
@@ -144,8 +145,8 @@ public enum ProtocolObjectCodec {
         let object: ProtocolObject
         switch type {
         case "directory":
-            guard Set(values.keys).isSubset(of: ["type", "entries", "childrenSource"]),
-                  values.count == (values["childrenSource"] == nil ? 2 : 3),
+            guard Set(values.keys).isSubset(of: ["type", "entries", "collection"]),
+                  values.count == (values["collection"] == nil ? 2 : 3),
                   case let .array(encodedEntries)? = values["entries"] else {
                 throw ProtocolValidationError.invalidCBOR("Directory object fields are invalid")
             }
@@ -161,8 +162,8 @@ public enum ProtocolObjectCodec {
                 }
                 return ProtocolDirectoryEntry(name: name, file: file, directory: directory, tree: tree)
             }
-            let childrenSource = try values["childrenSource"].map(decodeCollectionFile)
-            object = .directory(decoded, childrenSource: childrenSource)
+            let collection = try values["collection"].map(decodeCollection)
+            object = .directory(decoded, collection: collection)
         default:
             throw ProtocolValidationError.invalidCBOR("Unknown wire object type")
         }
@@ -181,103 +182,89 @@ public enum ProtocolObjectCodec {
         return ProtocolObjectEnvelope(hash: hash(bytes), bytes: bytes)
     }
 
-    private static func collectionFileValue(_ descriptor: ProtocolCollectionFileDescriptor) -> CanonicalCBORValue {
-        if let tables = descriptor.tables {
-            var fields: [(String, CanonicalCBORValue)] = [
-                ("version", .unsigned(descriptor.version)),
-                ("type", .text(descriptor.type)),
-                ("format", .text(descriptor.format)),
-                ("schemaSource", .text(descriptor.schemaSource)),
-                ("schemaFingerprint", .text(descriptor.schemaFingerprint)),
-                ("tables", .array(tables.map { table in
-                    .map([
-                        ("table", .text(table.table)),
-                        ("source", .text(table.source)),
-                        ("childSetHash", .text(table.childSetHash)),
-                    ])
-                })),
-            ]
-            if let store = descriptor.store { fields.append(("store", .text(store))) }
-            return .map(fields)
-        }
-        return .map([
-            ("version", .unsigned(descriptor.version)),
-            ("type", .text(descriptor.type)),
-            ("format", .text(descriptor.format)),
-            ("source", .text(descriptor.source ?? "")),
-            ("schemaSource", .text(descriptor.schemaSource)),
-            ("schemaFingerprint", .text(descriptor.schemaFingerprint)),
-            ("childSetHash", .text(descriptor.childSetHash ?? "")),
+    private static func collectionValue(_ collection: ProtocolCollectionReference) -> CanonicalCBORValue {
+        .map([
+            ("version", .unsigned(collection.version)),
+            ("modelFingerprint", .text(collection.modelFingerprint)),
+            ("tables", .array(collection.tables.map { .map([("model", .text($0.model)), ("table", .text($0.table))]) })),
         ])
     }
 
-    private static func decodeCollectionFile(_ value: CanonicalCBORValue) throws -> ProtocolCollectionFileDescriptor {
-        guard case let .map(fields) = value else {
-            throw ProtocolValidationError.invalidCBOR("Collection-file descriptor is not a map")
-        }
+    private static func decodeCollection(_ value: CanonicalCBORValue) throws -> ProtocolCollectionReference {
+        guard case let .map(fields) = value else { throw ProtocolValidationError.invalidCBOR("Collection reference is not a map") }
         let item = Dictionary(uniqueKeysWithValues: fields)
-        if case .text("collection-tables")? = item["type"] {
-            var store: String?
-            if let value = item["store"] {
-                guard case let .text(text) = value else {
-                    throw ProtocolValidationError.invalidCBOR("Collection-tables store is invalid")
-                }
-                store = text
-            }
-            guard item.count == (store == nil ? 6 : 7),
-                  case let .unsigned(version)? = item["version"],
-                  case let .text(format)? = item["format"],
-                  case let .text(schemaSource)? = item["schemaSource"],
-                  case let .text(schemaFingerprint)? = item["schemaFingerprint"],
-                  case let .array(values)? = item["tables"] else {
-                throw ProtocolValidationError.invalidCBOR("Collection-tables descriptor fields are invalid")
-            }
-            let tables = try values.map { value -> ProtocolCollectionTable in
-                guard case let .map(fields) = value else {
-                    throw ProtocolValidationError.invalidCBOR("Collection table is not a map")
-                }
-                let entry = Dictionary(uniqueKeysWithValues: fields)
-                guard entry.count == 3,
-                      case let .text(table)? = entry["table"],
-                      case let .text(source)? = entry["source"],
-                      case let .text(childSetHash)? = entry["childSetHash"] else {
-                    throw ProtocolValidationError.invalidCBOR("Collection table fields are invalid")
-                }
-                return ProtocolCollectionTable(table: table, source: source, childSetHash: childSetHash)
-            }
-            return ProtocolCollectionFileDescriptor(
-                version: version, format: format, schemaSource: schemaSource, schemaFingerprint: schemaFingerprint, tables: tables, store: store
-            )
-        }
-        guard item.count == 7,
+        guard item.count == 3,
               case let .unsigned(version)? = item["version"],
-              case let .text(type)? = item["type"],
-              case let .text(format)? = item["format"],
-              case let .text(source)? = item["source"],
-              case let .text(schemaSource)? = item["schemaSource"],
-              case let .text(schemaFingerprint)? = item["schemaFingerprint"],
-              case let .text(childSetHash)? = item["childSetHash"] else {
-            throw ProtocolValidationError.invalidCBOR("Collection-file descriptor fields are invalid")
+              case let .text(modelFingerprint)? = item["modelFingerprint"],
+              case let .array(values)? = item["tables"] else {
+            throw ProtocolValidationError.invalidCBOR("Collection reference fields are invalid")
         }
-        return ProtocolCollectionFileDescriptor(
-            version: version,
-            type: type,
-            format: format,
-            source: source,
-            schemaSource: schemaSource,
-            schemaFingerprint: schemaFingerprint,
-            childSetHash: childSetHash
-        )
+        let tables = try values.map { value -> ProtocolCollectionTableReference in
+            guard case let .map(fields) = value else { throw ProtocolValidationError.invalidCBOR("Collection table is not a map") }
+            let entry = Dictionary(uniqueKeysWithValues: fields)
+            guard entry.count == 2, case let .text(model)? = entry["model"], case let .text(table)? = entry["table"] else {
+                throw ProtocolValidationError.invalidCBOR("Collection table fields are invalid")
+            }
+            return ProtocolCollectionTableReference(model: model, table: table)
+        }
+        return ProtocolCollectionReference(version: version, modelFingerprint: modelFingerprint, tables: tables)
     }
 
-    /// A table name is a USL model or join-table name.
-    private static func isTableName(_ name: String) -> Bool {
-        guard let first = name.unicodeScalars.first, first.isASCII, CharacterSet.letters.contains(first) else { return false }
+    private static func tableValue(_ table: ProtocolTable) -> CanonicalCBORValue {
+        .map([
+            ("type", .text("table")),
+            ("rows", .unsigned(table.rows)),
+            ("chunks", .array(table.chunks.map { .map([("rows", .unsigned($0.rows)), ("chunk", .text($0.chunk))]) })),
+        ])
+    }
+
+    private static func decodeTable(_ bytes: Data) throws -> ProtocolTable {
+        guard case let .map(fields) = try CanonicalCBOR.decode(bytes) else { throw ProtocolValidationError.invalidCBOR("Table object is not a map") }
+        let item = Dictionary(uniqueKeysWithValues: fields)
+        guard item.count == 3, case .text("table")? = item["type"],
+              case let .unsigned(rows)? = item["rows"],
+              case let .array(values)? = item["chunks"], !values.isEmpty else {
+            throw ProtocolValidationError.invalidCBOR("Table object fields are invalid")
+        }
+        let chunks = try values.map { value -> ProtocolTable.Chunk in
+            guard case let .map(fields) = value else { throw ProtocolValidationError.invalidCBOR("Table chunk is not a map") }
+            let entry = Dictionary(uniqueKeysWithValues: fields)
+            guard entry.count == 2, case let .unsigned(count)? = entry["rows"], case let .text(chunk)? = entry["chunk"] else {
+                throw ProtocolValidationError.invalidCBOR("Table chunk fields are invalid")
+            }
+            try validateObjectHash(chunk)
+            return ProtocolTable.Chunk(rows: count, chunk: chunk)
+        }
+        guard chunks.reduce(0, { $0 + $1.rows }) == rows else {
+            throw ProtocolValidationError.invalidValue("A table's rows must equal the sum of its chunks'")
+        }
+        return ProtocolTable(rows: rows, chunks: chunks)
+    }
+
+    /// A `rows` object's shape: each row has exactly its key, fields, created
+    /// and modified. Row order and values are the collection's to check.
+    private static func checkRows(_ bytes: Data) throws {
+        guard case let .map(fields) = try CanonicalCBOR.decode(bytes) else { throw ProtocolValidationError.invalidCBOR("Rows object is not a map") }
+        let item = Dictionary(uniqueKeysWithValues: fields)
+        guard item.count == 2, case .text("rows")? = item["type"], case let .array(rows)? = item["rows"] else {
+            throw ProtocolValidationError.invalidCBOR("Rows object fields are invalid")
+        }
+        for row in rows {
+            guard case let .map(fields) = row,
+                  Set(fields.map { $0.0 }) == ["key", "fields", "created", "modified"], fields.count == 4 else {
+                throw ProtocolValidationError.invalidCBOR("Row fields are invalid")
+            }
+        }
+    }
+
+    /// A model name: an ASCII letter or underscore, then letters, digits and underscores.
+    private static func isModelName(_ name: String) -> Bool {
+        guard let first = name.unicodeScalars.first, first.isASCII, CharacterSet.letters.contains(first) || first == "_" else { return false }
         return name.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_") }
     }
 
     private static func validate(_ object: ProtocolObject) throws {
-        guard case let .directory(entries, childrenSource) = object else { return }
+        guard case let .directory(entries, collection) = object else { return }
         var previous: Data?
         var names = Set<String>()
         for entry in entries {
@@ -299,49 +286,40 @@ public enum ProtocolObjectCodec {
             if let hash = entry.hash { try validateObjectHash(hash) }
             if let tree = entry.tree, tree.isEmpty { throw ProtocolValidationError.invalidValue("Nested tree ID is empty") }
         }
-        if let childrenSource {
-            guard childrenSource.version == 1,
-                  ["csv", "json", "jsonl"].contains(childrenSource.format),
-                  childrenSource.schemaSource == "schema.usl" else {
-                throw ProtocolValidationError.invalidValue("Invalid collection-file descriptor")
-            }
-            try validateObjectHash(childrenSource.schemaFingerprint)
-            switch childrenSource.type {
-            case "collection-file":
-                guard childrenSource.tables == nil, childrenSource.store == nil,
-                      childrenSource.source == "_store.\(childrenSource.format)",
-                      let childSetHash = childrenSource.childSetHash else {
-                    throw ProtocolValidationError.invalidValue("Invalid collection-file descriptor")
+        if let collection {
+            guard collection.version == 1 else { throw ProtocolValidationError.invalidValue("Collection version must be 1") }
+            try validateObjectHash(collection.modelFingerprint)
+            var previousModel: Data?
+            for table in collection.tables {
+                let utf8 = Data(table.model.utf8)
+                guard isModelName(table.model), previousModel.map({ $0.lexicographicallyPrecedes(utf8) }) ?? true else {
+                    throw ProtocolValidationError.invalidValue("Collection tables must be model names in UTF-8 order, each once")
                 }
-                try validateObjectHash(childSetHash)
-            case "collection-tables":
-                guard childrenSource.source == nil, childrenSource.childSetHash == nil,
-                      childrenSource.store == nil || (childrenSource.store == "sqlite" && childrenSource.format == "jsonl"),
-                      let tables = childrenSource.tables, !tables.isEmpty else {
-                    throw ProtocolValidationError.invalidValue("Invalid collection-tables descriptor")
-                }
-                var previousTable: Data?
-                for table in tables {
-                    let utf8 = Data(table.table.utf8)
-                    guard isTableName(table.table), table.source == "\(table.table).\(childrenSource.format)",
-                          previousTable.map({ $0.lexicographicallyPrecedes(utf8) }) ?? true else {
-                        throw ProtocolValidationError.invalidValue("Invalid collection-tables descriptor")
-                    }
-                    previousTable = utf8
-                    try validateObjectHash(table.childSetHash)
-                }
-            default:
-                throw ProtocolValidationError.invalidValue("Invalid collection-file descriptor")
+                previousModel = utf8
+                try validateObjectHash(table.table)
             }
-            let entriesByName = Dictionary(uniqueKeysWithValues: entries.map { ($0.name, $0) })
-            guard childrenSource.sources.allSatisfy({ entriesByName[$0]?.file != nil }),
-                  entriesByName[childrenSource.schemaSource]?.file != nil else {
-                throw ProtocolValidationError.invalidValue("Collection-file sources must be ordinary file entries")
+            guard entries.contains(where: { $0.name == "schema.usl" && $0.file != nil }) else {
+                throw ProtocolValidationError.invalidValue("A collection's schema.usl must be a file entry")
             }
-            let allowed = Set(childrenSource.sources + [childrenSource.schemaSource, "_index.md"])
-            guard entries.allSatisfy({ allowed.contains($0.name) }) else {
-                throw ProtocolValidationError.invalidValue("Collection-file directory mixes immediate-child backings")
+        }
+    }
+}
+
+public extension ProtocolObject {
+    /// The objects this one reaches directly, as `ProtocolObjectCodec.references` gives them.
+    var references: [(hash: String, kind: ProtocolObjectKind)] {
+        switch self {
+        case .file, .rows:
+            return []
+        case let .directory(entries, collection):
+            var references: [(hash: String, kind: ProtocolObjectKind)] = []
+            for entry in entries {
+                if let hash = entry.hash, let kind = entry.kind { references.append((hash: hash, kind: kind)) }
             }
+            for table in collection?.tables ?? [] { references.append((hash: table.table, kind: .table)) }
+            return references
+        case let .table(table):
+            return table.chunks.map { (hash: $0.chunk, kind: ProtocolObjectKind.rows) }
         }
     }
 }
@@ -437,8 +415,8 @@ public enum ProtocolObjectGraph {
         }
         var visiting = Set<String>()
         var visited = Set<String>()
-        var kinds: [String: ProtocolEntryKind] = [:]
-        func visit(_ hash: String, kind: ProtocolEntryKind) throws {
+        var kinds: [String: ProtocolObjectKind] = [:]
+        func visit(_ hash: String, kind: ProtocolObjectKind) throws {
             if let prior = kinds[hash], prior != kind { throw ProtocolValidationError.invalidValue("Object kind conflict") }
             kinds[hash] = kind
             if visiting.contains(hash) { throw ProtocolValidationError.cyclicGraph(hash) }
@@ -450,11 +428,7 @@ public enum ProtocolObjectGraph {
             let object = try ProtocolObjectCodec.decode(bytes, kind: kind)
             objects[hash] = object
             visiting.insert(hash)
-            if case let .directory(entries, _) = object {
-                for entry in entries {
-                    if let child = entry.hash, let kind = entry.kind { try visit(child, kind: kind) }
-                }
-            }
+            for child in object.references { try visit(child.hash, kind: child.kind) }
             visiting.remove(hash)
             visited.insert(hash)
         }
@@ -479,7 +453,7 @@ public extension ProtocolSnapshot {
 
     func replacingRootFile(named name: String, with bytes: Data) throws -> ProtocolSnapshot {
         let objects = try ProtocolObjectGraph.validate(self)
-        guard case let .directory(entries, childrenSource)? = objects[root],
+        guard case let .directory(entries, collection)? = objects[root],
               entries.contains(where: { $0.name == name && $0.hash != nil }) else {
             throw ProtocolValidationError.incompleteGraph(name)
         }
@@ -487,7 +461,7 @@ public extension ProtocolSnapshot {
         let nextEntries = entries.map { entry in
             entry.name == name ? ProtocolDirectoryEntry(name: name, file: file.hash) : entry
         }
-        let nextRoot = try ProtocolObjectCodec.object(.directory(nextEntries, childrenSource: childrenSource))
+        let nextRoot = try ProtocolObjectCodec.object(.directory(nextEntries, collection: collection))
         var bytesByHash = Dictionary(self.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
         bytesByHash[file.hash] = file.bytes
         bytesByHash[nextRoot.hash] = nextRoot.bytes
@@ -496,11 +470,10 @@ public extension ProtocolSnapshot {
         var reachable: Set<String> = [nextRoot.hash, file.hash]
         func visit(_ hash: String) {
             guard reachable.insert(hash).inserted else { return }
-            if case let .directory(children, _)? = objects[hash] {
-                for child in children { if let childHash = child.hash { visit(childHash) } }
-            }
+            for child in objects[hash]?.references ?? [] { visit(child.hash) }
         }
         for entry in entries where entry.name != name { if let hash = entry.hash { visit(hash) } }
+        for table in collection?.tables ?? [] { visit(table.table) }
         return ProtocolSnapshot(
             root: nextRoot.hash,
             objects: reachable.sorted().compactMap { hash in bytesByHash[hash].map { ProtocolObjectEnvelope(hash: hash, bytes: $0) } }

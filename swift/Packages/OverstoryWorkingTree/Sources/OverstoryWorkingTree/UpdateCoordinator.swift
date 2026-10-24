@@ -855,7 +855,7 @@ public actor UpdateCoordinator {
     private func sparseDirectoryGraph(treeID: String, root: String) async throws -> ProtocolSnapshot {
         let started = Date()
         var objects: [ProtocolObjectEnvelope] = [], fromHost = 0
-        var pending: [(hash: String, kind: ProtocolEntryKind)] = [(root, .directory)], seen = Set<String>()
+        var pending: [(hash: String, kind: ProtocolObjectKind)] = [(root, .directory)], seen = Set<String>()
         while let next = pending.popLast() {
             guard seen.insert(next.hash).inserted else { continue }
             // The working tree reads its overlay, then its platform store, and
@@ -869,7 +869,12 @@ public actor UpdateCoordinator {
                 guard ProtocolObjectCodec.hash(bytes) == next.hash else { throw UpdateError.returnedSnapshotMismatch }
             }
             objects.append(ProtocolObjectEnvelope(hash: next.hash, bytes: bytes))
-            guard next.kind == .directory, case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else { continue }
+            // A collection's tables and rows are structure, fetched like directories.
+            guard next.kind == .directory, case let .directory(entries, collection) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else {
+                pending += try ProtocolObjectCodec.references(bytes, kind: next.kind)
+                continue
+            }
+            for table in collection?.tables ?? [] { pending.append((table.table, .table)) }
             for entry in entries {
                 guard let child = entry.hash, let kind = entry.kind else { continue }
                 if kind == .directory || entry.name.hasSuffix(".md") || entry.name.hasSuffix(".mdx") { pending.append((child, kind)) }

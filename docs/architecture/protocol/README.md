@@ -4,13 +4,16 @@
 
 Canonical CBOR and `canonicalCBORHash` live in `protocol`. Snapshot bundles
 contain only a version and hash-ordered object byte strings (raw files and
-canonical CBOR directories); the root stays in the request URL. Directory
-objects carry ordinary CSV, JSON, and JSONL source and schema entries plus a
-directory-level `childrenSource` descriptor that interprets them as one child
-set; overstoryd validates those graphs, merges disjoint rows by stable identity,
-and projects logical rows at ordinary locators while keeping `_store.*` and
-`schema.usl` out of child navigation. Collection-file descriptors have one
-version, 1, which names `schema.usl`, in TypeScript and Swift.
+canonical CBOR directories, tables and rows); the root stays in the request
+URL. A directory with a logical collection keeps its `schema.usl` as an
+ordinary entry and a `collection` reference naming one `table` object per
+model, each listing its rows in content-defined `rows` chunks (spec 06 §2.1).
+Every graph walk follows those edges (`protocolObjectReferences` in
+TypeScript, `ProtocolObjectCodec.references` in Swift). overstoryd validates
+those graphs, merges rows by stable key, and presents the main model's rows
+as the folder's children; `_store.*` files and `_store.sqlite3` are a
+placement's projections, which Story Sync reads and writes, never tree
+entries.
 
 For an update string, overstoryd derives one credential-scoped digest per
 element over `{ domain: "arbor-update/2", tree, base, change, trace,

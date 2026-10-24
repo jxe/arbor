@@ -188,8 +188,9 @@ enum StoryIncomingLocator: Equatable, Sendable {
 }
 
 /// A complete host snapshot reduced to the sparse shape a working tree
-/// installs: every directory object and every Markdown object stay, every
-/// other file becomes a hash the object store serves on demand.
+/// installs: every directory object, every collection's tables and rows, and
+/// every Markdown object stay; every other file becomes a hash the object
+/// store serves on demand.
 enum StoryVisitSnapshot {
     struct Sparse: Sendable {
         var spine: ProtocolSnapshot
@@ -201,9 +202,13 @@ enum StoryVisitSnapshot {
         var visited = Set<String>()
 
         func visit(_ hash: String, path: String) {
-            guard case let .directory(entries, _)? = objects[hash] else { return }
+            guard case let .directory(entries, collection)? = objects[hash] else { return }
             keep.insert(hash)
             guard visited.insert(hash).inserted else { return }
+            for table in collection?.tables ?? [] {
+                keep.insert(table.table)
+                if case let .table(object)? = objects[table.table] { keep.formUnion(object.chunks.map(\.chunk)) }
+            }
             for entry in entries {
                 guard let child = entry.hash else { continue }
                 let childPath = path == "/" ? "/\(entry.name)" : "\(path)/\(entry.name)"
@@ -214,7 +219,7 @@ enum StoryVisitSnapshot {
                     if entry.name.hasSuffix(".md") || entry.name.hasSuffix(".mdx") {
                         keep.insert(child)
                     }
-                case nil:
+                case .table?, .rows?, nil:
                     continue
                 }
             }

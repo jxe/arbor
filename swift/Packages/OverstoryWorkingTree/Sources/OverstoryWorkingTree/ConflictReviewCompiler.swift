@@ -29,7 +29,7 @@ enum ConflictReviewCompiler {
             }
             return parts
         }
-        func entries(_ hash: String) throws -> ([ProtocolDirectoryEntry], ProtocolCollectionFileDescriptor?) {
+        func entries(_ hash: String) throws -> ([ProtocolDirectoryEntry], ProtocolCollectionReference?) {
             guard let bytes = objects[hash], case let .directory(entries, metadata) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else {
                 throw ConflictReviewError.unavailable
             }
@@ -59,7 +59,7 @@ enum ConflictReviewCompiler {
                 children[index].directory = try rewrite(directory, names: names, depth: depth + 1, value: value)
             }
             children.sort { Array($0.name.utf8).lexicographicallyPrecedes(Array($1.name.utf8)) }
-            return try store(.directory(children, childrenSource: metadata))
+            return try store(.directory(children, collection: metadata))
         }
         struct Assignment { let decision: ConflictReviewDecision; let old: String; let destination: String; let value: ProtocolDirectoryEntry? }
         var assignments: [Assignment] = []
