@@ -8,7 +8,8 @@ import { editTreeConfig } from "./tree-config.ts";
  * Reserve handles on a host's community, as its owner (a community writer):
  * each for a Profile TreeID this host holds, or for a profile another host
  * holds, by its locator there, which makes it a placement account
- * (accounts §1.3). Every tree the community root mounts keeps its entry; only
+ * (accounts §1.3), or for an invitation, by its code's `sha256:` digest.
+ * Every tree the community root mounts keeps its entry; only
  * `_index.md` changes. `scratch` is a directory to write the new root in.
  */
 export async function reserveMembers(owner: ProtocolClient, scratch: string, members: Record<string, string>): Promise<void> {
@@ -18,7 +19,9 @@ export async function reserveMembers(owner: ProtocolClient, scratch: string, mem
   await mkdir(source, { recursive: true });
   const lines = ["---", "type: group", "members:",
     "  -", `    profile: "overstory://${account.account.profileTree!}/"`, `    handle: "${account.account.handle ?? "owner"}"`,
-    ...Object.entries(members).flatMap(([handle, profile]) => ["  -", `    profile: "${profile.startsWith("tr_") ? `overstory://${profile}/` : profile}"`, `    handle: "${handle}"`]),
+    ...Object.entries(members).flatMap(([handle, profile]) => profile.startsWith("sha256:")
+      ? ["  -", `    handle: "${handle}"`, `    inviteDigest: "${profile}"`]
+      : ["  -", `    profile: "${profile.startsWith("tr_") ? `overstory://${profile}/` : profile}"`, `    handle: "${handle}"`]),
     "---", "", "# Community", ""];
   await writeFile(join(source, "_index.md"), lines.join("\n"));
   const head = await owner.snapshot(community.tree.id, community.tree.root);

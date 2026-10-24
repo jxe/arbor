@@ -630,19 +630,32 @@ public enum StoryMarkdownCodec {
         let newline = target.newline, blank = newline + newline, width = newline.utf8.count
         var edits: [WorkspaceDocumentTransfer.Edit] = []
         // The destination's last block, or its envelope, is the landing place;
-        // it needs a blank line before what lands after it.
+        // it needs exactly one blank line before what lands after it. A last
+        // line without a line break, or extra blank lines, are made that.
         let last = target.records.values.max { $0.range.lowerBound < $1.range.lowerBound }
+        let bytes = Array(target.source.utf8)
+        var end = bytes.count
+        while end > 0, bytes[end - 1] == UInt8(ascii: "\n") || bytes[end - 1] == UInt8(ascii: "\r") { end -= 1 }
+        let landingSource: String
         let anchor: Range<Int>
         if let last {
-            anchor = last.range
-            if !target.source.hasSuffix(blank) {
-                guard target.source.hasSuffix(newline), last.range.upperBound == target.source.utf8.count else { return nil }
-                let end = last.range.upperBound
-                edits.append(.init(document: .destination, edit: .init(utf8Range: (end - width)..<end, replacement: blank,
-                    lineage: [.init(source: (end - width)..<end, replacement: 0..<width)])))
+            guard last.range.upperBound >= end else { return nil }
+            anchor = last.range.lowerBound..<bytes.count
+            landingSource = String(decoding: bytes[..<end], as: UTF8.self) + blank
+            if !target.source.utf8.elementsEqual(landingSource.utf8) {
+                if end < bytes.count {
+                    edits.append(.init(document: .destination, edit: .init(utf8Range: end..<bytes.count, replacement: blank,
+                        lineage: [.init(source: end..<min(end + width, bytes.count), replacement: 0..<min(width, bytes.count - end))])))
+                } else {
+                    guard let scalar = target.source.unicodeScalars.last else { return nil }
+                    let tail = String(scalar), start = end - tail.utf8.count
+                    edits.append(.init(document: .destination, edit: .init(utf8Range: start..<end, replacement: tail + blank,
+                        lineage: [.init(source: start..<end, replacement: 0..<tail.utf8.count)])))
+                }
             }
         } else if !target.envelope.isEmpty, target.source.utf8.count == target.envelope.utf8.count {
             anchor = 0..<target.envelope.utf8.count
+            landingSource = target.source
         } else { return nil }
         // A moved block recorded without a blank line after it needs one
         // before a different successor, as a rearrangement does.
@@ -659,62 +672,78 @@ public enum StoryMarkdownCodec {
             placed[index].edits.append(.init(utf8Range: (end - width)..<end, replacement: blank,
                                              lineage: [.init(source: (end - width)..<end, replacement: 0..<width)]))
         }
-        // The moved blocks' recorded source travels as one span.
-        var moves: [WorkspaceDocumentTransfer.Move] = []
-        var spans: [Range<Int>] = []
-        for item in placed {
-            if let previous = spans.last, previous.upperBound == item.record.range.lowerBound {
-                spans[spans.count - 1] = previous.lowerBound..<item.record.range.upperBound
-            } else { spans.append(item.record.range) }
-        }
-        // Separate spans would chain one move onto material another carried
-        // into the destination; overstoryd executes that but does not yet
-        // reconcile it with a peer's edit, so such a selection is refused.
-        guard spans.count == 1 else { return nil }
-        for span in spans {
-            moves.append(.init(source: span, anchor: .init(document: .destination, range: anchor), side: .after))
-        }
-        edits += placed.flatMap(\.edits).map { WorkspaceDocumentTransfer.Edit(document: .origin, edit: $0) }
-        // Links are rewritten after the shapes are known to be right: a
-        // rewritten href changes no block's kind or nesting, only where its
-        // link leads from the destination's directory.
-        var relinked: [String]?
-        if let relink {
-            relinked = placed.map { rebaseMarkdownLinks($0.raw, from: relink.from, to: relink.to) }
+        func plan(keepingTrailingBlankLines: Bool) -> PlannedTransfer? {
+            var placed = placed, edits = edits
+            if keepingTrailingBlankLines, let last = placed.indices.last {
+                // Blank lines after the last moved block stay where they
+                // separate what was around it; one line break travels with it.
+                let raw = Array(placed[last].raw.utf8)
+                var content = raw.count
+                while content > 0, raw[content - 1] == UInt8(ascii: "\n") || raw[content - 1] == UInt8(ascii: "\r") { content -= 1 }
+                let kept = raw.count - content - width
+                guard kept > 0 else { return nil }
+                placed[last].raw = String(decoding: raw[..<(content + width)], as: UTF8.self)
+                placed[last].record.range = placed[last].record.range.lowerBound..<(placed[last].record.range.upperBound - kept)
+            }
+            // The moved blocks' recorded source travels as one span.
+            var moves: [WorkspaceDocumentTransfer.Move] = []
+            var spans: [Range<Int>] = []
             for item in placed {
-                for edit in markdownLinkRebasingEdits(item.record.raw, from: relink.from, to: relink.to) {
-                    let start = item.record.range.lowerBound + edit.utf8Range.lowerBound
-                    edits.append(.init(document: .origin, edit: .init(
-                        utf8Range: start..<(start + edit.utf8Range.count), replacement: edit.replacement, expected: edit.expected)))
+                if let previous = spans.last, previous.upperBound == item.record.range.lowerBound {
+                    spans[spans.count - 1] = previous.lowerBound..<item.record.range.upperBound
+                } else { spans.append(item.record.range) }
+            }
+            // Separate spans would chain one move onto material another carried
+            // into the destination; overstoryd executes that but does not yet
+            // reconcile it with a peer's edit, so such a selection is refused.
+            guard spans.count == 1 else { return nil }
+            for span in spans {
+                moves.append(.init(source: span, anchor: .init(document: .destination, range: anchor), side: .after))
+            }
+            edits += placed.flatMap(\.edits).map { WorkspaceDocumentTransfer.Edit(document: .origin, edit: $0) }
+            // Links are rewritten after the shapes are known to be right: a
+            // rewritten href changes no block's kind or nesting, only where its
+            // link leads from the destination's directory.
+            var relinked: [String]?
+            if let relink {
+                relinked = placed.map { rebaseMarkdownLinks($0.raw, from: relink.from, to: relink.to) }
+                for item in placed {
+                    for edit in markdownLinkRebasingEdits(item.record.raw, from: relink.from, to: relink.to) {
+                        let start = item.record.range.lowerBound + edit.utf8Range.lowerBound
+                        edits.append(.init(document: .origin, edit: .init(
+                            utf8Range: start..<(start + edit.utf8Range.count), replacement: edit.replacement, expected: edit.expected)))
+                    }
                 }
             }
+            edits.sort { ($0.document == .origin ? 0 : 1, $0.edit.utf8Range.lowerBound) < ($1.document == .origin ? 0 : 1, $1.edit.utf8Range.lowerBound) }
+            // The origin without the moved spans, and its ledger.
+            let removed = Set(placed.map(\.record.block.id))
+            var originBytes = Data(), records: [BlockID: SourceRecord] = [:], cursor = 0
+            let original = Data(ledger.source.utf8)
+            for span in spans {
+                originBytes.append(original[cursor..<span.lowerBound]); cursor = span.upperBound
+            }
+            originBytes.append(original[cursor...])
+            for (id, record) in ledger.records where !removed.contains(id) {
+                let shift = spans.filter { $0.upperBound <= record.range.lowerBound }.reduce(0) { $0 + $1.count }
+                var moved = record; moved.range = (record.range.lowerBound - shift)..<(record.range.upperBound - shift)
+                records[id] = moved
+            }
+            guard let originSource = String(data: originBytes, encoding: .utf8) else { return nil }
+            let destinationSource = landingSource + placed.map(\.raw).joined()
+            // Both results must mean the intended trees.
+            let remaining = removingSubtrees(removed, from: StoryPagePresentation.authored(blocks))
+            guard sameShape(open(source: originSource, revision: "transfer", identitySeed: "origin").blocks, remaining),
+                  sameShape(open(source: destinationSource, revision: "transfer", identitySeed: "destination").blocks,
+                            foldHeadingsInScopes(removingProjectedBlocks(from: destination.blocks) + roots.map(stripped))) else { return nil }
+            return PlannedTransfer(moves: moves, edits: edits, originSource: originSource,
+                originLedger: StorySourceLedger(source: originSource, revision: ledger.revision, envelope: ledger.envelope, newline: ledger.newline, records: records),
+                destinationSource: relinked.map { landingSource + $0.joined() } ?? destinationSource)
         }
-        edits.sort { ($0.document == .origin ? 0 : 1, $0.edit.utf8Range.lowerBound) < ($1.document == .origin ? 0 : 1, $1.edit.utf8Range.lowerBound) }
-        // The origin without the moved spans, and its ledger.
-        let removed = Set(placed.map(\.record.block.id))
-        var originBytes = Data(), records: [BlockID: SourceRecord] = [:], cursor = 0
-        let original = Data(ledger.source.utf8)
-        for span in spans {
-            originBytes.append(original[cursor..<span.lowerBound]); cursor = span.upperBound
-        }
-        originBytes.append(original[cursor...])
-        for (id, record) in ledger.records where !removed.contains(id) {
-            let shift = spans.filter { $0.upperBound <= record.range.lowerBound }.reduce(0) { $0 + $1.count }
-            var moved = record; moved.range = (record.range.lowerBound - shift)..<(record.range.upperBound - shift)
-            records[id] = moved
-        }
-        guard let originSource = String(data: originBytes, encoding: .utf8) else { return nil }
-        let destinationSource = (edits.contains { $0.document == .destination } ? String(target.source.dropLast(newline.count)) + blank : target.source)
-            + placed.map(\.raw).joined()
-        // Both results must mean the intended trees.
-        let remaining = removingSubtrees(removed, from: StoryPagePresentation.authored(blocks))
-        guard sameShape(open(source: originSource, revision: "transfer", identitySeed: "origin").blocks, remaining),
-              sameShape(open(source: destinationSource, revision: "transfer", identitySeed: "destination").blocks,
-                        foldHeadingsInScopes(removingProjectedBlocks(from: destination.blocks) + roots.map(stripped))) else { return nil }
-        let landing = edits.contains { $0.document == .destination } ? String(target.source.dropLast(newline.count)) + blank : target.source
-        return PlannedTransfer(moves: moves, edits: edits, originSource: originSource,
-            originLedger: StorySourceLedger(source: originSource, revision: ledger.revision, envelope: ledger.envelope, newline: ledger.newline, records: records),
-            destinationSource: relinked.map { landing + $0.joined() } ?? destinationSource)
+        // A last moved block recorded with blank lines after it may leave its
+        // neighbours touching (a list item, then a toggle); then those blank
+        // lines stay in the origin.
+        return plan(keepingTrailingBlankLines: false) ?? plan(keepingTrailingBlankLines: true)
     }
 
     /// Move to a place in an open page: as `transfer(_:from:ledger:into:relink:)`,

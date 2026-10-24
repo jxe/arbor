@@ -2118,6 +2118,26 @@ struct TransferPlanTests {
         #expect(result.transfer.edits.map(\.document) == [.destination])
     }
 
+    @Test("A destination without a final line break, or with extra blank lines, ends in one blank line before what lands")
+    func destinationEnding() throws {
+        for target in ["Target", "Target\n\n\n\n"] {
+            let result = try #require(try plan("One\n\nMoved\n\nThree\n", target) { [$0[1]] }, Comment(rawValue: target.debugDescription))
+            #expect(result.planned.destinationSource == "Target\n\nMoved\n\n")
+            #expect(result.transfer.edits.map(\.document) == [.destination])
+        }
+        let bullet = try #require(try plan("- a\n- b\n- c\n", "- x\n- y") { [$0[1]] })
+        #expect(bullet.planned.destinationSource == "- x\n- y\n\n- b\n")
+        #expect(bullet.planned.originSource == "- a\n- c\n")
+    }
+
+    @Test("Blank lines after the last moved block stay when its neighbours would otherwise touch")
+    func trailingBlankLinesStay() throws {
+        let origin = "- Telocracy\n  - See if there are comments\n\n\n\u{25B8} List scenes\n  - Dworkin fans\n"
+        let result = try #require(try plan(origin, "# Target\n\nPara\n") { blocks in [blocks[0].children[0]] })
+        #expect(result.planned.originSource == "- Telocracy\n\n\n\u{25B8} List scenes\n  - Dworkin fans\n")
+        #expect(result.planned.destinationSource == "# Target\n\nPara\n\n- See if there are comments\n")
+    }
+
     @Test("A nested item lands at the top level, re-indented")
     func nested() throws {
         let result = try #require(try plan("- one\n  - child\n- two\n\nPara\n\n", "Target\n\n") { blocks in [blocks[0].children[0]] })

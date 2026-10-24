@@ -154,7 +154,7 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         localTreesMenu.delegate = self
         localTrees.submenu = localTreesMenu
         menu.addItem(localTrees)
-        menu.addItem(window("Open Location…", "l") { $0.openLocation() })
+        menu.addItem(window("Open Location…", "l", [.command, .shift]) { $0.openLocation() })
         menu.addItem(.separator())
         menu.addItem(window("Search Contents…", "f", [.command, .shift]) { $0.showSearch() })
         menu.addItem(.separator())
@@ -180,6 +180,11 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(window("Source and Properties…", "i", when: \.hasNode) { $0.showSource() })
         menu.addItem(window("Reveal Page in Finder", when: \.canRevealPageInFinder) { $0.revealPageInFinder() })
+        menu.addItem(window("Copy Link to Page", "l", when: \.canCopyPageLink) { $0.copyPageLink() })
+        // Hold Option for the file's path, as Finder's Copy turns into Copy as Pathname.
+        let copyPath = window("Copy Path of Page", "l", [.command, .option], when: \.canRevealPageInFinder) { $0.copyPagePath() }
+        copyPath.isAlternate = true
+        menu.addItem(copyPath)
         menu.addItem(window("Recover…", "\\", [.command, .shift], when: \.hasDocument) { $0.showHistory() })
         menu.addItem(.separator())
         let record = window("Record Audio", "r", [.command, .option], when: \.canRecordAudio) { [unowned self] in

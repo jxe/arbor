@@ -37,7 +37,7 @@ model List {
   games Game[]
 }
 
-List.games[] @ordered <-> Game.lists[]
+ordered List.games[] <-> Game.lists[]
 `;
 const FILES = {
   "Game.jsonl": '{"id":"g1","name":"Chess","tags":["board"]}\n{"id":"g2","name":"Go"}\n',
@@ -140,7 +140,7 @@ describe("a schema with several tables", () => {
 
   test("the plan's games.usl with Game.jsonl, List.jsonl and List_games.jsonl passes usl verify", async () => {
     const games = (await readFile(join(import.meta.dir, "../../plans/soon/schema-language/examples/games.usl"), "utf8"))
-      .replace("List.games[] @ordered @fold", "List.games[] @ordered");
+      .replace("ordered List.games[] @fold", "ordered List.games[]");
     const directory = join(sandbox, "games");
     await Bun.write(join(directory, "schema.usl"), games);
     await writeFile(join(directory, "Game.jsonl"), '{"id":"g1","name":"Chess","status":"Draft","tags":["board"],"authors":["joe"]}\n');

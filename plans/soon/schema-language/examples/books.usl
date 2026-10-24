@@ -1,14 +1,10 @@
-// The smallest case: tests/fixtures/workspace/books/schema.cddl, rewritten.
-//
-//   row = { title: tstr, status: "reading" / "done" }
+// The smallest case, in layered USL (plan 003).
 
-model Book {
+main model Book {
   title  Text
   status Status
 }
 
 Book.status <-> Status.books[]
 
-model Status {
-  @@fixed { Reading, Done }
-}
+enum Status { Reading, Done }

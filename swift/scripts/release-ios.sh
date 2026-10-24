@@ -5,6 +5,12 @@ set -eu
 # it appears under TestFlight after processing.
 #
 #   swift/scripts/release-ios.sh <version> <build>      e.g. 0.1.0 3
+#   swift/scripts/release-ios.sh <version> <build> --archive-only   then
+#   swift/scripts/release-ios.sh <version> <build> --upload-only
+#
+# The two halves let tools/release.sh archive while the Mac app builds and
+# upload only once publishing is confirmed. The archive builds in its own
+# derived data, so it can run beside the Mac build.
 #
 # The build number must be higher than every build already uploaded for this
 # version. Signs with the team's automatically managed distribution identity.
@@ -14,15 +20,20 @@ set -eu
 # signed in to Xcode. STORY_SKIP_UPLOAD=1 exports an .ipa to dist/ios/ instead.
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$repository_root"
-[ $# -eq 2 ] || { echo "usage: $0 <version> <build>" >&2; exit 2; }
+usage() { echo "usage: $0 <version> <build> [--archive-only|--upload-only]" >&2; exit 2; }
+[ $# -eq 2 ] || [ $# -eq 3 ] || usage
 version=$1
 build=$2
+half=${3:-}
+case $half in ""|--archive-only|--upload-only) ;; *) usage ;; esac
 team=B7P78ULCXS
 
 output="$repository_root/dist/ios"
 work="$output/build"
-rm -rf "$work"
-mkdir -p "$work"
+if [ "$half" != "--upload-only" ]; then
+  rm -rf "$work"
+  mkdir -p "$work"
+fi
 
 # tools/release.sh sets STORY_USE_PINNED_PACKAGES=1 to build against the pinned
 # Quagmire release rather than the sibling checkout the local workspace adds.
@@ -58,9 +69,14 @@ PLIST
 
 # The scheme and authentication arguments are in "$@" for both steps; the
 # export takes the archive in place of a workspace and scheme.
-xcodebuild archive -quiet "$@" -scheme Story -configuration Release \
-  -destination "generic/platform=iOS" -archivePath "$work/Story.xcarchive" \
-  -allowProvisioningUpdates MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$build"
+if [ "$half" != "--upload-only" ]; then
+  xcodebuild archive -quiet "$@" -scheme Story -configuration Release \
+    -destination "generic/platform=iOS" -archivePath "$work/Story.xcarchive" \
+    -derivedDataPath "$output/derived" \
+    -allowProvisioningUpdates MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$build"
+fi
+[ "$half" = "--archive-only" ] && exit 0
+[ -d "$work/Story.xcarchive" ] || { echo "error: no archive at $work/Story.xcarchive; run --archive-only first" >&2; exit 1; }
 shift 2
 xcodebuild -exportArchive "$@" -archivePath "$work/Story.xcarchive" \
   -exportOptionsPlist "$work/ExportOptions.plist" -exportPath "$output" -allowProvisioningUpdates

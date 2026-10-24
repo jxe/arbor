@@ -64,11 +64,11 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 | [locators](03-locators.md) | Uniform tree/path/stable-key references, canonical and relative resolution, revisions, application queries, content fragments, discovery routes, and public HTTP projection |
 | [accounts and devices](04-accounts-and-devices.md) | Local-first profile identity, host accounts and community-defined allocation, governed tree configurations, device pairing, local placements, and tree declaration, activation and mounting |
 | [access control](05-access-control.md) | Resource rules, caller/code constraints, combined execution authority, authentication, guarded updates and watches |
-| [child backings](06-child-backings.md) | How expanded files, collection files, SQLite, Postgres, and placement projections supply child sets; backing revisions, snapshots, observation, and physical commit behavior |
+| [child backings](06-child-backings.md) | How expanded files, logical collections (and each placement's CSV, JSON, Markdown or SQLite projection of them), Postgres, and placement projections supply child sets; backing revisions, snapshots, observation, and physical commit behavior |
 | [executable documents](07-executable-documents.md) | MDX/TSX documents and agents: named handles, queries, mutations, identity, hosting, confinement, consent, transcripts, and Overstory operations |
 | [authoring API](08-authoring-api.md) | The `overstory/react` and `overstory/data` packages, React Actions, hooks, and styling an executable document is written against |
 | [working-tree updates](09-client-synchronization.md), with [the update machine's runner](../implementing-sync-services/update-machine.md) | The update machine a working tree runs against Overstory: durable heads with their objects, sparse install entry, one self-contained prepared request in flight, one retained successor, validated apply, accepted conflicts as ordinary acceptance, and exact ambiguous recovery |
-| [schema language](11-schema-language.md) | Ultimate Schema Language (`.usl`): models, connections, keys, fixed rows, attributes, default views, the relational layout, and limits |
+| [schema language](11-schema-language.md) | Ultimate Schema Language (`.usl`): models, enums, connections and keys; the model, storage (`@`) and presentation (`~`) layers; default views; fingerprints; the relational layout; and limits |
 
 The specification map does not report implementation progress. See
 [status.md](../../status.md) for that boundary and [`conformance/`](conformance) for
@@ -142,7 +142,7 @@ inline mention links here; accepted implementation work is indexed under
 2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([executable documents §12.3](07-executable-documents.md#123-relationship-to-tree-synchronization), [executable documents](07-executable-documents.md#4-queries)).
 3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](07-executable-documents.md#5-mutations)).
 4. **Bidirectional placement projections**: the full-duplex contract behind `mode: bidirectional` ([child backings](06-child-backings.md#4-postgres-and-placement-projections)).
-5. **Database change-log and checkpoint format** for synchronizing SQLite and Postgres placements ([child backings §1.1](06-child-backings.md#11-child-backings)).
+5. **External-store change log and checkpoint format** for synchronizing Postgres placements. Logical collections, SQLite projections included, synchronize as row operations with a logical hash ([child backings §2](06-child-backings.md#2-logical-collections)); an external store has no such form yet ([child backings §1.1](06-child-backings.md#11-child-backings)).
 6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](07-executable-documents.md#131-agent-files)).
 7. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#overstory-key=` alias has no room for a heading; such a link uses the `;overstory-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](03-locators.md#21-links-written-in-markdown)).
 8. **Portable authored ordering, relationships, joins, aggregates, and pagination** in the query language; today they are capability extensions ([executable documents](07-executable-documents.md#4-queries)).

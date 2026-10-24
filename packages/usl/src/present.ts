@@ -6,16 +6,16 @@
 // - Rows are the data-file rows `layoutOf(…, { store: "files" })` lays out,
 //   by table name, in creation order. A row is named by its canonical stable
 //   key, the JSON of its key's column and value pairs: `[["id","g1"]]`.
-// - A view is one of the model's `@@views`, or its default arrangement: the
+// - A view is one of the model's `~views`, or its default arrangement: the
 //   line is every field in order, with one grouping per field that refers to
 //   another model (fixed, `Person` or with rows).
 // - A grouped view has a group for each value the field can refer to, in the
 //   order they're written or created, and "Unassigned" for rows in none of
 //   them. A row appears under every group it belongs to. A group stored as
-//   an `@ordered` list keeps that order and can be reordered; otherwise lines
+//   an `ordered` list keeps that order and can be reordered; otherwise lines
 //   keep the rows' creation order. A line lists a connection's members by
-//   its `@sort(field)`, otherwise in their stored order or the order they
-//   were connected; `group: field @sort(name)` orders the groups likewise.
+//   its `~sort(field)`, otherwise in their stored order or the order they
+//   were connected; `group: field ~sort(name)` orders the groups likewise.
 // - `sort` orders lines by a field (newest first for `created` and
 //   `modified`, rows without one last); in groups whose order is stored it
 //   orders the groups instead, by their own rows.
@@ -58,7 +58,7 @@ export interface PresentedLine {
   row: string;
   /** Stable across presentations: the view, the group and the row. */
   occurrence: string;
-  /** The `@bullet` choice's color, which colors the line too. */
+  /** The `~bullet` choice's color, which colors the line too. */
   color?: string;
   cells: Cell[];
 }
@@ -77,7 +77,7 @@ export interface PresentedGroup {
   row?: string;
   /** The field of `row` its heading edits; absent when the heading is read-only. */
   headingField?: string;
-  /** Lines can be reordered: the group's order is stored (`@ordered`). */
+  /** Lines can be reordered: the group's order is stored (`ordered`). */
   ordered: boolean;
   /** What Delete does to a line here: disconnects it from this group, or deletes the row. */
   remove: "disconnect" | "delete";
@@ -109,7 +109,7 @@ export interface Person {
 }
 
 export interface PresentOptions {
-  /** The model whose rows are the lines: by default the one with `@@views`, else the first with rows. */
+  /** The model whose rows are the lines: by default the one with `~views`, else the first with rows. */
   model?: string;
   /** Which view, by index into the views (default 0). */
   view?: number;
@@ -357,7 +357,7 @@ class Collection {
     throw new ViewError(`\`${model.name}.${field.name}\` isn't stored where a view can reach it`);
   }
 
-  /** For a single reference on the row: the column that orders the target's list of these rows (`@ordered` on the other end). */
+  /** For a single reference on the row: the column that orders the target's list of these rows (`ordered` on the other end). */
   private positionOn(model: ResolvedModel, field: ResolvedField): string | undefined {
     const end = model.ends.find((e) => e.as === field.name);
     if (end) return end.ordered ? `${end.field}_position` : undefined;
@@ -375,7 +375,7 @@ class Collection {
     return this.membersBy(model, this.access(model, field), row);
   }
 
-  /** Members of `target` by one of its fields (`@sort`): newest first for `created` and `modified`, members without it last. */
+  /** Members of `target` by one of its fields (`~sort`): newest first for `created` and `modified`, members without it last. */
   sortMembers<T>(target: string, sort: string, items: T[], memberOf: (item: T) => Scalar = (item) => item as Scalar): T[] {
     const descending = sort === "created" || sort === "modified";
     return sortBy(items, (item) => this.memberSortKey(target, sort, memberOf(item)), descending);
@@ -429,7 +429,7 @@ class Collection {
     }
   }
 
-  /** The field a row of `model` is called by: `name`, its `@path`, or its first single `Text` field. */
+  /** The field a row of `model` is called by: `name`, its `path` field, or its first single `Text` field. */
   nameField(model: string): string | undefined {
     const resolved = this.models.get(model);
     if (!resolved) return undefined;
@@ -478,15 +478,15 @@ function byPosition(rows: Row[], position: string): Row[] {
 // ---------------------------------------------------------------------------
 // Views.
 
-/** The model a collection presents: the one with `@@views`, else the first with rows. */
+/** The model a collection presents: its `main` model, else the one with `~views`, else the first with rows. */
 export function presentedModel(schema: CheckResult): string {
   const data = schema.models.filter((m) => m.name !== "Person" && m.rows !== "fixed");
-  const model = data.find((m) => m.views.length > 0) ?? data.find((m) => m.ends.length < 2) ?? data[0];
+  const model = data.find((m) => m.main) ?? data.find((m) => m.views.length > 0) ?? data.find((m) => m.ends.length < 2) ?? data[0];
   if (!model) throw new ViewError("The schema has no model with rows");
   return model.name;
 }
 
-/** A model's views: its `@@views`, or the default arrangement. A view without a line shows every field. */
+/** A model's views: its `~views`, or the default arrangement. A view without a line shows every field. */
 export function viewsOf(schema: CheckResult, modelName: string): ResolvedView[] {
   const model = schema.models.find((m) => m.name === modelName);
   if (!model) throw new ViewError(`No model \`${modelName}\``);

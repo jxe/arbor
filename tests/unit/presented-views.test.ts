@@ -106,7 +106,7 @@ describe("presented views", () => {
     expect(edits).toEqual([{ kind: "rowSet", table: "Game", row: '[["id","g1"]]', field: "name", before: "Wingspan", value: "Wingspan 2" }]);
   });
 
-  test("a model without @@views has a plain view and one per reference", () => {
+  test("a model without ~views has a plain view and one per reference", () => {
     const schema = compileUsl(vectors.fixtures.tasks!.schema);
     expect(viewsOf(schema, "Task").map((v) => [v.label, v.group])).toEqual([["All", undefined], ["By owner", "owner"], ["By project", "project"]]);
     expect(viewsOf(schema, "Task")[0]!.line.map((i) => i.field)).toEqual(["title", "notes", "points", "done", "owner", "project", "labels"]);

@@ -1,18 +1,20 @@
 #!/usr/bin/env bun
 // usl check <file.usl>...                       diagnostics; exits 1 if any
 // usl show <file.usl>                           each model's resolved fields and storage
+// usl fmt [--check] <file.usl>...               rewrites each file in the conventional form
 // usl sql sqlite|postgres <file.usl>            idempotent setup SQL
 // usl types <file.usl>                          TypeScript row types
 // usl verify <file.usl> <store> [--backend b]   does the store implement the schema?
 //   <store> is a .sqlite3 file, a postgres:// URL (?schema=name), or a folder of data files.
 
-import { readFileSync } from "node:fs";
-import { compileUsl, formatDiagnostic, layoutOf, setupSql, typeDeclarations, type ResolvedField } from "./index.ts";
+import { readFileSync, writeFileSync } from "node:fs";
+import { compileUsl, formatDiagnostic, formatUsl, layoutOf, setupSql, typeDeclarations, type ResolvedField } from "./index.ts";
 import { STORE_BACKENDS, UnknownStoreError, verifyStore } from "./verify/index.ts";
 
 const USAGE = `usage:
   usl check <file.usl>...
   usl show <file.usl>...
+  usl fmt [--check] <file.usl>...
   usl sql sqlite|postgres <file.usl>
   usl types <file.usl>
   usl verify <file.usl> <store> [--backend ${STORE_BACKENDS.map((b) => b.name).join("|")}]`;
@@ -29,6 +31,25 @@ function compiled(path: string) {
   return result;
 }
 
+if (command === "fmt" && paths.some((p) => p !== "--check")) {
+  // --check lists the files fmt would change, and changes none.
+  const check = paths.includes("--check");
+  let status = 0;
+  for (const path of paths.filter((p) => p !== "--check")) {
+    const source = readFileSync(path, "utf8");
+    const result = formatUsl(source);
+    if (result.text === null) {
+      for (const d of result.diagnostics) console.error(formatDiagnostic(path, d));
+      status = 1;
+    } else if (result.text !== source) {
+      if (check) {
+        console.log(path);
+        status = 1;
+      } else writeFileSync(path, result.text);
+    }
+  }
+  process.exit(status);
+}
 if (command === "sql" && (paths[0] === "sqlite" || paths[0] === "postgres") && paths[1]) {
   process.stdout.write(setupSql(layoutOf(compiled(paths[1])), paths[0]));
   process.exit(0);
@@ -71,7 +92,7 @@ for (const path of paths) {
     console.log(`\n${model.name} (${model.rows}, keyed by ${model.key.join(" + ")}${storage})`);
     for (const f of model.fields) {
       const origin = f.origin === "declared" ? "" : `   ← ${f.origin}`;
-      console.log(`  ${f.name.padEnd(14)} ${f.type}${arity(f)}${f.ordered ? " @ordered" : ""}${origin}`);
+      console.log(`  ${f.name.padEnd(14)} ${f.type}${arity(f)}${f.ordered ? " ordered" : ""}${origin}`);
     }
   }
   if (result.connections.length > 0) console.log("\nConnections");

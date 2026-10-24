@@ -6,7 +6,7 @@ model Book {
   title   Text
   authors Person                 // arity: the end says []
   shelf   List                   // type: the connection says Shelf
-  lists   List[] @ordered        // @ordered isn't on the end
+  lists   ordered List[]         // `ordered` isn't on the end
 }
 model Shelf { name Text }
 model List { name Text }

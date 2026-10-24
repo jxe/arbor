@@ -4,12 +4,18 @@
 // expect: misplaced-attribute
 // expect: unknown-attribute
 // expect: ordered-single
+// expect: attribute-layer
+// expect: body-field
+// expect: duplicate-attribute
 model Book {
-  title   Text      @ordered
-  pages   Number    @color
-  tags    Text[]    @unique
-  status  Text      @bullet
+  title   ordered Text
+  pages   Number    ~color
+  tags    unique Text[]
+  status  Text      ~bullet
   isbn    Text      @primary
+  blurb   Text      @ordered
+  notes   Text      @body
+  shelfNo Text      @column("a") @column("b")
 }
-Book.shelf @ordered <-> Shelf.books[]
+ordered Book.shelf <-> Shelf.books[]
 model Shelf { name Text }

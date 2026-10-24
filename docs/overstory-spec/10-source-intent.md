@@ -77,7 +77,8 @@ type OperationRef = { change: string; operation: string };
 
 ## 4. Operations
 
-The target host supports every operation below and the row operations of §4.1. Each has required `key` and
+The target host supports every operation below and the row operations of
+§4.1. Each has required `key` and
 `kind` fields. All listed fields are required except `lineage`. References may
 select projected material or alternatives; the reference determines the target,
 so there is no separate `editAlternative` operation.
@@ -138,52 +139,42 @@ authority validates those before acceptance.
 
 ### 4.1 Row operations
 
-A schema'd collection ([child backings §2.4](06-child-backings.md#24-collection-schemas)) is edited by
-row, never by the bytes of its collection file. Every row operation also has
+A [logical collection](06-child-backings.md#2-logical-collections) is edited
+by row, never by the bytes of a projection. Every row operation also has
 `collection: Ref` (an entry reference, never ranged, to the collection's
-directory), `table` (one of the collection's tables, a model or a join table,
-as its `schema.usl`'s data-file layout names it) and `row` (the row's
-canonical stable key: the RFC 8785 JSON of its key's property and value pairs,
-such as `[["id","g1"]]`). `field`
-names one member of the row; a key field is never one.
+folder), `model` (one of its models with data rows) and `row` (the row's
+canonical stable key JSON, such as `[["id","g1"]]`). `field` names one
+declared field of the row; a key field, `created` and `modified` are never
+one.
 
 | `kind` | Fields | Authored meaning |
 | --- | --- | --- |
-| `rowCreate` | `values` | Create the row with these members. `values` holds the row's key, which MUST equal `row`, and the row MUST be absent. |
-| `rowDelete` | | Delete the row. |
-| `rowSet` | `field, before, value` | Set one member. `before` is the value the author saw, and MUST equal the member on the basis; `null` means absent, and a `null` value removes the member. The two differ. |
-| `rowConnect` | `field, member` | Add a scalar `member` to a many-valued field, at its end. It MUST be absent. |
-| `rowDisconnect` | `field, member` | Remove `member`, which MUST be present. A field left empty is removed. |
-| `rowMove` | `field, member, after` | Place `member` directly after the member `after`, or first when `after` is `null`, in a many-valued field. Both are present and the order changes. |
+| `rowCreate` | `values` | Create the row with these fields. `values` holds the row's key, which MUST equal `row`, and the row MUST be absent. |
+| `rowDelete` | | Delete the row, and every pair of a plain n:m connection that names it. |
+| `rowSet` | `field, before, value` | Set one single-valued field. `before` is the value the author saw and MUST equal the field on the basis; `null` means absent, and a `null` value removes the value. The two differ. |
+| `rowConnect` | `field, member` | Add `member` to a many-valued field: a connection pair or a value-array element. It MUST be absent. In an `ordered` field it goes at the end. |
+| `rowDisconnect` | `field, member` | Remove `member`, which MUST be present. |
+| `rowMove` | `field, member, after` | Place `member` directly after the member `after`, or first when `after` is `null`, in an `ordered` field. Both are present and the order changes. |
 
-Every row operation but `rowDelete` may also have `at`, when the edit was
-made, in UTC ISO 8601 (`2026-10-15T09:38:25.123Z`). Replay writes it to the
-row's `modified`, and on `rowCreate` to `created` too, except in a `.csv` file
-whose header has no such column. Those two members are written only this way:
-`rowSet` never names them, and a timed `rowCreate` never supplies them. An
-authority rejects an `at` more than five minutes ahead of its own clock.
+A plain n:m connection is one set of pairs, so `rowConnect` and
+`rowDisconnect` on either end's field change the same pair, and two
+operations naming one pair from its two ends are the same fact. `rowMove`
+names the `ordered` end.
 
-A row operation names a row by identity, so concurrent changes to one row merge
-member by member (§7). It has no material result to reference.
+Every row operation but `rowDelete` has `at`, when the edit was made, as an
+RFC 3339 date-time in UTC with millisecond precision. Replay writes it to the
+row's `modified`, and on `rowCreate` to `created` too; nothing else sets them.
+An authority rejects an `at` more than five minutes ahead of its own clock.
 
-Replay re-derives the representation. Operations on one collection apply in
-order to its validated basis rows. A touched row is re-encoded with its members
-in the schema's layout order and undeclared members after them by UTF-8 name.
-In `.jsonl` it replaces its line content, keeping the surrounding whitespace.
-In `.json` it replaces its array item. In `.csv` it is one record in the file's
-header order, by the exact round-trip rule of
-[child backings §2.4.3](06-child-backings.md#243-csv-cell-conversion). A deleted row is removed with
-its line ending. Created rows are appended in the order they were created.
-When a `.json` array gains or loses an item, its items are rejoined with the
-text between its first two items (with one item, a comma and the text before
-it; with none, a newline and two spaces), keeping the text before the first
-item and after the last. Every untouched byte is kept. The directory's
-descriptor takes the `childSetHash` of the resulting rows, which MUST validate
-against the schema.
+A row operation names a row by identity, so concurrent changes to one row
+merge field by field (§7.1). It has no material result to reference.
 
-The frame's `after` MUST equal that re-derived tree; this is the exactness §2
-requires. A frame that carries row operations carries no other kind, and a
-change that also edits text uses separate frames.
+Replay applies a frame's row operations in order to its `before` collection's
+rows, validates the result against the schema, and encodes the changed tables
+in the canonical form of
+[child backings §2.1](06-child-backings.md#21-what-the-tree-holds). The
+frame's `after` MUST equal that tree. A frame that carries row operations
+carries no other kind; a change that also edits text uses separate frames.
 
 ## 5. Acceptance and explicit resolution
 
@@ -299,38 +290,6 @@ sufficient decision evidence for explanation and reproducibility; it need not cr
 a user-visible conflict solely to resolve it immediately. Deterministic rule and
 projection behavior must be specified where promised by the format contract.
 
-### 7.1 Collection rows
-
-`collection-file-fields-v1` merges two changes to one collection by row
-identity, then field by field, whether they arrive as row operations or as
-snapshots of the collection file. A row only one side changed takes that side.
-For a row both sides changed:
-
-- A single value conflicts only when the two set different values.
-- A many-valued field merges per member: removals and additions from both
-  sides apply. An addition follows the member it follows on its own side; in
-  a field without `@ordered` it goes at the end.
-- An `@ordered` field merges as a sequence. If only one side reordered its
-  common members, that order holds; if both reordered them differently, the
-  field conflicts.
-- A `Markdown` field merges by lines. Edits that overlap conflict.
-- Deleting a row conflicts with a concurrent change to it, and with nothing
-  else.
-- Times never conflict: `created` keeps current's value and `modified` takes
-  the later one.
-
-A conflict keeps current's value in the projection and becomes a `field`
-decision about that row field ([tree operations §1.2.3](01-tree-operations.md#123-reading-conflicts)),
-with current's value and the candidate's as alternatives. Every other field
-of the row still merges. The merged rows are written into current's
-collection file as replay writes them (§4.1), so rows neither side changed
-keep their bytes, and the result is validated against the schema; a result
-the schema rejects is a conflict on the collection's directory.
-
-A traced change of row operations is first replayed exactly on its basis;
-its candidate is then merged as above. A change that mixes row operations
-with other operations in one trace is not supported yet.
-
 The shared decision scenarios in [accepted ambiguity](conformance/accepted-ambiguity.json)
 cover these semantic obligations. They are scenario requirements, not an additional
 Overstory encoding or a claim that the reference implementation supports them already.
@@ -342,3 +301,29 @@ fields never grant authorization, express human resolution intent or execute cod
 Required resolution evidence must remain available for the advertised retention
 period; changing a rule must not rewrite it. The storage and retrieval mechanism
 for this evidence is an implementation choice.
+
+### 7.1 Collection rows
+
+`collection-fields-v1` merges two changes to one logical collection by row
+identity, then field by field, whether they arrive as row operations or as
+row differences from a snapshot. A row only one side changed takes that side.
+For a row both sides changed:
+
+- A single value conflicts only when the two set different values.
+- A many-valued field merges per member: removals and additions from both
+  sides apply. An addition to an `ordered` field follows the member it
+  follows on its own side.
+- An `ordered` field merges as a sequence. If only one side moved members,
+  its order holds; when both moved the same member, the later move by `at`
+  wins, with a merge note.
+- A `Markdown` field merges by lines. Edits that overlap conflict.
+- Deleting a row conflicts with a concurrent change to it, and with nothing
+  else.
+- Times never conflict: `created` keeps current's value and `modified` takes
+  the later one.
+
+A conflict keeps current's value in the accepted rows and becomes a `field`
+decision about that row field ([tree operations §1.2.3](01-tree-operations.md#123-reading-conflicts)),
+with current's value and the candidate's as alternatives. Every other field of
+the row still merges. The merged rows are validated against the schema; a
+result the schema rejects is a conflict on the collection's folder.

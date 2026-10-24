@@ -1,55 +1,51 @@
 #!/bin/sh
 set -eu
 
-# Packs an app in a disk image laid out the usual way: the app on the left,
-# an Applications alias on the right, large icons, no toolbar or sidebar.
+# Packs an app in a disk image laid out the usual way: the app on the left, an
+# Applications alias on the right, large icons over a background with an arrow
+# between them (dmg-background.tiff, drawn by make-dmg-background.swift), no
+# toolbar or sidebar.
 #
 #   swift/scripts/make-dmg.sh <App.app> <volume name> <output.dmg>
 #
-# The layout is set by asking Finder, which macOS lets a terminal do only after
-# its Automation permission is granted once. Without it the image is still
-# made, unarranged, and a warning says so.
+# dmgbuild writes the window's layout into the image itself, so no Finder
+# window opens and no Automation permission is needed. Install it once with
+# `python3 -m pip install dmgbuild`.
 [ $# -eq 3 ] || { echo "usage: $0 <App.app> <volume name> <output.dmg>" >&2; exit 2; }
 app=$1
 volume=$2
 output=$3
-name=$(basename "$app")
+scripts=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+python3 -c 'import dmgbuild' 2>/dev/null \
+  || { echo "error: dmgbuild is not installed; run python3 -m pip install dmgbuild" >&2; exit 1; }
 
 work=$(mktemp -d)
-trap 'hdiutil detach "$mount" -quiet -force 2>/dev/null || true; rm -rf "$work"' EXIT
-mount="$work/mount"
-staging="$work/staging"
-mkdir -p "$staging" "$mount"
-ditto "$app" "$staging/$name"
-ln -s /Applications "$staging/Applications"
-
-# A writable image first, so Finder can record the window's layout in it.
-hdiutil create -quiet -volname "$volume" -srcfolder "$staging" -format UDRW -fs HFS+ "$work/layout.dmg"
-hdiutil attach "$work/layout.dmg" -quiet -noautoopen -nobrowse -mountpoint "$mount"
-if ! osascript >/dev/null 2>"$work/finder.log" <<SCRIPT
-tell application "Finder"
-  set image to POSIX file "$mount" as alias
-  open image
-  set shown to container window of image
-  set current view of shown to icon view
-  set toolbar visible of shown to false
-  set statusbar visible of shown to false
-  set bounds of shown to {200, 200, 800, 560}
-  set options to icon view options of shown
-  set arrangement of options to not arranged
-  set icon size of options to 128
-  set text size of options to 13
-  set position of item "$name" of image to {160, 170}
-  set position of item "Applications" of image to {440, 170}
-  update image without registering applications
-  delay 1
-  close shown
-end tell
-SCRIPT
-then
-  echo "warning: Finder did not arrange the disk image ($(tr '\n' ' ' < "$work/finder.log")); it is usable but plain" >&2
-fi
-sync
-hdiutil detach "$mount" -quiet
+trap 'rm -rf "$work"' EXIT
+# The settings file is Python that dmgbuild runs; the values come in as defines.
+cat > "$work/settings.py" <<'SETTINGS'
+import os.path
+app = defines["app"]
+name = os.path.basename(app)
+format = "UDZO"
+compression_level = 9
+filesystem = "HFS+"
+files = [app]
+symlinks = {"Applications": "/Applications"}
+background = defines["background"]
+window_rect = ((200, 200), (600, 360))
+default_view = "icon-view"
+show_status_bar = False
+show_tab_view = False
+show_toolbar = False
+show_pathbar = False
+show_sidebar = False
+arrange_by = None
+icon_size = 128
+text_size = 13
+icon_locations = {name: (160, 170), "Applications": (440, 170)}
+SETTINGS
 rm -f "$output"
-hdiutil convert "$work/layout.dmg" -quiet -format UDZO -imagekey zlib-level=9 -o "$output"
+# dmgbuild drives hdiutil, whose every option now prints a deprecation warning; keep the rest.
+python3 -m dmgbuild -s "$work/settings.py" -D app="$app" -D background="$scripts/dmg-background.tiff" \
+  "$volume" "$output" 2>"$work/dmgbuild.log" || { cat "$work/dmgbuild.log" >&2; exit 1; }
+grep -v '^hdiutil: WARNING: .* is deprecated' "$work/dmgbuild.log" >&2 || true

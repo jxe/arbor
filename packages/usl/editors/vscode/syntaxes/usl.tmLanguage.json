@@ -16,45 +16,56 @@
       "include": "#number"
     },
     {
-      "match": "\\b(model)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "match": "\\b(?:(main)\\s+)?(model|enum|re)\\s+([A-Za-z_][A-Za-z0-9_]*)",
       "captures": {
         "1": {
-          "name": "keyword.other.model.usl"
+          "name": "keyword.other.usl"
         },
         "2": {
+          "name": "keyword.other.model.usl"
+        },
+        "3": {
           "name": "entity.name.type.usl"
         }
       }
     },
     {
-      "match": "\\b(view|of)\\b",
+      "match": "\\b(view|of|seed)\\b",
       "name": "keyword.other.usl"
     },
     {
-      "match": "(@@)(fixed|seed)\\b",
+      "match": "(@)([A-Za-z_][A-Za-z0-9_]*)",
       "captures": {
         "1": {
-          "name": "punctuation.definition.attribute.usl"
+          "name": "punctuation.definition.attribute.storage.usl"
         },
         "2": {
-          "name": "storage.modifier.rows.usl"
+          "name": "entity.other.attribute-name.storage.usl"
         }
       }
     },
     {
-      "match": "(@@?)([A-Za-z_][A-Za-z0-9_]*)",
+      "match": "(~)([A-Za-z_][A-Za-z0-9_]*)",
       "captures": {
         "1": {
-          "name": "punctuation.definition.attribute.usl"
+          "name": "punctuation.definition.attribute.presentation.usl"
         },
         "2": {
-          "name": "entity.other.attribute-name.usl"
+          "name": "support.function.presentation.usl"
         }
       }
     },
     {
       "match": "<->",
       "name": "keyword.operator.connection.usl"
+    },
+    {
+      "match": "\\b(ordered)\\s+(?=[A-Za-z_][A-Za-z0-9_]*\\.)",
+      "captures": {
+        "1": {
+          "name": "storage.modifier.usl"
+        }
+      }
     },
     {
       "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(\\.)([A-Za-z_][A-Za-z0-9_]*)",
@@ -71,12 +82,26 @@
       }
     },
     {
-      "match": "^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*(\\?|\\[\\]|@|//|,|}|$))",
+      "match": "\\b(as)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "keyword.other.usl"
+        },
+        "2": {
+          "name": "variable.other.property.usl"
+        }
+      }
+    },
+    {
+      "match": "^\\s*([A-Za-z_][A-Za-z0-9_]*)((?:\\s+(?:ordered|unique|path))*)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*(\\?|\\[\\]|@|~|//|,|}|$))",
       "captures": {
         "1": {
           "name": "variable.other.property.usl"
         },
         "2": {
+          "name": "storage.modifier.usl"
+        },
+        "3": {
           "name": "entity.name.type.usl"
         }
       }
@@ -93,7 +118,7 @@
       }
     },
     {
-      "match": "^\\s*([A-Za-z_][A-Za-z0-9_]*)(?=\\s*(@|\\{|,|$))",
+      "match": "^\\s*([A-Za-z_][A-Za-z0-9_]*)(?=\\s*(@|~|\\{|,|}|//|$))",
       "captures": {
         "1": {
           "name": "constant.other.row.usl"

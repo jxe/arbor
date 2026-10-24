@@ -8,7 +8,9 @@ function scalarKeys(map: YAMLMap): Array<string | null> {
 
 /**
  * A community `_index.md` with its pending invitation entry replaced by the
- * claimed member, or null unless exactly one entry is that invitation.
+ * member naming `profile` (a claimant's `overstory://tr_…/`, or a placement's
+ * locator at its home host), or null unless exactly one entry is that
+ * invitation.
  *
  * The frontmatter is read as YAML, so the entry is found however it is laid
  * out: block or flow style, either key order, quoted or plain values, any
@@ -18,7 +20,7 @@ function scalarKeys(map: YAMLMap): Array<string | null> {
  * its last value (the braces of a flow map included); every other byte of the
  * document, comments and line endings among them, is left as written.
  */
-export function claimInvitationEntry(source: string, handle: string, inviteDigest: string, profileTree: string): string | null {
+export function claimInvitationEntry(source: string, handle: string, inviteDigest: string, profile: string): string | null {
   // The same split the profile reader uses, so both see one frontmatter.
   const frontmatter = parseMarkdown(source).frontmatterSource;
   if (frontmatter === null) return null;
@@ -40,12 +42,12 @@ export function claimInvitationEntry(source: string, handle: string, inviteDiges
   if (matches.length !== 1) return null;
   const entry = matches[0]!;
 
-  const profile = JSON.stringify(`overstory://${profileTree}/`), name = JSON.stringify(handle);
+  const member = JSON.stringify(profile), name = JSON.stringify(handle);
   let start: number, end: number, replacement: string;
   if (entry.flow) {
     if (!entry.range) return null;
     [start, end] = entry.range;
-    replacement = `{ profile: ${profile}, handle: ${name} }`;
+    replacement = `{ profile: ${member}, handle: ${name} }`;
   } else {
     const first = entry.items[0]!.key, last = entry.items[1]!.value;
     if (!isScalar(first) || !isScalar(last) || !first.range || !last.range) return null;
@@ -54,7 +56,7 @@ export function claimInvitationEntry(source: string, handle: string, inviteDiges
     // The second key sits in the column the first one starts in.
     const column = start - (body.lastIndexOf("\n", start - 1) + 1);
     const newline = body.includes("\r\n") ? "\r\n" : "\n";
-    replacement = `profile: ${profile}${newline}${" ".repeat(column)}handle: ${name}`;
+    replacement = `profile: ${member}${newline}${" ".repeat(column)}handle: ${name}`;
   }
   const claimed = `${source.slice(0, bodyStart + start)}${replacement}${source.slice(bodyStart + end)}`;
 
@@ -63,6 +65,6 @@ export function claimInvitationEntry(source: string, handle: string, inviteDiges
   const index = members.items.indexOf(entry);
   const written = Array.isArray(reread) && reread.length === members.items.length ? reread[index] as Record<string, unknown> | null : null;
   if (!written || typeof written !== "object" || Object.keys(written).length !== 2
-    || written.profile !== `overstory://${profileTree}/` || written.handle !== handle) return null;
+    || written.profile !== profile || written.handle !== handle) return null;
   return claimed;
 }

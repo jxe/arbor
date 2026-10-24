@@ -36,6 +36,15 @@ The first presentation is an optional read-only **Line provenance** view in the
 native Source and Properties inspector (`StorySourceInspector`,
 `swift/StoryApp/StoryDailyDriverViews.swift`).
 
+## Use case: replaying voice recordings
+
+Story keeps transcribed voice recordings on the device for a while, so a block
+offers Play Recording for the audio its text came from. Today it matches blocks to
+recordings by page and by in-order words, which is a stopgap. With line provenance,
+Story would store the ID of the change that inserted each transcript in its local
+recordings index, and look up a block's recording through blame. No recording
+reference would ever sync.
+
 ## What exists
 
 - **Per-document lineage.** `document_versions (tree_id, stable_key, update_id,
@@ -99,6 +108,11 @@ credential), since blame reveals when deleted-then-restored lines existed. There
 no Story Sync proxy: editors call overstoryd directly.
 
 ## Algorithm
+
+[Performance 004](performance-004-provenance-index.md) keeps a provenance index (each
+file's pieces, naming the change that inserted them) at every acceptance. Once it
+exists, replace this section with a lookup in that index; the line matching below is
+the fallback for documents and versions from before it.
 
 A pure module in `packages/overstoryd/src/`, no HTTP or account lookups.
 

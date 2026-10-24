@@ -558,8 +558,9 @@ export async function serveHost(options: {
           return json(await overstoryd.openDeviceSession({ origin: publicOrigin, challenge: body.challenge, signature: body.signature }), 201);
         }
         if (url.pathname === "/.overstory/account-challenges" && request.method === "POST") {
-          const body = await bodyFields(request) as { account?: unknown; profileTree?: unknown; configurationTree?: unknown; inviteCode?: unknown };
-          if ((body.account !== undefined && typeof body.account !== "string") || (body.inviteCode !== undefined && typeof body.inviteCode !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
+          const body = await bodyFields(request) as { account?: unknown; profileTree?: unknown; configurationTree?: unknown; inviteCode?: unknown; profile?: unknown };
+          if ((body.account !== undefined && typeof body.account !== "string") || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")
+            || (body.profile !== undefined && typeof body.profile !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
             throw new Error("Account challenge requires profile TreeID, configuration TreeID, and an optional account URL");
           }
           return json(overstoryd.createAccountChallenge({
@@ -568,7 +569,40 @@ export async function serveHost(options: {
             profileTree: body.profileTree,
             configurationTree: body.configurationTree,
             inviteCode: body.inviteCode as string | undefined,
+            profile: body.profile as string | undefined,
           }), 201);
+        }
+        // An invitation accepted by a profile homed at another host (accounts §1.4).
+        if (url.pathname === "/.overstory/placements" && request.method === "PUT") {
+          const body = await bodyFields(request) as {
+            account?: unknown;
+            profile?: unknown;
+            profileTree?: unknown;
+            configurationTree?: unknown;
+            inviteCode?: unknown;
+            challenge?: AccountChallenge;
+            publicKey?: unknown;
+            signature?: unknown;
+          };
+          let accountURL: URL | undefined;
+          try { if (typeof body.account === "string") accountURL = new URL(body.account); } catch {}
+          if (
+            accountURL?.origin !== publicOrigin || typeof body.profile !== "string" || typeof body.profileTree !== "string"
+            || typeof body.configurationTree !== "string" || typeof body.inviteCode !== "string" || !body.challenge
+            || typeof body.publicKey !== "string" || typeof body.signature !== "string"
+          ) throw new Error("Accepting an invitation as a placement requires the account, the profile's locator, its code, and the signed challenge");
+          const placed = await overstoryd.acceptInvitationAsPlacement({
+            accountLocator: body.account as string,
+            origin: publicOrigin,
+            profile: body.profile,
+            profileTree: body.profileTree,
+            configurationTree: body.configurationTree,
+            challenge: body.challenge,
+            publicKey: body.publicKey,
+            signature: body.signature,
+            inviteCode: body.inviteCode,
+          });
+          return json(accountDescriptor(publicOrigin, overstoryd, placed), 201);
         }
         const pairingClaim = /^\/\.overstory\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
         if (pairingClaim && request.method === "PUT") {

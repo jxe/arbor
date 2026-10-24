@@ -24,7 +24,7 @@ struct StoryNetworkLogView: View {
         return entries.sorted { $0.at > $1.at }.filter { entry in
             guard kinds.contains(entry.kind) else { return false }
             guard !needle.isEmpty else { return true }
-            return [entry.name, entry.tree ?? "", entry.error ?? "", entry.cursor ?? "",
+            return [entry.name, entry.tree ?? "", entry.error ?? "", entry.detail ?? "", entry.cursor ?? "",
                     (entry.updateIDs ?? []).joined(separator: " "), (entry.requestDigests ?? []).joined(separator: " ")]
                 .joined(separator: " ").lowercased().contains(needle)
         }
@@ -113,7 +113,12 @@ struct StoryNetworkLogView: View {
                     }
                 }
             }
-            if let error = entry.error { Text(error).font(.caption).foregroundStyle(.red).lineLimit(open ? nil : 1) }
+            if let failure = failure(entry) {
+                Label(failure, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.red).lineLimit(open ? nil : 1)
+            } else if let remark = remark(entry) {
+                Text(remark).font(.caption).foregroundStyle(.secondary).lineLimit(open ? nil : 1)
+            }
             if open { details(entry) }
         }
         .contentShape(Rectangle())
@@ -124,27 +129,50 @@ struct StoryNetworkLogView: View {
     @ViewBuilder
     private func heading(_ entry: ProtocolNetworkLogEntry) -> some View {
         Text(Self.time.string(from: entry.at)).font(.caption.monospaced()).foregroundStyle(.secondary)
+        // A fixed-width badge keeps the names in one column.
         Text(label(entry.kind))
             .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(tint(entry).opacity(0.18), in: Capsule())
+            .padding(.vertical, 2)
+            .frame(width: Self.badgeWidth)
+            .background(tint(entry).opacity(0.15), in: Capsule())
             .foregroundStyle(tint(entry))
-        Text(entry.name).font(.body.monospaced())
+        Text(entry.name).font(.callout.monospaced())
     }
 
     @ViewBuilder
     private func metrics(_ entry: ProtocolNetworkLogEntry) -> some View {
-        Group {
-            if let status = entry.status { Text("\(status)").font(.caption.monospaced()).foregroundStyle(status >= 400 ? .red : .secondary) }
-            if let ms = entry.roundTripMs {
-                Text("↺ \(Int(ms.rounded())) ms").font(.caption.monospaced()).foregroundStyle(.blue)
-            } else if let ms = entry.durationMs {
-                Text("\(Int(ms.rounded())) ms").font(.caption.monospaced()).foregroundStyle(ms > 1000 ? .orange : .primary)
+        // Fixed, right-aligned columns so the numbers line up from row to row;
+        // a plain success status is left out as noise.
+        HStack(spacing: 10) {
+            Group {
+                if let status = entry.status, !(200..<300).contains(status) {
+                    Text("\(status)").foregroundStyle(statusTint(status))
+                } else {
+                    Text("")
+                }
             }
-            if let total = entry.serverTiming?["total"] {
-                Text("server \(Int(total.rounded()))").font(.caption.monospaced()).foregroundStyle(.secondary)
+            .frame(width: 32, alignment: .trailing)
+            Group {
+                if let ms = entry.roundTripMs {
+                    Text("↺ \(Int(ms.rounded())) ms").foregroundStyle(.blue)
+                } else if let ms = entry.durationMs {
+                    Text("\(Int(ms.rounded())) ms").foregroundStyle(ms > 1000 ? .orange : .primary)
+                } else {
+                    Text("")
+                }
             }
+            .frame(width: 76, alignment: .trailing)
+            Group {
+                if let total = entry.serverTiming?["total"] {
+                    Text("server \(Int(total.rounded()))")
+                } else {
+                    Text("")
+                }
+            }
+            .foregroundStyle(.secondary)
+            .frame(width: 76, alignment: .trailing)
         }
+        .font(.caption.monospaced())
     }
 
     @ViewBuilder
@@ -194,17 +222,44 @@ struct StoryNetworkLogView: View {
         }
     }
 
+    /// The entry's failure, if it has one. Red is kept for these alone: a
+    /// cancelled request is the app moving on, not a failure, and older
+    /// presentation notes kept the sync state in `error`.
+    private func failure(_ entry: ProtocolNetworkLogEntry) -> String? {
+        guard let error = entry.error, !Self.isCancellation(error),
+              !(entry.kind == .note && entry.name == "presentation") else { return nil }
+        return error
+    }
+
+    /// What the entry says when nothing failed.
+    private func remark(_ entry: ProtocolNetworkLogEntry) -> String? {
+        entry.detail ?? (failure(entry) == nil ? entry.error : nil)
+    }
+
+    private static func isCancellation(_ error: String) -> Bool {
+        error == "cancelled" || error.hasPrefix("URLError -999:")
+    }
+
+    /// A 409 is the protocol's conflict answer, which sync resolves; other
+    /// 4xx and 5xx answers are failures.
+    private func statusTint(_ status: Int) -> Color {
+        status == 409 ? .orange : status >= 400 ? .red : .secondary
+    }
+
     private func tint(_ entry: ProtocolNetworkLogEntry) -> Color {
-        if entry.error != nil { return .red }
+        if failure(entry) != nil { return .red }
+        if let status = entry.status, status >= 400 { return statusTint(status) }
         switch entry.kind {
         case .update: return .green
         case .watchConnect: return .blue
         case .watchFrame: return .teal
-        case .watchDisconnect: return .orange
+        case .watchDisconnect: return .indigo
         case .read: return .gray
         case .note: return .purple
         }
     }
+
+    private static let badgeWidth: CGFloat = 72
 
     private func shortTree(_ tree: String) -> String { tree.count > 12 ? String(tree.prefix(12)) + "…" : tree }
 
@@ -233,3 +288,22 @@ func storyCopyToPasteboard(_ text: String) {
     UIPasteboard.general.string = text
 #endif
 }
+
+#if os(macOS)
+/// Put a link on the general pasteboard: the URL as text for plain pastes,
+/// and titled for apps that read a link's name (Safari, Notes, Mail).
+@MainActor
+func storyCopyLink(_ url: URL, title: String) {
+    let escaped = title
+        .replacingOccurrences(of: "&", with: "&amp;")
+        .replacingOccurrences(of: "<", with: "&lt;")
+        .replacingOccurrences(of: ">", with: "&gt;")
+    let href = url.absoluteString.replacingOccurrences(of: "\"", with: "%22")
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    pasteboard.setString(url.absoluteString, forType: .string)
+    pasteboard.setString(url.absoluteString, forType: .URL)
+    pasteboard.setString(title, forType: NSPasteboard.PasteboardType("public.url-name"))
+    pasteboard.setString("<a href=\"\(href)\">\(escaped)</a>", forType: .html)
+}
+#endif

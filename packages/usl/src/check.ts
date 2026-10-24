@@ -1,6 +1,7 @@
 // Checks a parsed .usl file against the language's invariants and resolves
 // each model's full set of fields: its own, those its connections give it,
-// and, for a connection model, the ends that key it.
+// and, for a connection model, the ends that key it. `re` blocks are merged
+// into the models they annotate first.
 
 import { LayoutError, layoutOf } from "./layout.ts";
 import type {
@@ -10,24 +11,30 @@ import type {
   EndDecl,
   Expr,
   FieldDecl,
+  Member,
   ModelAttribute,
   ModelDecl,
   ObjectEntry,
   Position,
   RowsBlock,
   SchemaFile,
+  Sigil,
 } from "./ast.ts";
 
 export const VALUE_TYPES = ["Text", "Markdown", "Int", "Number", "Bool", "Date"] as const;
 export const BUILTIN_MODELS = ["Person"] as const;
 export const IMPLICIT_FIELDS = ["id", "created", "modified"] as const;
 
-const FIELD_ATTRIBUTES = ["ordered", "color", "unique", "as", "column", "fold", "path"];
-const MODEL_ATTRIBUTES = ["views", "editableBy", "fold", "table", "id", "index"];
+// Each attribute name belongs to one layer (its sigil) and one level.
+const FIELD_ATTRIBUTES: Record<string, Sigil> = { column: "@", fold: "@", body: "@", title: "@", color: "~" };
+const MODEL_ATTRIBUTES: Record<string, Sigil> = { table: "@", index: "@", fold: "@", views: "~" };
+const VALUE_ATTRIBUTES: Record<string, Sigil> = { stored: "@", color: "~" };
+const MODIFIERS = ["ordered", "unique", "path"];
 const VIEW_OPTIONS = ["label", "line", "group", "sort"];
-// Presentation of one item in a view's line: `@bullet` draws a fixed value as
-// the row's colored bullet, `@summary` shows a many-valued field as a count,
-// and `@label("lead")` names one of its members.
+// Presentation of one item in a view's line: `~bullet` draws an enum value as
+// the row's colored bullet, `~summary` shows a many-valued field as a count,
+// `~label("lead")` names one of its members, and `~sort(field)` lists a
+// connection's members by a field of theirs.
 const LINE_ATTRIBUTES = ["bullet", "summary", "label", "sort"];
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 
@@ -40,7 +47,7 @@ export interface ResolvedField {
   origin: "declared" | "connection" | "end";
   ordered: boolean;
   unique: boolean;
-  /** Holds the row's color (`@color`). */
+  /** Holds the row's color (`~color`). */
   color: boolean;
   /** The stored column's name when it differs from the field's (`@column("…")`). */
   column?: string;
@@ -52,7 +59,7 @@ export interface ResolvedEnd {
   field: string;
   arity: Arity;
   ordered: boolean;
-  /** The field this end gets in its connection model (`@as`, or the model's name in lower case). */
+  /** The field this end gets in its connection model (`as`, or the model's name in lower case). */
   as: string;
   /** `@column("…")` on the end. */
   column?: string;
@@ -72,25 +79,29 @@ export type Storage =
 
 export interface ResolvedModel {
   name: string;
-  /** The stored table's name when it differs from the model's (`@@table("…")`). */
+  /** `main model`: its rows are the collection folder's own children. */
+  main: boolean;
+  /** The stored table's name when it differs from the model's (`@table("…")`). */
   table?: string;
-  /** `fixed` rows live in the schema; `seed` rows are data with defaults; `data` is an ordinary collection. */
+  /** `fixed` rows are an enum's values; `seed` rows are data with defaults; `data` is an ordinary collection. */
   rows: "fixed" | "seed" | "data";
-  /** The fields that identify a row: its ends for a connection model, otherwise `id` (or the row name, for fixed rows). */
+  /** The fields that identify a row: its ends for a connection model, the header key, otherwise `id` (or the value's name, for an enum). */
   key: string[];
   fields: ResolvedField[];
   storage?: Storage;
-  /** The field whose value is each row's path segment in an Overstory tree (`@path`); otherwise its key is. */
+  /** The field whose value is each row's path segment in an Overstory tree (`path`); otherwise its key is. */
   path?: string;
+  /** In Markdown row files, the field written as the body (`@body`, else a `Markdown` field named `content`). */
+  body?: string;
+  /** In Markdown row files, the field written as the page title (`@title`, else a `Text` field named `title`). */
+  title?: string;
   /** A connection model's ends. */
   ends: ResolvedEnd[];
-  /** The rows written in `@@fixed` or `@@seed`, with their values and a fixed row's `@color`. */
-  schemaRows: { name: string; values: Record<string, RowValue>; color?: string }[];
-  /** `@@views`, in tab order; empty when the model has none. */
+  /** An enum's values or `seed` rows, with their values, an enum value's `~color` and its `@stored` text. */
+  schemaRows: { name: string; values: Record<string, RowValue>; color?: string; stored?: string }[];
+  /** `~views`, in tab order; empty when the model has none. */
   views: ResolvedView[];
-  /** The `Person` fields named by `@@editableBy`: people in them may change the model's rows. */
-  editableBy: string[];
-  /** `@@index(...)`, each a list of single-valued fields (`id`, `created` and `modified` included) to look rows up by. */
+  /** `@index(...)`, each a list of single-valued fields (`id`, `created` and `modified` included) to look rows up by. */
   indexes: string[][];
 }
 
@@ -100,16 +111,16 @@ export interface LineItem {
   bullet: boolean;
   summary: boolean;
   label?: string;
-  /** `@sort(field)`: lists a connection's members by a field of theirs instead of as connected. */
+  /** `~sort(field)`: lists a connection's members by a field of theirs instead of as connected. */
   sort?: string;
 }
 
-/** A default arrangement from `@@views`. A view without a `line` uses the first view's. */
+/** A default arrangement from `~views`. A view without a `line` uses the first view's. */
 export interface ResolvedView {
   label: string;
   line: LineItem[];
   group?: string;
-  /** `group: field @sort(name)`: the groups in order of a field of theirs. */
+  /** `group: field ~sort(name)`: the groups in order of a field of theirs. */
   groupSort?: string;
   sort?: string;
 }
@@ -136,12 +147,9 @@ interface EndInfo {
 }
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
-const identArg = (attrs: Attribute[], name: string): string | undefined => {
-  const arg = attrs.find((a) => a.name === name)?.args[0];
-  return arg?.kind === "ident" ? arg.name : undefined;
-};
-/** The field a connection model gets for one of its ends: `@as(name)`, or the end's model in lower case. */
-const keyFieldOf = (end: EndDecl) => identArg(end.attrs, "as") ?? lowerFirst(end.model);
+/** The field a connection model gets for one of its ends: `as name`, or the end's model in lower case. */
+const keyFieldOf = (end: EndDecl) => end.as?.name ?? lowerFirst(end.model);
+const hasModifier = (field: FieldDecl, name: string) => field.modifiers.some((m) => m.name === name);
 /** `{ column: "…" }` when `@column("…")` is among the attributes. */
 const columnOf = (attrs: Attribute[]): { column?: string } => {
   const arg = attrs.find((a) => a.name === "column")?.args[0];
@@ -151,7 +159,7 @@ const resolvedEnd = (end: EndDecl): ResolvedEnd => ({
   model: end.model,
   field: end.field,
   arity: end.arity,
-  ordered: end.attrs.some((a) => a.name === "ordered"),
+  ordered: end.ordered !== null,
   as: keyFieldOf(end),
   ...columnOf(end.attrs),
   fold: end.attrs.some((a) => a.name === "fold"),
@@ -172,25 +180,31 @@ const rowValue = (expr: Expr): RowValue => {
 const arityText = (arity: Arity) => (arity === "many" ? "[]" : arity === "optional" ? "?" : "");
 const isValueType = (type: string) => (VALUE_TYPES as readonly string[]).includes(type);
 
-export function checkUsl(file: SchemaFile): CheckResult {
+export function checkUsl(parsed: SchemaFile): CheckResult {
+  // A copy, so merging `re` blocks never changes the parsed file.
+  const file = structuredClone(parsed);
   const diagnostics: Diagnostic[] = [];
   const report = (code: string, at: Position, message: string) =>
     diagnostics.push({ code, message, line: at.line, column: at.column });
 
-  // 1. Model names.
+  // 1. Model names. The model layer is declared once; `re` adds to it.
   const models = new Map<string, ModelDecl>();
   for (const decl of file.declarations) {
     if (decl.kind !== "model") continue;
     if ((VALUE_TYPES as readonly string[]).includes(decl.name) || (BUILTIN_MODELS as readonly string[]).includes(decl.name)) {
       report("reserved-model", decl.at, `\`${decl.name}\` is built in and can't be declared`);
     } else if (models.has(decl.name)) {
-      report("duplicate-model", decl.at, `Model \`${decl.name}\` is declared twice`);
+      report("duplicate-model", decl.at, `Model \`${decl.name}\` is declared twice; add to it with \`re ${decl.name} { ... }\``);
     } else {
       models.set(decl.name, decl);
     }
   }
+  const mains = [...models.values()].filter((m) => m.main);
+  for (const extra of mains.slice(1)) report("main-model", extra.main!, "A schema has at most one `main` model");
+  mergeRe(file, models, report);
   const modelExists = (name: string) => models.has(name) || (BUILTIN_MODELS as readonly string[]).includes(name);
   const rowsOf = (model: ModelDecl) => model.members.find((m): m is RowsBlock => m.kind === "rows");
+  const connectionEndsOf = (decl: { members: Member[] }) => decl.members.filter((m): m is EndDecl => m.kind === "end");
   const isFixed = (name: string) => {
     const model = models.get(name);
     return model ? rowsOf(model)?.mode === "fixed" : false;
@@ -226,6 +240,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
       continue;
     }
     const [a, b] = connectionEnds as [EndDecl, EndDecl];
+    if (a.ordered && b.ordered) report("ordered-ends", b.ordered, "At most one end of a connection is `ordered`");
     declareEnd(a, b.model, null);
     declareEnd(b, a.model, null);
     if (modelExists(a.model) && modelExists(b.model)) unnamed.push({ a, b });
@@ -269,10 +284,10 @@ export function checkUsl(file: SchemaFile): CheckResult {
             type: member.type,
             arity: member.arity,
             origin: "declared",
-            ordered: member.attrs.some((a) => a.name === "ordered"),
-            unique: member.attrs.some((a) => a.name === "unique"),
+            ordered: hasModifier(member, "ordered"),
+            unique: hasModifier(member, "unique"),
             ...columnOf(member.attrs),
-            color: member.attrs.some((a) => a.name === "color"),
+            color: member.attrs.some((a) => a.name === "color" && a.sigil === "~"),
           });
         }
       }
@@ -283,7 +298,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
       if (!modelExists(end.model)) continue;
       const fieldName = keyFieldOf(end);
       if (fields.has(fieldName) || declared.has(fieldName)) {
-        const hint = end.attrs.some((a) => a.name === "as") ? "" : `; name this side with \`@as(...)\``;
+        const hint = end.as ? "" : `; name this side with \`as ...\``;
         report("duplicate-field", end.at, `\`${name}\` already has a field \`${fieldName}\`, which this end would key it by${hint}`);
         continue;
       }
@@ -309,7 +324,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
         type: info.target,
         arity: info.decl.arity,
         origin: "connection",
-        ordered: info.decl.attrs.some((a) => a.name === "ordered"),
+        ordered: info.decl.ordered !== null,
         unique: false,
         color: false,
         ...columnOf(info.decl.attrs),
@@ -337,7 +352,12 @@ export function checkUsl(file: SchemaFile): CheckResult {
       }
       for (const attr of decl.attrs) {
         if (!info.decl.attrs.some((a) => a.name === attr.name)) {
-          report("cross-reference-mismatch", attr.at, `\`@${attr.name}\` belongs on the end \`${declaredEnd}\`, where the connection is declared`);
+          report("cross-reference-mismatch", attr.at, `\`${attr.sigil}${attr.name}\` belongs on the end \`${declaredEnd}\`, where the connection is declared`);
+        }
+      }
+      for (const modifier of decl.modifiers) {
+        if (modifier.name !== "ordered" || !info.decl.ordered) {
+          report("cross-reference-mismatch", modifier.at, `\`${modifier.name}\` belongs on the end \`${declaredEnd}\`, where the connection is declared`);
         }
       }
     }
@@ -345,6 +365,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
     const key = modelEnds.length >= 2 ? modelEnds.map(keyFieldOf) : rows?.mode === "fixed" ? ["name"] : ["id"];
     const entry: ResolvedModel = {
       name,
+      main: model?.main != null,
       rows: rows?.mode ?? "data",
       key,
       // Fields written in the model come in the order they're written; the rest follow.
@@ -354,131 +375,193 @@ export function checkUsl(file: SchemaFile): CheckResult {
       ],
       ends: modelEnds.map(resolvedEnd),
       schemaRows: (rows?.rows ?? []).map((row) => {
-        const color = row.attrs.find((a) => a.name === "color")?.args[0];
+        const color = row.attrs.find((a) => a.name === "color" && a.sigil === "~")?.args[0];
+        const stored = row.attrs.find((a) => a.name === "stored" && a.sigil === "@")?.args[0];
         return {
           name: row.name,
           values: Object.fromEntries(row.values.map((v) => [v.key, rowValue(v.value)])),
           ...(color?.kind === "string" ? { color: color.value } : {}),
+          ...(stored?.kind === "string" ? { stored: stored.value } : {}),
         };
       }),
       views: model ? resolvedViews(model) : [],
-      editableBy: [],
       indexes: [],
     };
     resolved.set(name, entry);
     fieldMaps.set(name, fields);
   }
 
-  // 4. Field and end attributes.
+  // 4. Field and end modifiers and attributes.
   const checkFieldAttrs = (attrs: Attribute[], arity: Arity, type: string | null, owner: string, end?: { decl: EndDecl; named: boolean }) => {
+    const seen = new Set<string>();
     for (const attr of attrs) {
-      const endOnly = attr.name === "as" || attr.name === "fold";
+      const layer = FIELD_ATTRIBUTES[attr.name];
+      if (seen.has(`${attr.sigil}${attr.name}`)) {
+        report("duplicate-attribute", attr.at, `\`${attr.sigil}${attr.name}\` is set twice`);
+        continue;
+      }
+      seen.add(`${attr.sigil}${attr.name}`);
+      if (MODIFIERS.includes(attr.name) || attr.name === "as") {
+        report("attribute-layer", attr.at, `\`${attr.name}\` is a keyword of the model: write it before the type (\`${attr.name === "as" ? "Model.field as name" : `field ${attr.name} Type`}\`)`);
+        continue;
+      }
+      if (attr.name === "bullet" || attr.name === "summary" || attr.name === "label") {
+        report("misplaced-attribute", attr.at, `\`~${attr.name}\` is presentation; put it on the field in a view's \`line\``);
+        continue;
+      }
+      if (!layer) {
+        report("unknown-attribute", attr.at, `Unknown attribute \`${attr.sigil}${attr.name}\``);
+        continue;
+      }
+      if (layer !== attr.sigil) {
+        report("attribute-layer", attr.at, `\`${attr.name}\` is ${layer === "@" ? "storage" : "presentation"}: write \`${layer}${attr.name}\``);
+        continue;
+      }
       if (attr.name === "column") {
         if (attr.args.length !== 1 || attr.args[0]!.kind !== "string" || attr.args[0]!.value === "") {
           report("attribute-arguments", attr.at, '`@column` names the stored column: `@column("list_id")`');
         }
-        continue;
-      }
-      if (attr.name === "fold") {
+      } else if (attr.name === "fold") {
         if (!end) report("misplaced-attribute", attr.at, "`@fold` goes on a connection end");
-        else if (end.named) report("misplaced-attribute", attr.at, "A connection model folds with `@@fold(Model)`");
-        else if (attr.args.length > 0) report("attribute-arguments", attr.at, "`@fold` takes no arguments");
+        else if (end.named) report("misplaced-attribute", attr.at, "A connection model folds with `@fold(Model)` as a model item");
+        else if (attr.args.length > 0) report("attribute-arguments", attr.at, "`@fold` on an end takes no arguments");
         // Whether the connection can fold is checked with its storage.
-        continue;
-      }
-      if (attr.name === "bullet") {
-        report("misplaced-attribute", attr.at, "`@bullet` is presentation; put it on the field in a view's `line`");
-      } else if (!FIELD_ATTRIBUTES.includes(attr.name)) {
-        report("unknown-attribute", attr.at, `Unknown attribute \`@${attr.name}\``);
-      } else if (endOnly && !end) {
-        report("misplaced-attribute", attr.at, `\`@${attr.name}\` goes on a connection end`);
-      } else if (endOnly && (attr.args.length !== 1 || attr.args[0]!.kind !== "ident")) {
-        report("attribute-arguments", attr.at, `\`@${attr.name}\` names one field: \`@${attr.name}(list)\``);
-      } else if (attr.name === "as" && !end!.named) {
-        report("misplaced-attribute", attr.at, "`@as` names a connection model's field for this end; an unnamed connection has no such field");
-      } else if (endOnly) {
-        // `@as` is applied where the connection model's fields are resolved.
       } else if (attr.args.length > 0) {
-        report("attribute-arguments", attr.at, `\`@${attr.name}\` on a field takes no arguments`);
-      } else if (attr.name === "ordered" && arity !== "many") {
-        report("ordered-single", attr.at, "`@ordered` only applies to a many-valued field (`[]`)");
+        report("attribute-arguments", attr.at, `\`${attr.sigil}${attr.name}\` on a field takes no arguments`);
+      } else if (end) {
+        report("misplaced-attribute", attr.at, `\`${attr.sigil}${attr.name}\` goes on a value field, not a connection end`);
       } else if (attr.name === "color" && (type !== "Text" || arity === "many")) {
-        report("color-field-type", attr.at, "`@color` marks a single `Text` field holding each row's color");
-      } else if (attr.name === "unique" && (type === null || !isValueType(type) || arity === "many")) {
-        report("unique-value", attr.at, "`@unique` applies to a single value field; a connection's arity already says how many");
-      } else if (attr.name === "path" && (type !== "Text" || arity !== "one")) {
-        report("path-field", attr.at, "`@path` marks a required `Text` field whose value names the row in the tree");
+        report("color-field-type", attr.at, "`~color` marks a single `Text` field holding each row's color");
       } else if (attr.name === "color" && isFixed(owner)) {
-        report("misplaced-attribute", attr.at, "A fixed model's colors go on its rows; a `@color` field is for `@@seed` models");
+        report("misplaced-attribute", attr.at, "An enum's colors go on its values; a `~color` field is for models");
+      } else if (attr.name === "body" && (type !== "Markdown" || arity === "many")) {
+        report("body-field", attr.at, "`@body` marks a single `Markdown` field written as a Markdown row's body");
+      } else if (attr.name === "title" && (type !== "Text" || arity === "many")) {
+        report("title-field", attr.at, "`@title` marks a single `Text` field written as a Markdown row's title");
       }
     }
   };
+  const checkModifiers = (field: FieldDecl, owner: string) => {
+    const seen = new Set<string>();
+    for (const modifier of field.modifiers) {
+      if (seen.has(modifier.name)) {
+        report("duplicate-attribute", modifier.at, `\`${modifier.name}\` is written twice`);
+        continue;
+      }
+      seen.add(modifier.name);
+      if (modifier.name === "ordered" && field.arity !== "many") {
+        report("ordered-single", modifier.at, "`ordered` only applies to a many-valued field (`[]`)");
+      } else if (modifier.name === "unique" && (!isValueType(field.type) || field.arity === "many")) {
+        report("unique-value", modifier.at, "`unique` applies to a single value field; a connection's arity already says how many");
+      } else if (modifier.name === "path" && (field.type !== "Text" || field.arity !== "one")) {
+        report("path-field", modifier.at, "`path` marks a required `Text` field whose value names the row in the tree");
+      } else if (modifier.name === "path" && isFixed(owner)) {
+        report("path-field", modifier.at, "An enum's values are named by themselves");
+      }
+    }
+  };
+  const checkEnd = (end: EndDecl, named: boolean) => {
+    if (end.ordered && end.arity !== "many") report("ordered-single", end.ordered, "`ordered` only applies to a many end (`[]`)");
+    if (end.as && !named) report("misplaced-attribute", end.as.at, "`as` names a connection model's field for this end; an unnamed connection has no such field");
+  };
   for (const model of models.values()) {
     for (const member of model.members) {
-      if (member.kind === "field" && isValueType(member.type)) checkFieldAttrs(member.attrs, member.arity, member.type, model.name);
-      if (member.kind === "end") checkFieldAttrs(member.attrs, member.arity, null, model.name, { decl: member, named: true });
+      if (member.kind === "field") {
+        checkModifiers(member, model.name);
+        if (isValueType(member.type)) checkFieldAttrs(member.attrs, member.arity, member.type, model.name);
+      }
+      if (member.kind === "end") {
+        checkEnd(member, true);
+        checkFieldAttrs(member.attrs, member.arity, null, model.name, { decl: member, named: true });
+      }
     }
-    const colorFields = model.members.filter((m) => m.kind === "field" && m.attrs.some((a) => a.name === "color"));
+    const marked = (name: string) => model.members.filter((m): m is FieldDecl => m.kind === "field" && m.attrs.some((a) => a.name === name && a.sigil === FIELD_ATTRIBUTES[name]));
+    const colorFields = marked("color");
     if (colorFields.length > 1) {
       report("duplicate-color", colorFields[1]!.at, "Only one field per model can hold the row's color");
     }
-    const pathFields = model.members.filter((m): m is FieldDecl => m.kind === "field" && m.attrs.some((a) => a.name === "path"));
+    const pathFields = model.members.filter((m): m is FieldDecl => m.kind === "field" && hasModifier(m, "path"));
     if (pathFields.length > 1) report("duplicate-path", pathFields[1]!.at, "Only one field per model can name its rows");
-    if (pathFields[0]) resolved.get(model.name)!.path = pathFields[0].name;
+    const entry = resolved.get(model.name)!;
+    if (pathFields[0]) entry.path = pathFields[0].name;
+    for (const [name, fallback, type] of [["body", "content", "Markdown"], ["title", "title", "Text"]] as const) {
+      const fields = marked(name);
+      if (fields.length > 1) report(`duplicate-${name}`, fields[1]!.at, `Only one field per model is its \`@${name}\``);
+      const conventional = model.members.find((m): m is FieldDecl => m.kind === "field" && m.name === fallback && m.type === type && m.arity !== "many");
+      const chosen = fields[0]?.name ?? conventional?.name;
+      if (chosen && model.form === "model") entry[name] = chosen;
+    }
+    const modelEnds = connectionEndsOf(model);
+    const ordered = modelEnds.filter((e) => e.ordered);
+    if (ordered.length > 1) report("ordered-ends", ordered[1]!.ordered!, "At most one end of a connection is `ordered`");
+    if (model.main && (model.form === "enum" || modelEnds.length > 0)) {
+      report("main-model", model.main, model.form === "enum" ? "An enum has no rows of its own to be the main model" : "A connection model can't be the main model");
+    }
   }
   for (const decl of file.declarations) {
     if (decl.kind !== "connection") continue;
-    for (const member of decl.members) if (member.kind === "end") checkFieldAttrs(member.attrs, member.arity, null, member.model, { decl: member, named: false });
+    for (const member of decl.members) {
+      if (member.kind !== "end") continue;
+      checkEnd(member, false);
+      checkFieldAttrs(member.attrs, member.arity, null, member.model, { decl: member, named: false });
+    }
   }
 
-  // A connection's members sort by a field of theirs: `name` for a person or a
-  // fixed row, otherwise a field, `created` or `modified`.
+  // A connection's members sort by a field of theirs: `name` for a person or
+  // an enum value, otherwise a field, `created` or `modified`.
   const sortable = (target: string, field: string) =>
     target === "Person" || isFixed(target)
       ? field === "name" || Boolean(fieldMaps.get(target)?.has(field))
       : (IMPLICIT_FIELDS as readonly string[]).includes(field) || Boolean(fieldMaps.get(target)?.has(field));
 
-  // 5. Model attributes.
+  // 5. Header keys and model attributes.
   for (const model of models.values()) {
     const fields = fieldMaps.get(model.name)!;
     const seen = new Set<string>();
-    const modelEnds = model.members.filter((m): m is EndDecl => m.kind === "end");
+    const modelEnds = connectionEndsOf(model);
     const rows = model.members.filter((m): m is RowsBlock => m.kind === "rows");
+    const entry = resolved.get(model.name)!;
 
-    for (const member of model.members) {
-      if (member.kind !== "modelAttribute" && member.kind !== "rows") continue;
-      const name = member.kind === "rows" ? "rows" : member.name;
-      // A model may have several indexes; every other attribute appears once.
-      if (seen.has(name) && name !== "index") {
-        report("duplicate-attribute", member.at, member.kind === "rows" ? "A model has at most one `@@fixed` or `@@seed` block" : `\`@@${name}\` appears twice`);
-        continue;
-      }
-      seen.add(name);
-      if (member.kind === "rows") continue;
-      if (member.name === "fixed" || member.name === "seed") {
-        report("syntax", member.at, `\`@@${member.name}\` takes a block of rows: \`@@${member.name} { A, B }\``);
-      } else if (!MODEL_ATTRIBUTES.includes(member.name)) {
-        report("unknown-attribute", member.at, `Unknown model attribute \`@@${member.name}\``);
-      } else if (member.name === "views") {
-        checkViews(member, model.name, fields, sortable, report);
-      } else if (member.name === "editableBy") {
-        if (member.args.length === 0) report("attribute-arguments", member.at, "`@@editableBy` names at least one field");
-        for (const arg of member.args) {
-          if (arg.kind !== "ident") {
-            report("attribute-arguments", arg.at, "`@@editableBy` takes field names");
+    if (model.key) {
+      if (model.form === "enum") {
+        report("id-on-rows", model.key.at, "An enum's values are identified by their names");
+      } else {
+        entry.key = [];
+        for (const { name, at } of model.key.fields) {
+          if (name === "id") {
+            entry.key.push("id"); // the implicit id, unique only alongside the other key fields
             continue;
           }
-          const field = fields.get(arg.name);
-          if (!field) report("unknown-field", arg.at, `\`${model.name}\` has no field \`${arg.name}\``);
-          else if (field.type !== "Person") report("editable-by-person", arg.at, `\`${arg.name}\` holds ${field.type}, not Person`);
-          else resolved.get(model.name)!.editableBy.push(arg.name);
+          const field = fields.get(name);
+          if (!field) report("unknown-field", at, `\`${model.name}\` has no field \`${name}\``);
+          else if (field.arity !== "one") report("id-field", at, `\`${name}\` is part of the key, so it must hold exactly one value`);
+          else entry.key.push(name);
         }
+      }
+    }
+    if (rows.length > 1) report("duplicate-attribute", rows[1]!.at, model.form === "enum" ? "An enum has no `seed` block; make it a model" : "A model has at most one `seed` block");
+
+    for (const member of model.members) {
+      if (member.kind !== "modelAttribute") continue;
+      const layer = MODEL_ATTRIBUTES[member.name];
+      // A model may have several indexes; every other attribute appears once.
+      if (seen.has(member.name) && member.name !== "index") {
+        report("duplicate-attribute", member.at, `\`${member.sigil}${member.name}\` appears twice`);
+        continue;
+      }
+      seen.add(member.name);
+      if (!layer) {
+        report("unknown-attribute", member.at, `Unknown model attribute \`${member.sigil}${member.name}\``);
+      } else if (layer !== member.sigil) {
+        report("attribute-layer", member.at, `\`${member.name}\` is ${layer === "@" ? "storage" : "presentation"}: write \`${layer}${member.name}\``);
+      } else if (member.name === "views") {
+        checkViews(member, model.name, fields, sortable, report);
       } else if (member.name === "index") {
-        if (member.args.length === 0) report("attribute-arguments", member.at, "`@@index` names at least one field");
+        if (member.args.length === 0) report("attribute-arguments", member.at, "`@index` names at least one field");
         const index: string[] = [];
         for (const arg of member.args) {
           if (arg.kind !== "ident") {
-            report("attribute-arguments", arg.at, "`@@index` takes field names");
+            report("attribute-arguments", arg.at, "`@index` takes field names");
             continue;
           }
           const field = fields.get(arg.name);
@@ -486,44 +569,23 @@ export function checkUsl(file: SchemaFile): CheckResult {
           else if (field && field.arity === "many") report("index-many", arg.at, `\`${arg.name}\` holds many values; an index takes single-valued fields`);
           else index.push(arg.name);
         }
-        if (index.length === member.args.length && index.length > 0) resolved.get(model.name)!.indexes.push(index);
-      } else if (member.name === "id") {
-        const entry = resolved.get(model.name)!;
-        if (rows.length > 0) {
-          report("id-on-rows", member.at, "Rows written in the schema are identified by their names");
-          continue;
-        }
-        entry.key = member.args.length === 0 ? ["id"] : [];
-        for (const arg of member.args) {
-          if (arg.kind !== "ident") {
-            report("attribute-arguments", arg.at, "`@@id` takes field names");
-            continue;
-          }
-          if (arg.name === "id") {
-            entry.key.push("id"); // the implicit id, now unique only alongside the other key fields
-            continue;
-          }
-          const field = fields.get(arg.name);
-          if (!field) report("unknown-field", arg.at, `\`${model.name}\` has no field \`${arg.name}\``);
-          else if (field.arity !== "one") report("id-field", arg.at, `\`${arg.name}\` is part of the key, so it must hold exactly one value`);
-          else entry.key.push(arg.name);
-        }
-      } else if (member.name === "table" && member.args.length > 0) {
+        if (index.length === member.args.length && index.length > 0) entry.indexes.push(index);
+      } else if (member.name === "table" && modelEnds.length === 0) {
         const arg = member.args[0];
         if (member.args.length !== 1 || arg?.kind !== "string" || arg.value === "") {
-          report("attribute-arguments", member.at, '`@@table` names the stored table: `@@table("lists")`');
-        } else if (rows.some((r) => r.mode === "fixed")) {
-          report("stored-on-fixed", member.at, `\`${model.name}\` has fixed rows and no table to name`);
+          report("attribute-arguments", member.at, '`@table` names the stored table: `@table("lists")`');
+        } else if (model.form === "enum") {
+          report("stored-on-fixed", member.at, `\`${model.name}\` is an enum and has no table to name`);
         } else {
-          resolved.get(model.name)!.table = arg.value;
+          entry.table = arg.value;
         }
       } else if (member.name === "fold" || member.name === "table") {
         if (modelEnds.length === 0) {
-          report("storage-on-plain-model", member.at, `\`@@${member.name}\` chooses storage for a connection; \`${model.name}\` has no ends`);
+          report("storage-on-plain-model", member.at, `\`@${member.name}\` chooses storage for a connection; \`${model.name}\` has no ends`);
         } else if (member.name === "fold") {
           const arg = member.args[0];
           if (member.args.length !== 1 || arg?.kind !== "ident") {
-            report("attribute-arguments", member.at, "`@@fold` names one model: `@@fold(List)`");
+            report("attribute-arguments", member.at, "`@fold` on a connection model names one model: `@fold(List)`");
           } else if (!modelEnds.some((e) => e.model === arg.name)) {
             report("fold-target", arg.at, `\`${model.name}\` can fold only into a model it connects, not \`${arg.name}\``);
           } else if (arg.name === "Person" || isFixed(arg.name)) {
@@ -534,13 +596,12 @@ export function checkUsl(file: SchemaFile): CheckResult {
     }
     if (seen.has("fold") && seen.has("table") && modelEnds.length > 0) {
       const second = model.members.find((m) => m.kind === "modelAttribute" && m.name === "table")!;
-      report("fold-and-table", second.at, "`@@fold` and `@@table` contradict each other");
+      report("fold-and-table", second.at, "`@fold` and `@table` contradict each other");
     }
 
     const block = rows[0];
     if (block) checkRows(model, block, modelEnds, report);
 
-    const entry = resolved.get(model.name)!;
     if (modelEnds.length > 0) {
       const fold = model.members.find((m): m is ModelAttribute => m.kind === "modelAttribute" && m.name === "fold");
       const into = fold?.args[0];
@@ -583,7 +644,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
       report(
         "stored-on-fixed",
         a.at,
-        `\`${label[0]} <-> ${label[1]}\` would be stored on ${where}, which ${candidates.length > 1 ? "have" : "has"} no table (Person and fixed models don't)`,
+        `\`${label[0]} <-> ${label[1]}\` would be stored on ${where}, which ${candidates.length > 1 ? "have" : "has"} no table (Person and enums don't)`,
       );
       continue;
     }
@@ -620,7 +681,7 @@ export function checkUsl(file: SchemaFile): CheckResult {
 
 type Report = (code: string, at: Position, message: string) => void;
 
-/** A model's `@@views`, as far as they are well formed; checkViews reports the rest. */
+/** A model's `~views`, as far as they are well formed; checkViews reports the rest. */
 function resolvedViews(model: ModelDecl): ResolvedView[] {
   const attr = model.members.find((m): m is ModelAttribute => m.kind === "modelAttribute" && m.name === "views");
   const list = attr?.args[0];
@@ -635,11 +696,11 @@ function resolvedViews(model: ModelDecl): ResolvedView[] {
     const items: LineItem[] = line?.kind === "list"
       ? line.items.flatMap((item) => {
         if (item.kind !== "ident") return [];
-        const named = item.attrs.find((a) => a.name === "label")?.args[0];
+        const named = item.attrs.find((a) => a.name === "label" && a.sigil === "~")?.args[0];
         return [{
           field: item.name,
-          bullet: item.attrs.some((a) => a.name === "bullet"),
-          summary: item.attrs.some((a) => a.name === "summary"),
+          bullet: item.attrs.some((a) => a.name === "bullet" && a.sigil === "~"),
+          summary: item.attrs.some((a) => a.name === "summary" && a.sigil === "~"),
           ...(named?.kind === "string" ? { label: named.value } : {}),
           ...sortOf(item.attrs),
         }];
@@ -660,7 +721,7 @@ function resolvedViews(model: ModelDecl): ResolvedView[] {
   return views;
 }
 
-/** `{ sort: "…" }` when `@sort(field)` is among the attributes. */
+/** `{ sort: "…" }` when `~sort(field)` is among the attributes. */
 function sortOf(attrs: Attribute[]): { sort?: string } {
   const arg = attrs.find((a) => a.name === "sort")?.args[0];
   return arg?.kind === "ident" ? { sort: arg.name } : {};
@@ -673,11 +734,11 @@ function checkViews(
   sortable: (target: string, field: string) => boolean,
   report: Report,
 ) {
-  /** `@sort(x)` on a view's field: it names a field of the members of a connection. */
+  /** `~sort(x)` on a view's field: it names a field of the members of a connection. */
   const checkSort = (field: string, a: Attribute) => {
     const arg = a.args[0];
     if (a.args.length !== 1 || arg?.kind !== "ident") {
-      report("attribute-arguments", a.at, "`@sort` names one field of the members: `@sort(name)`");
+      report("attribute-arguments", a.at, "`~sort` names one field of the members: `~sort(name)`");
       return;
     }
     const resolved = fields.get(field);
@@ -687,7 +748,7 @@ function checkViews(
   };
   const list = attr.args[0];
   if (attr.args.length !== 1 || list?.kind !== "list") {
-    report("attribute-arguments", attr.at, "`@@views` takes one list of views: `@@views([ { label: ... }, ... ])`");
+    report("attribute-arguments", attr.at, "`~views` takes one list of views: `~views([ { label: ... }, ... ])`");
     return;
   }
   const fieldRef = (expr: Expr, allowImplicit: boolean) => {
@@ -726,13 +787,15 @@ function checkViews(
           if (item.kind !== "ident") continue;
           for (const a of item.attrs) {
             if (!LINE_ATTRIBUTES.includes(a.name)) {
-              report("unknown-attribute", a.at, `\`@${a.name}\` isn't presentation; a line takes ${LINE_ATTRIBUTES.map((n) => `\`@${n}\``).join(", ")}`);
+              report("unknown-attribute", a.at, `\`${a.sigil}${a.name}\` isn't presentation; a line takes ${LINE_ATTRIBUTES.map((n) => `\`~${n}\``).join(", ")}`);
+            } else if (a.sigil !== "~") {
+              report("attribute-layer", a.at, `\`${a.name}\` is presentation: write \`~${a.name}\``);
             } else if (a.name === "sort") {
               checkSort(item.name, a);
             } else if (a.name === "label" ? a.args.length !== 1 || a.args[0]!.kind !== "string" : a.args.length > 0) {
-              report("attribute-arguments", a.at, a.name === "label" ? '`@label` takes one string: `@label("lead")`' : `\`@${a.name}\` takes no arguments`);
+              report("attribute-arguments", a.at, a.name === "label" ? '`~label` takes one string: `~label("lead")`' : `\`~${a.name}\` takes no arguments`);
             } else if (a.name === "bullet" && ++bullets > 1) {
-              report("duplicate-bullet", a.at, "A line has at most one `@bullet`");
+              report("duplicate-bullet", a.at, "A line has at most one `~bullet`");
             }
           }
         }
@@ -740,8 +803,9 @@ function checkViews(
         fieldRef(entry.value, entry.key === "sort");
         if (entry.value.kind !== "ident") continue;
         for (const a of entry.value.attrs) {
-          if (entry.key === "group" && a.name === "sort") checkSort(entry.value.name, a);
-          else report("misplaced-attribute", a.at, entry.key === "group" ? "A `group` takes only `@sort`; other attributes go on the items of a `line`" : "Attributes go on the items of a `line`");
+          if (entry.key === "group" && a.name === "sort" && a.sigil !== "~") report("attribute-layer", a.at, "`sort` is presentation: write `~sort`");
+          else if (entry.key === "group" && a.name === "sort") checkSort(entry.value.name, a);
+          else report("misplaced-attribute", a.at, entry.key === "group" ? "A `group` takes only `~sort`; other attributes go on the items of a `line`" : "Attributes go on the items of a `line`");
         }
       }
     }
@@ -752,13 +816,16 @@ function checkRows(model: ModelDecl, block: RowsBlock, modelEnds: EndDecl[], rep
   if (modelEnds.length > 0) {
     report("rows-with-ends", block.at, `\`${model.name}\` is a connection; its rows can't be written in the schema`);
   }
+  if (block.mode === "fixed" && block.rows.length === 0) {
+    report("empty-enum", model.at, `Enum \`${model.name}\` has no values`);
+  }
   const fields = new Map(
     model.members.filter((m): m is FieldDecl => m.kind === "field" && isValueType(m.type)).map((f) => [f.name, f]),
   );
   if (block.mode === "seed") {
     const name = fields.get("name");
     if (!name || name.type !== "Text" || name.arity !== "one") {
-      report("seed-needs-name", block.at, "A `@@seed` model needs a `name Text` field, so people can rename its rows");
+      report("seed-needs-name", block.at, "A `seed` model needs a `name Text` field, so people can rename its rows");
     }
   }
   const names = new Set<string>();
@@ -766,10 +833,14 @@ function checkRows(model: ModelDecl, block: RowsBlock, modelEnds: EndDecl[], rep
     if (names.has(row.name)) report("duplicate-row", row.at, `Row "${row.name}" appears twice`);
     names.add(row.name);
     for (const attr of row.attrs) {
-      if (attr.name !== "color") report("unknown-attribute", attr.at, `Unknown row attribute \`@${attr.name}\``);
-      else if (block.mode === "seed") report("misplaced-attribute", attr.at, "A `@@seed` row's color is data; give it a value for the `@color` field");
-      else if (attr.args.length !== 1 || attr.args[0]!.kind !== "string" || !COLOR.test(attr.args[0]!.value)) {
-        report("bad-color", attr.at, 'A row color is `@color("#rrggbb")`');
+      const layer = VALUE_ATTRIBUTES[attr.name];
+      if (!layer) report("unknown-attribute", attr.at, `Unknown value attribute \`${attr.sigil}${attr.name}\``);
+      else if (layer !== attr.sigil) report("attribute-layer", attr.at, `\`${attr.name}\` is ${layer === "@" ? "storage" : "presentation"}: write \`${layer}${attr.name}\``);
+      else if (block.mode === "seed") report("misplaced-attribute", attr.at, `A \`seed\` row's ${attr.name === "color" ? "color is data; give it a value for the `~color` field" : "stored text is its id"}`);
+      else if (attr.name === "stored" && (attr.args.length !== 1 || attr.args[0]!.kind !== "string" || attr.args[0]!.value === "")) {
+        report("attribute-arguments", attr.at, '`@stored` gives the text a store holds: `@stored("pt")`');
+      } else if (attr.name === "color" && (attr.args.length !== 1 || attr.args[0]!.kind !== "string" || !COLOR.test(attr.args[0]!.value))) {
+        report("bad-color", attr.at, 'A value\'s color is `~color("#rrggbb")`');
       }
     }
     const given = new Set<string>();
@@ -812,7 +883,41 @@ function checkValue(entry: ObjectEntry, field: FieldDecl, report: Report) {
   const value = entry.value;
   const ok = field.arity === "many" ? value.kind === "list" && value.items.every(fits) : fits(value);
   if (!ok) report("bad-value", value.at, `\`${field.name}\` holds ${field.type}${arityText(field.arity)}`);
-  if (field.attrs.some((a) => a.name === "color") && value.kind === "string" && !COLOR.test(value.value)) {
+  if (field.attrs.some((a) => a.name === "color" && a.sigil === "~") && value.kind === "string" && !COLOR.test(value.value)) {
     report("bad-color", value.at, 'A color is "#rrggbb"');
+  }
+}
+
+/**
+ * Merges each `re Name { ... }` into the model or enum it names: a mention adds
+ * its attributes to that field, end or value, and a model attribute joins the
+ * model's own. Nothing in a `re` block declares.
+ */
+function mergeRe(file: SchemaFile, models: Map<string, ModelDecl>, report: Report) {
+  for (const decl of file.declarations) {
+    if (decl.kind !== "re") continue;
+    const model = models.get(decl.name);
+    if (!model) {
+      report("unknown-model", decl.at, `No model or enum \`${decl.name}\` to annotate`);
+      continue;
+    }
+    for (const member of decl.members) {
+      if (member.kind === "modelAttribute") {
+        model.members.push(member);
+        continue;
+      }
+      if (member.kind !== "mention") continue;
+      const field = model.members.find((m): m is FieldDecl | EndDecl => (m.kind === "field" && m.name === member.name) || (m.kind === "end" && m.field === member.name));
+      const value = model.members.find((m): m is RowsBlock => m.kind === "rows" && m.mode === "fixed")?.rows.find((r) => r.name === member.name);
+      // A field the model gains from a connection declared outside it is annotated on that end.
+      const outside = file.declarations.flatMap((d) => (d.kind === "connection" ? d.members : d.kind === "model" && d !== model ? d.members : []))
+        .find((m): m is EndDecl => m.kind === "end" && m.model === model.name && m.field === member.name);
+      const target = value ?? field ?? outside;
+      if (!target) {
+        report("unknown-field", member.at, `\`${decl.name}\` has no field or value \`${member.name}\``);
+        continue;
+      }
+      target.attrs.push(...member.attrs);
+    }
   }
 }

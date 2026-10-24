@@ -175,6 +175,8 @@ public final class StoryEditorHost: EditorHost {
     private let performStructuralAction: @MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?
     private let offerTrashAfterDeletingLink: @MainActor (WorkspaceNode, WorkspaceReference) -> Void
     private let describeTree: (@MainActor (WorkspaceReference) async -> String?)?
+    private let voiceRecordings: TranscribedVoiceRecordingStore?
+    private let voiceRecordingPlayer: VoiceRecordingPlayer?
     private var lookups: [DocumentReference: DocumentLookup] = [:]
     private var lookupTasks: [DocumentReference: Task<Void, Never>] = [:]
     private var deferredPersistTask: Task<Void, Never>?
@@ -192,8 +194,12 @@ public final class StoryEditorHost: EditorHost {
         reportError: @escaping @MainActor (String) -> Void = { _ in },
         performStructuralAction: (@MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?)? = nil,
         offerTrashAfterDeletingLink: @escaping @MainActor (WorkspaceNode, WorkspaceReference) -> Void = { _, _ in },
-        describeTree: (@MainActor (WorkspaceReference) async -> String?)? = nil
+        describeTree: (@MainActor (WorkspaceReference) async -> String?)? = nil,
+        voiceRecordings: TranscribedVoiceRecordingStore? = nil,
+        voiceRecordingPlayer: VoiceRecordingPlayer? = nil
     ) {
+        self.voiceRecordings = voiceRecordings
+        self.voiceRecordingPlayer = voiceRecordingPlayer
         self.binding = binding
         self.provider = provider
         self.linkPreviewService = linkPreviewService
@@ -781,6 +787,14 @@ public final class StoryEditorHost: EditorHost {
             }
         }
         do {
+            // An empty page has no source for moved blocks to land beside.
+            // It first gets the title it presents, as editing it would write.
+            if let title = StoryPagePresentation.presentedTitle(path: destination.path),
+               try await withDocumentSession(destination, { try await $0.snapshot().source.isEmpty }) {
+                _ = try await withDocumentSession(destination) { session in
+                    try await admitBlockEdit(in: session) { $0 = [Block(kind: .heading(level: .h1, text: AttributedString(title)))] }
+                }
+            }
             if try await attempt() { return true }
             Self.diagnosticLog.notice("move to \(destination.path, privacy: .private) is not one exact change; leaving the origin intact")
         } catch WorkspaceTransferError.basesDiverged {
@@ -1164,12 +1178,48 @@ public final class StoryEditorHost: EditorHost {
         return blocks.isEmpty ? nil : blocks
     }
 
+    public func serializeBlocksForPasteboardHTML(_ blocks: [Block]) -> String? {
+        StoryPasteboardHTML.html(for: blocks)
+    }
+
+    /// Notion's own block records win when a copy carries them: its plain
+    /// text and HTML write toggles as bullets. Other HTML wins only when it
+    /// holds a toggle the plain text dropped; Story's own copies carry `▸`
+    /// toggles in their Markdown, which keeps everything the HTML would.
+    public func parseBlocksFromPasteboard(_ string: String, rich: PasteboardRichContent) -> [Block]? {
+        let markdown: String
+        if let notion = rich.webCustomData[StoryNotionPasteboard.blocksType],
+           let converted = StoryNotionPasteboard.markdown(fromBlocksJSON: notion) {
+            markdown = converted
+        } else if let html = rich.html, StoryPasteboardHTML.hasToggle(html),
+                  !StoryMarkdownCodec.parseBlocks(string).contains(where: Self.containsToggle) {
+            markdown = StoryPasteboardHTML.markdown(fromHTML: html)
+        } else {
+            return nil
+        }
+        let blocks = StoryMarkdownCodec.parseBlocks(markdown)
+        return blocks.isEmpty ? nil : blocks
+    }
+
+    private static func containsToggle(_ block: Block) -> Bool {
+        block.isToggle || block.children.contains(where: containsToggle)
+    }
+
     public func linkPreview(for url: URL) async -> LinkPreview? {
         await linkPreviewService.preview(for: url)
     }
 
     public func blockActions(in _: Document) -> [EditorBlockAction] {
-        TranscriptPolishingActions.actions()
+        var actions = TranscriptPolishingActions.actions()
+        if let voiceRecordings, let voiceRecordingPlayer {
+            // Keyed like voice destinations: by the page's stable key.
+            actions += VoiceRecordingPlaybackActions.actions(
+                store: voiceRecordings,
+                player: voiceRecordingPlayer,
+                pageKey: binding.reference.stableKey
+            )
+        }
+        return actions
     }
 
     private func assetsDirectory() async throws -> WorkspaceReference {

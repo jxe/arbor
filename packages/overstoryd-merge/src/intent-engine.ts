@@ -1677,6 +1677,47 @@ class Engine {
   // read once however many operations or alternatives ask for it.
   private addedEffectList?: Effect[];
   private addedChangeList?: Promise<Array<{ change: string; checkpoint?: { affected: string[] } }>>;
+  /** A replayed insertion whose format needs review does not make accepted
+   * reorders into alternatives. Prove by identity that removing only its
+   * output reproduces current, then retain just absent versus inserted text.
+   * Replacements, cross-document transfers and existing choices keep the
+   * conservative fallback below. No byte similarity establishes this scope. */
+  private async insertionChoice(
+    current: IntentState, attempt: IntentState, id: string, signature: string,
+  ): Promise<IntentState | undefined> {
+    const operations = traceOperations(this.request.incoming);
+    const operation = operations[0];
+    if (operations.length !== 1 || operation?.kind !== "editSource" ||
+        operation.lineage?.length || !operation.text ||
+        !operation.source.range || operation.source.range[0] !== operation.source.range[1] ||
+        current.decisions.length) return undefined;
+    const output = attempt.outputs[keyOf(this.request.incoming.change, operation.key)];
+    const before = current.nodes[id], after = attempt.nodes[id];
+    const at = output?.node === id && output.pieces ? this.span(after?.pieces, output.pieces) : undefined;
+    if (!before?.pieces || !after?.pieces || !at || !output?.pieces ||
+        !same(replacePieces(after.pieces, at[0], at[1]), normalize(clone(before.pieces)))) return undefined;
+    const selected = this.request.rules.config?.conflictProjection === "current" ? 0 : 1;
+    const result = this.cloneState(selected === 0 ? current : attempt);
+    for (const map of ["outputs", "effects", "origins", "alternatives"] as const)
+      result[map] = union(current[map], attempt[map]) as never;
+    result.changes[this.request.incoming.change] = signature;
+    const key = `${this.request.incoming.change}:${id}:${at[0]}:insertion`;
+    const versions = [[], output.pieces];
+    const contexts = [await this.record(current), this.authoredResult!];
+    const alternatives = versions.map((pieces, index) => {
+      const node = `choice:${key}:${index}`;
+      this.setNode(result, node, { id: node, parent: null, name: "", kind: "file",
+        object: this.put(index === 0 ? new Uint8Array() : encoder.encode(operation.text)),
+        pieces: clone(pieces), active: true });
+      return { state: contexts[index]!.state, node, object: result.nodes[node]!.object,
+        contributions: index === 0 ? [] : [{ change: this.request.incoming.change, operation: operation.key }] };
+    });
+    result.decisions.push({ key, kind: "content", affected: [id], selected, alternatives,
+      dependencies: [], reason: "Format policy requires review of the inserted source",
+      subject: { material: { kind: "basis", path: this.path(current, id), object: await this.project(current, id) }, range: [at[0], at[0]] },
+      placement: { node: id, anchor: at[0], pieces: clone(versions[selected]!) } });
+    return result;
+  }
   /** Where `sub` lies, whole and contiguous, in `pieces`, if it does. */
   private span(pieces: Piece[] | undefined, sub: Piece[]): [number, number] | undefined {
     if (!pieces || !sub.length) return undefined;
@@ -2276,8 +2317,11 @@ class Engine {
               await this.bytes(next.pieces ?? []),
             ], config, context(id));
             this.formatEvidence.push(evidence);
-            if (evidence.outcome !== "resolved")
+            if (evidence.outcome !== "resolved") {
+              if (evidence.id === "markdown-source-transfer" && context(id).crossDocument === "none")
+                transported = await this.insertionChoice(current, attempt, id, signature);
               throw new Error("Transfer requires format review");
+            }
           }
           for (const operation of operations) {
             const key = keyOf(request.incoming.change, operation.key);

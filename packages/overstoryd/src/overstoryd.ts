@@ -716,8 +716,11 @@ export class HostDaemon implements AsyncDisposable {
     profileTree: string;
     configurationTree: string;
     inviteCode?: string;
+    /** The profile's locator at its home host, to accept an invitation as a placement (accounts §1.4). */
+    profile?: string;
   }): AccountChallenge {
     const inviteDigest = input.inviteCode ? inviteCodeDigest(input.inviteCode) : null;
+    if (input.profile !== undefined) this.checkPlacementLocator(input.profile, input.origin, inviteDigest);
     const matches = input.account === undefined
       ? [...this.communityReservations()].filter(([, value]) => inviteDigest
         ? value.inviteDigest === inviteDigest : value.profileTree === input.profileTree)
@@ -1613,7 +1616,7 @@ export class HostDaemon implements AsyncDisposable {
     const index = directory.entries.findIndex((entry) => entry.name === "_index.md" && entry.file);
     if (index < 0) throw new ServerFaultError("Community profile has no root document");
     const source = new TextDecoder().decode(await this.objects.load(directory.entries[index]!.file!));
-    const claimed = claimInvitationEntry(source, handle, digest, profileTree);
+    const claimed = claimInvitationEntry(source, handle, digest, `overstory://${profileTree}/`);
     if (claimed === null) throw new Error("Invitation entry changed; ask the administrator to renew it");
     const bytes = new TextEncoder().encode(claimed);
     const file = hashObject(bytes);
@@ -1625,6 +1628,79 @@ export class HostDaemon implements AsyncDisposable {
     const generated = new Map<ObjectHash, Uint8Array>([[file, bytes], [root, nextDirectory]]);
     await this.validateGraph(root, generated, community.ref);
     return this.prepareParentAdvance({ parent: community, nextRoot: root, generated });
+  }
+
+  /** A placement acceptance names its profile by a well-formed locator at another host, and comes with an invitation code. */
+  private checkPlacementLocator(profile: string, origin: string, inviteDigest: string | null): void {
+    if (!inviteDigest) throw new Error("Accepting an invitation as a placement requires its code");
+    const locator = isProfileLocator(profile) ? parseProfileLocator(profile) : null;
+    if (!locator) throw new Error("A placement names the profile by its locator at its home host");
+    if (locator.origin === origin) throw new Error("A profile homed at this host claims its account here instead");
+  }
+
+  /**
+   * Accept a pending invitation with a profile homed at another host
+   * (accounts §1.4): the entry becomes a member naming the profile by its
+   * locator there, accepted as a community update, so the placement account
+   * and root are created as for any member added by locator (§1.3).
+   */
+  async acceptInvitationAsPlacement(input: {
+    accountLocator: string;
+    origin: string;
+    profile: string;
+    profileTree: string;
+    configurationTree: string;
+    challenge: AccountChallenge;
+    publicKey: string;
+    signature: string;
+    inviteCode: string;
+  }): Promise<HostAccount> {
+    const proof = this.verifyAccountIdentityProof(input);
+    const homeHost = parseProfileLocator(input.profile)?.origin;
+    const existing = this.accounts.account(input.profileTree);
+    // Exact retry after success: the challenge was consumed with the acceptance.
+    if (existing && existing.homeHost === homeHost && this.accounts.challenge("account-claim", proof.challenge.id)?.consumedAt != null
+      && `${input.origin}/~${existing.handle}` === input.accountLocator) return existing;
+    const reservation = this.accountReservation(input.accountLocator);
+    if (!reservation?.inviteDigest) throw new AlreadyClaimedError(reservation?.handle ?? null);
+    this.checkPlacementLocator(input.profile, input.origin, inviteCodeDigest(input.inviteCode));
+    if (inviteCodeDigest(input.inviteCode) !== reservation.inviteDigest) throw new Error("Invitation code is invalid");
+    if (existing || this.get(input.profileTree)) throw new AlreadyClaimedError(null);
+    const challengeJSON = stableJSONString(proof.challenge);
+    const issued = this.accounts.challenge("account-claim", proof.challenge.id);
+    if (!issued || issued.challengeJSON !== challengeJSON) throw new Error("Account challenge is invalid");
+    if (issued.expiresAt <= Date.now()) throw new ExpiredChallengeError("Account challenge is expired");
+    if (issued.consumedAt !== null) throw new Error("Account challenge was already consumed");
+    const community = this.community();
+    const directory = decodeProtocolDirectory(await this.objects.load(community.ref));
+    const index = directory.entries.findIndex((entry) => entry.name === "_index.md" && entry.file);
+    if (index < 0) throw new ServerFaultError("Community profile has no root document");
+    const source = new TextDecoder().decode(await this.objects.load(directory.entries[index]!.file!));
+    const placed = claimInvitationEntry(source, reservation.handle, reservation.inviteDigest, input.profile);
+    if (placed === null) throw new Error("Invitation entry changed; ask the administrator to renew it");
+    const bytes = new TextEncoder().encode(placed);
+    const file = hashObject(bytes);
+    const nextDirectory = encodeProtocolDirectory({
+      ...directory,
+      entries: directory.entries.map((entry, i) => i === index ? { name: entry.name, file } : entry),
+    });
+    const root = hashObject(nextDirectory);
+    const generated = new Map<ObjectHash, Uint8Array>([[file, bytes], [root, nextDirectory]]);
+    await this.validateGraph(root, generated, community.ref);
+    // Resolving the locator (and reading its device keys) happens here, before the transaction.
+    const prepared = await this.prepareParentAdvance({ parent: community, nextRoot: root, generated });
+    const placement = prepared.profile.placements?.accounts.find((account) => account.handle === reservation.handle);
+    if (!placement || placement.profileTree !== input.profileTree) {
+      throw new Error(`${input.profile} does not name the profile that signed this acceptance`);
+    }
+    this.db.transaction(() => {
+      if (!this.accounts.consumeChallenge("account-claim", proof.challenge.id, challengeJSON, Date.now())) {
+        throw new Error("Account challenge was already consumed or expired");
+      }
+      this.advanceParent(prepared, Date.now(), `invite:${reservation.handle}`);
+    })();
+    this.notifyAccepted(this.currentUpdate(community.id)!);
+    return this.account(input.profileTree)!;
   }
 
   /** Attach the transition from the candidate root to the accepted root whenever the two differ. */

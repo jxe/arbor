@@ -15,15 +15,21 @@ guarantees it advertises.
 
 The directory projection preserves exact authored source in addition to modeled
 state, so its writes match on [bytes hashes](01-tree-operations.md#representation-and-model-equality):
-file bytes, frontmatter spelling/order/comments, and reserved collection-file
-bytes
-change the bytes hash even when the model hash is unchanged.
+file bytes and frontmatter spelling/order/comments change the bytes hash even
+when the model hash is unchanged.
+
+A logical collection is the exception. Its rows are logical state in the
+tree, and the files a placement writes for them (`_store.csv`, `<Table>.jsonl`,
+Markdown row files, `_store.sqlite3`) are that placement's own
+[projection](06-child-backings.md#24-projections), outside this byte-exact
+promise. They keep their formatting on the placement that wrote them, and
+another placement shows the same rows in its own.
 
 ## 2. Mapping files and directories to nodes
 
 A directory projects one node. Its ordinary entries supply the node's child
-set; reserved body, collection-file, and schema entries instead
-supply the node's content or the interpretation of its children. Its own
+set; reserved body and schema entries instead supply the node's content or
+the interpretation of its children. Its own
 content lives inside it as `x/_index.md`, so a node that has children keeps
 everything in one place. A node may instead keep its content beside the
 directory: `x.md`, `x.mdx`, or `x.tsx` supplies the content of `/x` when `x/`
@@ -184,34 +190,34 @@ Materializing one heading never materializes the other.
 
 - `schema.usl` declares a collection's models, stable key, and optional
   logical-name rule in the [schema language](11-schema-language.md), as
-  [child backings](06-child-backings.md#24-collection-schemas) specifies. No
+  [child backings](06-child-backings.md#2-logical-collections) specifies. No
   other file name selects a collection schema; a `schema.ts`, for example, is
   an ordinary file.
-- `_store.csv`, `_store.json`, `_store.jsonl`, `_store.sqlite3`, and
-  `_store.yaml` select child/store representation behavior specified by
-  [child backings](06-child-backings.md). `_store.yaml` is driver-dispatched; its filename does
-  not imply Postgres.
+- `_store.csv`, `_store.json`, `_store.jsonl`, `<Table>.csv`, `.json` and
+  `.jsonl`, Markdown row files and `_store.sqlite3` in a collection's folder are
+  a placement's [projection](06-child-backings.md#24-projections) of its rows,
+  not tree entries. `_store.yaml` selects an external store as specified by
+  [child backings](06-child-backings.md#4-postgres-and-placement-projections);
+  it is driver-dispatched, and its filename does not imply Postgres.
 - `.ts` and `.tsx` files may define Overstory handles, components, and executable documents as specified by [executable documents](07-executable-documents.md).
 - `.mdx` files may define explicit executable component documents as specified by [executable documents](07-executable-documents.md).
 - Markdown files may define agents as specified by [executable documents](07-executable-documents.md#13-agents).
 
 These recognizers do not make generated declarations, compiled bundles, database credentials, or execution transcripts part of this format unless they are themselves deliberately authored ordinary tree content.
 
-For a collection-file directory, the selected `_store.csv`, `_store.json`, or
-`_store.jsonl` and `schema.usl` remain exact authored file entries in the protocol
-graph, while the directory's `childrenSource` descriptor marks their decoded
-rows as the complete immediate logical child set. Those reserved files are not
-themselves logical children. `_index.md` may still supply the directory node's
-own content, but mixing collection-file-derived rows with other expanded
-immediate children is invalid. The descriptor's Overstory shape is defined with
+For a collection's folder, `schema.usl` remains an exact authored file entry in the protocol graph, while the directory's
+`collection` reference holds the rows as the complete immediate logical child
+set. `_index.md` may still supply the folder node's own content, and other
+ordinary files stay ordinary entries, but expanded child folders beside a
+collection's rows are invalid. The reference's Overstory shape is defined with
 [tree snapshots](01-tree-operations.md#112-reading-an-accepted-snapshot);
-its interpretation and validation are defined by
-[child backings §2.1](06-child-backings.md#21-accepted-overstory-representation).
+its validation is defined by
+[child backings §2.1](06-child-backings.md#21-what-the-tree-holds).
 
 ## 6. Reserved names and sidecars
 
 - `_index.md` is its directory's own content and is never exposed as a child.
-- `_store.*` names select the enclosing collection's backing and are not ordinary row children.
+- `_store.csv`, `_store.json`, `_store.jsonl`, `_store.sqlite3` and `<Table>.*` files in a collection's folder are a placement's projection, never tree entries or row children.
 - `.state` is forbidden in a tree configuration graph as specified by [configuration](04-accounts-and-devices.md#2-tree-configuration-graph).
 
 The account YAML is human-editable special control content, not portable authored format. Credentials, access-link secrets, private indexes, journals, recovery databases, and private device keys are never portable authored format.
@@ -223,6 +229,10 @@ rules below excludes is not a node, is not part of any snapshot, and is never
 published. Writing accepted state into the directory never overwrites or
 deletes it. It stays an opaque placement file: it remains on disk and
 local tools may open it, but it belongs to that placement, not to the tree.
+
+A collection's projection files ([§5](#5-recognized-authored-files)) are not
+tree content either, but they aren't opaque: the placement reads edits to them
+as row operations and writes accepted rows into them.
 
 **Mandatory exclusions.** These are never tree content, whatever an ignore file
 says: directories named `.git`, `node_modules`, `.overstory`, `Trash`, `.build`, or

@@ -14,7 +14,7 @@ public typealias USLRow = [String: JSONValue]
 public typealias USLRowsByTable = [String: [USLRow]]
 
 public struct PresentedChip: Sendable, Equatable {
-    /// The member as stored: a row's key value, a profile id, a fixed row's name, or a listed value.
+    /// The member as stored: a row's key value, a profile id, an enum value's name, or a listed value.
     public var member: JSONValue
     public var name: String
     public var color: String?
@@ -67,7 +67,7 @@ public struct PresentedLine: Sendable, Equatable {
     public var row: String
     /// Stable across presentations: the view, the group and the row.
     public var occurrence: String
-    /// The `@bullet` choice's color, which colors the line too.
+    /// The `~bullet` choice's color, which colors the line too.
     public var color: String?
     public var cells: [PresentedCell]
 
@@ -95,7 +95,7 @@ public struct PresentedGroup: Sendable, Equatable {
     public var row: String?
     /// The field of `row` its heading edits; nil when the heading is read-only.
     public var headingField: String?
-    /// Lines can be reordered: the group's order is stored (`@ordered`).
+    /// Lines can be reordered: the group's order is stored (`ordered`).
     public var ordered: Bool
     /// What Delete does to a line here.
     public var remove: Remove
@@ -161,7 +161,7 @@ public struct PresentedPerson: Sendable, Equatable {
 }
 
 public struct PresentOptions: Sendable {
-    /// The model whose rows are the lines: by default the one with `@@views`, else the first with rows.
+    /// The model whose rows are the lines: by default the `main` model, else the one with `~views`, else the first with rows.
     public var model: String?
     /// Which view, by index into the views.
     public var view: Int
@@ -468,7 +468,7 @@ final class USLRowCollection {
         try membersBy(model, try access(model, field), row)
     }
 
-    /// Members of `target` by one of its fields (`@sort`): newest first for `created` and `modified`, members without it last.
+    /// Members of `target` by one of its fields (`~sort`): newest first for `created` and `modified`, members without it last.
     func sortMembers<T>(_ target: String, _ sort: String, _ items: [T], _ memberOf: (T) -> JSONValue) throws -> [T] {
         var failure: Error?
         let sorted = sortBy(items, { item in
@@ -525,7 +525,7 @@ final class USLRowCollection {
         }
     }
 
-    /// The field a row of `model` is called by: `name`, its `@path`, or its first single `Text` field.
+    /// The field a row of `model` is called by: `name`, its `path` field, or its first single `Text` field.
     func nameField(_ model: String) -> String? {
         guard let resolved = models[model] else { return nil }
         let single = { (f: USLResolvedField) in f.type == "Text" && f.arity != .many && f.origin == .declared }
@@ -565,16 +565,16 @@ final class USLRowCollection {
 
 // MARK: - Views
 
-/// The model a collection presents: the one with `@@views`, else the first with rows.
+/// The model a collection presents: its `main` model, else the one with `~views`, else the first with rows.
 public func presentedModel(_ schema: USLCheckResult) throws -> String {
     let data = schema.models.filter { $0.name != "Person" && $0.rows != .fixed }
-    guard let model = data.first(where: { !$0.views.isEmpty }) ?? data.first(where: { $0.ends.count < 2 }) ?? data.first else {
+    guard let model = data.first(where: \.main) ?? data.first(where: { !$0.views.isEmpty }) ?? data.first(where: { $0.ends.count < 2 }) ?? data.first else {
         throw ViewError(message: "The schema has no model with rows")
     }
     return model.name
 }
 
-/// A model's views: its `@@views`, or the default arrangement. A view without a line shows every field.
+/// A model's views: its `~views`, or the default arrangement. A view without a line shows every field.
 public func viewsOf(_ schema: USLCheckResult, model name: String) throws -> [USLResolvedView] {
     guard let model = schema.models.first(where: { $0.name == name }) else { throw ViewError(message: "No model `\(name)`") }
     let line = model.fields.map { USLLineItem(field: $0.name) }

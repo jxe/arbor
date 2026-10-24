@@ -3,7 +3,7 @@
 [Architecture overview](../README.md) · [Implementation status](../../../status.md)
 
 `@ovst/collection-schema` implements the collection schemas of
-[child backings §2.4](../../overstory-spec/06-child-backings.md#24-collection-schemas):
+[child backings §2.4](../../overstory-spec/06-child-backings.md#2-logical-collections):
 a collection's `schema.usl`, in the
 [schema language](../../overstory-spec/11-schema-language.md), compiled by
 [`@ovst/usl`](../../../packages/usl/README.md) and interpreted over JSON values.
@@ -17,7 +17,7 @@ merge a collection, and QuickJS is no longer a dependency of any package.
   (`layoutOf(result, { store: "files" })`), which must be exactly one table:
   the collection's rows. Its columns become the runtime check graph (fixed
   references compile to one set lookup; folded connections to arrays of keys),
-  its primary key the stable key, and its `@path` field the child name. The
+  its primary key the stable key, and its `path` field the child name. The
   row map is always open. USL diagnostics pass through with their codes and
   locations.
 - `validate.ts`: a decision, never a normalization. Row and collection-file

@@ -330,14 +330,37 @@ public actor ProtocolClient {
     }
 
     /// A challenge for claiming an account with the profile key (accounts
-    /// §1.2). Placement accounts have none: they come from reservations (§1.3).
-    public func createAccountChallenge(account: String? = nil, profileTree: String, configurationTree: String, inviteCode: String? = nil) async throws -> ProtocolAccountChallenge {
+    /// §1.2), or, with `profile` (the profile's locator at its home host),
+    /// for accepting an invitation as a placement (§1.4).
+    public func createAccountChallenge(account: String? = nil, profileTree: String, configurationTree: String, inviteCode: String? = nil, profile: String? = nil) async throws -> ProtocolAccountChallenge {
         let value: ProtocolAccountChallenge = try await post(
             path: "/.overstory/account-challenges",
-            body: AccountChallengeRequest(account: account, profileTree: profileTree, configurationTree: configurationTree, inviteCode: inviteCode),
+            body: AccountChallengeRequest(account: account, profileTree: profileTree, configurationTree: configurationTree, inviteCode: inviteCode, profile: profile),
             authorized: false
         )
         return try value.validated()
+    }
+
+    /// Accept an invitation with a profile homed at another host: this host
+    /// makes the invited address a placement account (accounts §1.4).
+    public func acceptInvitationAsPlacement(
+        account: String,
+        profile: String,
+        profileTree: String,
+        configurationTree: String,
+        inviteCode: String,
+        challenge: ProtocolAccountChallenge,
+        publicKey: String,
+        signature: String
+    ) async throws {
+        let _: PlacementAcceptance = try await put(
+            path: "/.overstory/placements",
+            body: PlacementAcceptanceRequest(
+                account: account, profile: profile, profileTree: profileTree, configurationTree: configurationTree,
+                inviteCode: inviteCode, challenge: challenge, publicKey: publicKey, signature: signature
+            ),
+            authorized: false
+        )
     }
 
     public func joinAccount(_ value: ProtocolExistingProfileClaimRequest) async throws -> ProtocolAccountClaimResult {
@@ -712,7 +735,20 @@ private struct AccountChallengeRequest: Encodable {
     var profileTree: String
     var configurationTree: String
     var inviteCode: String?
+    var profile: String?
 }
+private struct PlacementAcceptanceRequest: Encodable {
+    var account: String
+    var profile: String
+    var profileTree: String
+    var configurationTree: String
+    var inviteCode: String
+    var challenge: ProtocolAccountChallenge
+    var publicKey: String
+    var signature: String
+}
+/// The host answers the placement's descriptor; the caller connects to it next.
+private struct PlacementAcceptance: Decodable {}
 private struct DeviceSessionChallengeRequest: Encodable {
     var profileTree: String
     var device: String

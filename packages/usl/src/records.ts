@@ -6,7 +6,7 @@
 // - A key with one column is that column's value; a longer key is an object of
 //   the target table's key columns.
 // - An n:m connection's array is on its `@fold` end, as data files keep it, or
-//   on both ends when neither is folded. An `@ordered` end's array is in order.
+//   on both ends when neither is folded. An `ordered` end's array is in order.
 // - The many side of a 1:n connection isn't part of a record; it is the rows
 //   whose reference names this one.
 // - Columns that hold no field (timestamps, positions) keep their names.

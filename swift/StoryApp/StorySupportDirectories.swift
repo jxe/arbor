@@ -1,6 +1,7 @@
 import Overstory
 import OverstoryClient
 import Foundation
+import QuagmireExtras
 
 enum StorySupportDirectories {
 #if os(macOS)
@@ -35,6 +36,12 @@ enum StorySupportDirectories {
     static let linkPreviews = root.appending(path: "LinkPreviews", directoryHint: .isDirectory)
     static let pendingVoiceRecordings = root.appending(
         path: "Pending Voice Recordings",
+        directoryHint: .isDirectory
+    )
+    /// Recordings kept after they were transcribed, for playing back from
+    /// the block menu. Device-local: never part of a tree, never synced.
+    static let transcribedVoiceRecordings = root.appending(
+        path: "Transcribed Voice Recordings",
         directoryHint: .isDirectory
     )
     static let nativePlacement = root.appending(path: "Native Placement.json")
@@ -194,4 +201,14 @@ actor NativePlacementStore {
             record.version == 1 && (try? record.tree.validated()) != nil && trees.insert(record.tree.id).inserted
         }
     }
+}
+
+/// The one store of kept recordings and the player for them, shared by every
+/// window's recording session and editor.
+@MainActor
+enum StoryVoiceRecordings {
+    static let store = TranscribedVoiceRecordingStore(
+        directoryURL: StorySupportDirectories.transcribedVoiceRecordings
+    )
+    static let player = VoiceRecordingPlayer()
 }

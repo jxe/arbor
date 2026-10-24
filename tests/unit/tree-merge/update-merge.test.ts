@@ -269,7 +269,7 @@ describe("reference host merge fixtures", () => {
   });
 
   test("one row merges field by field and member by member", async () => {
-    const schema = "model Item {\n  title Text\n  done Bool?\n  tags Text[]\n  steps Text[] @ordered\n  notes Markdown?\n}\n";
+    const schema = "model Item {\n  title Text\n  done Bool?\n  tags Text[]\n  steps ordered Text[]\n  notes Markdown?\n}\n";
     const row = (values: Record<string, unknown>) => JSON.stringify({ id: "a", title: "A", ...values });
     const [base, candidate, remote] = await Promise.all([
       collectionFileSnapshot("_store.jsonl", schema, `${row({ tags: ["x", "y"], steps: ["1", "2", "3"], notes: "one\ntwo\nthree\n" })}\n{"id":"b","title":"B"}\n`),
@@ -302,7 +302,7 @@ describe("reference host merge fixtures", () => {
   });
 
   test("reordering an ordered field on both sides, or deleting a row the other side changed, conflicts", async () => {
-    const schema = "model Item {\n  title Text\n  steps Text[] @ordered\n}\n";
+    const schema = "model Item {\n  title Text\n  steps ordered Text[]\n}\n";
     const [base, candidate, remote] = await Promise.all([
       collectionFileSnapshot("_store.jsonl", schema, '{"id":"a","title":"A","steps":["1","2","3"]}\n{"id":"b","title":"B"}\n'),
       collectionFileSnapshot("_store.jsonl", schema, '{"id":"a","title":"A","steps":["2","1","3"]}\n'),

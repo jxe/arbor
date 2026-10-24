@@ -3,7 +3,8 @@
 **Why and when:** Joe, 2026-10-15, in the "Cranberries in Story" thread:
 "differentiate logical tree and projection on both sides of the wire", where
 the projection is "a property of a *placement*", not of `schema.usl`. It came
-up because plan 002 milestone 2 put `store: "sqlite"` in the accepted tree,
+up because plan 002's milestone 2 (now [005](005-collections-that-sync.md)'s
+milestone 5) put `store: "sqlite"` in the accepted tree,
 which tied a device's storage choice, and then the host's history promise, to
 whether a database file happened to sit in a folder. This note works through
 the two questions that decide the design. Nothing here is built.
@@ -14,8 +15,9 @@ the two questions that decide the design. Nothing here is built.
   question 2 as recommended (option 3); a device's projection lives in
   `placements.yaml`; Story Sync records what it finds on disk the first time;
   host retention belongs to the host operator and the tree configuration.
-  Open: the logical form (below) and the open questions.
-- **Affects:** plan 002 milestones 2 and 2a; spec 01 (representations), 02
+  The forks of the logical form settled 2026-10-24 (see "Forks for Joe").
+- **Built by:** [005](005-collections-that-sync.md), milestones 1 and 3.
+- **Affects:** 005 milestones 4 to 6 (002's former 1, 2 and 2a); spec 01 (representations), 02
   (projection boundary), 06 (§2.1, §3.1, §4, §7), 10 (§4.1); Postgres 002, 004
   and 005.
 
@@ -185,7 +187,9 @@ placement's choice. Six things decide it.
 The logical form fixes the collection's node paths, and those are durable:
 links, `NodeRef`s, locators, access rules and presence all use them.
 
-- **Models only (recommended).** `/games/Game/g1`, `/games/List/l1`. A model
+- **Models only (recommended).** `/games/Game/g1`, `/games/List/l1`. (Since
+  2026-10-24 the schema may name a `main` model whose rows sit directly under
+  the folder, `/games/g1`; other models nest as shown.) A model
   with rows is a table; a connection model (one with fields or `@@id`, like
   `Item` or `Contribution`) is a model, so its rows are addressable too. A
   plain n:m connection is not a node set: it shows as a property on the rows
@@ -214,7 +218,7 @@ names; fixing the logical form removes that.
 - **`@fold`, `@@fold`, `@column` and `@@table` stop shaping data.** They
   become how the schema maps the logical form into file and database
   layouts, so refolding a connection changes no data and no hash (README's
-  "refold, lossless" becomes free). They become `&` attributes (see "USL syntax").
+  "refold, lossless" becomes free). They become storage attributes, spelled `@` since 2026-10-24 (see "USL syntax").
 
 ### 3. Timestamps
 
@@ -256,15 +260,15 @@ arity, rename); the format-only ones in README stop touching data.
 
 ## USL syntax: model, storage and presentation
 
-Decided and written up in [003](003-layers-and-sigils.md): `@` model, `&`
-storage, `~` presentation, `re` blocks, conventions rather than enforced
-separation, and `usl fmt` applying them. Examples are in
-[examples/layered](examples/layered).
+Decided and written up in [003](003-layers-and-sigils.md), revised
+2026-10-24: model keywords (no sigil), `@` storage, `~` presentation, `re`
+blocks, conventions rather than enforced separation, and `usl fmt` applying
+them. Examples are in [examples](examples). Before the
+revision the model was `@` and storage `&`, so older notes here and in the
+thread use those spellings.
 
-One point there touches this plan: 003 files `@path` under storage as
-`&path`. §1 above argues a row's name is its logical identity, which would
-keep it `@`. If `&path` stands, a row's name is a storage detail and the
-logical form identifies rows by id alone.
+A row's name is its logical identity (fork 3), so `path` is a model keyword,
+not storage.
 
 ## Existing SQL databases and typed values
 
@@ -322,20 +326,20 @@ happens to hold, and a projection converts at its boundary:
         /Archive: jsonl
   ```
 
-- **Local storage mappings (decided: visible):** a placement's own `&`
+- **Local storage mappings (decided: visible):** a placement's own `@`
   overrides live in files under a visible folder such as
   `~/.story/storage/<tree>/…`, not in `placements.yaml` and not in private
   state, since they are a person's decisions about their own databases. They
   can't live in the placed folder, because everything there synchronizes.
   Proposed: found by convention, and written by Story Sync when it adopts an
   existing database, recording its real table and column names.
-- **Shared storage defaults** that every placement starts from are `&`
+- **Shared storage defaults** that every placement starts from are `@`
   attributes in the tree's `.usl` files (in the `model`, or a `re` block).
 - **A default for new placements:** something has to pick the format when a
   placement doesn't say: each implementation's own default, or a hint in the
   tree that placements may override. A hint must never be read as truth.
-- **Host:** its projection (a SQLite file for queries and mutations, plan 002
-  §2a) is the host's operational choice, like 06 §4's host activation.
+- **Host:** its projection (a SQLite file for queries and mutations, 005
+  milestone 6) is the host's operational choice, like 06 §4's host activation.
 
 ## The history promise follows
 
@@ -352,7 +356,7 @@ With representation per placement, retention is per placement too:
   stays a valid name, and reading its pruned rows gets a distinct "pruned"
   answer (spec 01), not a 404.
 
-## What it changes on the plan 002 branch
+## What it changes on the branch `claude/project-thread-6kt6l8`
 
 - `store: "sqlite"` leaves the descriptor; a collection's descriptor names its
   logical tables only. The canonical table encoding stays, as the logical
@@ -368,13 +372,20 @@ With representation per placement, retention is per placement too:
 
 ## Forks for Joe
 
-1. Addressable: models only, with plain n:m connections as properties on both
-   ends?
-2. Order as sequences, positions only in database projections? (A
-   concurrent move of the same member: the later move wins; settled.)
-3. A row's name: storage (`&path`, as 003 has it) or logical identity
-   (`@path`)?
-4. Timestamps as row state stamped from `at`?
-5. Canonical CBOR with a chunked hash from the start, instead of the branch's
-   JSONL?
-6. Content in rows only through a schema field marked `@body`?
+Settled by Joe on 2026-10-24 (1 to 5 as recommended):
+
+1. Only models are addressable; a plain n:m connection is a property on the
+   rows at both ends.
+2. Order is a sequence of member keys; positions exist only in database
+   projections. A concurrent move of the same member: the later move wins.
+3. A row's name is its logical identity, not a storage detail: `path` leaves
+   003's storage layer.
+4. `created` and `modified` are row state, stamped from accepted operations'
+   `at`.
+5. The logical form is canonical CBOR with a chunked hash from the start,
+   replacing the branch's JSONL.
+
+6. A row's body is a storage choice, not part of the model: in the logical
+   form it is an ordinary `Markdown` field. A Markdown-records projection
+   writes the field named `content` as the body and `title` as the page
+   title; a storage attribute names other fields (003's storage layer).

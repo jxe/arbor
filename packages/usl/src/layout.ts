@@ -11,16 +11,16 @@
 //   the field when the target has a one-column key, else `field_part` each.
 // - A 1:1 or 1:n connection is a column (or columns) on the single side; an
 //   n:m connection is a join table named `Model_field` after its first end.
-// - `@ordered` on a many end adds a `field_position` column where the
+// - `ordered` on a many end adds a `field_position` column where the
 //   connection is stored.
 // - Every table has `created` and `modified`. In data files they are optional:
 //   a row has them once an edit that stated its time wrote them.
-// - `@@table("…")` and `@column("…")` rename what is stored, so a schema can
+// - `@table("…")` and `@column("…")` rename what is stored, so a schema can
 //   describe a database it didn't create.
 // - In data files, an n:m connection with a `@fold` end is an array on that
 //   end's rows instead of a file of its own. Databases always use a join table.
 // - Database tables index the columns rows are looked up by: references not
-//   leading the primary key (profile ids included) and each `@@index`.
+//   leading the primary key (profile ids included) and each `@index`.
 
 import type { CheckResult, ResolvedEnd, ResolvedModel, RowValue } from "./check.ts";
 
@@ -61,7 +61,7 @@ export interface JoinEnd {
   field: string;
   /** The columns naming the `model` row. */
   columns: string[];
-  /** For an `@ordered` end: the column that orders `field`'s members. */
+  /** For an `ordered` end: the column that orders `field`'s members. */
   position?: string;
   /** `@fold`: in data files, `field` holds the connection as an array. */
   fold: boolean;
@@ -75,13 +75,13 @@ export interface Table {
   primaryKey: string[];
   uniques: string[][];
   foreignKeys: ForeignKey[];
-  /** Columns to look rows up by, beyond the primary key: references, and `@@index`. */
+  /** Columns to look rows up by, beyond the primary key: references, and `@index`. */
   indexes: string[][];
   /** For a model's table: which columns hold each field. Other columns (timestamps, positions) hold themselves. */
   fields: StoredField[];
   /** For a join table: its two sides. */
   ends?: [JoinEnd, JoinEnd];
-  /** `@@seed` rows, inserted when missing. */
+  /** `seed` rows, inserted when missing. */
   seed: Record<string, RowValue>[];
 }
 
@@ -210,7 +210,7 @@ export function layoutOf(result: CheckResult, options: LayoutOptions = {}): Tabl
       const holder = storage.on === a.model && storage.field === a.field ? a : b;
       const other = holder === a ? b : a;
       const table = tables.get(holder.model)!;
-      // A connection that is part of the key (`@@id(list, id)`) already has its columns.
+      // A connection that is part of the key (`model Tag (list, id)`) already has its columns.
       if (models.get(holder.model)!.key.includes(holder.field)) continue;
       const cols = referenceColumns(other.model, holder.column ?? holder.field, holder.arity === "optional");
       table.columns.splice(table.columns.length - 2, 0, ...cols);
@@ -265,7 +265,7 @@ export function layoutOf(result: CheckResult, options: LayoutOptions = {}): Tabl
         fields.flatMap((f) => {
           if ((["created", "modified"] as string[]).includes(f)) return [f];
           const stored = table.fields.find((s) => s.name === f);
-          if (!stored) throw new LayoutError(`\`@@index\` names \`${f}\`, which \`${table.name}\` doesn't store; index the model that holds it`, model!.name);
+          if (!stored) throw new LayoutError(`\`@index\` names \`${f}\`, which \`${table.name}\` doesn't store; index the model that holds it`, model!.name);
           return stored.columns;
         }),
       );

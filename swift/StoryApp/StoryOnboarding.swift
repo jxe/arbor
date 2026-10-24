@@ -39,7 +39,8 @@ struct StoryMacLaunchView: View {
             case let .join(account, code):
                 joinAccount = account
                 joinCode = code
-                showingJoin = ready
+                guard ready else { return }
+                Task { await acceptInvitation(account: account, code: code) }
             case let .open(locator):
                 // Before onboarding completes there is no workspace window to open it in.
                 guard ready else { return }
@@ -53,6 +54,26 @@ struct StoryMacLaunchView: View {
         }
         .sheet(isPresented: $showingJoin) {
             StoryMacOnboarding(workspace: workspace, addingAccount: true, initialCommunity: joinAccount, initialCode: joinCode) { showingJoin = false }
+        }
+    }
+
+    /// An invite link opened once Story is set up joins that community with
+    /// this Mac's profile, as a placement (accounts §1.4); Story keeps one
+    /// identity. With no account yet, the link starts setup as before.
+    private func acceptInvitation(account: String, code: String) async {
+        do {
+            guard let home = try await workspace.accountService.accounts().first,
+                  workspace.accountService.capabilities.contains(.connectPlacement),
+                  let link = buildInviteLocator(account: account, code: code) else {
+                showingJoin = true
+                return
+            }
+            try await workspace.ensureStorySync()
+            try await workspace.accountService.connectPlacement(configurationTree: home.configurationTree, host: link)
+            // Show the new place: the invited address, now this profile's there.
+            try await workspace.openRemoteLocator(account)
+        } catch {
+            workspace.errorMessage = error.localizedDescription
         }
     }
 }

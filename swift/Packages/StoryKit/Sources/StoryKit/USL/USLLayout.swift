@@ -19,7 +19,7 @@ public struct USLColumn: Sendable, Equatable {
     /// Value arrays are stored in one column.
     public var array: Bool
     public var nullable: Bool
-    /// For a reference to a fixed model: the allowed row names.
+    /// For a reference to an enum: the allowed value names.
     public var allowed: [String]?
     /// For a reference to Person: the column holds a profile id.
     public var profile = false
@@ -48,7 +48,7 @@ public struct USLJoinEnd: Sendable, Equatable {
     public var model: String
     public var field: String
     public var columns: [String]
-    /// For an `@ordered` end: the column that orders `field`'s members.
+    /// For an `ordered` end: the column that orders `field`'s members.
     public var position: String?
     /// `@fold`: in data files, `field` holds the connection as an array.
     public var fold: Bool
@@ -67,7 +67,7 @@ public struct USLTable: Sendable, Equatable {
     public var fields: [USLStoredField]
     /// For a join table: its two sides.
     public var ends: [USLJoinEnd]?
-    /// `@@seed` rows, inserted when missing.
+    /// `seed` rows, inserted when missing.
     public var seed: [[String: JSONValue]]
 }
 
@@ -238,7 +238,7 @@ public func uslLayout(_ result: USLCheckResult, store: USLStore = .database) thr
             let holder = on == a.model && fieldName == a.field ? a : b
             let other = holder == a ? b : a
             var table = tables[holder.model]!
-            // A connection that is part of the key (`@@id(list, id)`) already has its columns.
+            // A connection that is part of the key (`model Tag (list, id)`) already has its columns.
             if models[holder.model]!.key.contains(holder.field) { continue }
             let cols = try referenceColumns(other.model, holder.column ?? holder.field, holder.arity == .optional)
             insertBeforeTimestamps(&table, cols)
@@ -300,7 +300,7 @@ public func uslLayout(_ result: USLCheckResult, store: USLStore = .database) thr
                     continue
                 }
                 guard let stored = table.fields.first(where: { $0.name == f }) else {
-                    throw USLLayoutError(message: "`@@index` names `\(f)`, which `\(table.name)` doesn't store; index the model that holds it", location: model!.name)
+                    throw USLLayoutError(message: "`@index` names `\(f)`, which `\(table.name)` doesn't store; index the model that holds it", location: model!.name)
                 }
                 columns += stored.columns
             }

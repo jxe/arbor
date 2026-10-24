@@ -869,10 +869,12 @@ export function evaluateSourceTransfer(
   // identity put them and no byte either side did not write. What remains is
   // that each change means the same in the combined document as where it was
   // authored. Every version having one structure shape means both sides, and
-  // the result, keep every protected block byte-for-byte and every list and
-  // table host with its bullet or its header and alignment, and differ only in
-  // paragraphs, items and body rows. Those render from their own source and
-  // their host alone, and no side changed a host, so a change renders the same
+  // the result, keep every protected block byte-for-byte and every table host
+  // with its header and alignment. Self-contained top-level bullet items may
+  // appear, disappear or change marker; a parent followed by indented content
+  // stays exact, so moving a bullet cannot reparent that content. Paragraphs,
+  // independent items and body rows render from their own source and host,
+  // so a change renders the same
   // in either side's document and in the result, in either arrival order.
   //
   // A contextual link also depends on its document: a relative destination on
@@ -897,7 +899,7 @@ export function evaluateSourceTransfer(
   return result(
     structured && bound,
     structured && bound
-      ? "Identity-verified transfer preserves Markdown list and table hosts, protected structure and link bindings"
+      ? "Identity-verified transfer preserves Markdown containment, table hosts and link bindings"
       : structured
         ? "Transfer changes a contextual link's document"
         : "Transfer changes protected Markdown structure or embedded content"

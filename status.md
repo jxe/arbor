@@ -12,6 +12,48 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Schema language layers — 2026-10-24
+
+Implemented, not published: `@ovst/usl` 0.3.0 reads the layered syntax of spec
+11 (plan schema-language 005 milestone 2). The model layer is keywords (`main`,
+`enum`, `re`, `seed`, `ordered`, `unique`, `path`, `as`, header keys), `@`
+marks storage and `~` presentation, and the old `@@` spellings are syntax
+errors. `usl fmt` applies the conventions, `modelLayer` gives the model layer
+the fingerprint hashes, and the tree-sitter, Zed and VS Code grammars follow.
+Every `.usl` and inline schema in the repo is rewritten; cranberries,
+excellences and supplies-remake are not yet. The StoryKit port is on branch
+`claude/project-thread-6kt6l8`, untested.
+
+Validation: typecheck and the full suite pass on Bun 1.4.2 (1,853 tests before
+the fmt and model-layer tests were added).
+
+## Todo list merge and conflict scope — 2026-10-22
+
+Implemented locally, not deployed: identity-verified Markdown transfers now
+allow self-contained top-level bullet items to appear, disappear, change marker
+or be empty. Nesting and continuation remain protected, including the parent
+block before an indented child across a blank line. Regression coverage includes
+an empty bullet authored before concurrent list moves and later task additions,
+in both arrival orders with LF and CRLF, plus cases that would reparent children.
+
+When identity replay succeeds but Markdown format review refuses a single
+insertion within one document, the engine can retain only absent versus inserted
+source. Removing that insertion must reproduce current by piece identity, and
+no prior choices may be open. Replacements and cross-document or failed replay
+still use conservative fallback. Regressions cover nearby task additions, edits
+at both selected projections' boundaries, hidden-branch typing and resolution
+without growing the alternatives.
+
+Validation: the affected gate passes on Bun 1.4.2: typecheck, 799 product tests
+across 63 files, documentation links and whitespace.
+
+The live todos conflict was separately resolved with Joe's approval at update
+12014, preserving the latest order and restoring the three unique hidden tasks.
+Accepted bytes matched the prepared preview, conflict inspection returned no
+decisions, the placed folder matched those bytes, and Native adopted an
+unconflicted state. This used the already deployed host; it does not establish
+deployment of the code changes above.
+
 ## Plans closed out — 2026-10-20
 
 Joe asked for the plans to be filed by timing (`plans/soon/`, `plans/later/`,
@@ -212,8 +254,8 @@ the phone reported current with unresolved conflicts, its durable attempt and
 hold were cleared, and Joe confirmed it had caught up. The request was not
 discarded, rewritten or regenerated. The first recovery took about five
 minutes, rebuilding about 4,200 entries for the older authored basis, which is
-what [Performance 003](plans/later/performance-003-fast-historical-catch-up.md)
-addresses.
+what [Performance 004](plans/later/performance-004-provenance-index.md)
+addresses (it replaced Performance 003 on 2026-10-21).
 
 Not recorded: a listing of the live cache directory after the deploy, so
 whether a `records-v1.sqlite` or whole-JSON save remains there is unknown.
@@ -783,7 +825,7 @@ measurements before broadening the implementation.
 | Tree configurations (overstoryd 005, schema 22): every hosted tree has one private configuration tree at a derived TreeID holding `access.yaml` and `mounts.yaml`, plus `apps.yaml` for a profile and `devices.yaml` for a person; rules have `admin` and `app`; lending names the lender; accounts are keyed by profile TreeID; the account configuration, `access`, `resource_policy` and `tree_reservations` are gone. The Mac and iPhone apps, CLI and Story Sync speak it | deployed and verified 2026-09-26 at schema 22 by [migration 022](packages/overstoryd/migrations/022-tree-configurations/README.md) (build `983c59da`; app fixes `35a9b320`) | [spec](docs/overstory-spec/04-accounts-and-devices.md#2-tree-configuration-graph), [decisions and failure cases](docs/architecture/overstoryd/tree-configurations.md) |
 | Device keys and sessions (Security 006 Phases 2 and 3, schema 23): a `devices.yaml` entry may carry `key` (`ed25519:` or `p256:`); a key device signs a host challenge for a session token of at most an hour; a digest device moves to a key once, and its credential stops working in the same commit; pairing and claims accept a key; a person who has lost every administrator device is recovered by an operator-issued recovery pairing (`overstoryd recover`), whose claim leaves only the new key device; the profile-key reset built in Phase 2 was withdrawn on 2026-09-27. TypeScript protocol and overstoryd with shared vectors (`device-keys.json`); the Swift `Overstory` models, signing bytes and client calls pass the same vectors. Clients (Phase 3): Story Sync holds an Ed25519 key and hands local clients sessions through `GET /v1/credential`; the iPhone holds a Secure Enclave P-256 key; new claims and pairings use keys, `story device move-to-key` and both apps move an existing device, identity backups are passphrase-encrypted (version 2; version 1 still restores); client suites and the protocol gate pass. As a home host overstoryd also publishes each profile's key devices at `GET /.overstory/profiles/{ProfileTreeID}/device-keys` (accounts §5.4, Security 007's home role) | host deployed and verified 2026-09-26 at schema 23 by [migration 023](packages/overstoryd/migrations/023-device-keys/README.md) (build `0621789b`); clients and the device-keys route deployed at `8448a63f` the same day. Joe's Mac and iPhone moved to keys and the route lists both; he checked an encrypted backup and session renewal by hand. Pairing, revoking and recovering with keys were never tried by hand (Joe waived those checks on 2026-09-27). Digest devices are retired on the branch awaiting the [schema-26 cutover](#schema-26-cutover--2026-09-27) | [accounts §5](docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing) |
 | Shared sidecar checkpoints (Performance 002): versioned SQLite stores compressed, content-addressed state records and binary private objects; direct restore preserves state identities, bucket shape and iteration order; interrupted replay checkpoints its verified frontier and protects the newer head while rebuilding an older authored basis. Legacy JSON checkpoints remain readable | deployed 2026-10-09 ([evidence](#shared-merge-cache-deployed--2026-10-09)); the two earlier formats are still readable | [shared checkpoints](docs/architecture/overstoryd/merge-cache.md), [retiring the earlier formats](plans/soon/cleanup-performance-002-retire-old-merge-cache-formats.md) |
-| Historical catch-up (Performance 003): lazy history working maps avoid full-history copies/scans on exact-basis edits; successful old-basis recovery retains that basis with its head; deterministic complexity and fresh-process replay benchmarks | deployed (on main); measured locally only, 2026-10-09; broader cold-replay targets remain | [evidence](#historical-catch-up-improvements--2026-10-09), [remaining work](plans/later/performance-003-fast-historical-catch-up.md) |
+| Historical catch-up (Performance 003): lazy history working maps avoid full-history copies/scans on exact-basis edits; successful old-basis recovery retains that basis with its head; deterministic complexity and fresh-process replay benchmarks | deployed (on main); measured locally only, 2026-10-09; broader cold-replay targets remain | [evidence](#historical-catch-up-improvements--2026-10-09), [replaced by Performance 004](plans/later/performance-004-provenance-index.md) |
 | Object packing (overstoryd 001): `ObjectStore` reads, presence checks and freshens fall back from loose files to immutable packs under `objects/packs/` indexed in their own SQLite file (zstd frames of about 1 MiB holding one document's versions in order, an object that large alone; every read hash-checked); overstoryd's `PackMaintenance` packs loose objects older than an hour outside every current tree after acceptances cross a threshold, at startup and when idle, and removes loose files only after reading each packed object back; the collector drops dead packed rows under the same retention and grace rules and rewrites half-empty packs. On a copy of live data (2026-10-09: 22,370 objects, 380 MB raw, 431 MB loose) document frames of 1 MiB took 21.8 MB with 0.58 ms p95 cold single reads; per-version deltas took 40–50 MB | deployed 2026-10-09 at `3514eaf4`, on by default (`OVERSTORYD_OBJECT_PACKING=0` stops packing); `pack-maintenance.ts` runs one pass or `--unpack` by hand | [evidence](#object-packing-deployed--2026-10-09), [follow-ups](plans/soon/cleanup-overstoryd-001-pack-storage-follow-ups.md) |
 | Merge sidecar cleanup: the reference sidecar keeps each engine state decoded in memory, as frozen, interned values in persistent maps that share whatever an edit did not touch, identified by a digest of its content (the chunked state encodings and lazy history loading are gone); engine decisions convert straight to log decisions; the snapshot tree merge is its own package, `@ovst/tree-merge`, which Story Sync tree recovery now declares. Log entries and the question and answer are unchanged | deployed (on main) | [merge sidecar](docs/architecture/overstoryd/merge-tool.md#retained-state) |
 | Transfer merge extensions (overstoryd 014): identity-verified moves and copies of Markdown bullet-list items, pipe-table body rows and text with relative, fragment or reference links (with a proven binding); same-anchor pairs kept in contribution order; keyed JSON/YAML member moves and copies and top-level TS/JS function declaration moves within one file, each with its commutation proof in `format-rules.ts`, tested in both arrival orders with a failing-proof case (`tests/unit/overstoryd-merge/transfer-extensions.test.ts`). Server-side only; no wire or schema change | deployed (on main), not tried by hand; hand checks in [small work](plans/small-work.md#server-refinements) | [transfers](docs/architecture/overstoryd/merge-tool.md#transfers) |
@@ -807,7 +849,7 @@ measurements before broadening the implementation.
 | Native sidebar Trees mode, People footer, and single-pane profile/sync/devices management with focused account and identity actions on Mac and iOS | implemented, not installed; macOS and iOS builds passed, manual UI verification pending | [client design](docs/implementing-editors/design.md#profile-control-and-claim) |
 | Plural local accounts and devices: one data home holds several host accounts, including several at one origin, in `account.yaml`, `trees.yaml`, and `devices.yaml`; Mac-to-iPhone pairing | installed, verified | [local system](docs/architecture/story-sync/data-home.md#data-home) |
 | Short-lived cloud workspaces: reusable one-account bundles, exact placements under an isolated root, detached Story Sync, explicit finish, bundle revocation, `story status`; Mac Share panel "Use with an agent" creates, shares, and revokes one-tree bundles (not yet exercised against a live host) | implemented | [CLI](docs/getting-started/cli.md#short-lived-cloud-sessions) |
-| Declarative collection schemas: `schema.usl` in Ultimate Schema Language (CDDL, `schema.sql` and `relationships.json` removed 2026-10-14, see [Schema language](#schema-language-replaces-cddl--2026-10-14)), one collection descriptor version (1, naming `schema.usl`) in TypeScript and Swift, open rows that accept and preserve undeclared members while declared members validate strictly, schema-directed CSV cells, validation that never normalizes, generated collection types without Zod; overstoryd acceptance and projection, the merge rules and Story Sync providers use the pure `@ovst/collection-schema` package, and QuickJS is no longer a dependency. No collections existed before, so there is nothing to migrate; a `schema.ts` is an ordinary file | deployed, not installed; the Swift model edits build and pass their suites on a Mac ([2026-10-11](#cli-package-people-and-joining-by-invitation--2026-10-11)) | [collection schemas](docs/architecture/collection-schema/README.md), [child backings §2.4](docs/overstory-spec/06-child-backings.md#24-collection-schemas) |
+| Declarative collection schemas: `schema.usl` in Ultimate Schema Language (CDDL, `schema.sql` and `relationships.json` removed 2026-10-14, see [Schema language](#schema-language-replaces-cddl--2026-10-14)), one collection descriptor version (1, naming `schema.usl`) in TypeScript and Swift, open rows that accept and preserve undeclared members while declared members validate strictly, schema-directed CSV cells, validation that never normalizes, generated collection types without Zod; overstoryd acceptance and projection, the merge rules and Story Sync providers use the pure `@ovst/collection-schema` package, and QuickJS is no longer a dependency. No collections existed before, so there is nothing to migrate; a `schema.ts` is an ordinary file | deployed, not installed; the Swift model edits build and pass their suites on a Mac ([2026-10-11](#cli-package-people-and-joining-by-invitation--2026-10-11)) | [collection schemas](docs/architecture/collection-schema/README.md), [child backings §2.4](docs/overstory-spec/06-child-backings.md#2-logical-collections) |
 | Ignored filesystem content (Filesystem 005): one membership policy in `@ovst/fs` for discovery, listing, resolution, watching, snapshots, object reads and materialization; `.overstoryignore` and `.gitignore` in Git's grammar, mandatory exclusions that rules cannot negate, and tracked paths (the folder's last-held root) that stay synchronized until deleted; the Swift preview uses a port of the same matcher | implemented, not installed; `LocalFolderPreviewTests` pass on a Mac (2026-10-11); the [restart check](plans/small-work.md#ignore-policy-restart-check) remains | [directory format §7](docs/overstory-spec/02-directory-format.md#7-tree-membership-and-ignore-files), [ignored content](docs/architecture/story-sync/data-home.md#ignored-content) |
 | Headless executable-data core: SQLite-backed query lowering and execution over the Supplies corpus, dependency-sensitive live result streams, authorized transactional mutations with durable retry receipts | implemented | [apps runtime](packages/apps-runtime/README.md), [Supplies](examples/supplies/README.md) |
 | One merge-state model and squashed history: every acceptance records a merge state (tree creation, pairing, account configuration and boundary rewrites checkpoint their root; no whole-entry conflict rows); schema 18 keeps one accepted update per tree, and migration 016 squashes history to each head, keeping roots, head ids, entry dates and document versions | deployed 2026-09-24 at schema 18; history cut 2026-09-24 by migration 016 | migration 016 (deleted; its runbook is `packages/overstoryd/migrations/016-squash-history/README.md` at `d15ddce`) |
@@ -1541,7 +1583,7 @@ gates are in [small work](plans/small-work.md#native-011-hand-checks).
 ## Declarative collection schemas — 2026-09-24
 
 Apps 007 is implemented and tested, not deployed or installed. A collection's `schema.cddl` is parsed and
-checked under the profile in [child backings §2.4](docs/overstory-spec/06-child-backings.md#24-collection-schemas)
+checked under the profile in [child backings §2.4](docs/overstory-spec/06-child-backings.md#2-logical-collections)
 by `@ovst/collection-schema`, which executes no code and has no
 filesystem or network access; `apps-runtime` lost its QuickJS sandbox and its
 QuickJS, Zod and `csv-parse` dependencies. Rows are open (2026-09-25, Joe's

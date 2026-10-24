@@ -1,6 +1,6 @@
 // Idempotent setup SQL for SQLite and Postgres from a schema's layout. Run it
 // any number of times: tables, indexes and foreign keys are created only
-// when missing, and @@seed rows are inserted only when their id is missing.
+// when missing, and seed rows are inserted only when their id is missing.
 // It never alters or drops anything; migrations are separate.
 
 import type { RowValue } from "./check.ts";

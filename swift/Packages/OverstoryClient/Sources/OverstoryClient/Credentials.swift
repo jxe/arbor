@@ -780,8 +780,17 @@ public actor NativeAccountService {
     /// reservation throws `NativePlacementError.notReserved`, naming what to
     /// reserve; one that cannot check the device now (its home host is
     /// unreachable) throws its own error, naming the home host.
-    public func connectPlacement(on host: String) async throws -> NativePlacementResult {
-        let target = try placementTarget(host)
+    ///
+    /// `host` may instead be an invitation link to another host: this device
+    /// first accepts it with the profile key, and the host makes the invited
+    /// address this profile's placement account (accounts §1.4). Only the
+    /// device holding the profile key can; others throw `.noProfileKey`.
+    public func connectPlacement(
+        on host: String,
+        identityStore: KeychainProfileIdentityStore = KeychainProfileIdentityStore()
+    ) async throws -> NativePlacementResult {
+        let invitation = placementInvitation(host)
+        let target = try placementTarget(invitation?.account ?? host)
         guard let configurationTree,
               let home = try await credentials.accounts().first(where: { $0.configurationTree == configurationTree }),
               let profileTree = home.profileTree,
@@ -792,6 +801,24 @@ public actor NativeAccountService {
         }
         guard target.origin != homeHost else { throw NativePlacementError.homeHost(target.origin) }
         guard let targetURL = URL(string: target.origin) else { throw NativePlacementError.invalidHost }
+        if let invitation {
+            guard let handle = home.handle else { throw NativePlacementError.noHomeAccount }
+            guard try await identityStore.identity()?.profileTree == profileTree else { throw NativePlacementError.noProfileKey }
+            let profile = "\(homeHost)/~\(handle)"
+            let client = ProtocolClient(origin: targetURL, session: session, retryDelay: retryDelay)
+            let challenge = try await client.createAccountChallenge(
+                account: invitation.account, profileTree: profileTree, configurationTree: configurationTree,
+                inviteCode: invitation.code, profile: profile
+            )
+            guard challenge.origin == target.origin, challenge.account == invitation.account, challenge.profileTree == profileTree else {
+                throw NativePlacementError.mismatch("The invitation's host answered for another account")
+            }
+            let signed = try await identityStore.sign(challenge)
+            try await client.acceptInvitationAsPlacement(
+                account: invitation.account, profile: profile, profileTree: profileTree, configurationTree: configurationTree,
+                inviteCode: invitation.code, challenge: challenge, publicKey: signed.identity.publicKey, signature: signed.signature
+            )
+        }
         let token: String
         do {
             token = try await ProtocolClient(origin: targetURL, session: session, retryDelay: retryDelay)

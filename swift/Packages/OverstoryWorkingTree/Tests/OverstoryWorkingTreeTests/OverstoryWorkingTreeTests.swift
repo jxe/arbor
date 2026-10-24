@@ -152,7 +152,8 @@ struct WorkingTreeProviderTests {
                 #expect(node.provenance.treeRootURL == physicalRoot.standardizedFileURL)
             }
             let missing = try await provider.resolve(.init(tree: tree, path: "/missing"))
-            #expect(missing.provenance.physicalURL == nil)
+            // Not yet written by story-sync: still where the page will be.
+            #expect(missing.provenance.physicalURL == physicalRoot.appending(path: "missing.md").standardizedFileURL)
             #expect(missing.provenance.treeRootURL == physicalRoot.standardizedFileURL)
         }
     }

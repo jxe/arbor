@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { compileUsl, parseUsl } from "@ovst/usl";
+import { compileUsl, modelLayer, parseUsl } from "@ovst/usl";
 
 const examples = join(import.meta.dir, "../../plans/soon/schema-language/examples");
 const usl = (dir: string) => readdirSync(dir).filter((f) => f.endsWith(".usl"));
@@ -93,5 +93,29 @@ describe("usl editor support", () => {
     for (const name of readdirSync(queries)) {
       expect(readFileSync(join(editors, "zed/languages/usl", name), "utf8")).toBe(readFileSync(join(queries, name), "utf8"));
     }
+  });
+});
+
+describe("usl model layer", () => {
+  const layer = (source: string) => modelLayer(compileUsl(source));
+  const base = "main model Game {\n  name Text\n  status Status\n}\nGame.authors[] <-> Person.games[]\nGame.status <-> Status.games[]\nenum Status { B, A }\n";
+
+  test("leaves out storage and presentation", () => {
+    const decorated =
+      'main model Game {\n  name Text @column("title")\n  status Status\n  @table("games")\n  @index(name)\n}\n' +
+      "Game.authors[] @fold <-> Person.games[]\nGame.status <-> Status.games[]\nenum Status { B, A }\n" +
+      're Status {\n  A ~color("#111111") @stored("a")\n}\nre Game {\n  ~views([{ label: "All" }])\n}\n';
+    expect(layer(decorated)).toEqual(layer(base));
+  });
+
+  test("is ordered by name, whatever order the schema uses", () => {
+    const reordered = "enum Status { A, B }\nGame.status <-> Status.games[]\nmain model Game {\n  status Status\n  name Text\n}\nGame.authors[] <-> Person.games[]\n";
+    expect(layer(reordered)).toEqual(layer(base));
+    expect(layer(base).models.map((m) => m.name)).toEqual(["Game", "Person", "Status"]);
+  });
+
+  test("changes with the model", () => {
+    expect(layer(base.replace("name Text", "name unique Text"))).not.toEqual(layer(base));
+    expect(layer(base.replace("main model", "model"))).not.toEqual(layer(base));
   });
 });

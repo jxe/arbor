@@ -17,9 +17,7 @@ const source = `model Entry {
 Entry.status <-> Status.entries[]
 Entry.authors[] @fold <-> Person.entries[]
 
-model Status {
-  @@fixed { draft, done }
-}
+enum Status { draft, done }
 `;
 
 const expected = 'type Row = { "id": string; "note"?: string | null; "count": number; "flag": boolean; "due"?: string | null; "tags"?: string[]; "status": "draft" | "done"; "authors"?: string[]; "created"?: string | null; "modified"?: string | null; [member: string]: unknown; };';

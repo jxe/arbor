@@ -9,5 +9,5 @@ repository = "https://github.com/jxe/arbor"
 [grammars.usl]
 repository = "https://github.com/jxe/arbor"
 # A commit of jxe/arbor that holds packages/usl/editors/tree-sitter-usl with its generated src/.
-rev = "bda7bc42013f1b7d1b1e337205f862ccd0a9209a"
+rev = "7f04930f1d97804a1e29c4bf353291b67b9b64ed"
 path = "packages/usl/editors/tree-sitter-usl"

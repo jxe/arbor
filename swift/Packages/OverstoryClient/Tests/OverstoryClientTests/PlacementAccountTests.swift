@@ -267,9 +267,25 @@ struct PlacementAccountTests {
         await #expect(throws: NativePlacementError.homeHost("https://home.test")) {
             _ = try await service.connectPlacement(on: "https://home.test/~joe")
         }
+        // An invitation to the home host is for a new profile, not a placement.
+        await #expect(throws: NativePlacementError.homeHost("https://home.test")) {
+            _ = try await service.connectPlacement(on: "https://home.test/~guest#overstory-invite=placementInviteCode_01")
+        }
         let unconnected = NativeAccountService(origin: home, credentials: store, session: session())
         await #expect(throws: NativePlacementError.noHomeAccount) {
             _ = try await unconnected.connectPlacement(on: "https://place.test")
+        }
+    }
+
+    @Test("Invitation links name the invited account and its code (accounts §1.4)")
+    func invitationLinks() {
+        let link = placementInvitation(" https://place.test/~guest/#overstory-invite=placementInviteCode_01\n")
+        #expect(link?.account == "https://place.test/~guest")
+        #expect(link?.code == "placementInviteCode_01")
+        #expect(placementInvitation("overstory://place.test/~guest#overstory-invite=abc")?.account == "https://place.test/~guest")
+        #expect(placementInvitation("overstory://127.0.0.1:4318/~guest#overstory-invite=abc")?.account == "http://127.0.0.1:4318/~guest")
+        for other in ["https://place.test", "https://place.test/~guest", "https://place.test/~guest#other=abc", "https://place.test/~guest?x=1#overstory-invite=abc"] {
+            #expect(placementInvitation(other) == nil, "\(other)")
         }
     }
 

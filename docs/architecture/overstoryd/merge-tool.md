@@ -370,18 +370,26 @@ joining two or more files the candidate also edited, makes one whole-root
 choice. Otherwise each file a transfer touched is one choice about that file
 (both sides' edits there together), and every other file merges. A transfer
 that changed no file (a move to where its text already was) couples nothing.
+When replay succeeds but format policy refuses a single Markdown insertion within one
+document, removing its output by identity must exactly reproduce current.
+If it does, and no choices are already open, review concerns only absent versus
+inserted source. Accepted reorders and subsequent edits outside that fragment
+stay outside the choice. Other replay failures retain the fallback above.
 
 - **Markdown** (`markdown-source-transfer`). All four versions keep every
   protected host block and embedded region byte for byte, and differ only in
-  plain and self-contained formatted paragraphs, in *list items* within a list
-  host of the same bullet, and in *body rows* within a table host of the same
-  header and alignment. A list host is a block of single-line top-level
+  plain and self-contained formatted paragraphs, in top-level *bullet items*,
+  and in *body rows* within a table host of the same header and alignment.
+  Bullet items may appear, disappear, change bullet style or be empty without
+  requiring review. These are single-line top-level
   bullet items (one bullet character, one space, self-contained inline content
   that begins no other block); a table host is a pipe table whose lines all
   start and end with `|`, without escapes, whose every row has the header's
-  cell count. Ordered, nested, indented, multi-line and continued items, a
-  host directly followed by an opaque region, a host that appears or empties,
-  and a changed bullet, header or alignment require review.
+  cell count. Ordered, nested, indented, multi-line and continued items, their
+  preceding parent blocks (including across blank lines), a host directly
+  followed by an opaque region, and a changed table header or alignment
+  require review. This protects containment without treating the number of
+  ordinary tasks as document structure.
 - **Contextual links.** A relative destination, a `#fragment` and a
   reference (`[text][label]`, `[label][]`, `[label]`) bind to their document:
   its directory, headings and definitions. Headings and definitions are

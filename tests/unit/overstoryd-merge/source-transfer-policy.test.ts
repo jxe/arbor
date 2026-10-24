@@ -31,7 +31,6 @@ test("Markdown transfer allows plain paragraph changes beside unchanged protecte
 
 test.each([
   ["# Title\n\nText\n", "# Changed\n\nText\n"],
-  ["Text\n\n", "Text\n\n- List\n"],
   ["- List\n\n", "- List\n\n  continuation\n"],
   ["Text\n\n", "Text\n\n[link](url)\n"],
   ["Title\n---\n\nText\n", "Title\n\n---\n\nText\n"],

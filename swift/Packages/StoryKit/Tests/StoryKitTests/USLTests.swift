@@ -84,6 +84,19 @@ struct USLTests {
         #expect(tables.map(\.name) == ["Episode", "Series", "Game", "Game_authors"])
     }
 
+    @Test("re blocks annotate, header keys key, and one model is main")
+    func layers() {
+        let result = compileUSL("main model Tag (list, id) {\n  name Text\n}\nTag.list <-> List.tags[]\nmodel List { name Text }\nenum Status { A, B }\nre Status {\n  A ~color(\"#111111\") @stored(\"a\")\n}\n")
+        #expect(result.diagnostics == [])
+        let tag = result.models.first { $0.name == "Tag" }
+        #expect(tag?.main == true)
+        #expect(tag?.key == ["list", "id"])
+        let value = result.models.first { $0.name == "Status" }?.schemaRows.first
+        #expect(value?.color == "#111111")
+        #expect(value?.stored == "a")
+        #expect(compileUSL("model A {\n  @@views([])\n}\n").diagnostics.map(\.code) == ["syntax"])
+    }
+
     @Test("Limits and syntax errors carry positions")
     func syntaxErrors() {
         let broken = parseUSL("model Book {\n  title Text\n  author ?\n}\n")
@@ -91,6 +104,6 @@ struct USLTests {
         #expect(broken.diagnostics.first?.code == "syntax")
         #expect(broken.diagnostics.first?.line == 3)
         let deep = String(repeating: "[", count: 40) + String(repeating: "]", count: 40)
-        #expect(parseUSL("model A { @@views(\(deep)) }").diagnostics.first?.code == "limit")
+        #expect(parseUSL("model A { ~views(\(deep)) }").diagnostics.first?.code == "limit")
     }
 }

@@ -4,7 +4,10 @@ import Foundation
 // hand-written lexer and recursive-descent parser. A port of
 // `packages/usl/src/ast.ts` and `parse.ts` (spec 11): items in any block are
 // separated by newlines or commas, and newlines inside parentheses, lists and
-// object literals are ignored.
+// object literals are ignored. The model layer is keywords (`main`, `enum`,
+// `re`, `seed`, `ordered`, `unique`, `path`, `as`), which are keywords only
+// where they appear; `@` attributes are storage and `~` attributes
+// presentation.
 //
 // Columns count Unicode scalars; TypeScript counts UTF-16 code units, so the
 // two differ only after a character outside the Basic Multilingual Plane on
@@ -24,7 +27,14 @@ public enum USLArity: String, Sendable, Equatable {
     case one, optional, many
 }
 
+/// `@` marks storage and `~` presentation; the model layer is keywords.
+public enum USLSigil: String, Sendable, Equatable {
+    case storage = "@"
+    case presentation = "~"
+}
+
 public struct USLAttribute: Sendable, Equatable {
+    public var sigil: USLSigil
     public var name: String
     public var args: [USLExpr]
     public var at: USLPosition
@@ -50,26 +60,38 @@ public struct USLObjectEntry: Sendable, Equatable {
     public var at: USLPosition
 }
 
-/// `name Type`: a field of the model.
+/// A name and where it was written.
+public struct USLName: Sendable, Equatable {
+    public var name: String
+    public var at: USLPosition
+}
+
+/// `name [modifiers] Type`: a field of the model. Modifiers are `ordered`, `unique` and `path`.
 public struct USLFieldDecl: Sendable, Equatable {
     public var name: String
+    public var modifiers: [USLName]
     public var type: String
     public var arity: USLArity
     public var attrs: [USLAttribute]
     public var at: USLPosition
 }
 
-/// `Model.field`: an end of a connection, declaring the field that model gains.
+/// `[ordered] Model.field [as name]`: an end of a connection, declaring the field that model gains.
 public struct USLEndDecl: Sendable, Equatable {
     public var model: String
     public var field: String
     public var arity: USLArity
+    /// Where `ordered` was written before the end, if it was.
+    public var ordered: USLPosition?
+    /// `as name`: the field this end gets in a connection model.
+    public var `as`: USLName?
     public var attrs: [USLAttribute]
     public var at: USLPosition
 }
 
-/// `@@name(args)` on a model.
+/// An attribute that starts an item in a block: `@table(...)`, `~views(...)`.
 public struct USLModelAttribute: Sendable, Equatable {
+    public var sigil: USLSigil
     public var name: String
     public var args: [USLExpr]
     public var at: USLPosition
@@ -82,11 +104,18 @@ public struct USLRowDecl: Sendable, Equatable {
     public var at: USLPosition
 }
 
-/// `@@fixed { ... }` or `@@seed { ... }`.
+/// An enum's values (`fixed`) or a model's `seed { ... }` rows.
 public struct USLRowsBlock: Sendable, Equatable {
     public enum Mode: String, Sendable { case fixed, seed }
     public var mode: Mode
     public var rows: [USLRowDecl]
+    public var at: USLPosition
+}
+
+/// In a `re` block: a field or enum value named again, with attributes.
+public struct USLMention: Sendable, Equatable {
+    public var name: String
+    public var attrs: [USLAttribute]
     public var at: USLPosition
 }
 
@@ -95,6 +124,7 @@ public enum USLMember: Sendable, Equatable {
     case end(USLEndDecl)
     case modelAttribute(USLModelAttribute)
     case rows(USLRowsBlock)
+    case mention(USLMention)
 
     public var at: USLPosition {
         switch self {
@@ -102,11 +132,32 @@ public enum USLMember: Sendable, Equatable {
         case .end(let e): e.at
         case .modelAttribute(let a): a.at
         case .rows(let r): r.at
+        case .mention(let m): m.at
         }
     }
 }
 
+/// `[main] model Name [(key, ...)] { ... }` or `enum Name { ... }`.
 public struct USLModelDecl: Sendable, Equatable {
+    public enum Form: String, Sendable { case model, `enum` }
+    public var form: Form
+    public var name: String
+    /// Where `main` was written, if it was.
+    public var main: USLPosition?
+    /// The header key, `(list, id)`, if there is one.
+    public var key: USLHeaderKey?
+    public var members: [USLMember]
+    public var at: USLPosition
+}
+
+/// A model's header key: `model Tag (list, id)`.
+public struct USLHeaderKey: Sendable, Equatable {
+    public var fields: [USLName]
+    public var at: USLPosition
+}
+
+/// `re Name { ... }`: attributes for a model or enum declared elsewhere.
+public struct USLReDecl: Sendable, Equatable {
     public var name: String
     public var members: [USLMember]
     public var at: USLPosition
@@ -130,6 +181,7 @@ public struct USLViewDecl: Sendable, Equatable {
 
 public enum USLDeclaration: Sendable, Equatable {
     case model(USLModelDecl)
+    case re(USLReDecl)
     case connection(USLConnectionDecl)
     case view(USLViewDecl)
 }
@@ -171,7 +223,7 @@ private struct Token {
     var column: Int
 }
 
-private let punctuation = ["<->", "@@", "{", "}", "(", ")", "[", "]", ",", ".", ":", "?", "@", "/"].map { Array($0.unicodeScalars) }
+private let punctuation = ["<->", "@@", "{", "}", "(", ")", "[", "]", ",", ".", ":", "?", "@", "~", "/"].map { Array($0.unicodeScalars) }
 
 private func isLetter(_ c: Unicode.Scalar) -> Bool {
     (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || c == "_"
@@ -255,6 +307,9 @@ private func lex(_ source: String) throws -> (tokens: [Token], scalars: [Unicode
     return (tokens, s)
 }
 
+/// Keywords that may come between a field's name and its type.
+private let modifierKeywords = ["ordered", "unique", "path"]
+
 private func describe(_ token: Token) -> String {
     switch token.kind {
     case .eof: "end of file"
@@ -318,11 +373,22 @@ private struct Parser {
 
     mutating func declaration() throws -> USLDeclaration {
         let start = here
-        if `is`("model") && peek().kind == .ident {
+        if `is`("main") && `is`("model", peek()) && peek(2).kind == .ident {
+            next()
+            return .model(try model(start, main: start))
+        }
+        if `is`("model") && peek().kind == .ident { return .model(try model(start, main: nil)) }
+        if `is`("enum") && peek().kind == .ident {
             next()
             let name = next().text
-            let members = try block()
-            return .model(USLModelDecl(name: name, members: members, at: start))
+            let members = try block(.enum)
+            return .model(USLModelDecl(form: .enum, name: name, main: nil, key: nil, members: members, at: start))
+        }
+        if `is`("re") && peek().kind == .ident {
+            next()
+            let name = next().text
+            let members = try block(.re)
+            return .re(USLReDecl(name: name, members: members, at: start))
         }
         if `is`("view") && peek().kind == .string {
             next()
@@ -337,63 +403,141 @@ private struct Parser {
             return .view(USLViewDecl(label: label, of: of, options: options, at: start))
         }
         if `is`("{") {
-            let members = try block()
+            let members = try block(.connection)
             return .connection(USLConnectionDecl(spelling: .braces, members: members, at: start))
         }
-        if token.kind == .ident && `is`(".", peek()) {
+        if startsEnd() {
             let left = try end()
             try expect("<->")
             let right = try end()
             if `is`("<->") { throw fail("one arrow per connection; use a named model for more ends") }
             return .connection(USLConnectionDecl(spelling: .arrow, members: [.end(left), .end(right)], at: start))
         }
-        throw fail("`model`, `view`, a connection `{ A.x, B.y }` or `A.x <-> B.y`")
+        try oldSpelling()
+        throw fail("`model`, `enum`, `re`, `view`, a connection `{ A.x, B.y }` or `A.x <-> B.y`")
     }
 
+    /// `model Name [(key, ...)] { ... }`, after any `main`.
+    mutating func model(_ start: USLPosition, main: USLPosition?) throws -> USLModelDecl {
+        try expect("model")
+        let name = next().text
+        var key: USLHeaderKey?
+        if `is`("(") {
+            let keyAt = here
+            next()
+            var fields: [USLName] = []
+            _ = separators()
+            while !`is`(")") {
+                let field = try ident("a key field")
+                fields.append(USLName(name: field.text, at: at(field)))
+                if !`is`(")") && !separators() { throw fail("`,` or `)`") }
+            }
+            next()
+            key = USLHeaderKey(fields: fields, at: keyAt)
+        }
+        let members = try block(.model)
+        return USLModelDecl(form: .model, name: name, main: main, key: key, members: members, at: start)
+    }
+
+    /// `[ordered] Model.field` starts here.
+    func startsEnd() -> Bool {
+        if `is`("ordered") && peek().kind == .ident && `is`(".", peek(2)) { return true }
+        return token.kind == .ident && `is`(".", peek())
+    }
+
+    /// Spellings from before 2026-10-24 get a pointer to the new one.
+    func oldSpelling() throws {
+        if `is`("@@") {
+            throw fail("an item; USL has no `@@` (write keys as `model X (a, b)`, an enum as `enum X { ... }`, `seed { ... }`, and `@table`, `@index` or `~views`)")
+        }
+    }
+
+    enum BlockContext { case model, `enum`, re, connection }
+
     /// `{ member (sep member)* }`
-    mutating func block() throws -> [USLMember] {
+    mutating func block(_ context: BlockContext) throws -> [USLMember] {
         try expect("{")
         var members: [USLMember] = []
+        var values: [USLRowDecl] = []
+        var valuesAt: USLPosition?
         _ = separators()
         while !`is`("}") {
-            let item = try member()
-            members.append(item)
+            if context == .enum && startsValue() {
+                if valuesAt == nil { valuesAt = here }
+                values.append(try row())
+            } else {
+                members.append(try member(context))
+            }
             if !`is`("}") && !separators() { throw fail("a new line, `,` or `}`") }
         }
         next()
+        if context == .enum { members.append(.rows(USLRowsBlock(mode: .fixed, rows: values, at: valuesAt ?? here))) }
         return members
     }
 
-    mutating func member() throws -> USLMember {
+    /// In an enum, a value rather than a field: a name not followed by a type.
+    func startsValue() -> Bool {
+        if token.kind == .string { return true }
+        return token.kind == .ident && peek().kind != .ident
+    }
+
+    mutating func member(_ context: BlockContext) throws -> USLMember {
         let start = here
-        if `is`("@@") {
-            next()
-            let name = try ident("a model attribute name").text
-            if (name == "fixed" || name == "seed") && `is`("{") {
-                return .rows(USLRowsBlock(mode: name == "fixed" ? .fixed : .seed, rows: try rows(), at: start))
-            }
+        try oldSpelling()
+        if `is`("@") || `is`("~") {
+            let sigil: USLSigil = next().text == "@" ? .storage : .presentation
+            let name = try ident("an attribute name").text
             let arguments: [USLExpr] = try (`is`("(") ? args() : [])
-            return .modelAttribute(USLModelAttribute(name: name, args: arguments, at: start))
+            return .modelAttribute(USLModelAttribute(sigil: sigil, name: name, args: arguments, at: start))
         }
-        if token.kind == .ident && `is`(".", peek()) { return .end(try end()) }
+        if context == .re {
+            let name: String
+            if token.kind == .ident { name = next().text }
+            else if token.kind == .string { name = next().stringValue ?? "" }
+            else { throw fail("a field or value to annotate, or an attribute") }
+            let attributes = try attrs()
+            if attributes.isEmpty { throw fail("an attribute for `\(name)` (`re` blocks only annotate)") }
+            return .mention(USLMention(name: name, attrs: attributes, at: start))
+        }
+        if `is`("seed") && `is`("{", peek()) {
+            next()
+            return .rows(USLRowsBlock(mode: .seed, rows: try rows(), at: start))
+        }
+        if startsEnd() { return .end(try end()) }
         if token.kind == .ident {
             let name = next().text
+            var modifiers: [USLName] = []
+            while token.kind == .ident && modifierKeywords.contains(token.text) && peek().kind == .ident {
+                modifiers.append(USLName(name: token.text, at: here))
+                next()
+            }
             let type = try ident("a type for field `\(name)`").text
             let arity = try arityChecked()
             let attributes = try attrs()
-            return .field(USLFieldDecl(name: name, type: type, arity: arity, attrs: attributes, at: start))
+            return .field(USLFieldDecl(name: name, modifiers: modifiers, type: type, arity: arity, attrs: attributes, at: start))
         }
-        throw fail("a field, a connection end `Model.field`, or `@@attribute`")
+        throw fail("a field, a connection end `Model.field`, or an attribute")
     }
 
     mutating func end() throws -> USLEndDecl {
         let start = here
+        var ordered: USLPosition?
+        if `is`("ordered") && peek().kind == .ident && `is`(".", peek(2)) {
+            ordered = here
+            next()
+        }
         let model = try ident("a model name").text
         try expect(".")
         let field = try ident("a field name").text
         let arity = try arityChecked()
+        var name: USLName?
+        if `is`("as") && peek().kind == .ident {
+            next()
+            let t = next()
+            name = USLName(name: t.text, at: at(t))
+        }
         let attributes = try attrs()
-        return USLEndDecl(model: model, field: field, arity: arity, attrs: attributes, at: start)
+        return USLEndDecl(model: model, field: field, arity: arity, ordered: ordered, as: name, attrs: attributes, at: start)
     }
 
     mutating func arityChecked() throws -> USLArity {
@@ -411,14 +555,29 @@ private struct Parser {
 
     mutating func attrs() throws -> [USLAttribute] {
         var result: [USLAttribute] = []
-        while `is`("@") {
+        while `is`("@") || `is`("~") {
             let start = here
-            next()
+            let sigil: USLSigil = next().text == "@" ? .storage : .presentation
             let name = try ident("an attribute name").text
             let arguments: [USLExpr] = try (`is`("(") ? args() : [])
-            result.append(USLAttribute(name: name, args: arguments, at: start))
+            result.append(USLAttribute(sigil: sigil, name: name, args: arguments, at: start))
         }
         return result
+    }
+
+    mutating func row() throws -> USLRowDecl {
+        let start = here
+        let name: String
+        if token.kind == .ident { name = next().text }
+        else if token.kind == .string { name = next().stringValue ?? "" }
+        else { throw fail("a value name") }
+        var values: [USLObjectEntry] = []
+        if `is`("{") {
+            next()
+            values = try entries("}")
+        }
+        let attributes = try attrs()
+        return USLRowDecl(name: name, values: values, attrs: attributes, at: start)
     }
 
     mutating func rows() throws -> [USLRowDecl] {
@@ -426,18 +585,7 @@ private struct Parser {
         var result: [USLRowDecl] = []
         _ = separators()
         while !`is`("}") {
-            let start = here
-            let name: String
-            if token.kind == .ident { name = next().text }
-            else if token.kind == .string { name = next().stringValue ?? "" }
-            else { throw fail("a row name") }
-            var values: [USLObjectEntry] = []
-            if `is`("{") {
-                next()
-                values = try entries("}")
-            }
-            let attributes = try attrs()
-            result.append(USLRowDecl(name: name, values: values, attrs: attributes, at: start))
+            result.append(try row())
             if !`is`("}") && !separators() { throw fail("a new line, `,` or `}`") }
         }
         next()

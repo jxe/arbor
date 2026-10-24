@@ -34,9 +34,12 @@ hashes, collection-file child-set hashes, and schema fingerprints) uses this enc
 `protocol-update-intent.json` records the currently implemented update digest derived from it.
 
 `collection-schemas.json` binds the collection schemas of
-[child backings §2.4](../06-child-backings.md#24-collection-schemas), written in
-the [schema language](../11-schema-language.md):
-accepted schemas with their columns, key, child name and fingerprint; rejected
+[child backings §2](../06-child-backings.md#2-logical-collections), written in
+the [schema language](../11-schema-language.md). It, and the
+`collection-file` descriptor vectors in `protocol-objects.json`, predate
+logical collections and the 2026-10-24 schema syntax; they bind the current
+implementation until [Schema language 005](../../../plans/soon/schema-language/005-collections-that-sync.md)
+replaces them. It covers accepted schemas with their columns, key, child name and fingerprint; rejected
 schemas with the first diagnostic's code and location; value and CSV-cell
 diagnostics as JSON Pointers, including accepted undeclared row members and
 CSV columns; exact CSV encodings; malformed-UTF-8 sources; and

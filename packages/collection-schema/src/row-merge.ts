@@ -104,7 +104,7 @@ function mergeRow(
  * collection's rows by row identity, then member by member. A row only one
  * side changed takes that side; a row both changed merges field by field:
  * a single value conflicts only when the two set different values,
- * many-valued fields merge per member (and `@ordered` ones as a sequence),
+ * many-valued fields merge per member (and `ordered` ones as a sequence),
  * and Markdown merges by lines. Deleting a row conflicts only with a
  * concurrent change to it. Each conflict keeps current's value.
  */

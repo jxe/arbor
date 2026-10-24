@@ -2,21 +2,27 @@ import Foundation
 
 // Checks a parsed .usl file against the language's invariants and resolves
 // each model's full set of fields: its own, those its connections give it,
-// and, for a connection model, the ends that key it. A port of
-// `packages/usl/src/check.ts`; diagnostics carry the same codes and
-// positions.
+// and, for a connection model, the ends that key it. `re` blocks are merged
+// into the models they annotate first. A port of `packages/usl/src/check.ts`;
+// diagnostics carry the same codes and positions.
 
 public let uslValueTypes = ["Text", "Markdown", "Int", "Number", "Bool", "Date"]
 public let uslBuiltinModels = ["Person"]
 public let uslImplicitFields = ["id", "created", "modified"]
 
-private let fieldAttributes = ["ordered", "color", "unique", "as", "column", "fold", "path"]
-private let modelAttributes = ["views", "editableBy", "fold", "table", "id", "index"]
+// Each attribute name belongs to one layer (its sigil) and one level.
+private let fieldAttributes: [String: USLSigil] = ["column": .storage, "fold": .storage, "body": .storage, "title": .storage, "color": .presentation]
+private let modelAttributes: [String: USLSigil] = ["table": .storage, "index": .storage, "fold": .storage, "views": .presentation]
+private let valueAttributes: [String: USLSigil] = ["stored": .storage, "color": .presentation]
+private let modifierNames = ["ordered", "unique", "path"]
 private let viewOptions = ["label", "line", "group", "sort"]
-// Presentation of one item in a view's line: `@bullet` draws a fixed value as
-// the row's colored bullet, `@summary` shows a many-valued field as a count,
-// and `@label("lead")` names one of its members.
+// Presentation of one item in a view's line: `~bullet` draws an enum value as
+// the row's colored bullet, `~summary` shows a many-valued field as a count,
+// `~label("lead")` names one of its members, and `~sort(field)` lists a
+// connection's members by a field of theirs.
 private let lineAttributes = ["bullet", "summary", "label", "sort"]
+
+private func layerName(_ sigil: USLSigil) -> String { sigil == .storage ? "storage" : "presentation" }
 
 func isColor(_ text: String) -> Bool {
     text.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil
@@ -32,7 +38,7 @@ public struct USLResolvedField: Sendable, Equatable {
     public var origin: Origin
     public var ordered: Bool
     public var unique: Bool
-    /// Holds the row's color (`@color`).
+    /// Holds the row's color (`~color`).
     public var color: Bool
     /// The stored column's name when it differs from the field's (`@column("…")`).
     public var column: String?
@@ -44,7 +50,7 @@ public struct USLResolvedEnd: Sendable, Equatable {
     public var field: String
     public var arity: USLArity
     public var ordered: Bool
-    /// The field this end gets in its connection model (`@as`, or the model's name in lower case).
+    /// The field this end gets in its connection model (`as`, or the model's name in lower case).
     public var `as`: String
     public var column: String?
     /// `@fold`: in data files, this end's rows hold the connection as an array.
@@ -79,10 +85,13 @@ public enum USLStorage: Sendable, Equatable {
 public struct USLSchemaRow: Sendable, Equatable {
     public var name: String
     public var values: [(key: String, value: USLRowValue)]
+    /// An enum value's `~color`.
     public var color: String?
+    /// An enum value's `@stored` text.
+    public var stored: String?
 
     public static func == (a: USLSchemaRow, b: USLSchemaRow) -> Bool {
-        a.name == b.name && a.color == b.color && a.values.map(\.key) == b.values.map(\.key) && a.values.map(\.value) == b.values.map(\.value)
+        a.name == b.name && a.color == b.color && a.stored == b.stored && a.values.map(\.key) == b.values.map(\.key) && a.values.map(\.value) == b.values.map(\.value)
     }
 }
 
@@ -92,7 +101,7 @@ public struct USLLineItem: Sendable, Equatable {
     public var bullet: Bool
     public var summary: Bool
     public var label: String?
-    /// `@sort(field)`: lists a connection's members by a field of theirs instead of as connected.
+    /// `~sort(field)`: lists a connection's members by a field of theirs instead of as connected.
     public var sort: String?
 
     public init(field: String, bullet: Bool = false, summary: Bool = false, label: String? = nil, sort: String? = nil) {
@@ -104,12 +113,12 @@ public struct USLLineItem: Sendable, Equatable {
     }
 }
 
-/// A default arrangement from `@@views`. A view without a `line` uses the first view's.
+/// A default arrangement from `~views`. A view without a `line` uses the first view's.
 public struct USLResolvedView: Sendable, Equatable {
     public var label: String
     public var line: [USLLineItem]
     public var group: String?
-    /// `group: field @sort(name)`: the groups in order of a field of theirs.
+    /// `group: field ~sort(name)`: the groups in order of a field of theirs.
     public var groupSort: String?
     public var sort: String?
 
@@ -125,24 +134,29 @@ public struct USLResolvedView: Sendable, Equatable {
 public struct USLResolvedModel: Sendable, Equatable {
     public enum Rows: String, Sendable { case fixed, seed, data }
     public var name: String
-    /// The stored table's name when it differs from the model's (`@@table("…")`).
+    /// `main model`: its rows are the collection folder's own children.
+    public var main: Bool
+    /// The stored table's name when it differs from the model's (`@table("…")`).
     public var table: String?
+    /// `fixed` rows are an enum's values; `seed` rows are data with defaults; `data` is an ordinary collection.
     public var rows: Rows
-    /// The fields that identify a row.
+    /// The fields that identify a row: its ends for a connection model, the header key, otherwise `id` (or the value's name, for an enum).
     public var key: [String]
     public var fields: [USLResolvedField]
     public var storage: USLStorage?
-    /// The field whose value is each row's path segment (`@path`).
+    /// The field whose value is each row's path segment in an Overstory tree (`path`); otherwise its key is.
     public var path: String?
+    /// In Markdown row files, the field written as the body (`@body`, else a `Markdown` field named `content`).
+    public var body: String?
+    /// In Markdown row files, the field written as the page title (`@title`, else a `Text` field named `title`).
+    public var title: String?
     /// A connection model's ends.
     public var ends: [USLResolvedEnd]
-    /// The rows written in `@@fixed` or `@@seed`.
+    /// An enum's values or `seed` rows.
     public var schemaRows: [USLSchemaRow]
-    /// `@@views`, in tab order; empty when the model has none.
+    /// `~views`, in tab order; empty when the model has none.
     public var views: [USLResolvedView]
-    /// The `Person` fields named by `@@editableBy`.
-    public var editableBy: [String]
-    /// `@@index(...)`.
+    /// `@index(...)`, each a list of single-valued fields to look rows up by.
     public var indexes: [[String]]
 }
 
@@ -177,8 +191,10 @@ private func identArg(_ attrs: [USLAttribute], _ name: String) -> String? {
     return nil
 }
 
-/// The field a connection model gets for one of its ends: `@as(name)`, or the end's model in lower case.
-private func keyFieldOf(_ end: USLEndDecl) -> String { identArg(end.attrs, "as") ?? lowerFirst(end.model) }
+/// The field a connection model gets for one of its ends: `as name`, or the end's model in lower case.
+private func keyFieldOf(_ end: USLEndDecl) -> String { end.as?.name ?? lowerFirst(end.model) }
+
+private func hasModifier(_ field: USLFieldDecl, _ name: String) -> Bool { field.modifiers.contains { $0.name == name } }
 
 /// The name in `@column("…")`, when it is among the attributes.
 private func columnOf(_ attrs: [USLAttribute]) -> String? {
@@ -191,7 +207,7 @@ private func resolvedEnd(_ end: USLEndDecl) -> USLResolvedEnd {
         model: end.model,
         field: end.field,
         arity: end.arity,
-        ordered: end.attrs.contains { $0.name == "ordered" },
+        ordered: end.ordered != nil,
         as: keyFieldOf(end),
         column: columnOf(end.attrs),
         fold: end.attrs.contains { $0.name == "fold" }
@@ -222,6 +238,7 @@ private func isValueType(_ type: String) -> Bool { uslValueTypes.contains(type) 
 private typealias Report = (String, USLPosition, String) -> Void
 
 private func hasAttr(_ attrs: [USLAttribute], _ name: String) -> Bool { attrs.contains { $0.name == name } }
+private func hasAttr(_ attrs: [USLAttribute], _ name: String, _ sigil: USLSigil) -> Bool { attrs.contains { $0.name == name && $0.sigil == sigil } }
 
 private func endsOf(_ members: [USLMember]) -> [USLEndDecl] {
     var result: [USLEndDecl] = []
@@ -244,23 +261,28 @@ private func modelAttributesOf(_ members: [USLMember]) -> [USLModelAttribute] {
     return result
 }
 
-public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
+public func checkUSL(_ parsed: USLSchemaFile) -> USLCheckResult {
+    // A copy (Swift's values are), so merging `re` blocks never changes the parsed file.
+    var file = parsed
     var diagnostics: [USLDiagnostic] = []
     let report: Report = { code, at, message in
         diagnostics.append(USLDiagnostic(code: code, message: message, line: at.line, column: at.column))
     }
 
-    // 1. Model names.
+    // 1. Model names. The model layer is declared once; `re` adds to it.
     var models = OrderedMap<USLModelDecl>()
     for case .model(let decl) in file.declarations {
         if isValueType(decl.name) || uslBuiltinModels.contains(decl.name) {
             report("reserved-model", decl.at, "`\(decl.name)` is built in and can't be declared")
         } else if models.has(decl.name) {
-            report("duplicate-model", decl.at, "Model `\(decl.name)` is declared twice")
+            report("duplicate-model", decl.at, "Model `\(decl.name)` is declared twice; add to it with `re \(decl.name) { ... }`")
         } else {
             models[decl.name] = decl
         }
     }
+    let mains = models.values.compactMap(\.main)
+    for extra in mains.dropFirst() { report("main-model", extra, "A schema has at most one `main` model") }
+    mergeRe(&file, &models, report)
     let modelExists = { (name: String) in models.has(name) || uslBuiltinModels.contains(name) }
     let rowsOf = { (model: USLModelDecl) -> USLRowsBlock? in rowBlocksOf(model.members).first }
     let isFixed = { (name: String) -> Bool in
@@ -296,6 +318,7 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
             continue
         }
         let a = connectionEnds[0], b = connectionEnds[1]
+        if a.ordered != nil, let second = b.ordered { report("ordered-ends", second, "At most one end of a connection is `ordered`") }
         declareEnd(a, b.model, nil)
         declareEnd(b, a.model, nil)
         if modelExists(a.model) && modelExists(b.model) { unnamed.append((a, b)) }
@@ -332,8 +355,8 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
                 if isValueType(member.type) {
                     fields[member.name] = USLResolvedField(
                         name: member.name, type: member.type, arity: member.arity, origin: .declared,
-                        ordered: hasAttr(member.attrs, "ordered"), unique: hasAttr(member.attrs, "unique"),
-                        color: hasAttr(member.attrs, "color"), column: columnOf(member.attrs)
+                        ordered: hasModifier(member, "ordered"), unique: hasModifier(member, "unique"),
+                        color: hasAttr(member.attrs, "color", .presentation), column: columnOf(member.attrs)
                     )
                 }
             }
@@ -344,7 +367,7 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
             if !modelExists(end.model) { continue }
             let fieldName = keyFieldOf(end)
             if fields.has(fieldName) || declared.has(fieldName) {
-                let hint = hasAttr(end.attrs, "as") ? "" : "; name this side with `@as(...)`"
+                let hint = end.as != nil ? "" : "; name this side with `as ...`"
                 report("duplicate-field", end.at, "`\(name)` already has a field `\(fieldName)`, which this end would key it by\(hint)")
                 continue
             }
@@ -365,7 +388,7 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
             }
             fields[field] = USLResolvedField(
                 name: field, type: info.target, arity: info.decl.arity, origin: .connection,
-                ordered: hasAttr(info.decl.attrs, "ordered"), unique: false, color: false, column: columnOf(info.decl.attrs)
+                ordered: info.decl.ordered != nil, unique: false, color: false, column: columnOf(info.decl.attrs)
             )
         }
 
@@ -384,148 +407,212 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
                 report("cross-reference-mismatch", decl.at, "`\(written)` disagrees with `\(declaredEnd)` on arity")
             }
             for attr in decl.attrs where !hasAttr(info.decl.attrs, attr.name) {
-                report("cross-reference-mismatch", attr.at, "`@\(attr.name)` belongs on the end `\(declaredEnd)`, where the connection is declared")
+                report("cross-reference-mismatch", attr.at, "`\(attr.sigil.rawValue)\(attr.name)` belongs on the end `\(declaredEnd)`, where the connection is declared")
+            }
+            for modifier in decl.modifiers where modifier.name != "ordered" || info.decl.ordered == nil {
+                report("cross-reference-mismatch", modifier.at, "`\(modifier.name)` belongs on the end `\(declaredEnd)`, where the connection is declared")
             }
         }
 
         let key = modelEnds.count >= 2 ? modelEnds.map(keyFieldOf) : rows?.mode == .fixed ? ["name"] : ["id"]
+        // Fields written in the model come in the order they're written; the rest follow.
         let ordered = declared.keys.compactMap { fields[$0] } + fields.values.filter { !declared.has($0.name) }
         let schemaRows: [USLSchemaRow] = (rows?.rows ?? []).map { row in
             var color: String?
-            if case .string(let value, _)? = row.attrs.first(where: { $0.name == "color" })?.args.first { color = value }
+            var stored: String?
+            if case .string(let value, _)? = row.attrs.first(where: { $0.name == "color" && $0.sigil == .presentation })?.args.first { color = value }
+            if case .string(let value, _)? = row.attrs.first(where: { $0.name == "stored" && $0.sigil == .storage })?.args.first { stored = value }
             // Object.fromEntries keeps the last of a repeated key, in its first place.
             var values: [(key: String, value: USLRowValue)] = []
             for entry in row.values {
                 if let i = values.firstIndex(where: { $0.key == entry.key }) { values[i].value = rowValue(entry.value) } else { values.append((entry.key, rowValue(entry.value))) }
             }
-            return USLSchemaRow(name: row.name, values: values, color: color)
+            return USLSchemaRow(name: row.name, values: values, color: color, stored: stored)
         }
         resolved[name] = USLResolvedModel(
-            name: name, table: nil, rows: rows.map { $0.mode == .fixed ? USLResolvedModel.Rows.fixed : USLResolvedModel.Rows.seed } ?? USLResolvedModel.Rows.data, key: key,
-            fields: ordered, storage: nil, path: nil, ends: modelEnds.map(resolvedEnd), schemaRows: schemaRows,
-            views: model.map(resolvedViews) ?? [], editableBy: [], indexes: []
+            name: name, main: model?.main != nil, table: nil,
+            rows: rows.map { $0.mode == .fixed ? USLResolvedModel.Rows.fixed : USLResolvedModel.Rows.seed } ?? USLResolvedModel.Rows.data, key: key,
+            fields: ordered, storage: nil, path: nil, body: nil, title: nil, ends: modelEnds.map(resolvedEnd), schemaRows: schemaRows,
+            views: model.map(resolvedViews) ?? [], indexes: []
         )
         fieldMaps[name] = fields
     }
 
-    // 4. Field and end attributes.
+    // 4. Field and end modifiers and attributes.
     func checkFieldAttrs(_ attrs: [USLAttribute], _ arity: USLArity, _ type: String?, _ owner: String, end: (decl: USLEndDecl, named: Bool)? = nil) {
+        var seen = Set<String>()
         for attr in attrs {
-            let endOnly = attr.name == "as" || attr.name == "fold"
+            let spelled = "\(attr.sigil.rawValue)\(attr.name)"
+            if seen.contains(spelled) {
+                report("duplicate-attribute", attr.at, "`\(spelled)` is set twice")
+                continue
+            }
+            seen.insert(spelled)
+            if modifierNames.contains(attr.name) || attr.name == "as" {
+                report("attribute-layer", attr.at, "`\(attr.name)` is a keyword of the model: write it before the type (`\(attr.name == "as" ? "Model.field as name" : "field \(attr.name) Type")`)")
+                continue
+            }
+            if attr.name == "bullet" || attr.name == "summary" || attr.name == "label" {
+                report("misplaced-attribute", attr.at, "`~\(attr.name)` is presentation; put it on the field in a view's `line`")
+                continue
+            }
+            guard let layer = fieldAttributes[attr.name] else {
+                report("unknown-attribute", attr.at, "Unknown attribute `\(spelled)`")
+                continue
+            }
+            if layer != attr.sigil {
+                report("attribute-layer", attr.at, "`\(attr.name)` is \(layerName(layer)): write `\(layer.rawValue)\(attr.name)`")
+                continue
+            }
             if attr.name == "column" {
                 var ok = false
                 if attr.args.count == 1, case .string(let v, _) = attr.args[0], !v.isEmpty { ok = true }
                 if !ok { report("attribute-arguments", attr.at, "`@column` names the stored column: `@column(\"list_id\")`") }
-                continue
-            }
-            if attr.name == "fold" {
+            } else if attr.name == "fold" {
                 if end == nil { report("misplaced-attribute", attr.at, "`@fold` goes on a connection end") }
-                else if end!.named { report("misplaced-attribute", attr.at, "A connection model folds with `@@fold(Model)`") }
-                else if !attr.args.isEmpty { report("attribute-arguments", attr.at, "`@fold` takes no arguments") }
+                else if end!.named { report("misplaced-attribute", attr.at, "A connection model folds with `@fold(Model)` as a model item") }
+                else if !attr.args.isEmpty { report("attribute-arguments", attr.at, "`@fold` on an end takes no arguments") }
                 // Whether the connection can fold is checked with its storage.
-                continue
-            }
-            var oneIdent = false
-            if attr.args.count == 1, case .ident = attr.args[0] { oneIdent = true }
-            if attr.name == "bullet" {
-                report("misplaced-attribute", attr.at, "`@bullet` is presentation; put it on the field in a view's `line`")
-            } else if !fieldAttributes.contains(attr.name) {
-                report("unknown-attribute", attr.at, "Unknown attribute `@\(attr.name)`")
-            } else if endOnly && end == nil {
-                report("misplaced-attribute", attr.at, "`@\(attr.name)` goes on a connection end")
-            } else if endOnly && !oneIdent {
-                report("attribute-arguments", attr.at, "`@\(attr.name)` names one field: `@\(attr.name)(list)`")
-            } else if attr.name == "as" && !end!.named {
-                report("misplaced-attribute", attr.at, "`@as` names a connection model's field for this end; an unnamed connection has no such field")
-            } else if endOnly {
-                // `@as` is applied where the connection model's fields are resolved.
             } else if !attr.args.isEmpty {
-                report("attribute-arguments", attr.at, "`@\(attr.name)` on a field takes no arguments")
-            } else if attr.name == "ordered" && arity != .many {
-                report("ordered-single", attr.at, "`@ordered` only applies to a many-valued field (`[]`)")
+                report("attribute-arguments", attr.at, "`\(spelled)` on a field takes no arguments")
+            } else if end != nil {
+                report("misplaced-attribute", attr.at, "`\(spelled)` goes on a value field, not a connection end")
             } else if attr.name == "color" && (type != "Text" || arity == .many) {
-                report("color-field-type", attr.at, "`@color` marks a single `Text` field holding each row's color")
-            } else if attr.name == "unique" && (type == nil || !isValueType(type!) || arity == .many) {
-                report("unique-value", attr.at, "`@unique` applies to a single value field; a connection's arity already says how many")
-            } else if attr.name == "path" && (type != "Text" || arity != .one) {
-                report("path-field", attr.at, "`@path` marks a required `Text` field whose value names the row in the tree")
+                report("color-field-type", attr.at, "`~color` marks a single `Text` field holding each row's color")
             } else if attr.name == "color" && isFixed(owner) {
-                report("misplaced-attribute", attr.at, "A fixed model's colors go on its rows; a `@color` field is for `@@seed` models")
+                report("misplaced-attribute", attr.at, "An enum's colors go on its values; a `~color` field is for models")
+            } else if attr.name == "body" && (type != "Markdown" || arity == .many) {
+                report("body-field", attr.at, "`@body` marks a single `Markdown` field written as a Markdown row's body")
+            } else if attr.name == "title" && (type != "Text" || arity == .many) {
+                report("title-field", attr.at, "`@title` marks a single `Text` field written as a Markdown row's title")
             }
         }
+    }
+    func checkModifiers(_ field: USLFieldDecl, _ owner: String) {
+        var seen = Set<String>()
+        for modifier in field.modifiers {
+            if seen.contains(modifier.name) {
+                report("duplicate-attribute", modifier.at, "`\(modifier.name)` is written twice")
+                continue
+            }
+            seen.insert(modifier.name)
+            if modifier.name == "ordered" && field.arity != .many {
+                report("ordered-single", modifier.at, "`ordered` only applies to a many-valued field (`[]`)")
+            } else if modifier.name == "unique" && (!isValueType(field.type) || field.arity == .many) {
+                report("unique-value", modifier.at, "`unique` applies to a single value field; a connection's arity already says how many")
+            } else if modifier.name == "path" && (field.type != "Text" || field.arity != .one) {
+                report("path-field", modifier.at, "`path` marks a required `Text` field whose value names the row in the tree")
+            } else if modifier.name == "path" && isFixed(owner) {
+                report("path-field", modifier.at, "An enum's values are named by themselves")
+            }
+        }
+    }
+    func checkEnd(_ end: USLEndDecl, _ named: Bool) {
+        if let ordered = end.ordered, end.arity != .many { report("ordered-single", ordered, "`ordered` only applies to a many end (`[]`)") }
+        if let name = end.as, !named { report("misplaced-attribute", name.at, "`as` names a connection model's field for this end; an unnamed connection has no such field") }
     }
     for model in models.values {
         for member in model.members {
-            if case .field(let f) = member, isValueType(f.type) { checkFieldAttrs(f.attrs, f.arity, f.type, model.name) }
-            if case .end(let e) = member { checkFieldAttrs(e.attrs, e.arity, nil, model.name, end: (e, true)) }
+            if case .field(let f) = member {
+                checkModifiers(f, model.name)
+                if isValueType(f.type) { checkFieldAttrs(f.attrs, f.arity, f.type, model.name) }
+            }
+            if case .end(let e) = member {
+                checkEnd(e, true)
+                checkFieldAttrs(e.attrs, e.arity, nil, model.name, end: (e, true))
+            }
         }
-        let colorFields = fieldsOf(model.members).filter { hasAttr($0.attrs, "color") }
+        func marked(_ name: String) -> [USLFieldDecl] {
+            fieldsOf(model.members).filter { f in f.attrs.contains { $0.name == name && $0.sigil == fieldAttributes[name] } }
+        }
+        let colorFields = marked("color")
         if colorFields.count > 1 {
             report("duplicate-color", colorFields[1].at, "Only one field per model can hold the row's color")
         }
-        let pathFields = fieldsOf(model.members).filter { hasAttr($0.attrs, "path") }
+        let pathFields = fieldsOf(model.members).filter { hasModifier($0, "path") }
         if pathFields.count > 1 { report("duplicate-path", pathFields[1].at, "Only one field per model can name its rows") }
         if let first = pathFields.first { resolved[model.name]!.path = first.name }
+        for (name, fallback, type) in [("body", "content", "Markdown"), ("title", "title", "Text")] {
+            let chosenFields = marked(name)
+            if chosenFields.count > 1 { report("duplicate-\(name)", chosenFields[1].at, "Only one field per model is its `@\(name)`") }
+            let conventional = fieldsOf(model.members).first { $0.name == fallback && $0.type == type && $0.arity != .many }
+            if let chosen = chosenFields.first?.name ?? conventional?.name, model.form == .model {
+                if name == "body" { resolved[model.name]!.body = chosen } else { resolved[model.name]!.title = chosen }
+            }
+        }
+        let modelEnds = endsOf(model.members)
+        let orderedEnds = modelEnds.compactMap(\.ordered)
+        if orderedEnds.count > 1 { report("ordered-ends", orderedEnds[1], "At most one end of a connection is `ordered`") }
+        if let main = model.main, model.form == .enum || !modelEnds.isEmpty {
+            report("main-model", main, model.form == .enum ? "An enum has no rows of its own to be the main model" : "A connection model can't be the main model")
+        }
     }
     for case .connection(let decl) in file.declarations {
-        for case .end(let e) in decl.members { checkFieldAttrs(e.attrs, e.arity, nil, e.model, end: (e, false)) }
+        for case .end(let e) in decl.members {
+            checkEnd(e, false)
+            checkFieldAttrs(e.attrs, e.arity, nil, e.model, end: (e, false))
+        }
     }
 
-    // A connection's members sort by a field of theirs: `name` for a person or a
-    // fixed row, otherwise a field, `created` or `modified`.
+    // A connection's members sort by a field of theirs: `name` for a person or
+    // an enum value, otherwise a field, `created` or `modified`.
     func sortable(_ target: String, _ field: String) -> Bool {
         let hasField = fieldMaps[target]?.has(field) ?? false
         return target == "Person" || isFixed(target) ? field == "name" || hasField : uslImplicitFields.contains(field) || hasField
     }
 
-    // 5. Model attributes.
+    // 5. Header keys and model attributes.
     for model in models.values {
         let fields = fieldMaps[model.name]!
         var seen = Set<String>()
         let modelEnds = endsOf(model.members)
         let rows = rowBlocksOf(model.members)
 
-        for member in model.members {
-            let name: String
-            let attribute: USLModelAttribute?
-            switch member {
-            case .rows: name = "rows"; attribute = nil
-            case .modelAttribute(let a): name = a.name; attribute = a
-            default: continue
-            }
-            // A model may have several indexes; every other attribute appears once.
-            if seen.contains(name) && name != "index" {
-                report("duplicate-attribute", member.at, attribute == nil ? "A model has at most one `@@fixed` or `@@seed` block" : "`@@\(name)` appears twice")
-                continue
-            }
-            seen.insert(name)
-            guard let attr = attribute else { continue }
-            if attr.name == "fixed" || attr.name == "seed" {
-                report("syntax", attr.at, "`@@\(attr.name)` takes a block of rows: `@@\(attr.name) { A, B }`")
-            } else if !modelAttributes.contains(attr.name) {
-                report("unknown-attribute", attr.at, "Unknown model attribute `@@\(attr.name)`")
-            } else if attr.name == "views" {
-                checkViews(attr, model.name, fields, sortable, report)
-            } else if attr.name == "editableBy" {
-                if attr.args.isEmpty { report("attribute-arguments", attr.at, "`@@editableBy` names at least one field") }
-                for arg in attr.args {
-                    guard case .ident(let argName, _, _) = arg else {
-                        report("attribute-arguments", arg.at, "`@@editableBy` takes field names")
+        if let key = model.key {
+            if model.form == .enum {
+                report("id-on-rows", key.at, "An enum's values are identified by their names")
+            } else {
+                var resolvedKey: [String] = []
+                for field in key.fields {
+                    if field.name == "id" {
+                        resolvedKey.append("id") // the implicit id, unique only alongside the other key fields
                         continue
                     }
-                    if let field = fields[argName] {
-                        if field.type != "Person" { report("editable-by-person", arg.at, "`\(argName)` holds \(field.type), not Person") }
-                        else { resolved[model.name]!.editableBy.append(argName) }
+                    if let declared = fields[field.name] {
+                        if declared.arity != .one { report("id-field", field.at, "`\(field.name)` is part of the key, so it must hold exactly one value") }
+                        else { resolvedKey.append(field.name) }
                     } else {
-                        report("unknown-field", arg.at, "`\(model.name)` has no field `\(argName)`")
+                        report("unknown-field", field.at, "`\(model.name)` has no field `\(field.name)`")
                     }
                 }
+                resolved[model.name]!.key = resolvedKey
+            }
+        }
+        if rows.count > 1 {
+            report("duplicate-attribute", rows[1].at, model.form == .enum ? "An enum has no `seed` block; make it a model" : "A model has at most one `seed` block")
+        }
+
+        for attr in modelAttributesOf(model.members) {
+            // A model may have several indexes; every other attribute appears once.
+            if seen.contains(attr.name) && attr.name != "index" {
+                report("duplicate-attribute", attr.at, "`\(attr.sigil.rawValue)\(attr.name)` appears twice")
+                continue
+            }
+            seen.insert(attr.name)
+            guard let layer = modelAttributes[attr.name] else {
+                report("unknown-attribute", attr.at, "Unknown model attribute `\(attr.sigil.rawValue)\(attr.name)`")
+                continue
+            }
+            if layer != attr.sigil {
+                report("attribute-layer", attr.at, "`\(attr.name)` is \(layerName(layer)): write `\(layer.rawValue)\(attr.name)`")
+            } else if attr.name == "views" {
+                checkViews(attr, model.name, fields, sortable, report)
             } else if attr.name == "index" {
-                if attr.args.isEmpty { report("attribute-arguments", attr.at, "`@@index` names at least one field") }
+                if attr.args.isEmpty { report("attribute-arguments", attr.at, "`@index` names at least one field") }
                 var index: [String] = []
                 for arg in attr.args {
                     guard case .ident(let argName, _, _) = arg else {
-                        report("attribute-arguments", arg.at, "`@@index` takes field names")
+                        report("attribute-arguments", arg.at, "`@index` takes field names")
                         continue
                     }
                     let field = fields[argName]
@@ -534,42 +621,19 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
                     else { index.append(argName) }
                 }
                 if index.count == attr.args.count && !index.isEmpty { resolved[model.name]!.indexes.append(index) }
-            } else if attr.name == "id" {
-                if !rows.isEmpty {
-                    report("id-on-rows", attr.at, "Rows written in the schema are identified by their names")
-                    continue
-                }
-                var key: [String] = attr.args.isEmpty ? ["id"] : []
-                for arg in attr.args {
-                    guard case .ident(let argName, _, _) = arg else {
-                        report("attribute-arguments", arg.at, "`@@id` takes field names")
-                        continue
-                    }
-                    if argName == "id" {
-                        key.append("id") // the implicit id, now unique only alongside the other key fields
-                        continue
-                    }
-                    if let field = fields[argName] {
-                        if field.arity != .one { report("id-field", arg.at, "`\(argName)` is part of the key, so it must hold exactly one value") }
-                        else { key.append(argName) }
-                    } else {
-                        report("unknown-field", arg.at, "`\(model.name)` has no field `\(argName)`")
-                    }
-                }
-                resolved[model.name]!.key = key
-            } else if attr.name == "table" && !attr.args.isEmpty {
+            } else if attr.name == "table" && modelEnds.isEmpty {
                 var value: String?
                 if attr.args.count == 1, case .string(let v, _) = attr.args[0], !v.isEmpty { value = v }
                 if value == nil {
-                    report("attribute-arguments", attr.at, "`@@table` names the stored table: `@@table(\"lists\")`")
-                } else if rows.contains(where: { $0.mode == .fixed }) {
-                    report("stored-on-fixed", attr.at, "`\(model.name)` has fixed rows and no table to name")
+                    report("attribute-arguments", attr.at, "`@table` names the stored table: `@table(\"lists\")`")
+                } else if model.form == .enum {
+                    report("stored-on-fixed", attr.at, "`\(model.name)` is an enum and has no table to name")
                 } else {
                     resolved[model.name]!.table = value
                 }
             } else if attr.name == "fold" || attr.name == "table" {
                 if modelEnds.isEmpty {
-                    report("storage-on-plain-model", attr.at, "`@@\(attr.name)` chooses storage for a connection; `\(model.name)` has no ends")
+                    report("storage-on-plain-model", attr.at, "`@\(attr.name)` chooses storage for a connection; `\(model.name)` has no ends")
                 } else if attr.name == "fold" {
                     if attr.args.count == 1, case .ident(let target, _, let at) = attr.args[0] {
                         if !modelEnds.contains(where: { $0.model == target }) {
@@ -578,14 +642,14 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
                             report("stored-on-fixed", at, "`\(target)` has no table to fold into")
                         }
                     } else {
-                        report("attribute-arguments", attr.at, "`@@fold` names one model: `@@fold(List)`")
+                        report("attribute-arguments", attr.at, "`@fold` on a connection model names one model: `@fold(List)`")
                     }
                 }
             }
         }
         if seen.contains("fold") && seen.contains("table") && !modelEnds.isEmpty {
             let second = modelAttributesOf(model.members).first { $0.name == "table" }!
-            report("fold-and-table", second.at, "`@@fold` and `@@table` contradict each other")
+            report("fold-and-table", second.at, "`@fold` and `@table` contradict each other")
         }
 
         if let block = rows.first { checkRows(model, block, modelEnds, report) }
@@ -629,7 +693,7 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
         guard let on else {
             var seenModels: [String] = []
             for e in candidates where !seenModels.contains(e.model) { seenModels.append(e.model) }
-            report("stored-on-fixed", a.at, "`\(label[0]) <-> \(label[1])` would be stored on \(seenModels.joined(separator: " or ")), which \(candidates.count > 1 ? "have" : "has") no table (Person and fixed models don't)")
+            report("stored-on-fixed", a.at, "`\(label[0]) <-> \(label[1])` would be stored on \(seenModels.joined(separator: " or ")), which \(candidates.count > 1 ? "have" : "has") no table (Person and enums don't)")
             continue
         }
         let storage: USLStorage = nm ? .array(on: on.model, field: on.field) : .column(on: on.model, field: on.field)
@@ -665,7 +729,7 @@ public func checkUSL(_ file: USLSchemaFile) -> USLCheckResult {
     return result
 }
 
-/// A model's `@@views`, as far as they are well formed; checkViews reports the rest.
+/// A model's `~views`, as far as they are well formed; checkViews reports the rest.
 private func resolvedViews(_ model: USLModelDecl) -> [USLResolvedView] {
     let attr = modelAttributesOf(model.members).first { $0.name == "views" }
     guard case .list(let list, _)? = attr?.args.first else { return [] }
@@ -682,8 +746,11 @@ private func resolvedViews(_ model: USLModelDecl) -> [USLResolvedView] {
             items = lineItems.compactMap { item in
                 guard case .ident(let name, let attrs, _) = item else { return nil }
                 var label: String?
-                if case .string(let value, _)? = attrs.first(where: { $0.name == "label" })?.args.first { label = value }
-                return USLLineItem(field: name, bullet: hasAttr(attrs, "bullet"), summary: hasAttr(attrs, "summary"), label: label, sort: identArg(attrs, "sort"))
+                if case .string(let value, _)? = attrs.first(where: { $0.name == "label" && $0.sigil == .presentation })?.args.first { label = value }
+                return USLLineItem(
+                    field: name, bullet: hasAttr(attrs, "bullet", .presentation), summary: hasAttr(attrs, "summary", .presentation),
+                    label: label, sort: identArg(attrs, "sort")
+                )
             }
         } else {
             items = views.first?.line ?? []
@@ -701,10 +768,10 @@ private func checkViews(
     _ attr: USLModelAttribute, _ model: String, _ fields: OrderedMap<USLResolvedField>,
     _ sortable: (String, String) -> Bool, _ report: Report
 ) {
-    /// `@sort(x)` on a view's field: it names a field of the members of a connection.
+    /// `~sort(x)` on a view's field: it names a field of the members of a connection.
     func checkSort(_ field: String, _ a: USLAttribute) {
         guard a.args.count == 1, case .ident(let name, _, let at) = a.args[0] else {
-            report("attribute-arguments", a.at, "`@sort` names one field of the members: `@sort(name)`")
+            report("attribute-arguments", a.at, "`~sort` names one field of the members: `~sort(name)`")
             return
         }
         guard let resolved = fields[field] else { return }
@@ -715,7 +782,7 @@ private func checkViews(
         }
     }
     guard attr.args.count == 1, case .list(let list, _) = attr.args[0] else {
-        report("attribute-arguments", attr.at, "`@@views` takes one list of views: `@@views([ { label: ... }, ... ])`")
+        report("attribute-arguments", attr.at, "`~views` takes one list of views: `~views([ { label: ... }, ... ])`")
         return
     }
     func fieldRef(_ expr: USLExpr, _ allowImplicit: Bool) {
@@ -751,10 +818,6 @@ private func checkViews(
                     fieldRef(item, false)
                     guard case .ident(let itemName, let attrs, _) = item else { continue }
                     for a in attrs {
-                        if a.name == "sort" {
-                            checkSort(itemName, a)
-                            continue
-                        }
                         let badArguments: Bool
                         if a.name == "label" {
                             if a.args.count == 1, case .string = a.args[0] { badArguments = false } else { badArguments = true }
@@ -762,12 +825,16 @@ private func checkViews(
                             badArguments = !a.args.isEmpty
                         }
                         if !lineAttributes.contains(a.name) {
-                            report("unknown-attribute", a.at, "`@\(a.name)` isn't presentation; a line takes \(lineAttributes.map { "`@\($0)`" }.joined(separator: ", "))")
+                            report("unknown-attribute", a.at, "`\(a.sigil.rawValue)\(a.name)` isn't presentation; a line takes \(lineAttributes.map { "`~\($0)`" }.joined(separator: ", "))")
+                        } else if a.sigil != .presentation {
+                            report("attribute-layer", a.at, "`\(a.name)` is presentation: write `~\(a.name)`")
+                        } else if a.name == "sort" {
+                            checkSort(itemName, a)
                         } else if badArguments {
-                            report("attribute-arguments", a.at, a.name == "label" ? "`@label` takes one string: `@label(\"lead\")`" : "`@\(a.name)` takes no arguments")
+                            report("attribute-arguments", a.at, a.name == "label" ? "`~label` takes one string: `~label(\"lead\")`" : "`~\(a.name)` takes no arguments")
                         } else if a.name == "bullet" {
                             bullets += 1
-                            if bullets > 1 { report("duplicate-bullet", a.at, "A line has at most one `@bullet`") }
+                            if bullets > 1 { report("duplicate-bullet", a.at, "A line has at most one `~bullet`") }
                         }
                     }
                 }
@@ -775,8 +842,9 @@ private func checkViews(
                 fieldRef(entry.value, entry.key == "sort")
                 guard case .ident(let name, let attrs, _) = entry.value else { continue }
                 for a in attrs {
-                    if entry.key == "group" && a.name == "sort" { checkSort(name, a) }
-                    else { report("misplaced-attribute", a.at, entry.key == "group" ? "A `group` takes only `@sort`; other attributes go on the items of a `line`" : "Attributes go on the items of a `line`") }
+                    if entry.key == "group" && a.name == "sort" && a.sigil != .presentation { report("attribute-layer", a.at, "`sort` is presentation: write `~sort`") }
+                    else if entry.key == "group" && a.name == "sort" { checkSort(name, a) }
+                    else { report("misplaced-attribute", a.at, entry.key == "group" ? "A `group` takes only `~sort`; other attributes go on the items of a `line`" : "Attributes go on the items of a `line`") }
                 }
             }
         }
@@ -787,12 +855,15 @@ private func checkRows(_ model: USLModelDecl, _ block: USLRowsBlock, _ modelEnds
     if !modelEnds.isEmpty {
         report("rows-with-ends", block.at, "`\(model.name)` is a connection; its rows can't be written in the schema")
     }
+    if block.mode == .fixed && block.rows.isEmpty {
+        report("empty-enum", model.at, "Enum `\(model.name)` has no values")
+    }
     var fields = OrderedMap<USLFieldDecl>()
     for case .field(let f) in model.members where isValueType(f.type) { fields[f.name] = f }
     if block.mode == .seed {
         let name = fields["name"]
         if name == nil || name!.type != "Text" || name!.arity != .one {
-            report("seed-needs-name", block.at, "A `@@seed` model needs a `name Text` field, so people can rename its rows")
+            report("seed-needs-name", block.at, "A `seed` model needs a `name Text` field, so people can rename its rows")
         }
     }
     var names = Set<String>()
@@ -800,12 +871,20 @@ private func checkRows(_ model: USLModelDecl, _ block: USLRowsBlock, _ modelEnds
         if names.contains(row.name) { report("duplicate-row", row.at, "Row \"\(row.name)\" appears twice") }
         names.insert(row.name)
         for attr in row.attrs {
-            if attr.name != "color" { report("unknown-attribute", attr.at, "Unknown row attribute `@\(attr.name)`") }
-            else if block.mode == .seed { report("misplaced-attribute", attr.at, "A `@@seed` row's color is data; give it a value for the `@color` field") }
-            else {
-                var ok = false
-                if attr.args.count == 1, case .string(let v, _) = attr.args[0], isColor(v) { ok = true }
-                if !ok { report("bad-color", attr.at, "A row color is `@color(\"#rrggbb\")`") }
+            var oneString: String?
+            if attr.args.count == 1, case .string(let v, _) = attr.args[0] { oneString = v }
+            guard let layer = valueAttributes[attr.name] else {
+                report("unknown-attribute", attr.at, "Unknown value attribute `\(attr.sigil.rawValue)\(attr.name)`")
+                continue
+            }
+            if layer != attr.sigil {
+                report("attribute-layer", attr.at, "`\(attr.name)` is \(layerName(layer)): write `\(layer.rawValue)\(attr.name)`")
+            } else if block.mode == .seed {
+                report("misplaced-attribute", attr.at, "A `seed` row's \(attr.name == "color" ? "color is data; give it a value for the `~color` field" : "stored text is its id")")
+            } else if attr.name == "stored" && (oneString ?? "").isEmpty {
+                report("attribute-arguments", attr.at, "`@stored` gives the text a store holds: `@stored(\"pt\")`")
+            } else if attr.name == "color" && !(oneString.map(isColor) ?? false) {
+                report("bad-color", attr.at, "A value's color is `~color(\"#rrggbb\")`")
             }
         }
         var given = Set<String>()
@@ -843,7 +922,82 @@ private func checkValue(_ entry: USLObjectEntry, _ field: USLFieldDecl, _ report
         ok = fits(value)
     }
     if !ok { report("bad-value", value.at, "`\(field.name)` holds \(field.type)\(arityText(field.arity))") }
-    if hasAttr(field.attrs, "color"), case .string(let s, _) = value, !isColor(s) {
+    if hasAttr(field.attrs, "color", .presentation), case .string(let s, _) = value, !isColor(s) {
         report("bad-color", value.at, "A color is \"#rrggbb\"")
     }
+}
+
+/// Merges each `re Name { ... }` into the model or enum it names: a mention adds
+/// its attributes to that field, end or value, and a model attribute joins the
+/// model's own. Nothing in a `re` block declares.
+private func mergeRe(_ file: inout USLSchemaFile, _ models: inout OrderedMap<USLModelDecl>, _ report: Report) {
+    for case .re(let decl) in file.declarations {
+        guard var model = models[decl.name] else {
+            report("unknown-model", decl.at, "No model or enum `\(decl.name)` to annotate")
+            continue
+        }
+        for member in decl.members {
+            if case .modelAttribute = member {
+                model.members.append(member)
+                continue
+            }
+            guard case .mention(let mention) = member else { continue }
+            // The value, then the field or end, then a connection end declared outside the model.
+            if let m = model.members.firstIndex(where: { if case .rows(let r) = $0 { r.mode == .fixed } else { false } }),
+               case .rows(var block) = model.members[m], let r = block.rows.firstIndex(where: { $0.name == mention.name }) {
+                block.rows[r].attrs += mention.attrs
+                model.members[m] = .rows(block)
+                continue
+            }
+            if let m = model.members.firstIndex(where: {
+                switch $0 {
+                case .field(let f): f.name == mention.name
+                case .end(let e): e.field == mention.name
+                default: false
+                }
+            }) {
+                switch model.members[m] {
+                case .field(var f):
+                    f.attrs += mention.attrs
+                    model.members[m] = .field(f)
+                case .end(var e):
+                    e.attrs += mention.attrs
+                    model.members[m] = .end(e)
+                default: break
+                }
+                continue
+            }
+            if annotateOutsideEnd(&file, &models, model: model.name, field: mention.name, attrs: mention.attrs) { continue }
+            report("unknown-field", mention.at, "`\(decl.name)` has no field or value `\(mention.name)`")
+        }
+        models[decl.name] = model
+    }
+}
+
+/// Adds attributes to the end `model.field` declared by an unnamed connection or another model.
+private func annotateOutsideEnd(_ file: inout USLSchemaFile, _ models: inout OrderedMap<USLModelDecl>, model: String, field: String, attrs: [USLAttribute]) -> Bool {
+    func annotate(_ members: inout [USLMember]) -> Bool {
+        for (i, member) in members.enumerated() {
+            if case .end(var e) = member, e.model == model, e.field == field {
+                e.attrs += attrs
+                members[i] = .end(e)
+                return true
+            }
+        }
+        return false
+    }
+    for (i, decl) in file.declarations.enumerated() {
+        if case .connection(var c) = decl, annotate(&c.members) {
+            file.declarations[i] = .connection(c)
+            return true
+        }
+    }
+    for name in models.keys where name != model {
+        var other = models[name]!
+        if annotate(&other.members) {
+            models[name] = other
+            return true
+        }
+    }
+    return false
 }

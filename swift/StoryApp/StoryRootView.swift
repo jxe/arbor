@@ -26,6 +26,8 @@ private protocol HostAccountPresentable {
     var handle: String? { get }
     /// The account's host, when known.
     var accountHost: String? { get }
+    /// The account's host origin (`https://host`), when known.
+    var accountOrigin: String? { get }
 }
 
 private extension HostAccountPresentable {
@@ -51,11 +53,16 @@ extension LocalHostAccountDescriptor: HostAccountPresentable {
         guard let host, !host.isEmpty else { return nil }
         return URL(string: host)?.host() ?? host
     }
+    fileprivate var accountOrigin: String? {
+        guard let host, !host.isEmpty else { return nil }
+        return host.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
 }
 #endif
 
 extension HostAccount: HostAccountPresentable {
     fileprivate var accountHost: String? { origin?.host() }
+    fileprivate var accountOrigin: String? { origin?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
 }
 
 /// Keep the focused editor-command dependency at the toolbar leaf. Reading it
@@ -78,8 +85,11 @@ private struct StoryVoiceRecordingToolbarButton: View {
 /// Covers the page while a button, menu or Shortcut recording runs, so a tap
 /// or click anywhere stops it, as a held pinch lock does. The tap is consumed
 /// rather than placing the caret; inline delivery already captured its block.
+/// A recording headed for the page rather than a caret shows its live
+/// transcript here as a caption.
 private struct StoryRecordingStopLayer: View {
     let session: VoiceRecordingSession<String>
+    let draft: String?
 
     var body: some View {
         Color.clear
@@ -88,10 +98,36 @@ private struct StoryRecordingStopLayer: View {
             .accessibilityElement()
             .accessibilityLabel("Recording")
             .accessibilityAction(named: "Stop Recording", stop)
+            .overlay(alignment: .bottom) {
+                if let draft, !draft.isEmpty {
+                    StoryVoiceDraftCaption(text: draft)
+                }
+            }
     }
 
     private func stop() {
         Task { await session.stopAndDeliver() }
+    }
+}
+
+/// The latest few lines of a live transcript, above the bottom of the page.
+private struct StoryVoiceDraftCaption: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.body)
+            .lineLimit(4)
+            .truncationMode(.head)
+            .frame(maxWidth: 560, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
+            .transition(.opacity)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -105,15 +141,19 @@ private func startStoryVoiceRecording(
     workspace: StoryWorkspaceState,
     editorCommands commands: EditorCommands?
 ) async {
-    let target = commands?.activeEditingBlock()
-    var inlineDelivery: VoiceTranscriptDelivery<String>?
-    if let target {
-        inlineDelivery = { transcript, destination in
+    guard let target = commands?.activeEditingBlock() else {
+        await model.startVoiceRecording(session)
+        return
+    }
+    // The live transcript previews at the caret it will land at.
+    await model.startVoiceRecording(
+        session,
+        delivery: { transcript, destination in
             if commands?.insertText(transcript, target) == true { return }
             try await workspace.deliverVoiceTranscript(transcript, to: destination)
-        }
-    }
-    await model.startVoiceRecording(session, delivery: inlineDelivery)
+        },
+        onDraft: { draft in _ = commands?.previewText(draft, target) }
+    )
 }
 
 enum StorySidebarPageOrder: String, CaseIterable, Identifiable {
@@ -324,9 +364,9 @@ struct StoryOrderedPageSections<Row: View>: View {
     }
 }
 
-/// A grey section title that collapses its section when clicked. On Mac the
-/// chevron shows while the pointer is over it; on iOS, with no hover, it
-/// always shows.
+/// A grey section title that collapses its section when clicked. On Mac an
+/// open section's chevron shows while the pointer is over it, and a collapsed
+/// one's always shows; on iOS, with no hover, it always shows.
 private struct StoryCollapsiblePageSectionHeader: View {
     let title: String
     let isCollapsed: Bool
@@ -367,7 +407,7 @@ private struct StoryCollapsiblePageSectionHeader: View {
 
     private var chevronVisible: Bool {
 #if os(macOS)
-        isHovering
+        isHovering || isCollapsed
 #else
         true
 #endif
@@ -548,7 +588,7 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
                 return
             }
             let center = NotificationCenter.default
-            let resizeOnNotification: (Notification) -> Void = { [weak self] _ in
+            let resizeOnNotification: @Sendable (Notification) -> Void = { [weak self] _ in
                 MainActor.assumeIsolated { self?.resize() }
             }
             if let splitView {
@@ -1088,6 +1128,7 @@ struct StoryRootView: View {
     @State private var voiceLaunchReady = false
     @AppStorage("pageOrder.sidebar") private var sidebarPageOrder = StorySidebarPageOrder.folders
     @AppStorage("collapsedSections.sidebar") private var sidebarCollapsedSections = StoryCollapsedPageSections()
+    @AppStorage(StoryIOSSettings.showsSidebarHandleKey) private var showsSidebarHandle = true
     @State private var sidebarSearchText = ""
     @State private var reviewingChoices = false
     @State private var reviewAccessoryReveal: EditorAccessoryReveal?
@@ -1130,6 +1171,9 @@ struct StoryRootView: View {
 #if os(iOS)
     @State private var sidebarRevealProgress: CGFloat = 0
     @State private var sidebarDrawerWidth: CGFloat = 360
+    /// True while a sidebar drag is under way. A drag SwiftUI cancels never
+    /// reaches `onEnded`, so its reset is what settles the page then.
+    @GestureState private var sidebarDragInProgress = false
     @State private var placementPresented = false
     @State private var topOverscrollProgress: CGFloat = 0
     @State private var topOverscrollArmed = false
@@ -1154,11 +1198,14 @@ struct StoryRootView: View {
             recoveryStore: PendingVoiceRecordingStore(
                 directoryURL: StorySupportDirectories.pendingVoiceRecordings
             ),
+            transcribedStore: StoryVoiceRecordings.store,
+            pageKey: { pageID in pageID },
             loggingSubsystem: "org.nxhx.Arbor",
             recoveryDelivery: { transcript, pageID in
                 try await workspace.deliverVoiceTranscript(transcript, to: pageID)
             }
         )
+        StoryVoiceRecordings.store.prune()
         _model = State(initialValue: model)
         _recordingSession = State(initialValue: recordingSession)
         _pinchDictation = State(initialValue: EditorPinchDictation(
@@ -1172,7 +1219,10 @@ struct StoryRootView: View {
             finish: { [weak model, weak recordingSession] in
                 defer { model?.endPinchVoiceRecording() }
                 guard let recordingSession else { return .failed }
-                return switch await recordingSession.stopAndReturnTranscript() {
+                // The same page key the toolbar destination and the editor's
+                // Play Recording action use.
+                let pageKey = model?.binding?.reference.stableKey
+                return switch await recordingSession.stopAndReturnTranscript(pageKey: pageKey) {
                 case .transcript(let text): EditorPinchDictation.Completion.transcript(text)
                 case .noSpeech: EditorPinchDictation.Completion.noSpeech
                 case .failed: EditorPinchDictation.Completion.failed
@@ -1441,24 +1491,23 @@ struct StoryRootView: View {
     @ViewBuilder
     private var platformNavigation: some View {
 #if os(iOS)
-        NavigationStack(path: navigationPathBinding) {
-            pageFrame(for: model.navigationRoot)
-                .navigationDestination(for: WorkspaceLocation.self) { location in
-                    pageFrame(for: location)
-                }
+        // The sidebar lies underneath; the page slides right to uncover it.
+        ZStack(alignment: .leading) {
+            iosSidebarUnderlay
+            iosSlidingPage
         }
-        .id(model.selectedTabID)
-        .overlay(alignment: .leading) {
-            if model.navigationPath.isEmpty {
+        .onChange(of: sidebarDragInProgress) { _, dragging in
+            guard !dragging, sidebarRevealProgress > 0, sidebarRevealProgress < 1 else { return }
+            settleIOSSidebar(open: sidebarRevealProgress > 0.5)
+        }
+        .background {
+            GeometryReader { geometry in
+                // The page keeps a strip showing, wide enough to tap to close.
+                let drawerWidth = min(430, max(280, geometry.size.width - 49))
                 Color.clear
-                    .frame(width: 22)
-                    .frame(maxHeight: .infinity)
-                    .contentShape(.rect)
-                    .gesture(openSidebarEdgeGesture)
+                    .onAppear { sidebarDrawerWidth = drawerWidth }
+                    .onChange(of: drawerWidth) { _, width in sidebarDrawerWidth = width }
             }
-        }
-        .overlay {
-            iosSidebarDrawer
         }
 #else
         NavigationSplitView(columnVisibility: sidebarVisibility) {
@@ -1510,47 +1559,95 @@ struct StoryRootView: View {
         static let settleDuration: TimeInterval = 0.28
     }
 
-    private var iosSidebarDrawer: some View {
-        GeometryReader { geometry in
-            let drawerWidth = min(430, max(280, geometry.size.width - 28))
-            ZStack(alignment: .leading) {
-                ZStack(alignment: .leading) {
-                    Color.black.opacity(0.22 * sidebarRevealProgress)
-                        .ignoresSafeArea()
-                        .contentShape(.rect)
-                        .onTapGesture { closeIOSSidebar() }
+    /// The sidebar, resting still under the page.
+    private var iosSidebarUnderlay: some View {
+        VStack(spacing: 0) {
+            sidebarContent
+        }
+        .frame(width: sidebarDrawerWidth)
+        .frame(maxHeight: .infinity)
+        .modifier(StorySidebarSurface())
+        // In dark mode a shadow barely shows, so the page's shade on the
+        // sidebar is drawn as a dimming that lifts as the page slides away.
+        .overlay {
+            if colorScheme == .dark {
+                Color.black.opacity(0.55 * (1 - sidebarRevealProgress))
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
+        }
+        .simultaneousGesture(closeSidebarDragGesture)
+        .allowsHitTesting(sidebarRevealProgress > 0)
+        .ignoresSafeArea(.keyboard)
+    }
 
-                    VStack(spacing: 0) {
-                        sidebarContent
-                    }
-                    .frame(width: drawerWidth)
-                    .frame(maxHeight: .infinity)
-                    .modifier(StorySidebarSurface(showsDivider: true))
-                    .offset(x: -drawerWidth * (1 - sidebarRevealProgress))
-                    .simultaneousGesture(closeSidebarDragGesture)
+    /// The page, which slides right to uncover the sidebar. While it is
+    /// aside, a tap or a leftward drag on it slides it back.
+    private var iosSlidingPage: some View {
+        NavigationStack(path: navigationPathBinding) {
+            pageFrame(for: model.navigationRoot)
+                .navigationDestination(for: WorkspaceLocation.self) { location in
+                    pageFrame(for: location)
                 }
-                .allowsHitTesting(sidebarRevealProgress > 0)
-
-                // The drawer's tab rides on its trailing edge, so a sliver of
-                // it peeks in at the bottom left while it is closed.
+        }
+        .id(model.selectedTabID)
+        .overlay(alignment: .leading) {
+            if model.navigationPath.isEmpty {
+                Color.clear
+                    .frame(width: SidebarDrawerGesture.edgeWidth)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(.rect)
+                    .highPriorityGesture(openSidebarEdgeGesture)
+            }
+        }
+        .overlay {
+            if sidebarRevealProgress > 0 {
+                Color.black.opacity(0.08 * sidebarRevealProgress)
+                    .ignoresSafeArea()
+                    .contentShape(.rect)
+                    .onTapGesture { closeIOSSidebar() }
+                    .gesture(closeSidebarDragGesture)
+            }
+        }
+        // The handle is part of the page's edge, so it travels with it.
+        .overlay(alignment: .bottomLeading) {
+            if showsSidebarHandle {
                 IOSSidebarTab(isOpen: sidebarRevealProgress > 0.5) {
                     if sidebarRevealProgress > 0.5 { closeIOSSidebar() } else { openIOSSidebar() }
                 }
-                .gesture(openSidebarEdgeGesture, isEnabled: sidebarRevealProgress == 0)
-                .offset(x: drawerWidth * sidebarRevealProgress)
-                .frame(maxHeight: .infinity, alignment: .bottom)
+                .highPriorityGesture(openSidebarEdgeGesture)
                 .padding(.bottom, 28)
+                .ignoresSafeArea(.keyboard)
             }
-            .ignoresSafeArea(.keyboard)
-            .onAppear { sidebarDrawerWidth = drawerWidth }
-            .onChange(of: drawerWidth) { _, width in sidebarDrawerWidth = width }
         }
+        .background {
+            Rectangle()
+                .fill(Color(uiColor: .systemBackground))
+                .shadow(
+                    color: .black.opacity((colorScheme == .dark ? 0.6 : 0.22) * sidebarRevealProgress),
+                    radius: 14, x: -2, y: 0
+                )
+                .ignoresSafeArea()
+        }
+        // A faint lit edge, so in dark mode the page reads as resting on top.
+        .overlay(alignment: .leading) {
+            if colorScheme == .dark, sidebarRevealProgress > 0 {
+                Rectangle()
+                    .fill(Color.white.opacity(0.16 * sidebarRevealProgress))
+                    .frame(width: 1)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
+        }
+        .offset(x: sidebarDrawerWidth * sidebarRevealProgress)
     }
 
     private var openSidebarEdgeGesture: some Gesture {
         DragGesture(minimumDistance: 18, coordinateSpace: .global)
+            .updating($sidebarDragInProgress) { _, inProgress, _ in inProgress = true }
             .onChanged { value in
-                guard value.startLocation.x <= SidebarDrawerGesture.edgeWidth,
+                guard sidebarRevealProgress < 1,
+                      value.startLocation.x <= SidebarDrawerGesture.edgeWidth,
                       value.translation.width > 0,
                       abs(value.translation.width) > abs(value.translation.height) else { return }
                 var transaction = Transaction()
@@ -1560,21 +1657,17 @@ struct StoryRootView: View {
                 }
             }
             .onEnded { value in
-                guard value.startLocation.x <= SidebarDrawerGesture.edgeWidth,
-                      abs(value.translation.width) > abs(value.translation.height) else {
-                    return
-                }
+                // Whatever the drag became, never leave the page partway.
+                guard sidebarRevealProgress > 0, sidebarRevealProgress < 1 else { return }
                 let shouldOpen = value.translation.width > SidebarDrawerGesture.commitDistance
                     || value.predictedEndTranslation.width > SidebarDrawerGesture.commitProjectedDistance
-                sidebarSearchFocused = false
-                withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
-                    sidebarRevealProgress = shouldOpen ? 1 : 0
-                }
+                settleIOSSidebar(open: shouldOpen)
             }
     }
 
     private var closeSidebarDragGesture: some Gesture {
-        DragGesture(minimumDistance: 18)
+        DragGesture(minimumDistance: 18, coordinateSpace: .global)
+            .updating($sidebarDragInProgress) { _, inProgress, _ in inProgress = true }
             .onChanged { value in
                 guard value.translation.width < 0,
                       abs(value.translation.width) > abs(value.translation.height) else { return }
@@ -1588,15 +1681,19 @@ struct StoryRootView: View {
             .onEnded { value in
                 let shouldClose = value.translation.width < -SidebarDrawerGesture.commitDistance
                     || value.predictedEndTranslation.width < -SidebarDrawerGesture.commitProjectedDistance
-                sidebarSearchFocused = false
-                withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
-                    sidebarRevealProgress = shouldClose ? 0 : 1
-                }
+                settleIOSSidebar(open: !shouldClose)
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(180))
                     sidebarDismissDragSuppressesTap = false
                 }
             }
+    }
+
+    private func settleIOSSidebar(open: Bool) {
+        sidebarSearchFocused = false
+        withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
+            sidebarRevealProgress = open ? 1 : 0
+        }
     }
 
     private func openIOSSidebar() {
@@ -1754,7 +1851,7 @@ struct StoryRootView: View {
             }
         } label: {
             Label("Switch Tree", systemImage: "chevron.up.chevron.down")
-                .font(.caption)
+                .font(.subheadline)
                 .labelStyle(.titleAndIcon)
         }
         .menuIndicator(.hidden)
@@ -2464,6 +2561,18 @@ struct StoryRootView: View {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
 #endif
             },
+            copyPageLink: {
+#if os(macOS)
+                guard let link = pageLink, let node = model.node else { return }
+                storyCopyLink(link, title: node.title)
+#endif
+            },
+            copyPagePath: {
+#if os(macOS)
+                guard let url = revealablePageURL else { return }
+                storyCopyToPasteboard(url.path)
+#endif
+            },
             localTrees: localTreeMenuItems,
             jumpToLocalTree: jumpToLocalTree,
             showHistory: { Task { await model.loadHistory(); presentedSheet = .history } },
@@ -2492,6 +2601,7 @@ struct StoryRootView: View {
             ),
             canShare: model.node != nil && !model.isShowingDraft,
             canRevealPageInFinder: revealablePageURL != nil,
+            canCopyPageLink: pageLink != nil,
             canMovePage: currentPageIsMovable && model.binding != nil,
             canRenamePage: canRenameCurrentPage,
             canMovePageToTrash: currentPageIsMovable,
@@ -2513,15 +2623,23 @@ struct StoryRootView: View {
         guard let node = model.node else { return nil }
         switch node.surface {
         case .markdown, .directoryDocument:
-            guard let url = node.provenance.physicalURL,
-                  FileManager.default.fileExists(atPath: url.path) else { return nil }
-            return url
+            return node.provenance.physicalURL
         default:
             return nil
         }
 #else
         return nil
 #endif
+    }
+
+    /// The page's public address: its tree's canonical location and the page's
+    /// path within it. Nil for a tree with no canonical location.
+    private var pageLink: URL? {
+        guard let node = model.node, let canonical = workspace.currentTreeCanonical,
+              node.reference.tree == workspace.home.tree else { return nil }
+        let page = node.reference.path == "/" ? "" : node.reference.path
+        let path = canonical.path == "/" ? (page.isEmpty ? "/" : page) : canonical.path + page
+        return URL(string: ProtocolCanonicalDescriptor(path: path, endpoint: canonical.endpoint).httpURL)
     }
 
     private var voiceRecordingCommandLabel: String {
@@ -3007,7 +3125,7 @@ struct StoryRootView: View {
                         if location == model.currentLocation,
                            recordingSession.state == .recording,
                            !model.isPinchRecording {
-                            StoryRecordingStopLayer(session: recordingSession)
+                            StoryRecordingStopLayer(session: recordingSession, draft: model.voiceDraft)
                         }
                     }
                 } else {
@@ -3962,6 +4080,8 @@ private struct StoryDevicesHeader: View {
 private struct StoryPlacementSection: View {
     let workspace: StoryWorkspaceState
     let placement: StoryPlacement
+    /// Shown under the section: the last account section carries "Join Another Community…".
+    var footer: AnyView? = nil
     let removed: () -> Void
     @State private var confirming = false
     @State private var working = false
@@ -3987,6 +4107,8 @@ private struct StoryPlacementSection: View {
                 .accessibilityLabel("Remove \(placement.hostName) from this device")
                 .help("Remove from this device…")
             }
+        } footer: {
+            if let footer { footer }
         }
         .confirmationDialog(
             "Remove \(placement.hostName) from this device?",
@@ -4009,78 +4131,119 @@ private struct StoryPlacementSection: View {
     }
 }
 
-/// The one way onto another host: place an existing account there (keeping
-/// its identity and signing in through its home host), or join that host's
-/// community as a new account.
-private struct StoryAddAccountOrHostSection<Account: HostAccountPresentable>: View {
+/// The one way into another community: with an invite link, your profile
+/// accepts it and that host places you there (accounts §1.4); without one,
+/// you send your profile URL to its administrators and add the host once
+/// they have added you (§1.3). Either way you keep one identity, signing in
+/// through your home host; Story makes no second account.
+private struct StoryJoinCommunityButton<Account: HostAccountPresentable>: View {
     let workspace: StoryWorkspaceState
-    let accounts: [Account]
-    let joinCommunity: () -> Void
+    let account: Account
     let placed: () -> Void
-    @State private var choosingKind = false
-    @State private var placing: Account?
+    @State private var asking = false
+    @State private var pastingLink = false
+    @State private var addingHost = false
+    @State private var link = ""
     @State private var host = ""
     @State private var working = false
     @State private var message: String?
 
-    private var canPlace: Bool { workspace.accountService.capabilities.contains(.connectPlacement) }
+    private var profileURL: String? {
+        guard let handle = account.handle, !handle.isEmpty, let origin = account.accountOrigin else { return nil }
+        return "\(origin)/~\(handle)"
+    }
 
+    /// The pasted invite link in its `https://` spelling, or nil.
+    private var invitation: String? {
+        guard case let .join(account, code)? = StoryIncomingLocator.pastedJoinLink(link) else { return nil }
+        return buildInviteLocator(account: account, code: code)
+    }
+
+    /// Tucked under the account rows on the right, sized like "Switch Tree".
     var body: some View {
-        Section {
-            Button("Add Account or Host…") {
-                if canPlace, !accounts.isEmpty { choosingKind = true } else { joinCommunity() }
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 6) {
+                Spacer()
+                if working { ProgressView().controlSize(.small) }
+                Button { asking = true } label: {
+                    Label("Join Another Community…", systemImage: "plus")
+                        .font(.subheadline)
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.borderless)
+                .disabled(working)
             }
-            .disabled(working)
-            if working { ProgressView() }
             if let message {
                 Text(message).font(.caption).foregroundStyle(.red)
+                    .multilineTextAlignment(.trailing)
             }
         }
-        .confirmationDialog("Add an account or host", isPresented: $choosingKind) {
-            ForEach(accounts, id: \.configurationTree) { account in
-                Button(accounts.count > 1 ? "Place \(account.accountDisplayName) on Another Host…" : "Place This Account on Another Host…") {
-                    host = ""
-                    placing = account
-                }
-            }
-            Button("Join Another Community…", action: joinCommunity)
+        .textCase(nil)
+        .confirmationDialog("Do you have an invite link?", isPresented: $asking, titleVisibility: .visible) {
+            Button("Paste Invite Link…") { link = ""; pastingLink = true }
+            Button("I Don’t Have One") { host = ""; addingHost = true }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Placing an account keeps one identity and signs in through its home host. Joining a community makes a separate account there.")
+            Text("You join with your own profile, \(account.accountDisplayName). The community’s host signs you in through \(account.accountDisplayDetail).")
         }
-        .alert(
-            "Place this account on a host",
-            isPresented: Binding(get: { placing != nil }, set: { if !$0 { placing = nil } }),
-            presenting: placing
-        ) { account in
-            TextField("https://host.example", text: $host)
-#if os(iOS)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-#endif
-            Button("Add") { Task { await place(account) } }
-                .disabled(host.trimmingCharacters(in: .whitespaces).isEmpty)
+        .alert("Paste your invite link", isPresented: $pastingLink) {
+            TextField(text: $link, prompt: Text(verbatim: "https://host.example/~you#overstory-invite=…")) { Text("Invite link") }
+                .storyURLField()
+            Button("Join") { if let invitation { Task { await connect(invitation) } } }
+                .disabled(invitation == nil)
             Button("Cancel", role: .cancel) {}
-        } message: { account in
-            Text("Once that host's administrators have added your profile URL as a member, your trees can live under its addresses. It signs your devices in through \(account.accountDisplayDetail).")
+        } message: {
+            Text("Someone in that community sent it to you.")
+        }
+        .alert("Ask to be added", isPresented: $addingHost) {
+            TextField(text: $host, prompt: Text(verbatim: "https://host.example")) { Text("Host") }
+                .storyURLField()
+            Button("Add Host") { Task { await connect(host) } }
+                .disabled(host.trimmingCharacters(in: .whitespaces).isEmpty)
+            if let profileURL {
+                Button("Copy Profile URL") { copyToPasteboard(profileURL) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Send \(profileURL ?? "your profile URL") to that community’s administrators. Once they’ve added you as a member, enter their host here.")
         }
     }
 
-    private func place(_ account: Account) async {
+    private func connect(_ target: String) async {
         working = true
         defer { working = false }
         do {
 #if os(macOS)
             try await workspace.ensureStorySync()
 #endif
-            try await workspace.accountService.connectPlacement(configurationTree: account.configurationTree, host: host)
+            try await workspace.accountService.connectPlacement(configurationTree: account.configurationTree, host: target)
             message = nil
         } catch {
             // A placement host's 403 and 503 name the home host (ProtocolHTTPError.placementDescription).
             message = error.localizedDescription
         }
         placed()
+    }
+
+    private func copyToPasteboard(_ text: String) {
+#if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+#else
+        UIPasteboard.general.string = text
+#endif
+    }
+}
+
+private extension View {
+    func storyURLField() -> some View {
+#if os(iOS)
+        keyboardType(.URL)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+#else
+        self
+#endif
     }
 }
 
@@ -4126,6 +4289,8 @@ private struct MacStorySyncAccountPanel: View {
                 if let account {
                     // Each account is one section: its profile, then its devices.
                     ForEach(account.accounts, id: \.accountSectionID) { hostAccount in
+                        let accountPlacements = placements[hostAccount.configurationTree] ?? []
+                        let join = hostAccount.configurationTree == account.accounts.first?.configurationTree ? joinCommunity(hostAccount) : nil
                         Section {
                             accountHeader(hostAccount)
                             if let devices = workspace.localHostDevicesByConfigurationTree[hostAccount.configurationTree] {
@@ -4153,20 +4318,18 @@ private struct MacStorySyncAccountPanel: View {
                             }
                             .buttonStyle(.link)
                             .disabled(!hostAccount.credentialAvailable)
+                        } footer: {
+                            if accountPlacements.isEmpty, let join { join }
                         }
-                        ForEach(placements[hostAccount.configurationTree] ?? []) { placement in
-                            StoryPlacementSection(workspace: workspace, placement: placement) {
+                        ForEach(accountPlacements) { placement in
+                            StoryPlacementSection(
+                                workspace: workspace,
+                                placement: placement,
+                                footer: placement.id == accountPlacements.last?.id ? join : nil
+                            ) {
                                 Task { await loadPlacements() }
                             }
                         }
-                    }
-                    if !account.accounts.isEmpty {
-                        StoryAddAccountOrHostSection(
-                            workspace: workspace,
-                            accounts: account.accounts,
-                            joinCommunity: { setupPresented = true },
-                            placed: { Task { await loadPlacements() } }
-                        )
                     }
                     if account.accounts.isEmpty {
                         ContentUnavailableView(
@@ -4302,6 +4465,13 @@ private struct MacStorySyncAccountPanel: View {
                 message = error.localizedDescription
             }
         }
+    }
+
+    /// "Join Another Community…" for the home account. Story supports one
+    /// identity, so it goes under the first account's rows.
+    private func joinCommunity(_ home: LocalHostAccountDescriptor) -> AnyView? {
+        guard workspace.accountService.capabilities.contains(.connectPlacement) else { return nil }
+        return AnyView(StoryJoinCommunityButton(workspace: workspace, account: home) { Task { await loadPlacements() } })
     }
 
     private func loadPlacements() async {
@@ -4837,36 +5007,28 @@ struct StoryIOSLaunchView: View {
 #endif
 
 #if os(iOS)
-/// A small tab on the sidebar drawer's trailing edge. While the drawer is
-/// closed it peeks in from the bottom left, so the sidebar can be found
-/// without knowing the edge swipe; tapping it opens or closes the drawer.
+/// A grip on the page's leading edge, low on the left, so the sidebar
+/// underneath can be found without knowing the edge swipe. Tapping it slides
+/// the page aside or back.
 private struct IOSSidebarTab: View {
-    @Environment(\.colorScheme) private var colorScheme
     let isOpen: Bool
     let toggle: () -> Void
 
     var body: some View {
-        Button(action: toggle) {
-            Image(systemName: isOpen ? "chevron.compact.left" : "chevron.compact.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 18, height: 44)
-                .background(
-                    StorySidebarPalette.background(colorScheme),
-                    in: UnevenRoundedRectangle(bottomTrailingRadius: 9, topTrailingRadius: 9)
-                )
-                .overlay(
-                    UnevenRoundedRectangle(bottomTrailingRadius: 9, topTrailingRadius: 9)
-                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
-                )
-                .shadow(color: .black.opacity(0.08), radius: 3, x: 1, y: 0)
-                // A larger target than the visible tab.
-                .padding(.trailing, 14)
-                .padding(.vertical, 8)
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(isOpen ? "Hide Pages" : "Show Pages")
+        // A tap rather than a Button, so a drag on the grip starts at once
+        // instead of waiting for the button to give up the touch.
+        Capsule()
+            .fill(Color.secondary.opacity(isOpen ? 0.35 : 0.5))
+            .frame(width: 5, height: 40)
+            .padding(.leading, 5)
+            // A larger target than the visible grip.
+            .frame(width: 32, height: 60, alignment: .leading)
+            .contentShape(.rect)
+            .onTapGesture(perform: toggle)
+            .accessibilityElement()
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(isOpen ? "Hide Pages" : "Show Pages")
+            .accessibilityAction { toggle() }
     }
 }
 
@@ -5102,6 +5264,8 @@ private struct IOSAccountPanel: View {
                 syncSections
                 // Each account is one section: its profile, then this device.
                 ForEach(accounts, id: \.accountSectionID) { account in
+                    let accountPlacements = placements[account.configurationTree] ?? []
+                    let join = account.configurationTree == accounts.first?.configurationTree ? joinCommunity(account) : nil
                     Section {
                         let profile = snapshots[account.configurationTree]?.profileTree ?? account.profileTree
                         StoryProfileRow(
@@ -5124,20 +5288,18 @@ private struct IOSAccountPanel: View {
                         if let error = accountErrors[account.configurationTree] {
                             Text(error).font(.caption).foregroundStyle(.secondary)
                         }
+                    } footer: {
+                        if accountPlacements.isEmpty, let join { join }
                     }
-                    ForEach(placements[account.configurationTree] ?? []) { placement in
-                        StoryPlacementSection(workspace: workspace, placement: placement) {
+                    ForEach(accountPlacements) { placement in
+                        StoryPlacementSection(
+                            workspace: workspace,
+                            placement: placement,
+                            footer: placement.id == accountPlacements.last?.id ? join : nil
+                        ) {
                             Task { await loadPlacements() }
                         }
                     }
-                }
-                if !accounts.isEmpty {
-                    StoryAddAccountOrHostSection(
-                        workspace: workspace,
-                        accounts: accounts,
-                        joinCommunity: { addingAccount = true },
-                        placed: { Task { await loadPlacements() } }
-                    )
                 }
                 if accounts.isEmpty, message == nil {
                     Section {
@@ -5154,7 +5316,11 @@ private struct IOSAccountPanel: View {
             }
             .navigationTitle("Sync & Accounts")
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { StoryAppIconPicker() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink { StoryIOSSettingsView() } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
@@ -5191,6 +5357,13 @@ private struct IOSAccountPanel: View {
             message = nil
         } catch { message = error.localizedDescription }
         await loadPlacements()
+    }
+
+    /// "Join Another Community…" for the home account. Story supports one
+    /// identity, so it goes under the first account's rows.
+    private func joinCommunity(_ home: HostAccount) -> AnyView? {
+        guard workspace.accountService.capabilities.contains(.connectPlacement) else { return nil }
+        return AnyView(StoryJoinCommunityButton(workspace: workspace, account: home) { Task { await loadPlacements() } })
     }
 
     private func loadPlacements() async {

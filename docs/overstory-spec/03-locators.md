@@ -140,7 +140,7 @@ reader or editor follows it:
   whose body is not stored yet resolves as if it had `x/_index.md`.
 - Writers name the target's body file: `Calendar.md`, `Picture-of-Life/Foo.md`,
   `x/_index.md`. A target with no Markdown file of its own, such as a row
-  inside a collection file or a directory without a body, is named by its
+  of a logical collection or a directory without a body, is named by its
   extensionless logical path. Readers accept `x.md`, `x/_index.md`, `x/`, and
   `x` as the same node.
 - The key is the Markdown alias `#overstory-key=<key-token>`, which a
@@ -368,11 +368,12 @@ which is what HTML and SVG are. Every response forbids content-type sniffing
 and framing, and sends no referrer. A page the host renders loads only what
 its own policy names; a script on such a page is permitted by its hash.
 
-Rows in a recognized synchronized CSV/JSON/JSONL collection file have the same
-ordinary public path and stable-key locator projection as expanded children.
-The parent page lists those logical rows rather than `_store.*` or `schema.usl`.
+Rows of a logical collection have the same ordinary public path and
+stable-key locator projection as expanded children. The parent page lists
+those logical rows rather than `schema.usl` or any placement's projection
+files.
 A path lookup or stable-key lookup may render a row as an HTML property page or
 a Markdown data projection; a stale readable path redirects permanently to the
 current row path while preserving the key, application query, and content
 fragment. Public projection never materializes a row as a Markdown file and
-never exposes the reserved representation objects as children.
+never exposes the collection's table or rows objects as children.

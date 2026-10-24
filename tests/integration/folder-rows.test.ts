@@ -18,7 +18,7 @@ const token = "folder-rows-owner";
 const SUPPLIES = join(import.meta.dir, "../../examples/supplies/data");
 const LIST = "10000000-0000-4000-8000-000000000001";
 const SCHEMA = "model Item {\n  title Text\n  done  Bool?\n}\n";
-const GAMES = "model Game {\n  name  Text\n  lists List[]\n}\n\nmodel List {\n  name  Text\n  games Game[]\n}\n\nList.games[] @ordered <-> Game.lists[]\n";
+const GAMES = "model Game {\n  name  Text\n  lists List[]\n}\n\nmodel List {\n  name  Text\n  games Game[]\n}\n\nordered List.games[] <-> Game.lists[]\n";
 let sandbox: string, state: string, folder: string, tree: string;
 let host: Awaited<ReturnType<typeof serveHost>>;
 

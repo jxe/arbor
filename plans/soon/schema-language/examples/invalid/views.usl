@@ -6,17 +6,21 @@
 // expect: unknown-field
 // expect: unknown-view-option
 // expect: unknown-view-option
+// expect: attribute-layer
 model Game {
   name   Text
   status Status
-  @@views([
-    { label: "All", line: [status @bullet, name] },
+}
+re Game {
+  ~views([
+    { label: "All", line: [status ~bullet, name] },
     { label: "All", group: status },
     { group: status },
-    { label: "Wide", line: [name @bullet, status @bullet, rating, name @ordered] },
+    { label: "Wide", line: [name ~bullet, status ~bullet, rating, name ~ordered] },
     { label: "Odd", group: author, filter: status },
+    { label: "Old", line: [status @bullet] },
   ])
 }
 Game.status <-> Status.games[]
-model Status { @@fixed { Draft, Done } }
+enum Status { Draft, Done }
 view "My games" of ../Games/Game { group: status, label: "x" }

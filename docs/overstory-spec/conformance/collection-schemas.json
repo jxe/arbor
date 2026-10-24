@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "description": "Collection schemas: a collection's schema.usl (docs/overstory-spec/06-child-backings.md section 2.4). `accept` gives the row columns in data files, the primary key, and the @path column. Locations are 1-based lines and columns; a reject without a location binds only its code. Messages are not normative. Generated source parts repeat a template with {i} and {i+1} replaced by the zero-based index and its successor; a {\"$repeat\": v, \"count\": n} value expands to an array of n copies of v.",
+  "description": "Collection schemas: a collection's schema.usl (docs/overstory-spec/06-child-backings.md section 2.4). `accept` gives the row columns in data files, the primary key, and the `path` column. Locations are 1-based lines and columns; a reject without a location binds only its code. Messages are not normative. Generated source parts repeat a template with {i} and {i+1} replaced by the zero-based index and its successor; a {\"$repeat\": v, \"count\": n} value expands to an array of n copies of v.",
   "limits": {
     "source-bytes": 1048576,
     "tokens": 65536,
@@ -11,7 +11,7 @@
   "schemas": [
     {
       "name": "basic",
-      "source": "model Item {\n  slug        Text @path\n  title       Text\n  description Markdown?\n  quantity    Int\n}\n",
+      "source": "model Item {\n  slug        path Text\n  title       Text\n  description Markdown?\n  quantity    Int\n}\n",
       "accept": {
         "columns": [
           "id",
@@ -633,8 +633,8 @@
       }
     },
     {
-      "name": "a fixed model is a choice of its row names",
-      "source": "model Task {\n  name   Text\n  status Status\n}\n\nTask.status <-> Status.tasks[]\n\nmodel Status {\n  @@fixed { Todo, Done }\n}\n",
+      "name": "an enum is a choice of its value names",
+      "source": "model Task {\n  name   Text\n  status Status\n}\n\nTask.status <-> Status.tasks[]\n\nenum Status { Todo, Done }\n",
       "accept": {
         "columns": [
           "id",
@@ -742,7 +742,7 @@
     },
     {
       "name": "a declared key replaces id",
-      "source": "model Edition {\n  title Text\n  year  Int\n  @@id(title, year)\n}\n",
+      "source": "model Edition (title, year) {\n  title Text\n  year  Int\n}\n",
       "accept": {
         "columns": [
           "title",
@@ -768,7 +768,7 @@
     },
     {
       "name": "stored names",
-      "source": "model Book {\n  title Text  @column(\"book_title\")\n  @@table(\"books\")\n}\n",
+      "source": "model Book {\n  title Text  @column(\"book_title\")\n\n  @table(\"books\")\n}\n",
       "accept": {
         "columns": [
           "id",
@@ -818,8 +818,8 @@
       }
     },
     {
-      "name": "only fixed models",
-      "source": "model Status {\n  @@fixed { Todo, Done }\n}\n",
+      "name": "only enums",
+      "source": "enum Status { Todo, Done }\n",
       "reject": {
         "code": "collection-tables"
       }
@@ -858,7 +858,7 @@
     },
     {
       "name": "members sort by a field they have",
-      "source": "model Game {\n  name    Text\n  authors Person[]\n\n  @@views([\n    { label: \"Games\", line: [name, authors @sort(nickname)] },\n  ])\n}\n\nGame.authors[] @fold <-> Person.games[]\n",
+      "source": "model Game {\n  name    Text\n  authors Person[]\n\n  ~views([\n    { label: \"Games\", line: [name, authors ~sort(nickname)] },\n  ])\n}\n\nGame.authors[] @fold <-> Person.games[]\n",
       "reject": {
         "code": "unknown-field",
         "line": 6,
@@ -867,14 +867,14 @@
     },
     {
       "name": "only a connection's members sort",
-      "source": "model Game {\n  name    Text\n  authors Person[]\n\n  @@views([\n    { label: \"Games\", line: [name @sort(name), authors] },\n  ])\n}\n\nGame.authors[] @fold <-> Person.games[]\n",
+      "source": "model Game {\n  name    Text\n  authors Person[]\n\n  ~views([\n    { label: \"Games\", line: [name ~sort(name), authors] },\n  ])\n}\n\nGame.authors[] @fold <-> Person.games[]\n",
       "reject": {
         "code": "sort-field"
       }
     },
     {
-      "name": "a group takes only @sort",
-      "source": "model Game {\n  name    Text\n  authors Person[]\n\n  @@views([\n    { label: \"Games\", line: [name], group: authors @summary },\n  ])\n}\n\nGame.authors[] @fold <-> Person.games[]\n",
+      "name": "a group takes only ~sort",
+      "source": "model Game {\n  name    Text\n  authors Person[]\n\n  ~views([\n    { label: \"Games\", line: [name], group: authors ~summary },\n  ])\n}\n\nGame.authors[] @fold <-> Person.games[]\n",
       "reject": {
         "code": "misplaced-attribute"
       }
