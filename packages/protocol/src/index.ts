@@ -4,6 +4,7 @@ export * from "./model/logical-path.ts";
 export * from "./model/logical-url.ts";
 export * from "./model/node-key.ts";
 export * from "./model/node-model.ts";
+export * from "./model/collection.ts";
 export * from "./model/hash.ts";
 export * from "./model/cbor.ts";
 export * from "./model/page-id.ts";

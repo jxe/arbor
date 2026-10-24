@@ -3,6 +3,18 @@
 export * from "./ast.ts";
 export { parseUsl, UslSyntaxError, USL_LIMITS, type ParseResult } from "./parse.ts";
 export { formatUsl } from "./fmt.ts";
+export {
+  logicalModels,
+  logicalFromRows,
+  rowsFromLogical,
+  compareLogicalRows,
+  type LogicalField,
+  type LogicalModel,
+  type LogicalRow,
+  type LogicalTables,
+  type LogicalValue,
+  type FromRowsOptions,
+} from "./logical.ts";
 export { modelLayer, type ModelLayer, type ModelLayerEnd } from "./fingerprint.ts";
 export { layoutOf, LayoutError, type Column, type ColumnType, type ForeignKey, type JoinEnd, type StoredField, type Table } from "./layout.ts";
 export {
