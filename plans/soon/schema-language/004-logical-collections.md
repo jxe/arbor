@@ -15,7 +15,7 @@ the two questions that decide the design. Nothing here is built.
   question 2 as recommended (option 3); a device's projection lives in
   `placements.yaml`; Story Sync records what it finds on disk the first time;
   host retention belongs to the host operator and the tree configuration.
-  Open: the logical form (below) and the open questions.
+  Forks 1 to 5 of the logical form settled 2026-10-24 (see "Forks for Joe"); 6 is open.
 - **Built by:** [005](005-collections-that-sync.md), milestones 1 and 3.
 - **Affects:** 005 milestones 4 to 6 (002's former 1, 2 and 2a); spec 01 (representations), 02
   (projection boundary), 06 (§2.1, §3.1, §4, §7), 10 (§4.1); Postgres 002, 004
@@ -370,13 +370,20 @@ With representation per placement, retention is per placement too:
 
 ## Forks for Joe
 
-1. Addressable: models only, with plain n:m connections as properties on both
-   ends?
-2. Order as sequences, positions only in database projections? (A
-   concurrent move of the same member: the later move wins; settled.)
-3. A row's name: storage (`&path`, as 003 has it) or logical identity
-   (`@path`)?
-4. Timestamps as row state stamped from `at`?
-5. Canonical CBOR with a chunked hash from the start, instead of the branch's
-   JSONL?
-6. Content in rows only through a schema field marked `@body`?
+Settled by Joe on 2026-10-24, as recommended:
+
+1. Only models are addressable; a plain n:m connection is a property on the
+   rows at both ends.
+2. Order is a sequence of member keys; positions exist only in database
+   projections. A concurrent move of the same member: the later move wins.
+3. A row's name is its logical identity, not a storage detail: `path` leaves
+   003's storage layer.
+4. `created` and `modified` are row state, stamped from accepted operations'
+   `at`.
+5. The logical form is canonical CBOR with a chunked hash from the start,
+   replacing the branch's JSONL.
+
+Open:
+
+6. Content in rows: a field named `content` (002's convention), or a
+   `Markdown` field the schema marks as the body?
