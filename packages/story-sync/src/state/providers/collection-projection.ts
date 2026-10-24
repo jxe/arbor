@@ -4,7 +4,7 @@
 // writing is minimal, so only changed rows are written.
 
 import { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -103,19 +103,79 @@ const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 /** A stored row without its absent members. */
 const withoutAbsent = (row: Record<string, unknown>) => Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined && v !== null)) as Row;
 
+/**
+ * Story Sync's change log in a database it projects: triggers it installs on
+ * each table record the key of every row any program inserts, updates or
+ * deletes, so a scan rereads only those rows. `_overstory_sync` holds a
+ * nonce that tells this database's log from a copy's. A database without the
+ * log, or with a trigger gone, is read whole.
+ */
+const CHANGES = "_overstory_changes";
+const SYNC = "_overstory_sync";
+const literal = (text: string) => `'${text.replaceAll("'", "''")}'`;
+const triggerName = (model: string, event: string) => `_overstory_${model}_${event}`;
+const EVENTS = ["insert", "update", "delete"] as const;
+
+function changeLogSql(tables: readonly CollectionSchema[], nonce: string): string {
+  const statements = [
+    `create table if not exists ${CHANGES} (id integer primary key autoincrement, model text not null, key text not null)`,
+    `create table if not exists ${SYNC} (nonce text not null)`,
+    `delete from ${SYNC}`,
+    `insert into ${SYNC} (nonce) values (${literal(nonce)})`,
+  ];
+  for (const table of tables) {
+    const key = (side: "new" | "old") => `json_array(${table.primaryKey.map((column) => `${side}.${quote(column)}`).join(", ")})`;
+    const log = (side: "new" | "old") => `insert into ${CHANGES} (model, key) values (${literal(table.model)}, ${key(side)});`;
+    const body = { insert: log("new"), update: `${log("old")} ${log("new")}`, delete: log("old") };
+    for (const event of EVENTS) {
+      statements.push(`drop trigger if exists ${quote(triggerName(table.model, event))}`);
+      statements.push(`create trigger ${quote(triggerName(table.model, event))} after ${event} on ${quote(table.model)} begin ${body[event]} end`);
+    }
+  }
+  return statements.map((statement) => `${statement};`).join("\n");
+}
+
+/** The log's nonce, when the database has its log and every trigger. */
+function changeLogNonce(database: Database, tables: readonly CollectionSchema[]): string | null {
+  const names = new Set((database.query("select name from sqlite_master where type in ('table', 'trigger')").all() as Array<{ name: string }>).map((r) => r.name));
+  if (!names.has(CHANGES) || !names.has(SYNC)) return null;
+  if (!tables.every((table) => EVENTS.every((event) => names.has(triggerName(table.model, event))))) return null;
+  return (database.query(`select nonce from ${SYNC}`).get() as { nonce: string } | null)?.nonce ?? null;
+}
+
+const lastChange = (database: Database) => (database.query(`select coalesce(max(id), 0) as id from ${CHANGES}`).get() as { id: number }).id;
+
+/** A row's key values as the change log's triggers write them. */
+const keyTuple = (schema: CollectionSchema, row: Row) => JSON.stringify(schema.primaryKey.map((column) => toSQLite(row[column])));
+
+/** The database's rows as Story Sync last read or wrote them, and how far into its change log that was. */
+interface DatabaseState {
+  file: string;
+  nonce: string;
+  cursor: number;
+  rows: Map<string, Map<string, Row>>;
+}
+
 /** A row the schema can't read stops the projection from being read until it is fixed, so no other row is lost with it. */
 class UnreadableRow extends Error {}
 
+function sqliteRow(schema: CollectionSchema, raw: Record<string, unknown>): Row {
+  const row: Row = {};
+  for (const column of schema.columns) {
+    const value = fromSQLite(schema, column, raw[column]);
+    if (value !== undefined) row[column] = value;
+  }
+  return row;
+}
+
 function readSQLiteTable(database: Database, schema: CollectionSchema): Row[] {
   const columns = schema.columns.map(quote).join(", ");
-  return (database.query(`select ${columns} from ${quote(schema.model)}`).all() as Array<Record<string, unknown>>).map((raw) => {
-    const row: Row = {};
-    for (const column of schema.columns) {
-      const value = fromSQLite(schema, column, raw[column]);
-      if (value !== undefined) row[column] = value;
-    }
-    return row;
-  });
+  return (database.query(`select ${columns} from ${quote(schema.model)}`).all() as Array<Record<string, unknown>>).map((raw) => sqliteRow(schema, raw));
+}
+
+function fileIdentity(path: string): string {
+  const stat = statSync(path);
+  return `${stat.dev}:${stat.ino}`;
 }
 
 /** A stored row as a projection compares it: time columns at the logical form's precision. */
@@ -140,6 +200,7 @@ const sameFields = (a: LogicalRow, b: LogicalRow) => stableJSONString(a.fields) 
 export class CollectionProjections {
   private readonly schemas: CollectionSchemaCache;
   private readonly last = new Map<string, LogicalTables>();
+  private readonly databases = new Map<string, DatabaseState>();
   private readonly resolving = new Set<string>();
 
   constructor(private readonly options: CollectionProjectionOptions = {}) {
@@ -156,12 +217,7 @@ export class CollectionProjections {
     const rows: RowsByTable = {};
     if (form.kind === "sqlite") {
       const set = this.schemas.compileTables(schemaBytes, "database");
-      const database = new Database(join(directory, DATABASE_FILE), { readonly: true });
-      try {
-        for (const schema of set.tables) rows[schema.model] = readSQLiteTable(database, schema);
-      } finally {
-        database.close();
-      }
+      for (const [model, byKey] of this.readDatabase(directory, set.tables).rows) rows[model] = [...byKey.values()];
       return rows;
     }
     const set = this.schemas.compileTables(schemaBytes, "files");
@@ -315,6 +371,78 @@ export class CollectionProjections {
     }
   }
 
+  /**
+   * The database's rows. With its change log, and a state from this database
+   * and log, only the rows changed since are reread; otherwise every table is
+   * read, after installing the log so later scans needn't. A database Story
+   * Sync can't write is read whole each time.
+   */
+  private readDatabase(directory: string, tables: readonly CollectionSchema[]): DatabaseState {
+    const path = join(directory, DATABASE_FILE);
+    const file = fileIdentity(path);
+    const known = this.databases.get(directory);
+    const database = new Database(path, { readonly: true });
+    let state: DatabaseState | null = null;
+    try {
+      database.exec("begin");
+      try {
+        const nonce = changeLogNonce(database, tables);
+        if (nonce && known && known.file === file && known.nonce === nonce) {
+          state = { ...known, rows: new Map([...known.rows].map(([model, rows]) => [model, new Map(rows)])) };
+          const changes = database.query(`select id, model, key from ${CHANGES} where id > ? order by id`).all(known.cursor) as Array<{ id: number; model: string; key: string }>;
+          const reread = new Set<string>();
+          for (const change of changes) {
+            state.cursor = change.id;
+            const schema = tables.find((table) => table.model === change.model);
+            const key = JSON.stringify(JSON.parse(change.key));
+            if (!schema || reread.has(`${change.model}\0${key}`)) continue;
+            reread.add(`${change.model}\0${key}`);
+            const where = schema.primaryKey.map((column) => `${quote(column)} = ?`).join(" and ");
+            const raw = database.query(`select ${schema.columns.map(quote).join(", ")} from ${quote(schema.model)} where ${where}`)
+              .get(...(JSON.parse(key) as Array<string | number | null>)) as Record<string, unknown> | null;
+            const byKey = state.rows.get(schema.model) ?? new Map<string, Row>();
+            state.rows.set(schema.model, byKey);
+            if (raw) byKey.set(key, sqliteRow(schema, raw));
+            else byKey.delete(key);
+          }
+        } else if (nonce) {
+          state = { file, nonce, cursor: lastChange(database), rows: new Map(tables.map((schema) => [schema.model, new Map(readSQLiteTable(database, schema).map((row) => [keyTuple(schema, row), row]))])) };
+        }
+      } finally {
+        database.exec("commit");
+      }
+    } finally {
+      database.close();
+    }
+    if (!state) state = this.installChangeLog(path, file, tables);
+    if (state.nonce) this.databases.set(directory, state);
+    return state;
+  }
+
+  /** Install the change log and read every table in one transaction, so no edit falls between them. */
+  private installChangeLog(path: string, file: string, tables: readonly CollectionSchema[]): DatabaseState {
+    const readAll = (database: Database) => new Map(tables.map((schema) => [schema.model, new Map(readSQLiteTable(database, schema).map((row) => [keyTuple(schema, row), row]))]));
+    let database: Database;
+    try {
+      database = new Database(path, { readwrite: true, strict: true });
+    } catch {
+      const reader = new Database(path, { readonly: true });
+      try { return { file, nonce: "", cursor: 0, rows: readAll(reader) }; } finally { reader.close(); }
+    }
+    try {
+      database.exec("pragma busy_timeout = 5000");
+      const nonce = crypto.randomUUID();
+      return database.transaction(() => {
+        database.exec(changeLogSql(tables, nonce));
+        return { file, nonce, cursor: lastChange(database), rows: readAll(database) };
+      }).immediate();
+    } catch {
+      return { file, nonce: "", cursor: 0, rows: readAll(database) };
+    } finally {
+      database.close();
+    }
+  }
+
   /** Make the database hold exactly the rows, creating it from the schema's setup SQL when missing, in one transaction. */
   private async writeSQLite(directory: string, tables: Table[], schemaBytes: Uint8Array, wanted: RowsByTable): Promise<void> {
     const set = this.schemas.compileTables(schemaBytes, "database");
@@ -324,8 +452,8 @@ export class CollectionProjections {
     // Work out the changes read-only first, so a database that already holds
     // the rows is never opened for writing (which would touch its files).
     const changes: Change[] = [];
-    const reader = created ? null : new Database(path, { readonly: true });
-    try {
+    const current = created ? null : this.readDatabase(directory, set.tables);
+    {
       for (const schema of set.tables) {
         // A connection row's times aren't logical, so they change only with the row.
         const join = !!tables.find((t) => t.name === schema.model)?.ends;
@@ -334,7 +462,7 @@ export class CollectionProjections {
           : comparable(a) === comparable(b);
         const keyOf = (row: Row) => stableKeyFromProperties(schema.primaryKey, row)!;
         const rows = new Map((wanted[schema.model] ?? []).map(withoutAbsent).map((row) => [keyOf(row), row]));
-        const present = new Map((reader ? readSQLiteTable(reader, schema) : []).map((row) => [keyOf(row), row]));
+        const present = new Map([...(current?.rows.get(schema.model)?.values() ?? [])].map((row) => [keyOf(row), row]));
         const change: Change = { model: schema.model, primaryKey: schema.primaryKey, columns: schema.columns, remove: [], insert: [], update: [] };
         for (const [stableKey, row] of present) if (!rows.has(stableKey)) change.remove.push(row);
         for (const [stableKey, row] of rows) {
@@ -344,15 +472,18 @@ export class CollectionProjections {
         }
         if (change.remove.length || change.insert.length || change.update.length) changes.push(change);
       }
-    } finally {
-      reader?.close();
     }
     if (!created && !changes.length) return;
     const database = new Database(path, { create: true, strict: true });
     try {
       database.exec("pragma busy_timeout = 5000");
       if (created) database.exec(setupSql(tables, "sqlite"));
+      const nonce = current?.nonce || crypto.randomUUID();
       database.transaction(() => {
+        // Story Sync's own writes aren't edits to read back: the log keeps only
+        // what other programs changed, including any since `current` was read.
+        if (!current?.nonce) database.exec(changeLogSql(set.tables, nonce));
+        const before = lastChange(database);
         for (const change of changes) {
           const where = change.primaryKey.map((column) => `${quote(column)} = ?`).join(" and ");
           const key = (row: Row) => change.primaryKey.map((column) => toSQLite(row[column]));
@@ -364,7 +495,22 @@ export class CollectionProjections {
           for (const row of change.insert) insert.run(...values(row));
           for (const [before, row] of change.update) update.run(...values(row), ...key(before));
         }
-      })();
+        database.query(`delete from ${CHANGES} where id > ?`).run(before);
+        if (current?.nonce) database.query(`delete from ${CHANGES} where id <= ?`).run(current.cursor);
+      }).immediate();
+      const state: DatabaseState = current?.nonce
+        ? current
+        : { file: fileIdentity(path), nonce, cursor: 0, rows: new Map(set.tables.map((schema) => [schema.model, new Map()])) };
+      for (const change of changes) {
+        const schema = set.tables.find((table) => table.model === change.model)!;
+        const byKey = state.rows.get(change.model) ?? new Map<string, Row>();
+        state.rows.set(change.model, byKey);
+        for (const row of change.remove) byKey.delete(keyTuple(schema, row));
+        for (const [before] of change.update) byKey.delete(keyTuple(schema, before));
+        for (const row of [...change.insert, ...change.update.map(([, row]) => row)]) byKey.set(keyTuple(schema, row), row);
+      }
+      if (!current?.nonce) state.cursor = lastChange(database);
+      this.databases.set(directory, state);
     } finally {
       database.close();
     }

@@ -279,8 +279,24 @@ What it does:
 
 ### 5. SQLite placements that sync through Story Sync
 
-Built on the branch as "SQLite databases sync as rows" (002's milestone 2);
-rework it so the database is a projection rather than the tree's content.
+**State (2026-10-24, on the branch):** built. `_store.sqlite3` is a
+projection (milestone 3). Story Sync installs a change log in each database
+it projects: `_overstory_changes` and `_overstory_sync` (a nonce), with
+triggers on every table that record the key of each row any program inserts,
+updates or deletes. A scan rereads only those rows; without the log, or with
+a trigger gone, it reads every table and reinstalls the log. Applying
+accepted rows diffs against the rows it remembers, writes only changed rows,
+and drops its own entries from the log. `usl verify` ignores `_overstory_*`
+tables. A device that missed history rebuilds from the accepted tree, which
+holds the rows, so no separate row export is needed. Tests: the change-log
+cases in `tests/integration/collection-placements.test.ts` and the
+two-device case in `tests/integration/folder-rows.test.ts`. Known gap: an
+external edit to a row in the moment between Story Sync's read and its write
+of an accepted change to that same row is overwritten.
+
+Originally built on the branch as "SQLite databases sync as rows" (002's
+milestone 2), then reworked so the database is a projection rather than the
+tree's content. The plan as written:
 
 - apps-runtime already has the pieces: `SQLiteStoreBroker` (`src/observer.ts`),
   whose TEMP triggers write `__arbor_changes` with per-row before/after JSON;

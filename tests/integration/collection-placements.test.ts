@@ -84,6 +84,68 @@ describe("one tree, placed with different projections", () => {
   });
 });
 
+describe("a SQLite placement's change log", () => {
+  const tree = collectionTree(GAMES, {
+    Game: [idRow("g1", { name: "Chess", tags: ["board"] }), idRow("g2", { name: "Go", tags: ["board"] }), idRow("g3", { name: "Hex", tags: ["board"] })],
+    List: [idRow("l1", { name: "Favorites", games: ["g1", "g2"] })],
+  });
+  const changes = (path: string) => {
+    const database = new Database(path, { readonly: true });
+    try { return database.query("select model, key from _overstory_changes order by id").all(); } finally { database.close(); }
+  };
+  /** The folder read whole by a projection that has never seen it. */
+  const fresh = async (root: string) =>
+    (await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (directory, names) =>
+      new CollectionProjections({ basis: async () => collectionRows(tree.root, tree.objects), now: () => "2026-10-24T12:00:00.000Z" }).read(directory, names)))).root;
+
+  test("Story Sync's own writes leave nothing to read back, and usl verify ignores the log", async () => {
+    const placed = await place("sqlite-log", tree, { kind: "sqlite" });
+    const path = join(placed.items, "_store.sqlite3");
+    expect(changes(path)).toEqual([]);
+    expect(await verifyStore(compileUsl(GAMES), path)).toEqual([]);
+    expect((await placed.scan()).root).toBe(tree.root);
+  });
+
+  test("another program's inserts, updates and deletes are logged, and a scan of only those rows reaches the same root as a whole read", async () => {
+    const placed = await place("sqlite-log-edits", tree, { kind: "sqlite" });
+    const path = join(placed.items, "_store.sqlite3");
+    expect((await placed.scan()).root).toBe(tree.root);
+    const database = new Database(path);
+    database.query("update Game set name = 'Weiqi' where id = 'g2'").run();
+    database.query(`insert into Game (id, name, tags, created, modified) values ('g4', 'Shogi', '["board"]', '2026-10-24T12:00:00.000Z', '2026-10-24T12:00:00.000Z')`).run();
+    database.query("delete from List_games where list = 'l1' and game = 'g1'").run();
+    database.query("delete from Game where id = 'g3'").run();
+    database.close();
+    expect(changes(path)).toEqual([
+      { model: "Game", key: '["g2"]' }, { model: "Game", key: '["g2"]' },
+      { model: "Game", key: '["g4"]' },
+      { model: "List_games", key: '["l1","g1"]' },
+      { model: "Game", key: '["g3"]' },
+    ]);
+    const scanned = (await placed.scan()).root;
+    expect(scanned).not.toBe(tree.root);
+    expect(scanned).toBe(await fresh(placed.root));
+  });
+
+  test("a database whose log lost a trigger is read whole, and gets its log back", async () => {
+    const placed = await place("sqlite-log-dropped", tree, { kind: "sqlite" });
+    const path = join(placed.items, "_store.sqlite3");
+    expect((await placed.scan()).root).toBe(tree.root);
+    const database = new Database(path);
+    database.exec('drop trigger "_overstory_Game_update"');
+    database.query("update Game set name = 'Weiqi' where id = 'g2'").run();
+    database.close();
+    expect(changes(path)).toEqual([]);
+    const scanned = (await placed.scan()).root;
+    expect(scanned).toBe(await fresh(placed.root));
+    expect(scanned).not.toBe(tree.root);
+    const again = new Database(path);
+    again.query("update Game set name = 'Go' where id = 'g2'").run();
+    again.close();
+    expect(changes(path)).toEqual([{ model: "Game", key: '["g2"]' }, { model: "Game", key: '["g2"]' }]);
+  });
+});
+
 describe("a CSV placement", () => {
   const tree = collectionTree(ITEMS, {
     Item: [idRow("a", { title: "Apples", count: 3, done: true }), idRow("b", { title: "Pears, ripe", count: 0, note: "x" })],

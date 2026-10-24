@@ -13,9 +13,10 @@ export function sqliteAffinity(declared: string): string {
   return "NUMERIC";
 }
 
+/** The tables of a database, without SQLite's own and Story Sync's change log (`_overstory_*`). */
 export function inspectSqlite(db: Database): TableShape[] {
   const names = db
-    .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+    .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '\\_overstory\\_%' ESCAPE '\\' ORDER BY name")
     .all()
     .map((r) => r.name);
   return names.map((name) => {
