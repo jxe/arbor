@@ -22,7 +22,7 @@ import type { CheckResult, ResolvedModel } from "./check.ts";
 import type { Table } from "./layout.ts";
 import { recordsFromRows, rowsFromRecords, type RecordsByModel, type RowsByTable, type StoredRecord } from "./records.ts";
 
-export type LogicalValue = null | boolean | number | string | LogicalValue[];
+export type LogicalValue = null | boolean | number | string | LogicalValue[] | { [name: string]: LogicalValue };
 
 export interface LogicalRow {
   key: [string, LogicalValue][];
@@ -43,6 +43,8 @@ export interface LogicalField {
   kind: "value" | "reference" | "members";
   /** `members` and value arrays: a sequence rather than a set. */
   ordered: boolean;
+  /** No two rows hold the same value. */
+  unique: boolean;
 }
 
 export interface LogicalModel {
@@ -98,18 +100,18 @@ export function logicalModels(result: CheckResult): LogicalModel[] {
     if (model.name === "Person" || model.rows === "fixed") continue;
     const fields: LogicalField[] = [];
     const keyFields: LogicalField[] = model.key.map((k) => {
-      if (k === "id") return { name: "id", type: "Text", arity: "one", kind: "value", ordered: false };
+      if (k === "id") return { name: "id", type: "Text", arity: "one", kind: "value", ordered: false, unique: false };
       const f = model.fields.find((x) => x.name === k)!;
-      return { name: k, type: f.type, arity: "one", kind: VALUE_TYPES.has(f.type) ? "value" : "reference", ordered: false };
+      return { name: k, type: f.type, arity: "one", kind: VALUE_TYPES.has(f.type) ? "value" : "reference", ordered: false, unique: false };
     });
     for (const f of model.fields) {
       if (model.key.includes(f.name)) continue;
       if (VALUE_TYPES.has(f.type)) {
-        fields.push({ name: f.name, type: f.type, arity: f.arity, kind: "value", ordered: f.ordered });
+        fields.push({ name: f.name, type: f.type, arity: f.arity, kind: "value", ordered: f.ordered, unique: f.unique });
       } else if (f.origin === "end") {
-        fields.push({ name: f.name, type: f.type, arity: "one", kind: "reference", ordered: false });
+        fields.push({ name: f.name, type: f.type, arity: "one", kind: "reference", ordered: false, unique: false });
       } else if (holding(result, model, f.name) === "here") {
-        fields.push({ name: f.name, type: f.type, arity: f.arity, kind: f.arity === "many" ? "members" : "reference", ordered: f.ordered });
+        fields.push({ name: f.name, type: f.type, arity: f.arity, kind: f.arity === "many" ? "members" : "reference", ordered: f.ordered, unique: f.unique });
       }
     }
     out.push({ name: model.name, key: model.key, keyFields, fields, ...(model.path ? { path: model.path } : {}) });

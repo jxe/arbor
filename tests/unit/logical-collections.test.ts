@@ -16,6 +16,7 @@ import {
   type Hash,
   type LogicalRow,
 } from "@ovst/protocol";
+import { checkLogicalTables, compileLogicalSchema, encodeCollection, loadCollection, LogicalCollectionError } from "@ovst/collection-schema";
 import { compileUsl, layoutOf, logicalFromRows, logicalModels, rowsFromLogical, type LogicalTables } from "@ovst/usl";
 
 const examples = join(import.meta.dir, "../../plans/soon/schema-language/examples");
@@ -135,5 +136,68 @@ describe("table and rows objects", () => {
     expect(collectionLogicalHash(reference)).toMatch(/^sha256:/);
     expect(() => decodeCollectionReference({ ...reference, extra: 1 })).toThrow("exactly");
     expect(() => decodeCollectionReference({ ...reference, tables: [{ model: "List", table: hash }, { model: "Game", table: hash }] })).toThrow("UTF-8 order");
+  });
+});
+
+describe("collections", () => {
+  const source = readFileSync(join(examples, "games.usl"), "utf8");
+  const logical = compileLogicalSchema(source);
+  const tables: LogicalTables = {
+    Game: [
+      row([["id", "g2"]], { name: "Go", status: "Polished" }),
+      row([["id", "g1"]], { name: "Chess", status: "Draft", tags: ["board", "classic"] }),
+    ],
+    List: [row([["id", "l1"]], { name: "Favorites", games: ["g2", "g1"] })],
+  };
+  const fields = (diagnostics: { code: string; path: string }[]) => diagnostics.map((d) => [d.code, d.path]);
+
+  test("valid rows pass", () => {
+    expect(checkLogicalTables(logical, { Game: [...tables.Game!].reverse(), List: tables.List! })).toEqual([]);
+  });
+
+  test("types, required fields, sets, references and enums are checked", () => {
+    const bad: LogicalTables = {
+      Game: [
+        row([["id", "g1"]], { status: "Draft", tags: ["z", "a"], extra: 1 }),
+        row([["id", "g2"]], { name: 2, status: "Nope" }),
+      ],
+      List: [row([["id", "l1"]], { name: "Favorites", games: ["g1", "g9", "g1"] })],
+    };
+    expect(fields(checkLogicalTables(logical, bad))).toEqual([
+      ["missing-member", "/fields/name"],
+      ["type-mismatch", "/fields/tags"],
+      ["unknown-member", "/fields/extra"],
+      ["type-mismatch", "/fields/name"],
+      ["no-matching-choice", "/fields/status"],
+      ["unknown-row", "/fields/games/1"],
+    ]);
+    expect(checkLogicalTables(logical, { Nope: [] })[0]!.message).toContain("no model Nope");
+  });
+
+  test("encode and load a collection; every model gets a table and the hash ignores input order", async () => {
+    const encoded = encodeCollection(logical, tables);
+    expect(encoded.reference.modelFingerprint).toBe(logical.fingerprint);
+    expect(encoded.reference.tables.map((t) => t.model)).toEqual(["Game", "List"]);
+    expect(encodeCollection(logical, { List: tables.List!, Game: [...tables.Game!].reverse() }).logicalHash).toBe(encoded.logicalHash);
+    const load = async (h: Hash) => encoded.objects.get(h)!;
+    const loaded = await loadCollection(logical, encoded.reference, load);
+    expect(loaded.logicalHash).toBe(encoded.logicalHash);
+    expect(loaded.tables.Game!.map((r) => r.key[0]![1])).toEqual(["g1", "g2"]);
+    expect(encodeCollection(logical, {}).reference.tables.length).toBe(2);
+    expect(() => encodeCollection(logical, { Game: [row([["id", "g1"]], {})] })).toThrow(LogicalCollectionError);
+    await expect(loadCollection(logical, { ...encoded.reference, tables: encoded.reference.tables.slice(1) }, load)).rejects.toThrow("must name Game, List");
+    await expect(loadCollection(logical, { ...encoded.reference, modelFingerprint: `sha256:${"1".repeat(64)}` }, load)).rejects.toThrow("modelFingerprint");
+  });
+
+  test("the fingerprint follows the model layer, not storage or presentation", () => {
+    const restyled = source.replace("  lists       List[]    // cross-reference: declared below\n", "  lists       List[]\n  @table(\"games\")\n");
+    expect(compileLogicalSchema(restyled).fingerprint).toBe(logical.fingerprint);
+    expect(compileLogicalSchema(`${source}\nmodel Extra {\n  name Text\n}\n`).fingerprint).not.toBe(logical.fingerprint);
+  });
+
+  test("unique fields are unique", () => {
+    const schema = compileLogicalSchema("main model Tag {\n  name unique Text\n}\n");
+    const diagnostics = checkLogicalTables(schema, { Tag: [row([["id", "a"]], { name: "x" }), row([["id", "b"]], { name: "x" })] });
+    expect(fields(diagnostics)).toEqual([["duplicate-value", "/fields/name"]]);
   });
 });

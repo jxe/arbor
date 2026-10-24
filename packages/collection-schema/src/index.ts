@@ -12,3 +12,4 @@ export * from "./collection-file.ts";
 export { applyRowOperations, canonicalRow, replayCollectionRows, spliceCollectionFile, type CollectionRowSplice } from "./row-replay.ts";
 export { mergeCollectionRows, type RowFieldConflict, type TextMerge } from "./row-merge.ts";
 export { deriveRowOperations } from "./row-diff.ts";
+export { compileLogicalSchema, checkLogicalTables, encodeCollection, loadCollection, LogicalCollectionError, type EncodedCollection, type LogicalDiagnostic, type LogicalSchema } from "./logical.ts";
