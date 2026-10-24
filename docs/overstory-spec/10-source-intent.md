@@ -48,7 +48,9 @@ several editor generations into one claim that no single basis explains.
 - The last frame's `after` MUST be `candidate`.
 - Every frame MUST reproduce its `after` exactly, including untouched bytes, when
   its operations execute against its `before` (§3). A frame that does not is
-  invalid; the host never falls back to the candidate's bytes.
+  invalid; the host never falls back to the candidate's bytes. Row operations
+  re-derive the collection they change (§4.1), and that derivation is the
+  frame's exact result.
 - Each frame carries at least one operation. A change with nothing to state uses
   an empty trace or, for snapshot semantics, `null`.
 
@@ -75,7 +77,8 @@ type OperationRef = { change: string; operation: string };
 
 ## 4. Operations
 
-The target host supports every operation below. Each has required `key` and
+The target host supports every operation below and the row operations of
+§4.1. Each has required `key` and
 `kind` fields. All listed fields are required except `lineage`. References may
 select projected material or alternatives; the reference determines the target,
 so there is no separate `editAlternative` operation.
@@ -133,6 +136,45 @@ Limits: at most 1024 operations per candidate across its trace, 64 frames,
 request/object limits. Grammar validation does not establish source reachability,
 UTF-8 boundaries in stored objects, candidate correspondence or authorization; the
 authority validates those before acceptance.
+
+### 4.1 Row operations
+
+A [logical collection](06-child-backings.md#2-logical-collections) is edited
+by row, never by the bytes of a projection. Every row operation also has
+`collection: Ref` (an entry reference, never ranged, to the collection's
+folder), `model` (one of its models with data rows) and `row` (the row's
+canonical stable key JSON, such as `[["id","g1"]]`). `field` names one
+declared field of the row; a key field, `created` and `modified` are never
+one.
+
+| `kind` | Fields | Authored meaning |
+| --- | --- | --- |
+| `rowCreate` | `values` | Create the row with these fields. `values` holds the row's key, which MUST equal `row`, and the row MUST be absent. |
+| `rowDelete` | | Delete the row, and every pair of a plain n:m connection that names it. |
+| `rowSet` | `field, before, value` | Set one single-valued field. `before` is the value the author saw and MUST equal the field on the basis; `null` means absent, and a `null` value removes the value. The two differ. |
+| `rowConnect` | `field, member` | Add `member` to a many-valued field: a connection pair or a value-array element. It MUST be absent. In an `ordered` field it goes at the end. |
+| `rowDisconnect` | `field, member` | Remove `member`, which MUST be present. |
+| `rowMove` | `field, member, after` | Place `member` directly after the member `after`, or first when `after` is `null`, in an `ordered` field. Both are present and the order changes. |
+
+A plain n:m connection is one set of pairs, so `rowConnect` and
+`rowDisconnect` on either end's field change the same pair, and two
+operations naming one pair from its two ends are the same fact. `rowMove`
+names the `ordered` end.
+
+Every row operation but `rowDelete` has `at`, when the edit was made, as an
+RFC 3339 date-time in UTC with millisecond precision. Replay writes it to the
+row's `modified`, and on `rowCreate` to `created` too; nothing else sets them.
+An authority rejects an `at` more than five minutes ahead of its own clock.
+
+A row operation names a row by identity, so concurrent changes to one row
+merge field by field (§7.1). It has no material result to reference.
+
+Replay applies a frame's row operations in order to its `before` collection's
+rows, validates the result against the schema, and encodes the changed tables
+in the canonical form of
+[child backings §2.1](06-child-backings.md#21-what-the-tree-holds). The
+frame's `after` MUST equal that tree. A frame that carries row operations
+carries no other kind; a change that also edits text uses separate frames.
 
 ## 5. Acceptance and explicit resolution
 
@@ -259,3 +301,29 @@ fields never grant authorization, express human resolution intent or execute cod
 Required resolution evidence must remain available for the advertised retention
 period; changing a rule must not rewrite it. The storage and retrieval mechanism
 for this evidence is an implementation choice.
+
+### 7.1 Collection rows
+
+`collection-fields-v1` merges two changes to one logical collection by row
+identity, then field by field, whether they arrive as row operations or as
+row differences from a snapshot. A row only one side changed takes that side.
+For a row both sides changed:
+
+- A single value conflicts only when the two set different values.
+- A many-valued field merges per member: removals and additions from both
+  sides apply. An addition to an `ordered` field follows the member it
+  follows on its own side.
+- An `ordered` field merges as a sequence. If only one side moved members,
+  its order holds; when both moved the same member, the later move by `at`
+  wins, with a merge note.
+- A `Markdown` field merges by lines. Edits that overlap conflict.
+- Deleting a row conflicts with a concurrent change to it, and with nothing
+  else.
+- Times never conflict: `created` keeps current's value and `modified` takes
+  the later one.
+
+A conflict keeps current's value in the accepted rows and becomes a `field`
+decision about that row field ([tree operations §1.2.3](01-tree-operations.md#123-reading-conflicts)),
+with current's value and the candidate's as alternatives. Every other field of
+the row still merges. The merged rows are validated against the schema; a
+result the schema rejects is a conflict on the collection's folder.

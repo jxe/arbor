@@ -605,6 +605,8 @@ Placement is intentionally separate from account membership, device
 registration, and portable Overstory content. Each implementation may choose its
 own local representation, but it must keep operating-system paths and
 placement-private options outside synchronized configuration and Overstory content.
+How a placement projects each logical collection, and its own storage mapping
+for it, are such options ([child backings §2.4](06-child-backings.md#24-projections)).
 Removing a placement stops that local materialization without deleting local
 files, remote identity, ACLs, history, canonical boundaries, or conflicts.
 

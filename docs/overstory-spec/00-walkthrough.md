@@ -99,15 +99,16 @@ failed guards or exceeded bounds can instead produce an explicit rejection
 
 Joe creates `practices/schema.usl` declaring a `Practice` model, and
 `practices/_store.csv` with a header row. The
-folder is now a file-backed collection: each CSV row is a child node of
-`/practices`, its columns are the child's properties, and its stable key is
-the canonical key JSON of its `id` ([file-backed collections](06-child-backings.md#2-file-backed-collections),
-[row identity](06-child-backings.md#12-member-identity-order-and-pagination)). In the protocol encoding,
-the exact CSV and `schema.usl` remain ordinary physical entries while the
-directory's collection-file descriptor identifies them as the source of its
-logical children. The authority recomputes both the schema fingerprint and the
-child-set hash
-([accepted Overstory representation](06-child-backings.md#21-accepted-overstory-representation)).
+folder is now a collection: each CSV row is a child node of
+`/practices`, its fields are the child's properties, and its stable key is
+the canonical key JSON of its `id` ([logical collections](06-child-backings.md#2-logical-collections),
+[row identity](06-child-backings.md#12-member-identity-order-and-pagination)). The CSV is only
+how Joe's Mac projects the rows: the tree holds the rows themselves, in
+canonical form, beside the exact bytes of `schema.usl`, and his iPhone keeps
+the same rows in SQLite. Story Sync turns each edit to the CSV into row
+operations, and the authority replays them and recomputes the model
+fingerprint and the collection's logical hash
+([what the tree holds](06-child-backings.md#21-what-the-tree-holds)).
 Each row has an ordinary public address such as
 `/~joe/atlas/practices/walking;overstory-key=…` ([public projection](03-locators.md#6-public-http-projection)).
 

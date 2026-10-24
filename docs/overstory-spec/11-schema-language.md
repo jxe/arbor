@@ -1,11 +1,12 @@
 # Schema language
 
 Ultimate Schema Language (USL) declares the models of a collection or database,
-how they connect, and how Story presents them by default. A collection's
-`schema.usl` ([child backings §2.4](06-child-backings.md#24-collection-schemas))
-is the only schema file Overstory reads. Interpreting a schema never executes
-code: a conforming implementation parses and checks it under the limits of
-[§8](#8-limits) and derives everything else from the checked result.
+how they connect, how a placement stores them, and how Story presents them by
+default. A collection's `schema.usl`
+([child backings §2](06-child-backings.md#2-logical-collections)) is the only
+schema file Overstory reads. Interpreting a schema never executes code: a
+conforming implementation parses and checks it under the limits of
+[§11](#11-limits) and derives everything else from the checked result.
 
 ```
 model Game {
@@ -14,12 +15,6 @@ model Game {
   description Markdown?
   tags        Text[]
   authors     Person[]
-
-  @@views([
-    { label: "By game",   line: [status @bullet, name, authors] },
-    { label: "By author", group: authors },
-  ])
-  @@editableBy(authors)
 }
 
 model List {
@@ -28,14 +23,21 @@ model List {
 }
 
 Game.authors[] @fold <-> Person.games[]
-List.games[] @ordered @fold <-> Game.lists[]
+ordered List.games[] @fold <-> Game.lists[]
 Game.status <-> Status.games[]
 
-model Status {
-  @@fixed {
-    Draft       @color("#9aa0aa")
-    Playtested  @color("#bd861a")
-  }
+enum Status { Draft, Playtested }
+
+re Game {
+  ~views([
+    { label: "By game",   line: [status ~bullet, name, authors] },
+    { label: "By author", group: authors },
+  ])
+}
+
+re Status {
+  Draft       ~color("#9aa0aa")
+  Playtested  ~color("#bd861a")
 }
 ```
 
@@ -49,17 +51,56 @@ object literals are ignored. An identifier is `[A-Za-z_][A-Za-z0-9_]*`. A
 number is an optional `-`, decimal digits, and an optional fraction. A string
 is double-quoted on one line, with `\"`, `\\`, `\n` and `\t` escapes.
 
-A schema's identity is the SHA-256 of its exact bytes, so comments and
-formatting are part of it ([child backings §2.1](06-child-backings.md#21-accepted-overstory-representation)).
+The words `model`, `enum`, `re`, `seed`, `ordered`, `unique`, `path` and `as`
+are keywords only where this chapter places them, so a field or model may
+still be named `id`, `seed` or `path`.
 
-## 2. Models and fields
+A schema may span several files. Every `.usl` file directly in a collection's
+folder is part of its schema, `schema.usl` first and the rest in UTF-8 order
+of file name, and together they are one source.
 
-A schema is a sequence of models and connections. `model Name { ... }` declares
-a model; its name is unique, and `Person` and the value type names are
-reserved.
+## 2. Layers
 
-A field is `name Type`, optionally followed by `?` (at most one value) or `[]`
-(any number), then field attributes. The value types are:
+A schema says three kinds of thing, and each has its own spelling:
+
+| Layer | Spelling | Says | Shared by |
+|---|---|---|---|
+| model | plain declarations and keywords | models, fields, types, keys, connections, enum values | every placement; it is what the tree holds ([§9](#9-fingerprints)) |
+| storage | attributes starting with `@` | how a placement stores the model: folding, table and column names, indexes, a row's body | defaults every placement starts from, which a placement's own mapping may override |
+| presentation | attributes starting with `~` | default views and colors | Story, as defaults a page may override |
+
+There is one sigil per layer and no doubled sigil. An attribute's position
+decides what it applies to: one that starts an item in a block applies to the
+model, enum or value the block is for; one after a field or connection end
+applies to that field or end. Each attribute name belongs to one layer and one
+level ([§7](#7-attributes)); an attribute in the wrong place is a diagnostic.
+
+`model Name { ... }` and `enum Name { ... }` declare a model once. `re Name
+{ ... }` adds attributes to a model or enum declared elsewhere, in the same
+file or another: it re-mentions fields by bare name (`status ~bullet`) and an
+enum's values by name (`Draft ~color("#9aa0aa")`), and never declares fields,
+types or values. Every attribute is legal in a `model`, `enum` or `re` block.
+By convention, which `usl fmt` applies, a `model` block holds the model plus
+`@` attributes where a stored name differs from the derived one, presentation
+goes in a `re` block, and model-level items come last in a block, after a
+blank line.
+
+## 3. Models and fields
+
+A schema is a sequence of models, enums, connections and `re` blocks. A model
+or enum name is unique, and `Person` and the value type names are reserved.
+
+A field is `name [modifiers] Type`. The type is a value type or a model name,
+optionally followed by `?` (at most one value) or `[]` (any number). Modifiers
+go between the name and the type:
+
+| Modifier | On | Meaning |
+|---|---|---|
+| `ordered` | a many-valued field or connection end | its members are a sequence; merges as one |
+| `unique` | a single value field | no two rows share its value |
+| `path` | one required `Text` field | its value is the row's name in the tree; otherwise the key names it |
+
+The value types are:
 
 | Type | Values |
 |---|---|
@@ -68,132 +109,181 @@ A field is `name Type`, optionally followed by `?` (at most one value) or `[]`
 | `Int` | an integer within ±(2^53 − 1) |
 | `Number` | a finite number |
 | `Bool` | `true` or `false` |
-| `Date` | an ISO 8601 date or date-time string |
+| `Date` | an ISO 8601 date or date-time |
 
-A value array (`tags Text[]`) is stored on the row. A field whose type is a
-model is a cross-reference to a connection ([§3](#3-connections)); it must
+A value array (`tags Text[]`) is held on the row. A field whose type is a
+model is a cross-reference to a connection ([§5](#5-connections)); it must
 agree with the connection in target and arity.
 
 `Person` is a built-in model: Story accounts, referenced by profile id. It has
-no rows in any store.
+no rows in any collection.
 
 Every row has the implicit fields `id`, `created` and `modified`, which a
-model can't declare.
+model can't declare. `created` and `modified` are date-times that only
+accepted changes set ([child backings §2.2](06-child-backings.md#22-rows-and-values)).
 
-## 3. Connections
+## 4. Enums
+
+`enum Status { Draft, Playtested }` declares a model whose rows are written in
+the schema: its values. A reference to an enum is the value's name, and an
+enum has no table. A value name that isn't an identifier is a string
+(`"Current focus"`).
+
+An enum whose values carry data declares its fields first, then its values
+with their fields' values:
+
+```
+enum Genre {
+  blurb Text
+
+  Puzzle    { blurb: "Think it through" }
+  Strategy  { blurb: "Plan ahead" }
+}
+```
+
+An enum can't be a connection model, and its values can't be changed by
+editing data. When people need to add values, the enum becomes a `model` with
+a `seed { ... }` block, written in the same form: seed rows are data, inserted
+when their `id` (the value's name) is missing and never overwritten, so stored
+references stay valid. A seeded model needs a `name Text` field, and colors
+become data in a field marked `~color`.
+
+## 5. Connections
 
 Every connection is written as a connection, with both ends named, outside the
 models it connects: `A.x <-> B.y`, or equivalently `{ A.x, B.y }`. An end
 `Model.field` declares the field that model gains; `[]` makes it many and `?`
-optional. Each `Model.field` is declared by at most one connection. The
-connection's arity is that of its ends: many on both is n:m, on one is 1:n,
-on neither is 1:1.
+optional, and `ordered` before the end makes its members a sequence
+(`ordered List.games[] <-> Game.lists[]`). Each `Model.field` is declared by at
+most one connection, and at most one end of a connection is `ordered`. The
+connection's arity is that of its ends: many on both
+is n:m, on one is 1:n, on neither is 1:1.
 
 A named model whose body holds two or more ends (`model Item { List.items[]
 Practice.items[] }`) is a connection model: it connects them and may carry
 fields of its own. Each end gives it a field named after the end's model in
-lower case, or `@as(name)` on the end. An unnamed connection holds exactly two
-ends and nothing else.
+lower case, or the name after `as` (`Person.friends[] as from`). An unnamed
+connection holds exactly two ends and nothing else.
 
-## 4. Keys and rows
+## 6. Keys
 
 A model's rows are keyed by `id`, except:
 
 - a connection model is keyed by its ends' fields, so it holds at most one row
   per combination;
-- `@@id(field, ...)` keys rows by the named single-valued fields (`id`
-  included), such as `@@id(list, id)` for an id unique within its list; a bare
-  `@@id` gives a connection model its own `id`;
-- a fixed model's rows are keyed by their names.
+- a key in the model's header, `model Tag (list, id) { ... }`, keys rows by the
+  named single-valued fields (`id` included), here an id unique within its
+  list; `model Review (id) { ... }` gives a connection model its own `id`;
+- an enum's rows are keyed by their names.
 
-`@@fixed { A, B }` writes a model's rows in the schema. A reference to a fixed
-model is the row's name, so a fixed model with no fields is an enumeration.
-A fixed row may carry values for the model's fields
-(`Draft { label: "First draft" }`) and a color (`@color("#rrggbb")`). A
-connection model can't have fixed rows, and a fixed model has no table.
+## 7. Attributes
 
-`@@seed { ... }` writes rows in the same form that are data: they are inserted
-when their `id` (the row's name) is missing and never overwritten. A seeded
-model needs a `name Text` field, and its colors are data in a `@color` field.
+| Attribute | Layer | On | Meaning |
+|---|---|---|---|
+| `@fold` | storage | one end of an n:m connection | in data files, an array on that end's rows instead of a table of its own |
+| `@fold(Model)` | storage | a connection model | in data files, stored on the rows of one model it connects |
+| `@column("name")` | storage | a value field, or the end that stores a connection | the stored column's name |
+| `@table("name")` | storage | a model with a table | the stored table's name |
+| `@index(field, ...)` | storage | a model with a table, any number of times | databases index those single-valued fields (`id`, `created` and `modified` included) in that order |
+| `@body`, `@title` | storage | one `Markdown` field; one `Text` field | in Markdown row files, the field written as the body, and the one written as the page title |
+| `@stored("text")` | storage | an enum value, in a `re` block | the text a store holds for that value |
+| `~color` | presentation | one single-valued `Text` field of a model | holds each row's color |
+| `~color("#rrggbb")` | presentation | an enum value | its color |
+| `~views([...])` | presentation | a model | default arrangements ([§8](#8-views)) |
 
-## 5. Attributes
+Without `@body` and `@title`, a Markdown row file's body is the `Markdown`
+field named `content` and its title the `Text` field named `title`, when the
+model has them.
 
-| Attribute | On | Meaning |
-|---|---|---|
-| `@ordered` | a many-valued field or end | keeps its members in order; merges as a sequence |
-| `@unique` | a single value field | no two rows share its value |
-| `@color` | one single-valued `Text` field of a model without fixed rows | holds each row's color |
-| `@path` | one required `Text` field | its value is the row's name in the tree; otherwise the key names it |
-| `@column("name")` | a value field, or the end that stores a connection | the stored column's name |
-| `@as(name)` | an end in a connection model | the connection model's field for that end |
-| `@fold` | one end of an n:m connection | in data files, an array on that end's rows instead of a table of its own |
-| `@@table("name")` | a model with a table | the stored table's name |
-| `@@fold(Model)` | a connection model | in data files, stored on the rows of one model it connects |
-| `@@editableBy(field, ...)` | a model | people in those `Person` fields may change its rows |
-| `@@index(field, ...)` | a model with a table, any number of times | databases index those single-valued fields (`id`, `created` and `modified` included) in that order |
-| `@@views([...])` | a model | default arrangements ([§6](#6-views)) |
+**Precedence.** Storage is derived from the model, then from `@` attributes in
+the tree's schema, then from the placement's own mapping: `re` blocks of `@`
+attributes that the placement keeps outside the tree, where its
+implementation chooses ([accounts §4](04-accounts-and-devices.md#4-local-placements)).
+A mapping is needed only where a store's names differ, such as an existing
+database the schema didn't create. Presentation is derived from the model,
+then from `~` attributes, then from a page's override. Setting one attribute
+twice at one level of precedence is an error.
 
-## 6. Views
+## 8. Views
 
-`@@views` takes a list of objects, each a default arrangement in tab order: a
+`~views` takes a list of objects, each a default arrangement in tab order: a
 unique `label` string, a `line` (the fields shown for each row), a `group`
 field, and a `sort` field (`created` and `modified` included). Items of a
-line take presentation attributes: `@bullet` (at most one) draws a fixed
-value as the row's colored bullet, `@summary` shows a many-valued field as a
-count, and `@label("lead")` names one of the field's members. A view without a `line` uses the first view's. A model
-without `@@views` has one plain view plus one grouped by each connection. A
-page may override any of a schema's views; views never change data.
+line take presentation attributes: `~bullet` (at most one) draws an enum
+value as the row's colored bullet, `~summary` shows a many-valued field as a
+count, `~label("lead")` names one of the field's members, and `~sort(field)`
+orders a connection's members by a field of theirs. A view without a `line`
+uses the first view's. A model without `~views` has one plain view plus one
+grouped by each enum, connection or `Person` field. A page may override any of
+a schema's views; views never change data.
 
-## 7. Layout
+## 9. Fingerprints
 
-The checked schema determines the tables, columns and keys a store holds.
+A collection binds to its schema's **model fingerprint**: the canonical CBOR
+hash ([tree operations §4.1](01-tree-operations.md#41-cbor-and-hashes)) of the
+checked model layer, with models, enums, fields, values and connections in
+UTF-8 order of name and comments, formatting, file boundaries and every `@`
+and `~` attribute left out. Changing only storage or presentation therefore
+leaves every collection's logical state and hash unchanged.
 
-- A model with data rows is a table named after the model. `Person` and fixed
-  models have none: a reference to a person is a profile id, and a reference to
-  a fixed model is the row's name, restricted to the fixed names.
+A placement's **storage fingerprint** covers the model and the storage it
+resolved (§7), and decides when that placement rebuilds its projection.
+Presentation has no fingerprint.
+
+## 10. Layout
+
+The checked schema and its storage determine the tables, columns and keys a
+placement's store holds: its *layout*. A layout is a projection of the logical
+form ([child backings §2.2](06-child-backings.md#22-rows-and-values)), so the
+two layouts below hold the same rows and changing one never changes data.
+
+- A model with data rows is a table named after the model, or `@table`.
+  `Person` and enums have none: a reference to a person is a profile id, and a
+  reference to an enum is the value's name (or its `@stored` text).
 - A table's primary key is its model's key. A key field that refers to another
   model expands to that model's key columns: one column named after the field
   when the target's key has one column, otherwise `field_key` for each.
 - A 1:1 or 1:n connection is a column (or columns) on its single side,
   nullable when that end is optional. An n:m connection is a join table named
   `Model_field` after its first end, keyed by both ends.
-- A connection model is a table keyed by its ends, unless `@@fold`.
-- `@ordered` on a many end adds a `field_position` number where the connection
-  is stored.
-- Database tables have `created` and `modified` timestamps. Data files leave
-  them out; a tree's history records when a row changed.
+- A connection model is a table keyed by its ends, unless `@fold(Model)`.
+- An `ordered` many end adds a `field_position` number where the connection is
+  stored. Positions are the store's own: a placement writes and renumbers
+  them freely, and only their order is data.
+- Every table has `created` and `modified` columns.
 - Database tables index each reference that doesn't lead the primary key,
-  profile ids included, and each `@@index`. An index whose columns begin
+  profile ids included, and each `@index`. An index whose columns begin
   another index is left out. Indexes never change what a database holds, so
   implementing a schema doesn't depend on them.
-- In data files, an n:m connection with a `@fold` end is an array, on that
-  end's rows, of the other side's keys. Databases always use a join table.
+- **Data files** follow the same tables, except that an n:m connection with a
+  `@fold` end is an array, on that end's rows, of the other side's keys, in
+  order when the end is `ordered`. Databases always use a join table.
 
 Two fields stored under one column name are an error. Setting up a database
 from a layout creates only what is missing and inserts seed rows only when
 missing; it never alters or drops anything.
 
-A database implements a schema when every table and column of its layout
-exists with a compatible type and nullability, keys and foreign keys match,
-and any extra column is nullable or has a default. Extra tables are allowed.
+A database implements a layout when every table and column exists with a
+compatible type and nullability, keys and foreign keys match, and any extra
+column is nullable or has a default. Extra tables are allowed.
 
 Each connection end is also a named relationship from its model's table:
 `List.owner` reaches one `Person`, `List.items` the `Item` rows of a list, and
 `Practice.authors` the people through the join table. Executable documents
 query along these ([executable documents](07-executable-documents.md)).
 
-## 8. Limits
+## 11. Limits
 
 | Limit | Value |
 |---|---|
-| Source bytes | 1,048,576 |
+| Source bytes, all files | 1,048,576 |
 | Tokens | 65,536 |
 | Nesting depth of values | 32 |
 
 Exceeding a limit rejects the schema.
 
-## 9. Diagnostics
+## 12. Diagnostics
 
-A rejected schema reports diagnostics with a stable code and a 1-based line and
-column. The [`collection-schemas.json`](conformance/collection-schemas.json)
+A rejected schema reports diagnostics with a stable code, a file and a 1-based
+line and column. The [`collection-schemas.json`](conformance/collection-schemas.json)
 vectors bind the codes they list; messages are not normative.

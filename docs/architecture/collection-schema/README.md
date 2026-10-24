@@ -3,7 +3,7 @@
 [Architecture overview](../README.md) · [Implementation status](../../../status.md)
 
 `@ovst/collection-schema` implements the collection schemas of
-[child backings §2.4](../../overstory-spec/06-child-backings.md#24-collection-schemas):
+[child backings §2.4](../../overstory-spec/06-child-backings.md#2-logical-collections):
 a collection's `schema.usl`, in the
 [schema language](../../overstory-spec/11-schema-language.md), compiled by
 [`@ovst/usl`](../../../packages/usl/README.md) and interpreted over JSON values.

@@ -50,7 +50,7 @@
     },
     "packages/cli": {
       "name": "@ovst/cli",
-      "version": "0.1.2",
+      "version": "0.1.4",
       "bin": {
         "story": "./src/index.ts",
       },
@@ -182,7 +182,7 @@
     },
     "packages/usl": {
       "name": "@ovst/usl",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "usl": "./src/cli.ts",
       },

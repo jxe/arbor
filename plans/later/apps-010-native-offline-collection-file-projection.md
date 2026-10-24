@@ -36,7 +36,7 @@ children.
   as other Overstory placements; it does not introduce a second schema language.
   The collection schema rules, the [schema language](../../docs/overstory-spec/11-schema-language.md)
   and the `collection-schemas.json` vectors
-  ([child backings §2.4](../../docs/overstory-spec/06-child-backings.md#24-collection-schemas))
+  ([child backings §2.4](../../docs/overstory-spec/06-child-backings.md#2-logical-collections))
   are what a native implementation must pass; no evaluator is involved.
 - Invalid, duplicate, missing, or ambiguous stable keys fail closed and produce
   compatible diagnostics.

@@ -121,6 +121,17 @@ first.
 **Done when:** the spec says what a root holds for a collection, and Joe has
 answered 004's forks.
 
+Written 2026-10-24: chapter 11 in the new syntax (layers, `enum`, header keys,
+fingerprints), 06 §1.1, §2, §3 and §7 (logical collections and projections),
+01 (the `collection` reference, table and rows objects, field decisions), 02,
+03, 04 §4, 10 §2, §4.1 and §7.1, and the README. Choices made while writing,
+for Joe to confirm: a one-model collection has its rows as its children
+(several models get a child per model); every `.usl` file in the folder is
+part of the schema; the logical form keeps no undeclared members; chunks end
+at a 1-in-512 row hash after at least 512 rows, or at 8,192; at most one end
+of a connection is `ordered`. The conformance vectors still bind the old form
+until milestones 2 and 3.
+
 ### 2. USL layers
 
 003's steps 1 to 6: spec 11, the TS parser and checker, `usl fmt`, the

@@ -79,9 +79,12 @@ For representing typed collections, a child set may declare a schema shared by i
 A placement chooses how to materialize a tree. The
 [portable directory projection](02-directory-format.md) maps ordinary files
 and folders into the model, while [child backings](06-child-backings.md) allow
-a child set to be represented by expanded files, a collection file, a database,
-or an external store. This representation choice is the child set's *backing*
-at that placement.
+a child set to be represented by expanded files, a logical collection, or an
+external store. A logical collection's rows are held in the tree itself, and
+each placement chooses how to project them, as collection files, Markdown row
+files, a database or nothing at all; that projection is not part of the tree
+and other placements never see it. This representation choice is the child
+set's *backing* at that placement.
 
 ### Representation and model equality
 
@@ -200,7 +203,8 @@ type SnapshotBundle = {
 
 The response uses `application/cbor` and is the canonical CBOR encoding of
 exactly that map. Each member of `objects` is a CBOR byte string containing the
-exact bytes of one object (raw file bytes or a canonical CBOR directory). Members are ordered
+exact bytes of one object (raw file bytes, or a canonical CBOR directory,
+table or rows object). Members are ordered
 lexicographically by the SHA-256 hash derived from those bytes; hashes are not
 repeated in the body.
 
@@ -208,9 +212,9 @@ The requested root in the URL identifies the graph and is not repeated in the
 body. As the top directory object's hash, it transitively commits to every
 reachable object. A client hashes every supplied byte string, rejects duplicate
 hashes, requires the requested root to be a present canonical directory,
-and walks its graph using the kind on each reference. A referenced directory
-must decode canonically; file bytes are never decoded. A hash referenced as
-both file and directory in the same graph is invalid. It rejects missing reachable objects and
+and walks its graph using the kind on each reference. A referenced directory,
+table or rows object must decode canonically; file bytes are never decoded. A
+hash referenced as two kinds in the same graph is invalid. It rejects missing reachable objects and
 unreachable extras, stopping at nested-tree boundaries. The definite-length
 `objects` array supplies the object count; the snapshot carries no tree,
 accepted-update, or observation-cursor metadata.
@@ -243,7 +247,8 @@ access. Removing content from the current tree is therefore not erasure from
 retained accepted snapshots or caches.
 
 A file object is its exact file bytes, with no CBOR wrapper. Its object hash
-is `sha256(fileBytes)`. Only directory objects are encoded as canonical CBOR.
+is `sha256(fileBytes)`. Only directory, table and rows objects are encoded as
+canonical CBOR.
 Kind comes from the referencing directory entry; receivers MUST NOT sniff or
 decode file bytes to infer kind. A file may contain bytes that are also a
 valid directory encoding without being interpreted as a directory.
@@ -257,31 +262,45 @@ type ProtocolDirectoryEntry =
 type ProtocolDirectory = {
   type: "directory";
   entries: ProtocolDirectoryEntry[];
-  childrenSource?: CollectionFileDescriptor;
+  collection?: CollectionReference;
 };
 
-type CollectionFileDescriptor = {
+type CollectionReference = {
   version: 1;
-  type: "collection-file";
-  format: "csv" | "json" | "jsonl";
-  source: "_store.csv" | "_store.json" | "_store.jsonl";
-  schemaSource: "schema.usl";
-  schemaFingerprint: Hash;
-  childSetHash: Hash;
+  modelFingerprint: Hash;
+  // One per model with data rows, in UTF-8 order of model.
+  tables: { model: Name; table: Hash }[];
+};
+
+type ProtocolTable = {
+  type: "table";
+  rows: number;                               // the sum of its chunks'
+  chunks: { rows: number; chunk: Hash }[];    // each a ProtocolRows object
+};
+
+type ProtocolRows = {
+  type: "rows";
+  rows: LogicalRow[];                         // in stable-key order
+};
+
+type LogicalRow = {
+  key: [Name, JSONValue][];
+  fields: Record<Name, JSONValue>;
+  created: string;
+  modified: string;
 };
 ```
 
-In a directory object the descriptor has exactly these seven fields, with
-`version: 1` and `schemaSource: "schema.usl"`
-([file-backed collections](06-child-backings.md#21-accepted-overstory-representation)).
-Any other version or schema source is invalid.
+In a directory object `collection` has exactly these three fields, with
+`version: 1`, and each object exactly the fields shown; any other version or
+member is invalid ([logical collections](06-child-backings.md#21-what-the-tree-holds)).
 
 A directory entry either addresses another Overstory object by hash or marks a
 nested Overstory tree boundary by TreeID. A snapshot walk stops at such a boundary:
-the nested tree has its own roots, history, and access. `childrenSource`, when
-present, records how authored collection files supply the directory's logical
-children; its projection and validation rules are defined by
-[child backings §2.1](06-child-backings.md#21-accepted-overstory-representation).
+the nested tree has its own roots, history, and access. `collection`, when
+present, holds the rows of the directory's logical collection; its table and
+rows objects are reached through it, and its validation rules are defined by
+[child backings §2.1](06-child-backings.md#21-what-the-tree-holds).
 
 An `ObjectEnvelope` is JSON transport packaging for the same canonical object
 bytes when another operation, such as an update request, carries objects inside
@@ -615,10 +634,11 @@ type Decision = {
   kind: string;
   affected: Ref[];
   selected: string;
+  row?: { model: Name; key: string; field: Name | null };
   alternatives: Array<{
     id: string; revision: string;
     value: { text: string } | { file: Hash } | { directory: Hash }
-         | { tree: TreeID } | { absent: true };
+         | { tree: TreeID } | { absent: true } | { value: JSONValue };
     placement?: EntryDestination;
     contributions: Array<{ change: string; operation: string | null }>;
   }>;
@@ -673,6 +693,14 @@ before attaching actionable controls. A text value must match the selected proje
 UTF-8 range. A directory/file kind is never guessed from bytes. Unknown decision
 kinds or actions may be displayed as unavailable, but cannot authorize invented
 mutation behavior. Core read fields may be extended without changing their meaning.
+
+A `field` decision is a choice about one field of one row of a logical
+collection ([source intent §7.1](10-source-intent.md#71-collection-rows)).
+`affected` names the collection's folder, and `row` names the model, the row's
+canonical stable key and the field; `field: null` is a choice about whether
+the row exists. Each alternative's `value` is that field's value, or the whole
+row, with `null` for absent. A client resolves it by writing the chosen value
+with row operations and declaring the resolution.
 
 Entry-valued alternatives are read through the ordinary
 [object route](#121-reading-an-object-at-a-time) by the hashes the decision page
@@ -906,7 +934,7 @@ replay handling in §2.1:
 Format-aware rules may produce a clean merge or explicitly resolve guarded decisions
 under [source intent §7](10-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution).
 They must honor the applicable model constraints, including
-[collection-file rules](06-child-backings.md#23-accepted-update-validation-and-merge).
+[collection rules](06-child-backings.md#23-accepted-update-validation-and-merge).
 The host retains unresolved choices when no rule justifies resolution. Concrete
 reference-implementation rule names and rollout limitations belong in implementation
 documentation and status.
@@ -1165,16 +1193,18 @@ references and requires their canonical encoding. The envelope is not itself has
 it only carries an addressed object's hash and bytes through a request,
 response, or transition payload.
 
-Model hashes, collection-file `childSetHash` values, update and mutation
+Model hashes, collections' logical hashes, update and mutation
 request digests, and query output hashes apply the same CBOR-then-SHA-256
 procedure to the distinct structured values defined by their own contracts.
 They are not hashes of an Overstory object unless their contract says so, and
 nothing in Overstory is identified by canonical JSON text.
 
 When the value being identified is already an exact byte sequence, Overstory
-hashes those bytes directly instead. In particular, `schemaFingerprint` is
-the SHA-256 of the exact UTF-8 bytes of the descriptor's `schemaSource`
-(`schema.usl`), and therefore equals that file's object hash. The
+hashes those bytes directly instead, as for a file object. A collection's
+`modelFingerprint` is instead the canonical CBOR hash of its checked model
+([schema language §9](11-schema-language.md#9-fingerprints)), so it does not
+change with the schema's comments, formatting or storage and presentation
+attributes. The
 [`canonical-cbor-values`](conformance/canonical-cbor-values.json) vectors
 freeze valid encodings and rejected byte sequences for every language binding.
 
