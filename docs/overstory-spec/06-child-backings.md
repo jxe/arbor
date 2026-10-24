@@ -149,9 +149,10 @@ root.
 The folder's `schema.usl` is its [schema](11-schema-language.md), held as an
 ordinary authored file entry with exact bytes. `_index.md` and other
 ordinary files in the folder stay ordinary entries and pages: the folder is a
-page that has a logical collection. A collection whose schema has one model
-with data rows has those rows as its logical children. One with several has a
-logical child per model, named after it, whose children are that model's rows.
+page that has a logical collection. The rows of the schema's
+[`main` model](11-schema-language.md#3-models-and-fields), if it has one, are
+the folder's logical children. Every other model with data rows is a logical
+child named after its model, whose children are that model's rows.
 Rows have no children; a subpage of a row belongs in a separate
 folder that links to it.
 
@@ -173,8 +174,8 @@ Collection of /games:
   modelFingerprint
   Game → table → rows chunks
   List → table → rows chunks
-Logical children below /games:
-  Game/chess, Game/go
+Logical children below /games (Game is the main model):
+  chess, go
   List/favorites
 ```
 

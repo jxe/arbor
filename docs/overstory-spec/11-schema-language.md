@@ -9,7 +9,7 @@ conforming implementation parses and checks it under the limits of
 [§11](#11-limits) and derives everything else from the checked result.
 
 ```
-model Game {
+main model Game {
   name        Text
   status      Status
   description Markdown?
@@ -51,7 +51,7 @@ object literals are ignored. An identifier is `[A-Za-z_][A-Za-z0-9_]*`. A
 number is an optional `-`, decimal digits, and an optional fraction. A string
 is double-quoted on one line, with `\"`, `\\`, `\n` and `\t` escapes.
 
-The words `model`, `enum`, `re`, `seed`, `ordered`, `unique`, `path` and `as`
+The words `main`, `model`, `enum`, `re`, `seed`, `ordered`, `unique`, `path` and `as`
 are keywords only where this chapter places them, so a field or model may
 still be named `id`, `seed` or `path`.
 
@@ -89,6 +89,14 @@ blank line.
 
 A schema is a sequence of models, enums, connections and `re` blocks. A model
 or enum name is unique, and `Person` and the value type names are reserved.
+
+`main model Practice { ... }` makes Practice the collection's main model: its
+rows are the collection folder's own children (`/practices/walking`). Every
+other model with data rows is a child of the folder named after the model,
+holding that model's rows (`/practices/Tag/t1`), so adding a model never moves
+the main model's rows. A schema has at most one `main` model, and an enum or
+connection model can't be one. A main row whose name equals another model's
+name is invalid.
 
 A field is `name [modifiers] Type`. The type is a value type or a model name,
 optionally followed by `?` (at most one value) or `[]` (any number). Modifiers

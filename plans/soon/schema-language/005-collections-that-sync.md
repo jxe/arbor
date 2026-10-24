@@ -128,10 +128,10 @@ fingerprints), 06 §1.1, §2, §3 and §7 (logical collections and projections),
 confirmed by Joe the same day: `schema.usl` is the only schema file in the
 tree; the logical form keeps no undeclared members; chunks end at a 1-in-512
 row hash after at least 512 rows, or at 8,192; at most one end of a
-connection is `ordered`. Open: whether a one-model collection has its rows as
-its children (several models get a child per model), since adding a model
-would then move every row; and whether a collection may carry its own chunk
-size. The conformance vectors still bind the old form
+connection is `ordered`. The schema names a `main` model whose rows are the folder's
+children, and other models nest under their names, so adding a model moves no
+rows. The chunk rule is fixed for everyone, because devices compute roots
+too. The conformance vectors still bind the old form
 until milestones 2 and 3.
 
 ### 2. USL layers

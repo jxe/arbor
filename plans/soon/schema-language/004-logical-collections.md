@@ -187,7 +187,9 @@ placement's choice. Six things decide it.
 The logical form fixes the collection's node paths, and those are durable:
 links, `NodeRef`s, locators, access rules and presence all use them.
 
-- **Models only (recommended).** `/games/Game/g1`, `/games/List/l1`. A model
+- **Models only (recommended).** `/games/Game/g1`, `/games/List/l1`. (Since
+  2026-10-24 the schema may name a `main` model whose rows sit directly under
+  the folder, `/games/g1`; other models nest as shown.) A model
   with rows is a table; a connection model (one with fields or `@@id`, like
   `Item` or `Contribution`) is a model, so its rows are addressable too. A
   plain n:m connection is not a node set: it shows as a property on the rows

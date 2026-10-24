@@ -2,7 +2,7 @@
 // (plan 003). Leads were a `person` collection with a portrait; now they are
 // Story accounts, and portraits come from their profiles.
 
-model Excellence {
+main model Excellence {
   name       Text
   assessment Assessment
   leads      Person[]                           // cross-reference

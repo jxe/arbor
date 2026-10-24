@@ -4,7 +4,7 @@
 // other examples use A <-> B. Who may edit a list (its owner, or anyone when
 // openToEdits) is access policy in access.yaml, not schema.
 
-model List {
+main model List {
   name        Text
   about       Markdown?
   visibility  Visibility

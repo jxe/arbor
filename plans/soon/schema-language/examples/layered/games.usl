@@ -3,7 +3,7 @@
 // model to declare. Who may edit a game is access policy now
 // (`who: {property: authors}` in access.yaml), not schema.
 
-model Game {
+main model Game {
   name        Text
   status      Status                            // stored as "Draft"
   description Markdown?

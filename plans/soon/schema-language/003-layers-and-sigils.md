@@ -41,6 +41,8 @@ form are in [examples/layered](examples/layered).
   `id` is the row's own id, so `(id)` alone gives every row its own id. A
   model without a header key is keyed as before: a connection model by its
   ends, any other model by its own id.
+- **`main model X`** (2026-10-24) names the collection's main model: its rows
+  are the folder's children, and other models nest under their names.
 - **`enum` is a top-level keyword** (2026-10-24) for a fixed model:
   `enum Status { Draft, Playtested, Polished }`. Values that carry data
   declare the fields first, then the values. An enum that people need to add
@@ -85,7 +87,7 @@ form are in [examples/layered](examples/layered).
 
 | Layer | Field level | Model level |
 |---|---|---|
-| model (keywords) | types, `[]`, `?`, `ordered`, `unique`, `path`, `as` | `model X (key)`, `enum`, `seed` |
+| model (keywords) | types, `[]`, `?`, `ordered`, `unique`, `path`, `as` | `main`, `model X (key)`, `enum`, `seed` |
 | `@` storage | `@fold`, `@column`, `@body`, `@title`; `@stored` on an enum value | `@table`, `@index` |
 | `~` presentation | `~color` (the field holding a row's color) | `~views` |
 

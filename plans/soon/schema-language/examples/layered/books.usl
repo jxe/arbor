@@ -1,6 +1,6 @@
 // The smallest case, in layered USL (plan 003).
 
-model Book {
+main model Book {
   title  Text
   status Status
 }
