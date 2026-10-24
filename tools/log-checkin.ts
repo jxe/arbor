@@ -35,13 +35,15 @@ const mark = existsSync(MARK) ? JSON.parse(readFileSync(MARK, "utf8")) as { sinc
 const since = new Date(flag("--since") ?? mark?.since ?? new Date(Date.now() - 3 * 86_400_000).toISOString());
 const syncFrom = flag("--since") ? 0 : mark?.storySyncLogBytes ?? 0;
 
-/** A message with its identifiers, hashes, paths and numbers blanked, so repeats group together. */
+/** A message with its identifiers, hashes, paths, decimals and long numbers blanked, so repeats
+ * group together; short integers (HTTP statuses, URLError codes) stay. */
 const shape = (text: string) => text
   .replace(/sha256:[0-9a-f]{8,}/g, "sha256:…")
   .replace(/\btr_[a-z0-9]{8,}\b/g, "tr_…")
   .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, "<uuid>")
   .replace(/\/(?:Users|tmp|private|var)\/[^\s"')]+/g, "<path>")
-  .replace(/\b\d+(\.\d+)?\b/g, "N")
+  .replace(/(?<![\d.])\d+\.\d+(?![\d.])/g, "N")
+  .replace(/\b\d{5,}\b/g, "N")
   .slice(0, 220);
 const top = (counts: Map<string, number>, n = 10) => [...counts].sort((a, b) => b[1] - a[1]).slice(0, n);
 const bump = (counts: Map<string, number>, key: string) => counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -54,16 +56,39 @@ const table = (rows: Array<[string, number]>) => rows.length ? rows.map(([text, 
 
 const report: string[] = [`# Log check-in, ${since.toISOString().slice(0, 16)}Z to ${new Date().toISOString().slice(0, 16)}Z`, ""];
 
+// The Railway CLI reads one deployment at a time, at most 5,000 lines.
+const RAILWAY_LINES = 5000;
+const railway = (...command: string[]) => Bun.spawnSync(["railway", ...command], { cwd: join(home, "src", "arbor") });
+
+/** Every log line of the deployments that ran in the period: those created in it, and the one running at its start. */
+function railwayLines(): { lines: string[]; deployments: number; truncated: number } | string {
+  const list = railway("deployment", "list", "--json", "--limit", "200");
+  if (list.exitCode !== 0) return list.stderr.toString().trim().slice(0, 300);
+  const deployments = (JSON.parse(list.stdout.toString()) as Array<{ id: string; createdAt: string }>)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const inPeriod = deployments.filter((deployment) => new Date(deployment.createdAt) >= since);
+  const running = deployments.find((deployment) => new Date(deployment.createdAt) < since);
+  const lines: string[] = [];
+  let truncated = 0;
+  for (const deployment of running ? [...inPeriod, running] : inPeriod) {
+    const run = railway("logs", deployment.id, "--json", "--since", since.toISOString(), "--lines", String(RAILWAY_LINES));
+    if (run.exitCode !== 0) return `${deployment.id}: ${run.stderr.toString().trim().slice(0, 300)}`;
+    const own = run.stdout.toString().split("\n").filter((line) => line.trim());
+    if (own.length >= RAILWAY_LINES) truncated++;
+    lines.push(...own);
+  }
+  return { lines, deployments: inPeriod.length + (running ? 1 : 0), truncated };
+}
+
 // overstoryd on Railway: one JSON object per line; update events carry timings at the top level.
 function overstoryd(): string[] {
   const out = ["## overstoryd (Railway)", ""];
-  const run = Bun.spawnSync(["railway", "logs", "--json", "--since", since.toISOString(), "--lines", "50000"], { cwd: join(home, "src", "arbor") });
-  if (run.exitCode !== 0) return [...out, `Couldn't read Railway logs: ${run.stderr.toString().trim().slice(0, 300)}`, ""];
+  const read = railwayLines();
+  if (typeof read === "string") return [...out, `Couldn't read Railway logs: ${read}`, ""];
   const updates: Array<Record<string, any>> = [];
   const messages = new Map<string, number>();
   const fellThrough = new Map<string, number>();
-  for (const line of run.stdout.toString().split("\n")) {
-    if (!line.trim()) continue;
+  for (const line of read.lines) {
     let record: Record<string, any>;
     try { record = JSON.parse(line); } catch { continue; }
     if (record.event === "update") { updates.push(record); continue; }
@@ -80,6 +105,9 @@ function overstoryd(): string[] {
   const errors = new Map<string, number>();
   for (const update of updates) if (update.status === "error" || Number(update.status) >= 400) bump(errors, `${update.status}: ${shape(String(update.error ?? update.message ?? ""))}`);
   out.push(
+    `${read.deployments} deployments ran in the period` +
+      (read.truncated ? `; ${read.truncated} had more than ${RAILWAY_LINES} lines, and only their last ${RAILWAY_LINES} are counted.` : "."),
+    "",
     `${updates.length} update requests: ${top(byStatus, 20).map(([status, count]) => `${count} × ${status}`).join(", ") || "none"}.`,
     "",
     `Accepted updates took ${quantile(totals, 0.5)} ms at the median, ${quantile(totals, 0.9)} ms at p90 and ${quantile(totals, 0.99)} ms at p99 (server time). ` +
@@ -115,16 +143,21 @@ function storyApp(): string[] {
   const byCategory = new Map<string, number>();
   const problems = new Map<string, number>();
   let entries = 0;
+  let earliest: string | undefined;
   for (const line of run.stdout.toString().split("\n")) {
     let entry: Record<string, any>;
     try { entry = JSON.parse(line); } catch { continue; }
     const process = String(entry.processImagePath ?? "");
     if (!entry.category || process.includes("swiftpm-testing-helper") || process.startsWith("/tmp/") || process.startsWith("/private/tmp/") || process.includes("/xctest")) continue;
     entries++;
+    earliest ??= String(entry.timestamp);
     bump(byCategory, `${entry.category} ${entry.messageType}`);
     if (entry.messageType === "Error" || entry.messageType === "Fault") bump(problems, `${entry.category}: ${shape(String(entry.eventMessage ?? ""))}`);
   }
-  return [...out, `${entries} entries from the app: ${top(byCategory, 20).map(([kind, count]) => `${count} ${kind}`).join(", ") || "none"}.`, "",
+  // macOS keeps Default-level entries for a limited time, so the period can start later than asked.
+  const kept = earliest && new Date(earliest.replace(" ", "T").replace(/([+-]\d{2})(\d{2})$/, "$1:$2")) > new Date(since.getTime() + 3_600_000)
+    ? ` The earliest app entry the log still holds is ${earliest.slice(0, 16)} UTC.` : "";
+  return [...out, `${entries} entries from the app: ${top(byCategory, 20).map(([kind, count]) => `${count} ${kind}`).join(", ") || "none"}.${kept}`, "",
     "**Errors and faults**", "", "| Count | Message |", "|---|---|", table(top(problems, 15)), ""];
 }
 
