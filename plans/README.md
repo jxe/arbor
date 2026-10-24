@@ -14,6 +14,12 @@ its evidence in status.
 
 ## Soon
 
+**[Schema language 006: read-only collection views on the Mac](soon/schema-language-006-read-only-collection-views.md).**
+Joe's pick on 2026-10-24 for the small slice to do first: a collection folder in Story on the
+Mac shows its rows arranged by its schema's views, read-only. It is the first part of Schema
+language 002's milestone 3, which the People directory will be built on: Swift decodes rows,
+ports `rowsFromLogical`, and draws the existing `presentView` port.
+
 **[Live 001: see who else is here](soon/live-001-presence.md).**
 Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which
 page each person is on, and where their cursor is when two people share a page. It must be

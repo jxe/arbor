@@ -93,6 +93,10 @@ any time before 6; 7 needs only 3 and 4. The directory needs 3, 3a, 4 and 7.
 
 ### 3. Presented views
 
+The read-only Mac part comes first as
+[Schema language 006](../soon/schema-language-006-read-only-collection-views.md)
+(Joe, 2026-10-24); what it leaves of this milestone folds back here.
+
 `presentPage` lives in `packages/protocol/src/documents/page-presentation.ts`,
 with inverse `authorPage` and tests in `tests/unit/page-presentation.test.ts`.
 Its Swift counterpart is `StoryPagePresentation` in StoryEditor, working on
