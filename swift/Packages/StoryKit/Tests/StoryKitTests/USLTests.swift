@@ -81,7 +81,7 @@ struct USLTests {
         let storage = compileUSL("model Episode { title Text }\nmodel Series { title Text }\nSeries.episodes[] <-> Episode.series\nPerson.games[] <-> Game.authors[]\nmodel Game { name Text }\n")
         #expect(storage.connections.map(\.storage) == [.column(on: "Episode", field: "series"), .array(on: "Game", field: "authors")])
         let tables = try uslLayout(storage)
-        #expect(tables.map(\.name) == ["Episode", "Series", "Game", "Game_authors"])
+        #expect(tables.map(\.name) == ["Episode", "Series", "Game", "Person_games"])
     }
 
     @Test("re blocks annotate, header keys key, and one model is main")
