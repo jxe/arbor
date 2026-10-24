@@ -17,7 +17,7 @@ more files, each run by both implementations:
 - `markdown-link-destinations.json`: which hrefs a Markdown source contains.
 
 `node-model.json` freezes the provider-neutral model-sampling values (refs,
-identity rules, snapshots, child pages, collection-file descriptors) that the
+identity rules, snapshots, child pages) that the
 `@ovst/protocol` node-model decoders and the native model types share. Positive
 and negative cases are decoded independently by TypeScript and Swift. Unknown
 fields are forward-compatible, but legacy identity/location fields and
@@ -30,16 +30,16 @@ that editors and working trees still build.
 valid case pairs a JSON value with its exact encoding and `sha256:` hash, and
 every invalid case is a byte sequence a decoder must reject. Every structured hashed
 identity (directory object hashes, `updates-v1` and `mutate-v1` digests, query output
-hashes, collection-file child-set hashes, and schema fingerprints) uses this encoding; file object hashes use raw bytes;
+hashes, collection tables and row chunks, and schema fingerprints) uses this encoding; file object hashes use raw bytes;
 `protocol-update-intent.json` records the currently implemented update digest derived from it.
 
 `collection-schemas.json` binds the collection schemas of
 [child backings §2](../06-child-backings.md#2-logical-collections), written in
-the [schema language](../11-schema-language.md). It, and the
-`collection-file` descriptor vectors in `protocol-objects.json`, predate
-logical collections and the 2026-10-24 schema syntax; they bind the current
-implementation until [Schema language 005](../../../plans/soon/schema-language/005-collections-that-sync.md)
-replaces them. It covers accepted schemas with their columns, key, child name and fingerprint; rejected
+the [schema language](../11-schema-language.md). It predates the 2026-10-24
+schema syntax and binds the current implementation until
+[Schema language 005](../../../plans/soon/schema-language/005-collections-that-sync.md)
+replaces it; the logical collection objects (a directory's `collection`
+reference, `table` and `rows`) are vectors in `protocol-objects.json`. It covers accepted schemas with their columns, key, child name and fingerprint; rejected
 schemas with the first diagnostic's code and location; value and CSV-cell
 diagnostics as JSON Pointers, including accepted undeclared row members and
 CSV columns; exact CSV encodings; malformed-UTF-8 sources; and

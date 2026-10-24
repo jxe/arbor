@@ -1,6 +1,6 @@
 import { decodeTransitionBasis, decodeAcceptedUpdate } from "./accepted-contract.ts";
 import { decodeAuthoredCandidateIntent, decodeAuthoredRequestIntent, type AuthoredRequestIntent, type AuthoredUpdateIntent } from "./authored-contract.ts";
-import { decodeProtocolDirectory, hashObject, protocolEntryObject, type ProtocolEntryKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
+import { hashObject, protocolObjectReferences, type ProtocolObjectKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
 import { decodeCanonicalCBOR, encodeCanonicalCBOR } from "../model/cbor.ts";
 import type {
   AcceptedTransition,
@@ -361,8 +361,8 @@ export function decodeTreeSnapshotJSON(value: unknown): TreeSnapshot {
 export function verifyTreeSnapshotGraph(snapshot: TreeSnapshot, mode: "complete" | "sparse-files" = "complete"): TreeSnapshot {
   const visited = new Set<ObjectHash>();
   const visiting = new Set<ObjectHash>();
-  const kinds = new Map<ObjectHash, ProtocolEntryKind>();
-  const visit = (hash: ObjectHash, kind: ProtocolEntryKind) => {
+  const kinds = new Map<ObjectHash, ProtocolObjectKind>();
+  const visit = (hash: ObjectHash, kind: ProtocolObjectKind) => {
     if (!/^sha256:[a-f0-9]{64}$/.test(hash)) throw new Error("Invalid snapshot hash");
     if (kinds.has(hash) && kinds.get(hash) !== kind) throw new Error(`Snapshot object kind conflict: ${hash}`);
     kinds.set(hash, kind);
@@ -375,12 +375,7 @@ export function verifyTreeSnapshotGraph(snapshot: TreeSnapshot, mode: "complete"
     }
     if (hashObject(bytes) !== hash) throw new Error(`Snapshot object hash mismatch: ${hash}`);
     visiting.add(hash);
-    if (kind === "directory") {
-      for (const entry of decodeProtocolDirectory(bytes).entries) {
-        const target = protocolEntryObject(entry);
-        if (target) visit(target.hash, target.kind);
-      }
-    }
+    for (const target of protocolObjectReferences(kind, bytes)) visit(target.hash, target.kind);
     visiting.delete(hash);
     visited.add(hash);
   };

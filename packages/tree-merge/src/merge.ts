@@ -1,6 +1,4 @@
 import {
-  collectionSourceNames,
-  collectionTableSources,
   decodeProtocolDirectory,
   encodeProtocolDirectory,
   hashObject,
@@ -9,13 +7,13 @@ import {
   type ProtocolDirectory,
   type ProtocolDirectoryEntry,
 } from "@ovst/protocol";
-import { collectionFileFieldsV1, frontmatter, markdownAdditiveV1, type CollectionFieldConflict, type CollectionFileMergeInput, type RuleContext } from "./merge-rules.ts";
+import { collectionFieldsV1, frontmatter, markdownAdditiveV1, type CollectionFieldConflict, type RuleContext } from "./merge-rules.ts";
 import { ModelHashes } from "./model-hash.ts";
 
 /** Rule evidence a snapshot tree merge reports beside its result. */
 export type MergeSummary =
   | { version: "markdown-additive-v1"; approximatePlacements: number }
-  | { version: "collection-file-fields-v1"; mergedRows: number };
+  | { version: "collection-fields-v1"; mergedRows: number };
 
 export interface MergeResult {
   root: ObjectHash;
@@ -93,7 +91,7 @@ export async function mergeProtocolTrees(
   let approximatePlacements = 0;
   let mergedRows = 0;
   let sawMarkdownRule = false;
-  let sawCollectionFileRule = false;
+  let sawCollectionRule = false;
   const fields: CollectionFieldConflict[] = [];
 
   const directoryObject = async (entry: ProtocolDirectoryEntry | undefined): Promise<ProtocolDirectory | null> => {
@@ -191,54 +189,6 @@ export async function mergeProtocolTrees(
     const currentEntries = new Map(currentDirectory.entries.map((entry) => [entry.name, entry]));
     const entries: ProtocolDirectoryEntry[] = [];
     const handled = new Set<string>();
-    const descriptorState = (directory: ProtocolDirectory): string | null => directory.childrenSource
-      ? JSON.stringify(directory.childrenSource)
-      : null;
-    const collectionInput = (directory: ProtocolDirectory): CollectionFileMergeInput | null => {
-      const descriptor = directory.childrenSource;
-      if (!descriptor) return null;
-      const file = (name: string) => directory.entries.find((entry) => entry.name === name)?.file;
-      const sources: Record<string, ObjectHash> = {};
-      for (const { source } of collectionTableSources(descriptor)) {
-        const hash = file(source);
-        if (!hash) return null;
-        sources[source] = hash;
-      }
-      const schemaSource = file(descriptor.schemaSource);
-      return schemaSource ? { descriptor, sources, schemaSource } : null;
-    };
-    const baseCollection = collectionInput(baseDirectory);
-    const candidateCollection = collectionInput(candidateDirectory);
-    const currentCollection = collectionInput(currentDirectory);
-    let selectedCollection: CollectionFileMergeInput | null = null;
-    if (baseDirectory.childrenSource || candidateDirectory.childrenSource || currentDirectory.childrenSource) {
-      const priorConflicts = conflicts.length;
-      const baseState = descriptorState(baseDirectory);
-      const candidateState = descriptorState(candidateDirectory);
-      const currentState = descriptorState(currentDirectory);
-      if (candidateState === baseState) selectedCollection = currentCollection;
-      else if (currentState === baseState || candidateState === currentState) selectedCollection = candidateCollection;
-      else if (baseCollection && candidateCollection && currentCollection) {
-        const merged = await collectionFileFieldsV1(parentPath, baseCollection, candidateCollection, currentCollection, context);
-        selectedCollection = merged;
-        sawCollectionFileRule = true;
-        mergedRows += merged.mergedRows;
-        fields.push(...merged.fields);
-      } else {
-        conflicts.push({ path: parentPath, reason: "collection-file-schema-conflict" });
-        selectedCollection = candidateCollection;
-      }
-      if (conflicts.length > priorConflicts) unresolvedDirectories.add(parentPath);
-      for (const directory of [baseDirectory, candidateDirectory, currentDirectory]) {
-        if (directory.childrenSource) for (const name of collectionSourceNames(directory.childrenSource)) handled.add(name);
-      }
-      if (selectedCollection) {
-        entries.push(
-          ...Object.entries(selectedCollection.sources).map(([name, file]) => ({ name, file })),
-          { name: selectedCollection.descriptor.schemaSource, file: selectedCollection.schemaSource },
-        );
-      }
-    }
     const [basePages, candidatePages, currentPages] = await Promise.all([
       pagesByID(baseEntries), pagesByID(candidateEntries), pagesByID(currentEntries),
     ]);
@@ -283,11 +233,29 @@ export async function mergeProtocolTrees(
       const resolved = await resolveNode(parentPath, name, before, local, accepted);
       if (resolved) entries.push(resolved);
     }
-    return context.store(encodeProtocolDirectory({
-      type: "directory",
-      entries: sortedEntries(entries),
-      ...(selectedCollection ? { childrenSource: selectedCollection.descriptor } : {}),
-    }));
+    let directory: ProtocolDirectory = { type: "directory", entries: sortedEntries(entries) };
+    // A collection's rows merge after its entries, since they are checked
+    // against the folder's merged schema.usl.
+    if (baseDirectory.collection || candidateDirectory.collection || currentDirectory.collection) {
+      const priorConflicts = conflicts.length;
+      const [baseState, candidateState, currentState] = [baseDirectory, candidateDirectory, currentDirectory]
+        .map((d) => d.collection ? JSON.stringify(d.collection) : null);
+      const take = (d: ProtocolDirectory) => d.collection ? { ...directory, collection: d.collection } : directory;
+      if (candidateState === baseState) directory = take(currentDirectory);
+      else if (currentState === baseState || candidateState === currentState) directory = take(candidateDirectory);
+      else if (baseDirectory.collection && candidateDirectory.collection && currentDirectory.collection) {
+        const merged = await collectionFieldsV1(parentPath, baseDirectory, candidateDirectory, currentDirectory, directory, context);
+        directory = merged.directory;
+        sawCollectionRule = true;
+        mergedRows += merged.mergedRows;
+        fields.push(...merged.fields);
+      } else {
+        conflicts.push({ path: parentPath, reason: "collection-schema-conflict" });
+        directory = take(candidateDirectory);
+      }
+      if (conflicts.length > priorConflicts) unresolvedDirectories.add(parentPath);
+    }
+    return context.store(encodeProtocolDirectory(directory));
   };
 
   const rootDirectory = async (hash: ObjectHash): Promise<ProtocolDirectory> => {
@@ -296,8 +264,8 @@ export async function mergeProtocolTrees(
     return object;
   };
   const root = await mergeDirectory("/", await rootDirectory(base), await rootDirectory(candidate), await rootDirectory(current));
-  const summary: MergeSummary | undefined = sawCollectionFileRule
-    ? { version: "collection-file-fields-v1", mergedRows }
+  const summary: MergeSummary | undefined = sawCollectionRule
+    ? { version: "collection-fields-v1", mergedRows }
     : sawMarkdownRule ? { version: "markdown-additive-v1", approximatePlacements } : undefined;
   return { root, objects: generated, conflicts, ...(unresolvedDirectories.size ? { unresolvedDirectories: [...unresolvedDirectories] } : {}), ...(summary ? { summary } : {}), ...(fields.length ? { fields } : {}) };
 }

@@ -2,6 +2,8 @@ import {
   compareProtocolNames,
   decodeProtocolDirectory,
   encodeProtocolDirectory,
+  protocolObjectReferences,
+  type ProtocolObjectKind,
   type ProtocolDirectory,
   type ProtocolDirectoryEntry,
 } from "@ovst/protocol";
@@ -91,17 +93,14 @@ export async function absentClosure(
   present: (hash: string) => Promise<boolean>,
 ): Promise<Set<string>> {
   const found = new Set<string>(), seen = new Set<string>();
-  const visit = async (hash: string, isDirectory: boolean): Promise<void> => {
+  const visit = async (hash: string, kind: ProtocolObjectKind): Promise<void> => {
     if (seen.has(hash)) return;
     seen.add(hash);
     if (await present(hash)) return;
     found.add(hash);
-    if (!isDirectory) return;
-    for (const entry of (await directory(io, hash)).entries) {
-      if (entry.directory) await visit(entry.directory, true);
-      else if (entry.file) await visit(entry.file, false);
-    }
+    if (kind !== "directory" && kind !== "table") return;
+    for (const child of protocolObjectReferences(kind, await io.read(hash))) await visit(child.hash, child.kind);
   };
-  for (const root of roots) await visit(root, true);
+  for (const root of roots) await visit(root, "directory");
   return found;
 }

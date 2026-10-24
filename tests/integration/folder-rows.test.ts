@@ -7,7 +7,7 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { StorySyncDaemon } from "@ovst/story-sync";
-import { ProjectionProviderHost } from "@ovst/story-sync/state";
+import { CollectionProjections } from "@ovst/story-sync/state";
 import { serveHost } from "@ovst/overstoryd";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { replayCollectionRows } from "@ovst/collection-schema";
@@ -41,11 +41,9 @@ beforeAll(async () => {
     publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
   const owner = await deviceClient(host.url, token);
   const profile = (await owner.account()).account.profileTree!;
-  const stores = new ProjectionProviderHost();
-  try {
-    tree = await hostTree(owner, await resolveSnapshot(await snapshotDirectory(folder, new Map(), [], (root, name) => stores.collectionDescriptor(root, name))),
-      { parent: { tree: profile, name: "rows", kind: "person" } });
-  } finally { await stores[Symbol.asyncDispose](); }
+  const stores = new CollectionProjections();
+  tree = await hostTree(owner, await resolveSnapshot(await snapshotDirectory(folder, new Map(), [], (root, names) => stores.read(root, names))),
+    { parent: { tree: profile, name: "rows", kind: "person" } });
   const { values } = await readTreeConfig(owner, profile, "person");
   const device = Object.values(values.devices!).find((candidate) => candidate.administrator)!.id;
   await installAccountHome(state, owner, device, testDevice(token).seed, { [folder]: tree });
@@ -77,7 +75,7 @@ async function remoteSet(row: string, field: string, before: unknown, value: unk
   const objects = new Map(snapshot.objects);
   const items = decodeProtocolDirectory(objects.get(snapshot.root)!).entries.find((e) => e.name === path)!.directory!;
   const operations = [{ key: "set", kind: "rowSet", collection: { material: { kind: "basis", path: `/${path}`, object: items } },
-    table, row: JSON.stringify([["id", row]]), field, before, value } as SourceOperation];
+    table, row: JSON.stringify([["id", row]]), field, before, value, at: new Date().toISOString() } as SourceOperation];
   const result = await executeRowOperations(snapshot.root, operations, async (hash) => objects.get(hash)!, replayCollectionRows);
   await owner.submitUpdates(tree, { base: current.tree.update, updates: [{ change: crypto.randomUUID(), candidate: result.root,
     trace: [{ before: snapshot.root, after: result.root, operations }], resolves: [], deltas: [],
@@ -119,7 +117,7 @@ test("a folder with a file per table syncs its rows as operations on each table"
       const trace = requests.flatMap((request) => request.updates).at(-1)!.trace;
       expect(trace?.[0]?.operations).toEqual([
         expect.objectContaining({ kind: "rowCreate", table: "Game", row: JSON.stringify([["id", "g2"]]) }),
-        expect.objectContaining({ kind: "rowCreate", table: "List_games" }),
+        expect.objectContaining({ kind: "rowConnect", table: "List", row: JSON.stringify([["id", "l1"]]), field: "games", member: "g2" }),
       ]);
     });
     await remoteSet("l1", "name", "Favorites", "Best", "games", "List");

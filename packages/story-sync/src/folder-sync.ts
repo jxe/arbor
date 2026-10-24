@@ -13,12 +13,14 @@ import {
   TreeReader,
   ProtocolError,
   protocolEntryObject,
+  protocolObjectReferences,
   ProtocolClient,
   ProtocolHTTPError,
   reconnectingStream,
   type LazyTreeSnapshot,
   type ObjectHash,
   type ProtocolDirectoryEntry,
+  type ProtocolObjectKind,
   type ProtocolObjectSource,
   type SharedTreePlacement,
   type TreeSnapshot,
@@ -32,6 +34,7 @@ import {
   membershipSkip,
   trackedEntries,
   withoutPlatformMetadata,
+  type MaterializeCollection,
   type SkipPath,
 } from "@ovst/fs";
 import {
@@ -52,7 +55,6 @@ import { deriveRowOperations } from "@ovst/collection-schema";
 import { ChangeLog, FileControlStore } from "@ovst/working-tree/node";
 import { differences, entryAt, maskDeclined, resolveDeclined, within, type LoadObject } from "./declined-paths.ts";
 import { forTrackedLookup, type TrackedRoot } from "./filesystem-object-source.ts";
-import { writeDatabaseCollection } from "./state/providers/sqlite-collection.ts";
 
 /** What the daemon provides one folder's synchronization. */
 export interface FolderSyncHost {
@@ -66,7 +68,7 @@ export interface FolderSyncHost {
    * Walk the folder into a lazy graph through its stat index. An ignored path
    * is left out unless `tracked` holds it, or when `also` leaves it out.
    */
-  scan(tracked: TrackedRoot | null, also?: SkipPath): Promise<LazyTreeSnapshot>;
+  scan(tracked: TrackedRoot | null, also?: SkipPath, collectionBasis?: TrackedRoot): Promise<LazyTreeSnapshot>;
   /** The folder's root on disk. */
   readonly root: string;
   excludedMounts(): readonly string[];
@@ -77,6 +79,8 @@ export interface FolderSyncHost {
   refreshListing?(): Promise<void>;
   /** Verified bytes by hash: the folder's index, then the host. */
   objectBytes(hash: ObjectHash): Promise<Uint8Array | undefined>;
+  /** Writes each collection the folder holds into its projection. */
+  readonly collections?: MaterializeCollection;
   /** Accepted bytes were written to the folder. */
   materialized(): void;
   /** The folder's declined paths changed. */
@@ -157,17 +161,14 @@ async function writeRecord(path: string, value: unknown): Promise<void> {
 /** Every hash reachable from `root` through the directories `objects` holds. */
 function reachable(root: string, objects: ReadonlyMap<string, Uint8Array>): Set<string> {
   const seen = new Set<string>();
-  const pending = [{ hash: root, kind: "directory" as "file" | "directory" }];
+  const pending: Array<{ hash: string; kind: ProtocolObjectKind }> = [{ hash: root, kind: "directory" }];
   for (let next = pending.pop(); next; next = pending.pop()) {
     if (seen.has(next.hash)) continue;
     seen.add(next.hash);
-    if (next.kind !== "directory") continue;
+    if (next.kind === "file") continue;
     const bytes = objects.get(next.hash);
-    if (!bytes) throw new Error(`Folder graph is missing directory ${next.hash}`);
-    for (const entry of decodeProtocolDirectory(bytes).entries) {
-      const child = protocolEntryObject(entry);
-      if (child) pending.push(child);
-    }
+    if (!bytes) throw new Error(`Folder graph is missing ${next.kind} ${next.hash}`);
+    pending.push(...protocolObjectReferences(next.kind, bytes));
   }
   return seen;
 }
@@ -382,14 +383,16 @@ export class FolderSync implements AcceptedTree {
     const objects = new Map(lazy.objects);
     for (const [hash, bytes] of masked.objects) objects.set(hash, { hash, bytes: async () => bytes });
     // The accepted content at declined points need not be in the folder.
-    const add = async (entry: ProtocolDirectoryEntry | null): Promise<void> => {
-      const object = entry ? protocolEntryObject(entry) : undefined;
+    const add = async (object: { hash: ObjectHash; kind: ProtocolObjectKind } | undefined): Promise<void> => {
       if (!object || objects.has(object.hash)) return;
       const source: ProtocolObjectSource = { hash: object.hash, bytes: () => load(object.hash) };
       objects.set(object.hash, source);
-      if (object.kind === "directory") for (const child of decodeProtocolDirectory(await source.bytes()).entries) await add(child);
+      if (object.kind !== "file") for (const child of protocolObjectReferences(object.kind, await source.bytes())) await add(child);
     };
-    for (const point of points) await add(await entryAt(accepted as ObjectHash, point, load));
+    for (const point of points) {
+      const entry = await entryAt(accepted as ObjectHash, point, load);
+      await add(entry ? protocolEntryObject(entry) : undefined);
+    }
     return { root: masked.root, objects };
   }
 
@@ -472,7 +475,7 @@ export class FolderSync implements AcceptedTree {
     const before = membershipSkip(await rulesOf(held), lookup);
     const after = membershipSkip(await rulesOf(tracked), lookup);
     await materializeTree(this.host.root, root as ObjectHash, load, undefined, [...mounts, ...points.map((point) => this.osPath(point))],
-      async (path, isDirectory) => await after(path, isDirectory) || await before(path, isDirectory), writeDatabaseCollection);
+      async (path, isDirectory) => await after(path, isDirectory) || await before(path, isDirectory), this.host.collections);
     let uncovered = false;
     const written = await this.host.scan(tracked, async (path, isDirectory) => {
       if (!(await before(path, isDirectory))) return false;
@@ -570,7 +573,7 @@ export class FolderSync implements AcceptedTree {
     }
     const retained = reachable(graph.root, graph.objects);
     const objects = new Map<ObjectHash, Uint8Array>();
-    const pending = [{ hash: lazy.root, kind: "directory" as "file" | "directory" }];
+    const pending: Array<{ hash: string; kind: ProtocolObjectKind }> = [{ hash: lazy.root, kind: "directory" }];
     for (let next = pending.pop(); next; next = pending.pop()) {
       if (objects.has(next.hash as ObjectHash)) continue;
       if (next.kind === "file" && retained.has(next.hash)) continue;
@@ -578,10 +581,7 @@ export class FolderSync implements AcceptedTree {
       const bytes = graph.objects.get(next.hash as ObjectHash) ?? await source?.bytes();
       if (!bytes || hashObject(bytes) !== next.hash) throw new UpdateValidationError(`The folder changed while it was scanned: ${next.hash}`);
       objects.set(next.hash as ObjectHash, bytes);
-      if (next.kind === "directory") for (const entry of decodeProtocolDirectory(bytes).entries) {
-        const child = protocolEntryObject(entry);
-        if (child) pending.push(child);
-      }
+      pending.push(...protocolObjectReferences(next.kind, bytes));
     }
     const candidate: TreeSnapshot = { root: lazy.root, objects };
     const change = `folder-${crypto.randomUUID()}`;
@@ -611,16 +611,16 @@ export class FolderSync implements AcceptedTree {
       candidate: snapshotJSON(candidate), update };
   }
 
-  /** The directories reachable from an accepted root. */
+  /** The directories, and the collections' tables and rows, reachable from an accepted root. */
   private async spine(root: string): Promise<TreeSnapshot> {
     const objects = new Map<ObjectHash, Uint8Array>();
-    const pending = [root];
+    const pending: Array<{ hash: string; kind: ProtocolObjectKind }> = [{ hash: root, kind: "directory" }];
     for (let next = pending.pop(); next; next = pending.pop()) {
-      if (objects.has(next as ObjectHash)) continue;
-      const bytes = await this.host.objectBytes(next as ObjectHash);
-      if (!bytes) throw new UpdateValidationError(`Accepted directory is unavailable: ${next}`);
-      objects.set(next as ObjectHash, bytes);
-      for (const entry of decodeProtocolDirectory(bytes).entries) if (entry.directory) pending.push(entry.directory);
+      if (next.kind === "file" || objects.has(next.hash as ObjectHash)) continue;
+      const bytes = await this.host.objectBytes(next.hash as ObjectHash);
+      if (!bytes) throw new UpdateValidationError(`Accepted ${next.kind} is unavailable: ${next.hash}`);
+      objects.set(next.hash as ObjectHash, bytes);
+      pending.push(...protocolObjectReferences(next.kind, bytes));
     }
     return { root: root as ObjectHash, objects };
   }
@@ -640,9 +640,10 @@ export class FolderSync implements AcceptedTree {
     const current = await client.descriptor(this.tree);
     await this.host.refreshListing?.().catch(() => {});
     await this.host.withWorkspaceIO(async () => {
-      // Nothing is tracked before a first placement: ignore rules apply to the first snapshot.
-      const lazy = await this.host.scan(null);
+      // Nothing is tracked before a first placement: ignore rules apply to the
+      // first snapshot, and collection rows the host holds keep its times.
       const load = async (hash: ObjectHash) => await this.host.objectBytes(hash) ?? client.object(this.tree, hash);
+      const lazy = await this.host.scan(null, undefined, { root: current.tree.root as ObjectHash, load });
       if (lazy.root !== await withoutPlatformMetadata(current.tree.root as ObjectHash, load)) {
         const root = decodeProtocolDirectory(await lazy.objects.get(lazy.root)!.bytes());
         if (root.entries.length) {
@@ -876,7 +877,7 @@ export class FolderSync implements AcceptedTree {
       await writeFileAtomic(target, await load(entry.file), 0o644);
     } else if (entry?.directory) {
       if (existing && !existing.isDirectory()) await rm(target, { force: true });
-      await materializeTree(target, entry.directory, load, undefined, mounts, skip, writeDatabaseCollection);
+      await materializeTree(target, entry.directory, load, undefined, mounts, skip, this.host.collections);
     }
   }
 

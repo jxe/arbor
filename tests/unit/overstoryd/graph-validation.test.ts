@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { encodeProtocolDirectory, hashObject } from "@ovst/protocol";
 import { validateGraphChange } from "../../../packages/overstoryd/src/updates/graph-validation.ts";
+import { collectionDirectory, idRow } from "../../support/collection-trees.ts";
 function fixture() {
   const objects = new Map<string, Uint8Array>(),
     reads: string[] = [];
@@ -134,32 +135,15 @@ test("new missing objects and corrupt overlays are rejected despite an accepted 
 });
 test("changed collections are revalidated while unchanged siblings inherit their checks", async () => {
   const f = fixture();
-  const make = (text: string) =>
-    f.put(
-      encodeProtocolDirectory({
-        type: "directory",
-        entries: [
-          { name: "_store.json", file: f.file(text) },
-          { name: "schema.usl", file: f.file("schema") },
-        ],
-        childrenSource: {
-          version: 1,
-          type: "collection-file",
-          format: "json",
-          source: "_store.json",
-          schemaSource: "schema.usl",
-          schemaFingerprint: f.file("schema") as `sha256:${string}`,
-          childSetHash: f.file("set") as `sha256:${string}`,
-        },
-      }),
-    );
+  const schema = "main model Item {\n  title Text\n}\n";
+  const make = (title: string) => collectionDirectory(schema, { Item: [idRow("a", { title })] }, f.objects);
   let checks = 0;
   const check = async (
     directory: any,
     load: (hash: string) => Promise<Uint8Array>,
   ) => {
     checks++;
-    await load(directory.entries[0].file);
+    await load(directory.collection.tables[0].table);
   };
   const old = make("old"),
     basis = await validateGraphChange(old, f.load, new Map(), check);

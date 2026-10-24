@@ -11,9 +11,11 @@ import {
   decodeProtocolDirectory,
   encodeProtocolDirectory,
   hashObject,
+  protocolObjectReferences,
   resolveProtocolLogicalNode,
   verifyTreeSnapshotGraph,
   type ObjectHash,
+  type ProtocolObjectKind,
   type TreeSnapshot,
 } from "@ovst/protocol";
 
@@ -227,15 +229,12 @@ export function snapshotFromAdmission(base: TreeSnapshot, admission: LegacyEdito
 
 export function reachableSnapshot(root: ObjectHash, available: ReadonlyMap<ObjectHash, Uint8Array>): TreeSnapshot {
   const objects = new Map<ObjectHash, Uint8Array>();
-  const visit = (hash: ObjectHash, kind: "file" | "directory"): void => {
+  const visit = (hash: ObjectHash, kind: ProtocolObjectKind): void => {
     if (objects.has(hash)) return;
     const bytes = available.get(hash);
     if (!bytes) throw new Error(`Snapshot is missing reachable object: ${hash}`);
     objects.set(hash, bytes);
-    if (kind === "directory") for (const entry of decodeProtocolDirectory(bytes).entries) {
-      if (entry.file) visit(entry.file, "file");
-      if (entry.directory) visit(entry.directory, "directory");
-    }
+    for (const child of protocolObjectReferences(kind, bytes)) visit(child.hash, child.kind);
   };
   visit(root, "directory");
   return verifyTreeSnapshotGraph({ root, objects });
@@ -284,7 +283,7 @@ export function replaceProtocolFile(snapshot: TreeSnapshot, path: string, source
     const next = encodeProtocolDirectory({
       type: "directory",
       entries,
-      ...(directory.childrenSource ? { childrenSource: directory.childrenSource } : {}),
+      ...(directory.collection ? { collection: directory.collection } : {}),
     });
     const hash = hashObject(next);
     objects.set(hash, next);

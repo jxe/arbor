@@ -1,4 +1,3 @@
-import type { CollectionFileDescriptor } from "@ovst/protocol";
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,12 +5,19 @@ import { tmpdir } from "node:os";
 import {
   compareProtocolNames,
   decodeProtocolDirectory,
+  decodeProtocolRows,
+  decodeProtocolTable,
   encodeProtocolDirectory,
+  encodeProtocolRows,
+  encodeProtocolTable,
   hashObject,
+  type ProtocolTable,
+  type LogicalRow,
 } from "@ovst/protocol";
 import { canonicalCBORHash, decodeCBOR, encodeCanonicalCBOR } from "@ovst/protocol";
-import { ProjectionProviderHost, ObjectIndex } from "@ovst/story-sync/state";
-import { decodeProtocolCollectionFile } from "@ovst/collection-schema";
+import { ObjectIndex } from "@ovst/story-sync/state";
+import { CollectionProjections } from "../../packages/story-sync/src/state/providers/collection-projection.ts";
+import { loadDirectoryCollection } from "@ovst/collection-schema";
 import {
   loadIgnorePolicy,
   materializeTree,
@@ -145,22 +151,27 @@ describe("canonical tree objects", () => {
   test("matches the language-neutral canonical object vectors", async () => {
     const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../docs/overstory-spec/conformance/protocol-objects.json"), "utf8")) as {
       objects: Array<{
-        model: { type: "file"; bytesBase64: string } | {
+        model: { type: "file"; bytesBase64: string } | ProtocolTable | { type: "rows"; rows: LogicalRow[] } | {
           type: "directory";
           entries: import("@ovst/protocol").ProtocolDirectoryEntry[];
-          childrenSource?: import("@ovst/protocol").ChildrenSourceDescriptor;
+          collection?: import("@ovst/protocol").CollectionReference;
         };
         bytesBase64: string;
         hash: string;
       }>;
     };
     for (const vector of fixture.objects) {
-      const object = vector.model.type === "file"
-        ? { type: "file" as const, bytes: Uint8Array.from(Buffer.from(vector.model.bytesBase64, "base64")) }
-        : vector.model;
-      const bytes = object.type === "file" ? object.bytes : encodeProtocolDirectory(object);
+      const model = vector.model;
+      const bytes = model.type === "file" ? Uint8Array.from(Buffer.from(model.bytesBase64, "base64"))
+        : model.type === "table" ? encodeProtocolTable(model)
+        : model.type === "rows" ? encodeProtocolRows(model.rows)
+        : encodeProtocolDirectory(model);
       expect(Buffer.from(bytes).toString("base64")).toBe(vector.bytesBase64);
       expect(hashObject(bytes)).toBe(vector.hash);
+      // Each decodes back to its model, strictly.
+      if (model.type === "table") expect(decodeProtocolTable(bytes)).toEqual(model);
+      if (model.type === "rows") expect(decodeProtocolRows(bytes)).toEqual(model);
+      if (model.type === "directory") expect(decodeProtocolDirectory(bytes)).toEqual(model);
     }
   });
 
@@ -174,12 +185,11 @@ describe("canonical tree objects", () => {
       "dual-target",
       "entry-with-hash-key",
       "file-and-directory",
-      "collection-file-schema-ts",
-      "collection-file-unknown-version",
+      "collection-without-schema",
+      "collection-schema-directory",
+      "collection-unknown-version",
+      "collection-extra-member",
       "collection-tables-unsorted",
-      "collection-tables-source-mismatch",
-      "collection-tables-missing-file",
-      "collection-database-not-jsonl",
       "noncanonical-cbor",
     ]);
     for (const vector of fixture.invalid) {
@@ -213,42 +223,18 @@ describe("canonical tree objects", () => {
     expect(() => decodeCBOR(deep)).toThrow("CBOR nesting too deep");
   });
 
-  test("rejects legacy, missing, and mixed collection-file directory shapes", () => {
+  test("rejects legacy collection shapes", () => {
     const hash = `sha256:${"1".repeat(64)}`;
     expect(() => decodeProtocolDirectory(encodeCanonicalCBOR({
       type: "directory",
       entries: [{ name: "_store.json", rollup: { version: 1 } }],
     }))).toThrow("Invalid directory entry");
+    // A collection's rows are never files the tree describes.
     expect(() => decodeProtocolDirectory(encodeCanonicalCBOR({
       type: "directory",
-      entries: [{ name: "_store.json", file: hash }],
-      childrenSource: {
-        version: 1,
-        type: "collection-file",
-        format: "json",
-        source: "_store.json",
-        schemaSource: "schema.usl",
-        schemaFingerprint: hash,
-        childSetHash: hash,
-      },
-    }))).toThrow("ordinary file entries");
-    expect(() => decodeProtocolDirectory(encodeCanonicalCBOR({
-      type: "directory",
-      entries: [
-        { name: "_store.json", file: hash },
-        { name: "extra.md", file: hash },
-        { name: "schema.usl", file: hash },
-      ],
-      childrenSource: {
-        version: 1,
-        type: "collection-file",
-        format: "json",
-        source: "_store.json",
-        schemaSource: "schema.usl",
-        schemaFingerprint: hash,
-        childSetHash: hash,
-      },
-    }))).toThrow("mixes immediate-child backings");
+      entries: [{ name: "_store.json", file: hash }, { name: "schema.usl", file: hash }],
+      childrenSource: { version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.usl", schemaFingerprint: hash, childSetHash: hash },
+    }))).toThrow("Unknown wire object");
   });
 
   test("snapshots files once and represents nested trees as boundaries", async () => {
@@ -272,95 +258,64 @@ describe("canonical tree objects", () => {
     }
   });
 
-  test("snapshots exact collection files as ordinary source-and-schema entries", async () => {
-    const root = await mkdtemp(join(tmpdir(), "story-wire-collection-file-"));
-    const destination = await mkdtemp(join(tmpdir(), "story-wire-collection-file-materialized-"));
-    try {
-      const schemaSource = "model Item {}\n";
-      const storeSource = "[{\"id\":\"one\"}]\n";
-      await writeFile(join(root, "schema.usl"), schemaSource);
-      await writeFile(join(root, "_store.json"), storeSource);
-      const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], async (_directory, names) => ({
-        version: 1,
-        type: "collection-file",
-        format: "json",
-        source: names.includes("_store.json") ? "_store.json" : "_store.csv",
-        schemaSource: "schema.usl",
-        schemaFingerprint: `sha256:${"3".repeat(64)}`,
-        childSetHash: `sha256:${"4".repeat(64)}`,
-      })));
-      const object = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
-      if (object.type !== "directory") throw new Error("Expected a directory");
-      const descriptor = object.childrenSource as CollectionFileDescriptor;
-      expect(descriptor).toEqual(expect.objectContaining({ version: 1, type: "collection-file", format: "json", schemaSource: "schema.usl" }));
-      const sourceHash = object.entries.find((entry) => entry.name === descriptor.source)!.file!;
-      const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!;
-      expect(sourceHash).not.toBe(schemaHash);
-      expect(snapshot.objects.get(sourceHash)!).toEqual(new TextEncoder().encode(storeSource));
-      expect(snapshot.objects.get(schemaHash)!).toEqual(new TextEncoder().encode(schemaSource));
-
-      await materializeTree(destination, snapshot.root, async (hash) => snapshot.objects.get(hash)!);
-      expect(await readFile(join(destination, "_store.json"), "utf8")).toBe(storeSource);
-      expect(await readFile(join(destination, "schema.usl"), "utf8")).toBe(schemaSource);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-      await rm(destination, { recursive: true, force: true });
-    }
-  });
-
-  test("validates schema.usl and verifies CSV, JSON, and JSONL protocol descriptors without executing code", async () => {
+  test("a collection's rows are logical objects, and its projection files are not entries", async () => {
     const fixtures = {
       csv: "id,title\none,One\ntwo,Two\n",
       json: '[{"id":"one","title":"One"},{"id":"two","title":"Two"}]\n',
       jsonl: '{"id":"one","title":"One"}\n{"id":"two","title":"Two"}\n',
     } as const;
+    const roots = new Set<string>();
     for (const [codec, source] of Object.entries(fixtures) as Array<[keyof typeof fixtures, string]>) {
       const root = await mkdtemp(join(tmpdir(), `story-wire-${codec}-`));
-      const collections = new ProjectionProviderHost();
+      const destination = await mkdtemp(join(tmpdir(), `story-wire-${codec}-materialized-`));
+      const collections = new CollectionProjections({ now: () => "2026-10-24T09:00:00.000Z" });
       try {
         await writeFile(join(root, "schema.usl"), "model Item {\n  title Text\n}\n");
         await writeFile(join(root, `_store.${codec}`), source);
-        const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (directory, name) =>
-          collections.collectionDescriptor(directory, name)));
+        const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (directory, names) => collections.read(directory, names)));
+        roots.add(snapshot.root);
         const object = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
-        if (object.type !== "directory") throw new Error("Expected a collection-file directory");
-        const descriptor = object.childrenSource as CollectionFileDescriptor;
-        const sourceHash = object.entries.find((entry) => entry.name === descriptor.source)!.file!;
-        const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!;
-        const sourceObject = snapshot.objects.get(sourceHash)!;
-        const schemaObject = snapshot.objects.get(schemaHash)!;
-        const decoded = decodeProtocolCollectionFile(descriptor, sourceObject, schemaObject);
-        expect(decoded.rows.map((row) => row.properties), codec).toEqual([
-          { id: "one", title: "One" },
-          { id: "two", title: "Two" },
+        expect(object.entries.map((entry) => entry.name)).toEqual(["schema.usl"]);
+        const loaded = await loadDirectoryCollection(object, async (hash) => snapshot.objects.get(hash)!);
+        expect(loaded!.tables.Item!.map((row) => [row.key, row.fields]), codec).toEqual([
+          [[["id", "one"]], { title: "One" }],
+          [[["id", "two"]], { title: "Two" }],
         ]);
+        // Another placement writes the rows into its own projection.
+        await materializeTree(destination, snapshot.root, async (hash) => snapshot.objects.get(hash)!, undefined, [], undefined,
+          (directory, value, load) => new CollectionProjections().write(directory, value, load));
+        expect(await readFile(join(destination, "_store.jsonl"), "utf8")).toBe(
+          '{"id":"one","title":"One","created":"2026-10-24T09:00:00.000Z","modified":"2026-10-24T09:00:00.000Z"}\n'
+          + '{"id":"two","title":"Two","created":"2026-10-24T09:00:00.000Z","modified":"2026-10-24T09:00:00.000Z"}\n');
       } finally {
-        await collections[Symbol.asyncDispose]();
         await rm(root, { recursive: true, force: true });
+        await rm(destination, { recursive: true, force: true });
       }
     }
+    // Three formats, one tree.
+    expect(roots.size).toBe(1);
   });
 
   test("treats a schema.ts as an ordinary file, never as a collection schema", async () => {
     const root = await mkdtemp(join(tmpdir(), "story-wire-schema-ts-"));
-    const collections = new ProjectionProviderHost();
-    const describe = (directory: string, names: readonly string[]) => collections.collectionDescriptor(directory, names);
+    const collections = new CollectionProjections();
+    const describe = (directory: string, names: readonly string[]) => collections.read(directory, names);
     try {
       // Without schema.usl, _store.json and schema.ts are ordinary files.
       await writeFile(join(root, "schema.ts"), "export const schema = {};\n");
       await writeFile(join(root, "_store.json"), '[{"id":"one"}]\n');
       const plain = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], describe));
       const object = decodeProtocolDirectory(plain.objects.get(plain.root)!);
-      if (object.type !== "directory") throw new Error("Expected a directory");
-      expect(object.childrenSource).toBeUndefined();
+      expect(object.collection).toBeUndefined();
       expect(object.entries.map((entry) => entry.name)).toEqual(["_store.json", "schema.ts"]);
 
-      // Beside a collection file it is one more immediate entry, which a
-      // collection-file directory rejects like any other.
-      await writeFile(join(root, "schema.usl"), 'model Item {}\n');
-      await expect(snapshotDirectory(root, new Map(), [], describe)).rejects.toThrow("mixes immediate-child backings");
+      // Beside a collection it stays an ordinary entry.
+      await writeFile(join(root, "schema.usl"), "model Item {}\n");
+      const collection = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], describe));
+      const folder = decodeProtocolDirectory(collection.objects.get(collection.root)!);
+      expect(folder.collection).toBeDefined();
+      expect(folder.entries.map((entry) => entry.name)).toEqual(["schema.ts", "schema.usl"]);
     } finally {
-      await collections[Symbol.asyncDispose]();
       await rm(root, { recursive: true, force: true });
     }
   });

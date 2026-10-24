@@ -2,17 +2,15 @@ import {
   type ObjectHash,
   type UpdateConflict,
 } from "@ovst/protocol";
-import { collectionTableSources, stableJSONString, withCollectionChildSetHash, type ChildrenSourceDescriptor, type JSONValue } from "@ovst/protocol";
+import { logicalRowKey, type LogicalRow, type ProtocolDirectory } from "@ovst/protocol";
 import {
-  canonicalTableText,
-  collectionFileRows,
-  collectionTables,
+  encodeDirectoryCollection,
+  loadDirectoryCollection,
   mergeCollectionRows,
-  ProtocolCollectionFileError,
-  spliceCollectionFile,
-  type ProtocolCollectionFileRow,
+  ProtocolCollectionError,
   type RowFieldConflict,
 } from "@ovst/collection-schema";
+import type { LogicalTables } from "@ovst/usl";
 
 /**
  * Merge rules: the representation-specific way to combine two changes to one
@@ -241,100 +239,57 @@ export async function markdownAdditiveV1(
   return { hash: context.store(new TextEncoder().encode(source)), approximate: merged.approximate };
 }
 
-export interface CollectionFileMergeInput {
-  descriptor: ChildrenSourceDescriptor;
-  /** Each table's file, by entry name. */
-  sources: Record<string, ObjectHash>;
-  schemaSource: ObjectHash;
-}
-
 /** A field conflict a collection merge kept for someone to pick. */
 export interface CollectionFieldConflict extends RowFieldConflict {
   /** The collection's folder. */
   path: string;
+  /** The row's model. */
   table: string;
 }
 
-/** `collection-file-fields-v1` (spec 10 §7): merge two collection changes
- * table by table, by row identity and then field by field. The result
- * splices the merged rows into current's file, so rows neither side changed
- * keep their bytes. Field conflicts keep current's value and are reported for
- * a decision; a merge the schema rejects is a conflict on the folder. */
-export async function collectionFileFieldsV1(
+/**
+ * `collection-fields-v1` (spec 10 §7.1): merge two changes to a logical
+ * collection model by model, by row identity and then field by field.
+ * `merged` is the folder as its entries merged, holding the `schema.usl` the
+ * result is checked against; its rows are encoded from the merged tables.
+ * Field conflicts keep current's value and are reported for a decision; a
+ * merge the schema rejects is a conflict on the folder, which keeps
+ * candidate's rows.
+ */
+export async function collectionFieldsV1(
   path: string,
-  base: CollectionFileMergeInput,
-  candidate: CollectionFileMergeInput,
-  current: CollectionFileMergeInput,
+  base: ProtocolDirectory,
+  candidate: ProtocolDirectory,
+  current: ProtocolDirectory,
+  merged: ProtocolDirectory,
   context: RuleContext,
-): Promise<CollectionFileMergeInput & { mergedRows: number; fields: CollectionFieldConflict[] }> {
-  const schemaState = (value: CollectionFileMergeInput) => stableJSONString({
-    version: value.descriptor.version,
-    type: value.descriptor.type,
-    format: value.descriptor.format,
-    sources: collectionTableSources(value.descriptor).map((t) => [t.table, t.source]),
-    schemaSource: value.descriptor.schemaSource,
-    schemaFingerprint: value.descriptor.schemaFingerprint,
-    schemaObject: value.schemaSource,
-  });
-  if (schemaState(base) !== schemaState(candidate) || schemaState(base) !== schemaState(current)) {
-    context.conflicts.push({ path, reason: "collection-file-schema-conflict" });
-    return { ...candidate, mergedRows: 0, fields: [] };
-  }
+): Promise<{ directory: ProtocolDirectory; mergedRows: number; fields: CollectionFieldConflict[] }> {
+  const keep = (reason: UpdateConflict["reason"]) => {
+    context.conflicts.push({ path, reason });
+    return { directory: { ...merged, collection: candidate.collection! }, mergedRows: 0, fields: [] };
+  };
+  const fingerprints = new Set([base, candidate, current].map((d) => d.collection?.modelFingerprint ?? null));
+  if (fingerprints.size !== 1) return keep("collection-schema-conflict");
   try {
-    const format = current.descriptor.format;
-    const tables = collectionTables(current.descriptor, await context.file(current.schemaSource));
-    const childSetHash = (value: CollectionFileMergeInput, table: string | null) =>
-      collectionTableSources(value.descriptor).find((t) => t.table === table)!.childSetHash;
-    let descriptor = current.descriptor;
-    const sources = { ...current.sources };
+    const [b, c, u] = await Promise.all([base, candidate, current].map((d) => loadDirectoryCollection(d, context.file)));
+    const tables: LogicalTables = {};
     let mergedRows = 0;
     const fields: CollectionFieldConflict[] = [];
-    for (const { table, source, schema } of tables) {
-      const [b, c, u] = [base.sources[source]!, candidate.sources[source]!, current.sources[source]!];
-      if (c === b || c === u) continue;
-      if (u === b) {
-        sources[source] = c;
-        descriptor = withCollectionChildSetHash(descriptor, table, childSetHash(candidate, table));
-        continue;
-      }
-      const decode = async (hash: ObjectHash, value: CollectionFileMergeInput) => {
-        const decoded = collectionFileRows(format, await context.file(hash), schema);
-        if (decoded.childSetHash !== childSetHash(value, table)) {
-          throw new ProtocolCollectionFileError("constraint", "Collection-file child-set hash does not match its validated rows");
-        }
-        return decoded;
-      };
-      const [baseFile, candidateFile, currentFile] = [await decode(b, base), await decode(c, candidate), await decode(u, current)];
-      const byKey = (rows: readonly ProtocolCollectionFileRow[]) => new Map(rows.map((row) => [row.stableKey, row.properties]));
-      const merged = mergeCollectionRows(schema, byKey(baseFile.rows), byKey(candidateFile.rows), byKey(currentFile.rows), (x, y, z) => {
+    const byKey = (rows: readonly LogicalRow[] | undefined) => new Map((rows ?? []).map((row) => [logicalRowKey(row), row]));
+    for (const model of u!.schema.models) {
+      const result = mergeCollectionRows(model, byKey(b!.tables[model.name] as LogicalRow[]), byKey(c!.tables[model.name] as LogicalRow[]), byKey(u!.tables[model.name] as LogicalRow[]), (x, y, z) => {
         const lines = mergeLines(splitLines(x), splitLines(y), splitLines(z));
         return lines && !lines.approximate ? lines.lines.join("") : null;
       });
-      const currentRows = byKey(currentFile.rows);
-      const replaced = new Map<string, Record<string, JSONValue> | null>();
-      for (const row of currentFile.rows) {
-        const next = merged.rows.get(row.stableKey) ?? null;
-        if (next === null || stableJSONString(next) !== stableJSONString(row.properties)) replaced.set(row.sourceKey, next);
-      }
-      // New rows follow candidate's order, then any others by key.
-      const appended = [...candidateFile.rows.map((row) => row.stableKey), ...[...merged.rows.keys()].sort()]
-        .filter((key, index, keys) => keys.indexOf(key) === index && !currentRows.has(key) && merged.rows.get(key))
-        .map((key) => merged.rows.get(key)!);
-      const currentSource = new TextDecoder().decode(await context.file(u));
-      const bytes = new TextEncoder().encode(current.descriptor.type === "collection-tables" && current.descriptor.store === "sqlite"
-        ? canonicalTableText(schema, [...merged.rows].flatMap(([stableKey, properties]) => properties ? [{ stableKey, properties }] : []))
-        : spliceCollectionFile(format, currentSource, schema, { replaced, appended }));
-      sources[source] = context.store(bytes);
-      descriptor = withCollectionChildSetHash(descriptor, table, collectionFileRows(format, bytes, schema).childSetHash);
-      mergedRows += merged.mergedRows;
-      fields.push(...merged.conflicts.map((conflict) => ({ ...conflict, path, table: schema.model })));
+      tables[model.name] = [...result.rows.values()].filter((row): row is LogicalRow => row !== null);
+      mergedRows += result.mergedRows;
+      fields.push(...result.conflicts.map((conflict) => ({ ...conflict, path, table: model.name })));
     }
-    return { descriptor, sources, schemaSource: current.schemaSource, mergedRows, fields };
+    const encoded = await encodeDirectoryCollection(merged, tables, context.file);
+    for (const bytes of encoded.objects.values()) context.store(bytes);
+    return { directory: encoded.directory, mergedRows, fields };
   } catch (error) {
-    if (error instanceof ProtocolCollectionFileError) {
-      context.conflicts.push({ path, reason: error.kind === "schema" ? "collection-file-schema-conflict" : "collection-file-constraint-conflict" });
-      return { ...candidate, mergedRows: 0, fields: [] };
-    }
+    if (error instanceof ProtocolCollectionError) return keep(error.kind === "schema" ? "collection-schema-conflict" : "collection-constraint-conflict");
     throw error;
   }
 }

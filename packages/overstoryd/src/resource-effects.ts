@@ -22,7 +22,7 @@ export async function resourceEffects(
   const checkNew = (hash: ObjectHash, depth: number) => walkTreeDiff(null, hash, reader, {
     directory: ({ depth: nested, after: created }) => {
       spend(depth + nested);
-      if (created!.directory.childrenSource) throw new Error("Scoped creation cannot introduce opaque stores");
+      if (created!.directory.collection) throw new Error("Scoped creation cannot introduce opaque stores");
     },
     entry: ({ name, after: entry }) => {
       spend(depth);
@@ -33,7 +33,7 @@ export async function resourceEffects(
   await walkTreeDiff(before, after, reader, {
     directory: ({ path, depth, before: a, after: b }) => {
       spend(depth);
-      if (JSON.stringify(a!.directory.childrenSource) !== JSON.stringify(b!.directory.childrenSource))
+      if (JSON.stringify(a!.directory.collection) !== JSON.stringify(b!.directory.collection))
         result.push({ path, operation: "write" });
     },
     entry: async ({ path: child, parent: path, name, depth, before: x, after: y }) => {

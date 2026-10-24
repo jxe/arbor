@@ -8,16 +8,17 @@ import {
   type RowOperation,
   type SourceOperation,
 } from "@ovst/protocol";
-import { replayCollectionRows } from "@ovst/collection-schema";
-import { collectionSource, collectionTree, type CollectionTree } from "../../support/collection-trees.ts";
+import { deriveRowOperations, replayCollectionRows } from "@ovst/collection-schema";
+import { collectionRows, collectionTree, idRow, T0, type CollectionTree } from "../../support/collection-trees.ts";
 
 const SCHEMA = "model Item {\n  title Text\n  done  Bool?\n  tags  Text[]\n  notes Markdown?\n}\n";
 const HASH = `sha256:${"a".repeat(64)}`;
 const key = (id: string) => JSON.stringify([["id", id]]);
+const AT = "2026-10-24T10:00:00.000Z";
 
 function rowOps(tree: CollectionTree) {
   const collection = { material: { kind: "basis" as const, path: "/items", object: tree.collection } };
-  const target = (id: string, opKey: string) => ({ key: opKey, collection, table: "Item", row: key(id) });
+  const target = (id: string, opKey: string) => ({ key: opKey, collection, table: "Item", row: key(id), at: AT });
   return {
     set: (id: string, field: string, before: unknown, value: unknown, k = "set") => ({ ...target(id, k), kind: "rowSet", field, before, value }) as RowOperation,
     connect: (id: string, field: string, member: string, k = "connect") => ({ ...target(id, k), kind: "rowConnect", field, member }) as RowOperation,
@@ -32,7 +33,7 @@ async function replay(tree: CollectionTree, operations: SourceOperation[]) {
   const load = async (hash: ObjectHash) => tree.objects.get(hash) ?? Promise.reject(new Error(`missing ${hash}`));
   const result = await executeRowOperations(tree.root, operations, load, replayCollectionRows);
   const objects = new Map([...tree.objects, ...result.generated]);
-  return { ...result, objects, source: collectionSource(result.root, objects), load: async (hash: ObjectHash) => objects.get(hash)! };
+  return { ...result, objects, rows: (await collectionRows(result.root, objects)).Item!, load: async (hash: ObjectHash) => objects.get(hash)! };
 }
 
 describe("row operation grammar", () => {
@@ -68,22 +69,27 @@ describe("row operation grammar", () => {
 });
 
 describe("row operation replay", () => {
-  const jsonl = '{"id":"a","title":"A","tags":["x","y","z"]}\n  {"title":"B","id":"b"}  \n{"id":"c","title":"C"}\n';
+  const items = () => collectionTree(SCHEMA, { Item: [
+    idRow("a", { title: "A", tags: ["x", "y", "z"] }),
+    idRow("b", { title: "B" }),
+    idRow("c", { title: "C" }),
+  ] });
 
-  test("splices only the rows it changes and re-derives the descriptor", async () => {
-    const tree = collectionTree("jsonl", SCHEMA, jsonl);
+  test("changes only the rows it names, stamps their times, and keeps sets sorted", async () => {
+    const tree = items();
     const op = rowOps(tree);
     const result = await replay(tree, [
       op.set("b", "done", null, true, "s1"),
-      op.move("a", "tags", "z", null),
       op.disconnect("a", "tags", "y"),
       op.connect("a", "tags", "w"),
       op.remove("c"),
       op.create("d", { title: "D", tags: ["q"] }),
     ]);
-    expect(result.source).toBe(
-      '{"id":"a","title":"A","tags":["z","x","w"]}\n  {"id":"b","title":"B","done":true}  \n{"id":"d","title":"D","tags":["q"]}\n',
-    );
+    expect(result.rows).toEqual([
+      idRow("a", { title: "A", tags: ["w", "x", "z"] }, T0, AT),
+      idRow("b", { title: "B", done: true }, T0, AT),
+      idRow("d", { title: "D", tags: ["q"] }, AT),
+    ]);
     expect(result.touched).toEqual(["/items"]);
     const frames = [{ before: tree.root, after: result.root, operations: [op.set("b", "title", "B", "Bee")] }];
     const renamed = await replay(tree, frames[0]!.operations as SourceOperation[]);
@@ -93,42 +99,33 @@ describe("row operation replay", () => {
     expect(await checkPlainTrace(frames, renamed.load)).toEqual({ plain: false, reason: "row operations need a collection replay" });
   });
 
+  test("an ordered field moves its members", async () => {
+    const schema = "model Item {\n  title Text\n  steps ordered Text[]\n}\n";
+    const tree = collectionTree(schema, { Item: [idRow("a", { title: "A", steps: ["x", "y", "z"] })] });
+    const op = rowOps(tree);
+    const result = await replay(tree, [op.move("a", "steps", "z", null), op.connect("a", "steps", "w")]);
+    expect(result.rows[0]!.fields.steps).toEqual(["z", "x", "y", "w"]);
+    const unordered = collectionTree(SCHEMA, { Item: [idRow("a", { title: "A", tags: ["x", "y"] })] });
+    await expect(replay(unordered, [rowOps(unordered).move("a", "tags", "y", null)])).rejects.toThrow(/is a set/);
+  });
+
   test("a frame that does not equal the replay is not plain", async () => {
-    const tree = collectionTree("jsonl", SCHEMA, jsonl);
+    const tree = items();
     const op = rowOps(tree);
     const load = async (hash: ObjectHash) => tree.objects.get(hash)!;
     const checked = await checkPlainTrace([{ before: tree.root, after: tree.root, operations: [op.set("a", "title", "A", "Z")] }], load, replayCollectionRows);
     expect(checked).toEqual({ plain: false, reason: "operations do not reproduce the frame" });
   });
 
-  test("setting null or emptying a list removes the member", async () => {
-    const tree = collectionTree("jsonl", SCHEMA, '{"id":"a","title":"A","done":false,"tags":["x"]}\n');
+  test("setting null or emptying a list removes the field", async () => {
+    const tree = collectionTree(SCHEMA, { Item: [idRow("a", { title: "A", done: false, tags: ["x"] })] });
     const op = rowOps(tree);
     const result = await replay(tree, [op.set("a", "done", false, null), op.disconnect("a", "tags", "x")]);
-    expect(result.source).toBe('{"id":"a","title":"A"}\n');
-  });
-
-  test("pretty JSON keeps its layout", async () => {
-    const source = '[\n  {"id": "a", "title": "A"},\n  {"id": "b", "title": "B"}\n]\n';
-    const tree = collectionTree("json", SCHEMA, source);
-    const op = rowOps(tree);
-    expect((await replay(tree, [op.set("a", "title", "A", "Alpha")])).source)
-      .toBe('[\n  {"id":"a","title":"Alpha"},\n  {"id": "b", "title": "B"}\n]\n');
-    expect((await replay(tree, [op.remove("a"), op.create("c", { title: "C" })])).source)
-      .toBe('[\n  {"id": "b", "title": "B"},\n  {"id":"c","title":"C"}\n]\n');
-    const empty = collectionTree("json", SCHEMA, "[]\n");
-    expect((await replay(empty, [rowOps(empty).create("a", { title: "A" })])).source).toBe('[\n  {"id":"a","title":"A"}\n]\n');
-  });
-
-  test("CSV re-encodes a changed record in the file's header order", async () => {
-    const tree = collectionTree("csv", "model Item {\n  title Text\n  count Int?\n}\n", "title,id,count\nA,a,1\nB,b,\n");
-    const op = rowOps(tree);
-    expect((await replay(tree, [op.set("b", "count", null, 7), op.remove("a"), op.create("c", { title: "C, too" })])).source)
-      .toBe('title,id,count\nB,b,7\n"C, too",c,\n');
+    expect(result.rows[0]!.fields).toEqual({ title: "A" });
   });
 
   test("an operation that does not hold on its basis is invalid", async () => {
-    const tree = collectionTree("jsonl", SCHEMA, jsonl);
+    const tree = items();
     const op = rowOps(tree);
     for (const [operations, message] of [
       [[op.set("a", "title", "stale", "Z")], /value seen/],
@@ -139,38 +136,40 @@ describe("row operation replay", () => {
       [[{ ...op.create("e", { title: "E" }), row: key("f") }], /row's key/],
       [[op.connect("a", "tags", "x")], /already present/],
       [[op.disconnect("a", "tags", "nope")], /absent/],
-      [[op.move("a", "tags", "x", "nope")], /anchor/],
-      [[op.move("a", "tags", "x", null)], /changes nothing/],
-      [[{ ...op.remove("a"), table: "Other" }], /table/],
-      [[op.set("a", "title", "A", 5)], /does not satisfy schema/],
+      [[{ ...op.remove("a"), table: "Other" }], /not a model/],
+      [[op.set("a", "title", "A", 5)], /Expected text/],
+      [[op.set("a", "modified", null, AT)], /operation's time/],
+      [[{ ...op.set("a", "title", "A", "Z"), at: undefined }], /carries its time/],
+      [[{ ...op.set("a", "title", "A", "Z"), at: "2026-10-24T10:00:00Z" }], /milliseconds/],
     ] as Array<[SourceOperation[], RegExp]>) await expect(replay(tree, operations)).rejects.toThrow(message);
   });
 });
 
-describe("row operation times", () => {
-  const at = "2026-10-15T09:00:00.000Z", later = "2026-10-15T10:00:00Z";
-  test("a timed operation writes created and modified, and a set of either is invalid", async () => {
-    const tree = collectionTree("jsonl", SCHEMA, '{"id":"a","title":"A"}\n');
-    const op = rowOps(tree);
-    const result = await replay(tree, [{ ...op.create("b", { title: "B" }), at }, { ...op.set("a", "title", "A", "Alpha"), at: later }]);
-    expect(result.source).toBe(`{"id":"a","title":"Alpha","modified":"${later}"}\n{"id":"b","title":"B","created":"${at}","modified":"${at}"}\n`);
-    await expect(replay(tree, [op.set("a", "modified", null, at)])).rejects.toThrow(/operation's time/);
-    await expect(replay(tree, [{ ...op.create("c", { title: "C", created: at }), at }])).rejects.toThrow(/times come from/);
-  });
-
-  test("a CSV file without time columns keeps none", async () => {
-    const tree = collectionTree("csv", "model Item {\n  title Text\n}\n", "id,title\na,A\n");
-    expect((await replay(tree, [{ ...rowOps(tree).set("a", "title", "A", "B"), at }])).source).toBe("id,title\na,B\n");
-  });
-
-  test("Story Sync's derived operations carry a changed row's time", async () => {
-    const { deriveRowOperations } = await import("@ovst/collection-schema");
-    const before = collectionTree("jsonl", SCHEMA, '{"id":"a","title":"A"}\n');
-    const after = collectionTree("jsonl", SCHEMA, `{"id":"a","title":"Alpha","modified":"${later}"}\n{"id":"b","title":"B","created":"${at}","modified":"${at}"}\n`, new Map(before.objects));
+describe("derived row operations", () => {
+  test("explain a change to rows, each stamped with its row's new time", async () => {
+    const before = collectionTree(SCHEMA, { Item: [idRow("a", { title: "A" }), idRow("c", { title: "C", tags: ["x"] })] });
+    const after = collectionTree(SCHEMA, { Item: [
+      idRow("a", { title: "Alpha" }, T0, AT),
+      idRow("b", { title: "B" }, AT),
+      idRow("c", { title: "C", tags: ["w", "x"] }, T0, AT),
+    ] }, new Map(before.objects));
     const operations = await deriveRowOperations(before.root, after.root, async (hash) => after.objects.get(hash)!);
     expect(operations).toEqual([
-      expect.objectContaining({ kind: "rowSet", field: "title", before: "A", value: "Alpha", at: later }),
-      expect.objectContaining({ kind: "rowCreate", values: { id: "b", title: "B" }, at }),
+      expect.objectContaining({ kind: "rowSet", field: "title", before: "A", value: "Alpha", at: AT }),
+      expect.objectContaining({ kind: "rowCreate", values: { id: "b", title: "B" }, at: AT }),
+      expect.objectContaining({ kind: "rowConnect", field: "tags", member: "w", at: AT }),
     ]);
+  });
+
+  test("a change only operations can't make stays a snapshot", async () => {
+    const before = collectionTree(SCHEMA, { Item: [idRow("a", { title: "A" })] });
+    for (const rows of [
+      [idRow("a", { title: "A" }, T0, AT)],            // modified with no change
+      [idRow("a", { title: "Alpha" }, AT, AT)],        // created changed
+      [idRow("a", { title: "A" }), idRow("b", { title: "B" }, T0, AT)], // a new row's times differ
+    ]) {
+      const after = collectionTree(SCHEMA, { Item: rows }, new Map(before.objects));
+      expect(await deriveRowOperations(before.root, after.root, async (hash) => after.objects.get(hash)!)).toBeNull();
+    }
   });
 });

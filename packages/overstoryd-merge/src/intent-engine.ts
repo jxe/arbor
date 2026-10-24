@@ -137,7 +137,7 @@ const directoryOf = (hash: string, bytes: Uint8Array): ProtocolDirectory => {
   }
   for (const entry of directory.entries) Object.freeze(entry);
   Object.freeze(directory.entries);
-  if (directory.childrenSource) Object.freeze(directory.childrenSource);
+  if (directory.collection) Object.freeze(directory.collection);
   Object.freeze(directory);
   decodedDirectories.set(hash, { directory, size: bytes.length });
   decodedDirectoryBytes += bytes.length;

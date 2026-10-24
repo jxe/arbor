@@ -93,27 +93,25 @@ describe("collection schema package boundary", () => {
         "",
       ].join("\n"));
       const collection = join(directory, "people");
-      await Bun.write(join(collection, "schema.usl"), 'model Item {\n  count Int\n}\n');
+      await Bun.write(join(collection, "schema.usl"), 'main model Item {\n  count Int\n}\n');
       await Bun.write(join(collection, "_store.csv"), "id,count\n001,1\n002,2\n");
       await writeFile(join(directory, "exercise.ts"), `
-        import { ProjectionProviderHost } from ${module("story-sync/src/state/index.ts")};
+        import { CollectionProjections } from ${module("story-sync/src/state/index.ts")};
         import { resolveSnapshot, snapshotDirectory } from ${module("fs/src/index.ts")};
         import { mergeProtocolTrees } from ${module("tree-merge/src/index.ts")};
-        import { decodeProtocolCollectionFile } from ${module("collection-schema/src/index.ts")};
+        import { loadDirectoryCollection } from ${module("collection-schema/src/index.ts")};
         import { decodeProtocolDirectory } from ${module("protocol/src/index.ts")};
         import { ProtocolProjection } from ${module("overstoryd/src/projection.ts")};
         import ${module("overstoryd/src/index.ts")};
-        const providers = new ProjectionProviderHost();
-        const snapshot = await resolveSnapshot(await snapshotDirectory(${JSON.stringify(directory)}, new Map(), [${JSON.stringify(join(directory, "block-engine.ts"))}, ${JSON.stringify(join(directory, "exercise.ts"))}], (dir, names) => providers.collectionDescriptor(dir, names)));
+        const projections = new CollectionProjections();
+        const snapshot = await resolveSnapshot(await snapshotDirectory(${JSON.stringify(directory)}, new Map(), [${JSON.stringify(join(directory, "block-engine.ts"))}, ${JSON.stringify(join(directory, "exercise.ts"))}], (dir, names) => projections.read(dir, names)));
         const load = async (hash) => snapshot.objects.get(hash);
         const rootObject = decodeProtocolDirectory(snapshot.objects.get(snapshot.root));
         const people = decodeProtocolDirectory(snapshot.objects.get(rootObject.entries.find((entry) => entry.name === "people").directory));
-        const descriptor = people.childrenSource;
-        const rows = decodeProtocolCollectionFile(descriptor, snapshot.objects.get(people.entries.find((e) => e.name === descriptor.source).file), snapshot.objects.get(people.entries.find((e) => e.name === "schema.usl").file)).rows;
+        const rows = (await loadDirectoryCollection(people, load)).tables.Item.map((row) => ({ ...Object.fromEntries(row.key), ...row.fields }));
         const projected = await new ProtocolProjection({ root: snapshot.root, load }).resolve("/people/002");
         const merged = await mergeProtocolTrees(snapshot.root, snapshot.root, snapshot.root, load);
-        await providers[Symbol.asyncDispose]();
-        console.log(JSON.stringify({ rows: rows.map((row) => row.properties), projected: projected.kind, conflicts: merged.conflicts.length }));
+        console.log(JSON.stringify({ rows, projected: projected.kind, conflicts: merged.conflicts.length }));
       `);
       const result = Bun.spawnSync([process.execPath, "--preload", join(directory, "block-engine.ts"), join(directory, "exercise.ts")], {
         cwd: root, stdout: "pipe", stderr: "pipe",
@@ -121,7 +119,7 @@ describe("collection schema package boundary", () => {
       expect(result.stderr.toString()).toBe("");
       expect(JSON.parse(result.stdout.toString().trim())).toEqual({
         rows: [{ id: "001", count: 1 }, { id: "002", count: 2 }],
-        projected: "collection-file-row",
+        projected: "collection-row",
         conflicts: 0,
       });
     } finally {

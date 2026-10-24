@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { ObjectStore } from "@ovst/object-store";
 import { encodeLogEntry, LOG_ENTRY_FORMAT, MergeRefusal, type LogEntry, type MergeQuestion } from "@ovst/merge-protocol";
 import { encodeProtocolDirectory, hashObject, type TreeSnapshot } from "@ovst/protocol";
-import { ProjectionProviderHost } from "@ovst/story-sync/state";
+import { CollectionProjections } from "@ovst/story-sync/state";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { MergeTool } from "../../../packages/overstoryd/src/merge-tool.ts";
 import { mergeProtocolTrees } from "@ovst/tree-merge";
@@ -80,12 +80,10 @@ test("unknown rules are a typed refusal", async () => {
 
 async function collection(rows: unknown[]): Promise<TreeSnapshot> {
   const root = await mkdtemp(join(directory, "collection-"));
-  const host = new ProjectionProviderHost();
-  try {
-    await writeFile(join(root, "schema.usl"), 'model Item {\n  title Text\n}\n');
-    await writeFile(join(root, "_store.json"), JSON.stringify(rows) + "\n");
-    return await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (path, name) => host.collectionDescriptor(path, name)));
-  } finally { await host[Symbol.asyncDispose](); }
+  await writeFile(join(root, "schema.usl"), 'model Item {\n  title Text\n}\n');
+  await writeFile(join(root, "_store.json"), JSON.stringify(rows) + "\n");
+  const host = new CollectionProjections();
+  return await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (path, names) => host.read(path, names)));
 }
 test("collection row rules merge through the process, and a row conflict is a choice", async () => {
   const base = await collection([{ id: "a", title: "A" }]);

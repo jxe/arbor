@@ -248,7 +248,7 @@ export function readTreeConfigGraph(snapshot: TreeSnapshot, kind: TreeConfigKind
     return bytes;
   };
   const root = decodeProtocolDirectory(load(snapshot.root, "/"));
-  if (root.type !== "directory" || root.childrenSource) throw new Error("Tree configuration root must be a plain directory");
+  if (root.type !== "directory" || root.collection) throw new Error("Tree configuration root must be a plain directory");
   const allowed = new Set<string>(["access.yaml", "mounts.yaml", ...(kind !== "tree" ? ["apps.yaml"] : []), ...(kind === "person" ? ["devices.yaml"] : [])]);
   const sources: Record<string, string> = {};
   for (const entry of root.entries) {

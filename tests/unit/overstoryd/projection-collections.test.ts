@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { encodeProtocolDirectory, hashObject, markdownStableKey, type Hash, type ProtocolDirectory } from "@ovst/protocol";
-import { collectionChildSetHash } from "@ovst/collection-schema";
+import { encodeProtocolDirectory, hashObject, markdownStableKey, type ProtocolDirectory } from "@ovst/protocol";
+import { collectionDirectory, idRow } from "../../support/collection-trees.ts";
 import { ProtocolProjection } from "../../../packages/overstoryd/src/projection.ts";
 
 function store() {
@@ -11,27 +11,23 @@ function store() {
   return { objects, text, directory, load: async (hash: string) => objects.get(hash)! };
 }
 
-test("projects declarative collection rows with their undeclared members, and a schema.ts is an ordinary file", async () => {
+test("projects a collection's rows as children: the main model's under the folder, others under their model, and a schema.ts is an ordinary file", async () => {
   const f = store();
-  const schema = 'model Item {\n  slug path Text\n}\n';
-  const rows = [{ id: "1", slug: "first", note: { kept: [null] } }];
-  const current = f.directory({
-    type: "directory",
-    entries: [{ name: "_store.json", file: f.text(JSON.stringify(rows)) }, { name: "schema.usl", file: f.text(schema) }],
-    childrenSource: {
-      version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.usl",
-      schemaFingerprint: hashObject(new TextEncoder().encode(schema)) as Hash,
-      childSetHash: collectionChildSetHash([{ key: '[["id","1"]]', name: "first", properties: rows[0] }]),
-    },
-  });
+  const schema = "main model Item {\n  slug path Text\n  note Text?\n}\n\nmodel Tag {\n  label Text\n}\n";
+  const current = collectionDirectory(schema, {
+    Item: [idRow("1", { slug: "first", note: "kept" })],
+    Tag: [idRow("t1", { label: "Red" })],
+  }, f.objects);
   const scripts = f.directory({ type: "directory", entries: [{ name: "schema.ts", file: f.text("export const schema = {};\n") }] });
   const root = f.directory({ type: "directory", entries: [{ name: "people", directory: current }, { name: "scripts", directory: scripts }] });
   const projection = new ProtocolProjection({ root, load: f.load });
   expect(await projection.resolve("/people/first")).toMatchObject({
-    kind: "collection-file-row",
+    kind: "collection-row",
     path: "/people/first",
-    row: { properties: { id: "1", slug: "first", note: { kept: [null] } } },
+    row: { model: "Item", properties: { id: "1", slug: "first", note: "kept" } },
   });
+  expect(await projection.resolve("/people/Tag")).toMatchObject({ kind: "collection-table", path: "/people/Tag" });
+  expect(await projection.resolve("/people/Tag/t1")).toMatchObject({ kind: "collection-row", row: { model: "Tag", properties: { id: "t1", label: "Red" } } });
   expect(await projection.resolve("/scripts/schema.ts")).toMatchObject({ kind: "node", node: { kind: "file" } });
 });
 

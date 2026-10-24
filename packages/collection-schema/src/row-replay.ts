@@ -1,346 +1,166 @@
-import { parse as parseCSV } from "csv-parse/sync";
+// Row operations replayed on a collection's logical tables (spec 10 §4.1).
+
 import {
+  compareUTF8,
   decodeProtocolDirectory,
   encodeProtocolDirectory,
   hashObject,
+  logicalRowKey,
+  ROW_TIME,
   stableJSONString,
-  stableKeyFromProperties,
   type CollectionRowReplay,
   type JSONValue,
+  type LogicalRow,
   type ObjectHash,
-  type RowMember,
   type RowOperation,
-  withCollectionChildSetHash,
 } from "@ovst/protocol";
-import type { CollectionSchema } from "./compile.ts";
-import { canonicalRow, canonicalTableText, collectionFileRows, collectionTables, ProtocolCollectionFileError, type CollectionFileFormat, type CollectionTable } from "./collection-file.ts";
-
-export { canonicalRow };
-import { CsvEncodeError, encodeCsvRecord, SYSTEM_COLUMNS } from "./csv.ts";
-
-type Row = Record<string, JSONValue>;
-/** A changed row: `null` deletes it. Rows are named by their source position key. */
-export interface CollectionRowSplice {
-  replaced: ReadonlyMap<string, Row | null>;
-  appended: readonly Row[];
-}
+import type { LogicalField, LogicalModel, LogicalTables } from "@ovst/usl";
+import { encodeDirectoryCollection, loadDirectoryCollection, ProtocolCollectionError } from "./directory-collection.ts";
+import type { LogicalSchema } from "./logical.ts";
 
 function invalid(message: string): never {
   throw new Error(`Invalid row operation: ${message}`);
 }
 
+const json = (value: unknown) => stableJSONString(value ?? null);
+const same = (left: unknown, right: unknown) => json(left) === json(right);
+/** A row time in the logical form's precision: RFC 3339 UTC with milliseconds. */
+const TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
-interface Line { number: number; start: number; contentEnd: number; end: number }
-
-function physicalLines(source: string): Line[] {
-  const result: Line[] = [];
-  let start = 0, number = 1;
-  for (let index = 0; index < source.length; index++) {
-    if (source[index] !== "\r" && source[index] !== "\n") continue;
-    const contentEnd = index;
-    if (source[index] === "\r" && source[index + 1] === "\n") index++;
-    result.push({ number, start, contentEnd, end: index + 1 });
-    start = index + 1;
-    number++;
-  }
-  if (start < source.length) result.push({ number, start, contentEnd: source.length, end: source.length });
-  return result;
+/** A set's members sorted by canonical JSON, each once. */
+export function canonicalSet(values: readonly JSONValue[]): JSONValue[] {
+  const byText = new Map(values.map((v) => [JSON.stringify(v), v]));
+  return [...byText.keys()].sort(compareUTF8).map((k) => byText.get(k)!);
 }
 
-function spliceJSONL(source: string, splice: CollectionRowSplice): string {
-  let output = "", cursor = 0;
-  for (const line of physicalLines(source)) {
-    const key = `line:${line.number}`;
-    if (!splice.replaced.has(key)) continue;
-    output += source.slice(cursor, line.start);
-    const row = splice.replaced.get(key)!;
-    if (row) {
-      const content = source.slice(line.start, line.contentEnd);
-      const leading = content.match(/^\s*/)![0], trailing = content.match(/\s*$/)![0];
-      output += `${leading}${JSON.stringify(row)}${trailing}${source.slice(line.contentEnd, line.end)}`;
-    }
-    cursor = line.end;
-  }
-  output += source.slice(cursor);
-  if (splice.appended.length && output && !/[\r\n]$/.test(output)) output += "\n";
-  for (const row of splice.appended) output += `${JSON.stringify(row)}\n`;
-  return output;
+/** A many-valued field's value in canonical form: a set sorted, absent when empty. */
+export function canonicalMany(field: Pick<LogicalField, "ordered">, values: readonly JSONValue[]): JSONValue[] | undefined {
+  if (!values.length) return undefined;
+  return field.ordered ? [...values] : canonicalSet(values);
 }
 
-function scanJSONString(source: string, start: number): number {
-  let index = start + 1;
-  while (index < source.length) {
-    if (source[index] === "\\") { index += 2; continue; }
-    if (source[index] === '"') return index + 1;
-    index++;
-  }
-  throw new ProtocolCollectionFileError("source", "Unterminated JSON string");
+type Rows = Map<string, LogicalRow | null>;
+
+function fieldOf(model: LogicalModel, name: string): LogicalField {
+  if (model.key.includes(name)) invalid("a key field is never set");
+  if (name === "created" || name === "modified") invalid(`${name} is set only by an operation's time`);
+  const field = model.fields.find((f) => f.name === name);
+  if (!field) invalid(`${model.name} holds no field ${name}`);
+  return field;
 }
 
-function scanJSONValue(source: string, start: number): number {
-  if (source[start] === '"') return scanJSONString(source, start);
-  if (source[start] === "{" || source[start] === "[") {
-    const stack = [source[start] === "{" ? "}" : "]"];
-    let index = start + 1;
-    while (index < source.length && stack.length) {
-      const character = source[index]!;
-      if (character === '"') { index = scanJSONString(source, index); continue; }
-      if (character === "{") stack.push("}");
-      else if (character === "[") stack.push("]");
-      else if (character === stack.at(-1)) stack.pop();
-      index++;
-    }
-    return index;
-  }
-  let index = start;
-  while (index < source.length && !/[,\]\s]/.test(source[index]!)) index++;
-  return index;
+function setField(row: LogicalRow, field: LogicalField, value: JSONValue | undefined) {
+  const next = value === undefined || value === null ? undefined
+    : field.arity === "many" && Array.isArray(value) ? canonicalMany(field, value) : value;
+  if (next === undefined) delete row.fields[field.name];
+  else row.fields[field.name] = next;
 }
 
-/** The top-level array's item spans, and where its brackets are. */
-function jsonArray(source: string): { open: number; close: number; items: Array<{ start: number; end: number }> } {
-  let index = 0;
-  const whitespace = () => { while (/\s/.test(source[index] ?? "")) index++; };
-  whitespace();
-  const open = index;
-  if (source[index] !== "[") throw new ProtocolCollectionFileError("source", "_store.json must contain one top-level array");
-  index++;
-  const items: Array<{ start: number; end: number }> = [];
-  for (;;) {
-    whitespace();
-    if (source[index] === "]") break;
-    const start = index, end = scanJSONValue(source, start);
-    items.push({ start, end });
-    index = end;
-    whitespace();
-    if (source[index] === ",") { index++; continue; }
-    if (source[index] !== "]") throw new ProtocolCollectionFileError("source", "Invalid top-level JSON array");
-  }
-  return { open, close: index, items };
-}
-
-function spliceJSON(source: string, splice: CollectionRowSplice): string {
-  const { open, close, items } = jsonArray(source);
-  const removes = [...splice.replaced.values()].some((row) => row === null);
-  if (!removes && !splice.appended.length) {
-    let output = "", cursor = 0;
-    items.forEach((item, index) => {
-      const row = splice.replaced.get(`item:${index}`);
-      if (row === undefined) return;
-      output += source.slice(cursor, item.start) + JSON.stringify(row);
-      cursor = item.end;
-    });
-    return output + source.slice(cursor);
-  }
-  // Removing or adding an item re-joins the array with the separator its
-  // first two items use (or the default two-space layout).
-  const texts: string[] = [];
-  items.forEach((item, index) => {
-    const row = splice.replaced.get(`item:${index}`);
-    if (row === null) return;
-    texts.push(row === undefined ? source.slice(item.start, item.end) : JSON.stringify(row));
-  });
-  texts.push(...splice.appended.map((row) => JSON.stringify(row)));
-  const opening = items.length ? source.slice(open + 1, items[0]!.start) : "\n  ";
-  const separator = items.length > 1 ? source.slice(items[0]!.end, items[1]!.start) : `,${opening}`;
-  const closing = items.length ? source.slice(items.at(-1)!.end, close) : "\n";
-  const body = texts.length ? `${opening}${texts.join(separator)}${closing}` : "";
-  return `${source.slice(0, open)}[${body}${source.slice(close)}`;
-}
-
-interface RawRecord { record: string[]; raw: string }
-
-function spliceCSV(source: string, schema: CollectionSchema, splice: CollectionRowSplice): string {
-  const parsed = parseCSV(source, { bom: true, raw: true, info: true, relax_column_count: true, skip_empty_lines: true }) as unknown as RawRecord[];
-  const header = parsed[0]?.record ?? [];
-  const encode = (row: Row) => {
-    try {
-      return encodeCsvRecord(schema, header, row);
-    } catch (error) {
-      if (error instanceof CsvEncodeError) throw new ProtocolCollectionFileError("constraint", error.message);
-      throw error;
-    }
-  };
-  let output = "", cursor = 0;
-  for (const [index, record] of parsed.entries()) {
-    const start = source.indexOf(record.raw, cursor);
-    if (start < 0) throw new ProtocolCollectionFileError("source", "Could not locate the exact CSV record source");
-    const end = start + record.raw.length;
-    const key = `row:${index + 1}`;
-    if (index > 0 && splice.replaced.has(key)) {
-      const row = splice.replaced.get(key)!;
-      const ending = record.raw.match(/(\r\n|\n|\r)$/)?.[0] ?? "";
-      output += source.slice(cursor, start) + (row ? `${encode(row)}${ending}` : "");
-    } else output += source.slice(cursor, end);
-    cursor = end;
-  }
-  output += source.slice(cursor);
-  if (splice.appended.length && output && !/[\r\n]$/.test(output)) output += "\n";
-  for (const row of splice.appended) output += `${encode(row)}\n`;
-  return output;
-}
-
-/** Splice changed rows into exact collection-file text: untouched rows keep
- * their bytes, a changed row is re-encoded in place, a deleted one is removed
- * with its line ending, and new rows are appended in order. */
-export function spliceCollectionFile(
-  format: CollectionFileFormat,
-  source: string,
-  schema: CollectionSchema,
-  splice: CollectionRowSplice,
-): string {
-  if (format === "jsonl") return spliceJSONL(source, splice);
-  if (format === "json") return spliceJSON(source, splice);
-  return spliceCSV(source, schema, splice);
-}
-
-const same = (left: JSONValue | undefined, right: JSONValue | undefined) => stableJSONString(left ?? null) === stableJSONString(right ?? null);
-
-function members(row: Row, field: string): JSONValue[] {
-  const value = row[field];
-  if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) invalid(`${field} is not many-valued`);
-  return value;
-}
-
-function setMembers(row: Row, field: string, value: JSONValue[]) {
-  if (value.length) row[field] = value;
-  else delete row[field];
-}
-
-/** Apply one row operation to the decoded rows by stable key. `stamps`
- * names the time columns the representation can hold. */
-function applyRowOperation(schema: CollectionSchema, rows: Map<string, Row | null>, operation: RowOperation, stamps: ReadonlySet<string>) {
-  if (operation.table !== schema.model) invalid(`table ${operation.table} is not in this collection`);
+/** Apply one operation to a model's rows by stable key, stamping its time. */
+function applyRowOperation(model: LogicalModel, rows: Rows, operation: RowOperation) {
   const current = rows.get(operation.row);
-  const stamp = (row: Row, created: boolean) => {
-    if (operation.at === undefined) return;
-    if (created && stamps.has("created")) row.created = operation.at;
-    if (stamps.has("modified")) row.modified = operation.at;
-  };
+  if (operation.kind === "rowDelete") {
+    if (!current) invalid("row is absent");
+    rows.set(operation.row, null);
+    return;
+  }
+  const at = operation.at;
+  if (at === undefined) invalid("an operation that changes a row carries its time");
+  if (!ROW_TIME.test(at) || !TIME.test(at)) invalid("at is an RFC 3339 UTC time with milliseconds");
   if (operation.kind === "rowCreate") {
     if (current) invalid("row already exists");
-    if (stableKeyFromProperties(schema.primaryKey, operation.values) !== operation.row) invalid("values do not have the row's key");
-    if (operation.at !== undefined && SYSTEM_COLUMNS.some((name) => Object.hasOwn(operation.values, name))) invalid("a timed row's times come from its operation");
-    const row = { ...operation.values };
-    stamp(row, true);
-    rows.set(operation.row, canonicalRow(schema, row));
+    const key: LogicalRow["key"] = model.keyFields.map((f) => {
+      const value = operation.values[f.name];
+      if (value === undefined || value === null) invalid(`values have no key field ${f.name}`);
+      return [f.name, value];
+    });
+    if (logicalRowKey({ key }) !== operation.row) invalid("values do not have the row's key");
+    const row: LogicalRow = { key, fields: {}, created: at, modified: at };
+    for (const [name, value] of Object.entries(operation.values)) {
+      if (model.key.includes(name)) continue;
+      setField(row, fieldOf(model, name), value);
+    }
+    rows.set(operation.row, row);
     return;
   }
   if (!current) invalid("row is absent");
-  if (operation.kind === "rowDelete") { rows.set(operation.row, null); return; }
-  if (schema.primaryKey.includes(operation.field)) invalid("a key field is never set");
-  if (SYSTEM_COLUMNS.includes(operation.field)) invalid(`${operation.field} is set only by an operation's time`);
-  const row = { ...current };
+  const field = fieldOf(model, operation.field);
+  const row: LogicalRow = { ...current, fields: { ...current.fields }, modified: at };
   if (operation.kind === "rowSet") {
-    if (!same(row[operation.field], operation.before)) invalid(`${operation.field} does not have the value seen`);
+    if (!same(row.fields[field.name], operation.before)) invalid(`${field.name} does not have the value seen`);
     if (same(operation.before, operation.value)) invalid("rowSet changes nothing");
-    if (operation.value === null) delete row[operation.field];
-    else row[operation.field] = operation.value;
+    setField(row, field, operation.value);
   } else {
-    const list = members(row, operation.field);
-    const at = (member: RowMember) => list.findIndex((item) => same(item, member));
-    const index = at(operation.member);
+    if (field.arity !== "many") invalid(`${field.name} is not many-valued`);
+    const list = (row.fields[field.name] ?? []) as JSONValue[];
+    const index = list.findIndex((item) => same(item, operation.member));
     if (operation.kind === "rowConnect") {
       if (index >= 0) invalid("member is already present");
-      setMembers(row, operation.field, [...list, operation.member]);
+      setField(row, field, [...list, operation.member]);
     } else {
       if (index < 0) invalid("member is absent");
       const rest = list.filter((_, i) => i !== index);
-      if (operation.kind !== "rowMove") setMembers(row, operation.field, rest);
-      else {
+      if (operation.kind === "rowDisconnect") setField(row, field, rest);
+      else if (operation.kind === "rowMove") {
+        if (!field.ordered) invalid(`${field.name} is a set, so its members don't move`);
         const anchor = operation.after;
         const after = anchor === null ? -1 : rest.findIndex((item) => same(item, anchor));
         if (anchor !== null && after < 0) invalid("anchor member is absent");
         rest.splice(after + 1, 0, list[index]!);
         if (rest.every((item, i) => same(item, list[i]))) invalid("rowMove changes nothing");
-        setMembers(row, operation.field, rest);
+        setField(row, field, rest);
       }
     }
   }
-  stamp(row, false);
-  rows.set(operation.row, canonicalRow(schema, row));
+  rows.set(operation.row, row);
 }
 
-/** Rows of a collection after operations: the result `rowsAfter` and the
- * splice that writes it. Exposed for merge, which applies one side's
- * operations to another side's rows. */
-export function applyRowOperations(
-  schema: CollectionSchema,
-  basis: ReadonlyArray<{ stableKey: string; sourceKey: string; properties: Row }>,
-  operations: readonly RowOperation[],
-  stamps: ReadonlySet<string> = new Set(SYSTEM_COLUMNS),
-): CollectionRowSplice & { rows: Map<string, Row | null> } {
-  const rows = new Map<string, Row | null>(basis.map((row) => [row.stableKey, row.properties]));
-  for (const operation of operations) applyRowOperation(schema, rows, operation, stamps);
-  const known = new Set(basis.map((row) => row.stableKey));
-  const replaced = new Map<string, Row | null>();
-  for (const row of basis) {
-    const next = rows.get(row.stableKey)!;
-    if (next === null || stableJSONString(next) !== stableJSONString(row.properties)) replaced.set(row.sourceKey, next);
+/**
+ * A collection's tables after operations, in order. Each operation names a
+ * model and a row by stable key, and its `at` stamps the row's times.
+ * Exposed for merge, which applies one side's operations to another side's
+ * rows. Throws for an operation its rows can't take.
+ */
+export function applyRowOperations(schema: LogicalSchema, tables: LogicalTables, operations: readonly RowOperation[]): LogicalTables {
+  const byModel = new Map<string, Rows>();
+  for (const operation of operations) {
+    const model = schema.models.find((m) => m.name === operation.table);
+    if (!model) invalid(`${operation.table} is not a model of this collection`);
+    let rows = byModel.get(model.name);
+    if (!rows) byModel.set(model.name, rows = new Map((tables[model.name] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow])));
+    applyRowOperation(model, rows, operation);
   }
-  const appended = [...rows].filter(([key, row]) => !known.has(key) && row !== null).map(([, row]) => row!);
-  return { replaced, appended, rows };
+  const result: LogicalTables = { ...tables };
+  for (const [model, rows] of byModel) {
+    result[model] = [...rows.values()].filter((row): row is LogicalRow => row !== null).sort((a, b) => compareUTF8(logicalRowKey(a), logicalRowKey(b)));
+  }
+  return result;
 }
 
-/** The collection schema package's row replay (spec 10 §4.1): validate each
- * table the operations touch, apply them, splice that table's file and
- * re-derive its child-set hash in the descriptor. */
+/** The collection schema package's row replay (spec 10 §4.1): apply the
+ * operations to the directory's logical tables, validate the result and
+ * encode its tables. */
 export const replayCollectionRows: CollectionRowReplay = async (directoryHash, operations, read) => {
   const directory = decodeProtocolDirectory(await read(directoryHash));
-  let descriptor = directory.childrenSource;
-  if (!descriptor) invalid("collection directory has no collection file");
-  const fileOf = (name: string) => {
-    const entry = directory.entries.find((e) => e.name === name);
-    if (!entry?.file) invalid("collection file is missing");
-    return entry.file;
-  };
-  let tables: CollectionTable[];
+  let collection;
   try {
-    tables = collectionTables(descriptor, await read(fileOf(descriptor.schemaSource)));
+    collection = await loadDirectoryCollection(directory, read);
   } catch (error) {
-    if (error instanceof ProtocolCollectionFileError && error.kind === "schema") invalid(error.message);
+    if (error instanceof ProtocolCollectionError) invalid(error.message);
     throw error;
   }
-  const byTable = new Map<CollectionTable, RowOperation[]>();
-  for (const operation of operations) {
-    const table = tables.find((t) => t.schema.model === operation.table);
-    if (!table) invalid(`table ${operation.table} is not in this collection`);
-    byTable.set(table, [...byTable.get(table) ?? [], operation]);
+  if (!collection) invalid("the directory has no collection");
+  const tables = applyRowOperations(collection.schema, collection.tables, operations);
+  let encoded;
+  try {
+    encoded = await encodeDirectoryCollection(directory, tables, read);
+  } catch (error) {
+    if (error instanceof ProtocolCollectionError) invalid(error.message);
+    throw error;
   }
-  const generated = new Map<ObjectHash, Uint8Array>();
-  const files = new Map<string, ObjectHash>();
-  for (const [table, ops] of byTable) {
-    const { schema } = table;
-    const sourceBytes = await read(fileOf(table.source));
-    const basis = collectionFileRows(descriptor.format, sourceBytes, schema);
-    if (basis.childSetHash !== table.childSetHash) invalid("child-set hash does not match the basis rows");
-    const sourceText = new TextDecoder().decode(sourceBytes);
-    // A CSV file holds a row's times only where its header has their columns.
-    const header = descriptor.format === "csv"
-      ? (parseCSV(sourceText, { bom: true, to_line: 1, relax_column_count: true }) as string[][])[0] ?? []
-      : SYSTEM_COLUMNS;
-    const splice = applyRowOperations(schema, basis.rows, ops, new Set(SYSTEM_COLUMNS.filter((name) => header.includes(name))));
-    const text = descriptor.type === "collection-tables" && descriptor.store === "sqlite"
-      ? canonicalTableText(schema, [...splice.rows].flatMap(([stableKey, properties]) => properties ? [{ stableKey, properties }] : []))
-      : spliceCollectionFile(descriptor.format, sourceText, schema, splice);
-    const bytes = new TextEncoder().encode(text);
-    const result = collectionFileRows(descriptor.format, bytes, schema);
-    const expected = [...splice.rows].filter(([, row]) => row !== null);
-    const written = new Map(result.rows.map((row) => [row.stableKey, row.properties]));
-    if (written.size !== expected.length || expected.some(([key, row]) => stableJSONString(written.get(key) ?? null) !== stableJSONString(row)))
-      throw new ProtocolCollectionFileError("source", "Collection file does not re-read as the rows written");
-    const source = hashObject(bytes);
-    generated.set(source, bytes);
-    files.set(table.source, source);
-    descriptor = withCollectionChildSetHash(descriptor, table.table, result.childSetHash);
-  }
-  const next = encodeProtocolDirectory({
-    ...directory,
-    entries: directory.entries.map((entry) => files.has(entry.name) ? { name: entry.name, file: files.get(entry.name)! } : entry),
-    childrenSource: descriptor,
-  });
-  const hash = hashObject(next);
-  generated.set(hash, next);
+  const generated = new Map<ObjectHash, Uint8Array>(encoded.objects);
+  const bytes = encodeProtocolDirectory(encoded.directory);
+  const hash = hashObject(bytes);
+  generated.set(hash, bytes);
   return { directory: hash, generated };
 };

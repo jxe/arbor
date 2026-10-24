@@ -1,4 +1,4 @@
-import type { ObjectHash } from "../objects.ts";
+import { decodeProtocolDirectory, protocolObjectReferences, type ObjectHash } from "../objects.ts";
 import { objectDelta } from "./delta.ts";
 import { treeReader, walkTreeDiff, type LoadObject, type TreeReader } from "./tree-diff.ts";
 import type { ObjectDelta, TransitionPayload } from "./types.ts";
@@ -60,8 +60,29 @@ export async function transitionPayload(
     objects.push({ hash: afterHash, bytes: next });
   };
 
+  // A collection's tables and row chunks, each against the same model's table
+  // and the chunk at the same place in it before.
+  const collection = async (beforeHash: ObjectHash | undefined, afterHash: ObjectHash): Promise<void> => {
+    const tables = decodeProtocolDirectory(await reader.bytes(afterHash)).collection?.tables;
+    if (!tables) return;
+    const prior = beforeHash ? new Map((decodeProtocolDirectory(await reader.bytes(beforeHash)).collection?.tables ?? []).map((t) => [t.model, t.table])) : new Map();
+    for (const { model, table } of tables) {
+      const was = prior.get(model);
+      if (was === table || provided.has(table)) continue;
+      await provide(was, table);
+      const chunks = protocolObjectReferences("table", await reader.bytes(table));
+      const priorChunks = was ? protocolObjectReferences("table", await reader.bytes(was)) : [];
+      for (const [index, chunk] of chunks.entries()) await provide(priorChunks[index]?.hash, chunk.hash);
+    }
+  };
+
   await walkTreeDiff(before, after, reader, {
-    directory: ({ before, after }) => after ? provide(before?.hash, after.hash) : undefined,
+    directory: async ({ before, after }) => {
+      if (!after) return;
+      const fresh = !provided.has(after.hash) && before?.hash !== after.hash;
+      await provide(before?.hash, after.hash);
+      if (fresh) await collection(before?.hash, after.hash);
+    },
     entry: async ({ before: prior, after: entry }) => {
       if (entry?.file) await provide(prior?.file ?? prior?.directory, entry.file);
       // A directory already provided at another path, or already known, is

@@ -11,14 +11,14 @@ import {
   csvRowValue,
   CsvEncodeError,
   decodeCollectionFileSource,
-  decodeProtocolCollectionFile,
+  collectionFileRows,
   encodeCsvRows,
   validateRow,
-  ProtocolCollectionFileError,
+  ProtocolCollectionError,
   collectionChildSetHash,
   type CollectionSchema,
 } from "@ovst/collection-schema";
-import { revisionOf, type CollectionFileDescriptor, type Hash, type JSONValue } from "@ovst/protocol";
+import { revisionOf, type Hash, type JSONValue } from "@ovst/protocol";
 
 type Diagnostic = { code: string; path: string; limit?: string };
 type Reject = { code: string; line?: number; column?: number; limit?: string };
@@ -201,29 +201,20 @@ describe("collection schema implementation", () => {
   });
 
   test("a collection file validates exact bytes without executing code", () => {
-    const schemaBytes = new TextEncoder().encode(source);
     const store = new TextEncoder().encode('[{"id":"b","title":"B","count":2},{"id":"a","title":"A","count":1}]\n');
-    const schema: CollectionSchema = compileCollectionSchema(schemaBytes);
-    const childSetHash = collectionChildSetHash([
+    const schema: CollectionSchema = compileCollectionSchema(new TextEncoder().encode(source));
+    const decoded = collectionFileRows("json", store, schema);
+    expect(decoded.rows.map((row) => row.path)).toEqual(["b", "a"]);
+    expect(decoded.childSetHash).toBe(collectionChildSetHash([
       { key: '[["id","a"]]', name: "a", properties: { id: "a", title: "A", count: 1 } },
       { key: '[["id","b"]]', name: "b", properties: { id: "b", title: "B", count: 2 } },
-    ]);
-    const descriptor: CollectionFileDescriptor = {
-      version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.usl",
-      schemaFingerprint: schema.revision, childSetHash,
-    };
-    const decoded = decodeProtocolCollectionFile(descriptor, store, schemaBytes);
-    expect(decoded.rows.map((row) => row.path)).toEqual(["b", "a"]);
-    expect(() => decodeProtocolCollectionFile({ ...descriptor, childSetHash: `sha256:${"0".repeat(64)}` as Hash }, store, schemaBytes))
-      .toThrow("child-set hash");
-    expect(() => decodeProtocolCollectionFile(descriptor, new TextEncoder().encode('[{"id":"a","title":"A","count":"1"}]\n'), schemaBytes))
-      .toThrow(ProtocolCollectionFileError);
+    ]));
+    expect(() => collectionFileRows("json", new TextEncoder().encode('[{"id":"a","title":"A","count":"1"}]\n'), schema))
+      .toThrow(ProtocolCollectionError);
 
-    // Undeclared members are part of each row's properties and of the child-set hash.
-    const extended = new TextEncoder().encode('[{"id":"a","title":"A","count":1,"color":"red"}]\n');
-    const extendedHash = collectionChildSetHash([{ key: '[["id","a"]]', name: "a", properties: { id: "a", title: "A", count: 1, color: "red" } }]);
-    const withExtra = decodeProtocolCollectionFile({ ...descriptor, childSetHash: extendedHash }, extended, schemaBytes);
-    expect(withExtra.rows[0]!.properties).toEqual({ id: "a", title: "A", count: 1, color: "red" });
+    // Undeclared members are part of each row's properties.
+    const extended = collectionFileRows("json", new TextEncoder().encode('[{"id":"a","title":"A","count":1,"color":"red"}]\n'), schema);
+    expect(extended.rows[0]!.properties).toEqual({ id: "a", title: "A", count: 1, color: "red" });
   });
 
   test("the child-set hash orders keys by UTF-8 bytes", () => {

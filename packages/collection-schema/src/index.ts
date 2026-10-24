@@ -9,7 +9,19 @@ export { collectionTypeDeclarations } from "./typescript.ts";
 export { logicalChildName, RESERVED_CHILD_NAMES } from "./names.ts";
 export { CollectionSchemaCache, sharedCollectionSchemaCache } from "./cache.ts";
 export * from "./collection-file.ts";
-export { applyRowOperations, canonicalRow, replayCollectionRows, spliceCollectionFile, type CollectionRowSplice } from "./row-replay.ts";
+export { applyRowOperations, canonicalMany, canonicalSet, replayCollectionRows } from "./row-replay.ts";
+export { spliceCollectionFile, type CollectionRowSplice } from "./splice.ts";
+export {
+  collectionRowName,
+  collectionRowProperties,
+  directoryCollectionSchema,
+  encodeDirectoryCollection,
+  loadDirectoryCollection,
+  ProtocolCollectionError,
+  checkCollectionNames,
+  type CollectionRowNode,
+  type DirectoryCollection,
+} from "./directory-collection.ts";
 export { mergeCollectionRows, type RowFieldConflict, type TextMerge } from "./row-merge.ts";
 export { deriveRowOperations } from "./row-diff.ts";
 export { compileLogicalSchema, checkLogicalTables, encodeCollection, loadCollection, LogicalCollectionError, type EncodedCollection, type LogicalDiagnostic, type LogicalSchema } from "./logical.ts";

@@ -149,7 +149,9 @@ export function rowsFromRecords(tables: Table[], records: RecordsByModel): RowsB
         const key = readKey(rowOf(t, table, record), table.primaryKey, table.primaryKey);
         for (const row of joinRowsOf(t, join, end, key, members)) {
           const id = JSON.stringify(join.primaryKey.map((c) => row[c]));
-          rows.set(id, { ...rows.get(id), ...row });
+          // A connection's times are its holder's, the latest it can have changed.
+          const times = typeof record.modified === "string" ? { created: record.modified, modified: record.modified } : {};
+          rows.set(id, { ...times, ...rows.get(id), ...row });
         }
       }
     }

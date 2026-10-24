@@ -2,10 +2,10 @@ import { access, link, mkdir, open, readFile, unlink, utimes } from "node:fs/pro
 import { dirname, join } from "node:path";
 import {
   applyObjectDelta,
-  decodeProtocolDirectory,
   hashObject,
-  protocolEntryObject,
+  protocolObjectReferences,
   type ObjectDelta,
+  type ProtocolObjectKind,
   type ObjectHash,
   type TreeSnapshot,
 } from "@ovst/protocol";
@@ -129,7 +129,7 @@ export class ObjectStore {
     visit: (hash: ObjectHash, bytes: Uint8Array) => boolean | void,
     seen = new Set<ObjectHash>(),
   ): Promise<{ complete: boolean; stopped: boolean }> {
-    const pending: Array<{ hash: ObjectHash; kind: "file" | "directory" }> = [{ hash: root, kind: "directory" }];
+    const pending: Array<{ hash: ObjectHash; kind: ProtocolObjectKind }> = [{ hash: root, kind: "directory" }];
     while (pending.length) {
       const { hash, kind } = pending.pop()!;
       // The same bytes may be a file in one accepted root and a directory in
@@ -140,12 +140,7 @@ export class ObjectStore {
       const bytes = await this.find(hash, proposed);
       if (!bytes) return { complete: false, stopped: false };
       if (visit(hash, bytes) === false) return { complete: true, stopped: true };
-      if (kind === "directory") {
-        for (const entry of decodeProtocolDirectory(bytes).entries) {
-          const target = protocolEntryObject(entry);
-          if (target) pending.push(target);
-        }
-      }
+      pending.push(...protocolObjectReferences(kind, bytes));
     }
     return { complete: true, stopped: false };
   }
@@ -160,19 +155,18 @@ export class ObjectStore {
   async containsAny(roots: Iterable<ObjectHash>, target: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map()): Promise<boolean> {
     const seen = new Set<ObjectHash>();
     for (const root of roots) {
-      const pending = [root];
+      const pending: Array<{ hash: ObjectHash; kind: ProtocolObjectKind }> = [{ hash: root, kind: "directory" }];
       while (pending.length) {
-        const hash = pending.pop()!;
+        const { hash, kind } = pending.pop()!;
         if (hash === target) return true;
         if (seen.has(hash)) continue;
         seen.add(hash);
         const bytes = await this.find(hash, proposed);
         if (!bytes) continue;
-        for (const entry of decodeProtocolDirectory(bytes).entries) {
-          const edge = protocolEntryObject(entry);
-          if (!edge) continue; // Nested trees have their own authority boundary.
+        // Nested trees have their own authority boundary, so they are no edge.
+        for (const edge of protocolObjectReferences(kind, bytes)) {
           if (edge.hash === target) return true;
-          if (edge.kind === "directory") pending.push(edge.hash);
+          if (edge.kind !== "file") pending.push(edge);
         }
       }
     }

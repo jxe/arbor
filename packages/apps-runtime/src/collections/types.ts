@@ -121,11 +121,6 @@ export interface ProjectionProvider {
     definition: ProjectionDefinition,
     properties: Record<string, JSONValue>,
   ): Promise<{ properties: Record<string, JSONValue>; identityRule?: { properties: string[] } }>;
-  collectionFileDescriptor?(definition: ProjectionDefinition, sourceName: string): Promise<{
-    format: "csv" | "json" | "jsonl";
-    schemaFingerprint: Hash;
-    childSetHash: Hash;
-  } | null>;
   schema?(definition: ProjectionDefinition): Promise<Record<string, Record<string, string>>>;
   [Symbol.asyncDispose]?(): Promise<void>;
 }

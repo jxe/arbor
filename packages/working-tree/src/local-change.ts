@@ -1,6 +1,6 @@
 import {prepareEntryActions, prepareEntryTransfer, type EntryActions, type EntryTransfer} from "./entry-transfer.ts";
 import { applySourceChange, applySourceEdits, canonicalCBORHash, composeSourceEdits, type PlainSourceEdit, type SourceEdit, type SourceMove } from "@ovst/protocol";
-import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeProtocolDirectory,
+import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeProtocolDirectory, protocolObjectReferences, type ProtocolObjectKind,
   encodeProtocolDirectory, hashObject, decodeCandidateUpdateJSON, encodeCandidateUpdateJSON,
   type TreeSnapshot, type TreeSnapshotJSON, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
 
@@ -218,12 +218,10 @@ export function prepareSourceChange(input: {
     previousRoot = root; previousSource = generation.source;
   }
   const root = previousRoot, reachable = new Set<string>();
-  function visit(hash: string, kind: "file" | "directory") {
+  function visit(hash: string, kind: ProtocolObjectKind) {
     if (reachable.has(hash)) return;
     reachable.add(hash);
-    if (kind === "directory") for (const entry of decodeProtocolDirectory(objects.get(hash)!).entries) {
-      if (entry.file) visit(entry.file, "file"); else if (entry.directory) visit(entry.directory, "directory");
-    }
+    if (kind !== "file") for (const child of protocolObjectReferences(kind, objects.get(hash)!)) visit(child.hash, child.kind);
   }
   visit(root, "directory");
   const candidate = verifyTreeSnapshotGraph({ root, objects: new Map([...objects].filter(([hash]) => reachable.has(hash))) }, "sparse-files");

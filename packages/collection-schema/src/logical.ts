@@ -29,6 +29,8 @@ export interface LogicalSchema {
   readonly models: readonly LogicalModel[];
   /** The model fingerprint (spec 11 §9): the canonical CBOR hash of the model layer. */
   readonly fingerprint: Hash;
+  /** Proportional to the schema's size, so caches weigh entries by it. */
+  readonly weight: number;
 }
 
 /** A diagnostic on one row of one model. */
@@ -60,6 +62,7 @@ export function compileLogicalSchema(input: Uint8Array | string): LogicalSchema 
     result,
     models: logicalModels(result),
     fingerprint: canonicalCBORHash(modelLayer(result)),
+    weight: 1 + result.models.reduce((n, m) => n + m.fields.length, 0) + Math.ceil(bytes.byteLength / 64),
   };
 }
 

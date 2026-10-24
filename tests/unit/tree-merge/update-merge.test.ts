@@ -1,11 +1,8 @@
-import type { CollectionFileDescriptor } from "@ovst/protocol";
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { mergeProtocolTrees } from "@ovst/tree-merge";
-import { ProjectionProviderHost } from "@ovst/story-sync/state";
-import { decodeProtocolCollectionFile } from "@ovst/collection-schema";
+import { collectionRows, collectionTree, idRow, T0 } from "../../support/collection-trees.ts";
 import {
   decodeProtocolDirectory,
   encodeProtocolDirectory,
@@ -14,8 +11,11 @@ import {
   type UpdateConflict,
   type ProtocolDirectoryEntry,
   type ProtocolDirectory,
+  type LogicalRow,
 } from "@ovst/protocol";
-import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
+
+const T1 = "2026-10-24T10:00:00.000Z";
+const T2 = "2026-10-24T11:00:00.000Z";
 
 interface ExpectedMerge {
   conflicts: UpdateConflict[];
@@ -78,37 +78,17 @@ function namedMarkdownSnapshot(name: string, source: string, objects: Map<string
   return { root: root([{ name, file: file }], objects), objects };
 }
 
-const JSON_SCHEMA = 'model Item {\n  title Text\n}\n';
+const SCHEMA = "model Item {\n  title Text\n}\n";
 
-async function jsonCollectionFileSnapshot(rows: unknown[]): Promise<TreeSnapshot> {
-  return collectionFileSnapshot("_store.json", JSON_SCHEMA, `${JSON.stringify(rows, null, 2)}\n`);
+function itemsSnapshot(schema: string, rows: LogicalRow[]): TreeSnapshot {
+  return collectionTree(schema, { Item: rows });
 }
 
-async function collectionFileSnapshot(store: string, schema: string, source: string): Promise<TreeSnapshot> {
-  const directory = await mkdtemp(join(tmpdir(), "story-collection-file-merge-"));
-  const collections = new ProjectionProviderHost();
-  try {
-    await writeFile(join(directory, "schema.usl"), schema);
-    await writeFile(join(directory, store), source);
-    return await resolveSnapshot(await snapshotDirectory(directory, new Map(), [], (root, name) => collections.collectionDescriptor(root, name)));
-  } finally {
-    await collections[Symbol.asyncDispose]();
-    await rm(directory, { recursive: true, force: true });
-  }
-}
-
-async function collectionText(result: { root: string; objects: Map<string, Uint8Array> }, objects: Map<string, Uint8Array>): Promise<string> {
-  const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
-  const directory = decodeProtocolDirectory(load(result.root));
-  return new TextDecoder().decode(load(directory.entries.find((entry) => entry.name === (directory.childrenSource as CollectionFileDescriptor).source)!.file!));
-}
-
-async function collectionRows(result: { root: string; objects: Map<string, Uint8Array> }, objects: Map<string, Uint8Array>) {
-  const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
-  const directory = decodeProtocolDirectory(load(result.root));
-  const descriptor = directory.childrenSource as CollectionFileDescriptor;
-  const file = (name: string) => load(directory.entries.find((entry) => entry.name === name)!.file!);
-  return decodeProtocolCollectionFile(descriptor, file(descriptor.source), file(descriptor.schemaSource)).rows.map((row) => row.properties);
+async function mergeItems(base: TreeSnapshot, candidate: TreeSnapshot, remote: TreeSnapshot) {
+  const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
+  const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+  const rows = async () => (await collectionRows(result.root, new Map([...objects, ...result.objects]))).Item ?? [];
+  return { result, rows };
 }
 
 async function mergedSource(
@@ -192,129 +172,74 @@ const fixtures = JSON.parse(
 ) as MergeFixtures;
 
 describe("reference host merge fixtures", () => {
-  test("disjoint stable-row changes merge semantically", async () => {
-    const [base, candidate, remote] = await Promise.all([
-      jsonCollectionFileSnapshot([{ id: "a", title: "A" }, { id: "b", title: "B" }]),
-      jsonCollectionFileSnapshot([{ id: "a", title: "Candidate A" }, { id: "b", title: "B" }]),
-      jsonCollectionFileSnapshot([{ id: "a", title: "A" }, { id: "b", title: "Remote B" }]),
-    ]);
-    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
-    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+  test("disjoint row changes merge by row", async () => {
+    const { result, rows } = await mergeItems(
+      itemsSnapshot(SCHEMA, [idRow("a", { title: "A" }), idRow("b", { title: "B" })]),
+      itemsSnapshot(SCHEMA, [idRow("a", { title: "Candidate A" }, T0, T1), idRow("b", { title: "B" })]),
+      itemsSnapshot(SCHEMA, [idRow("a", { title: "A" }), idRow("b", { title: "Remote B" }, T0, T1)]),
+    );
     expect(result.conflicts).toEqual([]);
-    expect(result.summary).toEqual({ version: "collection-file-fields-v1", mergedRows: 1 });
-    const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
-    const rootObject = decodeProtocolDirectory(load(result.root));
-    if (rootObject.type !== "directory") throw new Error("Expected collection-file root");
-    const descriptor = rootObject.childrenSource as CollectionFileDescriptor;
-    const source = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
-    const schema = load(rootObject.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!);
-    const decoded = decodeProtocolCollectionFile(descriptor, source, schema);
-    expect(decoded.rows.map((row) => row.properties)).toEqual([
-      { id: "a", title: "Candidate A" },
-      { id: "b", title: "Remote B" },
-    ]);
-  });
-
-  test("typed CSV rows merge and re-encode through their declared column types", async () => {
-    const schema = 'model Item {\n  count Int\n  note Text?\n}\n';
-    const [base, candidate, remote] = await Promise.all([
-      collectionFileSnapshot("_store.csv", schema, "id,count,note\n001,1,\n002,2,x\n"),
-      collectionFileSnapshot("_store.csv", schema, "id,count,note\n001,10,\n002,2,x\n"),
-      collectionFileSnapshot("_store.csv", schema, "id,count,note\n001,1,\n002,2,y\n"),
-    ]);
-    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
-    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
-    expect(result.conflicts).toEqual([]);
-    const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
-    const rootObject = decodeProtocolDirectory(load(result.root));
-    if (rootObject.type !== "directory") throw new Error("Expected collection-file root");
-    const descriptor = rootObject.childrenSource as CollectionFileDescriptor;
-    const sourceBytes = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
-    expect(new TextDecoder().decode(sourceBytes)).toBe("id,count,note\n001,10,\n002,2,y\n");
-    const decoded = decodeProtocolCollectionFile(descriptor, sourceBytes, load(rootObject.entries.find((entry) => entry.name === "schema.usl")!.file!));
-    expect(decoded.rows.map((row) => row.properties)).toEqual([{ id: "001", count: 10 }, { id: "002", count: 2, note: "y" }]);
-  });
-
-  test("undeclared row members and CSV columns merge and survive re-encoding", async () => {
-    const schema = 'model Item {\n  count Int\n}\n';
-    const [base, candidate, remote] = await Promise.all([
-      collectionFileSnapshot("_store.csv", schema, "id,count,color\n001,1,red\n002,2,\n"),
-      collectionFileSnapshot("_store.csv", schema, "id,count,color\n001,1,blue\n002,2,\n"),
-      collectionFileSnapshot("_store.csv", schema, "id,count,color\n001,1,red\n002,3,green\n"),
-    ]);
-    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
-    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
-    expect(result.conflicts).toEqual([]);
-    const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
-    const rootObject = decodeProtocolDirectory(load(result.root));
-    if (rootObject.type !== "directory") throw new Error("Expected collection-file root");
-    const descriptor = rootObject.childrenSource as CollectionFileDescriptor;
-    const sourceBytes = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
-    expect(new TextDecoder().decode(sourceBytes)).toBe("id,count,color\n001,1,blue\n002,3,green\n");
-    const decoded = decodeProtocolCollectionFile(descriptor, sourceBytes, load(rootObject.entries.find((entry) => entry.name === "schema.usl")!.file!));
-    expect(decoded.rows.map((row) => row.properties)).toEqual([{ id: "001", count: 1, color: "blue" }, { id: "002", count: 3, color: "green" }]);
+    expect(result.summary).toEqual({ version: "collection-fields-v1", mergedRows: 1 });
+    expect(await rows()).toEqual([idRow("a", { title: "Candidate A" }, T0, T1), idRow("b", { title: "Remote B" }, T0, T1)]);
   });
 
   test("one field set differently on both sides is a field conflict that keeps current's value", async () => {
-    const [base, candidate, remote] = await Promise.all([
-      jsonCollectionFileSnapshot([{ id: "a", title: "A" }]),
-      jsonCollectionFileSnapshot([{ id: "a", title: "Candidate" }]),
-      jsonCollectionFileSnapshot([{ id: "a", title: "Remote" }]),
-    ]);
-    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
-    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    const { result, rows } = await mergeItems(
+      itemsSnapshot(SCHEMA, [idRow("a", { title: "A" })]),
+      itemsSnapshot(SCHEMA, [idRow("a", { title: "Candidate" }, T0, T1)]),
+      itemsSnapshot(SCHEMA, [idRow("a", { title: "Remote" }, T0, T1)]),
+    );
     expect(result.conflicts).toEqual([]);
-    expect(result.fields).toEqual([{ path: "/", table: "Item", row: '[["id","a"]]', field: "title", current: "Remote", candidate: "Candidate" }]);
-    expect(await collectionRows(result, objects)).toEqual([{ id: "a", title: "Remote" }]);
+    expect(result.fields).toEqual([{ path: "/items", table: "Item", row: '[["id","a"]]', field: "title", current: "Remote", candidate: "Candidate" }]);
+    expect((await rows()).map((row) => row.fields)).toEqual([{ title: "Remote" }]);
   });
 
   test("one row merges field by field and member by member", async () => {
     const schema = "model Item {\n  title Text\n  done Bool?\n  tags Text[]\n  steps ordered Text[]\n  notes Markdown?\n}\n";
-    const row = (values: Record<string, unknown>) => JSON.stringify({ id: "a", title: "A", ...values });
-    const [base, candidate, remote] = await Promise.all([
-      collectionFileSnapshot("_store.jsonl", schema, `${row({ tags: ["x", "y"], steps: ["1", "2", "3"], notes: "one\ntwo\nthree\n" })}\n{"id":"b","title":"B"}\n`),
-      collectionFileSnapshot("_store.jsonl", schema, `${row({ title: "Alpha", tags: ["x", "c"], steps: ["3", "1", "2"], notes: "ONE\ntwo\nthree\n" })}\n{"id":"b","title":"B"}\n`),
-      collectionFileSnapshot("_store.jsonl", schema, `${row({ done: true, tags: ["y", "r"], steps: ["1", "2", "3", "4"], notes: "one\ntwo\nTHREE\n" })}\n{"id":"b",  "title":"B"}\n`),
-    ]);
-    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
-    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    const a = (fields: LogicalRow["fields"], modified = T1) => idRow("a", { title: "A", ...fields }, T0, modified);
+    const b = idRow("b", { title: "B" });
+    const { result, rows } = await mergeItems(
+      itemsSnapshot(schema, [a({ tags: ["x", "y"], steps: ["1", "2", "3"], notes: "one\ntwo\nthree\n" }, T0), b]),
+      itemsSnapshot(schema, [a({ title: "Alpha", tags: ["c", "x"], steps: ["3", "1", "2"], notes: "ONE\ntwo\nthree\n" }), b]),
+      itemsSnapshot(schema, [a({ done: true, tags: ["r", "y"], steps: ["1", "2", "3", "4"], notes: "one\ntwo\nTHREE\n" }, T2), b]),
+    );
     expect(result.conflicts).toEqual([]);
     expect(result.fields).toBeUndefined();
-    expect(result.summary).toEqual({ version: "collection-file-fields-v1", mergedRows: 1 });
-    const source = await collectionText(result, objects);
-    // The row neither side changed keeps current's bytes.
-    expect(source.split("\n")[1]).toBe('{"id":"b",  "title":"B"}');
-    expect((await collectionRows(result, objects))[0]).toEqual({
-      id: "a", title: "Alpha", done: true, tags: ["r", "c"], steps: ["3", "4", "1", "2"], notes: "ONE\ntwo\nTHREE\n",
-    });
+    expect(result.summary).toEqual({ version: "collection-fields-v1", mergedRows: 1 });
+    expect((await rows())[0]).toEqual(a({ title: "Alpha", done: true, tags: ["c", "r"], steps: ["3", "4", "1", "2"], notes: "ONE\ntwo\nTHREE\n" }, T2));
   });
 
   test("row times never conflict: created keeps current's and modified takes the later", async () => {
-    const [base, candidate, remote] = await Promise.all([
-      collectionFileSnapshot("_store.jsonl", JSON_SCHEMA, '{"id":"a","title":"A","modified":"2026-01-01T00:00:00Z"}\n'),
-      collectionFileSnapshot("_store.jsonl", JSON_SCHEMA, '{"id":"a","title":"A","modified":"2026-01-03T00:00:00Z","note":"x"}\n'),
-      collectionFileSnapshot("_store.jsonl", JSON_SCHEMA, '{"id":"a","title":"Remote","modified":"2026-01-02T00:00:00.5Z"}\n'),
-    ]);
-    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
-    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    const { result, rows } = await mergeItems(
+      itemsSnapshot(SCHEMA, [idRow("a", { title: "A" })]),
+      itemsSnapshot(SCHEMA, [idRow("a", { title: "A" }, T0, T2)]),
+      itemsSnapshot(SCHEMA, [idRow("a", { title: "Remote" }, T0, T1)]),
+    );
     expect(result.fields).toBeUndefined();
-    expect(await collectionRows(result, objects)).toEqual([{ id: "a", title: "Remote", modified: "2026-01-03T00:00:00Z", note: "x" }]);
+    expect(await rows()).toEqual([idRow("a", { title: "Remote" }, T0, T2)]);
   });
 
   test("reordering an ordered field on both sides, or deleting a row the other side changed, conflicts", async () => {
     const schema = "model Item {\n  title Text\n  steps ordered Text[]\n}\n";
-    const [base, candidate, remote] = await Promise.all([
-      collectionFileSnapshot("_store.jsonl", schema, '{"id":"a","title":"A","steps":["1","2","3"]}\n{"id":"b","title":"B"}\n'),
-      collectionFileSnapshot("_store.jsonl", schema, '{"id":"a","title":"A","steps":["2","1","3"]}\n'),
-      collectionFileSnapshot("_store.jsonl", schema, '{"id":"a","title":"A","steps":["1","3","2"]}\n{"id":"b","title":"Bee"}\n'),
-    ]);
-    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
-    const result = await mergeProtocolTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    const { result, rows } = await mergeItems(
+      itemsSnapshot(schema, [idRow("a", { title: "A", steps: ["1", "2", "3"] }), idRow("b", { title: "B" })]),
+      itemsSnapshot(schema, [idRow("a", { title: "A", steps: ["2", "1", "3"] }, T0, T1)]),
+      itemsSnapshot(schema, [idRow("a", { title: "A", steps: ["1", "3", "2"] }, T0, T1), idRow("b", { title: "Bee" }, T0, T1)]),
+    );
     expect(result.fields).toEqual([
-      { path: "/", table: "Item", row: '[["id","a"]]', field: "steps", current: ["1", "3", "2"], candidate: ["2", "1", "3"] },
-      { path: "/", table: "Item", row: '[["id","b"]]', field: null, current: { id: "b", title: "Bee" }, candidate: null },
+      { path: "/items", table: "Item", row: '[["id","a"]]', field: "steps", current: ["1", "3", "2"], candidate: ["2", "1", "3"] },
+      { path: "/items", table: "Item", row: '[["id","b"]]', field: null, current: { id: "b", title: "Bee" }, candidate: null },
     ]);
-    expect(await collectionRows(result, objects)).toEqual([{ id: "a", title: "A", steps: ["1", "3", "2"] }, { id: "b", title: "Bee" }]);
+    expect((await rows()).map((row) => row.fields)).toEqual([{ title: "A", steps: ["1", "3", "2"] }, { title: "Bee" }]);
+  });
+
+  test("a schema change on one side and row edits on the other keep candidate's collection with a conflict", async () => {
+    const { result } = await mergeItems(
+      itemsSnapshot(SCHEMA, [idRow("a", { title: "A" })]),
+      itemsSnapshot("model Item {\n  title Text\n  done Bool?\n}\n", [idRow("a", { title: "A" })]),
+      itemsSnapshot(SCHEMA, [idRow("a", { title: "Remote" }, T0, T1)]),
+    );
+    expect(result.conflicts).toEqual([{ path: "/items", reason: "collection-schema-conflict" }]);
   });
 
   for (const fixture of fixtures.markdownCases) {

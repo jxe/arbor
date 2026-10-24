@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { ProjectionProviderHost } from "@ovst/story-sync/state";
 import { serveHost } from "@ovst/overstoryd";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
-import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
+import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeLogicalTable, encodeProtocolDirectory, hashObject,
   type CandidateUpdate, type Hash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@ovst/protocol";
-import { collectionChildSetHash } from "@ovst/collection-schema";
+import { compileLogicalSchema, encodeCollection } from "@ovst/collection-schema";
+import { idRow, T0 } from "../../support/collection-trees.ts";
 import { deviceClient, deviceSession, testAccount } from "../../helpers/devices.ts";
 
 let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient;
@@ -117,25 +117,23 @@ test("snapshot suffixes retain hidden attribution and unrelated accepted additio
   await running.overstoryd.verifyIntegrity();
 });
 
-async function collection(basis: string, name: string) {
-  const local = await mkdtemp(`${tmpdir()}/story-snapshot-collection-`), stores = new ProjectionProviderHost();
-  try {
-    const source = `model Item {\n  ${name} Text\n}\n`;
-    await writeFile(`${local}/schema.usl`, source); await writeFile(`${local}/_store.json`, "[]");
-    const value = decodeProtocolDirectory(objects.get(basis)!);
-    value.entries = value.entries.filter(e => e.name === "_index.md");
-    value.entries.push({ name: "_store.json", file: file("[]") }, { name: "schema.usl", file: file(source) });
-    value.childrenSource = { version: 1, type: "collection-file", source: "_store.json", schemaSource: "schema.usl",
-      ...((await stores.collectionFileDescriptor(local, "_store.json"))!) };
-    return directory(value);
-  } finally { await stores[Symbol.asyncDispose](); await rm(local, { recursive: true, force: true }); }
+/** `basis` with its entries but `_index.md` replaced by an empty collection whose one field is `name`. */
+function collection(basis: string, name: string) {
+  const source = `model Item {\n  ${name} Text\n}\n`;
+  const encoded = encodeCollection(compileLogicalSchema(new TextEncoder().encode(source)), {});
+  for (const [hash, bytes] of encoded.objects) objects.set(hash, bytes);
+  const value = decodeProtocolDirectory(objects.get(basis)!);
+  value.entries = value.entries.filter(e => e.name === "_index.md");
+  value.entries.push({ name: "schema.usl", file: file(source) });
+  value.collection = encoded.reference;
+  return directory(value);
 }
 
 test("root directory metadata has an inspectable whole-directory choice, continued edits and guarded resolution", async () => {
   tree = (await client.account()).account.profileTree!;
   const initial = await client.descriptor(tree); root = initial.tree.root; base = initial.tree.update;
   await remember(root);
-  const left = snapshot(await collection(root, "left")), right = snapshot(await collection(root, "right"));
+  const left = snapshot(collection(root, "left")), right = snapshot(collection(root, "right"));
   await submit(left); const accepted = await submit(right);
   expect(accepted.conflicted).toBe(true);
   const decision = (await client.conflicts(tree, accepted.id, accepted.root)).decisions[0]!;
@@ -171,7 +169,7 @@ test("a batch that changes root metadata beside an open file choice continues th
   const right = snapshot(change(root, { "_index.md": { file: file(bodyFor("Right")) } }));
   await submit(left); const childState = await submit(right); await remember(childState.root);
   expect(childState.conflicted).toBe(true);
-  const first = snapshot(await collection(childState.root, "choice"));
+  const first = snapshot(collection(childState.root, "choice"));
   const second = snapshot(change(first.candidate, { "_index.md": { file: file(bodyFor("Hidden")) } }));
   const request = { base: childState.id, updates: [first, second] };
   const response = await client.submitUpdates(tree, request), accepted = response.results[1]!.update;
@@ -404,25 +402,22 @@ test("health checks only the database while integrity audits history in one shar
   expect(await integrity.json()).toEqual({ status: "ok" });
 });
 
-test("the host validates declarative collections itself and preserves undeclared row members", async () => {
-  const schema = 'model Item {\n  count Int\n}\n';
-  const people = (rows: Array<Record<string, unknown>>, declared = rows) => directory({
-    type: "directory",
-    entries: [{ name: "_store.json", file: file(`${JSON.stringify(rows)}\n`) }, { name: "schema.usl", file: file(schema) }],
-    childrenSource: {
-      version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.usl",
-      schemaFingerprint: hashObject(new TextEncoder().encode(schema)) as Hash,
-      childSetHash: collectionChildSetHash(declared.map((row) => ({ key: `[["id",${JSON.stringify(row.id)}]]`, name: String(row.id), properties: row }))),
-    },
-  });
-  // Invalid rows and a client-asserted hash that the host recomputes differently are both rejected.
-  await expect(submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: 1.5 }]) } })))).rejects.toThrow();
-  await expect(submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: 1 }], [{ id: "a", count: 2 }]) } })))).rejects.toThrow();
+test("the host validates logical collections itself", async () => {
+  const schema = "main model Item {\n  count Int\n}\n";
+  const fingerprint = compileLogicalSchema(new TextEncoder().encode(schema)).fingerprint;
+  // Tables written directly, so the host sees rows no encoder checked.
+  const people = (rows: ReturnType<typeof idRow>[], modelFingerprint = fingerprint) => {
+    const table = encodeLogicalTable(rows);
+    for (const [hash, bytes] of table.objects) objects.set(hash, bytes);
+    return directory({ type: "directory", entries: [{ name: "schema.usl", file: file(schema) }],
+      collection: { version: 1, modelFingerprint, tables: [{ model: "Item", table: table.hash }] } });
+  };
+  // A row the schema rejects, and a reference naming another schema, are both refused.
+  await expect(submit(snapshot(change(root, { people: { directory: people([idRow("a", { count: 1.5 })]) } })))).rejects.toThrow();
+  await expect(submit(snapshot(change(root, { people: { directory: people([idRow("a", { count: "1" })]) } })))).rejects.toThrow();
+  await expect(submit(snapshot(change(root, { people: { directory: people([idRow("a", { count: 1 })], hashObject(new TextEncoder().encode("other")) as Hash) } })))).rejects.toThrow();
 
-  // An undeclared member is accepted, but a declared member keeps its type.
-  await expect(submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: "1", note: "x" }]) } })))).rejects.toThrow();
-
-  const accepted = await submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: 1, note: { kept: [true] } }]) } })));
+  const accepted = await submit(snapshot(change(root, { people: { directory: people([idRow("a", { count: 1 }, T0)]) } })));
   expect(accepted.root).not.toBe(root);
   const readPage = async () => {
     const page = await fetch(`${running.url}/people`, { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}`, accept: "text/html" } });
@@ -432,10 +427,7 @@ test("the host validates declarative collections itself and preserves undeclared
   const before = await readPage();
   expect(before).toContain("people/a");
   expect(before).not.toContain("schema.usl");
-  // A restarted host reads the same rows from the exact stored bytes, with no apps process.
+  // A restarted host reads the same rows from the stored objects.
   await stop(); await start();
   expect(await readPage()).toBe(before);
-  const stored = decodeProtocolDirectory(await client.object(tree, decodeProtocolDirectory(await client.object(tree, accepted.root)).entries.find(e => e.name === "people")!.directory!));
-  const store = stored.entries.find(e => e.name === "_store.json")!.file!;
-  expect(new TextDecoder().decode(await client.object(tree, store))).toBe('[{"id":"a","count":1,"note":{"kept":[true]}}]\n');
 });

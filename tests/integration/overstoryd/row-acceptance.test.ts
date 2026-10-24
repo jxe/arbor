@@ -1,12 +1,12 @@
-import type { CollectionFileDescriptor } from "@ovst/protocol";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
-import { collectionFileRows, compileCollectionSchema, decodeProtocolCollectionFile, replayCollectionRows } from "@ovst/collection-schema";
+import { loadDirectoryCollection, replayCollectionRows } from "@ovst/collection-schema";
 import { decodeProtocolDirectory, encodeProtocolDirectory, executeRowOperations, hashObject, ProtocolClient,
   type CandidateUpdate, type ProtocolDirectory, type SourceOperation } from "@ovst/protocol";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
+import { collectionDirectory, idRow } from "../../support/collection-trees.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
 
 let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient;
@@ -27,10 +27,10 @@ function directory(value: ProtocolDirectory) {
   return put(encodeProtocolDirectory(value));
 }
 function items(at: string) { return decodeProtocolDirectory(objects.get(at)!).entries.find((e) => e.name === "items")!.directory!; }
-function rows(at: string) {
-  const folder = decodeProtocolDirectory(objects.get(items(at))!), descriptor = folder.childrenSource as CollectionFileDescriptor;
-  const file = (name: string) => objects.get(folder.entries.find((e) => e.name === name)!.file!)!;
-  return decodeProtocolCollectionFile(descriptor, file(descriptor.source), file(descriptor.schemaSource)).rows.map((row) => row.properties);
+async function rows(at: string) {
+  const folder = decodeProtocolDirectory(objects.get(items(at))!);
+  const collection = await loadDirectoryCollection(folder, async (hash) => objects.get(hash)!);
+  return collection!.tables.Item!.map((row) => ({ ...Object.fromEntries(row.key), ...row.fields }));
 }
 async function remember(acceptedRoot: string) {
   for (const [hash, bytes] of (await client.snapshot(tree, acceptedRoot)).objects) objects.set(hash, bytes);
@@ -44,7 +44,10 @@ async function rowChange(basisRoot: string, operations: (collection: { material:
     resolves: [], deltas: [], objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) };
 }
 const set = (row: string, field: string, before: unknown, value: unknown, opKey = "set") => (collection: never) =>
-  [{ key: opKey, kind: "rowSet", collection, table: "Item", row: key(row), field, before, value } as SourceOperation];
+  [{ key: opKey, kind: "rowSet", collection, table: "Item", row: key(row), field, before, value, at: now() } as SourceOperation];
+/** Each operation a millisecond after the last, so row times only move forward. */
+let clock = Date.parse("2026-10-24T09:00:00.000Z");
+const now = () => new Date(clock++).toISOString();
 async function submit(update: CandidateUpdate, basis = base) {
   return (await client.submitUpdates(tree, { base: basis, updates: [update] })).results[0]!.update;
 }
@@ -54,11 +57,7 @@ beforeEach(async () => {
   tree = (await client.account()).account.community.id;
   const descriptor = await client.descriptor(tree), initial = await client.snapshot(tree, descriptor.tree.root);
   objects = new Map(initial.objects);
-  const schemaBytes = new TextEncoder().encode(SCHEMA), source = new TextEncoder().encode('{"id":"a","title":"A","tags":["x"]}\n{"id":"b","title":"B"}\n');
-  const schema = compileCollectionSchema(schemaBytes);
-  const folder = directory({ type: "directory", entries: [{ name: "_store.jsonl", file: put(source) }, { name: "schema.usl", file: put(schemaBytes) }],
-    childrenSource: { version: 1, type: "collection-file", format: "jsonl", source: "_store.jsonl", schemaSource: "schema.usl",
-      schemaFingerprint: schema.revision, childSetHash: collectionFileRows("jsonl", source, schema).childSetHash } });
+  const folder = collectionDirectory(SCHEMA, { Item: [idRow("a", { title: "A", tags: ["x"] }), idRow("b", { title: "B" })] }, objects);
   const value = decodeProtocolDirectory(objects.get(initial.root)!);
   value.entries.push({ name: "items", directory: folder });
   root = directory(value);
@@ -73,16 +72,16 @@ afterEach(async () => {
 test("concurrent edits to different fields and members of one row both land", async () => {
   const first = await submit(await rowChange(root, (c) => [
     ...set("a", "title", "A", "Alpha")(c as never),
-    { key: "tag", kind: "rowConnect", collection: c, table: "Item", row: key("a"), field: "tags", member: "y" } as SourceOperation,
+    { key: "tag", kind: "rowConnect", collection: c, table: "Item", row: key("a"), field: "tags", member: "y", at: now() } as SourceOperation,
   ]));
   expect(first.conflicted).toBe(false);
   const second = await submit(await rowChange(root, (c) => [
     ...set("a", "done", null, true)(c as never),
-    { key: "tag", kind: "rowConnect", collection: c, table: "Item", row: key("a"), field: "tags", member: "z" } as SourceOperation,
+    { key: "tag", kind: "rowConnect", collection: c, table: "Item", row: key("a"), field: "tags", member: "z", at: now() } as SourceOperation,
   ]));
   expect(second.conflicted).toBe(false);
   await remember(second.root);
-  expect(rows(second.root)).toEqual([{ id: "a", title: "Alpha", done: true, tags: ["x", "y", "z"] }, { id: "b", title: "B" }]);
+  expect(await rows(second.root)).toEqual([{ id: "a", title: "Alpha", done: true, tags: ["x", "y", "z"] }, { id: "b", title: "B" }]);
   await running.overstoryd.verifyIntegrity();
 });
 
@@ -91,7 +90,7 @@ test("one field set twice is a choice about that field, which a resolution close
   const accepted = await submit(await rowChange(root, set("a", "title", "A", "Theirs") as never));
   expect(accepted.conflicted).toBe(true);
   await remember(accepted.root);
-  expect(rows(accepted.root)[0]).toMatchObject({ title: "Mine" });
+  expect((await rows(accepted.root))[0]).toMatchObject({ title: "Mine" });
   const page = await client.conflicts(tree, accepted.id, accepted.root);
   expect(page.decisions).toHaveLength(1);
   const decision = page.decisions[0]!;
@@ -103,7 +102,7 @@ test("one field set twice is a choice about that field, which a resolution close
   const resolved = await submit({ ...pick, resolves: [guard] }, accepted.id);
   expect(resolved.conflicted).toBe(false);
   await remember(resolved.root);
-  expect(rows(resolved.root)[0]).toMatchObject({ title: "Theirs" });
+  expect((await rows(resolved.root))[0]).toMatchObject({ title: "Theirs" });
   await running.overstoryd.verifyIntegrity();
 });
 

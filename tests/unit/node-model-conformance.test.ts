@@ -7,7 +7,6 @@ import {
   decodeIdentityRule,
   decodeNodeCapabilities,
   decodeNodeSnapshot,
-  decodeCollectionFileDescriptor,
 } from "@ovst/protocol/node-model";
 
 const conformance = join(import.meta.dir, "../../docs/overstory-spec/conformance");
@@ -23,8 +22,6 @@ interface NodeModelFixture {
   invalidIdentityRules: Array<{ name: string; value: unknown }>;
   snapshots: Array<{ name: string; value: unknown }>;
   childrenPages: Array<{ name: string; value: unknown }>;
-  collectionFiles: unknown[];
-  invalidCollectionFiles: Array<{ name: string; value: unknown }>;
   forwardCompatibleSnapshot: Record<string, unknown>;
   invalidSnapshots: Array<{ name: string; value: unknown }>;
 }
@@ -60,11 +57,10 @@ describe("unified node-model conformance", () => {
     expect(stableKeyFromProperties(["id"], { id: Number.NaN })).toBeNull();
   });
 
-  test("decodes snapshots, summaries, capabilities, and collection files without kinds", async () => {
+  test("decodes snapshots, summaries, and capabilities without kinds", async () => {
     const value = await fixture();
     const snapshots = value.snapshots.map((item) => decodeNodeSnapshot(item.value));
     const pages = value.childrenPages.map((item) => decodeChildrenPage(item.value));
-    const collectionFiles = value.collectionFiles.map(decodeCollectionFileDescriptor);
 
     expect(snapshots.map((item) => item.ref.path)).toEqual(["/practices", "/data", "/assets/portrait.png"]);
     expect(snapshots[0]?.capabilities.content?.format).toBe("markdown");
@@ -73,14 +69,6 @@ describe("unified node-model conformance", () => {
     expect(snapshots[2]?.materialization).toBe("placeholder");
     expect(pages[0]?.items.every((item) => item.ref.stableKey !== null)).toBe(true);
     expect(pages[0]?.items.every((item) => !("kind" in item))).toBe(true);
-    expect(collectionFiles.map((item) => item.format)).toEqual(["csv", "json", "jsonl"]);
-    expect(collectionFiles.every((item) => item.version === 1 && item.schemaSource === "schema.usl")).toBe(true);
-    for (const item of value.invalidCollectionFiles) expect(() => decodeCollectionFileDescriptor(item.value), item.name).toThrow();
-    expect(new Set(collectionFiles.map((item) => item.childSetHash)).size).toBe(1);
-    expect(() => decodeCollectionFileDescriptor({
-      ...collectionFiles[0],
-      format: "sqlite",
-    })).toThrow();
   });
 
   test("ignores unknown capabilities without granting behavior", async () => {

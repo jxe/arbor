@@ -81,6 +81,11 @@ export class FilesystemObjectSource implements AsyncDisposable {
     this.tracked = tracked;
   }
 
+  /** The root the folder last held, or null when it holds none yet or it cannot be read. */
+  async trackedRoot(): Promise<TrackedRoot | null> {
+    return await this.tracked?.().catch(() => null) ?? null;
+  }
+
   /** The folder's tracked paths now, or none when they cannot be read. */
   private async trackedLookup(): Promise<TrackedLookup | null> {
     const tracked = await this.tracked?.().catch(() => null);

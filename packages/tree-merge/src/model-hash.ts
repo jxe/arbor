@@ -1,4 +1,4 @@
-import { decodeProtocolDirectory, type ObjectHash, type ProtocolDirectoryEntry, canonicalCBORHash, type Hash } from "@ovst/protocol";
+import { collectionLogicalHash, decodeProtocolDirectory, type ObjectHash, type ProtocolDirectoryEntry, canonicalCBORHash, type Hash } from "@ovst/protocol";
 import { frontmatter } from "./merge-rules.ts";
 
 type Load = (hash: ObjectHash) => Promise<Uint8Array>;
@@ -6,7 +6,9 @@ type Load = (hash: ObjectHash) => Promise<Uint8Array>;
 /**
  * Per-node model hashes over a wire graph, as the data model defines them:
  * the canonical CBOR of a node's schema, properties, content, and the model
- * hashes of its children. A Markdown file's frontmatter is its properties and
+ * hashes of its children. A collection's rows count by its logical hash, so
+ * every representation of the same rows hashes the same (spec 06 §2.1). A
+ * Markdown file's frontmatter is its properties and
  * the rest is its content, so reordering frontmatter keys does not change the
  * hash; any other file is content alone. Memoized by object hash, since a
  * wire object's model is a pure function of its subtree.
@@ -51,20 +53,13 @@ export class ModelHashes {
     const object = decodeProtocolDirectory(bytes);
     const bodyEntry = object.entries.find((entry) => entry.name === "_index.md");
     const body = bodyEntry ? await this.entry(bodyEntry) : null;
-    if (object.childrenSource) {
-      return canonicalCBORHash({
-        body,
-        childSchema: object.childrenSource.schemaFingerprint,
-        childSet: object.childrenSource.type === "collection-file"
-          ? object.childrenSource.childSetHash
-          : Object.fromEntries(object.childrenSource.tables.map((t) => [t.table, t.childSetHash])),
-      });
-    }
     const children: Record<string, Hash> = {};
     for (const entry of object.entries) {
       if (entry.name === "_index.md") continue;
       children[entry.name] = (await this.entry(entry))!;
     }
-    return canonicalCBORHash({ body, children });
+    return canonicalCBORHash(object.collection
+      ? { body, children, collection: collectionLogicalHash(object.collection) }
+      : { body, children });
   }
 }

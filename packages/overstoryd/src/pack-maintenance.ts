@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { lstat, readdir, statfs } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { ObjectStore, type PackCandidate } from "@ovst/object-store";
-import { decodeProtocolDirectory, type ObjectHash } from "@ovst/protocol";
+import { decodeProtocolDirectory, protocolObjectReferences, type ObjectHash } from "@ovst/protocol";
 
 /**
  * overstoryd 001: packs cold loose objects in the background. One coordinator
@@ -206,6 +206,16 @@ export class PackMaintenance {
         const child = `${at}/${entry.name}`;
         if (entry.directory) pending.push([entry.directory, child]);
         else if (entry.file && !local.has(entry.file)) { local.add(entry.file); visit(entry.file, child, "file"); }
+      }
+      // A collection's tables and row chunks sit at its folder's path.
+      for (const { table } of directory.collection?.tables ?? []) {
+        if (local.has(table)) continue;
+        local.add(table);
+        const tableBytes = await this.objects.find(table);
+        if (!tableBytes || !visit(table, at, "file")) continue;
+        for (const chunk of protocolObjectReferences("table", tableBytes)) {
+          if (!local.has(chunk.hash)) { local.add(chunk.hash); visit(chunk.hash, at, "file"); }
+        }
       }
     }
   }

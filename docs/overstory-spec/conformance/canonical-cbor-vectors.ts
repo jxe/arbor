@@ -4,7 +4,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { createPrivateKey, createPublicKey, sign } from "node:crypto";
 import { accountChallengeBytes, personProfileTreeID, treeConfigurationID, type AccountChallenge } from "@ovst/protocol";
-import { canonicalCBORHash, encodeCanonicalCBOR, canonicalUpdateIntent, encodeProtocolDirectory, hashObject, updateRequestDigest, updateRequestDigests } from "@ovst/protocol";
+import { canonicalCBORHash, encodeCanonicalCBOR, canonicalUpdateIntent, encodeProtocolDirectory, encodeProtocolRows, encodeProtocolTable, hashObject, updateRequestDigest, updateRequestDigests } from "@ovst/protocol";
 import { activationElement, decodeUpdateRequestJSON, decodeUpdateResponseJSON, encodeCandidateUpdateJSON, encodeUpdateRequestJSON, encodeUpdateResponseJSON, initialPersonConfig, snapshotTreeConfig } from "@ovst/protocol";
 
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
@@ -52,30 +52,33 @@ for (const path of ["tests/fixtures/story-sync/bootstrap.json", "tests/fixtures/
 // Object models are the symbolic source of truth; payloads are raw for files.
 const objectPath = "docs/overstory-spec/conformance/protocol-objects.json";
 const objectVectors = JSON.parse(await readFile(objectPath, "utf8"));
+const encodeObject = (model: any): Uint8Array => model.type === "file" ? Buffer.from(model.bytesBase64, "base64")
+  : model.type === "table" ? encodeProtocolTable(model)
+  : model.type === "rows" ? encodeProtocolRows(model.rows)
+  : encodeProtocolDirectory(model);
 for (const vector of objectVectors.objects) {
-  const bytes = vector.model.type === "file" ? Buffer.from(vector.model.bytesBase64, "base64") : encodeProtocolDirectory(vector.model);
+  const bytes = encodeObject(vector.model);
   delete vector.canonicalCborBase64;
   vector.bytesBase64 = b64(bytes);
   vector.hash = hashObject(bytes);
 }
 const invalidHash = "sha256:" + "0".repeat(64);
+const reference = { version: 1, modelFingerprint: invalidHash, tables: [{ model: "Game", table: invalidHash }] };
+const schemaEntry = { name: "schema.usl", file: invalidHash };
 objectVectors.invalid = [
   { name: "unsorted-directory", entries: [{ name: "z", file: invalidHash }, { name: "a", file: invalidHash }] },
   { name: "duplicate-name", entries: [{ name: "a", file: invalidHash }, { name: "a", file: invalidHash }] },
   { name: "dual-target", entries: [{ name: "a", file: invalidHash, tree: "tr_child" }] },
   { name: "entry-with-hash-key", entries: [{ name: "a", hash: invalidHash }] },
   { name: "file-and-directory", entries: [{ name: "a", file: invalidHash, directory: invalidHash }] },
-  ...([
-    ["collection-file-schema-ts", 1, "schema.ts"],
-    ["collection-file-unknown-version", 2, "schema.usl"],
-  ] as const).map(([name, version, schemaSource]) => ({
-    name,
-    entries: [{ name: "_store.json", file: invalidHash }, { name: schemaSource, file: invalidHash }].sort((a, b) => a.name < b.name ? -1 : 1),
-    childrenSource: { version, type: "collection-file", format: "json", source: "_store.json", schemaSource, schemaFingerprint: invalidHash, childSetHash: invalidHash },
-  })),
-].map(({ name, entries, childrenSource }: { name: string; entries: unknown[]; childrenSource?: unknown }) => ({
+  { name: "collection-without-schema", entries: [{ name: "schema.ts", file: invalidHash }], collection: reference },
+  { name: "collection-schema-directory", entries: [{ name: "schema.usl", directory: invalidHash }], collection: reference },
+  { name: "collection-unknown-version", entries: [schemaEntry], collection: { ...reference, version: 2 } },
+  { name: "collection-extra-member", entries: [schemaEntry], collection: { ...reference, store: "sqlite" } },
+  { name: "collection-tables-unsorted", entries: [schemaEntry], collection: { ...reference, tables: [{ model: "List", table: invalidHash }, { model: "Game", table: invalidHash }] } },
+].map(({ name, entries, collection }: { name: string; entries: unknown[]; collection?: unknown }) => ({
   name,
-  canonicalCborBase64: b64(encodeCanonicalCBOR({ type: "directory", entries, ...(childrenSource ? { childrenSource } : {}) })),
+  canonicalCborBase64: b64(encodeCanonicalCBOR({ type: "directory", entries, ...(collection ? { collection } : {}) })),
 }));
 objectVectors.invalid.push({ name: "noncanonical-cbor", canonicalCborBase64: b64(Buffer.concat([Buffer.from([0xa2]), encodeCanonicalCBOR("entries"), encodeCanonicalCBOR([]), encodeCanonicalCBOR("type"), encodeCanonicalCBOR("directory")])) });
 await writeFile(objectPath, JSON.stringify(objectVectors, null, 2) + "\n");

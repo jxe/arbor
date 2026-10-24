@@ -12,7 +12,7 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@ovst/protocol";
-import { canonicalNodePath, HostAccountStore, normalizeLegacyLocator, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@ovst/protocol";
+import { canonicalNodePath, HostAccountStore, normalizeLegacyLocator, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, protocolObjectReferences, verifyTreeSnapshotGraph, type ObjectHash, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@ovst/client";
 import { savePlacementSyncMetadata, type SharedTreePlacement } from "./state/index.ts";
@@ -80,12 +80,20 @@ async function sparseSpine(
   readObject: (hash: ObjectHash) => Promise<Uint8Array | undefined>,
 ): Promise<Uint8Array> {
   const spine = new Map<ObjectHash, Uint8Array>();
-  const visit = async (hash: ObjectHash): Promise<void> => {
+  const visit = async (hash: ObjectHash, kind: ProtocolObjectKind = "directory"): Promise<void> => {
     const bytes = spine.get(hash) ?? await readObject(hash);
     if (!bytes) throw new Error(`Accepted snapshot is missing object ${hash}`);
     if (hashObject(bytes) !== hash) throw new Error(`Accepted snapshot object does not match ${hash}`);
     spine.set(hash, bytes);
-    for (const entry of decodeProtocolDirectory(bytes).entries) {
+    if (kind === "table") {
+      for (const chunk of protocolObjectReferences(kind, bytes)) await visit(chunk.hash, chunk.kind);
+      return;
+    }
+    if (kind !== "directory") return;
+    const directory = decodeProtocolDirectory(bytes);
+    // A collection's rows are structure, not file content, so they go too.
+    for (const { table } of directory.collection?.tables ?? []) await visit(table, "table");
+    for (const entry of directory.entries) {
       if (entry.directory) await visit(entry.directory);
       else if (entry.file && entry.name.toLowerCase().endsWith(".md")) {
         const child = spine.get(entry.file) ?? await readObject(entry.file);
@@ -551,7 +559,7 @@ export class StorySyncDaemon implements AsyncDisposable {
       setSyncState: (state) => this.trees.setSyncState(tree, state),
       setDeclined: (declined) => this.trees.setDeclined(tree, declined),
       withWorkspaceIO: (run) => this.withWorkspaceIO(workspace, run),
-      scan: (tracked, also) => this.scanWorkspace(workspace, this.listings.get(accountKey) ?? [], tracked, also),
+      scan: (tracked, also, basis) => this.scanWorkspace(workspace, this.listings.get(accountKey) ?? [], tracked, also, basis),
       root: workspace.root,
       excludedMounts: () => this.trees.excludedMountsWithin(workspace.root),
       refreshListing: async () => {
@@ -559,6 +567,7 @@ export class StorySyncDaemon implements AsyncDisposable {
         if (current) this.listings.set(accountKey, (await (await this.accountClient(current)).list()).snapshot);
       },
       objectBytes: (hash) => this.objectCache.bytes(tree, hash),
+      collections: (directory, object, load) => workspace.writeProtocolCollection(directory, object, load),
       materialized: () => this.events.emit({ tree, kind: "updated", ref: { tree, path: "/", stableKey: null }, origin: "sync" }),
       // A 401 ends the session at the host that sent it: the home's, or a placement host's.
       forgetSession: (current) => this.connections.forgetSession(current),
@@ -599,7 +608,7 @@ export class StorySyncDaemon implements AsyncDisposable {
    * change needs them. An ignored path is left out unless `tracked` holds it,
    * or when `also` leaves it out.
    */
-  private async scanWorkspace(workspace: Workspace, remoteTrees: readonly RemoteTreeDescriptor[], tracked: TrackedRoot | null, also?: SkipPath) {
+  private async scanWorkspace(workspace: Workspace, remoteTrees: readonly RemoteTreeDescriptor[], tracked: TrackedRoot | null, also?: SkipPath, collectionBasis?: TrackedRoot) {
     const exclusions = this.trees.excludedMountsWithin(workspace.root);
     const policy = await loadIgnorePolicy(workspace.root, { excludedRoots: exclusions });
     const skip = membershipSkip(policy, tracked ? trackedEntries(tracked.root, tracked.load) : null);
@@ -607,7 +616,7 @@ export class StorySyncDaemon implements AsyncDisposable {
       workspace.root,
       this.canonicalBoundariesFor(workspace, remoteTrees),
       exclusions,
-      (directory, names) => workspace.describeProtocolCollection(directory, names),
+      (directory, names) => workspace.describeProtocolCollection(directory, names, collectionBasis),
       workspace.objectIndex(),
       also ? async (path, isDirectory) => await skip(path, isDirectory) || await also(path, isDirectory) : skip,
     );

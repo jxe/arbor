@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { canonicalStableKey, ROW_TIME, type JSONValue } from "@ovst/protocol";
-import { ProjectionProviderHost, detectProjection } from "@ovst/story-sync/state";
+import { CollectionProjections, ProjectionProviderHost, detectProjection } from "@ovst/story-sync/state";
+
+/** The folder's collection as Story Sync reads it, or null when its files stay ordinary. */
+const readCollection = async (directory: string) => new CollectionProjections().read(directory, await readdir(directory));
 
 let root: string;
 /** A row's stamped edit time, which these byte comparisons leave out. */
@@ -163,11 +166,10 @@ describe("file-backed collections", () => {
       path: "/named/first-practice",
       stableKey: canonicalStableKey([["id", "opaque-1"]]),
     });
-    const descriptor = await providers.collectionFileDescriptor(join(root, "named"), "_store.json");
-    expect(descriptor).toMatchObject({ format: "json", childSetHash: expect.stringMatching(/^sha256:/) });
+    expect(await readCollection(join(root, "named"))).toMatchObject({ replaces: ["_store.json"] });
 
     await writeFile(join(root, "named", "_store.json"), '[{"id":"opaque-1","slug":"same","title":"First"},{"id":"opaque-2","slug":"same","title":"Second"}]\n');
-    expect(await providers.collectionFileDescriptor(join(root, "named"), "_store.json")).toBeNull();
+    expect(await readCollection(join(root, "named"))).toBeNull();
     const duplicate = await childrenOf(providers, join(root, "named"), "/named");
     expect(duplicate.items.every((row) => row.diagnostics.some((item) => item.code === "duplicate-child-name"))).toBe(true);
     await providers[Symbol.asyncDispose]();
@@ -194,7 +196,7 @@ describe("file-backed collections", () => {
       ["/typed-csv/001", { code: "001", qty: 2, active: true }],
       ["/typed-csv/010", { code: "010", qty: 0, note: "x", active: false }],
     ]);
-    expect(await providers.collectionFileDescriptor(directory, "_store.csv")).toMatchObject({ format: "csv" });
+    expect(await readCollection(directory)).toMatchObject({ replaces: ["_store.csv"] });
 
     await writeFile(join(directory, "_store.csv"), "code,qty,active,extra\n001,2,true,kept\n010,0,false,\n");
     const extended = await providers.descriptor(directory);
@@ -204,7 +206,7 @@ describe("file-backed collections", () => {
       ["/typed-csv/001", { code: "001", qty: 2, active: true, extra: "kept" }, []],
       ["/typed-csv/010", { code: "010", qty: 0, active: false }, []],
     ]);
-    expect(await providers.collectionFileDescriptor(directory, "_store.csv")).toMatchObject({ format: "csv" });
+    expect(await readCollection(directory)).toMatchObject({ replaces: ["_store.csv"] });
     await providers[Symbol.asyncDispose]();
   });
 

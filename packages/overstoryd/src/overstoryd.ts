@@ -12,7 +12,7 @@ import { Recent } from "./recent.ts";
 import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { retainedObjects } from "./retention.ts";
-import { checkPlainTrace, collectionSourceNames, isRowOperation, TreeReader, type DecisionPage } from "@ovst/protocol";
+import { checkPlainTrace, isRowOperation, TreeReader, type DecisionPage } from "@ovst/protocol";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -40,7 +40,7 @@ import {
   type DeviceSessionChallenge,
   type PublishedDeviceKeys,
 } from "@ovst/protocol";
-import { CollectionSchemaCache, decodeProtocolCollectionTables, replayCollectionRows } from "@ovst/collection-schema";
+import { CollectionSchemaCache, loadDirectoryCollection, replayCollectionRows } from "@ovst/collection-schema";
 import {
   validateUpdateRequestIntent,
   decodeProtocolDirectory,
@@ -2926,14 +2926,7 @@ export class HostDaemon implements AsyncDisposable {
     // client assertions. A staged proof is only inherited once that root has
     // actually become accepted (and therefore durable).
     const collection = async (directory: ReturnType<typeof decodeProtocolDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
-      const source = directory.childrenSource!;
-      const files = new Map<string, Uint8Array>();
-      for (const name of collectionSourceNames(source)) {
-        const target = directory.entries.find(entry => entry.name === name)?.file;
-        if (!target) throw Error(`Missing collection-file entry: ${name}`);
-        files.set(name, await load(target));
-      }
-      decodeProtocolCollectionTables(source, name => files.get(name)!, files.get(source.schemaSource)!, this.wireSchemas);
+      await loadDirectoryCollection(directory, load, this.wireSchemas);
     };
     let basis = acceptedBasis ? this.validatedGraphs.get(acceptedBasis) : undefined;
     if (acceptedBasis && !basis)

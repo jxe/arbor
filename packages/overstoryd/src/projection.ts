@@ -6,30 +6,41 @@ import {
   decodeProtocolDirectory,
   hashObject,
   resolveProtocolLogicalNode,
-  collectionSourceNames,
-  type ChildrenSourceDescriptor,
+  type JSONValue,
   type ObjectHash,
   type ResolvedProtocolLogicalNode,
   type ProtocolDirectory,
   type ProtocolDirectoryEntry,
 } from "@ovst/protocol";
-import {
-  decodeProtocolCollectionTables,
-  type DecodedProtocolCollectionTable,
-  type ProtocolCollectionFileRow,
-} from "@ovst/collection-schema";
-import { ServerFaultError } from "./errors.ts";
+import { collectionRowProperties, loadDirectoryCollection, type CollectionSchemaCache } from "@ovst/collection-schema";
 
 export interface ProtocolProjectionOptions {
   root: ObjectHash;
   load(hash: ObjectHash): Promise<Uint8Array>;
+  schemas?: CollectionSchemaCache;
+}
+
+/** One row of a logical collection, as a page. */
+export interface ProtocolCollectionRow {
+  model: string;
+  stableKey: string;
+  /** Its logical name. */
+  path: string;
+  /** Its key fields, fields and times. */
+  properties: Record<string, JSONValue>;
+}
+
+/** A model's rows: the folder's own children for the main model (`table: null`), else a child named after the model. */
+export interface ProtocolCollectionTable {
+  table: string | null;
+  rows: ProtocolCollectionRow[];
 }
 
 export type ProtocolResolution =
   | { kind: "node"; path: string; node: ResolvedProtocolLogicalNode }
-  | { kind: "collection-file-row"; path: string; row: ProtocolCollectionFileRow; descriptor: ChildrenSourceDescriptor }
-  /** A table of a multi-table collection: its rows are its children. */
-  | { kind: "collection-table"; path: string; table: DecodedProtocolCollectionTable }
+  | { kind: "collection-row"; path: string; row: ProtocolCollectionRow }
+  /** A model other than the main one: its rows are its children. */
+  | { kind: "collection-table"; path: string; table: ProtocolCollectionTable }
   | { kind: "missing"; path: string };
 
 /** A Markdown document's frontmatter `id` is its stable key; a directory's is
@@ -45,37 +56,34 @@ function isMarkdownName(name: string): boolean {
   return name.endsWith(".md");
 }
 
-export function protocolCollectionFileRowTitle(row: ProtocolCollectionFileRow): string {
+export function protocolCollectionRowTitle(row: ProtocolCollectionRow): string {
   return typeof row.properties.title === "string" ? row.properties.title
     : typeof row.properties.name === "string" ? row.properties.name
     : typeof row.properties.slug === "string" ? row.properties.slug
     : row.path;
 }
 
-export function protocolCollectionFileRowMarkdown(row: ProtocolCollectionFileRow): string {
+export function protocolCollectionRowMarkdown(row: ProtocolCollectionRow): string {
   const json = JSON.stringify(row.properties, null, 2);
   const longest = Math.max(2, ...[...json.matchAll(/`+/g)].map((match) => match[0].length));
   const fence = "`".repeat(longest + 1);
-  return `# ${protocolCollectionFileRowTitle(row).replaceAll(/\r?\n/g, " ")}\n\n${fence}json\n${json}\n${fence}\n`;
+  return `# ${protocolCollectionRowTitle(row).replaceAll(/\r?\n/g, " ")}\n\n${fence}json\n${json}\n${fence}\n`;
 }
 
 /** Path and stable-key resolution over a content-addressed protocol tree. */
 export class ProtocolProjection {
   constructor(private readonly options: ProtocolProjectionOptions) {}
 
-  /** The validated tables of a collection directory: one unnamed table for
-   * the single-file form, whose rows are the directory's children, or one per
-   * named table, each a child holding its rows. */
-  async collectionTables(directory: ProtocolDirectory): Promise<DecodedProtocolCollectionTable[] | null> {
-    const descriptor = directory.childrenSource;
-    if (!descriptor) return null;
-    const files = new Map<string, Uint8Array>();
-    await Promise.all(collectionSourceNames(descriptor).map(async (name) => {
-      const hash = directory.entries.find((entry) => entry.name === name)?.file;
-      if (!hash) throw new ServerFaultError("Collection-file sources are missing");
-      files.set(name, await this.options.load(hash));
+  /** The validated tables of a collection directory, one per model with
+   * data rows: the main model's are the directory's children (`table: null`),
+   * each other's a child named after its model. */
+  async collectionTables(directory: ProtocolDirectory): Promise<ProtocolCollectionTable[] | null> {
+    const collection = await loadDirectoryCollection(directory, this.options.load, this.options.schemas);
+    if (!collection) return null;
+    return [...collection.rows].map(([model, rows]) => ({
+      table: model === collection.main ? null : model,
+      rows: rows.map((row) => ({ model, stableKey: row.stableKey, path: row.name, properties: collectionRowProperties(row.row) })),
     }));
-    return decodeProtocolCollectionTables(descriptor, (name) => files.get(name)!, files.get(descriptor.schemaSource)!);
   }
 
   async resolve(requestedPath: string, stableKey: string | null = null): Promise<ProtocolResolution> {
@@ -83,32 +91,31 @@ export class ProtocolProjection {
     let node = await resolveProtocolLogicalNode(this.options.root, path, this.options.load);
     if (node && (!stableKey || protocolNodeStableKey(node) === stableKey)) return { kind: "node", path, node };
 
-    const collectionFileRow = await this.findCollectionFileRow(path, stableKey);
-    if (collectionFileRow) return collectionFileRow;
+    const collectionRow = await this.findCollectionRow(path, stableKey);
+    if (collectionRow) return collectionRow;
     if (!stableKey) return { kind: "missing", path };
 
     const healed = await this.findNodeByStableKey(stableKey);
     return healed ?? { kind: "missing", path };
   }
 
-  private async findCollectionFileRow(path: string, stableKey: string | null): Promise<Extract<ProtocolResolution, { kind: "collection-file-row" | "collection-table" }> | null> {
+  private async findCollectionRow(path: string, stableKey: string | null): Promise<Extract<ProtocolResolution, { kind: "collection-row" | "collection-table" }> | null> {
     if (path === "/") return null;
     const segments = path.split("/").filter(Boolean);
     const within = async (folder: string[], table: string | null, segment: string) => {
       const folderPath = `/${folder.join("/")}`;
       const parent = await resolveProtocolLogicalNode(this.options.root, folderPath, this.options.load);
-      if (parent?.kind !== "directory" || !parent.directory.childrenSource) return null;
-      const descriptor = parent.directory.childrenSource;
+      if (parent?.kind !== "directory" || !parent.directory.collection) return null;
       const tables = await this.collectionTables(parent.directory);
       if (!tables) return null;
-      if (table === null && descriptor.type === "collection-tables") {
+      if (table === null) {
         const found = tables.find((t) => t.table === segment);
-        return found && !stableKey ? { kind: "collection-table" as const, path: canonicalNodePath(`/${[...folder, segment].join("/")}`), table: found } : null;
+        if (found) return stableKey ? null : { kind: "collection-table" as const, path: canonicalNodePath(`/${[...folder, segment].join("/")}`), table: found };
       }
       const decoded = tables.find((t) => t.table === table);
       const row = decoded?.rows.find((candidate) => stableKey ? candidate.stableKey === stableKey : candidate.path === segment);
       const names = [...folder, ...(table === null ? [] : [table]), row?.path];
-      return row ? { kind: "collection-file-row" as const, path: canonicalNodePath(`/${names.join("/")}`), row, descriptor } : null;
+      return row ? { kind: "collection-row" as const, path: canonicalNodePath(`/${names.join("/")}`), row } : null;
     };
     const segment = segments.at(-1)!;
     return await within(segments.slice(0, -1), null, segment)
@@ -152,7 +159,6 @@ export class ProtocolProjection {
         if (visited.size >= 10_000) throw new Error("Stable-key resolution exceeded the tree traversal limit");
         visited.add(childPath);
         // One step of resolveProtocolLogicalNode, from the loaded parent.
-        if (directory.childrenSource && collectionSourceNames(directory.childrenSource).includes(name)) continue;
         const exact = directory.entries.find((candidate) => candidate.name === name);
         const sibling = directory.entries.find((candidate) => candidate.name === `${name}.md`);
         if (exact?.tree) continue;

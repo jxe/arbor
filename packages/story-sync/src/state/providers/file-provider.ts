@@ -67,22 +67,6 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
       ...(definition.provider === "markdown" ? { rowContent: "markdown" as const } : {}),
     };
   }
-  async collectionFileDescriptor(definition: ProjectionDefinition, sourceName: string): Promise<{
-    format: "csv" | "json" | "jsonl";
-    schemaFingerprint: Hash;
-    childSetHash: Hash;
-  } | null> {
-    if (!definition.storePath || !definition.schemaPath || basename(definition.storePath) !== sourceName
-      || !(definition.provider === "csv" || definition.provider === "json" || definition.provider === "jsonl")
-      || definition.diagnostics.some((item) => item.severity === "error")) return null;
-    const loaded = await this.load(definition);
-    if (!loaded.editable || loaded.diagnostics.some((item) => item.severity === "error")) return null;
-    return {
-      format: definition.provider,
-      schemaFingerprint: loaded.description.revision as Hash,
-      childSetHash: loaded.childSetHash as Hash,
-    };
-  }
   async page(
     definition: ProjectionDefinition,
     treePath: string,

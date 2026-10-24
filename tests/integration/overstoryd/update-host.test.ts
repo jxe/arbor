@@ -12,7 +12,7 @@ import { AcceptedUpdateStore } from "../../../packages/overstoryd/src/updates/st
 import { ServerBusyError, ServerFaultError } from "../../../packages/overstoryd/src/errors.ts";
 import { MergeWorkerError } from "../../../packages/overstoryd/src/merge-tool.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
-import { ProjectionProviderHost } from "@ovst/story-sync/state";
+import { CollectionProjections } from "@ovst/story-sync/state";
 import {
   readTreeConfigGraph,
   snapshotTreeConfig,
@@ -100,14 +100,10 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
     });
   }
 
+  const stores = new CollectionProjections();
   async function snapshotWithCollectionFiles(path: string) {
-    const stores = new ProjectionProviderHost();
-    try {
-      return await resolveSnapshot(await snapshotDirectory(path, new Map(), [], (directory, sourceName) =>
-        stores.collectionDescriptor(directory, sourceName)));
-    } finally {
-      await stores[Symbol.asyncDispose]();
-    }
+    // One instance, as a workspace keeps, so unchanged rows keep their times.
+    return await resolveSnapshot(await snapshotDirectory(path, new Map(), [], (directory, names) => stores.read(directory, names)));
   }
 
   describe("governed tree-configuration host", () => {
@@ -584,7 +580,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       }));
       const peoplePath = join(treePath, "people");
       await mkdir(peoplePath);
-      await writeFile(join(peoplePath, "schema.usl"), "model Contact {\n  name  Text\n  email Text\n}\n");
+      await writeFile(join(peoplePath, "schema.usl"), "main model Contact {\n  name  Text\n  email Text\n}\n");
       await writeFile(join(peoplePath, "_store.json"), '[{"id":"alice","name":"Alice","email":"alice@example.test"}]\n');
       const beforeCollectionFile = await client.descriptor(treeID);
       await client.submitUpdate(

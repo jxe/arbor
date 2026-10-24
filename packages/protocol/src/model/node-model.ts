@@ -1,7 +1,6 @@
 import type { Diagnostic, Materialization } from "./types.ts";
 import type { EventCursor, Hash, LogicalPath, TreeRef } from "./identifiers.ts";
 import { parseCanonicalStableKey } from "./node-key.ts";
-import { compareUTF8 } from "./utf8.ts";
 
 export type JSONValue = null | boolean | number | string | JSONValue[] | { [name: string]: JSONValue };
 export type NodeDiagnostic = Omit<Diagnostic, "path"> & { path?: LogicalPath };
@@ -77,72 +76,6 @@ export interface ChildrenPage {
   observedThrough: EventCursor;
 }
 
-/** Version 1 selects the collection's `schema.usl` (spec 06 §2.1). */
-export interface CollectionFileDescriptor {
-  version: 1;
-  type: "collection-file";
-  format: "csv" | "json" | "jsonl";
-  source: "_store.csv" | "_store.json" | "_store.jsonl";
-  schemaSource: "schema.usl";
-  schemaFingerprint: Hash;
-  childSetHash: Hash;
-}
-
-/** A collection whose schema stores several tables, one file per table
- * (`<Table>.csv`, `.json` or `.jsonl`), each with its own child set. */
-export interface CollectionTablesDescriptor {
-  version: 1;
-  type: "collection-tables";
-  format: "csv" | "json" | "jsonl";
-  schemaSource: "schema.usl";
-  schemaFingerprint: Hash;
-  /** One entry per stored table, in UTF-8 order of `table`. */
-  tables: CollectionTableEntry[];
-  /**
-   * `sqlite`: the tables are the schema's database layout, each file holds
-   * its rows in canonical order, and a device keeps them as `_store.sqlite3`.
-   */
-  store?: "sqlite";
-}
-
-export interface CollectionTableEntry {
-  table: string;
-  source: string;
-  childSetHash: Hash;
-}
-
-export type ChildrenSourceDescriptor = CollectionFileDescriptor | CollectionTablesDescriptor;
-
-/** One stored table of a collection: `table` is null for the single-table form. */
-export interface CollectionTableSource {
-  table: string | null;
-  source: string;
-  childSetHash: Hash;
-}
-
-/** The files a collection descriptor stores its rows in. */
-export function collectionTableSources(descriptor: ChildrenSourceDescriptor): CollectionTableSource[] {
-  return descriptor.type === "collection-file"
-    ? [{ table: null, source: descriptor.source, childSetHash: descriptor.childSetHash }]
-    : descriptor.tables.map(({ table, source, childSetHash }) => ({ table, source, childSetHash }));
-}
-
-/** Every file entry a collection descriptor names: its sources and its schema. */
-export function collectionSourceNames(descriptor: ChildrenSourceDescriptor): string[] {
-  return [...collectionTableSources(descriptor).map((t) => t.source), descriptor.schemaSource];
-}
-
-/** The descriptor with one table's child-set hash replaced. */
-export function withCollectionChildSetHash<D extends ChildrenSourceDescriptor>(descriptor: D, table: string | null, childSetHash: Hash): D {
-  if (descriptor.type === "collection-file") {
-    if (table !== null) throw new TypeError("A single-table collection has no named tables");
-    return { ...descriptor, childSetHash };
-  }
-  if (!descriptor.tables.some((t) => t.table === table)) throw new TypeError(`The collection has no table ${table}`);
-  return { ...descriptor, tables: descriptor.tables.map((t) => (t.table === table ? { ...t, childSetHash } : t)) };
-}
-
-const TABLE_NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const LEGACY_NODE_FIELDS = ["tree", "path", "kind", "pageID", "collection", "document", "children"] as const;
 
@@ -369,67 +302,6 @@ export function decodeChildrenPage(value: unknown): ChildrenPage {
     items: source.items.map((item, index) => decodeSummary(item, `childrenPage.items[${index}]`)),
     nextCursor: source.nextCursor,
     observedThrough: string(source.observedThrough, "childrenPage.observedThrough"),
-  };
-}
-
-export function decodeChildrenSourceDescriptor(value: unknown): ChildrenSourceDescriptor {
-  const source = object(value, "childrenSource");
-  return source.type === "collection-tables" ? decodeCollectionTablesDescriptor(source) : decodeCollectionFileDescriptor(source);
-}
-
-function exactKeys(source: Record<string, unknown>, keys: string[], label: string) {
-  const extra = Object.keys(source).find((key) => !keys.includes(key));
-  if (extra !== undefined) throw new TypeError(`${label}.${extra} is not allowed`);
-}
-
-export function decodeCollectionTablesDescriptor(value: unknown): CollectionTablesDescriptor {
-  const source = object(value, "childrenSource");
-  exactKeys(source, ["version", "type", "format", "schemaSource", "schemaFingerprint", "tables", "store"], "childrenSource");
-  if (source.version !== 1) throw new TypeError("childrenSource.version must be 1");
-  if (source.type !== "collection-tables") throw new TypeError("childrenSource.type is invalid");
-  if (!["csv", "json", "jsonl"].includes(source.format as string)) throw new TypeError("childrenSource.format is invalid");
-  const format = source.format as "csv" | "json" | "jsonl";
-  if (source.schemaSource !== "schema.usl") throw new TypeError("childrenSource.schemaSource must be schema.usl");
-  if (source.store !== undefined && (source.store !== "sqlite" || format !== "jsonl")) throw new TypeError("childrenSource.store must be sqlite, with jsonl tables");
-  if (!Array.isArray(source.tables) || !source.tables.length) throw new TypeError("childrenSource.tables must be a non-empty array");
-  let previous: string | undefined;
-  const tables = source.tables.map((item, index): CollectionTableEntry => {
-    const label = `childrenSource.tables[${index}]`;
-    const entry = object(item, label);
-    exactKeys(entry, ["table", "source", "childSetHash"], label);
-    if (typeof entry.table !== "string" || !TABLE_NAME.test(entry.table)) throw new TypeError(`${label}.table is invalid`);
-    if (previous !== undefined && compareUTF8(previous, entry.table) >= 0) throw new TypeError("childrenSource.tables must be in UTF-8 order of table, without repeats");
-    previous = entry.table;
-    if (entry.source !== `${entry.table}.${format}`) throw new TypeError(`${label}.source does not match its table and format`);
-    return { table: entry.table, source: entry.source, childSetHash: hash(entry.childSetHash, `${label}.childSetHash`) };
-  });
-  return {
-    version: 1,
-    type: "collection-tables",
-    format,
-    schemaSource: "schema.usl",
-    schemaFingerprint: hash(source.schemaFingerprint, "childrenSource.schemaFingerprint"),
-    tables,
-    ...(source.store === "sqlite" ? { store: "sqlite" as const } : {}),
-  };
-}
-
-export function decodeCollectionFileDescriptor(value: unknown): CollectionFileDescriptor {
-  const source = object(value, "childrenSource");
-  if (source.version !== 1) throw new TypeError("childrenSource.version must be 1");
-  if (source.type !== "collection-file") throw new TypeError("childrenSource.type is invalid");
-  if (!["csv", "json", "jsonl"].includes(source.format as string)) throw new TypeError("childrenSource.format is invalid");
-  const format = source.format as "csv" | "json" | "jsonl";
-  if (source.source !== `_store.${format}`) throw new TypeError("childrenSource.source does not match its format");
-  if (source.schemaSource !== "schema.usl") throw new TypeError("childrenSource.schemaSource must be schema.usl");
-  return {
-    version: 1,
-    type: "collection-file",
-    format,
-    source: source.source as CollectionFileDescriptor["source"],
-    schemaSource: "schema.usl",
-    schemaFingerprint: hash(source.schemaFingerprint, "childrenSource.schemaFingerprint"),
-    childSetHash: hash(source.childSetHash, "childrenSource.childSetHash"),
   };
 }
 

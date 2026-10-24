@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { decodeLogEntry, OBJECT_HASH, rawAlternatives, type LogEntry } from "@ovst/merge-protocol";
 import type { ObjectStore } from "@ovst/object-store";
-import { decodeProtocolDirectory, protocolEntryObject, type ObjectHash } from "@ovst/protocol";
+import { protocolObjectReferences, type ObjectHash, type ProtocolObjectKind } from "@ovst/protocol";
 
 /**
  * The one definition of which stored objects overstoryd keeps. The integrity
@@ -32,7 +32,7 @@ export interface RetainedObjects {
   entries: number;
 }
 
-type Kind = "directory" | "file" | "unknown";
+type Kind = ProtocolObjectKind | "unknown";
 interface Pin { hash: ObjectHash; kind: Kind }
 
 const HASH = OBJECT_HASH;
@@ -133,17 +133,14 @@ async function mark(objects: ObjectStore, root: Pin, required: boolean, live: Se
     walked.add(key);
     live.add(pin.hash);
     if (pin.kind === "file") continue;
-    let directory: ReturnType<typeof decodeProtocolDirectory>;
-    try { directory = decodeProtocolDirectory(bytes); }
+    let references: ReturnType<typeof protocolObjectReferences>;
+    try { references = protocolObjectReferences(pin.kind === "unknown" ? "directory" : pin.kind, bytes); }
     catch (error) {
-      if (pin.kind === "directory") throw error;
+      if (pin.kind !== "unknown") throw error;
       continue; // An unknown pin that is not a directory is a single object.
     }
-    for (const entry of directory.entries) {
-      const target = protocolEntryObject(entry);
-      // Nested trees are retained by their own accepted rows.
-      if (target) pending.push(target);
-    }
+    // Nested trees are retained by their own accepted rows.
+    pending.push(...references);
   }
   return present;
 }

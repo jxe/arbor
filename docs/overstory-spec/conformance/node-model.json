@@ -156,57 +156,6 @@
       }
     }
   ],
-  "collectionFiles": [
-    {
-      "version": 1,
-      "type": "collection-file",
-      "format": "csv",
-      "source": "_store.csv",
-      "schemaSource": "schema.usl",
-      "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-    },
-    {
-      "version": 1,
-      "type": "collection-file",
-      "format": "json",
-      "source": "_store.json",
-      "schemaSource": "schema.usl",
-      "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-    },
-    {
-      "version": 1,
-      "type": "collection-file",
-      "format": "jsonl",
-      "source": "_store.jsonl",
-      "schemaSource": "schema.usl",
-      "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-    }
-  ],
-  "invalidCollectionFiles": [
-    { "name": "schema-ts", "value":
-      {
-        "version": 1,
-        "type": "collection-file",
-        "format": "json",
-        "source": "_store.json",
-        "schemaSource": "schema.ts",
-        "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-      } },
-    { "name": "unknown-version", "value":
-      {
-        "version": 3,
-        "type": "collection-file",
-        "format": "json",
-        "source": "_store.json",
-        "schemaSource": "schema.usl",
-        "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-      } }
-  ],
   "forwardCompatibleSnapshot": {
     "ref": { "tree": "tr_supplies", "path": "/future", "stableKey": null },
     "name": "future",

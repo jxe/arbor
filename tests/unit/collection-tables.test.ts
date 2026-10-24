@@ -4,26 +4,16 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import {
-  collectionFileRows,
   compileCollectionSchema,
   compileCollectionSchemas,
-  decodeProtocolCollectionTables,
   deriveRowOperations,
+  loadDirectoryCollection,
   replayCollectionRows,
 } from "@ovst/collection-schema";
-import {
-  decodeChildrenSourceDescriptor,
-  decodeProtocolDirectory,
-  encodeProtocolDirectory,
-  executeRowOperations,
-  hashObject,
-  type CollectionTablesDescriptor,
-  type ObjectHash,
-  type RowOperation,
-} from "@ovst/protocol";
+import { decodeProtocolDirectory, executeRowOperations, type ObjectHash, type RowOperation } from "@ovst/protocol";
 import { mergeProtocolTrees } from "@ovst/tree-merge";
-import { ProjectionProviderHost } from "@ovst/story-sync/state";
-import { compileUsl } from "@ovst/usl";
+import { CollectionProjections } from "@ovst/story-sync/state";
+import { compileUsl, type LogicalTables } from "@ovst/usl";
 import { verifyStore } from "@ovst/usl/verify";
 
 const SCHEMA = `model Game {
@@ -44,66 +34,31 @@ const FILES = {
   "List.jsonl": '{"id":"l1","name":"Favorites"}\n',
   "List_games.jsonl": '{"list":"l1","game":"g1","games_position":1}\n',
 };
-const HASH = `sha256:${"1".repeat(64)}`;
+const NOW = "2026-10-24T09:00:00.000Z";
 const key = (id: string) => JSON.stringify([["id", id]]);
 
 let sandbox: string;
 beforeAll(async () => { sandbox = await mkdtemp(join(tmpdir(), "story-collection-tables-")); });
 afterAll(async () => { await rm(sandbox, { recursive: true, force: true }); });
 
-/** Snapshot a folder holding `schema.usl` and `files`, as Story Sync describes it. */
-async function folder(name: string, files: Record<string, string>, schema = SCHEMA) {
-  const directory = join(sandbox, name);
-  await rm(directory, { recursive: true, force: true });
+/** Snapshot a tree whose `games` folder holds `schema.usl` and `files`, as Story Sync reads it. */
+async function folder(name: string, files: Record<string, string>, schema = SCHEMA, projections = new CollectionProjections({ now: () => NOW })) {
+  const root = join(sandbox, name);
+  const directory = join(root, "games");
+  await rm(root, { recursive: true, force: true });
   await Bun.write(join(directory, "schema.usl"), schema);
   for (const [file, text] of Object.entries(files)) await writeFile(join(directory, file), text);
-  const stores = new ProjectionProviderHost();
-  try {
-    const snapshot = await resolveSnapshot(await snapshotDirectory(directory, new Map(), [], (dir, names) => stores.collectionDescriptor(dir, names)));
-    return { directory, ...snapshot };
-  } finally { await stores[Symbol.asyncDispose](); }
+  const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (dir, names) => projections.read(dir, names)));
+  return { root: snapshot.root, objects: snapshot.objects, directory, projections };
 }
 
-const text = (objects: ReadonlyMap<ObjectHash, Uint8Array>, root: ObjectHash, name: string) => {
-  const directory = decodeProtocolDirectory(objects.get(root)!);
-  return new TextDecoder().decode(objects.get(directory.entries.find((e) => e.name === name)!.file!)!);
+const games = (objects: ReadonlyMap<ObjectHash, Uint8Array>, root: ObjectHash) => {
+  const top = decodeProtocolDirectory(objects.get(root)!);
+  return decodeProtocolDirectory(objects.get(top.entries.find((e) => e.name === "games")!.directory!)!);
 };
-
-describe("multi-table collection descriptor", () => {
-  const valid = {
-    version: 1, type: "collection-tables", format: "jsonl", schemaSource: "schema.usl", schemaFingerprint: HASH,
-    tables: [{ table: "Game", source: "Game.jsonl", childSetHash: HASH }, { table: "List", source: "List.jsonl", childSetHash: HASH }],
-  };
-
-  test("decodes strictly", () => {
-    expect(decodeChildrenSourceDescriptor(valid)).toEqual(valid as CollectionTablesDescriptor);
-    const invalid: Array<[string, unknown]> = [
-      ["unsorted tables", { ...valid, tables: [...valid.tables].reverse() }],
-      ["a repeated table", { ...valid, tables: [valid.tables[0], valid.tables[0]] }],
-      ["no tables", { ...valid, tables: [] }],
-      ["a source in another format", { ...valid, tables: [{ ...valid.tables[0], source: "Game.csv" }] }],
-      ["a source for another table", { ...valid, tables: [{ ...valid.tables[0], source: "List.jsonl" }] }],
-      ["a table name that is not a name", { ...valid, tables: [{ table: "_store", source: "_store.jsonl", childSetHash: HASH }] }],
-      ["an unknown member", { ...valid, extra: 1 }],
-      ["an unknown table member", { ...valid, tables: [{ ...valid.tables[0], extra: 1 }] }],
-      ["a bad hash", { ...valid, tables: [{ ...valid.tables[0], childSetHash: "sha256:00" }] }],
-    ];
-    for (const [label, value] of invalid) expect(() => decodeChildrenSourceDescriptor(value), label).toThrow();
-  });
-
-  test("a directory names exactly its table files, the schema and a body", () => {
-    const file = (body: string) => hashObject(new TextEncoder().encode(body));
-    const entries = [
-      { name: "Game.jsonl", file: file("g") },
-      { name: "List.jsonl", file: file("l") },
-      { name: "schema.usl", file: file("s") },
-    ];
-    const directory = { type: "directory" as const, entries, childrenSource: valid as CollectionTablesDescriptor };
-    expect(decodeProtocolDirectory(encodeProtocolDirectory(directory)).childrenSource).toEqual(valid as CollectionTablesDescriptor);
-    expect(() => encodeProtocolDirectory({ ...directory, entries: entries.filter((e) => e.name !== "List.jsonl") })).toThrow("ordinary file entries");
-    expect(() => encodeProtocolDirectory({ ...directory, entries: [...entries.slice(0, 2), { name: "notes.md", file: file("n") }, entries[2]!] })).toThrow("mixes");
-  });
-});
+const tables = async (objects: ReadonlyMap<ObjectHash, Uint8Array>, root: ObjectHash) =>
+  (await loadDirectoryCollection(games(objects, root), async (hash) => objects.get(hash)!))?.tables ?? null;
+const names = (rows: LogicalTables) => Object.fromEntries(Object.entries(rows).map(([model, list]) => [model, list.map((row) => ({ ...Object.fromEntries(row.key), ...row.fields }))]));
 
 describe("a schema with several tables", () => {
   test("compiles to one schema per table, and only the single-table compile refuses it", () => {
@@ -113,23 +68,21 @@ describe("a schema with several tables", () => {
     expect(() => compileCollectionSchema(SCHEMA)).toThrow("one table");
   });
 
-  test("Story Sync describes a <Table>.jsonl folder, and the rows validate", async () => {
+  test("Story Sync reads a <Table>.jsonl folder as one collection, the join table becoming the held connection", async () => {
     const snapshot = await folder("described", FILES);
-    const descriptor = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!).childrenSource!;
-    expect(descriptor).toMatchObject({ type: "collection-tables", format: "jsonl", tables: [
-      { table: "Game", source: "Game.jsonl" }, { table: "List", source: "List.jsonl" }, { table: "List_games", source: "List_games.jsonl" },
-    ] });
-    const directory = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
-    const bytes = (name: string) => snapshot.objects.get(directory.entries.find((e) => e.name === name)!.file!)!;
-    const tables = decodeProtocolCollectionTables(descriptor, bytes, bytes("schema.usl"));
-    expect(tables.map((t) => [t.table, t.rows.length])).toEqual([["Game", 2], ["List", 1], ["List_games", 1]]);
+    expect(games(snapshot.objects, snapshot.root).entries.map((e) => e.name)).toEqual(["schema.usl"]);
+    expect(names((await tables(snapshot.objects, snapshot.root))!)).toEqual({
+      Game: [{ id: "g1", name: "Chess", tags: ["board"] }, { id: "g2", name: "Go" }],
+      List: [{ id: "l1", name: "Favorites", games: ["g1"] }],
+    });
   });
 
-  test("a folder missing a table's file, or with one invalid row, is ordinary files", async () => {
+  test("a missing table file holds no rows, and an invalid row leaves the folder ordinary files", async () => {
     const missing = await folder("missing", { "Game.jsonl": FILES["Game.jsonl"], "List.jsonl": FILES["List.jsonl"] });
-    expect(decodeProtocolDirectory(missing.objects.get(missing.root)!).childrenSource).toBeUndefined();
+    expect(names((await tables(missing.objects, missing.root))!).List).toEqual([{ id: "l1", name: "Favorites" }]);
     const invalid = await folder("invalid", { ...FILES, "List.jsonl": '{"id":"l1"}\n' });
-    expect(decodeProtocolDirectory(invalid.objects.get(invalid.root)!).childrenSource).toBeUndefined();
+    expect(games(invalid.objects, invalid.root).collection).toBeUndefined();
+    expect(games(invalid.objects, invalid.root).entries.map((e) => e.name)).toContain("List.jsonl");
   });
 
   test("passes usl verify", async () => {
@@ -152,43 +105,49 @@ describe("a schema with several tables", () => {
 });
 
 describe("rows of several tables", () => {
-  const collection = (object: ObjectHash) => ({ material: { kind: "basis" as const, path: "/", object } });
+  const collection = (root: ObjectHash) => ({ material: { kind: "basis" as const, path: "/games", object: gamesHash(root) } });
+  let current: ReadonlyMap<ObjectHash, Uint8Array> = new Map();
+  const gamesHash = (root: ObjectHash) => decodeProtocolDirectory(current.get(root)!).entries.find((e) => e.name === "games")!.directory!;
 
-  test("operations replay into the file of their table, and each table's child set is re-derived", async () => {
+  test("operations replay into their tables, the projection writes only changed rows in the file's own shape, and reading it back derives the same operations", async () => {
     const snapshot = await folder("replay", FILES);
+    current = snapshot.objects;
+    const at = "2026-10-24T10:00:00.000Z";
     const operations: RowOperation[] = [
-      { key: "a", kind: "rowSet", collection: collection(snapshot.root), table: "Game", row: key("g2"), field: "name", before: "Go", value: "Weiqi" },
-      { key: "b", kind: "rowCreate", collection: collection(snapshot.root), table: "List", row: key("l2"), values: { id: "l2", name: "Later" } },
-      { key: "c", kind: "rowDelete", collection: collection(snapshot.root), table: "List_games", row: JSON.stringify([["list", "l1"], ["game", "g1"]]) },
+      { key: "a", kind: "rowSet", collection: collection(snapshot.root), table: "Game", row: key("g2"), field: "name", before: "Go", value: "Weiqi", at },
+      { key: "b", kind: "rowCreate", collection: collection(snapshot.root), table: "List", row: key("l2"), values: { id: "l2", name: "Later" }, at },
+      { key: "c", kind: "rowDisconnect", collection: collection(snapshot.root), table: "List", row: key("l1"), field: "games", member: "g1", at },
     ];
-    const load = async (hash: ObjectHash) => snapshot.objects.get(hash)!;
+    const load = async (hash: ObjectHash) => objects.get(hash)!;
+    const objects = new Map(snapshot.objects);
     const result = await executeRowOperations(snapshot.root, operations, load, replayCollectionRows);
-    const objects = new Map([...snapshot.objects, ...result.generated]);
-    expect(text(objects, result.root, "Game.jsonl")).toBe('{"id":"g1","name":"Chess","tags":["board"]}\n{"id":"g2","name":"Weiqi"}\n');
-    expect(text(objects, result.root, "List.jsonl")).toBe('{"id":"l1","name":"Favorites"}\n{"id":"l2","name":"Later"}\n');
-    expect(text(objects, result.root, "List_games.jsonl")).toBe("");
-    const descriptor = decodeProtocolDirectory(objects.get(result.root)!).childrenSource as CollectionTablesDescriptor;
-    const schemas = compileCollectionSchemas(SCHEMA).tables;
-    for (const [index, table] of descriptor.tables.entries()) {
-      expect(table.childSetHash).toBe(collectionFileRows("jsonl", new TextEncoder().encode(text(objects, result.root, table.source)), schemas[index]!).childSetHash);
-    }
-    // A folder edit that replay reproduces is described as the same operations.
-    const edited = await folder("replay-edited", {
-      "Game.jsonl": text(objects, result.root, "Game.jsonl"), "List.jsonl": text(objects, result.root, "List.jsonl"), "List_games.jsonl": "",
+    for (const [hash, bytes] of result.generated) objects.set(hash, bytes);
+    expect(names((await tables(objects, result.root))!)).toEqual({
+      Game: [{ id: "g1", name: "Chess", tags: ["board"] }, { id: "g2", name: "Weiqi" }],
+      List: [{ id: "l1", name: "Favorites" }, { id: "l2", name: "Later" }],
     });
-    const read = async (hash: ObjectHash) => objects.get(hash) ?? edited.objects.get(hash)!;
-    expect(edited.root).toBe(result.root);
-    const derived = await deriveRowOperations(snapshot.root, edited.root, read);
-    expect(derived?.map((op) => [op.table, op.kind])).toEqual([["Game", "rowSet"], ["List", "rowCreate"], ["List_games", "rowDelete"]]);
+
+    await snapshot.projections.write(snapshot.directory, games(objects, result.root), load);
+    const file = (name: string) => readFile(join(snapshot.directory, name), "utf8");
+    expect(await file("Game.jsonl")).toBe('{"id":"g1","name":"Chess","tags":["board"]}\n{"id":"g2","name":"Weiqi"}\n');
+    expect(await file("List.jsonl")).toBe('{"id":"l1","name":"Favorites"}\n{"id":"l2","name":"Later"}\n');
+    expect(await file("List_games.jsonl")).toBe("");
+
+    // The same projections read the written folder back as the replayed tree.
+    const reread = await resolveSnapshot(await snapshotDirectory(join(sandbox, "replay"), new Map(), [], (dir, list) => snapshot.projections.read(dir, list)));
+    expect(reread.root).toBe(result.root);
+    const derived = await deriveRowOperations(snapshot.root, reread.root, async (hash) => objects.get(hash) ?? reread.objects.get(hash)!);
+    expect(derived?.map((op) => [op.table, op.kind])).toEqual([["Game", "rowSet"], ["List", "rowDisconnect"], ["List", "rowCreate"]]);
   });
 
-  test("an operation on a table the schema does not store is invalid", async () => {
+  test("an operation on a model the schema does not have is invalid", async () => {
     const snapshot = await folder("unknown-table", FILES);
+    current = snapshot.objects;
     const op: RowOperation = { key: "a", kind: "rowDelete", collection: collection(snapshot.root), table: "Status", row: key("g1") };
-    await expect(executeRowOperations(snapshot.root, [op], async (hash) => snapshot.objects.get(hash)!, replayCollectionRows)).rejects.toThrow("not in this collection");
+    await expect(executeRowOperations(snapshot.root, [op], async (hash) => snapshot.objects.get(hash)!, replayCollectionRows)).rejects.toThrow();
   });
 
-  test("concurrent edits to different tables, and to different fields of one row, merge", async () => {
+  test("concurrent edits to different models, and to different fields of one row, merge", async () => {
     const base = await folder("merge-base", FILES);
     const candidate = await folder("merge-candidate", { ...FILES, "Game.jsonl": '{"id":"g1","name":"Chess!","tags":["board"]}\n{"id":"g2","name":"Go"}\n' });
     const current = await folder("merge-current", {
@@ -201,20 +160,18 @@ describe("rows of several tables", () => {
     expect(result.conflicts).toEqual([]);
     expect(result.fields ?? []).toEqual([]);
     const merged = new Map([...objects, ...result.objects]);
-    expect(text(merged, result.root, "Game.jsonl")).toBe('{"id":"g1","name":"Chess!","tags":["board","classic"]}\n{"id":"g2","name":"Go"}\n');
-    expect(text(merged, result.root, "List.jsonl")).toBe('{"id":"l1","name":"Best"}\n');
-    // The merged directory is a valid collection.
-    const directory = decodeProtocolDirectory(merged.get(result.root)!);
-    const bytes = (name: string) => merged.get(directory.entries.find((e) => e.name === name)!.file!)!;
-    expect(() => decodeProtocolCollectionTables(directory.childrenSource!, bytes, bytes("schema.usl"))).not.toThrow();
+    expect(names((await tables(merged, result.root))!)).toEqual({
+      Game: [{ id: "g1", name: "Chess!", tags: ["board", "classic"] }, { id: "g2", name: "Go" }],
+      List: [{ id: "l1", name: "Best", games: ["g1"] }],
+    });
   });
 
-  test("the same field set twice in one table is a field conflict naming that table", async () => {
+  test("the same field set twice in one model is a field conflict naming that model", async () => {
     const base = await folder("conflict-base", FILES);
     const candidate = await folder("conflict-candidate", { ...FILES, "List.jsonl": '{"id":"l1","name":"Mine"}\n' });
     const current = await folder("conflict-current", { ...FILES, "List.jsonl": '{"id":"l1","name":"Theirs"}\n' });
     const objects = new Map([...base.objects, ...candidate.objects, ...current.objects]);
     const result = await mergeProtocolTrees(base.root, candidate.root, current.root, async (hash) => objects.get(hash)!);
-    expect(result.fields).toEqual([expect.objectContaining({ table: "List", row: key("l1"), field: "name" })]);
+    expect(result.fields).toEqual([expect.objectContaining({ path: "/games", table: "List", row: key("l1"), field: "name" })]);
   });
 });

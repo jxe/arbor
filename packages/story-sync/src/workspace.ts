@@ -1,13 +1,15 @@
-import type { LocalTreeDescriptor, TreeID } from "@ovst/protocol";
-import { nodePathFromPhysical, sha256, workspaceState } from "@ovst/protocol";
+import type { LocalTreeDescriptor, ObjectHash, ProtocolDirectory, TreeID } from "@ovst/protocol";
+import { decodeProtocolDirectory, nodePathFromPhysical, sha256, workspaceState } from "@ovst/protocol";
+import { loadDirectoryCollection } from "@ovst/collection-schema";
 import { resolveTreePath, toTreePath } from "@ovst/protocol/path";
 import { type FsEvent, isIgnoreFileName, type SnapshotObjectIndex, WorkspaceFS } from "@ovst/fs";
 import { basename, dirname, join } from "node:path";
 import { EventBus } from "./events.ts";
-import { FilesystemObjectSource } from "./filesystem-object-source.ts";
+import { FilesystemObjectSource, type TrackedRoot } from "./filesystem-object-source.ts";
 import { reportObjectRead } from "./object-read-diagnostics.ts";
 import { rootDisplayName } from "./root-title.ts";
 import { WorkspaceNodes } from "./workspace-nodes.ts";
+import { CollectionProjections } from "./state/providers/collection-projection.ts";
 
 export { ProtocolError } from "@ovst/protocol";
 
@@ -37,6 +39,8 @@ export class Workspace implements AsyncDisposable {
   readonly events: EventBus;
   readonly objects: FilesystemObjectSource;
   readonly nodes: WorkspaceNodes;
+  /** How this placement projects its folders' collections into files or databases. */
+  readonly collections: CollectionProjections;
   tracking: "tracked" | "session";
   private displayName: string;
   private treeDescriptor: Partial<LocalTreeDescriptor>;
@@ -67,6 +71,7 @@ export class Workspace implements AsyncDisposable {
     });
 
     this.nodes = new WorkspaceNodes(root, stateDirectory, fs, this.tree, this.events, () => this.descriptor());
+    this.collections = new CollectionProjections({ basis: (directory) => this.collectionBasis(directory) });
     this.unsubscribeFS = fs.subscribe((event) => { void this.handleFsEvent(event); });
     // Changed ignore rules change which pages exist: page IDs and generated types follow.
     this.unsubscribeRediscovery = fs.subscribeRediscovery((discovery) => {
@@ -122,8 +127,32 @@ export class Workspace implements AsyncDisposable {
     };
   }
 
-  describeProtocolCollection(directory: string, fileNames: readonly string[]) {
-    return this.nodes.describeProtocolCollection(directory, fileNames);
+  /** A folder's collection as this placement's projection holds it. */
+  /** A folder's collection as its projection holds it; `basis`, when given, is the tree its unchanged rows keep their times from. */
+  describeProtocolCollection(directory: string, fileNames: readonly string[], basis?: TrackedRoot) {
+    return this.collections.read(directory, fileNames, basis ? (path) => this.collectionBasis(path, basis) : undefined);
+  }
+
+  /** Write an accepted collection into the folder's projection. */
+  writeProtocolCollection(directory: string, object: ProtocolDirectory, load: (hash: ObjectHash) => Promise<Uint8Array>) {
+    return this.collections.write(directory, object, load);
+  }
+
+  /** The rows of the collection at `directory` in the root the folder last held. */
+  private async collectionBasis(directory: string, root?: TrackedRoot) {
+    const tracked = root ?? await this.objects.trackedRoot();
+    if (!tracked) return null;
+    try {
+      let object = decodeProtocolDirectory(await tracked.load(tracked.root));
+      for (const name of toTreePath(this.root, directory).split("/").filter(Boolean)) {
+        const entry = object.entries.find((e) => e.name === name)?.directory;
+        if (!entry) return null;
+        object = decodeProtocolDirectory(await tracked.load(entry));
+      }
+      return (await loadDirectoryCollection(object, tracked.load))?.tables ?? null;
+    } catch {
+      return null;
+    }
   }
 
   updateTreeDescriptor(descriptor: Partial<LocalTreeDescriptor>): void {

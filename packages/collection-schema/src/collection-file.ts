@@ -1,19 +1,16 @@
 import { parse } from "csv-parse/sync";
 import {
   canonicalCBORHash,
-  collectionTableSources,
   compareUTF8,
   stableKeyFromProperties,
-  type ChildrenSourceDescriptor,
-  type CollectionFileDescriptor,
   type Diagnostic,
   type Hash,
   type JSONValue,
 } from "@ovst/protocol";
-import { sharedCollectionSchemaCache, type CollectionSchemaCache } from "./cache.ts";
 import type { CollectionSchema } from "./compile.ts";
-import { CollectionSchemaError, type ValueDiagnostic } from "./diagnostics.ts";
-import { csvHeaderDiagnostics, csvRowValue, encodeCsvRows, CsvEncodeError } from "./csv.ts";
+import type { ValueDiagnostic } from "./diagnostics.ts";
+import { csvHeaderDiagnostics, csvRowValue } from "./csv.ts";
+import { ProtocolCollectionError } from "./directory-collection.ts";
 import { logicalChildName } from "./names.ts";
 import { collectionValidationBudget, validateRow, type ValidationBudget } from "./validate.ts";
 
@@ -147,54 +144,6 @@ export interface ProtocolCollectionFileRow {
   properties: Record<string, JSONValue>;
 }
 
-export interface DecodedProtocolCollectionFile {
-  format: CollectionFileDescriptor["format"];
-  schema: CollectionSchema;
-  /** Each row with its source position key (`line:N`, `item:N` or `row:N`). */
-  rows: Array<ProtocolCollectionFileRow & { sourceKey: string }>;
-  childSetHash: Hash;
-}
-
-export class ProtocolCollectionFileError extends Error {
-  constructor(
-    readonly kind: "schema" | "constraint" | "source",
-    message: string,
-  ) {
-    super(message);
-    this.name = "ProtocolCollectionFileError";
-  }
-}
-
-/**
- * Validate a collection-file directory exactly as spec 06 §2.1
- * orders it, and return its logical rows. Never executes authored code.
- */
-export function decodeProtocolCollectionFile(
-  descriptor: CollectionFileDescriptor,
-  sourceBytes: Uint8Array,
-  schemaBytes: Uint8Array,
-  schemas: CollectionSchemaCache = sharedCollectionSchemaCache,
-): DecodedProtocolCollectionFile {
-  if (sourceBytes.byteLength > 16 * 1024 * 1024) {
-    throw new ProtocolCollectionFileError("source", "Collection file exceeds the 16 MiB validation limit");
-  }
-  let schema: CollectionSchema;
-  try {
-    schema = schemas.compile(schemaBytes);
-  } catch (error) {
-    if (error instanceof CollectionSchemaError) throw new ProtocolCollectionFileError("schema", `Invalid schema.usl: ${error.message}`);
-    throw error;
-  }
-  if (schema.revision !== descriptor.schemaFingerprint) {
-    throw new ProtocolCollectionFileError("schema", "Collection-file schema fingerprint does not match schema.usl");
-  }
-  const { rows, childSetHash } = collectionFileRows(descriptor.format, sourceBytes, schema);
-  if (childSetHash !== descriptor.childSetHash) {
-    throw new ProtocolCollectionFileError("constraint", "Collection-file child-set hash does not match its validated rows");
-  }
-  return { format: descriptor.format, schema, rows, childSetHash };
-}
-
 /** A row's canonical member order: the schema's columns in layout order,
  * then undeclared members by UTF-8 name. Values are kept exactly. */
 export function canonicalRow(schema: Pick<CollectionSchema, "columns">, properties: Readonly<Record<string, JSONValue>>): Record<string, JSONValue> {
@@ -203,103 +152,10 @@ export function canonicalRow(schema: Pick<CollectionSchema, "columns">, properti
   return Object.fromEntries([...declared, ...extra].map((name) => [name, properties[name]!]));
 }
 
-/**
- * The exact text of a database table's file (spec 06 §2.1): one canonical
- * row per line, without null members, ordered by the UTF-8 bytes of the
- * row's stable key.
- */
-export function canonicalTableText(
-  schema: Pick<CollectionSchema, "columns">,
-  rows: ReadonlyArray<{ stableKey: string; properties: Readonly<Record<string, JSONValue>> }>,
-): string {
-  return [...rows]
-    .sort((a, b) => compareUTF8(a.stableKey, b.stableKey))
-    .map((row) => `${JSON.stringify(canonicalRow(schema, Object.fromEntries(Object.entries(row.properties).filter(([, v]) => v !== null))))}\n`)
-    .join("");
-}
-
-/** One stored table of a collection, with its compiled schema. */
-export interface CollectionTable {
-  /** The descriptor's table name, or null for the single-table form. */
-  table: string | null;
-  /** The file entry holding its rows. */
-  source: string;
-  schema: CollectionSchema;
-  /** The child-set hash the descriptor states. */
-  childSetHash: Hash;
-}
-
-/**
- * The tables of a collection descriptor, each with its schema compiled from
- * `schema.usl`: the fingerprint must match, and a multi-table descriptor must
- * name exactly the tables the schema stores (spec 06 §2.4).
- */
-export function collectionTables(
-  descriptor: ChildrenSourceDescriptor,
-  schemaBytes: Uint8Array,
-  schemas: CollectionSchemaCache = sharedCollectionSchemaCache,
-): CollectionTable[] {
-  let set;
-  try {
-    set = schemas.compileTables(schemaBytes, descriptor.type === "collection-tables" && descriptor.store === "sqlite" ? "database" : "files");
-  } catch (error) {
-    if (error instanceof CollectionSchemaError) throw new ProtocolCollectionFileError("schema", `Invalid schema.usl: ${error.message}`);
-    throw error;
-  }
-  if (set.revision !== descriptor.schemaFingerprint) {
-    throw new ProtocolCollectionFileError("schema", "Collection-file schema fingerprint does not match schema.usl");
-  }
-  const sources = collectionTableSources(descriptor);
-  if (descriptor.type === "collection-file") {
-    if (set.tables.length !== 1) {
-      throw new ProtocolCollectionFileError("schema", `A single-file collection's schema.usl stores one table; this one stores ${set.tables.map((t) => t.model).join(", ")}`);
-    }
-    return [{ ...sources[0]!, schema: set.tables[0]! }];
-  }
-  const byName = new Map(set.tables.map((t) => [t.model, t]));
-  const named = new Set(sources.map((t) => t.table!));
-  const missing = set.tables.find((t) => !named.has(t.model));
-  if (missing) throw new ProtocolCollectionFileError("schema", `The collection has no file for table ${missing.model}`);
-  return sources.map((source) => {
-    const schema = byName.get(source.table!);
-    if (!schema) throw new ProtocolCollectionFileError("schema", `schema.usl stores no table ${source.table}`);
-    return { ...source, schema };
-  });
-}
-
-export interface DecodedProtocolCollectionTable extends DecodedProtocolCollectionFile {
-  table: string | null;
-  source: string;
-}
-
-/** Validate every table of a collection directory and return their rows. */
-export function decodeProtocolCollectionTables(
-  descriptor: ChildrenSourceDescriptor,
-  sourceBytes: (source: string) => Uint8Array,
-  schemaBytes: Uint8Array,
-  schemas: CollectionSchemaCache = sharedCollectionSchemaCache,
-): DecodedProtocolCollectionTable[] {
-  return collectionTables(descriptor, schemaBytes, schemas).map((table) => {
-    const bytes = sourceBytes(table.source);
-    if (bytes.byteLength > 16 * 1024 * 1024) {
-      throw new ProtocolCollectionFileError("source", "Collection file exceeds the 16 MiB validation limit");
-    }
-    const { rows, childSetHash } = collectionFileRows(descriptor.format, bytes, table.schema);
-    if (childSetHash !== table.childSetHash) {
-      throw new ProtocolCollectionFileError("constraint", "Collection-file child-set hash does not match its validated rows");
-    }
-    if (descriptor.type === "collection-tables" && descriptor.store === "sqlite"
-      && new TextDecoder().decode(bytes) !== canonicalTableText(table.schema, rows)) {
-      throw new ProtocolCollectionFileError("source", `${table.source} is not in canonical form`);
-    }
-    return { table: table.table, source: table.source, format: descriptor.format, schema: table.schema, rows, childSetHash };
-  });
-}
-
 /** Validated rows of exact collection-file bytes, each with its source
  * position key (`line:N`, `item:N` or `row:N`), and their child-set hash. */
 export function collectionFileRows(
-  format: CollectionFileDescriptor["format"],
+  format: CollectionFileFormat,
   sourceBytes: Uint8Array,
   schema: CollectionSchema,
 ): { rows: Array<ProtocolCollectionFileRow & { sourceKey: string }>; childSetHash: Hash } {
@@ -307,14 +163,14 @@ export function collectionFileRows(
   try {
     source = new TextDecoder("utf-8", { fatal: true }).decode(sourceBytes);
   } catch {
-    throw new ProtocolCollectionFileError("source", "Collection file must be UTF-8");
+    throw new ProtocolCollectionError("source", "Collection file must be UTF-8");
   }
   const decoded = decodeCollectionFileSource(format, source, `wire:_store.${format}`, schema);
   const fileDiagnostic = decoded.diagnostics[0];
   if (fileDiagnostic) {
-    throw new ProtocolCollectionFileError(fileDiagnostic.code.startsWith("csv-") ? "constraint" : "source", fileDiagnostic.message);
+    throw new ProtocolCollectionError(fileDiagnostic.code.startsWith("csv-") ? "constraint" : "source", fileDiagnostic.message);
   }
-  if (decoded.rows.length > 100_000) throw new ProtocolCollectionFileError("source", "Collection file exceeds the 100,000 row limit");
+  if (decoded.rows.length > 100_000) throw new ProtocolCollectionError("source", "Collection file exceeds the 100,000 row limit");
   const rows: Array<ProtocolCollectionFileRow & { sourceKey: string }> = [];
   const keys = new Set<string>();
   const names = new Set<string>();
@@ -322,45 +178,23 @@ export function collectionFileRows(
     const diagnostic = raw.diagnostics[0];
     if (diagnostic) {
       const kind = diagnostic.code === "invalid-json-row" || diagnostic.code === "invalid-jsonl" ? "source" : "constraint";
-      throw new ProtocolCollectionFileError(kind, `Collection-file row ${index + 1} does not satisfy schema.usl: ${diagnostic.code}${diagnostic.field ? ` at ${diagnostic.field}` : ""}`);
+      throw new ProtocolCollectionError(kind, `Collection-file row ${index + 1} does not satisfy schema.usl: ${diagnostic.code}${diagnostic.field ? ` at ${diagnostic.field}` : ""}`);
     }
     const properties = raw.values as Record<string, JSONValue>;
     const stableKey = stableKeyFromProperties(schema.primaryKey, properties);
-    if (!stableKey) throw new ProtocolCollectionFileError("constraint", `Collection-file row ${index + 1} has no valid stable key`);
-    if (keys.has(stableKey)) throw new ProtocolCollectionFileError("constraint", `Collection-file stable key is duplicated: ${stableKey}`);
+    if (!stableKey) throw new ProtocolCollectionError("constraint", `Collection-file row ${index + 1} has no valid stable key`);
+    if (keys.has(stableKey)) throw new ProtocolCollectionError("constraint", `Collection-file stable key is duplicated: ${stableKey}`);
     keys.add(stableKey);
     let path: string;
     try {
       path = logicalChildName(schema, properties, stableKey);
     } catch (error) {
-      throw new ProtocolCollectionFileError("constraint", error instanceof Error ? error.message : String(error));
+      throw new ProtocolCollectionError("constraint", error instanceof Error ? error.message : String(error));
     }
-    if (names.has(path)) throw new ProtocolCollectionFileError("constraint", `Collection-file child name is duplicated: ${path}`);
+    if (names.has(path)) throw new ProtocolCollectionError("constraint", `Collection-file child name is duplicated: ${path}`);
     names.add(path);
     rows.push({ stableKey, path, properties, sourceKey: raw.key });
   }
   const childSetHash = collectionChildSetHash(rows.map((row) => ({ key: row.stableKey, name: row.path, properties: row.properties })));
   return { rows, childSetHash };
-}
-
-/** Encode rows for a collection file; CSV rejects any value its cells cannot reproduce. */
-export function encodeProtocolCollectionFile(
-  format: CollectionFileDescriptor["format"],
-  schema: CollectionSchema,
-  rows: readonly ProtocolCollectionFileRow[],
-): Uint8Array {
-  let source: string;
-  if (format === "json") {
-    source = `${JSON.stringify(rows.map((row) => row.properties), null, 2)}\n`;
-  } else if (format === "jsonl") {
-    source = rows.map((row) => JSON.stringify(row.properties)).join("\n") + (rows.length ? "\n" : "");
-  } else {
-    try {
-      source = encodeCsvRows(schema, rows.map((row) => row.properties));
-    } catch (error) {
-      if (error instanceof CsvEncodeError) throw new ProtocolCollectionFileError("constraint", error.message);
-      throw error;
-    }
-  }
-  return new TextEncoder().encode(source);
 }

@@ -1,11 +1,14 @@
 import {
   decodeProtocolDirectory,
+  decodeProtocolRows,
   hashObject,
-  protocolEntryObject,
+  protocolDirectoryReferences,
+  protocolObjectReferences,
   type ProtocolDirectory,
+  type ProtocolObjectKind,
 } from "@ovst/protocol";
 
-type Reference = { hash: string; kind: "file" | "directory" };
+type Reference = { hash: string; kind: ProtocolObjectKind };
 type ValidatedObject = { kind: Reference["kind"]; children: Reference[] };
 /** A structural proof for one immutable graph. It contains no object bytes.
  * Only use a previous proof as a basis after its graph has been durably retained. */
@@ -55,8 +58,8 @@ export async function validateGraphChange(
     let proof = basis?.objects.get(hash);
     if (proof?.kind !== kind) proof = undefined;
     if (!proof) {
-      const bytes = await read(hash),
-        children: Reference[] = [];
+      const bytes = await read(hash);
+      let children: Reference[] = [];
       if (kind === "directory") {
         const directory = decodeProtocolDirectory(bytes),
           names = new Set<string>();
@@ -70,10 +73,14 @@ export async function validateGraphChange(
           )
             throw Error(`Invalid or duplicate directory entry: ${entry.name}`);
           names.add(entry.name);
-          const target = protocolEntryObject(entry);
-          if (target) children.push(target);
         }
-        if (directory.childrenSource) await validateCollection(directory, read);
+        children = protocolDirectoryReferences(directory);
+        // The collection's tables and rows are validated with it, as a whole.
+        if (directory.collection) await validateCollection(directory, read);
+      } else if (kind === "table") {
+        children = protocolObjectReferences(kind, bytes);
+      } else if (kind === "rows") {
+        decodeProtocolRows(bytes);
       }
       proof = { kind, children };
     }

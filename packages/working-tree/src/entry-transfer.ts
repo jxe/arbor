@@ -1,4 +1,4 @@
-import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, verifyTreeSnapshotGraph, type TreeSnapshot, type SourceOperation } from "@ovst/protocol";
+import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, protocolObjectReferences, verifyTreeSnapshotGraph, type ProtocolObjectKind, type TreeSnapshot, type SourceOperation } from "@ovst/protocol";
 
 /** Exact editor-declared relocation. This constructs a candidate; it does not infer
  * moves from snapshots or reconcile concurrent trees. */
@@ -100,7 +100,7 @@ export function prepareEntryActions(graph: TreeSnapshot, actions: EntryActions, 
     root=remove(root,parts);
   }
   const reachable=new Set<string>();
-  function visit(hash:string,dir:boolean){if(reachable.has(hash))return;reachable.add(hash);if(dir)for(const e of decodeProtocolDirectory(objects.get(hash)!).entries){if(e.file)visit(e.file,false);else if(e.directory)visit(e.directory,true);}}
-  visit(root,true);
+  function visit(hash:string,kind:ProtocolObjectKind){if(reachable.has(hash))return;reachable.add(hash);if(kind!=="file")for(const e of protocolObjectReferences(kind,objects.get(hash)!))visit(e.hash,e.kind);}
+  visit(root,"directory");
   return {candidate:{root,objects:new Map([...objects].filter(([hash])=>reachable.has(hash)))},operations};
 }

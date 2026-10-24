@@ -237,8 +237,9 @@ A row's §2.2 form is a map with `key`, `fields`, `created` and `modified`:
 
 Values have one canonical form per type, so no projection's conventions
 reach the tree: `Text` and `Markdown` are UTF-8 strings, `Int` is a CBOR
-integer and `Number` a CBOR float (so `1` and `1.0` differ by type, not by
-spelling), `Bool` is a boolean, a `Date` is `YYYY-MM-DD` or an RFC 3339
+integer, `Number` is a number in canonical CBOR (an integral value is
+encoded as an integer, so `1` and `1.0` are one value; the schema, not the
+encoding, says which type a field has), `Bool` is a boolean, a `Date` is `YYYY-MM-DD` or an RFC 3339
 date-time in UTC, a reference to a model is the target's key value (an array
 of its pairs when the key has several fields), a reference to an enum is the
 value's name, a `Person` is a profile TreeID, and a value array is an array.

@@ -1,5 +1,6 @@
-import { collectionFileRows, compileCollectionSchema } from "@ovst/collection-schema";
-import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type CollectionFileDescriptor, type ObjectHash, type ProtocolDirectoryEntry } from "@ovst/protocol";
+import { compileLogicalSchema, encodeCollection, loadDirectoryCollection } from "@ovst/collection-schema";
+import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type LogicalRow, type ObjectHash, type ProtocolDirectoryEntry } from "@ovst/protocol";
+import type { LogicalTables } from "@ovst/usl";
 
 export interface CollectionTree {
   root: ObjectHash;
@@ -8,32 +9,38 @@ export interface CollectionTree {
   objects: Map<ObjectHash, Uint8Array>;
 }
 
-/** A tree holding one collection folder, `/items`, beside a page. */
-export function collectionTree(
-  format: CollectionFileDescriptor["format"],
-  schemaSource: string,
-  source: string,
-  objects = new Map<ObjectHash, Uint8Array>(),
-): CollectionTree {
-  const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
-  const schemaBytes = new TextEncoder().encode(schemaSource), sourceBytes = new TextEncoder().encode(source);
-  const schema = compileCollectionSchema(schemaBytes);
-  const store = `_store.${format}` as CollectionFileDescriptor["source"];
-  const childrenSource: CollectionFileDescriptor = {
-    version: 1, type: "collection-file", format, source: store, schemaSource: "schema.usl",
-    schemaFingerprint: schema.revision, childSetHash: collectionFileRows(format, sourceBytes, schema).childSetHash,
-  };
-  const entries: ProtocolDirectoryEntry[] = [{ name: store, file: put(sourceBytes) }, { name: "schema.usl", file: put(schemaBytes) }]
-    .sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-  const collection = put(encodeProtocolDirectory({ type: "directory", entries, childrenSource }));
-  const page = put(new TextEncoder().encode("# Notes\n"));
-  const root = put(encodeProtocolDirectory({ type: "directory", entries: [{ name: "items", directory: collection }, { name: "notes.md", file: page }] }));
-  return { root, collection, objects };
+/** The time test rows are stamped with unless they say otherwise. */
+export const T0 = "2026-10-24T09:00:00.000Z";
+
+/** A logical row keyed by `id`. */
+export function idRow(id: string, fields: LogicalRow["fields"] = {}, created = T0, modified = created): LogicalRow {
+  return { key: [["id", id]], fields, created, modified };
 }
 
-/** The `_store.*` text of `/items` in `root`. */
-export function collectionSource(root: ObjectHash, objects: ReadonlyMap<ObjectHash, Uint8Array>): string {
+/** A collection directory holding `schema.usl` and `tables`, with its objects added to `objects`. */
+export function collectionDirectory(schemaSource: string, tables: LogicalTables, objects: Map<ObjectHash, Uint8Array>, extra: ProtocolDirectoryEntry[] = []): ObjectHash {
+  const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
+  const schemaBytes = new TextEncoder().encode(schemaSource);
+  const encoded = encodeCollection(compileLogicalSchema(schemaBytes), tables);
+  for (const bytes of encoded.objects.values()) put(bytes);
+  const entries = [{ name: "schema.usl", file: put(schemaBytes) }, ...extra].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+  return put(encodeProtocolDirectory({ type: "directory", entries, collection: encoded.reference }));
+}
+
+/** A tree holding one collection folder, `/items`, beside a page. */
+export function collectionTree(schemaSource: string, tables: LogicalTables, objects = new Map<ObjectHash, Uint8Array>()): CollectionTree {
+  const collection = collectionDirectory(schemaSource, tables, objects);
+  const page = new TextEncoder().encode("# Notes\n");
+  objects.set(hashObject(page), page);
+  const root = encodeProtocolDirectory({ type: "directory", entries: [{ name: "items", directory: collection }, { name: "notes.md", file: hashObject(page) }] });
+  objects.set(hashObject(root), root);
+  return { root: hashObject(root), collection, objects };
+}
+
+/** The rows of `/items` in `root`. */
+export async function collectionRows(root: ObjectHash, objects: ReadonlyMap<ObjectHash, Uint8Array>, folder = "items"): Promise<LogicalTables> {
+  const load = async (hash: ObjectHash) => objects.get(hash) ?? Promise.reject(new Error(`missing ${hash}`));
   const top = decodeProtocolDirectory(objects.get(root)!);
-  const items = decodeProtocolDirectory(objects.get(top.entries.find((e) => e.name === "items")!.directory!)!);
-  return new TextDecoder().decode(objects.get(items.entries.find((e) => e.name === (items.childrenSource as CollectionFileDescriptor).source)!.file!)!);
+  const items = decodeProtocolDirectory(objects.get(top.entries.find((e) => e.name === folder)!.directory!)!);
+  return (await loadDirectoryCollection(items, load))!.tables;
 }

@@ -1,8 +1,9 @@
-import { stableJSONString, type JSONValue } from "@ovst/protocol";
-import type { CollectionSchema } from "./compile.ts";
-import { canonicalRow } from "./row-replay.ts";
+import { stableJSONString, type JSONValue, type LogicalRow } from "@ovst/protocol";
+import type { LogicalModel } from "@ovst/usl";
+import { canonicalMany } from "./row-replay.ts";
 
 type Row = Record<string, JSONValue>;
+type MergeKind = "many" | "ordered" | "markdown";
 
 /** Two sides changed one field (or, with `field: null`, one side deleted a
  * row the other changed) to different values. `current` is the value kept;
@@ -62,7 +63,7 @@ function mergeMembers(base: JSONValue[], candidate: JSONValue[], current: JSONVa
 
 /** Merge one row both sides changed, field by field. */
 function mergeRow(
-  schema: CollectionSchema,
+  merge: ReadonlyMap<string, MergeKind>,
   key: string,
   base: Row,
   candidate: Row,
@@ -80,7 +81,7 @@ function mergeRow(
     else if (same(c, u) || same(c, b)) value = u;
     else if (same(u, b)) value = c;
     else {
-      const kind = schema.merge.get(field);
+      const kind = merge.get(field);
       const lists = [list(b), list(c), list(u)];
       let merged: JSONValue | undefined | null = null;
       if ((kind === "many" || kind === "ordered") && lists.every((l) => l !== null)) {
@@ -96,27 +97,51 @@ function mergeRow(
     }
     if (value !== undefined) row[field] = value;
   }
-  return canonicalRow(schema, row);
+  return row;
+}
+
+/** How each field of a model merges (spec 10 §7): absent means as one value. */
+function mergeKinds(model: LogicalModel): Map<string, MergeKind> {
+  return new Map(model.fields.flatMap((f): Array<[string, MergeKind]> =>
+    f.arity === "many" ? [[f.name, f.ordered ? "ordered" : "many"]] : f.type === "Markdown" ? [[f.name, "markdown"]] : []));
+}
+
+const flat = (row: LogicalRow): Row => ({ ...row.fields, created: row.created, modified: row.modified });
+/** A row as a choice shows it: its key and fields, without its times. */
+const whole = (row: LogicalRow): Row => ({ ...Object.fromEntries(row.key), ...row.fields });
+
+function logical(model: LogicalModel, key: LogicalRow["key"], row: Row): LogicalRow {
+  const { created, modified, ...rest } = row;
+  const fields: Row = {};
+  for (const f of model.fields) {
+    const value = rest[f.name];
+    if (value === undefined || value === null) continue;
+    const next = f.arity === "many" && Array.isArray(value) ? canonicalMany(f, value) : value;
+    if (next !== undefined) fields[f.name] = next;
+  }
+  return { key, fields, created: created as string, modified: modified as string };
 }
 
 /**
- * `collection-file-fields-v1` (spec 10 §7): merge two changes to a
- * collection's rows by row identity, then member by member. A row only one
- * side changed takes that side; a row both changed merges field by field:
- * a single value conflicts only when the two set different values,
- * many-valued fields merge per member (and `ordered` ones as a sequence),
- * and Markdown merges by lines. Deleting a row conflicts only with a
- * concurrent change to it. Each conflict keeps current's value.
+ * `collection-fields-v1` (spec 10 §7): merge two changes to one model's rows
+ * by row identity, then field by field. A row only one side changed takes
+ * that side; a row both changed merges field by field: a single value
+ * conflicts only when the two set different values, many-valued fields merge
+ * per member (and `ordered` ones as a sequence), and Markdown merges by
+ * lines. `created` keeps current's and `modified` takes the later. Deleting
+ * a row conflicts only with a concurrent change to it. Each conflict keeps
+ * current's value.
  */
 export function mergeCollectionRows(
-  schema: CollectionSchema,
-  base: ReadonlyMap<string, Row>,
-  candidate: ReadonlyMap<string, Row>,
-  current: ReadonlyMap<string, Row>,
+  model: LogicalModel,
+  base: ReadonlyMap<string, LogicalRow>,
+  candidate: ReadonlyMap<string, LogicalRow>,
+  current: ReadonlyMap<string, LogicalRow>,
   text?: TextMerge,
-): { rows: Map<string, Row | null>; conflicts: RowFieldConflict[]; mergedRows: number } {
-  const rows = new Map<string, Row | null>();
+): { rows: Map<string, LogicalRow | null>; conflicts: RowFieldConflict[]; mergedRows: number } {
+  const rows = new Map<string, LogicalRow | null>();
   const conflicts: RowFieldConflict[] = [];
+  const merge = mergeKinds(model);
   let mergedRows = 0;
   for (const key of new Set([...current.keys(), ...candidate.keys(), ...base.keys()])) {
     const b = base.get(key), c = candidate.get(key), u = current.get(key);
@@ -124,11 +149,11 @@ export function mergeCollectionRows(
     if (same(u, b)) { rows.set(key, c ?? null); mergedRows++; continue; }
     if (!c || !u) {
       // Deleted on one side and changed on the other: keep current's.
-      conflicts.push({ row: key, field: null, current: u ?? null, candidate: c ?? null });
+      conflicts.push({ row: key, field: null, current: u ? whole(u) : null, candidate: c ? whole(c) : null });
       rows.set(key, u ?? null);
       continue;
     }
-    rows.set(key, mergeRow(schema, key, b ?? {}, c, u, text, conflicts));
+    rows.set(key, logical(model, u.key, mergeRow(merge, key, b ? flat(b) : {}, flat(c), flat(u), text, conflicts)));
     mergedRows++;
   }
   return { rows, conflicts, mergedRows };

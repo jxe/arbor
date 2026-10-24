@@ -1,116 +1,86 @@
 import {
-  collectionTableSources,
   decodeProtocolDirectory,
   executeRowOperations,
-  ROW_TIME,
+  logicalRowKey,
   stableJSONString,
-  type ChildrenSourceDescriptor,
   type JSONValue,
+  type LogicalRow,
   type ObjectHash,
   type ProtocolDirectory,
   type RowMember,
   type RowOperation,
 } from "@ovst/protocol";
-import type { CollectionSchema } from "./compile.ts";
-import { collectionFileRows, collectionTables, type CollectionTable } from "./collection-file.ts";
+import type { LogicalModel } from "@ovst/usl";
+import { loadDirectoryCollection } from "./directory-collection.ts";
 import { replayCollectionRows } from "./row-replay.ts";
-import { SYSTEM_COLUMNS } from "./csv.ts";
 
-type Row = Record<string, JSONValue>;
 type Read = (hash: ObjectHash) => Promise<Uint8Array>;
 type Collection = RowOperation["collection"];
 
 const json = (value: unknown) => stableJSONString(value ?? null);
 const scalar = (value: JSONValue): value is RowMember => typeof value === "string" || typeof value === "number" || typeof value === "boolean";
 
-/** The operations that turn one row into another, or null when its arrays
- * cannot be stated member by member. */
-function rowEdits(schema: CollectionSchema, before: Row, after: Row, op: (fields: Record<string, unknown>) => void): boolean {
+/** The operations that turn one row into another, each stamped with the
+ * row's new `modified`; false when no operations can. */
+function rowEdits(model: LogicalModel, before: LogicalRow, after: LogicalRow, op: (fields: Record<string, unknown>) => void): boolean {
   // A row's times come from its operations' `at`, never from a set.
-  if (json(before.created) !== json(after.created)) return false;
-  const at = json(before.modified) === json(after.modified) ? undefined : after.modified;
-  if (at !== undefined && !(typeof at === "string" && ROW_TIME.test(at))) return false;
+  if (before.created !== after.created || before.modified === after.modified) return false;
   let count = 0;
-  const timed = (fields: Record<string, unknown>) => { count++; op(at === undefined ? fields : { ...fields, at }); };
-  if (!fieldEdits(schema, before, after, timed)) return false;
-  return at === undefined || count > 0;
+  const timed = (fields: Record<string, unknown>) => { count++; op({ ...fields, at: after.modified }); };
+  return fieldEdits(model, before, after, timed) && count > 0;
 }
 
-function fieldEdits(schema: CollectionSchema, before: Row, after: Row, op: (fields: Record<string, unknown>) => void): boolean {
-  for (const field of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    if (SYSTEM_COLUMNS.includes(field)) continue;
-    const b = before[field], a = after[field];
+function fieldEdits(model: LogicalModel, before: LogicalRow, after: LogicalRow, op: (fields: Record<string, unknown>) => void): boolean {
+  for (const field of model.fields) {
+    const b = before.fields[field.name], a = after.fields[field.name];
     if (json(b) === json(a)) continue;
-    const kind = schema.merge.get(field);
     const lists = [b ?? [], a ?? []];
-    if ((kind === "many" || kind === "ordered") && lists.every((l) => Array.isArray(l) && l.every(scalar))) {
+    if (field.arity === "many" && lists.every((l) => Array.isArray(l) && l.every(scalar))) {
       const [from, to] = lists as [RowMember[], RowMember[]];
       const target = new Set(to.map(json)), source = new Set(from.map(json));
       const working = from.filter((m) => target.has(json(m)));
-      for (const member of from) if (!target.has(json(member))) op({ kind: "rowDisconnect", field, member });
-      for (const member of to) if (!source.has(json(member))) { op({ kind: "rowConnect", field, member }); working.push(member); }
+      for (const member of from) if (!target.has(json(member))) op({ kind: "rowDisconnect", field: field.name, member });
+      for (const member of to) if (!source.has(json(member))) { op({ kind: "rowConnect", field: field.name, member }); working.push(member); }
+      if (!field.ordered) continue;
       for (const [index, member] of to.entries()) {
         if (json(working[index]) === json(member)) continue;
-        if (kind !== "ordered") return false;
-        const after = index ? to[index - 1]! : null;
-        op({ kind: "rowMove", field, member, after });
+        op({ kind: "rowMove", field: field.name, member, after: index ? to[index - 1]! : null });
         working.splice(working.findIndex((m) => json(m) === json(member)), 1);
         working.splice(index, 0, member);
       }
       continue;
     }
-    op({ kind: "rowSet", field, before: b ?? null, value: a ?? null });
+    op({ kind: "rowSet", field: field.name, before: b ?? null, value: a ?? null });
   }
   return true;
 }
 
-/** Row operations for one collection directory whose collection files changed. */
+/** Row operations for one collection directory whose rows changed, or null when only operations on its rows can't explain the change. */
 async function collectionEdits(path: string, object: ObjectHash, before: ProtocolDirectory, after: ProtocolDirectory, read: Read): Promise<RowOperation[] | null> {
-  const descriptor = before.childrenSource!, next = after.childrenSource!;
-  const sources = new Set(collectionTableSources(descriptor).map((t) => t.source));
-  const shape = (d: ChildrenSourceDescriptor) => stableJSONString(d.type === "collection-file"
-    ? { ...d, childSetHash: null }
-    : { ...d, tables: d.tables.map((t) => ({ ...t, childSetHash: null })) });
-  if (shape(descriptor) !== shape(next)) return null;
-  const entry = (directory: ProtocolDirectory, name: string) => directory.entries.find((e) => e.name === name);
-  const names = new Set([...before.entries, ...after.entries].map((e) => e.name));
-  for (const name of names)
-    if (!sources.has(name) && stableJSONString(entry(before, name) ?? null) !== stableJSONString(entry(after, name) ?? null)) return null;
-  const schemaFile = entry(before, descriptor.schemaSource)?.file;
-  if (!schemaFile) return null;
-  const collection: Collection = { material: { kind: "basis", path, object } };
-  const operations: RowOperation[] = [];
-  let tables: CollectionTable[];
+  if (stableJSONString(before.entries) !== stableJSONString(after.entries)) return null;
+  if (before.collection!.modelFingerprint !== after.collection!.modelFingerprint) return null;
+  let left, right;
   try {
-    tables = collectionTables(descriptor, await read(schemaFile));
+    [left, right] = [await loadDirectoryCollection(before, read), await loadDirectoryCollection(after, read)];
   } catch {
     return null;
   }
-  for (const { schema, source } of tables) {
-    const sourceBefore = entry(before, source)?.file, sourceAfter = entry(after, source)?.file;
-    if (!sourceBefore || !sourceAfter) return null;
-    if (sourceBefore === sourceAfter) continue;
-    let rowsBefore: Map<string, Row>, rowsAfter: Map<string, Row>;
-    try {
-      const decode = async (hash: ObjectHash) => new Map(collectionFileRows(descriptor.format, await read(hash), schema).rows.map((row) => [row.stableKey, row.properties]));
-      [rowsBefore, rowsAfter] = [await decode(sourceBefore), await decode(sourceAfter)];
-    } catch {
-      return null;
-    }
+  const collection: Collection = { material: { kind: "basis", path, object } };
+  const operations: RowOperation[] = [];
+  for (const model of left!.schema.models) {
+    const rowsBefore = new Map((left!.tables[model.name] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow]));
+    const rowsAfter = new Map((right!.tables[model.name] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow]));
     for (const [row, value] of rowsAfter) {
       const prior = rowsBefore.get(row);
-      const op = (fields: Record<string, unknown>) => operations.push({ key: "", collection, table: schema.model, row, ...fields } as RowOperation);
+      const op = (fields: Record<string, unknown>) => operations.push({ key: "", collection, table: model.name, row, ...fields } as RowOperation);
       if (!prior) {
-        // A row created with equal times was created by a timed operation.
-        const { created, modified, ...values } = value;
-        if (created !== undefined && json(created) === json(modified) && typeof created === "string" && ROW_TIME.test(created))
-          op({ kind: "rowCreate", values, at: created });
-        else op({ kind: "rowCreate", values: value });
-      }
-      else if (!rowEdits(schema, prior, value, op)) return null;
+        // A created row's times are its operation's.
+        if (value.created !== value.modified) return null;
+        op({ kind: "rowCreate", values: { ...Object.fromEntries(value.key), ...value.fields }, at: value.created });
+      } else if (json(prior) !== json(value) && !rowEdits(model, prior, value, op)) return null;
     }
     for (const row of rowsBefore.keys())
-      if (!rowsAfter.has(row)) operations.push({ key: "", kind: "rowDelete", collection, table: schema.model, row });
+      if (!rowsAfter.has(row)) operations.push({ key: "", kind: "rowDelete", collection, table: model.name, row });
   }
   return operations;
 }
@@ -119,20 +89,20 @@ async function collectionEdits(path: string, object: ObjectHash, before: Protoco
  * The row operations that explain a change from `basis` to `candidate`, when
  * that change is only edits to collection rows and replaying the operations
  * reproduces `candidate` exactly (spec 10 §4.1). Null otherwise: any other
- * change, or bytes replay would write differently, stays a snapshot.
+ * change stays a snapshot.
  */
 export async function deriveRowOperations(basis: ObjectHash, candidate: ObjectHash, read: Read): Promise<RowOperation[] | null> {
   const operations: RowOperation[] = [];
   const walk = async (path: string, before: ObjectHash, after: ObjectHash): Promise<boolean> => {
     if (before === after) return true;
     const [left, right] = [decodeProtocolDirectory(await read(before)), decodeProtocolDirectory(await read(after))];
-    if (left.childrenSource && right.childrenSource) {
+    if (left.collection && right.collection) {
       const edits = await collectionEdits(path, before, left, right, read);
       if (!edits?.length) return false;
       operations.push(...edits);
       return true;
     }
-    if (left.childrenSource || right.childrenSource) return false;
+    if (left.collection || right.collection) return false;
     const names = new Set([...left.entries, ...right.entries].map((e) => e.name));
     for (const name of names) {
       const a = left.entries.find((e) => e.name === name), b = right.entries.find((e) => e.name === name);

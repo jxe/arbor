@@ -242,9 +242,21 @@ does:
   - Swift: `UpdateCoordinator` gains a row-change kind beside
     `appendStructure` (`UpdateCoordinator+LocalChanges.swift`).
 
+- Cost by edit, not by collection size (Joe, 2026-10-24: the merge sidecar is
+  already too slow). `collection-fields-v1` and row replay load and re-encode
+  whole tables today. Both should compare chunk hashes first: decode only
+  the chunks both sides changed (merge) or the chunks holding the operated
+  keys (replay), and reuse every other chunk when re-encoding, re-chunking
+  from the first changed chunk until boundaries line up again. Benchmark a
+  50,000-row collection with one concurrent edit on each side, and a one-row
+  fast-forward on it. Performance 004 doesn't cover this: the engine holds a
+  collection as one opaque value.
+
 **Done when:**
 - Two clients edit different fields, and different members, of one row
   offline and both edits land.
+- A concurrent one-row edit to a 50,000-row collection merges, and a one-row
+  fast-forward accepts, in time close to a one-chunk collection.
 - The same field edited twice gives a decision scoped to that field, which a
   resolution closes.
 - A `games.usl` collection projected as files holds one `<Table>.jsonl` per

@@ -1,4 +1,4 @@
-import { collectionSourceNames, compareUTF8, compareUTF8Bytes, decodeCBOR, decodeChildrenSourceDescriptor, encodeCanonicalCBOR, sha256, type ChildrenSourceDescriptor } from "./index.ts";
+import { compareUTF8, compareUTF8Bytes, decodeCBOR, decodeCollectionReference, decodeProtocolTable, encodeCanonicalCBOR, sha256, type CollectionReference } from "./index.ts";
 
 export type ObjectHash = string;
 
@@ -11,13 +11,35 @@ export type ProtocolDirectoryEntry =
 export interface ProtocolDirectory {
   type: "directory";
   entries: ProtocolDirectoryEntry[];
-  childrenSource?: ChildrenSourceDescriptor;
+  /** The rows of the folder's logical collection (spec 06 §2.1); its `schema.usl` is an entry. */
+  collection?: CollectionReference;
 }
 
 export function protocolEntryObject(entry: ProtocolDirectoryEntry): { kind: ProtocolEntryKind; hash: ObjectHash } | undefined {
   if (entry.file !== undefined) return { kind: "file", hash: entry.file };
   if (entry.directory !== undefined) return { kind: "directory", hash: entry.directory };
   return undefined;
+}
+
+/** What an object is, which its referrer says: an entry's file or directory, or a collection's table or rows chunk. */
+export type ProtocolObjectKind = ProtocolEntryKind | "table" | "rows";
+
+/** The objects one directory reaches directly: its entries' objects, then its collection's tables. */
+export function protocolDirectoryReferences(directory: ProtocolDirectory): Array<{ kind: ProtocolObjectKind; hash: ObjectHash }> {
+  const references: Array<{ kind: ProtocolObjectKind; hash: ObjectHash }> = directory.entries.flatMap((entry) => protocolEntryObject(entry) ?? []);
+  for (const { table } of directory.collection?.tables ?? []) references.push({ kind: "table", hash: table });
+  return references;
+}
+
+/**
+ * The objects an object of `kind` reaches directly: a directory's entries and
+ * tables, a table's rows chunks. Files and rows reach nothing. Every walk of
+ * the object graph follows these edges.
+ */
+export function protocolObjectReferences(kind: ProtocolObjectKind, bytes: Uint8Array): Array<{ kind: ProtocolObjectKind; hash: ObjectHash }> {
+  if (kind === "directory") return protocolDirectoryReferences(decodeProtocolDirectory(bytes));
+  if (kind === "table") return decodeProtocolTable(bytes).chunks.map(({ chunk }) => ({ kind: "rows" as const, hash: chunk }));
+  return [];
 }
 
 export type ResolvedProtocolLogicalNode = (
@@ -69,7 +91,7 @@ export function decodeProtocolDirectory(bytes: Uint8Array): ProtocolDirectory {
   if (record.type === "directory" && Array.isArray(record.entries)
     && (keys.length === 2 || keys.length === 3)
     && keys.includes("type") && keys.includes("entries")
-    && keys.every((key) => key === "type" || key === "entries" || key === "childrenSource")) {
+    && keys.every((key) => key === "type" || key === "entries" || key === "collection")) {
     let previousName: Uint8Array | undefined;
     const names = new Set<string>();
     const entries = record.entries.map((entry) => {
@@ -105,18 +127,9 @@ export function decodeProtocolDirectory(bytes: Uint8Array): ProtocolDirectory {
         ...(typeof item.tree === "string" ? { tree: item.tree } : {}),
       } as ProtocolDirectoryEntry;
     });
-    const childrenSource = record.childrenSource === undefined
-      ? undefined
-      : decodeChildrenSourceDescriptor(record.childrenSource);
-    if (childrenSource) {
-      const named = collectionSourceNames(childrenSource);
-      if (!named.every((name) => entries.find((entry) => entry.name === name)?.file)) throw new Error("Collection-file sources must be ordinary file entries");
-      const allowed = new Set([...named, "_index.md"]);
-      if (entries.some((entry) => !allowed.has(entry.name))) {
-        throw new Error("Collection-file directory mixes immediate-child backings");
-      }
-    }
-    const directory: ProtocolDirectory = { type: "directory", entries, ...(childrenSource ? { childrenSource } : {}) };
+    const collection = record.collection === undefined ? undefined : decodeCollectionReference(record.collection);
+    if (collection && !entries.find((entry) => entry.name === "schema.usl")?.file) throw new Error("A collection's schema.usl must be a file entry");
+    const directory: ProtocolDirectory = { type: "directory", entries, ...(collection ? { collection } : {}) };
     const canonical = encodeCanonicalCBOR(directory);
     if (canonical.length !== bytes.length || canonical.some((byte, index) => byte !== bytes[index])) throw new Error("Directory object is not canonical CBOR");
     return directory;
@@ -149,7 +162,6 @@ export async function resolveProtocolLogicalNode(root: ObjectHash, path: string,
   let directory = decodeProtocolDirectory(await loadVerified(root, load));
   if (!parts.length) return { kind: "directory", directory, objectName: "", ...await directoryBody(directory, undefined, load) };
   for (const [index, part] of parts.entries()) {
-    if (directory.childrenSource && collectionSourceNames(directory.childrenSource).includes(part)) return null;
     const exact = directory.entries.find((entry) => entry.name === part);
     const sibling = directory.entries.find((entry) => entry.name === `${part}.md`);
     const last = index === parts.length - 1;
