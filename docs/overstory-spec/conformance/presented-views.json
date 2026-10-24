@@ -6700,5 +6700,597 @@
         ]
       }
     }
+  ],
+  "logical": [
+    {
+      "fixture": "games",
+      "tables": {
+        "Game": [
+          {
+            "key": [
+              [
+                "id",
+                "g1"
+              ]
+            ],
+            "fields": {
+              "name": "Wingspan",
+              "status": "Polished",
+              "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+              "tags": [
+                "cards",
+                "engine"
+              ],
+              "authors": [
+                "p-ada"
+              ]
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-10-01T09:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "g2"
+              ]
+            ],
+            "fields": {
+              "name": "Hanabi",
+              "status": "Draft",
+              "authors": [
+                "p-ada",
+                "p-bo"
+              ]
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-10-03T09:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "g3"
+              ]
+            ],
+            "fields": {
+              "name": "Untitled",
+              "status": "Playtested"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "List": [
+          {
+            "key": [
+              [
+                "id",
+                "l1"
+              ]
+            ],
+            "fields": {
+              "name": "Favorites",
+              "games": [
+                "g2",
+                "g1"
+              ]
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-10-02T09:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "l2"
+              ]
+            ],
+            "fields": {
+              "name": "To try",
+              "games": [
+                "g1"
+              ]
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-10-05T09:00:00.000Z"
+          }
+        ]
+      },
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "description": "Birds and eggs.\nEngine building.\n\nThe rules are long.",
+            "tags": [
+              "cards",
+              "engine"
+            ],
+            "authors": [
+              "p-ada"
+            ],
+            "status": "Polished",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-10-01T09:00:00.000Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "p-ada",
+              "p-bo"
+            ],
+            "status": "Draft",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-10-03T09:00:00.000Z"
+          },
+          {
+            "id": "g3",
+            "name": "Untitled",
+            "status": "Playtested",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "List": [
+          {
+            "id": "l1",
+            "name": "Favorites",
+            "games": [
+              "g2",
+              "g1"
+            ],
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-10-02T09:00:00.000Z"
+          },
+          {
+            "id": "l2",
+            "name": "To try",
+            "games": [
+              "g1"
+            ],
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-10-05T09:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "excellences",
+      "tables": {
+        "Excellence": [
+          {
+            "key": [
+              [
+                "id",
+                "e1"
+              ]
+            ],
+            "fields": {
+              "name": "Clear writing",
+              "assessment": "Good",
+              "leads": [
+                "p-cy",
+                "p-di"
+              ],
+              "projects": [
+                "pr1"
+              ]
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "e2"
+              ]
+            ],
+            "fields": {
+              "name": "Fast reviews",
+              "assessment": "Current focus",
+              "leads": [
+                "p-cy"
+              ],
+              "projects": [
+                "pr1",
+                "pr2"
+              ]
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "e3"
+              ]
+            ],
+            "fields": {
+              "name": "Hiring",
+              "assessment": "Not recorded"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Project": [
+          {
+            "key": [
+              [
+                "id",
+                "pr1"
+              ]
+            ],
+            "fields": {
+              "name": "Handbook"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "pr2"
+              ]
+            ],
+            "fields": {
+              "name": "Launch"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ]
+      },
+      "rows": {
+        "Excellence": [
+          {
+            "id": "e1",
+            "name": "Clear writing",
+            "assessment": "Good",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "e2",
+            "name": "Fast reviews",
+            "assessment": "Current focus",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "e3",
+            "name": "Hiring",
+            "assessment": "Not recorded",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Project": [
+          {
+            "id": "pr1",
+            "name": "Handbook",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "pr2",
+            "name": "Launch",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Excellence_leads": [
+          {
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z",
+            "excellence": "e1",
+            "person": "p-cy"
+          },
+          {
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z",
+            "excellence": "e1",
+            "person": "p-di"
+          },
+          {
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z",
+            "excellence": "e2",
+            "person": "p-cy"
+          }
+        ],
+        "Excellence_projects": [
+          {
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z",
+            "excellence": "e1",
+            "project": "pr1"
+          },
+          {
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z",
+            "excellence": "e2",
+            "project": "pr1"
+          },
+          {
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z",
+            "excellence": "e2",
+            "project": "pr2"
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "tasks",
+      "tables": {
+        "Project": [
+          {
+            "key": [
+              [
+                "id",
+                "pj1"
+              ]
+            ],
+            "fields": {
+              "name": "Book",
+              "color": "#336699"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "pj2"
+              ]
+            ],
+            "fields": {
+              "name": "Zine"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Task": [
+          {
+            "key": [
+              [
+                "id",
+                "t1"
+              ]
+            ],
+            "fields": {
+              "title": "Draft",
+              "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+              "points": 3,
+              "done": false,
+              "owner": "p-ed",
+              "labels": [
+                "writing"
+              ]
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "t2"
+              ]
+            ],
+            "fields": {
+              "title": "Outline",
+              "done": true
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "t3"
+              ]
+            ],
+            "fields": {
+              "title": "Print",
+              "done": false,
+              "owner": "p-fay"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "t4"
+              ]
+            ],
+            "fields": {
+              "title": "Someday",
+              "done": false
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ]
+      },
+      "rows": {
+        "Task": [
+          {
+            "id": "t1",
+            "title": "Draft",
+            "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
+            "points": 3,
+            "done": false,
+            "labels": [
+              "writing"
+            ],
+            "owner": "p-ed",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "t2",
+            "title": "Outline",
+            "done": true,
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "t3",
+            "title": "Print",
+            "done": false,
+            "owner": "p-fay",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "t4",
+            "title": "Someday",
+            "done": false,
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Project": [
+          {
+            "id": "pj1",
+            "name": "Book",
+            "color": "#336699",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "pj2",
+            "name": "Zine",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "sorted",
+      "tables": {
+        "Game": [
+          {
+            "key": [
+              [
+                "id",
+                "g1"
+              ]
+            ],
+            "fields": {
+              "name": "Wingspan",
+              "authors": [
+                "p-ada",
+                "p-zed"
+              ],
+              "tags": [
+                "t1",
+                "t2"
+              ]
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "g2"
+              ]
+            ],
+            "fields": {
+              "name": "Hanabi",
+              "tags": [
+                "t2"
+              ]
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Tag": [
+          {
+            "key": [
+              [
+                "id",
+                "t1"
+              ]
+            ],
+            "fields": {
+              "name": "strategy"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "t2"
+              ]
+            ],
+            "fields": {
+              "name": "cards"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ]
+      },
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "authors": [
+              "p-ada",
+              "p-zed"
+            ],
+            "tags": [
+              "t1",
+              "t2"
+            ],
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "tags": [
+              "t2"
+            ],
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Tag": [
+          {
+            "id": "t1",
+            "name": "strategy",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "t2",
+            "name": "cards",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ]
+      }
+    }
   ]
 }

@@ -19,6 +19,7 @@ private struct Vectors {
     var fixtures: [String: Fixture]
     var presentations: [[String: JSONValue]]
     var intents: [[String: JSONValue]]
+    var logical: [[String: JSONValue]]
 }
 
 private enum VectorError: Error { case malformed(String) }
@@ -28,7 +29,8 @@ private func loadVectors() throws -> Vectors {
     guard case .object(let file) = try JSONDecoder().decode(JSONValue.self, from: data),
           case .object(let fixtures)? = file["fixtures"],
           case .array(let presentations)? = file["presentations"],
-          case .array(let intents)? = file["intents"]
+          case .array(let intents)? = file["intents"],
+          case .array(let logical)? = file["logical"]
     else { throw VectorError.malformed("presented-views.json") }
     var decoded: [String: Fixture] = [:]
     for (name, value) in fixtures {
@@ -41,7 +43,8 @@ private func loadVectors() throws -> Vectors {
     return Vectors(
         fixtures: decoded,
         presentations: try presentations.map(objectOf),
-        intents: try intents.map(objectOf)
+        intents: try intents.map(objectOf),
+        logical: try logical.map(objectOf)
     )
 }
 
@@ -103,6 +106,30 @@ private func intentOf(_ value: JSONValue) throws -> ViewIntent {
     }
 }
 
+/// Logical tables: each row's key as `[name, value]` pairs, its fields and times.
+private func logicalTablesOf(_ value: JSONValue?) throws -> USLLogicalTables {
+    guard let value else { throw VectorError.malformed("logical tables") }
+    var tables: USLLogicalTables = [:]
+    for (model, list) in try objectOf(value) {
+        guard case .array(let items) = list else { throw VectorError.malformed(model) }
+        tables[model] = try items.map { item in
+            let row = try objectOf(item)
+            guard case .array(let pairs)? = row["key"],
+                  case .string(let created)? = row["created"],
+                  case .string(let modified)? = row["modified"]
+            else { throw VectorError.malformed("\(model) row") }
+            let key = try pairs.map { pair -> USLKeyPart in
+                guard case .array(let p) = pair, p.count == 2, case .string(let name) = p[0] else {
+                    throw VectorError.malformed("\(model) key")
+                }
+                return USLKeyPart(name: name, value: p[1])
+            }
+            return USLLogicalRow(key: key, fields: try row["fields"].map(objectOf) ?? [:], created: created, modified: modified)
+        }
+    }
+    return tables
+}
+
 private func rowsJSON(_ rows: USLRowsByTable) -> JSONValue {
     .object(rows.mapValues { .array($0.map(JSONValue.object)) })
 }
@@ -160,6 +187,20 @@ struct PresentedViewTests {
             #expect(rowsJSON(after) == item["rows"], "\(name)")
             #expect(try checkRows(fixture.schema, after) == [], "\(name)")
             _ = try presentView(fixture.schema, rows: after, options: options)
+        }
+    }
+
+    @Test("Logical tables become the shared vectors' layout rows")
+    func logicalRows() throws {
+        let vectors = try loadVectors()
+        #expect(!vectors.logical.isEmpty)
+        for item in vectors.logical {
+            let name = string(item["fixture"]) ?? "?"
+            let fixture = try #require(vectors.fixtures[name], "\(name)")
+            let layout = try uslLayout(fixture.schema, store: .files)
+            let rows = try uslRowsFromLogical(fixture.schema, layout: layout, tables: try logicalTablesOf(item["tables"]))
+            #expect(rowsJSON(rows) == item["rows"], "\(name)")
+            #expect(try checkRows(fixture.schema, rows) == [], "\(name)")
         }
     }
 

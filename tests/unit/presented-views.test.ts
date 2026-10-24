@@ -9,10 +9,12 @@ import {
   firstParagraph,
   layoutOf,
   presentView,
+  rowsFromLogical,
   viewEdits,
   viewsOf,
   ViewError,
   type CheckResult,
+  type LogicalTables,
   type Presentation,
   type RowEdit,
   type RowsByTable,
@@ -25,6 +27,7 @@ interface Vectors {
   fixtures: Record<string, Fixture>;
   presentations: Array<{ name: string; fixture: string; model?: string; view?: number; query?: string; expected: Presentation }>;
   intents: Array<{ name: string; fixture: string; model?: string; view?: number; intent: ViewIntent; operations?: RowEdit[]; rows?: RowsByTable; error?: true }>;
+  logical: Array<{ fixture: string; tables: LogicalTables; rows: RowsByTable }>;
 }
 
 const vectors = JSON.parse(readFileSync(join(import.meta.dir, "../../docs/overstory-spec/conformance/presented-views.json"), "utf8")) as Vectors;
@@ -87,6 +90,15 @@ describe("presented views: shared vectors", () => {
       expect(checkRows(schema, after)).toEqual([]);
       expect(verify(schema, after)).toEqual([]);
       expect(() => presentView(schema, after, options)).not.toThrow();
+    });
+  }
+
+  for (const item of vectors.logical) {
+    test(`logical rows: ${item.fixture}`, () => {
+      const schema = schemaOf(item.fixture);
+      const rows = rowsFromLogical(schema, layoutOf(schema, { store: "files" }), item.tables);
+      expect(rows).toEqual(item.rows);
+      expect(checkRows(schema, rows)).toEqual([]);
     });
   }
 });

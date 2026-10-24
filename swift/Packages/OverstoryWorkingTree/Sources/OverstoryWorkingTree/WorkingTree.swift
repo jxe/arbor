@@ -516,6 +516,56 @@ public actor WorkingTree {
         }
     }
 
+    /// A logical collection's checked schema and its rows as data-file layout
+    /// rows (Schema language 006): read-only, from the tree's own objects.
+    func collectionRows(for directory: WorkingTreeNode) async throws -> WorkspaceCollectionRows {
+        guard directory.kind == .directory, let reference = directory.collection else { throw WorkspaceCollectionError.notCollection }
+        guard let schemaFile = childNodes(of: directory.path).first(where: { WorkingTreeSemantics.name(of: $0.path) == "schema.usl" }) else {
+            throw WorkspaceCollectionError.noSchema
+        }
+        let schema = compileUSL(String(decoding: try await payload(of: schemaFile), as: UTF8.self))
+        if let first = schema.diagnostics.first { throw WorkspaceCollectionError.schema(first.message) }
+        var tables: USLLogicalTables = [:]
+        do {
+            for table in reference.tables {
+                guard case let .table(object) = try ProtocolObjectCodec.decode(try await objectBytes(hash: table.table), kind: .table) else { continue }
+                var rows: [USLLogicalRow] = []
+                for chunk in object.chunks {
+                    rows += try ProtocolObjectCodec.decodeRows(try await objectBytes(hash: chunk.chunk)).map(Self.logicalRow)
+                }
+                tables[table.model] = rows
+            }
+        } catch ObjectStoreError.missing {
+            throw WorkspaceCollectionError.missingRows
+        }
+        do {
+            let layout = try uslLayout(schema, store: .files)
+            return WorkspaceCollectionRows(schema: schema, rows: try uslRowsFromLogical(schema, layout: layout, tables: tables))
+        } catch let error as USLLayoutError {
+            throw WorkspaceCollectionError.unreadable(error.message)
+        }
+    }
+
+    private static func logicalRow(_ row: ProtocolLogicalRow) -> USLLogicalRow {
+        USLLogicalRow(
+            key: row.key.map { USLKeyPart(name: $0.field, value: jsonValue($0.value)) },
+            fields: row.fields.mapValues(jsonValue),
+            created: row.created,
+            modified: row.modified
+        )
+    }
+
+    private static func jsonValue(_ value: ProtocolReadValue) -> JSONValue {
+        switch value {
+        case .null: .null
+        case .bool(let flag): .bool(flag)
+        case .number(let n): .number(n)
+        case .string(let text): .string(text)
+        case .array(let items): .array(items.map(jsonValue))
+        case .object(let members): .object(members.mapValues(jsonValue))
+        }
+    }
+
     func search(_ query: String) throws -> [WorkingTreeSearchIndex.Entry] {
         try requireOpen()
         if index.generation != control.generation { try rebuildIndex() }

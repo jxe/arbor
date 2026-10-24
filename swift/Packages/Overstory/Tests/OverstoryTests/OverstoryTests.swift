@@ -78,7 +78,14 @@ struct ProtocolObjectTests {
             case .rows:
                 // Rows stay encoded: the vector's bytes must decode as a rows object.
                 let base64 = try #require(vector["bytesBase64"] as? String)
-                object = .rows(try #require(Data(base64Encoded: base64)))
+                let bytes = try #require(Data(base64Encoded: base64))
+                object = .rows(bytes)
+                // And decode, typed, to the model's rows.
+                let expected = try JSONDecoder().decode(
+                    [ExpectedLogicalRow].self,
+                    from: JSONSerialization.data(withJSONObject: model["rows"] as! [Any])
+                )
+                #expect(try ProtocolObjectCodec.decodeRows(bytes) == expected.map(\.row))
             case .directory:
                 let entries = try #require(model["entries"] as? [[String: Any]])
                 let collection = (model["collection"] as? [String: Any]).map { value in
@@ -1116,5 +1123,25 @@ struct ProtocolValueVectorTests {
         #expect(try JSONDecoder().decode(ProtocolResyncChange.self, from: Data(resync.data.utf8)).reason == "The requested cursor is no longer retained")
         // TODO: observation-events-invalid.json is not consumed here. Its framing checks live inside
         // `ProtocolClient.watch`; the transition checks are `ProtocolTreeUpdateFrame.validated`.
+    }
+}
+
+/// A `LogicalRow` as protocol-objects.json writes it.
+private struct ExpectedLogicalRow: Decodable {
+    var key: [[ProtocolReadValue]]
+    var fields: [String: ProtocolReadValue]
+    var created: String
+    var modified: String
+
+    var row: ProtocolLogicalRow {
+        ProtocolLogicalRow(
+            key: key.map { pair in
+                guard case let .string(field) = pair[0] else { return .init(field: "", value: .null) }
+                return .init(field: field, value: pair[1])
+            },
+            fields: fields,
+            created: created,
+            modified: modified
+        )
     }
 }

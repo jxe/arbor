@@ -164,7 +164,15 @@ struct UpdateCoordinatorTests {
             let vector = try #require((fixture["objects"] as? [[String: Any]])?.first { $0["name"] as? String == "rows" })
             let rows = ProtocolObjectEnvelope(hash: vector["hash"] as! String, bytes: try #require(Data(base64Encoded: vector["bytesBase64"] as! String)))
             let table = try ProtocolObjectCodec.object(.table(ProtocolTable(rows: 2, chunks: [.init(rows: 2, chunk: rows.hash)])))
-            let schema = try ProtocolObjectCodec.object(.file(Data("main model Game (id)\n".utf8)))
+            let schema = try ProtocolObjectCodec.object(.file(Data("""
+                main model Game {
+                  name   Text
+                  status Status
+                  tags   Text[]
+                }
+                Game.status <-> Status.games[]
+                enum Status { Draft, Polished }
+                """.utf8)))
             let reference = ProtocolCollectionReference(
                 modelFingerprint: "sha256:" + String(repeating: "3", count: 64),
                 tables: [.init(model: "Game", table: table.hash)]
@@ -186,6 +194,14 @@ struct UpdateCoordinatorTests {
             // The overlay holds the rows: the complete graph needs no platform store.
             let complete = try await workingTree.completeSnapshot()
             #expect(try ProtocolObjectGraph.validate(complete).count == 4)
+
+            // Story reads the rows as data-file rows and presents them (Schema language 006).
+            let provider = WorkingTreeProvider(workingTree: workingTree)
+            let loaded = try await provider.collectionRows(WorkspaceReference(tree: TreeID(rawValue: "tr_collection"), path: "/"))
+            #expect(loaded.rows["Game"]?.map { $0["id"] } == [.string("chess"), .string("go")])
+            #expect(loaded.rows["Game"]?.first?["status"] == .string("Draft"))
+            let presented = try presentView(loaded.schema, rows: loaded.rows, options: PresentOptions())
+            #expect(presented.groups.flatMap(\.lines).count == 2)
         }
     }
 

@@ -154,6 +154,15 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
         )
     }
 
+    public func collectionRows(_ reference: WorkspaceReference) async throws -> WorkspaceCollectionRows {
+        if let coordinator {
+            return try await coordinator
+                .sourceReadProvider(readOnly: readOnly, materializedRoot: materializedRoot)
+                .collectionRows(reference)
+        }
+        return try await workingTree.collectionRows(for: try await workingTree.resolve(reference))
+    }
+
     @discardableResult
     public func importFile(
         name: String,

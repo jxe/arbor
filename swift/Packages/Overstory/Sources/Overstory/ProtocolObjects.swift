@@ -49,6 +49,33 @@ public struct ProtocolTable: Hashable, Codable, Sendable {
     }
 }
 
+/// One row of a `rows` chunk (spec 01, "Collections"): its key as `[field, value]`
+/// pairs in key order, its other fields, and when accepted changes made and last
+/// changed it.
+public struct ProtocolLogicalRow: Equatable, Sendable {
+    public struct KeyPart: Equatable, Sendable {
+        public var field: String
+        public var value: ProtocolReadValue
+
+        public init(field: String, value: ProtocolReadValue) {
+            self.field = field
+            self.value = value
+        }
+    }
+
+    public var key: [KeyPart]
+    public var fields: [String: ProtocolReadValue]
+    public var created: String
+    public var modified: String
+
+    public init(key: [KeyPart], fields: [String: ProtocolReadValue], created: String, modified: String) {
+        self.key = key
+        self.fields = fields
+        self.created = created
+        self.modified = modified
+    }
+}
+
 /// What an object is, which its referrer says: an entry's file or directory,
 /// or a collection's table or rows chunk.
 public enum ProtocolObjectKind: String, Codable, Sendable { case file, directory, table, rows }
@@ -244,16 +271,64 @@ public enum ProtocolObjectCodec {
     /// A `rows` object's shape: each row has exactly its key, fields, created
     /// and modified. Row order and values are the collection's to check.
     private static func checkRows(_ bytes: Data) throws {
+        _ = try rowList(bytes)
+    }
+
+    private static func rowList(_ bytes: Data) throws -> [[(String, CanonicalCBORValue)]] {
         guard case let .map(fields) = try CanonicalCBOR.decode(bytes) else { throw ProtocolValidationError.invalidCBOR("Rows object is not a map") }
         let item = Dictionary(uniqueKeysWithValues: fields)
         guard item.count == 2, case .text("rows")? = item["type"], case let .array(rows)? = item["rows"] else {
             throw ProtocolValidationError.invalidCBOR("Rows object fields are invalid")
         }
-        for row in rows {
+        return try rows.map { row in
             guard case let .map(fields) = row,
                   Set(fields.map { $0.0 }) == ["key", "fields", "created", "modified"], fields.count == 4 else {
                 throw ProtocolValidationError.invalidCBOR("Row fields are invalid")
             }
+            return fields
+        }
+    }
+
+    /// A `rows` chunk's rows, decoded strictly: each key a list of
+    /// `[field, value]` pairs, fields a map, and both times text. Values are
+    /// JSON values; anything else (bytes, non-finite numbers) is refused.
+    public static func decodeRows(_ bytes: Data) throws -> [ProtocolLogicalRow] {
+        try rowList(bytes).map { fields in
+            let row = Dictionary(uniqueKeysWithValues: fields)
+            guard case let .array(pairs)? = row["key"], !pairs.isEmpty,
+                  case let .map(values)? = row["fields"],
+                  case let .text(created)? = row["created"],
+                  case let .text(modified)? = row["modified"]
+            else { throw ProtocolValidationError.invalidCBOR("Row fields are invalid") }
+            let key = try pairs.map { pair -> ProtocolLogicalRow.KeyPart in
+                guard case let .array(part) = pair, part.count == 2, case let .text(field) = part[0] else {
+                    throw ProtocolValidationError.invalidCBOR("A row's key must be [field, value] pairs")
+                }
+                return .init(field: field, value: try readValue(part[1]))
+            }
+            var decoded: [String: ProtocolReadValue] = [:]
+            for (name, value) in values { decoded[name] = try readValue(value) }
+            return ProtocolLogicalRow(key: key, fields: decoded, created: created, modified: modified)
+        }
+    }
+
+    private static func readValue(_ value: CanonicalCBORValue, depth: Int = 0) throws -> ProtocolReadValue {
+        guard depth <= 32 else { throw ProtocolValidationError.invalidCBOR("A row value nests too deep") }
+        switch value {
+        case .null: return .null
+        case let .bool(flag): return .bool(flag)
+        case let .unsigned(n): return .number(Double(n))
+        case let .negative(n): return .number(-1 - Double(n))
+        case let .float(n):
+            guard n.isFinite else { throw ProtocolValidationError.invalidCBOR("A row value must be finite") }
+            return .number(n)
+        case let .text(text): return .string(text)
+        case let .array(items): return .array(try items.map { try readValue($0, depth: depth + 1) })
+        case let .map(entries):
+            var object: [String: ProtocolReadValue] = [:]
+            for (name, item) in entries { object[name] = try readValue(item, depth: depth + 1) }
+            return .object(object)
+        case .bytes: throw ProtocolValidationError.invalidCBOR("A row value must be a JSON value")
         }
     }
 

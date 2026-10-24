@@ -3132,7 +3132,7 @@ struct StoryRootView: View {
                     ProgressView()
                 }
             } else {
-                WorkspaceSurfaceView(node: node)
+                WorkspaceSurfaceView(node: node, workspace: workspace)
             }
         } else if location == model.currentLocation, let message = model.errorMessage {
             ContentUnavailableView("Unable to open", systemImage: "exclamationmark.triangle", description: Text(message))
@@ -5471,6 +5471,7 @@ private struct PairingQRScanner: UIViewControllerRepresentable {
 
 private struct WorkspaceSurfaceView: View {
     let node: WorkspaceNode
+    let workspace: StoryWorkspaceState
 
     var body: some View {
         ScrollView {
@@ -5495,8 +5496,7 @@ private struct WorkspaceSurfaceView: View {
                     }
                     if let mediaType { LabeledContent("Type", value: mediaType) }
                 case let .collection(kind, rowCount):
-                    LabeledContent("Collection", value: kind)
-                    if let rowCount { LabeledContent("Rows", value: rowCount.formatted()) }
+                    StoryCollectionView(node: node, workspace: workspace, kind: kind, rowCount: rowCount)
                 case let .placeholder(message):
                     ContentUnavailableView("Not available offline", systemImage: "icloud.slash", description: Text(message))
                 case let .diagnostic(title, detail):

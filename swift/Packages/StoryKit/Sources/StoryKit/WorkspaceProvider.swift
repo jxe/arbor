@@ -495,10 +495,50 @@ public protocol WorkspaceProvider: Sendable {
     func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceStoredAsset
     func readFile(_ reference: WorkspaceReference) async throws -> Data
     func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession
+    /// A collection folder's checked schema and its rows, laid out as data files
+    /// lay them out, for `presentView`. Throws `WorkspaceCollectionError` when the
+    /// folder holds no logical collection or can't be read here.
+    func collectionRows(_ reference: WorkspaceReference) async throws -> WorkspaceCollectionRows
+}
+
+/// What a collection folder holds, ready to present.
+public struct WorkspaceCollectionRows: Sendable {
+    public var schema: USLCheckResult
+    public var rows: USLRowsByTable
+
+    public init(schema: USLCheckResult, rows: USLRowsByTable) {
+        self.schema = schema
+        self.rows = rows
+    }
+}
+
+public enum WorkspaceCollectionError: LocalizedError, Equatable, Sendable {
+    /// Not a logical collection (a files-only `_store.*` from before 005, say).
+    case notCollection
+    case noSchema
+    /// The schema has errors; the first is given.
+    case schema(String)
+    /// A table or rows chunk isn't on this device.
+    case missingRows
+    case unreadable(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .notCollection: "This folder holds no logical collection."
+        case .noSchema: "This collection has no schema.usl."
+        case .schema(let message): "This collection's schema.usl has errors: \(message)"
+        case .missingRows: "Some of this collection's rows aren't on this device yet."
+        case .unreadable(let message): message
+        }
+    }
 }
 
 public extension WorkspaceProvider {
     func capabilities() async -> WorkspaceProviderCapabilities { .full }
+
+    func collectionRows(_ reference: WorkspaceReference) async throws -> WorkspaceCollectionRows {
+        throw WorkspaceCollectionError.notCollection
+    }
 
     func resolve(_ location: WorkspaceLocation) async throws -> WorkspaceNode {
         guard case let .reference(reference) = location else {
