@@ -8,7 +8,7 @@ file.usl`); every collection reads its `schema.usl` through it. What remains
 is in two parts, done at different times. First,
 [005](005-collections-that-sync.md): collections that sync, the build plan
 for [003](003-layers-and-sigils.md) (the model, storage and presentation
-layers: `@`, `&`, `~`, and `re`, with the examples rewritten in that form in
+layers: model keywords, `@` storage, `~` presentation and `re`, with the examples rewritten in that form in
 `examples/layered/`) and [004](004-logical-collections.md) (a collection's
 rows are the tree's content and every file or database a placement's
 projection of them), plus row operations, field-level merge and SQLite that

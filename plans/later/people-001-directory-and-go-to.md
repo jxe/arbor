@@ -83,7 +83,7 @@ model Sighting {
   at      Date
   contact Contact          // cross-reference
 }
-Contact.sightings[] &fold <-> Sighting.contact
+Contact.sightings[] @fold <-> Sighting.contact
 
 model Visited {
   tree    Text             // TreeID

@@ -18,9 +18,7 @@ Excellence.leads[] <-> Person.excellences[]
 Excellence.projects[] <-> Project.excellences[]
 Excellence.assessment <-> Assessment.excellences[]
 
-model Assessment {
-  @fixed { Good, Improving, Bad, "Current focus", "Not recorded" }
-}
+enum Assessment { Good, Improving, Bad, "Current focus", "Not recorded" }
 
 re Excellence {
   ~views([

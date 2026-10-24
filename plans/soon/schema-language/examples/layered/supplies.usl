@@ -14,7 +14,7 @@ model List {
   items       Item[]                        // cross-references, declared below
   tags        Tag[]
 
-  &index(owner, modified)                   // my lists, newest first
+  @index(owner, modified)                   // my lists, newest first
 }
 
 { List.owner, Person.ownedLists[] }
@@ -22,7 +22,7 @@ model List {
 { List.kind, ListKind.lists[] }
 
 model Practice {
-  name    Text   @unique                    // no two practices share a name
+  name    unique Text                       // no two practices share a name
   about   Markdown?
   authors Person[]                          // cross-reference
 }
@@ -32,17 +32,15 @@ model Practice {
 
 // list_practices: a named connection, because tags hang off it.
 model Item {
-  List.items[]   @ordered                   // position column, per list
+  ordered List.items[]                      // position column, per list
   Practice.items[]
 }
 
 // list_tags: a tag's id is unique only within its list, so the list is part
 // of its key.
-model Tag {
+model Tag (list, id) {
   name  Text
   color Text?                               // data, since people add tags
-
-  @id(list, id)
 }
 
 { Tag.list, List.tags[] }
@@ -68,13 +66,9 @@ model Contribution {
   last  Date
 }
 
-model Visibility {
-  @fixed { Public, Private }
-}
+enum Visibility { Public, Private }
 
-model ListKind {
-  @fixed { Standard, Tagged }
-}
+enum ListKind { Standard, Tagged }
 
 re Tag {
   color ~color                              // the field that holds each tag's color

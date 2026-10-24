@@ -106,9 +106,11 @@ first.
 
 ### 1. Settle the logical form, and write it into the spec
 
-- Settle 004's forks with Joe: what is addressable, order as sequences, a
-  row's name (`&path` or `@path`), timestamps as row state, canonical CBOR
-  with a chunked hash, and content only through a marked field.
+- Settle 004's forks with Joe (done 2026-10-24): only models addressable,
+  order as sequences, a row's name as logical identity, timestamps as row
+  state, canonical CBOR with a chunked hash, and a row's body as a storage
+  choice. 003's syntax was revised the same day (model keywords, `@` for
+  storage, keys in the header, `enum`).
 - Spec: 01 (representations), 02 (the projection boundary), 06 §2.1, §3, §3.1,
   §4 and §7 ("collections are logical; placements project them"), 10 §4.1
   (row operations name models and fields, not layout tables) and 11 (003's

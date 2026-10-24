@@ -216,7 +216,7 @@ names; fixing the logical form removes that.
 - **`@fold`, `@@fold`, `@column` and `@@table` stop shaping data.** They
   become how the schema maps the logical form into file and database
   layouts, so refolding a connection changes no data and no hash (README's
-  "refold, lossless" becomes free). They become `&` attributes (see "USL syntax").
+  "refold, lossless" becomes free). They become storage attributes, spelled `@` since 2026-10-24 (see "USL syntax").
 
 ### 3. Timestamps
 
@@ -258,15 +258,15 @@ arity, rename); the format-only ones in README stop touching data.
 
 ## USL syntax: model, storage and presentation
 
-Decided and written up in [003](003-layers-and-sigils.md): `@` model, `&`
-storage, `~` presentation, `re` blocks, conventions rather than enforced
-separation, and `usl fmt` applying them. Examples are in
-[examples/layered](examples/layered).
+Decided and written up in [003](003-layers-and-sigils.md), revised
+2026-10-24: model keywords (no sigil), `@` storage, `~` presentation, `re`
+blocks, conventions rather than enforced separation, and `usl fmt` applying
+them. Examples are in [examples/layered](examples/layered). Before the
+revision the model was `@` and storage `&`, so older notes here and in the
+thread use those spellings.
 
-One point there touches this plan: 003 files `@path` under storage as
-`&path`. §1 above argues a row's name is its logical identity, which would
-keep it `@`. If `&path` stands, a row's name is a storage detail and the
-logical form identifies rows by id alone.
+A row's name is its logical identity (fork 3), so `path` is a model keyword,
+not storage.
 
 ## Existing SQL databases and typed values
 
@@ -324,14 +324,14 @@ happens to hold, and a projection converts at its boundary:
         /Archive: jsonl
   ```
 
-- **Local storage mappings (decided: visible):** a placement's own `&`
+- **Local storage mappings (decided: visible):** a placement's own `@`
   overrides live in files under a visible folder such as
   `~/.story/storage/<tree>/…`, not in `placements.yaml` and not in private
   state, since they are a person's decisions about their own databases. They
   can't live in the placed folder, because everything there synchronizes.
   Proposed: found by convention, and written by Story Sync when it adopts an
   existing database, recording its real table and column names.
-- **Shared storage defaults** that every placement starts from are `&`
+- **Shared storage defaults** that every placement starts from are `@`
   attributes in the tree's `.usl` files (in the `model`, or a `re` block).
 - **A default for new placements:** something has to pick the format when a
   placement doesn't say: each implementation's own default, or a hint in the

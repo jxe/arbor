@@ -7,6 +7,4 @@ model Book {
 
 Book.status <-> Status.books[]
 
-model Status {
-  @fixed { Reading, Done }
-}
+enum Status { Reading, Done }

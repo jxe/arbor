@@ -17,15 +17,13 @@ model List {
   games Game[]                                  // cross-reference
 }
 
-// &fold: in data files, these are arrays on Game and List rows rather than
+// @fold: in data files, these are arrays on Game and List rows rather than
 // files of their own. A storage default; a placement may choose otherwise.
-Game.authors[] &fold <-> Person.games[]
-List.games[] @ordered &fold <-> Game.lists[]
+Game.authors[] @fold <-> Person.games[]
+ordered List.games[] @fold <-> Game.lists[]
 Game.status <-> Status.games[]
 
-model Status {
-  @fixed { Draft, Playtested, Polished }
-}
+enum Status { Draft, Playtested, Polished }
 
 re Game {
   ~views([
