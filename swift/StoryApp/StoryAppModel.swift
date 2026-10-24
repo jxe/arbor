@@ -1960,6 +1960,7 @@ final class StoryWorkspaceState {
 #endif
     }
 
+#if os(macOS)
     /// Whether story-sync keeps `tree` in a folder on this Mac, asking it again
     /// when the overview does not list the tree yet.
     private func isPlacedOnThisMac(_ tree: String) async -> Bool {
@@ -1971,6 +1972,7 @@ final class StoryWorkspaceState {
         await refreshLocalStorySyncOverview()
         return listed()
     }
+#endif
 
     /// Follow a nested-tree boundary through the same account-aware paths used
     /// by People. Prefer an existing Mac placement, then the hosted profile
