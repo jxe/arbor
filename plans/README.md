@@ -20,6 +20,12 @@ Mac shows its rows arranged by its schema's views, read-only. It is the first pa
 language 002's milestone 3, which the People directory will be built on: Swift decodes rows,
 ports `rowsFromLogical`, and draws the existing `presentView` port.
 
+**[Schema language 007: edit collection rows in Story, on the Mac and iPhone](soon/schema-language-007-edit-rows-in-story.md).**
+Joe, 2026-10-24: the next step after 006. Story writes row operations itself, offline and on
+the iPhone, which has no Story Sync (Schema language 002's milestone 3a), proven by simple edits
+in 006's view: a bullet's value, a row's name, chips, delete and add. The People directory's
+first phase is built on it.
+
 **[Live 001: see who else is here](soon/live-001-presence.md).**
 Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which
 page each person is on, and where their cursor is when two people share a page. It must be
@@ -71,10 +77,10 @@ Joe wants People to remember everyone and every tree he has come across, and to 
 groups to share with easy: see whether a group exists, drag people into it, invite whoever is
 missing. A Go to… field finds visited trees and pages by title, and an `overstory://tr_…` link
 is found by asking the directory, then the account hosts (Links 001, folded in on 2026-10-24).
-Phase 1 is a small first slice with no collections: Go to… and tree-ID links on the Mac from
-what it already records. After that the directory is a private tree of collections shown with
-Schema language 002's database views (Joe, 2026-10-24); only Go to… and the share sheet are
-hand-built.
+The directory comes first (Joe, 2026-10-24): a private tree of collections, filled from what
+Story already knows and shown with Schema language 006's view once 007 lets Story write rows;
+then Schema language 002's database views. Only Go to… and the share sheet are hand-built, and
+Go to… is a side slice for any time.
 
 **[Schema language 002: database views in Story](later/schema-language-002-cranberries-in-story.md).**
 Joe wants excellences and supplies-remake to run natively in Story: collections presented as
@@ -145,7 +151,7 @@ using shared examples and the host merge engine to prove the result.
 An invitation link is usually tapped on a phone, where today it ends at an app that can only
 pair with a Mac. Join from the iPhone with the same link, then add a Mac by scanning a code
 the Mac shows. After Release 001. It owns what an invitation link does on the iPhone;
-People 001 phase 5 owns the iPhone's other link opens.
+People 001 phase 4 owns the iPhone's other link opens.
 
 **[Sharing 002: invite from the command line, through a client library](later/sharing-002-invite-from-the-command-line.md).**
 Setting up the intro video, Joe could make an invitation only in the Mac app. He wants

@@ -155,6 +155,9 @@ that `usl verify` accepts.
 
 ### 3a. Rows in Story on Mac and iPhone
 
+Being built first as [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md)
+(Joe, 2026-10-24); what it leaves folds back here.
+
 Moved from People 001's phase 0 on 2026-10-24 (before that, from 005
 milestone 5), and now needed: the structured editor sends row operations from
 Story itself, and the directory must work on the iPhone, which has no Story
