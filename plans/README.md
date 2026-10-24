@@ -63,17 +63,20 @@ before the web editor. Mac only; the browser half is an open question in Web 025
 **[People 001: a directory you own, Go to…, and links by tree ID](later/people-001-directory-and-go-to.md).**
 Joe wants People to remember everyone and every tree he has come across, and to make forming
 groups to share with easy: see whether a group exists, drag people into it, invite whoever is
-missing. A Go to… field finds visited trees and pages by title. The directory is a private
-tree of collections with a grouped arrangement, which Schema language 005's collections that
-sync (on main since 2026-10-24) made possible. Links 001 is folded in as its phase 4
-(2026-10-24): following an `overstory://tr_…` link asks the directory, then the account hosts,
-and records what answers. That phase can start before the others.
+missing. A Go to… field finds visited trees and pages by title, and an `overstory://tr_…` link
+is found by asking the directory, then the account hosts (Links 001, folded in on 2026-10-24).
+Phase 1 is a small first slice with no collections: Go to… and tree-ID links on the Mac from
+what it already records. After that the directory is a private tree of collections shown with
+Schema language 002's database views (Joe, 2026-10-24); only Go to… and the share sheet are
+hand-built.
 
 **[Schema language 002: database views in Story](later/schema-language-002-cranberries-in-story.md).**
 Joe wants excellences and supplies-remake to run natively in Story: collections presented as
 views and edited in a native structured editor, embedded in pages, with row ownership as access
 policy, and ports of both sites. The data underneath was split out as Schema language 005 on
-2026-10-22 and is on main since 2026-10-24.
+2026-10-22 and is on main since 2026-10-24. Its first customer is the People directory
+(2026-10-24): milestones 3, 3a (rows in Story on Mac and iPhone), 4 and 7 come first, built with
+what the directory needs.
 
 **[Apps 005: source resolution, execution authority and the sidecar](later/apps-005-source-resolution-and-sidecar.md).**
 Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
@@ -136,7 +139,7 @@ using shared examples and the host merge engine to prove the result.
 An invitation link is usually tapped on a phone, where today it ends at an app that can only
 pair with a Mac. Join from the iPhone with the same link, then add a Mac by scanning a code
 the Mac shows. After Release 001. It owns what an invitation link does on the iPhone;
-People 001 phase 4 owns the iPhone's other link opens.
+People 001 phase 5 owns the iPhone's other link opens.
 
 **[Sharing 002: invite from the command line, through a client library](later/sharing-002-invite-from-the-command-line.md).**
 Setting up the intro video, Joe could make an invitation only in the Mac app. He wants

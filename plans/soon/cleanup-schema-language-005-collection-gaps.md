@@ -37,9 +37,9 @@ worked on.
 Owned elsewhere: skipping unchanged chunks when a large collection changes is
 [Performance 004](../later/performance-004-provenance-index.md) step 6; Swift's
 row-change kind and offline rows on native are
-[People 001](../later/people-001-directory-and-go-to.md)'s phase 0; presented-view
-edits that still name layout tables are
-[Schema language 002](../later/schema-language-002-cranberries-in-story.md)'s.
+[Schema language 002](../later/schema-language-002-cranberries-in-story.md)'s
+milestone 3a, and presented-view edits that still name layout tables are its
+milestone 3.
 
 ## Close out
 

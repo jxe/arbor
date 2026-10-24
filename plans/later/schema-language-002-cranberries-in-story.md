@@ -8,6 +8,11 @@ thread "Cranberries in Story" and its sketch. On 2026-10-22 Joe split the
 data half out as Schema language 005: collections that sync ([status](../../status.md#collections-that-sync--2026-10-24)),
 to do first; this plan keeps the database views (presenting, editing and
 embedding collections in Story), ownership and the two site ports, for later.
+On 2026-10-24 Joe made the [People directory](people-001-directory-and-go-to.md)
+this plan's first customer: People is presented and edited with these views
+rather than hand-built screens, so the database views get proven on something
+Joe uses daily. Milestones 3, 3a, 4 and 7 come first, each built with what the
+directory needs (listed in each); ownership (5) and the site ports (6) follow.
 
 ## Status
 
@@ -22,7 +27,9 @@ embedding collections in Story), ownership and the two site ports, for later.
 - **Depends on:** 005 ([status](../../status.md#collections-that-sync--2026-10-24)), on main since 2026-10-24:
   row operations, field-level merge, logical collections, the layered USL and
   its StoryKit port.
-- **Unblocks:** porting excellences and supplies-remake off Supabase.
+- **Order:** 3, 3a, 4 and 7 for the directory, then 5 and 6.
+- **Unblocks:** [People 001](people-001-directory-and-go-to.md) (after 3, 3a, 4
+  and 7); porting excellences and supplies-remake off Supabase.
 
 ## Joe's decisions
 
@@ -82,7 +89,7 @@ on Supabase today.
 ## Milestones
 
 The screen first, then the people and sites that use it. Milestone 5 can land
-any time before 6; 7 needs only 3 and 4.
+any time before 6; 7 needs only 3 and 4. The directory needs 3, 3a, 4 and 7.
 
 ### 3. Presented views
 
@@ -133,9 +140,33 @@ The second keeps protocol free of the schema language.
 `packages/usl`. Run both stacks against shared conformance vectors (schema,
 rows, view → presentation), as `presentPage` does.
 
+**For the directory:** an arrangement with several groupings chosen from a
+menu (By group, Recent, By host), a `sort` on a date field (Recent), and
+read-only groups the host supplies alongside the rows (each host community,
+collapsed, never copied), shown with the same line shape.
+
 **Done when:** `games.usl` and `excellences.usl` with their data present
 identically in both stacks, and every intent round-trips to row operations
 that `usl verify` accepts.
+
+### 3a. Rows in Story on Mac and iPhone
+
+Moved from People 001's phase 0 on 2026-10-24 (before that, from 005
+milestone 5), and now needed: the structured editor sends row operations from
+Story itself, and the directory must work on the iPhone, which has no Story
+Sync.
+
+- Story on Mac and iPhone reads and writes logical collections offline with no
+  Story Sync in the path: a native projection (SQLite, which iOS has) built
+  from the logical form, validated with the StoryKit USL port, and fed by a
+  row-change kind in `UpdateCoordinator` beside `appendStructure`
+  (`UpdateCoordinator+LocalChanges.swift`). 005 milestone 3 already makes
+  native working trees keep a collection's tables and rows.
+- It covers [Apps 010](apps-010-native-offline-collection-file-projection.md)
+  (rows readable offline on native), which can then be deleted.
+
+**Done when:** a collection edited offline on the iPhone and on the Mac merges
+when both reconnect.
 
 ### 4. The structured editor
 
@@ -226,14 +257,21 @@ text field.
 - View tabs and the search box sit in Story's chrome. The selected tab and
   collapsed groups are the client's own state.
 - A collection session beside `WorkspaceDocumentSession` sends row
-  operations through 005's `UpdateCoordinator` row-change kind.
+  operations through milestone 3a's `UpdateCoordinator` row-change kind.
 - Release: a Quagmire minor version. Pins in `swift/project.yml` and
   `swift/Packages/StoryEditor/Package.swift`. Quagmire's `AGENTS.md` still
   names the old `native/` paths; fix it in passing.
 
+**For the directory:** Option-drag (Mac) to add a row to another group while
+keeping it in this one; locked headings for groups the viewer can't edit;
+unsynced changes shown dimmed; a draft line under a group that can also add a
+*new* person as a placeholder; and per-row actions the host supplies (Copy
+invite link, Send invite…) with a status cell (not invited, invited, joined).
+
 **Done when:** Joe edits a games collection in Story on two devices, with
 groups, chips, bullets, drag and inline Markdown, and the edits merge per
-field.
+field; and forms a group by dragging three people in the directory on the
+Mac and sees it on the iPhone.
 
 ### 5. Ownership
 
@@ -344,6 +382,12 @@ administrator changes `authors`.
   the source tree.
 - Embedding the structured editor in a Quagmire page as one opaque block
   that hosts a host-supplied view.
+- **Groups that are other trees** (for the directory): a grouping whose
+  groups are group profile trees and whose members are each tree's
+  `members`, edited there. Dragging a contact under a group heading adds the
+  person to that group's tree; removing takes them out. The directory keeps
+  no copy of membership. This is the same "edits go back to the source"
+  rule, with a tree's member list as the source.
 - Public and web views stay out of scope until Joe wants them.
 
 ## Invariants

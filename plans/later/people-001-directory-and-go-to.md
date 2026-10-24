@@ -16,7 +16,7 @@ are separate and later. The UX was worked out first in the doc
 
 > **Executor instructions**: Refresh "What happens today" against the source first; People and
 > the visit store will have moved. Do the phases in order and stop after each for Joe's
-> hands-on check. Settle the forks at the end with Joe before phase 1.
+> hands-on check. Phase 1 needs only fork 5; settle the others before phase 2.
 
 ## Status
 
@@ -24,17 +24,15 @@ are separate and later. The UX was worked out first in the doc
 - **Risk:** MEDIUM. It's the first collection Story keeps for itself, and group edits write
   to group profile trees on hosts.
 - **State:** TODO.
-- **Gated on:** nothing now. It waited for Schema language 005
-  ([status](../../status.md#collections-that-sync--2026-10-24)) milestones 1 to 5 (the logical form, layered USL, logical collections, row operations with
-  field merge, and SQLite that syncs through Story Sync), on main. Not milestone 6 (rows on
-  the host). Native offline collections are this plan's phase 0, moved here from 005 (Joe,
-  2026-10-24).
-- **Not gated on:** [Schema language 002](schema-language-002-cranberries-in-story.md)'s
-  presented views and structured editor. People's screens are Story's own SwiftUI over the
-  directory's rows, as `StoryDirectoryView` is today; if 002's editor lands first, the People
-  arrangement can move onto it.
-- **Includes Links 001** (following a link that names a tree by its ID), folded in as phase 4
-  on 2026-10-24: once the directory records trees and where they were found, finding a tree
+- **Gated on:** phase 1 on nothing. Phase 2 on [Schema language 002](schema-language-002-cranberries-in-story.md)
+  milestone 3a (rows in Story on Mac and iPhone, formerly this plan's phase 0); phase 3 on 002's
+  milestones 3, 4 and 7. Schema language 005 ([status](../../status.md#collections-that-sync--2026-10-24))
+  is on main.
+- **Built on 002** (Joe, 2026-10-24): People is the directory's collection shown with 002's
+  database views, and the directory is 002's first customer. Only Go to… and the share sheet
+  are hand-built.
+- **Includes Links 001** (following a link that names a tree by its ID), folded in on
+  2026-10-24 (phases 1 and 5): once the directory records trees and where they were found, finding a tree
   by ID is a directory question. Its earlier text is in git history at `7b29f1b`
   (`plans/soon/links-001-tree-id-links.md`).
 
@@ -67,7 +65,8 @@ Written against `a664714`.
   visited with their titles, headings, folder path and icon, visit times, and the queries you
   picked it with.
 
-A sketch in layered USL (003); field names are placeholders:
+A sketch, written before the 2026-10-24 syntax (rewrite it in the layered form in phase 2);
+field names are placeholders:
 
 ```
 model Contact {
@@ -102,83 +101,83 @@ model Visited {
 
 **Group membership is not copied.** Groups stay group profile trees on hosts, because
 sharing needs them there. The People arrangement groups contacts by the groups they are in,
-read from those trees; moving a row under a heading edits that group tree's `members`. People
-does this itself; 002's milestone 7 ("pages that present collections kept elsewhere") would
-generalize it.
+read from those trees; moving a row under a heading edits that group tree's `members`, through
+002 milestone 7's groups that are other trees.
 
 **What arrives on its own.** A contact row is added when there is a real tie: an invite either
 way, a share either way, a group in common, or opening their profile or tree. A link that only
 appears in a page you read doesn't count until you follow it. Host communities stay live,
 collapsed sections and are not copied.
 
-## Phase 0: collections offline in Story on Mac and iPhone, if needed
+## Phase 1 (first, small): Go to… and tree-ID links on the Mac
 
-Moved from Schema language 005 milestone 5 (Joe, 2026-10-24, who isn't sure Story on iOS or
-Mac needs to sync collections at all: Story Sync does). Before building it, check whether the
-phase 1 to 3 proofs need it, or whether People can read and write the directory through the
-host when online and carry it intact offline. If it is needed:
+The slice to do first: no collections and nothing from Schema language 002, only what the Mac
+already records. It proves the lookup and the typeahead that the directory later feeds.
 
-- Story on Mac and iPhone reads and writes logical collections offline with no Story Sync in
-  the path: a native projection (SQLite, which iOS has) built from the logical form, validated
-  with the StoryKit USL port, and fed by a row-change kind in `UpdateCoordinator` beside
-  `appendStructure` (`UpdateCoordinator+LocalChanges.swift`). 005 milestone 3 already makes
-  native working trees keep a collection's tables and rows.
-- It covers [Apps 010](apps-010-native-offline-collection-file-projection.md) (rows readable
-  offline on native), which can then be deleted.
-- **Proof:** a collection edited offline on the iPhone and on the Mac merges when both
-  reconnect.
+- **Visits remember pages.** `VisitedTreeRecord` (`StoryVisits.swift`) gains the pages visited
+  in each tree with their titles, headings, folder path and icon, and the visit count and time;
+  placed trees are searched from Story Sync's tree list. Visits on placed trees are recorded
+  too.
+- **Go to…**: a field (shortcut a fork; ⌘L is Copy Link and ⇧⌘L Open Location today) that
+  matches pages and trees by title, headings and folder path, ranks frequent and recent visits
+  first and puts a query's earlier pick first. Return opens the page, ⌘Return the tree's root.
+  A pasted link or `tr_…` goes through the lookup below.
+- **Links by tree ID,** the spec and the Mac's handling of links in documents (below, "Links
+  that name a tree by its ID", first step), with `Visits.json` as lookup step 3.
+- **Proof:** with the Mac offline, typing a remembered page title finds a page in a tree visited
+  last week on another host; a raw `overstory://tr_…` link in a page to a tree on
+  `arb.nxhx.org` that is neither placed nor visited opens at the linked page.
 
-## Phase 1: the directory tree, and People reading it
+## Phase 2: the directory tree (after Schema language 002 milestone 3a)
 
 - Create the private directory tree on first launch, named from the config tree (fork 1), with
-  its `schema.usl`.
+  its `schema.usl` (People and Trees).
 - Record sightings where they happen today: invitation claims, placements, shares, group edits,
-  profile opens.
-- Import the current `Directory.json` rows once, as contacts with a "host directory" sighting.
-- `StoryDirectoryView` reads contacts plus the live host answers. Sections: You, each group as a
-  heading (from group trees), each host community (collapsed), Ungrouped (newest first).
-  Arrangement menu: By group, Recent, By host.
-- **Proof:** a person met only through an invite still shows after their host stops listing them;
-  the same contacts appear on Mac and iPhone.
+  profile opens. Record visits in the Trees collection on Mac and iPhone; import `Visits.json`
+  and the current `Directory.json` rows once, then remove `Visits.json`.
+- Go to… and the lookup read the Trees collection, and Go to… comes to the iPhone (the search in
+  the tree picker). A contact's page lists their trees.
+- **Proof:** a person met only through an invite is still in the directory after their host
+  stops listing them; a page visited on the Mac is found by Go to… on the iPhone.
 
-## Phase 2: forming groups in place, placeholders, and the share sheet
+## Phase 3: People as a database view (after 002 milestones 3, 4 and 7)
 
-- Drag a row under a heading to add, out to move, Option-drag (Mac) to copy; a context menu to
-  remove; "+" after the headings and "Group these…" for a selection. Locked headings for groups
-  you can't edit. Unsynced changes show dimmed.
-- Placeholder contacts: each group a placeholder is in reserves an `invite:` member; the row
-  offers Copy invite link and Send invite…, and shows not invited, invited, or joined. Accepting
-  turns the placeholder into the profile and keeps groups, shares and notes (fork 4).
+People is the directory's People collection presented and edited with Schema language 002's
+views and structured editor, not hand-built screens (Joe, 2026-10-24). What the directory asks
+of those milestones is listed in each of them.
+
+- The arrangement lives in the directory's schema as `~views`: By group, Recent, By host, with
+  You first. Group headings are group profile trees (002 milestone 7's groups that are other
+  trees); host communities are read-only groups the host supplies, collapsed.
+- Forming groups is the editor's own drag: under a heading to add, out to move, Option-drag
+  (Mac) to copy, a row action to remove; "+" after the headings and "Group these…" for a
+  selection. Locked headings for groups you can't edit; unsynced changes dimmed.
+- Placeholder contacts are rows without a profile. Each group a placeholder is in reserves an
+  `invite:` member; the row's actions are Copy invite link and Send invite…, and a status cell
+  shows not invited, invited, or joined. Accepting turns the placeholder into the profile and
+  keeps groups, shares and notes (fork 4).
+- Retire `StoryDirectoryView`'s hand-built sections and the Members sheet for groups; keep the
+  sheet for host communities.
+- **Proof:** make a group by dragging three people on the Mac; it shows on the iPhone and the
+  host's group tree lists them.
+
+## Phase 4: the share sheet (hand-built)
+
 - The share sheet takes people and groups in one field and compares the picks with your groups:
   an exact match suggests the group, a near match offers to add the missing person to it, and
   three or more unmatched people offer "Make a group of these…". The same picker serves New
-  Group and `Person` fields in collections.
+  Group and `Person` fields in collections (002's chip picker uses it).
 - Search widens past your contacts: host communities, then members of groups shared with you,
   then an exact `~handle@host` or `tr_…`, then "Add as a placeholder and invite".
-- Retire the Members sheet for groups; keep it for host communities.
-- **Proof:** make a group by dragging three people on the Mac; it shows on the iPhone and the
-  host's group tree lists them. Share with a placeholder and accept the link from another account.
+- **Proof:** share with a placeholder and accept the link from another account.
 
-## Phase 3: Go to…
-
-- Record visits in the Trees collection on Mac and iPhone; import `Visits.json` once, then
-  remove it. Phase 4's lookup reads this collection.
-- A Go to… field (⌘L on Mac, the search in the tree picker on iPhone) matches pages and trees by
-  title and headings, folder path, people (owner, sharer, last editor), icon, the link text
-  followed or the group shared through, and earlier queries. Ranking favors frequent and recent
-  visits, and a query used before ranks its pick first. Return opens the page, ⌘Return the
-  tree's root. A pasted link or `tr_…` goes through phase 4's lookup.
-- A contact's page lists their trees from this collection.
-- **Proof:** with the Mac offline, typing a remembered page title finds a page in a tree visited
-  last week on another host.
-
-## Phase 4: links that name a tree by its ID
+## Links that name a tree by its ID
 
 Story writes `overstory://tr_…/path` for every link to another tree, but can follow one only
 when the tree is placed, was visited this session, or is found on a connected account's host;
 opens from outside the app ignore it. Joe wants these links honored wherever the device can
-find the tree. Phase 4 may start before phases 1 to 3, using `Visits.json` as the visit
-record, and switch to the Trees collection when phase 3 lands.
+find the tree. Phase 1 builds the lookup on the Mac from `Visits.json`; phase 2 switches it to
+the Trees collection; phase 5 adds opens from outside the app, the iPhone and the CLI.
 
 **Done already** (`c0bc636`, 2026-10-20): `openNestedTree` (`StoryAppModel.swift`) asks each
 connected account's host for a tree it cannot find locally (`openHostedTree`). Refresh the
@@ -210,24 +209,24 @@ and returns where the tree is; a separate step opens it:
 
 1. open now (the current tree or an open nested tree);
 2. placed on this device;
-3. **the directory's Trees collection** (or `Visits.json` before phase 3), whose row gives the
+3. **the directory's Trees collection** (`Visits.json` in phase 1), whose row gives the
    host the tree was found on; a stale row falls through to asking that host by ID;
 4. the host of the document that holds the link;
 5. each host where the device has an account, home host first;
 6. not found: an error naming the hosts asked.
 
 Steps 4 and 5 call `ProtocolClient.descriptor(tree:)` (`GET /.overstory/trees/{TreeID}`), and
-a hit is **recorded in the Trees collection**, so the next lookup stops at step 3. Asking a
+a hit is **recorded** (in `Visits.json` in phase 1, then the Trees collection), so the next lookup stops at step 3. Asking a
 host needs proof of activation in the types: `locateTree` takes an `Activation`
 (`.documentLink`, `.typedLocation`, `.confirmedOpen`, each made only by its own UI path), and
 returns a `TreeLocation` (`.open`, `.placed(path)`, `.known(row)`, `.host(origin,
 descriptor)`). `openRemoteLocator` splits into resolving a path to a descriptor and
 `openRemoteTree(origin:descriptor:path:)`, which also fixes the lost path.
 
-**Steps,** each stopping for Joe's hands-on check:
+**Steps:**
 
-- **Spec and links in documents (Mac).** Locators §4: replace "using a verified endpoint hint
-  or already-known server record" with the rule (no host named; the fixed order; ask only on
+- **Spec and links in documents (Mac), in phase 1.** Locators §4: replace "using a verified
+  endpoint hint or already-known server record" with the rule (no host named; the fixed order; ask only on
   activation; accept only a matching descriptor; fail naming the hosts asked) and define the
   hint as the host form. §1: one sentence on what each `overstory://` form carries. §5: no
   route finds a host from a TreeID. 02-directory-format: when to write each link form.
@@ -235,6 +234,9 @@ descriptor)`). `openRemoteLocator` splits into resolving a path to a descriptor 
   stub hosts (each step's hit, a wrong TreeID discarded, a stale row falling through, two
   hosts holding the tree, no activation means no requests), and `OverstoryRemoteLocator`
   refusing a `tr_` authority. `swift/scripts/test-story-app.sh`, `bun run check:links`.
+
+## Phase 5: links from outside the app, the iPhone and the command line
+
 - **Opens from the OS (Mac).** `StoryIncomingLocator` gains `.tree(id:path:stableKey:)`;
   `onOpenURL` records a pending open consumed once a window's model exists (fixing the
   cold-launch drop for host-form links too); the confirmation sheet; Open Location accepts
@@ -265,7 +267,7 @@ two hosts, stop and bring it to Joe.
 3. **Groups you can't edit.** Show them as locked headings, or only groups you're in.
 4. **Placeholder invites.** One link that covers every group a placeholder is in, or one per
    group.
-5. **Go to… metadata.** Pages are in. Anything else beyond the list in phase 3, such as front
+5. **Go to… metadata.** Pages are in. Anything else beyond the list in phase 1, such as front
    matter tags or type?
 
 ## Not in scope
