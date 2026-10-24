@@ -146,8 +146,8 @@ every file or database that shows them is one placement's
 project a collection differently, and both hold the same rows and the same
 root.
 
-The folder's `.usl` files are its [schema](11-schema-language.md), held as
-ordinary authored file entries with exact bytes. `_index.md` and other
+The folder's `schema.usl` is its [schema](11-schema-language.md), held as an
+ordinary authored file entry with exact bytes. `_index.md` and other
 ordinary files in the folder stay ordinary entries and pages: the folder is a
 page that has a logical collection. A collection whose schema has one model
 with data rows has those rows as its logical children. One with several has a
@@ -198,9 +198,9 @@ form of §2.2:
 
 An authority validates a `collection` reference in this order:
 
-1. Parse and check the folder's `.usl` file entries under the language's
+1. Parse and check the folder's `schema.usl` entry under the language's
    limits, and require `modelFingerprint` to equal the
-   [model fingerprint](11-schema-language.md#9-fingerprints) they produce.
+   [model fingerprint](11-schema-language.md#9-fingerprints) it produces.
 2. Require `tables` to name exactly the schema's models with data rows, in
    order, each once.
 3. Load every table and `rows` object; require each to decode canonically,
@@ -270,7 +270,7 @@ A merge conflict on a field becomes a decision scoped to that row field
 ([tree operations §1.2.3](01-tree-operations.md#123-reading-conflicts)); a
 merged result the schema rejects is a conflict on the collection's folder.
 Changing the schema's model layer is a schema migration: the update carries
-the new `.usl` files and the rows rewritten to them, and is validated as a
+the new `schema.usl` and the rows rewritten to it, and is validated as a
 whole.
 
 ### 2.4 Projections
@@ -305,7 +305,7 @@ state.
 #### 2.4.1 File projections
 
 A file projection holds a collection's rows in one of these forms, beside its
-`.usl` files:
+`schema.usl`:
 
 - `_store.csv`, `_store.json` or `_store.jsonl`, when the file layout has one
   table;

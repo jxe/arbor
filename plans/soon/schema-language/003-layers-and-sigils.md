@@ -51,8 +51,9 @@ form are in [examples/layered](examples/layered).
 - **A row's body is storage** (004 fork 6): a Markdown-records projection
   writes the field named `content` as the body and `title` as the page title;
   `@body` and `@title` name other fields.
-- **`re Game { … }`** adds to a model declared elsewhere, in the same file or
-  another. It re-mentions existing fields by bare name (`status ~bullet`),
+- **`re Game { … }`** adds to a model declared elsewhere in the same file, or
+  from a placement's storage mapping. In a tree, `schema.usl` is a
+  collection's only schema file (Joe, 2026-10-24). It re-mentions existing fields by bare name (`status ~bullet`),
   and an enum's values by name (`Draft ~color("#9aa0aa")`). It never
   declares fields or types.
 - **No enforced separation, only conventions.** Every sigil is legal in

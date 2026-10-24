@@ -55,9 +55,9 @@ The words `model`, `enum`, `re`, `seed`, `ordered`, `unique`, `path` and `as`
 are keywords only where this chapter places them, so a field or model may
 still be named `id`, `seed` or `path`.
 
-A schema may span several files. Every `.usl` file directly in a collection's
-folder is part of its schema, `schema.usl` first and the rest in UTF-8 order
-of file name, and together they are one source.
+A collection's schema is its one `schema.usl` file. The only other `.usl`
+files are a placement's own storage mappings ([§7](#7-attributes)), which it
+keeps outside the tree and reads after `schema.usl`.
 
 ## 2. Layers
 
@@ -76,8 +76,8 @@ applies to that field or end. Each attribute name belongs to one layer and one
 level ([§7](#7-attributes)); an attribute in the wrong place is a diagnostic.
 
 `model Name { ... }` and `enum Name { ... }` declare a model once. `re Name
-{ ... }` adds attributes to a model or enum declared elsewhere, in the same
-file or another: it re-mentions fields by bare name (`status ~bullet`) and an
+{ ... }` adds attributes to a model or enum declared elsewhere in `schema.usl`,
+or from a placement's storage mapping: it re-mentions fields by bare name (`status ~bullet`) and an
 enum's values by name (`Draft ~color("#9aa0aa")`), and never declares fields,
 types or values. Every attribute is legal in a `model`, `enum` or `re` block.
 By convention, which `usl fmt` applies, a `model` block holds the model plus
@@ -222,7 +222,7 @@ a schema's views; views never change data.
 A collection binds to its schema's **model fingerprint**: the canonical CBOR
 hash ([tree operations §4.1](01-tree-operations.md#41-cbor-and-hashes)) of the
 checked model layer, with models, enums, fields, values and connections in
-UTF-8 order of name and comments, formatting, file boundaries and every `@`
+UTF-8 order of name and comments, formatting and every `@`
 and `~` attribute left out. Changing only storage or presentation therefore
 leaves every collection's logical state and hash unchanged.
 
@@ -276,7 +276,7 @@ query along these ([executable documents](07-executable-documents.md)).
 
 | Limit | Value |
 |---|---|
-| Source bytes, all files | 1,048,576 |
+| Source bytes | 1,048,576 |
 | Tokens | 65,536 |
 | Nesting depth of values | 32 |
 

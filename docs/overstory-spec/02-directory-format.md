@@ -193,7 +193,6 @@ Materializing one heading never materializes the other.
   [child backings](06-child-backings.md#2-logical-collections) specifies. No
   other file name selects a collection schema; a `schema.ts`, for example, is
   an ordinary file.
-- Other `.usl` files beside a `schema.usl` are part of the same schema.
 - `_store.csv`, `_store.json`, `_store.jsonl`, `<Table>.csv`, `.json` and
   `.jsonl`, Markdown row files and `_store.sqlite3` in a collection's folder are
   a placement's [projection](06-child-backings.md#24-projections) of its rows,
@@ -206,8 +205,7 @@ Materializing one heading never materializes the other.
 
 These recognizers do not make generated declarations, compiled bundles, database credentials, or execution transcripts part of this format unless they are themselves deliberately authored ordinary tree content.
 
-For a collection's folder, `schema.usl` and the other `.usl` files remain exact
-authored file entries in the protocol graph, while the directory's
+For a collection's folder, `schema.usl` remains an exact authored file entry in the protocol graph, while the directory's
 `collection` reference holds the rows as the complete immediate logical child
 set. `_index.md` may still supply the folder node's own content, and other
 ordinary files stay ordinary entries, but expanded child folders beside a
