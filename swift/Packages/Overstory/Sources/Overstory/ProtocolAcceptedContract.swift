@@ -88,6 +88,18 @@ enum AcceptedReadValidation {
             try id(d["id"]); try check(seen.insert(d["id"]!.text!).inserted); try token(d["kind"]); try id(d["selected"])
             let affected=try array(d["affected"]); try check(!affected.isEmpty); for r in affected { try reference(r) }
             try ids(d["dependencies"]); try check(!(d["dependencies"]!.items!.contains(d["id"]!))); try ids(d["actions"])
+            // A field choice, and only one, names its row field (spec 01 §1.2.3).
+            let field=d["kind"] == .string("field")
+            try check((d["row"] != nil)==field)
+            if field {
+                let row=try object(d["row"]); try check(row.count==3); try required(row,["model","key","field"])
+                func name(_ x: ProtocolReadValue?) throws {
+                    let s=try string(x)
+                    try check(s.range(of: #"^[A-Za-z_][A-Za-z0-9_]{0,127}$"#, options: .regularExpression) != nil)
+                }
+                try name(row["model"]); let key=try string(row["key"]); try check(!key.isEmpty && key.utf8.count<=4096)
+                if row["field"] != .null { try name(row["field"]) }
+            }
             let alternatives=try array(d["alternatives"]); try check(alternatives.count>=2); var names=Set<String>()
             for raw in alternatives {
                 let a=try object(raw); try required(a,["id","revision","value","contributions"]); try id(a["id"]); try id(a["revision"])

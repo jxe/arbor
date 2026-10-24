@@ -72,7 +72,7 @@ async function collectionEdits(path: string, object: ObjectHash, before: Protoco
     const rowsAfter = new Map((right!.tables[model.name] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow]));
     for (const [row, value] of rowsAfter) {
       const prior = rowsBefore.get(row);
-      const op = (fields: Record<string, unknown>) => operations.push({ key: "", collection, table: model.name, row, ...fields } as RowOperation);
+      const op = (fields: Record<string, unknown>) => operations.push({ key: "", collection, model: model.name, row, ...fields } as RowOperation);
       if (!prior) {
         // A created row's times are its operation's.
         if (value.created !== value.modified) return null;
@@ -80,7 +80,7 @@ async function collectionEdits(path: string, object: ObjectHash, before: Protoco
       } else if (json(prior) !== json(value) && !rowEdits(model, prior, value, op)) return null;
     }
     for (const row of rowsBefore.keys())
-      if (!rowsAfter.has(row)) operations.push({ key: "", kind: "rowDelete", collection, table: model.name, row });
+      if (!rowsAfter.has(row)) operations.push({ key: "", kind: "rowDelete", collection, model: model.name, row });
   }
   return operations;
 }

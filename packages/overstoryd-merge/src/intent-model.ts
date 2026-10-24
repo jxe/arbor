@@ -148,7 +148,7 @@ export interface IntentDecision {
   placement?: { node: string; pieces: Piece[]; anchor: number };
   /** A field choice: the row field it is about, in the collection its
    * subject names. Its alternatives are value objects and name no node. */
-  row?: { table: string; row: string; field: string | null };
+  row?: { model: string; key: string; field: string | null };
 }
 export const keyOf = (change: string, operation: string) =>
   JSON.stringify([change, operation]);

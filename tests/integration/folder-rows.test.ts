@@ -69,13 +69,13 @@ async function recording<T>(body: (requests: UpdateRequest[]) => Promise<T>): Pr
 }
 
 /** Another device sets a field through the host, as row operations on the accepted head. */
-async function remoteSet(row: string, field: string, before: unknown, value: unknown, path = "items", table = "Item") {
+async function remoteSet(row: string, field: string, before: unknown, value: unknown, path = "items", model = "Item") {
   const owner = await deviceClient(host.url, token);
   const current = await owner.descriptor(tree), snapshot = await owner.snapshot(tree, current.tree.root);
   const objects = new Map(snapshot.objects);
   const items = decodeProtocolDirectory(objects.get(snapshot.root)!).entries.find((e) => e.name === path)!.directory!;
   const operations = [{ key: "set", kind: "rowSet", collection: { material: { kind: "basis", path: `/${path}`, object: items } },
-    table, row: JSON.stringify([["id", row]]), field, before, value, at: new Date().toISOString() } as SourceOperation];
+    model, row: JSON.stringify([["id", row]]), field, before, value, at: new Date().toISOString() } as SourceOperation];
   const result = await executeRowOperations(snapshot.root, operations, async (hash) => objects.get(hash)!, replayCollectionRows);
   await owner.submitUpdates(tree, { base: current.tree.update, updates: [{ change: crypto.randomUUID(), candidate: result.root,
     trace: [{ before: snapshot.root, after: result.root, operations }], resolves: [], deltas: [],
@@ -116,8 +116,8 @@ test("a folder with a file per table syncs its rows as operations on each table"
       await daemon.synchronizeNow();
       const trace = requests.flatMap((request) => request.updates).at(-1)!.trace;
       expect(trace?.[0]?.operations).toEqual([
-        expect.objectContaining({ kind: "rowCreate", table: "Game", row: JSON.stringify([["id", "g2"]]) }),
-        expect.objectContaining({ kind: "rowConnect", table: "List", row: JSON.stringify([["id", "l1"]]), field: "games", member: "g2" }),
+        expect.objectContaining({ kind: "rowCreate", model: "Game", row: JSON.stringify([["id", "g2"]]) }),
+        expect.objectContaining({ kind: "rowConnect", model: "List", row: JSON.stringify([["id", "l1"]]), field: "games", member: "g2" }),
       ]);
     });
     await remoteSet("l1", "name", "Favorites", "Best", "games", "List");
@@ -148,7 +148,7 @@ test("a folder's SQLite database syncs as rows: another program's edit publishes
       await daemon.synchronizeNow();
       const trace = requests.flatMap((request) => request.updates).at(-1)!.trace;
       expect(trace?.[0]?.operations).toEqual([
-        expect.objectContaining({ kind: "rowSet", table: "List", field: "name", before: "Community care", value: "Mutual aid" }),
+        expect.objectContaining({ kind: "rowSet", model: "List", field: "name", before: "Community care", value: "Mutual aid" }),
       ]);
     });
     await remoteSet(LIST, "openToEdits", true, false, "supplies", "List");

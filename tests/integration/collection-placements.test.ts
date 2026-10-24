@@ -1,5 +1,6 @@
 // Schema language 005 milestone 3, done when: one tree placed as SQLite and as
-// JSONL holds the same root, and reformatting a CSV publishes nothing.
+// JSONL holds the same root, and reformatting a CSV publishes nothing. And
+// milestone 4's games example, at the end.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -9,6 +10,8 @@ import { materializeTree, resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { deriveRowOperations } from "@ovst/collection-schema";
 import type { ObjectHash } from "@ovst/protocol";
 import { CollectionProjections, type CollectionProjectionForm } from "@ovst/story-sync/state";
+import { compileUsl, layoutOf } from "@ovst/usl";
+import { verifyStore } from "@ovst/usl/verify";
 import { collectionRows, collectionTree, idRow, T0 } from "../support/collection-trees.ts";
 
 const GAMES = `main model Game {
@@ -66,7 +69,7 @@ describe("one tree, placed with different projections", () => {
     const edited = await sqlite.scan();
     const objects = new Map([...tree.objects, ...edited.objects]);
     const operations = await deriveRowOperations(tree.root, edited.root, async (hash) => objects.get(hash)!);
-    expect(operations).toEqual([expect.objectContaining({ kind: "rowSet", table: "Game", field: "name", before: "Go", value: "Weiqi", at: "2026-10-24T12:00:00.000Z" })]);
+    expect(operations).toEqual([expect.objectContaining({ kind: "rowSet", model: "Game", field: "name", before: "Go", value: "Weiqi", at: "2026-10-24T12:00:00.000Z" })]);
 
     // The JSONL placement takes the accepted tree, changing one line.
     const before = await readFile(join(jsonl.items, "Game.jsonl"), "utf8");
@@ -109,6 +112,28 @@ describe("a CSV placement", () => {
     const edited = await csv.scan();
     const objects = new Map([...tree.objects, ...edited.objects]);
     expect(await deriveRowOperations(tree.root, edited.root, async (hash) => objects.get(hash)!))
-      .toEqual([expect.objectContaining({ kind: "rowSet", table: "Item", field: "title", before: "Apples", value: "Green apples" })]);
+      .toEqual([expect.objectContaining({ kind: "rowSet", model: "Item", field: "title", before: "Apples", value: "Green apples" })]);
+  });
+});
+
+// Schema language 005 milestone 4, done when: a games.usl collection projected
+// as files holds one <Table>.jsonl per table of its file layout and passes
+// `usl verify`.
+describe("the games example placed as files", () => {
+  test("holds one <Table>.jsonl per table of its file layout, which usl verify accepts", async () => {
+    const source = await readFile(join(import.meta.dir, "../../plans/soon/schema-language/examples/games.usl"), "utf8");
+    const tree = collectionTree(source, {
+      Game: [
+        idRow("g1", { name: "Chess", status: "Polished", tags: ["board", "classic"], authors: ["p-ada"] }),
+        idRow("g2", { name: "Go", status: "Draft", description: "Black and **white**.\n" }),
+      ],
+      List: [idRow("l1", { name: "Favorites", games: ["g1"] })],
+    });
+    const placed = await place("games-files", tree, { kind: "files", format: "jsonl" });
+    const schema = compileUsl(source);
+    const files = layoutOf(schema, { store: "files" }).map((table) => `${table.name}.jsonl`);
+    expect((await readdir(placed.items)).sort()).toEqual([...files, "schema.usl"].sort());
+    expect(await verifyStore(schema, placed.items)).toEqual([]);
+    expect((await placed.scan()).root).toBe(tree.root);
   });
 });

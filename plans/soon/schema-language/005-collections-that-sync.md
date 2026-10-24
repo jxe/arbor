@@ -202,8 +202,23 @@ the same root; reformatting the CSV of a placed collection publishes nothing.
 
 ### 4. Row operations and field-level merge
 
-Built on the branch (002's milestone 1); rework it to the logical form. What it
-does:
+**State (2026-10-24, on the branch):** built in the logical form. Row
+operations replay on logical tables (`collection-schema/src/row-replay.ts`),
+`collection-fields-v1` merges by row and field, field choices are kept and
+resolved, the host refuses an `at` too far ahead, and Story Sync emits row
+operations for edits made anywhere (`row-diff.ts`). Operations name a
+`model` and field choices a `{model, key, field}`, as the spec spells them,
+in TS and Swift with vectors. Tests: `tests/integration/overstoryd/row-acceptance.test.ts`,
+`tests/unit/protocol-updates/row-operations.test.ts`, and the games example
+in `tests/integration/collection-placements.test.ts`. Not done:
+- A change whose trace mixes row frames with text frames (10 §4.1 allows
+  separate frames) is refused by the sidecar as unsupported. No client sends
+  one yet.
+- Swift's row-change kind went to People 001's phase 0 with the native step.
+- Presented-view edits (`usl/src/present.ts`, StoryKit `PresentedView`) still
+  name layout tables; they are 002's to rework.
+
+What it does:
 
 **Spec.**
 - Spec 10 §4 adds `rowInsert`, `rowDelete`, `rowSet {table, key, field,
@@ -245,8 +260,8 @@ does:
   - TS: story-sync emits row operations, including for edits made outside
     Story (it diffs decoded rows locally instead of publishing
     `trace: null`).
-  - Swift: `UpdateCoordinator` gains a row-change kind beside
-    `appendStructure` (`UpdateCoordinator+LocalChanges.swift`).
+  - Swift: a row-change kind in `UpdateCoordinator`, now in People 001's
+    phase 0.
 
 - Merge and replay cost for a large collection moved to
   [Performance 004](../../later/performance-004-provenance-index.md) step 6

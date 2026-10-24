@@ -124,8 +124,8 @@ function applyRowOperation(model: LogicalModel, rows: Rows, operation: RowOperat
 export function applyRowOperations(schema: LogicalSchema, tables: LogicalTables, operations: readonly RowOperation[]): LogicalTables {
   const byModel = new Map<string, Rows>();
   for (const operation of operations) {
-    const model = schema.models.find((m) => m.name === operation.table);
-    if (!model) invalid(`${operation.table} is not a model of this collection`);
+    const model = schema.models.find((m) => m.name === operation.model);
+    if (!model) invalid(`${operation.model} is not a model of this collection`);
     let rows = byModel.get(model.name);
     if (!rows) byModel.set(model.name, rows = new Map((tables[model.name] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow])));
     applyRowOperation(model, rows, operation);

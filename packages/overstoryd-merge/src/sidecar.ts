@@ -594,7 +594,7 @@ export class Sidecar {
         this.remember(hash, bytes);
         return hash;
       };
-      const scope = { table: conflict.table, row: conflict.row, field: conflict.field };
+      const scope = { model: conflict.table, key: conflict.row, field: conflict.field };
       decisions.push({
         key: `field:${candidate.change}:${hashObject(new TextEncoder().encode(stableJSONString([conflict.path, scope]))).slice(7, 39)}`,
         path, field: scope, selected: 0, dependencies: [],

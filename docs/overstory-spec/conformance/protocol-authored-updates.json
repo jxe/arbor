@@ -3731,7 +3731,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "[[\"id\",\"g2\"]]",
                     "values": {
                       "id": "g2",
@@ -3748,7 +3748,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "[[\"id\",\"g1\"]]",
                     "field": "title",
                     "before": "Chess",
@@ -3765,7 +3765,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "[[\"id\",\"g1\"]]",
                     "field": "rating",
                     "before": 4,
@@ -3781,7 +3781,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "[[\"id\",\"g1\"]]",
                     "field": "lists",
                     "member": "l1"
@@ -3796,7 +3796,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "[[\"id\",\"g1\"]]",
                     "field": "lists",
                     "member": "l2"
@@ -3811,7 +3811,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "[[\"id\",\"g1\"]]",
                     "field": "steps",
                     "member": 3,
@@ -3827,7 +3827,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "[[\"id\",\"g3\"]]"
                   }
                 ]
@@ -3839,8 +3839,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:991b90b158a2e4f200b44bd5e32f35923234e57edb5d5f0da7cae7468ebb40c1",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZXRhYmxlZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRldGl0bGVldGFibGVkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZWNsZWFyY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRmcm93U2V0ZWZpZWxkZnJhdGluZ2V0YWJsZWRHYW1lZXZhbHVl9mZiZWZvcmUEamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWdjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRqcm93Q29ubmVjdGVmaWVsZGVsaXN0c2V0YWJsZWRHYW1lZm1lbWJlcmJsMWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlqZGlzY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kbXJvd0Rpc2Nvbm5lY3RlZmllbGRlbGlzdHNldGFibGVkR2FtZWZtZW1iZXJibDJqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZG1vdmVjcm93bVtbImlkIiwiZzEiXV1ka2luZGdyb3dNb3ZlZWFmdGVy9mVmaWVsZGVzdGVwc2V0YWJsZWRHYW1lZm1lbWJlcgNqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqVja2V5ZmRlbGV0ZWNyb3dtW1siaWQiLCJnMyJdXWRraW5kaXJvd0RlbGV0ZWV0YWJsZWRHYW1lamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPY="
+          "digest": "sha256:4a9f53bb99ed1d3a0efefa0cdeff0104f463aade107ad0381facd82052eb04a2",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZW1vZGVsZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZWNsZWFyY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRmcm93U2V0ZWZpZWxkZnJhdGluZ2Vtb2RlbGRHYW1lZXZhbHVl9mZiZWZvcmUEamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWdjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRqcm93Q29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlqZGlzY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kbXJvd0Rpc2Nvbm5lY3RlZmllbGRlbGlzdHNlbW9kZWxkR2FtZWZtZW1iZXJibDJqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZG1vdmVjcm93bVtbImlkIiwiZzEiXV1ka2luZGdyb3dNb3ZlZWFmdGVy9mVmaWVsZGVzdGVwc2Vtb2RlbGRHYW1lZm1lbWJlcgNqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqVja2V5ZmRlbGV0ZWNyb3dtW1siaWQiLCJnMyJdXWRraW5kaXJvd0RlbGV0ZWVtb2RlbGRHYW1lamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPY="
         }
       ]
     },
@@ -3868,7 +3868,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "[[\"id\",\"g1\"]]",
                     "field": "title",
                     "value": "Chess960"
@@ -3905,7 +3905,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "g1"
                   }
                 ]
@@ -3944,7 +3944,7 @@
                         1
                       ]
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "[[\"id\",\"g1\"]]"
                   }
                 ]
@@ -3979,7 +3979,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "[[\"id\",\"g1\"]]",
                     "field": "lists",
                     "member": {
@@ -4018,7 +4018,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "[[\"id\",\"g1\"]]",
                     "field": "steps",
                     "member": 3,
@@ -4056,7 +4056,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "[[\"id\",\"g1\"]]",
                     "field": "title",
                     "before": "a",
@@ -4095,7 +4095,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game",
+                    "model": "Game",
                     "row": "[[\"id\",\"g1\"]]",
                     "at": "2026-10-15T09:38:25Z"
                   }
@@ -4131,7 +4131,7 @@
                         "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                       }
                     },
-                    "table": "Game/x",
+                    "model": "Game/x",
                     "row": "[[\"id\",\"g1\"]]"
                   }
                 ]

@@ -18,7 +18,7 @@ export interface InspectedAlternative {
 export interface InspectedDecision {
   id: string; kind: string; affected: MaterialRef[]; selected: string;
   /** A field choice's row field (`field: null` is the row's existence). */
-  row?: { table: string; row: string; field: string | null };
+  row?: { model: string; key: string; field: string | null };
   alternatives: InspectedAlternative[]; dependencies: string[]; actions: string[];
 }
 export interface DecisionPage {
@@ -70,6 +70,14 @@ export function decodeDecisionPage(raw: unknown, context?: {tree:string;state:st
     id(d.id); check(!seen.has(d.id)); seen.add(d.id); token(d.kind); id(d.selected);
     check(Array.isArray(d.affected) && d.affected.length>0); d.affected.forEach((r:unknown)=>decodeMaterialRef(r));
     ids(d.dependencies); check(!d.dependencies.includes(d.id)); ids(d.actions);
+    // A field choice, and only one, names its row field (spec 01 §1.2.3).
+    check(Object.hasOwn(d,"row")===(d.kind==="field"));
+    if(d.kind==="field") {
+      const row=obj(d.row); check(Object.keys(row).length===3); required(row,["model","key","field"]);
+      const name=(x:unknown)=>check(typeof x==="string" && /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(x));
+      name(row.model); str(row.key); check(row.key.length>0 && new TextEncoder().encode(row.key).length<=4096);
+      if(row.field!==null) name(row.field);
+    }
     check(Array.isArray(d.alternatives) && d.alternatives.length>=2); const alternatives=new Set();
     for(const raw of d.alternatives) {
       const a=obj(raw); required(a,["id","revision","value","contributions"]); id(a.id); id(a.revision);

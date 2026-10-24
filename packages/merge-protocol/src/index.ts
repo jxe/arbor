@@ -36,7 +36,7 @@ export const LOG_ENTRY_FORMAT = "overstory-log-entry-v1";
  * `range` it is a source choice about those bytes of the file at `path`
  * (`at` names that file when it is not the one in the entry's root), and each
  * alternative object is that alternative's bytes for the range. */
-export interface RowFieldScope { table: string; row: string; field: string | null }
+export interface RowFieldScope { model: string; key: string; field: string | null }
 /** Whether a decision's alternatives are single objects (a range's bytes or a
  * field's value) rather than whole roots. */
 export const rawAlternatives = (d: Pick<LogDecision, "range" | "field">): boolean => !!(d.range || d.field);
@@ -59,7 +59,7 @@ const logDecisionSchema = z
     path: z.array(name).optional(),
     range: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).optional(),
     at: hash.optional(),
-    field: z.object({ table: modelName, row: z.string().min(1).max(4096), field: modelName.nullable() }).strict().optional(),
+    field: z.object({ model: modelName, key: z.string().min(1).max(4096), field: modelName.nullable() }).strict().optional(),
     dependencies: z.array(token),
     selected: z.number().int().nonnegative(),
     alternatives: z.array(z.object({ object: hash, contributions: z.array(contribution) }).strict()).min(2),

@@ -18,7 +18,7 @@ const AT = "2026-10-24T10:00:00.000Z";
 
 function rowOps(tree: CollectionTree) {
   const collection = { material: { kind: "basis" as const, path: "/items", object: tree.collection } };
-  const target = (id: string, opKey: string) => ({ key: opKey, collection, table: "Item", row: key(id), at: AT });
+  const target = (id: string, opKey: string) => ({ key: opKey, collection, model: "Item", row: key(id), at: AT });
   return {
     set: (id: string, field: string, before: unknown, value: unknown, k = "set") => ({ ...target(id, k), kind: "rowSet", field, before, value }) as RowOperation,
     connect: (id: string, field: string, member: string, k = "connect") => ({ ...target(id, k), kind: "rowConnect", field, member }) as RowOperation,
@@ -39,7 +39,7 @@ async function replay(tree: CollectionTree, operations: SourceOperation[]) {
 describe("row operation grammar", () => {
   const candidate = (operation: unknown) => ({ change: "c1", candidate: HASH, resolves: [], trace: [{ before: HASH, after: HASH, operations: [operation] }] });
   const collection = { material: { kind: "basis", path: "/items", object: HASH } };
-  const base = { key: "op", collection, table: "Item", row: key("a") };
+  const base = { key: "op", collection, model: "Item", row: key("a") };
 
   test("accepts every row operation", () => {
     for (const operation of [
@@ -58,7 +58,7 @@ describe("row operation grammar", () => {
       { ...base, kind: "rowSet", field: "title", value: "B" },
       { ...base, kind: "rowSet", field: "title", before: "A", value: "B", extra: 1 },
       { ...base, row: "a", kind: "rowDelete" },
-      { ...base, table: "Item.x", kind: "rowDelete" },
+      { ...base, model: "Item.x", kind: "rowDelete" },
       { ...base, kind: "rowConnect", field: "tags", member: { id: "x" } },
       { ...base, kind: "rowConnect", field: "tags", member: null },
       { ...base, kind: "rowMove", field: "tags", member: "x", after: "x" },
@@ -136,7 +136,7 @@ describe("row operation replay", () => {
       [[{ ...op.create("e", { title: "E" }), row: key("f") }], /row's key/],
       [[op.connect("a", "tags", "x")], /already present/],
       [[op.disconnect("a", "tags", "nope")], /absent/],
-      [[{ ...op.remove("a"), table: "Other" }], /not a model/],
+      [[{ ...op.remove("a"), model: "Other" }], /not a model/],
       [[op.set("a", "title", "A", 5)], /Expected text/],
       [[op.set("a", "modified", null, AT)], /operation's time/],
       [[{ ...op.set("a", "title", "A", "Z"), at: undefined }], /carries its time/],

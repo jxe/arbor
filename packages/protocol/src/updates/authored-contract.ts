@@ -23,10 +23,10 @@ export type AuthoredOperation = { key: string } & (
 /** A scalar a many-valued field holds: a connected row's key value or a listed value. */
 export type RowMember = string | number | boolean;
 /** Fields every row operation carries: the collection directory (an entry
- * reference, never ranged), the table and the row's canonical stable key.
+ * reference, never ranged), the model and the row's canonical stable key.
  * `at`, when the author states it, is when the edit was made (UTC ISO 8601);
  * replay writes it to the row's `created` and `modified`. */
-interface RowTarget { collection: MaterialRef; table: string; row: string; at?: string }
+interface RowTarget { collection: MaterialRef; model: string; row: string; at?: string }
 /** A row operation's time: UTC ISO 8601 with optional fractional seconds. */
 export const ROW_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
 /** Row operations (spec 10 §4.1): an edit to one row of a schema'd collection,
@@ -140,7 +140,7 @@ function operation(raw: unknown): AuthoredOperation {
     case "rowCreate": case "rowDelete": case "rowSet": case "rowConnect": case "rowDisconnect": case "rowMove": {
       const fields = { rowCreate: ["values"], rowDelete: [], rowSet: ["field", "before", "value"], rowConnect: ["field", "member"],
         rowDisconnect: ["field", "member"], rowMove: ["field", "member", "after"] }[v.kind as RowOperation["kind"]];
-      keys(v, ["key", "kind", "collection", "table", "row", ...fields], v.kind === "rowDelete" ? [] : ["at"]); reference(v.collection, true); name(v.table);
+      keys(v, ["key", "kind", "collection", "model", "row", ...fields], v.kind === "rowDelete" ? [] : ["at"]); reference(v.collection, true); name(v.model);
       if (Object.hasOwn(v, "at")) require(typeof v.at === "string" && ROW_TIME.test(v.at) && Number.isFinite(Date.parse(v.at)));
       text(v.row, 4096); require(parseCanonicalStableKey(v.row) !== null);
       if (Object.hasOwn(v, "field")) name(v.field);

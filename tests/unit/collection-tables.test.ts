@@ -114,9 +114,9 @@ describe("rows of several tables", () => {
     current = snapshot.objects;
     const at = "2026-10-24T10:00:00.000Z";
     const operations: RowOperation[] = [
-      { key: "a", kind: "rowSet", collection: collection(snapshot.root), table: "Game", row: key("g2"), field: "name", before: "Go", value: "Weiqi", at },
-      { key: "b", kind: "rowCreate", collection: collection(snapshot.root), table: "List", row: key("l2"), values: { id: "l2", name: "Later" }, at },
-      { key: "c", kind: "rowDisconnect", collection: collection(snapshot.root), table: "List", row: key("l1"), field: "games", member: "g1", at },
+      { key: "a", kind: "rowSet", collection: collection(snapshot.root), model: "Game", row: key("g2"), field: "name", before: "Go", value: "Weiqi", at },
+      { key: "b", kind: "rowCreate", collection: collection(snapshot.root), model: "List", row: key("l2"), values: { id: "l2", name: "Later" }, at },
+      { key: "c", kind: "rowDisconnect", collection: collection(snapshot.root), model: "List", row: key("l1"), field: "games", member: "g1", at },
     ];
     const load = async (hash: ObjectHash) => objects.get(hash)!;
     const objects = new Map(snapshot.objects);
@@ -137,13 +137,13 @@ describe("rows of several tables", () => {
     const reread = await resolveSnapshot(await snapshotDirectory(join(sandbox, "replay"), new Map(), [], (dir, list) => snapshot.projections.read(dir, list)));
     expect(reread.root).toBe(result.root);
     const derived = await deriveRowOperations(snapshot.root, reread.root, async (hash) => objects.get(hash) ?? reread.objects.get(hash)!);
-    expect(derived?.map((op) => [op.table, op.kind])).toEqual([["Game", "rowSet"], ["List", "rowDisconnect"], ["List", "rowCreate"]]);
+    expect(derived?.map((op) => [op.model, op.kind])).toEqual([["Game", "rowSet"], ["List", "rowDisconnect"], ["List", "rowCreate"]]);
   });
 
   test("an operation on a model the schema does not have is invalid", async () => {
     const snapshot = await folder("unknown-table", FILES);
     current = snapshot.objects;
-    const op: RowOperation = { key: "a", kind: "rowDelete", collection: collection(snapshot.root), table: "Status", row: key("g1") };
+    const op: RowOperation = { key: "a", kind: "rowDelete", collection: collection(snapshot.root), model: "Status", row: key("g1") };
     await expect(executeRowOperations(snapshot.root, [op], async (hash) => snapshot.objects.get(hash)!, replayCollectionRows)).rejects.toThrow();
   });
 

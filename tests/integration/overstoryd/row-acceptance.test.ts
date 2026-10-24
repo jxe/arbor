@@ -44,7 +44,7 @@ async function rowChange(basisRoot: string, operations: (collection: { material:
     resolves: [], deltas: [], objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) };
 }
 const set = (row: string, field: string, before: unknown, value: unknown, opKey = "set") => (collection: never) =>
-  [{ key: opKey, kind: "rowSet", collection, table: "Item", row: key(row), field, before, value, at: now() } as SourceOperation];
+  [{ key: opKey, kind: "rowSet", collection, model: "Item", row: key(row), field, before, value, at: now() } as SourceOperation];
 /** Each operation a millisecond after the last, so row times only move forward. */
 let clock = Date.parse("2026-10-24T09:00:00.000Z");
 const now = () => new Date(clock++).toISOString();
@@ -72,12 +72,12 @@ afterEach(async () => {
 test("concurrent edits to different fields and members of one row both land", async () => {
   const first = await submit(await rowChange(root, (c) => [
     ...set("a", "title", "A", "Alpha")(c as never),
-    { key: "tag", kind: "rowConnect", collection: c, table: "Item", row: key("a"), field: "tags", member: "y", at: now() } as SourceOperation,
+    { key: "tag", kind: "rowConnect", collection: c, model: "Item", row: key("a"), field: "tags", member: "y", at: now() } as SourceOperation,
   ]));
   expect(first.conflicted).toBe(false);
   const second = await submit(await rowChange(root, (c) => [
     ...set("a", "done", null, true)(c as never),
-    { key: "tag", kind: "rowConnect", collection: c, table: "Item", row: key("a"), field: "tags", member: "z", at: now() } as SourceOperation,
+    { key: "tag", kind: "rowConnect", collection: c, model: "Item", row: key("a"), field: "tags", member: "z", at: now() } as SourceOperation,
   ]));
   expect(second.conflicted).toBe(false);
   await remember(second.root);
@@ -94,7 +94,7 @@ test("one field set twice is a choice about that field, which a resolution close
   const page = await client.conflicts(tree, accepted.id, accepted.root);
   expect(page.decisions).toHaveLength(1);
   const decision = page.decisions[0]!;
-  expect(decision).toMatchObject({ kind: "field", row: { table: "Item", row: key("a"), field: "title" } });
+  expect(decision).toMatchObject({ kind: "field", row: { model: "Item", key: key("a"), field: "title" } });
   expect(decision.alternatives.map((a) => a.value)).toEqual([{ value: "Mine" }, { value: "Theirs" }]);
   const guard = { state: accepted.id, conflict: decision.id, alternatives: decision.alternatives.map((a) => a.id) };
   // Picking "Theirs": the ordinary operation that writes it, with the resolution.
@@ -118,10 +118,10 @@ test("keeping the shown value resolves with no operations", async () => {
 
 test("deleting a row another change edited is a choice about the row", async () => {
   await submit(await rowChange(root, set("b", "title", "B", "Bee") as never));
-  const accepted = await submit(await rowChange(root, (c) => [{ key: "delete", kind: "rowDelete", collection: c, table: "Item", row: key("b") } as SourceOperation]));
+  const accepted = await submit(await rowChange(root, (c) => [{ key: "delete", kind: "rowDelete", collection: c, model: "Item", row: key("b") } as SourceOperation]));
   expect(accepted.conflicted).toBe(true);
   const decision = (await client.conflicts(tree, accepted.id, accepted.root)).decisions[0]!;
-  expect(decision).toMatchObject({ kind: "field", row: { table: "Item", row: key("b"), field: null } });
+  expect(decision).toMatchObject({ kind: "field", row: { model: "Item", key: key("b"), field: null } });
   expect(decision.alternatives.map((a) => a.value)).toEqual([{ value: { id: "b", title: "Bee" } }, { value: null }]);
 });
 

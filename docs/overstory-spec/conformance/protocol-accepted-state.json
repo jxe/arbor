@@ -1638,6 +1638,402 @@
           }
         ]
       }
+    },
+    {
+      "name": "field choice names its row field",
+      "kind": "inspection",
+      "valid": true,
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "title",
+            "kind": "field",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/games",
+                  "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                }
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "value": "Chess"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "value": "Chess 960"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ],
+            "row": {
+              "model": "Game",
+              "key": "[[\"id\",\"g1\"]]",
+              "field": "title"
+            }
+          }
+        ],
+        "next": null
+      }
+    },
+    {
+      "name": "row existence choice has a null field",
+      "kind": "inspection",
+      "valid": true,
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "title",
+            "kind": "field",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/games",
+                  "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                }
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "value": "Chess"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "absent": true
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ],
+            "row": {
+              "model": "Game",
+              "key": "[[\"id\",\"g1\"]]",
+              "field": null
+            }
+          }
+        ],
+        "next": null
+      }
+    },
+    {
+      "name": "field choice must name its row",
+      "kind": "inspection",
+      "valid": false,
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "title",
+            "kind": "field",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/games",
+                  "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                }
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "value": "Chess"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "value": "Chess 960"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      }
+    },
+    {
+      "name": "row field has exactly model, key and field",
+      "kind": "inspection",
+      "valid": false,
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "title",
+            "kind": "field",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/games",
+                  "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                }
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "value": "Chess"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "value": "Chess 960"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ],
+            "row": {
+              "model": "Game",
+              "key": "[[\"id\",\"g1\"]]",
+              "field": "title",
+              "table": "Game"
+            }
+          }
+        ],
+        "next": null
+      }
+    },
+    {
+      "name": "row model must be a model name",
+      "kind": "inspection",
+      "valid": false,
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "title",
+            "kind": "field",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/games",
+                  "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                }
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "value": "Chess"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "value": "Chess 960"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ],
+            "row": {
+              "model": "Game/x",
+              "key": "[[\"id\",\"g1\"]]",
+              "field": "title"
+            }
+          }
+        ],
+        "next": null
+      }
+    },
+    {
+      "name": "only a field choice names a row",
+      "kind": "inspection",
+      "valid": false,
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "text",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "text": "Tuesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "text": "Wednesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ],
+            "row": {
+              "model": "Game",
+              "key": "[[\"id\",\"g1\"]]",
+              "field": "title"
+            }
+          }
+        ],
+        "next": null
+      }
     }
   ]
 }
