@@ -25,3 +25,4 @@ export {
 export { mergeCollectionRows, type RowFieldConflict, type TextMerge } from "./row-merge.ts";
 export { deriveRowOperations } from "./row-diff.ts";
 export { compileLogicalSchema, checkLogicalTables, encodeCollection, loadCollection, LogicalCollectionError, type EncodedCollection, type LogicalDiagnostic, type LogicalSchema } from "./logical.ts";
+export { fromSQLite, sqliteRow, toSQLite } from "./sqlite-values.ts";

@@ -28,6 +28,8 @@ import {
   loadDirectoryCollection,
   sharedCollectionSchemaCache,
   spliceCollectionFile,
+  sqliteRow,
+  toSQLite,
   type CollectionFileFormat,
   type CollectionSchema,
   type CollectionSchemaCache,
@@ -80,23 +82,6 @@ function detectForm(fileNames: readonly string[], tables: readonly Table[]): Col
   // A one-table layout keeps its rows in `_store.*`; a several-table layout can't.
   if (form?.kind === "files" && fileNames.includes(`_store.${form.format}`) !== (tables.length === 1)) return "mixed";
   return form ?? null;
-}
-
-/** A stored SQLite value as the row's JSON value: flags as booleans, value arrays from their JSON text. Null is absent. */
-function fromSQLite(schema: CollectionSchema, column: string, value: unknown): JSONValue | undefined {
-  if (value === null || value === undefined) return undefined;
-  const check = schema.row.byName.get(column)?.check;
-  if (check?.kind === "bool" && typeof value === "number") return value !== 0;
-  if (check?.kind === "array" && typeof value === "string") return JSON.parse(value) as JSONValue;
-  if (typeof value === "bigint") return Number(value);
-  return value as JSONValue;
-}
-
-function toSQLite(value: JSONValue | undefined): string | number | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value === "boolean") return value ? 1 : 0;
-  if (typeof value === "object") return JSON.stringify(value);
-  return value;
 }
 
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
@@ -158,15 +143,6 @@ interface DatabaseState {
 
 /** A row the schema can't read stops the projection from being read until it is fixed, so no other row is lost with it. */
 class UnreadableRow extends Error {}
-
-function sqliteRow(schema: CollectionSchema, raw: Record<string, unknown>): Row {
-  const row: Row = {};
-  for (const column of schema.columns) {
-    const value = fromSQLite(schema, column, raw[column]);
-    if (value !== undefined) row[column] = value;
-  }
-  return row;
-}
 
 function readSQLiteTable(database: Database, schema: CollectionSchema): Row[] {
   const columns = schema.columns.map(quote).join(", ");

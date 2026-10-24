@@ -167,7 +167,7 @@ function sqliteType(declared: string): FieldType {
 
 export function inspectSQLite(database: Database): Record<string, RelationMetadata> {
   const tables = database.query(
-    "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not glob '__arbor_*' order by name",
+    "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not glob '__arbor_*' and name not glob '_overstory_*' order by name",
   ).all() as Array<{ name: string }>;
   const result: Record<string, RelationMetadata> = {};
   for (const { name } of tables) {

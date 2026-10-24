@@ -19,12 +19,13 @@ placement); the decisions it carries over from 002 are below.
 - **Effort:** XL, in milestones.
 - **Risk:** HIGH. It changes what a tree root holds for a collection, the
   merge protocol (field-level merge) and how SQLite is hashed and synced.
-- **State:** IN PROGRESS. Row operations, field-level merge, multi-table
-  folders, SQLite syncing as rows, and the StoryKit port of `packages/usl` are
-  built on branch `claude/project-thread-6kt6l8` (the Swift is untested), not
-  on main. They were built before 004, so part of that work is reworked here
-  (milestone 2). 003's syntax is decided but not implemented. 004's forks are
-  open.
+- **State:** IN PROGRESS. Milestone 1 is written into the spec, and
+  milestone 2's TS side is on main. Milestones 3 to 6 (logical collections,
+  row operations with field-level merge, SQLite that syncs through Story
+  Sync, and rows on the host) and the StoryKit port are built on branch
+  `claude/project-thread-6kt6l8`, not on main; the Swift is untested. Left:
+  the Swift build and tests on Joe's Mac, publishing `@ovst/usl` 0.3.0 and
+  moving the sites, then landing the branch.
 - **Depends on:** nothing.
 - **Unblocks:** [People 001](../../later/people-001-directory-and-go-to.md);
   [002](../../later/schema-language-002-cranberries-in-story.md)'s presented views
@@ -319,6 +320,33 @@ tree's content. The plan as written:
 - An edit made with the `sqlite3` command line is picked up and published.
 
 ### 6. Rows on the host
+
+**State (2026-10-24, on the branch):** built. `HostCollections`
+(`packages/overstoryd/src/collections.ts`) keeps
+`<dataRoot>/materialized/<tree>/<path>/_store.sqlite3` beside a copy of its
+`schema.usl`, with a `__arbor_materialized` record of the accepted update,
+schema file and collection reference it reflects. It is built on first use,
+caught up after every accepted update to its tree (an unchanged reference
+only advances the record; a changed one is diffed row by row and written
+through `SQLiteStoreBroker`, so live queries rerun), and rebuilt when the
+schema changes or the update it reflects is gone. `serveHost({ collections })`
+registers named queries and mutations, matched by module, export and version
+in any tree. A mutation runs in `SQLiteStoreBroker.trialAsync`, which rolls
+back and returns the coalesced row changes; the host applies them to the
+accepted rows at U, stamps row times at the mutation's time, derives row
+operations with `deriveRowOperations`, and submits one update with
+`ifCurrent: U` and a change identity from the request digest. A 409 catches
+up and reruns, up to three times. Receipts live in
+`<dataRoot>/mutation-receipts.sqlite3`, which is not disposable. Tests:
+`tests/integration/host-collections.test.ts`. Differences from the plan
+below: catch-up runs just after the commit rather than inside the tree lock
+(serialized per collection, and every reader catches up first); a changed
+collection is diffed whole, with no table or chunk skipping (Performance 004
+step 6); the guard is the whole tree; a query's `observedThrough` is the live
+broker's cursor rather than `appliedThrough`; there is no idle eviction or
+disk budget; a query stream reads one collection; and if the host stops
+between accepting a mutation and writing its receipt, a retry is refused
+(its change identity is taken) rather than answered.
 
 002's §2a, unchanged in substance and now just the host's own projection
 (004 "Where placement choices live"). People 001 doesn't need it; host

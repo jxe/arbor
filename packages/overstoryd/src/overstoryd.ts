@@ -361,6 +361,8 @@ export class HostDaemon implements AsyncDisposable {
   readonly execution: ExecutionAuthority;
   private readonly accounts: AccountDirectory;
   private observationListeners = new Map<string, Set<(record: ObservationRecord) => void>>();
+  private readonly acceptedListeners = new Set<(update: AcceptedUpdate) => void>();
+  private readonly dependents: AsyncDisposable[] = [];
   private updateLocks = new Map<string, Promise<void>>();
   /** Recently replayed transitions by update id (`acceptedTransition`). */
   private readonly transitions = new Recent<TransitionPayload>(TRANSITION_CACHE_ENTRIES);
@@ -2430,8 +2432,17 @@ export class HostDaemon implements AsyncDisposable {
     for (const listener of this.observationListeners.get(record.tree) ?? []) listener(record);
   }
 
+  /** Every accepted update, on any tree, delivered after it commits. The host's collection materializations catch up from it. */
+  subscribeAccepted(listener: (update: AcceptedUpdate) => void): () => void {
+    this.acceptedListeners.add(listener);
+    return () => this.acceptedListeners.delete(listener);
+  }
+
   private notifyAccepted(update: AcceptedUpdate): void {
     this.execution.invalidate();
+    for (const listener of [...this.acceptedListeners]) {
+      try { listener(update); } catch (error) { console.error("overstoryd accepted-update listener failed", error); }
+    }
     this.packing?.notify();
     const record = this.observations.get(update.id);
     if (record) this.notifyObservation(record);
@@ -2943,7 +2954,14 @@ export class HostDaemon implements AsyncDisposable {
     this.validatedGraphs.set(root, result);
   }
 
+  /** Dispose `resource` first when this host is disposed. */
+  disposeWith<T extends AsyncDisposable>(resource: T): T {
+    this.dependents.push(resource);
+    return resource;
+  }
+
   async [Symbol.asyncDispose](): Promise<void> {
+    for (const resource of this.dependents.splice(0).reverse()) await resource[Symbol.asyncDispose]();
     this.disposed = true;
     clearTimeout(this.deviceKeyTimer);
     clearTimeout(this.remoteGroupTimer);

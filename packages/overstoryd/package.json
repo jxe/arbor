@@ -10,6 +10,7 @@
     "@ovst/merge-protocol": "workspace:*",
     "@ovst/object-store": "workspace:*",
     "@ovst/protocol": "workspace:*",
+    "@ovst/usl": "workspace:*",
     "yaml": "2.8.2"
   }
 }

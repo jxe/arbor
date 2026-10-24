@@ -62,13 +62,15 @@ export async function treeMutationResponse(
   request: Request,
   tree: string,
   user: { profile: string } | null,
+  /** More of the call's context, for a runtime that uses it (the host passes its caller). */
+  context: Record<string, unknown> = {},
 ): Promise<Response> {
   try {
     const input = await request.json() as MutationCallRequest;
     if (input.document.tree !== tree || input.handle.tree !== tree) {
       throw new Error("The route tree must own the document and mutation handle");
     }
-    return Response.json(await runtime.call(input, { user }), {
+    return Response.json(await runtime.call(input, { ...context, user }), {
       headers: { "cache-control": "no-store" },
     });
   } catch (error) {

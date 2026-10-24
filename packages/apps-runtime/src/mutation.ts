@@ -11,7 +11,7 @@ import {
   type StandardSchemaV1,
 } from "./authoring.ts";
 import type { FieldMetadata, RelationMetadata, ResolvedStorySource, StoreSchema } from "./schema.ts";
-import { SQLiteStoreBroker } from "./observer.ts";
+import { SQLiteStoreBroker, type SQLiteRowChange } from "./observer.ts";
 
 export interface MutationPublicErrorValue {
   code: string;
@@ -265,6 +265,25 @@ function deterministicUUID(seed: string): string {
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-5${value.slice(13, 16)}-${variant}${value.slice(17, 20)}-${value.slice(20, 32)}`;
 }
 
+/** One call of a mutation handle. */
+export interface MutationCall {
+  scope: string;
+  handle: MutationHandleRef;
+  mutationID: string;
+  input: unknown;
+  user: OverstoryUser | null;
+  sources: readonly ResolvedStorySource[];
+}
+
+export interface PreparedMutation<Input> {
+  bindings: ReadonlyMap<string, ResolvedStorySource>;
+  input: Input;
+  inputJSON: string;
+  handleJSON: string;
+  requestDigest: Hash;
+  subject: string;
+}
+
 interface StoredReceipt {
   request_digest: Hash;
   mutation_now: string;
@@ -283,17 +302,8 @@ export class SQLiteMutationBroker {
     } = {},
   ) {}
 
-  async execute<Result, Input>(
-    handle: MutationHandle<Result, Input>,
-    call: {
-      scope: string;
-      handle: MutationHandleRef;
-      mutationID: string;
-      input: unknown;
-      user: OverstoryUser | null;
-      sources: readonly ResolvedStorySource[];
-    },
-  ): Promise<MutationResultReceipt<Result>> {
+  /** The call validated before the store is opened: its source bindings, its input and the request digest that binds them (07 §12.2). */
+  async prepare<Result, Input>(handle: MutationHandle<Result, Input>, call: MutationCall): Promise<PreparedMutation<Input>> {
     if (!call.scope || !call.mutationID) throw new MutationCallError({ code: "invalid-request", message: "A mutation identity is required", retryable: false });
     const bindings = new Map<string, ResolvedStorySource>();
     for (const source of call.sources) {
@@ -318,7 +328,38 @@ export class SQLiteMutationBroker {
     }
     const resolvedSources = [...bindings.values()].sort((left, right) => left.authoredPath.localeCompare(right.authoredPath));
     const requestDigest = semanticRequestDigest({ version: "mutate-v1", handle: call.handle, input, sources: resolvedSources });
-    const subject = call.user?.profile ?? "anonymous";
+    return { bindings, input, inputJSON, handleJSON, requestDigest, subject: call.user?.profile ?? "anonymous" };
+  }
+
+  /** Invoke the handler in the open transaction, with the call's deterministic IDs and logical time. */
+  private async run<Result, Input>(database: Database, handle: MutationHandle<Result, Input>, call: MutationCall, prepared: PreparedMutation<Input>, mutationNow: string): Promise<{ result: Result; resultJSON: string }> {
+    const tx = new SQLiteMutationTransaction(database, this.schema, prepared.bindings, this.source);
+    const idCounts = new Map<string, number>();
+    const id = (label: string) => {
+      if (!label) throw new TypeError("Generated IDs require a non-empty label");
+      const index = idCounts.get(label) ?? 0;
+      idCounts.set(label, index + 1);
+      return deterministicUUID(`${call.scope}\0${call.mutationID}\0${prepared.requestDigest}\0${call.user?.profile ?? ""}\0${label}\0${index}`);
+    };
+    const result = await handle.handler({ user: call.user, tx, id, now: mutationNow }, prepared.input) as Result;
+    const resultJSON = stableJSONString(result);
+    if (typeof resultJSON !== "string") throw new TypeError("Mutation results must be canonical JSON");
+    return { result, resultJSON };
+  }
+
+  /** A handler's failure as the caller may see it; anything unexpected is logged and reported generically. */
+  private failure(error: unknown): MutationCallError {
+    if (error instanceof MutationCallError) return error;
+    if (error instanceof PublicMutationError) {
+      return new MutationCallError({ code: error.code, message: error.message, retryable: false }, error);
+    }
+    (this.options.diagnostic ?? ((failure) => console.error("Story mutation failed", failure)))(error);
+    return new MutationCallError({ code: "internal-error", message: "The mutation could not be completed", retryable: true }, error);
+  }
+
+  async execute<Result, Input>(handle: MutationHandle<Result, Input>, call: MutationCall): Promise<MutationResultReceipt<Result>> {
+    const prepared = await this.prepare(handle, call);
+    const { requestDigest, subject } = prepared;
     const mutationNow = (this.options.now?.() ?? new Date()).toISOString();
     try {
       const committed = await this.store.transactionAsync(async (database, control) => {
@@ -338,30 +379,36 @@ export class SQLiteMutationBroker {
             replayed: true,
           };
         }
-        const tx = new SQLiteMutationTransaction(database, this.schema, bindings, this.source);
-        const idCounts = new Map<string, number>();
-        const id = (label: string) => {
-          if (!label) throw new TypeError("Generated IDs require a non-empty label");
-          const index = idCounts.get(label) ?? 0;
-          idCounts.set(label, index + 1);
-          return deterministicUUID(`${call.scope}\0${call.mutationID}\0${requestDigest}\0${call.user?.profile ?? ""}\0${label}\0${index}`);
-        };
-        const result = await handle.handler({ user: call.user, tx, id, now: mutationNow }, input) as Result;
-        const resultJSON = stableJSONString(result);
-        if (typeof resultJSON !== "string") throw new TypeError("Mutation results must be canonical JSON");
+        const { result, resultJSON } = await this.run(database, handle, call, prepared, mutationNow);
         const observedThrough = control.reserveCursor();
         database.query("insert into __arbor_mutation_receipts(scope, subject, mutation_id, request_digest, handle_json, input_json, mutation_now, observed_through, result_json) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-          .run(call.scope, subject, call.mutationID, requestDigest, handleJSON, inputJSON, mutationNow, observedThrough, resultJSON);
+          .run(call.scope, subject, call.mutationID, requestDigest, prepared.handleJSON, prepared.inputJSON, mutationNow, observedThrough, resultJSON);
         return { receipt: { mutationID: call.mutationID, requestDigest, observedThrough, result }, replayed: false };
       });
       return committed.result.receipt;
     } catch (error) {
-      if (error instanceof MutationCallError) throw error;
-      if (error instanceof PublicMutationError) {
-        throw new MutationCallError({ code: error.code, message: error.message, retryable: false }, error);
-      }
-      (this.options.diagnostic ?? ((failure) => console.error("Story mutation failed", failure)))(error);
-      throw new MutationCallError({ code: "internal-error", message: "The mutation could not be completed", retryable: true }, error);
+      throw this.failure(error);
+    }
+  }
+
+  /**
+   * Run the handler against the store and roll it back (07 §5's "compute
+   * against a snapshot"): its result and the row changes it would make,
+   * cascades included. The store is left unchanged and no receipt is kept;
+   * the caller submits the changes and keeps the receipt.
+   */
+  async trial<Result, Input>(
+    handle: MutationHandle<Result, Input>,
+    call: MutationCall,
+    prepared?: PreparedMutation<Input>,
+  ): Promise<{ requestDigest: Hash; mutationNow: string; result: Result; changes: SQLiteRowChange[] }> {
+    const ready = prepared ?? await this.prepare(handle, call);
+    const mutationNow = (this.options.now?.() ?? new Date()).toISOString();
+    try {
+      const { result, changes } = await this.store.trialAsync(async (database) => (await this.run(database, handle, call, ready, mutationNow)).result);
+      return { requestDigest: ready.requestDigest, mutationNow, result, changes };
+    } catch (error) {
+      throw this.failure(error);
     }
   }
 }

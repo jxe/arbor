@@ -227,6 +227,32 @@ export class SQLiteStoreBroker implements AsyncDisposable {
     }
   }
 
+  /**
+   * Run `body` in a write transaction and roll it back: what it would change,
+   * as coalesced row changes, without changing the store. A host-backed
+   * mutation computes its effects this way and submits them as an update.
+   */
+  async trialAsync<Result>(body: (database: Database) => Result | Promise<Result>): Promise<{ result: Result; changes: SQLiteRowChange[] }> {
+    this.pendingAsyncWrites += 1;
+    const previous = this.writeTail;
+    let release!: () => void;
+    this.writeTail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    let began = false;
+    try {
+      this.database.exec("delete from __arbor_changes");
+      this.database.exec("begin immediate");
+      began = true;
+      const result = await body(this.database);
+      const rows = this.database.query("select collection, operation, before_json, after_json from __arbor_changes order by sequence").all() as LoggedChange[];
+      return { result, changes: coalesceRowChanges(this.schema, rows) };
+    } finally {
+      if (began) try { this.database.exec("rollback"); } catch {}
+      this.pendingAsyncWrites -= 1;
+      release();
+    }
+  }
+
   /** Deterministic hook for tests and the fallback used by the WAL watcher. */
   checkExternalChanges(): boolean {
     const version = pragmaNumber(this.probe, "data_version");

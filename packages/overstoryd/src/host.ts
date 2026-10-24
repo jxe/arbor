@@ -6,6 +6,7 @@ import { treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, enc
 import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { AccountChallenge, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@ovst/apps-runtime/host";
+import { HostCollections, type HostCollectionsOptions } from "./collections.ts";
 import {
   HostDaemon,
   type HostAccount,
@@ -372,6 +373,8 @@ export async function serveHost(options: {
   hostname?: string;
   queryRuntime?: QueryStreamRuntime;
   mutationRuntime?: MutationCallRuntime;
+  /** Serve registered named queries and mutations from the host's collection materializations, unless a runtime above is given. */
+  collections?: HostCollectionsOptions;
   /** Session and placement device-key lifetimes; tests shorten them. */
   lifetimes?: Omit<HostDaemonOptions, "servedOverHTTP">;
   /**
@@ -401,6 +404,10 @@ export async function serveHost(options: {
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
   }, options.mergeTool, { ...options.lifetimes, servedOverHTTP: new URL(publicOrigin).protocol === "http:" });
   if (!dynamicLoopbackOrigin) overstoryd.setCommunityHost(new URL(publicOrigin).host);
+  // Named queries and mutations over the host's collection materializations.
+  const collections = options.collections ? overstoryd.disposeWith(new HostCollections(overstoryd, resolve(options.dataRoot), options.collections)) : null;
+  const queryRuntime = options.queryRuntime ?? collections?.queryRuntime();
+  const mutationRuntime = options.mutationRuntime ?? collections?.mutationRuntime();
   const onAuthorizationTick = authorizationTicker(overstoryd);
   const pairingClaims = options.rateLimits ? new AttemptLimiter(10, 10 * 60 * 1000) : null;
   const challenges = options.rateLimits ? new AttemptLimiter(30, 10 * 60 * 1000) : null;
@@ -478,11 +485,11 @@ export async function serveHost(options: {
         }
         const queryRoute = /^\/\.overstory\/trees\/([^/]+)\/queries$/.exec(url.pathname);
         if (request.method === "QUERY" && queryRoute) {
-          if (!options.queryRuntime) return protocolError("unsupported-operation", "No query runtime is active", 422);
+          if (!queryRuntime) return protocolError("unsupported-operation", "No query runtime is active", 422);
           const treeID = readableTree(queryRoute[1]!).tree.id;
           server.timeout(request, 0);
           return treeQueryResponse(
-            options.queryRuntime,
+            queryRuntime,
             request,
             treeID,
             account ? { profile: account.id } : null,
@@ -490,15 +497,16 @@ export async function serveHost(options: {
         }
         const mutateRoute = /^\/\.overstory\/trees\/([^/]+)\/mutate$/.exec(url.pathname);
         if (request.method === "POST" && mutateRoute) {
-          if (!options.mutationRuntime) return protocolError("unsupported-operation", "No mutation runtime is active", 422);
+          if (!mutationRuntime) return protocolError("unsupported-operation", "No mutation runtime is active", 422);
           const { tree, level } = readableTree(mutateRoute[1]!);
           if (!account || level !== "write") return notFound("Tree not found");
           const treeID = tree.id;
           return treeMutationResponse(
-            options.mutationRuntime,
+            mutationRuntime,
             request,
             treeID,
             { profile: account.id },
+            { caller: { account, ...(link ? { linkDigest: link } : {}), ...(authentication ? { authentication } : {}) } },
           );
         }
         const pageAsset = Object.values(PAGE_ASSETS).find((path) => path === url.pathname);
