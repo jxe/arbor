@@ -26,8 +26,9 @@ are separate and later. The UX was worked out first in the doc
 - **State:** TODO.
 - **Gated on:** [Schema language 005](../soon/schema-language/005-collections-that-sync.md)
   milestones 1 to 5 (the logical form, layered USL, logical collections, row operations with
-  field merge, and collections that sync natively on Mac and iPhone, offline), on main. Not
-  milestone 6 (rows on the host).
+  field merge, and SQLite that syncs through Story Sync), on main. Not milestone 6 (rows on
+  the host). Native offline collections are this plan's phase 0, moved here from 005 (Joe,
+  2026-10-24).
 - **Not gated on:** [Schema language 002](schema-language-002-cranberries-in-story.md)'s
   presented views and structured editor. People's screens are Story's own SwiftUI over the
   directory's rows, as `StoryDirectoryView` is today; if 002's editor lands first, the People
@@ -107,6 +108,23 @@ generalize it.
 way, a share either way, a group in common, or opening their profile or tree. A link that only
 appears in a page you read doesn't count until you follow it. Host communities stay live,
 collapsed sections and are not copied.
+
+## Phase 0: collections offline in Story on Mac and iPhone, if needed
+
+Moved from Schema language 005 milestone 5 (Joe, 2026-10-24, who isn't sure Story on iOS or
+Mac needs to sync collections at all: Story Sync does). Before building it, check whether the
+phase 1 to 3 proofs need it, or whether People can read and write the directory through the
+host when online and carry it intact offline. If it is needed:
+
+- Story on Mac and iPhone reads and writes logical collections offline with no Story Sync in
+  the path: a native projection (SQLite, which iOS has) built from the logical form, validated
+  with the StoryKit USL port, and fed by a row-change kind in `UpdateCoordinator` beside
+  `appendStructure` (`UpdateCoordinator+LocalChanges.swift`). 005 milestone 3 already makes
+  native working trees keep a collection's tables and rows.
+- It covers [Apps 010](apps-010-native-offline-collection-file-projection.md) (rows readable
+  offline on native), which can then be deleted.
+- **Proof:** a collection edited offline on the iPhone and on the Mac merges when both
+  reconnect.
 
 ## Phase 1: the directory tree, and People reading it
 

@@ -125,6 +125,24 @@ missing state with today's snapshot, skips unproved history or prunes it.
 5. **Measure and deploy.** The targets above, on the host-class benchmark
    (`tests/performance/benchmark-catch-up.ts`, `benchmark-history-maps.ts`), then
    an actual older-device catch-up after deployment.
+6. **Collections: cost by edit, not by size.** Moved from Schema language 005
+   milestone 4 (Joe, 2026-10-24: the merge sidecar is already too slow; combine
+   this with the other merge improvements). A logical collection is a `table`
+   object per model listing content-defined `rows` chunks (spec 06 §2.1), but
+   `collection-fields-v1` (`packages/tree-merge/src/merge-rules.ts`) and row
+   replay load and re-encode whole tables, and the engine holds a collection as
+   one opaque value, so steps 1 to 5 don't help. Instead:
+   - Merge compares table hashes, then chunk hashes. Chunks all three sides
+     share appear in the same order on each, so the rows between two shared
+     chunks are the only ones to decode and merge.
+   - Replay decodes only the chunks holding the keys an operation names.
+   - Re-encoding reuses every unchanged chunk, re-chunking from the first
+     changed one until a boundary lines up again; a reused chunk is emitted
+     as is only where the chunker would start a fresh chunk.
+   - Benchmark (new, in `tests/performance/`): a 50,000-row collection with
+     one concurrent edit on each side, and a one-row fast-forward on it,
+     against the same edits on a one-chunk collection. It doesn't need the
+     index, so it can be done first.
 
 ## Verification
 
@@ -137,6 +155,9 @@ missing state with today's snapshot, skips unproved history or prunes it.
   cache at every step; deleting the cache may change speed only.
 - Deterministic visit and allocation counters for complexity; timing distributions
   from repeated fixed-environment runs, not unit-test deadlines.
+- Step 6: on the benchmark, a concurrent one-row edit to a 50,000-row collection
+  merges, and a one-row fast-forward accepts, in time close to a one-chunk
+  collection; the merged root equals the whole-table merge's on randomized edits.
 - `bun run test:affected`, `bun run test:protocol` for any contract change,
   `bun run check:links`.
 

@@ -20,7 +20,7 @@ and [004: logical collections](soon/schema-language/004-logical-collections.md) 
 [group overview](soon/schema-language/README.md). Joe split it out of Schema language 002 on
 2026-10-22 to do first, because People 001 needs it: the layered USL, collections whose rows are
 the tree's content while each placement chooses files or SQLite, row operations with field-level
-merge, and SQLite that syncs on every device. Row operations, field merge and SQLite sync are
+merge, and SQLite that syncs through Story Sync. Row operations, field merge and SQLite sync are
 built on branch `claude/project-thread-6kt6l8` in a pre-004 form; 004's forks are open.
 
 **[Live 001: see who else is here](soon/live-001-presence.md).**
@@ -206,7 +206,8 @@ gives every automatic outcome its explanation, which 014's "merge with a note" c
 for. The numbers are identifiers, not an execution order. History and provenance support
 explanation but do not improve merge decisions; [server refinements](small-work.md#server-refinements)
 tracks hand checks of merge rules already deployed; Web 025 owns rebuilding the web reviewer;
-merge replay cost is Performance 004. The [testing candidates](ideas.md#testing) in ideas
+merge replay cost is Performance 004, including merge and replay cost for large collections
+(its step 6). The [testing candidates](ideas.md#testing) in ideas
 include editor alignment and round-trip characterization.
 
 ### History and revisions

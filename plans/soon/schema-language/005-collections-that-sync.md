@@ -30,10 +30,9 @@ placement); the decisions it carries over from 002 are below.
   [002](../../later/schema-language-002-cranberries-in-story.md)'s presented views
   and structured editor; host queries and mutations for
   [Apps 005](../../later/apps-005-source-resolution-and-sidecar.md) and
-  [Apps 006](../../later/apps-006-durable-authoring.md) (milestone 6). For logical
-  collections it also covers what [Apps 010](../../later/apps-010-native-offline-collection-file-projection.md)
-  asks for (rows readable offline on native), so Apps 010 can be deleted when
-  milestone 5 lands.
+  [Apps 006](../../later/apps-006-durable-authoring.md) (milestone 6). Rows readable
+  offline on native ([Apps 010](../../later/apps-010-native-offline-collection-file-projection.md))
+  moved with the native step to People 001's phase 0.
 
 ## What is wrong or preliminary today
 
@@ -249,21 +248,13 @@ does:
   - Swift: `UpdateCoordinator` gains a row-change kind beside
     `appendStructure` (`UpdateCoordinator+LocalChanges.swift`).
 
-- Cost by edit, not by collection size (Joe, 2026-10-24: the merge sidecar is
-  already too slow). `collection-fields-v1` and row replay load and re-encode
-  whole tables today. Both should compare chunk hashes first: decode only
-  the chunks both sides changed (merge) or the chunks holding the operated
-  keys (replay), and reuse every other chunk when re-encoding, re-chunking
-  from the first changed chunk until boundaries line up again. Benchmark a
-  50,000-row collection with one concurrent edit on each side, and a one-row
-  fast-forward on it. Performance 004 doesn't cover this: the engine holds a
-  collection as one opaque value.
+- Merge and replay cost for a large collection moved to
+  [Performance 004](../../later/performance-004-provenance-index.md) step 6
+  (Joe, 2026-10-24: combine it with the other merge improvements).
 
 **Done when:**
 - Two clients edit different fields, and different members, of one row
   offline and both edits land.
-- A concurrent one-row edit to a 50,000-row collection merges, and a one-row
-  fast-forward accepts, in time close to a one-chunk collection.
 - The same field edited twice gives a decision scoped to that field, which a
   resolution closes.
 - A `games.usl` collection projected as files holds one `<Table>.jsonl` per
@@ -271,7 +262,7 @@ does:
 - Conformance vectors cover the operations, the logical form and field
   decisions in both stacks.
 
-### 5. SQLite placements that sync, on every device
+### 5. SQLite placements that sync through Story Sync
 
 Built on the branch as "SQLite databases sync as rows" (002's milestone 2);
 rework it so the database is a projection rather than the tree's content.
@@ -286,19 +277,15 @@ rework it so the database is a projection rather than the tree's content.
   after an unobserved write. A device that has missed history rebuilds from a
   host-served row export.
 - Inserts and deletes, which the provider lacks, go through row operations.
-- **Native.** Story on Mac and iPhone reads and writes logical collections
-  offline with no story-sync in the path: a native projection (SQLite, which
-  iOS has) built from the logical form, validated with the StoryKit USL port,
-  and fed by `UpdateCoordinator`'s row-change kind. This is what People 001
-  needs on the iPhone. It is data, not screens: Story.app's general
-  collection view stays in 002.
+- Story Sync is the device that syncs collections. Story on Mac and iPhone
+  carries them intact (milestone 3) but doesn't read or write rows offline;
+  that moved to [People 001](../../later/people-001-directory-and-go-to.md)'s
+  phase 0, built only if its proofs still need it (Joe, 2026-10-24).
 
 **Done when:**
 - `examples/supplies/data/_store.sqlite3` is edited on two devices; both edits
   merge per milestone 4's rules and both copies hold the same rows and hash.
 - An edit made with the `sqlite3` command line is picked up and published.
-- A collection edited offline on the iPhone and on the Mac merges when both
-  reconnect.
 
 ### 6. Rows on the host
 
