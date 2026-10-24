@@ -291,7 +291,7 @@ rework it so the database is a projection rather than the tree's content.
   iOS has) built from the logical form, validated with the StoryKit USL port,
   and fed by `UpdateCoordinator`'s row-change kind. This is what People 001
   needs on the iPhone. It is data, not screens: Story.app's general
-  collection view stays in 002 (People 001 brings its own directory screen).
+  collection view stays in 002.
 
 **Done when:**
 - `examples/supplies/data/_store.sqlite3` is edited on two devices; both edits
