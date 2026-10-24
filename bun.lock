@@ -182,7 +182,7 @@
     },
     "packages/usl": {
       "name": "@ovst/usl",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "bin": {
         "usl": "./src/cli.ts",
       },
