@@ -290,9 +290,9 @@ and drops its own entries from the log. `usl verify` ignores `_overstory_*`
 tables. A device that missed history rebuilds from the accepted tree, which
 holds the rows, so no separate row export is needed. Tests: the change-log
 cases in `tests/integration/collection-placements.test.ts` and the
-two-device case in `tests/integration/folder-rows.test.ts`. Known gap: an
-external edit to a row in the moment between Story Sync's read and its write
-of an accepted change to that same row is overwritten.
+two-device case in `tests/integration/folder-rows.test.ts`. A row another
+program changed since the last scan isn't overwritten by an accepted write;
+the next scan publishes it as a local edit.
 
 Originally built on the branch as "SQLite databases sync as rows" (002's
 milestone 2), then reworked so the database is a projection rather than the

@@ -452,6 +452,9 @@ export class CollectionProjections {
     // Work out the changes read-only first, so a database that already holds
     // the rows is never opened for writing (which would touch its files).
     const changes: Change[] = [];
+    // Rows another program changed since the last scan are edits not yet
+    // published; the accepted write leaves them for the next scan to publish.
+    const scanned = this.databases.get(directory);
     const current = created ? null : this.readDatabase(directory, set.tables);
     {
       for (const schema of set.tables) {
@@ -483,7 +486,18 @@ export class CollectionProjections {
         // Story Sync's own writes aren't edits to read back: the log keeps only
         // what other programs changed, including any since `current` was read.
         if (!current?.nonce) database.exec(changeLogSql(set.tables, nonce));
-        const before = lastChange(database);
+        const mark = lastChange(database);
+        if (current?.nonce && scanned?.nonce === current.nonce) {
+          const edited = new Set((database.query(`select model, key from ${CHANGES} where id > ? and id <= ?`).all(scanned.cursor, mark) as Array<{ model: string; key: string }>)
+            .map((change) => `${change.model}\0${JSON.stringify(JSON.parse(change.key))}`));
+          for (const change of changes) {
+            const schema = set.tables.find((table) => table.model === change.model)!;
+            const kept = (row: Row) => !edited.has(`${change.model}\0${keyTuple(schema, row)}`);
+            change.remove = change.remove.filter(kept);
+            change.insert = change.insert.filter(kept);
+            change.update = change.update.filter(([before, row]) => kept(before) && kept(row));
+          }
+        }
         for (const change of changes) {
           const where = change.primaryKey.map((column) => `${quote(column)} = ?`).join(" and ");
           const key = (row: Row) => change.primaryKey.map((column) => toSQLite(row[column]));
@@ -495,7 +509,7 @@ export class CollectionProjections {
           for (const row of change.insert) insert.run(...values(row));
           for (const [before, row] of change.update) update.run(...values(row), ...key(before));
         }
-        database.query(`delete from ${CHANGES} where id > ?`).run(before);
+        database.query(`delete from ${CHANGES} where id > ?`).run(mark);
         if (current?.nonce) database.query(`delete from ${CHANGES} where id <= ?`).run(current.cursor);
       }).immediate();
       const state: DatabaseState = current?.nonce

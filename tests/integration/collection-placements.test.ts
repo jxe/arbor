@@ -42,7 +42,7 @@ async function place(name: string, tree: { root: ObjectHash; objects: Map<Object
   const load = async (hash: ObjectHash) => tree.objects.get(hash) ?? Promise.reject(new Error(`missing ${hash}`));
   await materializeTree(root, tree.root, load, undefined, [], undefined, (directory, object, read) => projections.write(directory, object, read));
   const scan = async () => resolveSnapshot(await snapshotDirectory(root, new Map(), [], (directory, names) => projections.read(directory, names)));
-  return { root, items: join(root, "items"), scan };
+  return { root, items: join(root, "items"), scan, projections, };
 }
 
 describe("one tree, placed with different projections", () => {
@@ -125,6 +125,32 @@ describe("a SQLite placement's change log", () => {
     const scanned = (await placed.scan()).root;
     expect(scanned).not.toBe(tree.root);
     expect(scanned).toBe(await fresh(placed.root));
+  });
+
+  test("an edit another program makes between a scan and an accepted write is kept, and reads as a local change", async () => {
+    const placed = await place("sqlite-log-race", tree, { kind: "sqlite" });
+    const path = join(placed.items, "_store.sqlite3");
+    expect((await placed.scan()).root).toBe(tree.root);
+    const database = new Database(path);
+    database.query("update Game set name = 'Weiqi' where id = 'g2'").run();
+    database.close();
+    // The host accepted another device's edits to g2 and g3 meanwhile.
+    const accepted = collectionTree(GAMES, {
+      Game: [idRow("g1", { name: "Chess", tags: ["board"] }), idRow("g2", { name: "Baduk", tags: ["board"] }, T0, "2026-10-24T11:00:00.000Z"),
+        idRow("g3", { name: "Havannah", tags: ["board"] }, T0, "2026-10-24T11:00:00.000Z")],
+      List: [idRow("l1", { name: "Favorites", games: ["g1", "g2"] })],
+    });
+    await materializeTree(placed.root, accepted.root, async (hash) => accepted.objects.get(hash)!, undefined, [], undefined,
+      (directory, object, read) => placed.projections.write(directory, object, read));
+    const names = () => {
+      const reader = new Database(path, { readonly: true });
+      try { return reader.query("select id, name from Game order by id").all(); } finally { reader.close(); }
+    };
+    expect(names()).toEqual([{ id: "g1", name: "Chess" }, { id: "g2", name: "Weiqi" }, { id: "g3", name: "Havannah" }]);
+    const scanned = await placed.scan();
+    const objects = new Map([...accepted.objects, ...scanned.objects]);
+    expect(await deriveRowOperations(accepted.root, scanned.root, async (hash) => objects.get(hash)!))
+      .toEqual([expect.objectContaining({ kind: "rowSet", model: "Game", field: "name", before: "Baduk", value: "Weiqi" })]);
   });
 
   test("a database whose log lost a trigger is read whole, and gets its log back", async () => {
