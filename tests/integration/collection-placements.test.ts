@@ -209,7 +209,7 @@ describe("a CSV placement", () => {
 // `usl verify`.
 describe("the games example placed as files", () => {
   test("holds one <Table>.jsonl per table of its file layout, which usl verify accepts", async () => {
-    const source = await readFile(join(import.meta.dir, "../../plans/soon/schema-language/examples/games.usl"), "utf8");
+    const source = await readFile(join(import.meta.dir, "../../packages/usl/examples/games.usl"), "utf8");
     const tree = collectionTree(source, {
       Game: [
         idRow("g1", { name: "Chess", status: "Polished", tags: ["board", "classic"], authors: ["p-ada"] }),

@@ -5,7 +5,7 @@ Story, so that the MAI excellences document and supplies-remake run natively
 in Story.app on the Overstory data model, whose collections are declared in
 `schema.usl` ([schema language](../../docs/overstory-spec/11-schema-language.md)). The design history is in the project
 thread "Cranberries in Story" and its sketch. On 2026-10-22 Joe split the
-data half out as [Schema language 005: collections that sync](../soon/schema-language/005-collections-that-sync.md),
+data half out as Schema language 005: collections that sync ([status](../../status.md#collections-that-sync--2026-10-24)),
 to do first; this plan keeps the database views (presenting, editing and
 embedding collections in Story), ownership and the two site ports, for later.
 
@@ -19,7 +19,7 @@ embedding collections in Story), ownership and the two site ports, for later.
   replaces; 4 to 7 are not started. Milestones 1, 2 and 2a moved to 005 (as
   its milestones 4, 5 and 6); the numbers here are kept so earlier references
   hold.
-- **Depends on:** [005](../soon/schema-language/005-collections-that-sync.md):
+- **Depends on:** 005 ([status](../../status.md#collections-that-sync--2026-10-24)), on main since 2026-10-24:
   row operations, field-level merge, logical collections, the layered USL and
   its StoryKit port.
 - **Unblocks:** porting excellences and supplies-remake off Supabase.
@@ -27,7 +27,7 @@ embedding collections in Story), ownership and the two site ports, for later.
 ## Joe's decisions
 
 The decisions about data (row operations, merge, hashing, timestamps,
-multi-table folders, SQLite) are in 005. These are about views, editing and
+multi-table folders, SQLite) were 005's and are now in the spec. These are about views, editing and
 access:
 
 - An arrangement lives on a collection (its schema's `@@views`, `~views` in
@@ -296,7 +296,7 @@ Today:
   - `tests/unit/usl-stores.test.ts` and the `invalid/model-attributes.usl`
     expectation;
   - spec 11's example and attribute table;
-  - `plans/soon/schema-language/examples/games.usl` and `supplies.usl`;
+  - `packages/usl/examples/games.usl` and `supplies.usl`;
   - `examples/supplies/data/schema.usl`;
   - `plans/soon/schema-language/README.md` and `status.md`;
   - cranberries `src/usl.ts`, which maps it to `owners`. Hand-written
@@ -324,7 +324,7 @@ administrator changes `authors`.
   snapshot, so a small `cranberries export` that writes it through
   `@ovst/usl`'s `rowsFromRecords` would serve both sites.
 - Use excellences' own `lib/schema.usl`, which has the `@fold`s;
-  `plans/soon/schema-language/examples/excellences.usl` has drifted from it, so
+  `packages/usl/examples/excellences.usl` has drifted from it, so
   replace the example.
 - Check with `usl verify`, then present the result next to the live site and
   compare.

@@ -6,9 +6,9 @@ groups to share with: family, different groups at work. That means knowing wheth
 already exists, whether it covers everyone needed, inviting whoever is missing, and finding a
 person whose tree ID you don't know. He also wants a way back to any tree or page he has
 visited without remembering its host URL or path, like Chrome's address bar. The directory is a
-collection with a grouped arrangement, so this plan waits for
-[Schema language 005](../soon/schema-language/005-collections-that-sync.md): collections that sync
-correctly, offline on every device. Joe, 2026-10-22: that foundation is what has to come first;
+collection with a grouped arrangement, so this plan waited for
+Schema language 005: collections that sync correctly
+([status](../../status.md#collections-that-sync--2026-10-24)), on main since 2026-10-24. Joe, 2026-10-22: that foundation is what has to come first;
 the general database views of [Schema language 002](schema-language-002-cranberries-in-story.md)
 are separate and later. The UX was worked out first in the doc
 [People directory UX](https://claude.ai/code/artifact/b3c3e9a9-aeee-49f9-b973-b9bee2d256bb)
@@ -24,8 +24,8 @@ are separate and later. The UX was worked out first in the doc
 - **Risk:** MEDIUM. It's the first collection Story keeps for itself, and group edits write
   to group profile trees on hosts.
 - **State:** TODO.
-- **Gated on:** [Schema language 005](../soon/schema-language/005-collections-that-sync.md)
-  milestones 1 to 5 (the logical form, layered USL, logical collections, row operations with
+- **Gated on:** nothing now. It waited for Schema language 005
+  ([status](../../status.md#collections-that-sync--2026-10-24)) milestones 1 to 5 (the logical form, layered USL, logical collections, row operations with
   field merge, and SQLite that syncs through Story Sync), on main. Not milestone 6 (rows on
   the host). Native offline collections are this plan's phase 0, moved here from 005 (Joe,
   2026-10-24).

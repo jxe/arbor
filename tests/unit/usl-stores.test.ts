@@ -6,7 +6,7 @@ import { SQL } from "bun";
 import { columnType, compileUsl, layoutOf, recordsFromRows, rowsFromRecords, setupSql, typeDeclarations, validateRow, type Table } from "@ovst/usl";
 import { compareShapes, inspectSqlite, sqliteAffinity, verifyFiles, verifyStore } from "@ovst/usl/verify";
 
-const examples = join(import.meta.dir, "../../plans/soon/schema-language/examples");
+const examples = join(import.meta.dir, "../../packages/usl/examples");
 const fixtures = join(import.meta.dir, "../fixtures/usl");
 const schemaOf = (name: string) => compileUsl(readFileSync(join(examples, `${name}.usl`), "utf8"));
 const tablesOf = (name: string): Table[] => layoutOf(schemaOf(name));

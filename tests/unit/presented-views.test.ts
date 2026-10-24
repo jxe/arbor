@@ -55,7 +55,7 @@ describe("presented views: shared vectors", () => {
   });
 
   test("the games and excellences fixtures use the plan's examples", () => {
-    const examples = join(import.meta.dir, "../../plans/soon/schema-language/examples");
+    const examples = join(import.meta.dir, "../../packages/usl/examples");
     for (const name of ["games", "excellences"]) {
       expect(compileUsl(readFileSync(join(examples, `${name}.usl`), "utf8")).models).toEqual(schemaOf(name).models);
     }

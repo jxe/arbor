@@ -21,7 +21,7 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
   need not force renewed review, explanations of verified moves and deletions, rule-provided combination previews, bulk and
   offline resolution.
 - **Pages as logical nodes with placement-owned representation.** The split
-  that schema-language 004 makes for collections (the tree holds the logical
+  that logical collections make (spec 06 §7) (the tree holds the logical
   form, and each placement chooses how to write it to disk) could apply to
   pages too:
   - The logical page is its properties plus its content, and the body bytes
@@ -100,6 +100,10 @@ Measure before promoting any of these.
    separation and access inference be verified as security boundaries?
 6. **Schema evolution.** How do mounted consumers keep working on older shapes while a tree
    or external database changes schema?
+   USL meant migrations between relation forms to be small edits to one declaration:
+   change the storage, widen or narrow an arity (`Episode.series` to many), promote a
+   value array to a model and a connection, or grow an `enum` into a `seed` model. None
+   is built; Joe deferred a migration diff on 2026-10-14.
 7. **Consent precision.** How should interfaces explain prefix declarations broader than
    what a particular run reads or writes?
 8. **Cross-server executable data.** How should query discovery, delegated authorization

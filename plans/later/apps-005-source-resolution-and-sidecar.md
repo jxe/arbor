@@ -1,254 +1,168 @@
-# Apps 005: Source resolution and the HTTP execution sidecar
+# Apps 005: Source resolution, execution authority and the sidecar
 
-**Why and when:** Joe wants queries and mutations running on hosts fairly soon, to test the permissions and lending models against real code. This is the first step: a headless sidecar that runs them under overstoryd's authorization.
+**Why and when:** Joe wants queries and mutations running on hosts fairly soon, to test the permissions and lending models against real code. Schema language 005 (2026-10-24) got them running; this plan makes them run as an app, under the authority an activation grants, from code resolved out of a tree, and then decides where that code runs.
 
-## Status, prerequisites and target
+## Status
 
-**PLANNED · L effort · high authority-boundary risk.** Replanned at
-`d55f4142`, 2026-09-21. Execute after
-Apps 007, declarative collection schemas (now `schema.usl`), which is implemented
-([status](../../status.md#declarative-collection-schemas--2026-09-24)): collection
-acceptance, projection and merge no longer execute schemas, and QuickJS is no longer
-a workspace dependency.
+**PLANNED · L effort · high authority-boundary risk.** Rewritten 2026-10-24 after
+Schema language 005 milestone 6 ([status](../../status.md#collections-that-sync--2026-10-24))
+put named queries and mutations inside overstoryd. The earlier version (replanned at
+`d55f4142`, 2026-09-21) assumed no query evaluator would ever load in overstoryd; its
+detailed sidecar steps are in git history and are summarized under step 4.
 Read [DEVELOPMENT.md](../../DEVELOPMENT.md), `status.md`, current source and tests
-before relying on this checkpoint. No live-data, installed-app or public-host
-changes are authorized by this plan. Do not commit or push unless requested.
+before relying on this plan. No live-data, installed-app or public-host changes are
+authorized by it.
 
-The resource-policy prerequisites (Apps 004, deployed on schema 13, plan deleted;
-see git history) are implemented execution tokens, scoped authorization, guarded
-updates and authority invalidation primitives. Step 1 here implements and tests
-host/session/code-activation attestation and connects it to token issuance and
-authority invalidation; there is intentionally no public mint endpoint. This plan
-owns the provider integration Apps 004 left: verify an app's requested effects fit
-the supported scoped snapshot subset, and implement exact provider enforcement
-before exposing the operation, resolution and whole-object/watch projection forms
-that currently reject; never substitute broad read or write access to make them
-work. The consent, revocation and configuration-conflict soak is in
-[small work](../small-work.md#manual-recipes)
-and still applies before enabling a real application.
+## What exists now
 
-The outcome is an independently shippable **headless HTTP execution sidecar**.
-overstoryd owns identity, authorization, immutable tree reads, accepted watches and
-updates; the sidecar owns query planning/evaluation and mutation execution. SQLite
-is a direct mediated provider. declarative collection validation, ordinary row projection
-and collection merge stay independent of application activation and availability.
-No authored schema JavaScript, compiler, React or query evaluator belongs in the
-overstoryd process dependency graph.
+- **Rows on the host.** `HostCollections` (`packages/overstoryd/src/collections.ts`)
+  keeps a disposable SQLite materialization per collection, caught up after every
+  accepted update. Named queries run on it through apps-runtime's `SQLiteQueryEngine`
+  and `LiveQueryBroker`; a mutation runs in `SQLiteStoreBroker.trialAsync`, rolls back,
+  and is submitted as one guarded update of row operations with a durable receipt in
+  `<dataRoot>/mutation-receipts.sqlite3`. Tests: `tests/integration/host-collections.test.ts`.
+- **Handles are registered in code.** `serveHost({ collections: { queries, mutations } })`
+  takes handle objects matched by module, export and version, for any tree. Nothing
+  reads a handle's source from a tree, and no activation names which code may run.
+- **The caller's own authority.** The query route needs the caller to read the tree;
+  the mutate route needs write access and submits the update as the caller. Execution
+  tokens, `app` rules and lending (Apps 004, deployed on schema 13) are not used.
+- **Not in production.** `packages/overstoryd/src/cli.ts` passes no `collections`, so
+  the deployed host answers both routes with `unsupported-operation`.
+- **In process.** overstoryd now depends on `@ovst/apps-runtime` and loads the query
+  engine, against the boundary in the
+  [execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md) document.
 
-Unused current query/mutation signatures may break without compatibility adapters.
-Preserve authority, data and retry semantics. [Apps 006](apps-006-durable-authoring.md)
-subsequently replaces authoring/workflow semantics. Browser document hosting, SSR,
-hydration and full compiler/editor integration belong to Apps 001/003 after this
-headless gate; they are not completion requirements here.
+## Fork for Joe
 
-## Baseline, scope and ownership
+**Where authored code runs.** The original plan required a separate sidecar process so
+that no evaluator, compiler or authored JavaScript loads in overstoryd. 005 put the
+evaluator in process for handles the operator registers. Options:
 
-Run `git status --short` and
-`git diff --stat d55f4142..HEAD -- packages tests docs tools swift`.
-Apps 007 deliberately changes these paths: reconcile its completion evidence and
-new schema package before implementation. Do not restore the old sandbox seams.
+1. **In process for now (recommended).** Steps 1 to 3 build activation, authority and
+   source resolution on `HostCollections` as it is. Step 4 (the sidecar) is taken when
+   code from trees other than the operator's runs, or when compilation (Apps 003)
+   arrives, since that is when a crash or a slow handler in authored code could take
+   ordinary reads, watches and merges down with it.
+2. **Sidecar first.** Extract `HostCollections`' execution behind the bridge before
+   adding authority, as the earlier plan had it. Slower to the lending test, cleaner
+   boundary from the start.
 
-At this baseline, `packages/overstoryd/src/host.ts` has:
+Either way the materializations, receipts and update submission can stay in
+overstoryd: they are accepted-state bookkeeping, not authored code.
 
-```ts
-import { treeMutationResponse, treeQueryResponse } from "@ovst/apps-runtime/host";
-// serveHost options:
-queryRuntime?: QueryStreamRuntime;
-mutationRuntime?: MutationCallRuntime;
-```
+## 1. Activation and execution authority
 
-`packages/apps-runtime/src/host.ts` passes `{ signal, user }` to the stream runtime,
-but `{ user }` to mutations; its broad catch turns failures into HTTP 400. These
-are implementation starting points, not the future authority/cancellation contract.
-`tests/integration/query-stream-api.test.ts` injects in-process fake runtimes; it
-does not prove process isolation. Existing evaluator/observer/SQLite/receipt machinery
-is in `packages/apps-runtime/src/{node-query,live,live-stream,observer,sqlite,mutation,authoring}.ts`.
-`schema.ts` there contains filesystem-based source resolution; inspect its current
-API after Apps 007 rather than confusing it with collection schema parsing.
+Make a query or mutation run as an app, not simply as its caller.
 
-Read `tests/integration/{query-stream-api,data-live-query,generic-node-query,supplies-mutations}.test.ts`,
-`packages/overstoryd/src/{account-policy,host,overstoryd}.ts`, token and authority-watch
-handlers, and merge process contracts. Shared package barrels must not pull worker
-implementations into overstoryd; the existing merge package has executable exports.
+- An **activation** is private host configuration (in the tree configuration graph,
+  spec 04 §2) binding a handle's module, export and version to a tree, its lenders,
+  its providers and resource limits. Unactivated handles are refused, as an
+  unregistered one is today. Source-only sharing never enables execution.
+- Execution runs under a host-issued **execution token**
+  ([access control §2.1](../../docs/overstory-spec/05-access-control.md#21-execution-tokens))
+  carrying the actual caller, source tree and path, pinned code version, lent grants
+  with their lenders, and the activation. overstoryd already checks each grant against
+  its named lender; the issuer chooses lenders in a fixed order, the caller's own access
+  first, then lender TreeID. There is no public mint endpoint.
+- **Decide first:** whether attested code may use the caller's own access without the
+  caller's approval. Today a grant with no lender allows it
+  ([access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority),
+  `executionAllows` in `packages/overstoryd/src/access.ts`), so any app a person runs can
+  do anything that person can. Proposed: code gets `everyone` access and the tree's own
+  `app` rules, and anything more of the caller's needs the caller's `who: me` entry in
+  `apps.yaml`, which matches what code gets on a placement host. The decision edits
+  access control §1.1.
+- A query's reads and a mutation's submitted update are checked against the token, not
+  the route's caller check. A mutation's update is authored by the app with the caller
+  recorded, so history says which code made it.
+- Revocation of the activation, a lender's grant or the caller's access ends open
+  query streams and refuses queued results and receipts; loss of the invalidation
+  channel fails closed. A revoked caller cannot use an old receipt to read a result.
 
-Normative owners: [locator resolution](../../docs/overstory-spec/03-locators.md),
-[current-tree reads](../../docs/overstory-spec/01-tree-operations.md#111-reading-the-current-tree),
-[execution authority](../../docs/overstory-spec/05-access-control.md#21-execution-tokens),
-and [executable documents](../../docs/overstory-spec/07-executable-documents.md).
-Complete the reference [bridge contract](../../docs/architecture/overstoryd/execution-sidecar.md)
-without changing portable behavior merely to fit the extraction.
+**Verify:** extend `tests/integration/host-collections.test.ts`: an anonymous reader
+through an `app` rule; caller-only reads; a lent write; a mutation by a caller who can
+read but not write, allowed only through a lender; revocation while a stream is open
+and while results are queued; a forged or stale token. Use real execution tokens and
+the real materializations, not mocked grants.
 
-Scope: apps-runtime plus a new executable entrypoint/package if useful; overstoryd HTTP
-forwarding and execution configuration; pure shared bridge contracts; Story Sync's
-local integration; deployment/packaging configuration; affected protocol/Swift models,
-fixtures/tests and reference docs. Keep collection-schema enforcement and collection codecs in
-the pure package established by Apps 007. Out of scope: schema migration, app registry,
-durable subscription resources, cross-host delegation, React/compiler implementation,
-cross-provider durable workflows, provider storage redesign and hostile-JS sandboxing.
+## 2. Resolve sources from trees
 
-## 1. Freeze the bridge and activation contract
+Replace registration in code with handles read from trees.
 
-Write paired request/error fixtures in `tests/fixtures/execution-sidecar/` and create
-`tests/integration/execution-sidecar.test.ts`. Specify authenticated local HTTP
-transport (private loopback listener or supported Unix socket), private credential
-provisioning, protocol version handshake, startup/readiness, shutdown and supervision.
-Public readiness must still allow ordinary overstoryd operations when apps are disabled
-or unavailable. Bound body/header sizes, concurrent executions, queue size, deadlines
-and stream buffers; document explicit initial limits in configuration and tests.
+- An activation names a handle by tree, logical path, export and pinned version; the
+  host loads that module from retained objects at the pinned root, with each imported
+  helper keeping its own defining tree and path. Replace filesystem-based
+  `resolveStorySource` (`packages/apps-runtime/src/schema.ts`) with logical resolution.
+  No stale same-name fallback; running mutations keep the bindings they started with.
+- A handle's sources (`node()` paths such as `./data`) bind to collections in its tree,
+  or to opaque SQLite descriptors from private provider configuration; never to a
+  caller-supplied filename or the current directory. No paths, DSNs or private schemas
+  escape in responses or errors.
+- Code versions, binding versions and data cursors stay separate: a schema or binding
+  change invalidates a plan, a row change only reruns it.
 
-Specify host-issued context with actual caller, source TreeID/logical path, pinned
-code root/version, lent grants with their lenders, activation identity and allowed execution
-scope. overstoryd already checks each grant against its named lender; the issuer
-chooses lenders in a fixed order: the caller's own access first, then lender TreeID. Bind imported code to the correct executable identity without escalation.
+Trusted code only: the module runs as the operator's own code would. A hostile-JS
+sandbox is out of scope.
 
-Decide before the sidecar exists whether attested code may use the caller's own
-access without the caller's approval. Today a grant with no lender allows it
-([access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority),
-`executionAllows` in `packages/overstoryd/src/access.ts`), so any app a person runs
-can do anything that person can. Proposed: code gets `everyone` access and the
-tree's own `app` rules, and anything more of the caller's needs the caller's
-`who: me` entry in `apps.yaml`. This matches what code on a placement host gets
-([access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)), where no
-`apps.yaml` is readable. The decision edits access control §1.1.
-Strip all client-supplied context headers; never forward browser credentials as
-sidecar service credentials. Sidecar overstoryd calls use the host-private execution
-token through ordinary current-tree/object/watch/update APIs; no public mint or
-special resolution route. Requests contain enough information for restart/reconnect
-without an app ID or subscription registry in overstoryd. Activation remains private
-host configuration binding reviewed code, lenders, providers and resource limits.
+**Verify:** the Supplies queries and mutations (`examples/supplies`) load from a tree,
+not from the test, and `tests/integration/supplies-mutations.test.ts` runs against the
+host. Schema change, binding change, helper context and a nested-tree escape attempt
+each behave as above.
 
-Specify initial HTTP status/error mapping and post-header stream errors separately.
-Allowlist response headers; test cookies, redirects and credentials cannot be smuggled
-across the boundary. Distinguish unavailable runtime, invalid input and denied authority.
-Disconnect cancels reads/subscriptions and releases resources. For mutations define
-pre-commit cancellation versus an already committed effect: cancellation never promises
-rollback after commit; an unknown response is recovered by exact retry and receipt.
+## 3. Turn it on in the host
 
-**Verify:** `bun test tests/integration/execution-sidecar.test.ts` → contract cases
-pass against separately launched fixture processes; `bun run check:links` and
-`git diff --check` → exit 0. Do not expose a half-specified bridge publicly.
+- `cli.ts` reads activations and passes `collections`; with none, the routes keep
+  answering `unsupported-operation` and nothing else changes.
+- Packaging: the deployed image carries apps-runtime only when apps are enabled, or
+  always if Joe picks option 1 above; record which.
+- Document configuration, limits (body size, concurrent executions, deadlines, stream
+  buffers), shutdown and rollback in the deployment guide. Ordinary readiness must not
+  depend on any app.
+- The consent, revocation and configuration-conflict soak in
+  [small work](../small-work.md#manual-recipes) applies before enabling a real app.
 
-## 2. Implement authorized bindings and provider enforcement
+**Verify:** `bun run test:affected`, `bun run test:protocol`, and one hand check with
+Joe on a disposable host: an activated Supplies query and mutation, then revocation.
 
-Replace filesystem-based `resolveStorySource` with logical resolution over retained
-objects, pinned defining-module roots and explicit user selections. Preserve TreeID,
-logical path, nested/mounted boundaries and each imported helper's defining context.
-For a host-backed source, obtain `(root, update, observedThrough)` and access summary
-from ordinary current-tree read under the execution token. Consent reads run as the
-grantor. Fetch private schemas/objects separately under current authority; a binding
-is metadata, never permission. No paths, DSNs, raw databases or private schemas may
-escape through browser responses/errors.
+## 4. The execution sidecar (when option 1's trigger arrives, or first under option 2)
 
-Publish opaque SQLite descriptors and schema fingerprints from private provider
-configuration. Never select a database from a caller filename or current directory.
-Validate schema ownership; reject unsupported remote/federated sources explicitly.
-Code versions, binding versions and data cursors remain separate. Schema/target changes
-invalidate affected plans; ordinary row updates trigger reevaluation, not recompilation.
-No stale same-name fallback. Running mutations retain original concrete bindings.
+Move query planning, evaluation and mutation execution behind an authenticated local
+HTTP bridge, as the [execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md)
+document describes, and remove `@ovst/apps-runtime` from overstoryd's dependency
+closure. The earlier version of this plan (git history before 2026-10-24) has the
+detailed steps; in short:
 
-Tie activation/token revocation and authority-watch invalidation to provider reads,
-in-flight work and queued disclosures. Loss/expiry of the invalidation channel fails
-closed until fresh authorization is established. Define the authorized commit check
-and disclosure boundary for SQLite explicitly; do not claim cross-store atomicity
-from a last-minute asynchronous permission lookup. If the current authority APIs
-cannot support the promised revocation semantics, stop for a contract decision rather
-than temporarily granting broader access.
+- **Contract.** Paired request and error fixtures in `tests/fixtures/execution-sidecar/`;
+  loopback or Unix-socket transport with private credentials, version handshake,
+  readiness and supervision; bounded bodies, concurrency, queues, deadlines and
+  buffers; host-issued context, client context headers stripped, response headers
+  allowlisted; disconnect cancels; a committed mutation is never promised rolled back,
+  and an unknown response is recovered by exact retry and receipt.
+- **Extraction.** Run the step 1 to 3 machinery behind the bridge; the sidecar reads
+  through ordinary current-tree, object, watch and update APIs with the execution
+  token. Streams publish whole replacement values and reconnect statelessly.
+  `tests/unit/execution-sidecar-boundary.test.ts` proves the overstoryd closure has
+  no evaluator, compiler, React or QuickJS, including through barrels and dynamic
+  imports.
+- **Failure independence.** Kill the sidecar before and during streams and after a
+  mutation commits; overstoryd's reads, watches, updates and merges keep working, and
+  a restart reconnects with a fresh snapshot and replays a persisted receipt. Reuse
+  the same bridge beside Story Sync on disposable roots.
 
-**Verify:** extend `tests/integration/execution-sidecar.test.ts` with anonymous `app`
-reads, caller-only ordinary reads, forged context, nested-tree escape, helper context,
-stale bindings, provider changes and revocation while results are queued → all pass.
-Use actual execution tokens and backing providers, not only mocked grants.
+**Verify:** `tests/integration/execution-sidecar.test.ts` with real processes, plus
+the step 1 and 2 cases rerun through the bridge.
 
-## 3. Extract execution and preserve stream/receipt semantics
-
-Run current registered query/mutation machinery behind the bridge. Keep SQLite
-snapshots, dependency plans, transactions and same-transaction retry receipts.
-overstoryd sources use authorized immutable-object reads and watch/update calls; SQLite
-uses direct mediated connections and committed observation. Cross-provider queries
-are finite and use cursor vectors, not a claimed global snapshot. Query-plan evaluation
-must not move into overstoryd as an optimization.
-
-Streams publish complete replacement values with stateless reconnect. Reauthorize
-and establish snapshot-follow on every subscription. Preserve membership race protection,
-relevance filtering, output deduplication and cleanup. Keep mutation ID/digest/binding
-checks across restart: lost responses retry the exact request, changed payloads reject,
-and revoked callers cannot use old receipts to bypass current disclosure authority.
-
-Replace in-process runtime injection in the production host with a bridge client.
-Keep test fakes only for focused unit cases; production integration tests must start
-real independent processes. Add package-boundary tests at
-`tests/unit/execution-sidecar-boundary.test.ts` for the transitive overstoryd CLI/runtime
-closure, including barrel re-exports and dynamic imports, and remove its direct
-apps-runtime dependency. If merge contracts pull in the worker implementation, expose
-pure contract imports rather than moving merge execution back into overstoryd.
-
-**Verify:**
-
-```sh
-bun test tests/integration/execution-sidecar.test.ts
-bun test tests/integration/query-stream-api.test.ts tests/integration/data-live-query.test.ts tests/integration/generic-node-query.test.ts tests/integration/supplies-mutations.test.ts
-bun test tests/unit/execution-sidecar-boundary.test.ts tests/unit/collection-schema-boundary.test.ts
-```
-
-All pass. The resolved daemon graph has no apps evaluator/compiler/React/QuickJS;
-starting overstoryd without installed apps-runtime or QuickJS in a disposable packaging
-fixture still supports ordinary and declarative collection operations.
-
-## 4. Prove failure independence and local reuse
-
-Reuse the bridge beside Story Sync with private connection/credential configuration;
-do not fork provider semantics. Document launch, configuration, graceful shutdown,
-version mismatch, restart and rollback. Sidecar failure must not restart overstoryd or
-make its ordinary readiness depend on application health. Keep credentials out of
-synchronized files and public responses. Runtime/image packaging is distinct: report
-what each process imports and what the deployed artifact contains.
-
-Required process-level cases in `tests/integration/execution-sidecar.test.ts`:
-
-1. Anonymous authorized projection from private SQLite; mutate backing and observe
-   a replacement result; revoke and prove no queued or subsequent disclosure.
-2. User-selected notebook create with no broad read; guarded update; dropped response;
-   exact retry after restart creates no duplicate and denied authority leaks no objects.
-3. Schema/binding change invalidates a plan, data-only change reevaluates it, and imported
-   helpers resolve using their own pinned module context.
-4. Kill sidecar before/during streams and after mutation commit. While it stays down,
-   exercise overstoryd read/watch/update/merge, including declarative collections; all remain usable.
-   Restart, reconnect with a fresh snapshot and replay a persisted receipt.
-5. Lose authority invalidation, inject hostile context/response headers, exceed body/
-   execution limits, disconnect slow readers and shut down; prove bounded resources,
-   fail-closed disclosures and eventual cleanup.
-6. Run the same headless query/mutation fixture beside Story Sync on disposable roots.
-
-**Verify:** the above integration command passes all cases with real processes.
-Measure cold/steady request latency, stream cancellation and retained memory against
-baseline; record limits and results without unsupported performance claims.
-
-## Completion and subsequent work
+## Completion
 
 Run `bun run typecheck`, `bun run test`, `bun run test:protocol`, `bun run build`,
-`bun run test:performance`,
-`bun test tests/unit/overstoryd-merge tests/integration/overstoryd-merge`,
-`xcodebuild test -project swift/Story.xcodeproj -scheme Story -destination platform=macOS -only-testing:StoryAppTests/StorySyncClientTests -only-testing:StoryAppTests/LoopbackServicesTests`, `bun run check:links`,
-and `git diff --check` → exit 0. Run affected Swift model suites if wire shapes changed;
-StoryEditor testing uses the repository wrapper. Verify changed packaging through
-`bun run build:cli:package` and `bun run test:cli:package` when applicable; root
-`bun run build` builds the CLI and is not sufficient evidence of host isolation.
+`bun run test:performance`, `bun run check:links` and `git diff --check`. Record
+implemented and deployed evidence separately in `status.md` and the architecture docs,
+repair incoming links, and delete this plan. If step 4 is deferred under option 1,
+move it to its own plan first.
 
-Done: authorized headless execution across a real HTTP process boundary; durable
-retry/revocation tests; ordinary host and declarative collection operations independent of apps;
-QuickJS/compiler/evaluator-free daemon closure; local bridge reuse; documented private
-configuration, failure behavior and rollback. Initial runtime is trusted; process
-separation alone makes no claim of hostile cross-tree JavaScript isolation.
-Stop if safe scoped results, receipt atomicity, failure independence or dependency
-separation cannot be proved. Never widen authority to get a fixture passing.
-
-Apps 001/003 next supply ordinary document/action/asset forwarding, coherent compilation,
-SSR initial results, hydration without duplicate reads, links/search/back/reload and
-JavaScript-free actions over this boundary. Keep that next gate recorded in those
-plans; do not silently drop it or fold it into this headless completion requirement.
-Apps 006 owns combined SQLite-to-Overstory workflows and durable authoring semantics.
-
-Record implementation/test evidence in `status.md` and architecture docs separately
-from installed/deployed evidence. Repair incoming links, delete the completed plan and
-update indexes; do not move it to a completed-plans directory. Changes to bridge
-versions, execution tokens or provider invalidation require paired process fixtures.
+Not here: browser document hosting, SSR and hydration (Apps 001 and 003); durable
+authoring and workflow semantics (Apps 006); approvals on placement hosts (Apps 008);
+cross-host delegation (Apps 009); the scoped mutation guard (the
+[collection gaps](../soon/cleanup-schema-language-005-collection-gaps.md) cleanup).
+Never widen authority to get a fixture passing.

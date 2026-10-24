@@ -92,7 +92,7 @@ describe("a schema with several tables", () => {
   });
 
   test("the plan's games.usl with Game.jsonl, List.jsonl and List_games.jsonl passes usl verify", async () => {
-    const games = (await readFile(join(import.meta.dir, "../../plans/soon/schema-language/examples/games.usl"), "utf8"))
+    const games = (await readFile(join(import.meta.dir, "../../packages/usl/examples/games.usl"), "utf8"))
       .replace("ordered List.games[] @fold", "ordered List.games[]");
     const directory = join(sandbox, "games");
     await Bun.write(join(directory, "schema.usl"), games);

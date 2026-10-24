@@ -23,9 +23,9 @@ private func examples(_ directory: String) throws -> [(name: String, source: Str
 
 @Suite("Ultimate Schema Language")
 struct USLTests {
-    @Test("The plan's examples check clean")
+    @Test("The examples check clean")
     func examplesCheckClean() throws {
-        let files = try examples("plans/soon/schema-language/examples")
+        let files = try examples("packages/usl/examples")
         #expect(files.count >= 5)
         for file in files {
             #expect(compileUSL(file.source).diagnostics == [], "\(file.name)")
@@ -34,7 +34,7 @@ struct USLTests {
 
     @Test("Broken examples report exactly the codes they expect")
     func brokenExamples() throws {
-        let files = try examples("plans/soon/schema-language/examples/invalid")
+        let files = try examples("packages/usl/examples/invalid")
         #expect(!files.isEmpty)
         let regex = try NSRegularExpression(pattern: "^// expect: ([a-z-]+)$", options: [.anchorsMatchLines])
         for file in files {

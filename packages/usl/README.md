@@ -61,7 +61,7 @@ bun packages/usl/src/cli.ts types file.usl
 bun packages/usl/src/cli.ts verify file.usl <store> [--backend sqlite|postgres|files]
 ```
 
-Tests: `tests/unit/usl.test.ts` (examples clean, `examples/invalid`
+Tests: `tests/unit/usl.test.ts` ([examples](examples) clean, `examples/invalid`
 reporting exactly their `// expect:` codes) and `tests/unit/usl-stores.test.ts`
 (setup SQL on SQLite, data files, rows, types, limits; Postgres too when
 `USL_TEST_POSTGRES` names a server).

@@ -35,10 +35,8 @@ hashes, collection tables and row chunks, and schema fingerprints) uses this enc
 
 `collection-schemas.json` binds the collection schemas of
 [child backings §2](../06-child-backings.md#2-logical-collections), written in
-the [schema language](../11-schema-language.md). It predates the 2026-10-24
-schema syntax and binds the current implementation until
-[Schema language 005](../../../plans/soon/schema-language/005-collections-that-sync.md)
-replaces it; the logical collection objects (a directory's `collection`
+the [schema language](../11-schema-language.md), in its 2026-10-24
+layered syntax; the logical collection objects (a directory's `collection`
 reference, `table` and `rows`) are vectors in `protocol-objects.json`. It covers accepted schemas with their columns, key, child name and fingerprint; rejected
 schemas with the first diagnostic's code and location; value and CSV-cell
 diagnostics as JSON Pointers, including accepted undeclared row members and

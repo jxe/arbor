@@ -12,6 +12,42 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Collections that sync — 2026-10-24
+
+Implemented and deployed (main `85e04e1`); plan Schema language 005, built
+from designs 003 (USL layers) and 004 (logical collections), is closed out
+and deleted. Its text, with each milestone's design, is in git history at
+`85e04e1`.
+
+- **Logical collections.** A tree holds a collection's schema fingerprint
+  and its rows in canonical CBOR, chunked by a fixed rule; every CSV, JSONL,
+  Markdown or SQLite folder is a placement's projection of them, chosen in
+  `placements.yaml`, so representations of the same rows hash the same
+  ([spec 06 §7](docs/overstory-spec/06-child-backings.md), 01, 02, 10, 11).
+  Swift carries the collection reference and its table and rows objects
+  intact; Story.app does not show rows yet (Schema language 002).
+- **Row operations and field-level merge.** Story Sync publishes edits as
+  row operations naming `{model, key, field}`; `collection-fields-v1` merges
+  by row and field and keeps field choices. Tests:
+  `tests/integration/overstoryd/row-acceptance.test.ts`,
+  `tests/unit/protocol-updates/row-operations.test.ts`.
+- **SQLite that syncs.** Story Sync installs a change log in each database
+  it projects and rereads only changed rows; edits made with any program are
+  published. Tests: `tests/integration/collection-placements.test.ts`,
+  `tests/integration/folder-rows.test.ts`.
+- **Rows on the host.** `HostCollections` keeps a disposable SQLite
+  materialization per collection; named queries and mutations run on it, and
+  a mutation is submitted as an ordinary guarded update with a receipt. Tests:
+  `tests/integration/host-collections.test.ts`.
+
+Before landing, the Swift tests passed on Joe's Mac and the performance
+benchmarks were compared with main: a one-row edit in a 10,000-row
+collection is about 35% slower, because a changed collection is re-encoded
+whole ([Performance 004](plans/later/performance-004-provenance-index.md)
+step 6). Leftovers: [publishing USL 0.3.0 and moving the sites](plans/soon/cleanup-schema-language-005-publish-usl-and-move-the-sites.md)
+and [the gaps each milestone left](plans/soon/cleanup-schema-language-005-collection-gaps.md).
+The USL examples moved to [`packages/usl/examples`](packages/usl/examples).
+
 ## Schema language layers — 2026-10-24
 
 Implemented, not published: `@ovst/usl` 0.3.0 reads the layered syntax of spec
@@ -21,8 +57,8 @@ marks storage and `~` presentation, and the old `@@` spellings are syntax
 errors. `usl fmt` applies the conventions, `modelLayer` gives the model layer
 the fingerprint hashes, and the tree-sitter, Zed and VS Code grammars follow.
 Every `.usl` and inline schema in the repo is rewritten; cranberries,
-excellences and supplies-remake are not yet. The StoryKit port is on branch
-`claude/project-thread-6kt6l8`, untested.
+excellences and supplies-remake are not yet. The StoryKit port is on main,
+tested on Joe's Mac.
 
 Validation: typecheck and the full suite pass on Bun 1.4.2 (1,853 tests before
 the fmt and model-layer tests were added).

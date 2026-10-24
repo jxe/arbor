@@ -14,16 +14,6 @@ its evidence in status.
 
 ## Soon
 
-**[Schema language 005: collections that sync](soon/schema-language/005-collections-that-sync.md)**,
-building [003: model, storage and presentation layers](soon/schema-language/003-layers-and-sigils.md)
-and [004: logical collections](soon/schema-language/004-logical-collections.md) (proposed), with the
-[group overview](soon/schema-language/README.md). Joe split it out of Schema language 002 on
-2026-10-22 to do first, because People 001 needs it: the layered USL, collections whose rows are
-the tree's content while each placement chooses files or SQLite, row operations with field-level
-merge, and SQLite that syncs through Story Sync. Milestones 1 to 6 (logical collections, row
-operations and field merge, SQLite sync, and host queries and mutations) landed on main on
-2026-10-24; publishing USL 0.3.0 and moving the sites remain.
-
 **[Live 001: see who else is here](soon/live-001-presence.md).**
 Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which
 page each person is on, and where their cursor is when two people share a page. It must be
@@ -45,22 +35,20 @@ is already placed or was just visited, and ignores them when the OS opens one. J
 them honored wherever the device can find the tree. The plan starts by making the spec
 say how such a link resolves, with the host form as the hint.
 
-**[Editor 001: snippets you type or say](soon/editor-001-snippets.md).**
-Joe asked on 2026-10-24 for TextMate-style snippets in place of template buttons: a page he
-edits like any other, such as his standard day outline, that expands where he is when he
-picks it from @ or says its name in a pinch recording. Template buttons go away. Forks open:
-where a page is marked as a snippet, and exactly what the spoken trigger is.
-
-**[Editor 002: dictate several items in one recording](soon/editor-002-dictated-lists.md).**
-Joe chose spoken breaks on 2026-10-24: "next item", "next item indented" and an outdent
-phrase split one pinch recording into several bullets, so a day plan of time rows and tasks
-can be dictated in one go. A recording without commands stays one paragraph.
-
 ### Cleanups
 
 What a finished project left behind: old readers to delete, notes to write. Each is small and
 named `cleanup-` and the plan it came from. Smaller leftovers still are in
 [small work](small-work.md).
+
+**[Schema language 005: publish USL 0.3.0 and move the sites](soon/cleanup-schema-language-005-publish-usl-and-move-the-sites.md).**
+Collections that sync landed on 2026-10-24 ([status](../status.md#collections-that-sync--2026-10-24)).
+`@ovst/usl` 0.3.0 is unpublished, and cranberries, excellences and supplies-remake still use the
+0.2.0 syntax. Joe deferred both that day; take it when a site is next worked on.
+
+**[Schema language 005: gaps left in collections that sync](soon/cleanup-schema-language-005-collection-gaps.md).**
+Mixed row and text frames are refused, host materializations are never evicted, a mutation's
+guard is the whole tree, and a receipt lost in a crash refuses the retry. None blocks People 001.
 
 **[Rename 002: remove the old-spelling read aliases](soon/cleanup-rename-002-remove-old-spelling-aliases.md).**
 The 2026-10-10 rename left readers accepting six old spellings, among them `arbor://` and the
@@ -86,19 +74,21 @@ before the web editor. Mac only; the browser half is an open question in Web 025
 Joe wants People to remember everyone and every tree he has come across, and to make forming
 groups to share with easy: see whether a group exists, drag people into it, invite whoever is
 missing. A Go to… field finds visited trees and pages by title. The directory is a private
-tree of collections with a grouped arrangement, so it waits for Schema language 005's
-collections that sync.
+tree of collections with a grouped arrangement, which Schema language 005's collections that
+sync (on main since 2026-10-24) made possible.
 
 **[Schema language 002: database views in Story](later/schema-language-002-cranberries-in-story.md).**
 Joe wants excellences and supplies-remake to run natively in Story: collections presented as
 views and edited in a native structured editor, embedded in pages, with row ownership as access
-policy, and ports of both sites. The data underneath moved to Schema language 005 on 2026-10-22,
-so this comes after it, at a different time.
+policy, and ports of both sites. The data underneath was split out as Schema language 005 on
+2026-10-22 and is on main since 2026-10-24.
 
-**[Apps 005: source resolution and the execution sidecar](later/apps-005-source-resolution-and-sidecar.md).**
+**[Apps 005: source resolution, execution authority and the sidecar](later/apps-005-source-resolution-and-sidecar.md).**
 Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
-lending models against real code. This is the first step: a headless sidecar that runs them
-under overstoryd's authorization.
+lending models against real code. Schema language 005 runs them inside overstoryd as their
+caller, from handles registered in code; this plan makes them run as an activated app under
+an execution token, from code read out of a tree, and then moves execution into a sidecar.
+One fork for Joe: whether the sidecar comes first or waits.
 
 **[Apps 006: durable query and mutation authoring](later/apps-006-durable-authoring.md).**
 Part of the same push, after Apps 005: the authoring API that declares author and user
@@ -201,6 +191,19 @@ a tree too big to place on the iPhone in one download.
 
 **[Security 010: signed profile statements](when-needed/security-010-signed-profile-statements.md).**
 When a host Joe does not control is involved, or a home host must be left behind.
+
+**[Editor 001: snippets you type or say](when-needed/editor-001-snippets.md).**
+Joe asked on 2026-10-24 for TextMate-style snippets in place of template buttons: a page he
+edits like any other, such as his standard day outline, that expands where he is when he
+picks it from @ or says its name in a pinch recording. Template buttons go away. Forks open:
+where a page is marked as a snippet, and exactly what the spoken trigger is. Joe moved it
+here from soon on 2026-10-24.
+
+**[Editor 002: dictate several items in one recording](when-needed/editor-002-dictated-lists.md).**
+Joe chose spoken breaks on 2026-10-24: "next item", "next item indented" and an outdent
+phrase split one pinch recording into several bullets, so a day plan of time rows and tasks
+can be dictated in one go. A recording without commands stays one paragraph. Joe moved it
+here from soon on 2026-10-24.
 
 ## Groups
 

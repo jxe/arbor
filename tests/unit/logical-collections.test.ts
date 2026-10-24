@@ -19,7 +19,7 @@ import {
 import { checkLogicalTables, compileLogicalSchema, encodeCollection, loadCollection, LogicalCollectionError } from "@ovst/collection-schema";
 import { compileUsl, layoutOf, logicalFromRows, logicalModels, rowsFromLogical, type LogicalTables } from "@ovst/usl";
 
-const examples = join(import.meta.dir, "../../plans/soon/schema-language/examples");
+const examples = join(import.meta.dir, "../../packages/usl/examples");
 const schema = (name: string) => compileUsl(readFileSync(join(examples, `${name}.usl`), "utf8"));
 const T = "2026-10-24T09:00:00.000Z";
 const row = (key: LogicalRow["key"], fields: LogicalRow["fields"] = {}): LogicalRow => ({ key, fields, created: T, modified: T });
