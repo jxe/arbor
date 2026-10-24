@@ -32,17 +32,23 @@ The People directory needs both, and the iPhone has no Story Sync.
 
 ## Steps
 
+0. **Read on the iPhone first.** 006's view on iOS, from the tree's own objects, offline. This
+   half is all People 001 and 002 milestone 4 need to start.
 1. **Row operations on the Swift wire.** `RowOperation` in Overstory's authored contract,
    encoded and validated as TS does; Swift passes the row-operation cases in
    `protocol-authored-updates.json`.
 2. **Replay in Swift.** Port `row-replay.ts`: apply row operations to a collection's logical
    tables, re-chunk them by the fixed chunk rule, and write new table, rows and directory
    objects. Add shared vectors (schema, tables, operations → tables and root) generated from TS,
-   and check both stacks.
+   and check both stacks: set, create, delete, connect, disconnect, ordered positions, join
+   tables, and `created`/`modified` from the operation's `at` (where the stacks will drift).
+   The update's `after` must be exactly the tree the host derives by replay.
 3. **A row-change kind in `UpdateCoordinator`.** `appendRows([RowOperation])` beside
    `appendStructure`: replays into the working tree's overlay at once (offline included) and
-   publishes the operations as the frame's authored evidence. A refusal shows like any other
-   declined change.
+   publishes the operations as the frame's authored evidence. Pending row operations are kept
+   and replayed onto a new basis, as structural changes are. A refusal shows like any other
+   declined change; a row-field decision (the same field changed on two devices) shows at
+   least read-only.
 4. **From the view to row operations.** Map `viewEdits`' layout-row edits to logical row
    operations (the inverse of `rowsFromLogical` for one edit: a join-table row is a
    connect on its holder, a position is a move). Vectors beside `presented-views.json`.
@@ -58,7 +64,8 @@ The People directory needs both, and the iPhone has no Story Sync.
 **Verification:** `bun run test:affected`, the StoryKit, Overstory and OverstoryWorkingTree
 package tests and `swift/scripts/test-story-app.sh` on Joe's Mac. By hand with Joe: in the
 games sandbox tree, change a game's status on the iPhone offline and rename it on the Mac;
-both reconnect and both edits are there, and Story Sync's `Game.jsonl` shows them.
+both reconnect and both edits are there, and Story Sync's `Game.jsonl` shows them. The same
+field edited on both devices shows a decision.
 
 ## Not in this plan
 
