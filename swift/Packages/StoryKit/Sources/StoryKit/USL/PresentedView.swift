@@ -304,9 +304,11 @@ public func uslFirstParagraph(_ markdown: String) -> String {
 }
 
 func rowsByPosition(_ rows: [USLRow], _ position: String) -> [USLRow] {
-    rows.enumerated()
-        .map { (row: $0.element, index: $0.offset, at: $0.element[position]?.numberValue ?? .infinity) }
-        .sorted { $0.at != $1.at ? $0.at < $1.at : $0.index < $1.index }
+    let placed: [(row: USLRow, index: Int, at: Double)] = rows.enumerated().map { entry in
+        (row: entry.element, index: entry.offset, at: entry.element[position]?.numberValue ?? Double.infinity)
+    }
+    return placed
+        .sorted { x, y in x.at != y.at ? x.at < y.at : x.index < y.index }
         .map(\.row)
 }
 
