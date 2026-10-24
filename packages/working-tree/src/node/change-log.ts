@@ -1,7 +1,7 @@
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { decodeCandidateUpdateJSON, decodeTreeSnapshotJSON, encodeObjectEnvelopes, hashObject, type CandidateUpdateJSON, type TreeSnapshotJSON } from "@ovst/protocol";
-import { equal, localChangeRequest, requireOneChain, snapshotJSON, validateLocalChanges, type ChangeLogJournal, type ChangeLogObjectStore, type LocalChange,
+import { bytesEqual, equal, localChangeRequest, requireOneChain, snapshotJSON, validateLocalChanges, type ChangeLogJournal, type ChangeLogObjectStore, type LocalChange,
   type StoredLocalChange, type StoredSnapshot } from "../local-change.ts";
 import { publicationTip } from "../update-machine.ts";
 
@@ -221,7 +221,7 @@ export class ChangeLog {
     const destination = this.objectPath(hash);
     try {
       const existing = await this.readObject(hash);
-      if (!equal([...existing], [...bytes])) throw new Error(`Change log object changed: ${hash}`);
+      if (!bytesEqual(existing, bytes)) throw new Error(`Change log object changed: ${hash}`);
       return;
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     const temporary = `${destination}.${crypto.randomUUID()}.tmp`;

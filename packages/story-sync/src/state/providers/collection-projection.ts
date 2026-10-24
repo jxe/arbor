@@ -9,6 +9,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   compareUTF8,
+  hashObject as hashBytes,
   logicalRowKey,
   stableJSONString,
   stableKeyFromProperties,
@@ -149,6 +150,25 @@ function readSQLiteTable(database: Database, schema: CollectionSchema): Row[] {
   return (database.query(`select ${columns} from ${quote(schema.model)}`).all() as Array<Record<string, unknown>>).map((raw) => sqliteRow(schema, raw));
 }
 
+/**
+ * What a read of the folder's projection depends on: the schema, and each
+ * projection file's identity, size and change times (a SQLite database's
+ * journal and WAL included), or null when a file can't be stated.
+ */
+function filesStamp(directory: string, names: readonly string[], schemaBytes: Uint8Array): string | null {
+  const parts = [hashBytes(schemaBytes)];
+  for (const name of names) {
+    try {
+      const stat = statSync(join(directory, name), { bigint: true });
+      parts.push(`${name}:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return null;
+      parts.push(`${name}:-`);
+    }
+  }
+  return parts.join("\n");
+}
+
 function fileIdentity(path: string): string {
   const stat = statSync(path);
   return `${stat.dev}:${stat.ino}`;
@@ -178,6 +198,8 @@ export class CollectionProjections {
   private readonly last = new Map<string, LogicalTables>();
   private readonly databases = new Map<string, DatabaseState>();
   private readonly resolving = new Set<string>();
+  /** Each folder's last read, by the stamp of the files it read. */
+  private readonly reads = new Map<string, { stamp: string; tables: LogicalTables; result: Omit<SnapshotCollection, "objects">; objects: Uint8Array[] }>();
 
   constructor(private readonly options: CollectionProjectionOptions = {}) {
     this.schemas = options.schemas ?? sharedCollectionSchemaCache;
@@ -258,6 +280,11 @@ export class CollectionProjections {
       this.resolving.add(directory);
       try { before = await basis(directory); } finally { this.resolving.delete(directory); }
     }
+    // Unchanged files read as the rows they read as last time, without
+    // decoding and encoding every row again on each scan.
+    const stamp = form ? filesStamp(directory, formFiles(form, form.kind === "sqlite" ? database : files), schemaBytes) : null;
+    const cached = this.reads.get(directory);
+    if (stamp && cached?.stamp === stamp && cached.tables === before) return { ...cached.result, objects: cached.objects };
     const now = this.options.now?.() ?? new Date().toISOString();
     let tables: LogicalTables | null;
     try {
@@ -274,11 +301,14 @@ export class CollectionProjections {
     if (!tables) return null;
     const encoded = encodeCollection(logical, tables);
     this.last.set(directory, tables);
-    return {
+    const result = {
       collection: encoded.reference,
-      objects: encoded.objects.values(),
       replaces: form ? formFiles(form, form.kind === "sqlite" ? database : files).filter((name) => fileNames.includes(name)) : [],
     };
+    const objects = [...encoded.objects.values()];
+    if (stamp) this.reads.set(directory, { stamp, tables, result, objects });
+    else this.reads.delete(directory);
+    return { ...result, objects };
   }
 
   /**
@@ -289,6 +319,7 @@ export class CollectionProjections {
   async write(directory: string, object: ProtocolDirectory, load: Load): Promise<readonly string[]> {
     const collection = await loadDirectoryCollection(object, load, this.schemas);
     if (!collection) return [];
+    this.reads.delete(directory);
     const schemaBytes = await load(object.entries.find((e) => e.name === "schema.usl")!.file!);
     const { files, database } = this.compile(schemaBytes);
     const detected = detectForm(existsSync(directory) ? await readdir(directory) : [], files);

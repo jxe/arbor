@@ -9,6 +9,7 @@ import { canonicalCBORHash, decodeCanonicalCBOR, encodeCanonicalCBOR } from "./c
 import type { Hash } from "./identifiers.ts";
 import type { JSONValue } from "./node-model.ts";
 import { compareUTF8 } from "./utf8.ts";
+import { sha256 } from "./hash.ts";
 
 /** One row: its key as `[field, value]` pairs in key order, its other fields, and when accepted changes made and last changed it. */
 export interface LogicalRow {
@@ -65,7 +66,30 @@ export function compareLogicalRows(a: Pick<LogicalRow, "key">, b: Pick<LogicalRo
 
 /** The canonical CBOR hash of a row, which places chunk boundaries. */
 export function logicalRowHash(row: LogicalRow): Hash {
-  return canonicalCBORHash(row);
+  return encodedRow(row).hash;
+}
+
+/**
+ * A row's canonical CBOR bytes and hash. Rows decoded from a chunk are deeply
+ * frozen and shared (see `decodedChunk`), so theirs are kept: re-encoding a
+ * table after a few rows change encodes only those rows.
+ */
+const encodedRows = new WeakMap<LogicalRow, { bytes: Uint8Array; hash: Hash }>();
+function encodedRow(row: LogicalRow): { bytes: Uint8Array; hash: Hash } {
+  const cached = encodedRows.get(row);
+  if (cached) return cached;
+  const bytes = encodeCanonicalCBOR(row);
+  const encoded = { bytes, hash: `sha256:${sha256(bytes)}` as Hash };
+  if (Object.isFrozen(row)) encodedRows.set(row, encoded);
+  return encoded;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const item of Object.values(value)) deepFreeze(item);
+    Object.freeze(value);
+  }
+  return value;
 }
 
 function endsChunk(row: LogicalRow, size: number): boolean {
@@ -139,8 +163,16 @@ export function decodeLogicalRow(value: unknown, label = "row"): LogicalRow {
 }
 
 export function encodeProtocolRows(rows: LogicalRow[]): Uint8Array {
-  return encodeCanonicalCBOR({ type: "rows", rows } satisfies ProtocolRows);
+  // The map {rows, type} in canonical key order, from each row's own bytes.
+  const parts = [ROWS_HEAD, encodeCanonicalCBOR(rows.length).slice(), ...rows.map((row) => encodedRow(row).bytes), ROWS_TAIL];
+  parts[1]![0] = parts[1]![0]! + 0x80; // major type 4 (array) on the length's head
+  const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of parts) { out.set(part, offset); offset += part.length; }
+  return out;
 }
+const ROWS_HEAD = Uint8Array.of(0xa2, ...encodeCanonicalCBOR("rows"));
+const ROWS_TAIL = Uint8Array.of(...encodeCanonicalCBOR("type"), ...encodeCanonicalCBOR("rows"));
 
 /** A `rows` object: canonical, each row well formed, and in stable-key order without a key twice. */
 export function decodeProtocolRows(bytes: Uint8Array): ProtocolRows {
@@ -187,7 +219,7 @@ export function encodeLogicalTable(rows: LogicalRow[]): { hash: Hash; table: Pro
   const objects = new Map<Hash, Uint8Array>();
   const chunks = chunkLogicalRows(sorted).map((chunk) => {
     const bytes = encodeProtocolRows(chunk);
-    const hash = canonicalCBORHash({ type: "rows", rows: chunk });
+    const hash = `sha256:${sha256(bytes)}` as Hash;
     objects.set(hash, bytes);
     return { rows: chunk.length, chunk: hash };
   });
@@ -206,21 +238,49 @@ export async function loadLogicalTable(hash: Hash, load: (hash: Hash) => Promise
   const table = decodeProtocolTable(await load(hash));
   const rows: LogicalRow[] = [];
   for (const [i, { rows: count, chunk }] of table.chunks.entries()) {
-    const part = decodeProtocolRows(await load(chunk)).rows;
+    // Every chunk is still loaded, so a store that tracks reads sees them.
+    const { rows: part, ends } = decodedChunk(chunk, await load(chunk));
     if (part.length !== count) throw new TypeError(`table chunk ${i} holds ${part.length} rows, not ${count}`);
     if (rows.length > 0 && part.length > 0 && compareLogicalRows(rows[rows.length - 1]!, part[0]!) >= 0) {
       throw new TypeError(`table chunk ${i} doesn't continue the stable-key order`);
     }
     const last = i === table.chunks.length - 1;
     if (part.length === 0 && !(last && table.chunks.length === 1)) throw new TypeError(`table chunk ${i} is empty`);
-    part.forEach((row, j) => {
-      const ends = endsChunk(row, j + 1);
-      if (ends && j !== part.length - 1) throw new TypeError(`table chunk ${i} continues past a chunk boundary`);
-      if (!ends && j === part.length - 1 && !last) throw new TypeError(`table chunk ${i} ends before a chunk boundary`);
-    });
+    if (ends !== -1 && ends !== part.length - 1) throw new TypeError(`table chunk ${i} continues past a chunk boundary`);
+    if (ends === -1 && part.length > 0 && !last) throw new TypeError(`table chunk ${i} ends before a chunk boundary`);
     rows.push(...part);
   }
   return rows;
+}
+
+/**
+ * Decoded rows chunks by hash. A chunk is content-addressed, so its rows and
+ * where the chunk rule first ends it never change; a sync that loads the same
+ * collection several times decodes each chunk once. The rows are frozen,
+ * since every caller shares them.
+ */
+const chunks = new Map<Hash, { rows: readonly LogicalRow[]; ends: number }>();
+const CHUNK_CACHE_ROWS = 200_000;
+let cachedRows = 0;
+
+function decodedChunk(hash: Hash, bytes: Uint8Array): { rows: readonly LogicalRow[]; ends: number } {
+  const cached = chunks.get(hash);
+  if (cached) {
+    chunks.delete(hash);
+    chunks.set(hash, cached);
+    return cached;
+  }
+  const rows = decodeProtocolRows(bytes).rows;
+  for (const row of rows) deepFreeze(row);
+  const decoded = { rows: rows as readonly LogicalRow[], ends: rows.findIndex((row, j) => endsChunk(row, j + 1)) };
+  chunks.set(hash, decoded);
+  cachedRows += rows.length;
+  for (const [key, value] of chunks) {
+    if (cachedRows <= CHUNK_CACHE_ROWS) break;
+    chunks.delete(key);
+    cachedRows -= value.rows.length;
+  }
+  return decoded;
 }
 
 export function decodeCollectionReference(value: unknown): CollectionReference {

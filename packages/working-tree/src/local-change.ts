@@ -48,6 +48,12 @@ export const equal = (a: unknown, b: unknown): boolean => {
   const keys = Object.keys(a).sort(), other = Object.keys(b).sort();
   return keys.length === other.length && keys.every((k, i) => k === other[i] && equal((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
 };
+/** Byte equality without spreading into arrays, which `equal` would walk key by key. */
+export const bytesEqual = (a: Uint8Array, b: Uint8Array): boolean => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+};
 export function snapshotJSON(snapshot: TreeSnapshot): TreeSnapshotJSON {
   return encodeTreeSnapshotJSON({ root: snapshot.root, objects: new Map([...snapshot.objects].sort(([a], [b]) => a.localeCompare(b))) });
 }
@@ -147,7 +153,7 @@ export function prepareSourceChange(input: {
     }
     if (!entry) throw new Error("Source path is not in basis");
     if (depth === parts.length - 1) {
-      if (!entry.file || !objects.has(entry.file) || !equal([...objects.get(entry.file)!], [...encoder.encode(previous)])) throw new Error("Source bytes do not match basis");
+      if (!entry.file || !objects.has(entry.file) || !bytesEqual(objects.get(entry.file)!, encoder.encode(previous))) throw new Error("Source bytes do not match basis");
       file = entry.file;
       const produced = encoder.encode(source);
       entry.file = hashObject(produced); objects.set(entry.file, produced);
@@ -375,7 +381,7 @@ export function validateLocalChange(record: LocalChange): void {
   verifyTreeSnapshotGraph(graph, "sparse-files"); verifyTreeSnapshotGraph(candidate, "sparse-files");
   for (const object of decodeCandidateUpdateJSON(record.update).objects) {
     const present = candidate.objects.get(object.hash);
-    if (graph.objects.has(object.hash) || !present || !equal([...present], [...object.bytes])) throw new Error("Update object is not a new candidate object");
+    if (graph.objects.has(object.hash) || !present || !bytesEqual(present, object.bytes)) throw new Error("Update object is not a new candidate object");
   }
   if ((record.document === null) !== (record.sourcePath === null)) throw new Error("Incomplete source intent");
   if (record.creation) {
