@@ -89,10 +89,13 @@ any time before 6; 7 needs only 3 and 4.
 `presentPage` lives in `packages/protocol/src/documents/page-presentation.ts`,
 with inverse `authorPage` and tests in `tests/unit/page-presentation.test.ts`.
 Its Swift counterpart is `StoryPagePresentation` in StoryEditor, working on
-Quagmire blocks. On main, only the TS USL checker resolves views:
+Quagmire blocks. This milestone is where Story.app (Mac and iOS) first shows
+a collection's rows: 005 only makes Story carry collections intact (Joe,
+2026-10-24). On main, only the TS USL checker resolves views:
 `ResolvedModel.views` holds `ResolvedView {label, line: LineItem[], group,
 sort}` (`packages/usl/src/check.ts`). Nothing in Swift parses `schema.usl`
-(`WorkingTree.collection(for:)` only counts store-file lines).
+(`WorkingTree.collection(for:)` only counts rows: from a one-table
+collection reference on the 005 branch, else from store-file lines).
 
 **TS.**
 - `presentView(schema, rows, view)` in `packages/protocol` (beside

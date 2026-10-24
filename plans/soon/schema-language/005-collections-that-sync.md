@@ -191,6 +191,13 @@ supplies-remake.
   file) and story-sync discovery (`state/providers/discovery.ts`) learn
   multi-table folders.
 
+- **Story.app carries collections, without showing them** (Joe, 2026-10-24).
+  Swift decodes the collection reference and its table and rows objects,
+  every graph walk follows them, and a native working tree keeps them in its
+  overlay, so a collection survives a round trip through Story on Mac and iOS.
+  Story.app shows a collection folder only as it does today (a kind and a row
+  count); listing or editing its rows waits for 002's presented views.
+
 **Done when:** one tree placed twice, once as SQLite and once as JSONL, holds
 the same root; reformatting the CSV of a placed collection publishes nothing.
 
@@ -283,7 +290,8 @@ rework it so the database is a projection rather than the tree's content.
   offline with no story-sync in the path: a native projection (SQLite, which
   iOS has) built from the logical form, validated with the StoryKit USL port,
   and fed by `UpdateCoordinator`'s row-change kind. This is what People 001
-  needs on the iPhone.
+  needs on the iPhone. It is data, not screens: Story.app's general
+  collection view stays in 002 (People 001 brings its own directory screen).
 
 **Done when:**
 - `examples/supplies/data/_store.sqlite3` is edited on two devices; both edits
