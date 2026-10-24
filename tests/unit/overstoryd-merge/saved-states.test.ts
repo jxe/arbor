@@ -1,19 +1,19 @@
 import { expect, test } from "bun:test";
 import { decodeLogEntry, encodeLogEntry, LOG_ENTRY_FORMAT, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
 import { decodeProtocolDirectory, encodeProtocolDirectory } from "@ovst/protocol";
-import { Sidecar, type SavedStates } from "../../../packages/overstoryd-merge/src/sidecar.ts";
+import { Sidecar, type SavedCheckpoint, type SavedStates } from "../../../packages/overstoryd-merge/src/sidecar.ts";
 import { Fixture } from "./fixture.ts";
 
-/** Saved states in memory, as `savedStatesIn` keeps them on disk. */
-function memorySaves(): SavedStates & { files: Map<string, { tree: string; bytes: Uint8Array; savedAt: number }> } {
-  const files = new Map<string, { tree: string; bytes: Uint8Array; savedAt: number }>();
+/** Saved checkpoints in memory, as `savedStatesIn` keeps them on disk. */
+function memorySaves(): SavedStates & { files: Map<string, { checkpoint: SavedCheckpoint; savedAt: number }> } {
+  const files = new Map<string, { checkpoint: SavedCheckpoint; savedAt: number }>();
   let clock = 0;
   return {
     files,
-    list: async () => [...files].map(([entry, f]) => ({ tree: f.tree, entry, savedAt: f.savedAt })),
-    read: async (_tree, entry) => files.get(entry)?.bytes ?? null,
-    write: async (tree, entry, bytes) => { files.set(entry, { tree, bytes, savedAt: ++clock }); },
+    list: async () => [...files].map(([entry, f]) => ({ tree: f.checkpoint.tree, entry, savedAt: f.savedAt })),
     remove: async (_tree, entry) => { files.delete(entry); },
+    readCheckpoint: async (_tree, entry) => files.get(entry)?.checkpoint ?? null,
+    writeCheckpoint: async (checkpoint) => { files.set(checkpoint.entry, { checkpoint, savedAt: ++clock }); },
   };
 }
 
@@ -88,9 +88,9 @@ test("an unreadable or mismatched save is discarded and replayed", async () => {
     change: "next", trace: null, resolves: [] }, rules: { id: "tree-default", revision: 1 } };
   const expected = await sidecar(f).answer(question);
   const [entry, file] = [...saves.files][0]!;
-  const tampered = JSON.parse(new TextDecoder().decode(file.bytes));
-  tampered.states[tampered.state].root = f.tree({ "a.md": "forged" });
-  saves.files.set(entry, { ...file, bytes: new TextEncoder().encode(JSON.stringify(tampered)) });
+  const states = new Map(file.checkpoint.states);
+  states.set(file.checkpoint.state, { ...states.get(file.checkpoint.state)!, object: f.tree({ "a.md": "forged" }) });
+  saves.files.set(entry, { ...file, checkpoint: { ...file.checkpoint, states } });
   const restarted = sidecar(f, saves);
   expect(await restarted.answer(question)).toEqual(expected);
   expect(restarted.restored).toBe(0);
@@ -123,17 +123,21 @@ test("interrupted replay advances across eviction and process replacement", asyn
   expect(completed).toBe(true);
 });
 
-test("native disk checkpoints and legacy fallback produce the same answers", async () => {
+test("disk checkpoints give the same answers, and leftover tree directories go", async () => {
   const { savedStatesIn } = await import("../../../packages/overstoryd-merge/src/saved-states.ts");
   const { mkdtemp, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const path = await mkdtemp(join(tmpdir(), "merge-native-replay-"));
   try {
-    const f = new Fixture(), legacy = memorySaves();
-    const { head } = await history(f, sidecar(f, legacy, true), 40);
-    const disk = savedStatesIn(path);
-    for (const [entry, file] of legacy.files) await disk.write(file.tree, entry, file.bytes);
+    const { mkdir, writeFile, readdir } = await import("node:fs/promises");
+    // A tree directory of whole-JSON saves from before the database.
+    await mkdir(join(path, "tr_old"), { recursive: true });
+    await writeFile(join(path, "tr_old", `${"a".repeat(64)}.json`), "{}");
+    const f = new Fixture(), disk = savedStatesIn(path);
+    const { head } = await history(f, sidecar(f, disk, true), 40);
+    expect(await readdir(path)).not.toContain("tr_old");
+    const first = (await disk.list()).map((value) => value.entry);
     const question = { base: head, head, candidate: { root: withFiles(f, decodeLogEntry(f.objects.get(head)!).root, { "a.md": "next" }),
       change: "next", trace: null, resolves: [] }, rules: { id: "tree-default", revision: 1 } };
     const expected = await sidecar(f).answer(question);
@@ -142,7 +146,7 @@ test("native disk checkpoints and legacy fallback produce the same answers", asy
     const partial = sidecar(f, disk, false, 0, 0);
     await expect(partial.answer(question)).rejects.toThrow("Rebuilding accepted history");
     await partial.save();
-    const native = (await disk.list()).find((value) => value.entry !== [...legacy.files.keys()][0])!;
+    const native = (await disk.list()).find((value) => !first.includes(value.entry))!;
     expect(await disk.readCheckpoint!(native.tree, native.entry)).not.toBeNull();
     expect(await sidecar(f, disk).answer(question)).toEqual(expected);
   } finally { await rm(path, { recursive: true, force: true }); }

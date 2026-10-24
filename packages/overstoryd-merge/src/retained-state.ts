@@ -490,8 +490,8 @@ export function retainState(
 // ---- Saving ---------------------------------------------------------------
 
 /** A recorded state as JSON: its buckets' shape and every value in the key
- * order it was recorded with, so that `decodeRetainedState` rebuilds the same
- * state, iteration order included. */
+ * order it was recorded with. Tests compare states by it, iteration order
+ * included. */
 export function encodeRetainedState(retained: RetainedState): unknown {
   const bucket = (b: Bucket): unknown =>
     "entries" in b ? { entries: b.entries } : { children: b.children.map((child) => (child ? bucket(child) : null)) };
@@ -502,55 +502,8 @@ export function encodeRetainedState(retained: RetainedState): unknown {
   };
 }
 
-/** `encodeRetainedState`'s value back as a recorded state, and its identity
- * as `retainState` computes it. Values are frozen as they come, in the order
- * they were saved in; equal values already interned are shared. */
-export function decodeRetainedState(value: unknown): { id: string; state: RetainedState } {
-  const saved = value as {
-    format: IntentState["format"]; tree: string; root: string; object: string; editable: boolean;
-    decisions: unknown; nodes: unknown; history: Record<HistoryField, unknown>;
-  };
-  if (!isObject(saved) || saved.format !== "arbor-merge-intent-state" || typeof saved.tree !== "string"
-    || typeof saved.root !== "string" || typeof saved.object !== "string" || typeof saved.editable !== "boolean"
-    || !Array.isArray(saved.decisions) || !isObject(saved.history))
-    throw new Error("Invalid saved state");
-  builtBuckets = 0;
-  const bucket = (raw: unknown): Bucket => {
-    const b = raw as { entries?: unknown; children?: unknown };
-    if (Array.isArray(b?.entries))
-      return leaf(b.entries.map((entry: unknown) => {
-        if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== "string") throw new Error("Invalid saved bucket");
-        return [entry[0], thaw(entry[1]).value] as const;
-      }));
-    if (Array.isArray(b?.children) && b.children.length === 16)
-      return branch(b.children.map((child: unknown) => (child === null ? null : bucket(child))));
-    throw new Error("Invalid saved bucket");
-  };
-  const decisions = thaw(saved.decisions), nodes = bucket(saved.nodes);
-  const history = Object.fromEntries(HISTORY.map((field) => [field, bucket(saved.history[field])])) as Record<HistoryField, Bucket>;
-  const id = digest(stableJSONString({
-    format: saved.format, tree: saved.tree, root: saved.root, editable: saved.editable,
-    nodes: nodes.hash, decisions: decisions.hash, history: HISTORY.map((field) => history[field].hash),
-  }));
-  const bytes = decisions.bytes + nodes.size + HISTORY.reduce((n, field) => n + history[field].size, 0) + 256 * builtBuckets;
-  return { id, state: {
-    format: saved.format, tree: saved.tree, root: saved.root, decisions: decisions.value as readonly IntentDecision[],
-    nodes, history, object: saved.object, editable: saved.editable, bytes,
-  } };
-}
-
-/** `freeze` for a saved value: the same facts, but the key order it has. A
- * recorded object is in key order or, when bucketed, in `radix` order;
- * interning shares it only with an object recorded in that same order. */
+/** An interned value, with its facts and the bytes it newly takes. */
 type Thawed = Facts & { value: unknown; bytes: number };
-
-function thaw(value: unknown): Thawed {
-  if (isObject(value) && facts.has(value)) return { value, ...facts.get(value)!, bytes: 0 };
-  if (!isObject(value)) return { value, ...factsOf(value), bytes: factsOf(value).size };
-  if (Array.isArray(value)) return intern(null, value.map(thaw));
-  const record = value as Record<string, unknown>, order = Object.keys(record);
-  return intern(order, order.map((key) => thaw(record[key])));
-}
 
 /** The frozen, interned value of an array (`order` null) or of an object
  * whose keys are `order`, from its members already thawed in that order. */

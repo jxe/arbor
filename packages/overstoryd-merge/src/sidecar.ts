@@ -17,7 +17,7 @@ import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
 import type { Node } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
 import { mergeProtocolTrees, type CollectionFieldConflict } from "@ovst/tree-merge";
-import { decodeRetainedState, encodeRetainedState, lookup, type RetainedState } from "./retained-state.ts";
+import { lookup, type RetainedState } from "./retained-state.ts";
 import { snapshotDecisions } from "./snapshot.ts";
 import { absentClosure, changedEntryPaths, type TreeIO } from "./trees.ts";
 
@@ -45,11 +45,9 @@ export interface SidecarStores {
 /** Saved entry states, one value per entry, grouped by tree. */
 export interface SavedStates {
   list(): Promise<Array<{ tree: string; entry: string; savedAt: number }>>;
-  read(tree: string, entry: string): Promise<Uint8Array | null>;
-  write(tree: string, entry: string, bytes: Uint8Array): Promise<void>;
   remove(tree: string, entry: string): Promise<void>;
-  readCheckpoint?(tree: string, entry: string): Promise<SavedCheckpoint | null>;
-  writeCheckpoint?(checkpoint: SavedCheckpoint): Promise<void>;
+  readCheckpoint(tree: string, entry: string): Promise<SavedCheckpoint | null>;
+  writeCheckpoint(checkpoint: SavedCheckpoint): Promise<void>;
 }
 
 /** Native private checkpoint, with shared retained states and binary objects. */
@@ -68,7 +66,6 @@ export interface SavedCheckpoint {
  * This does not bound replay for bases outside the retained checkpoints. */
 const SAVE_AFTER = 32;
 const SAVES_KEPT = 2;
-const SAVED_FORMAT = "arbor-merge-saved-entry";
 
 /** Change identities a client can see as contributions. overstoryd's own
  * acceptances (tree creation, pairing, boundary rewrites) are not changes an
@@ -386,13 +383,7 @@ export class Sidecar {
       for (const [index, value] of batch.entries()) if (!shared[index]) objects.push(value);
     }
     const checkpoint: SavedCheckpoint = { tree, entry: head, object: cached.object, state: cached.state, decisions: cached.decisions, states, objects };
-    if (saved.writeCheckpoint) await saved.writeCheckpoint(checkpoint);
-    else {
-      const value = { format: SAVED_FORMAT, tree, entry: head, object: cached.object, state: cached.state, decisions: cached.decisions,
-        states: Object.fromEntries([...states].map(([id, state]) => [id, encodeRetainedState(state)])),
-        objects: objects.map(([hash, bytes]) => [hash, Buffer.from(bytes).toString("base64")]) };
-      await saved.write(tree, head, new TextEncoder().encode(JSON.stringify(value)));
-    }
+    await saved.writeCheckpoint(checkpoint);
     const index = await this.savedIndex();
     index.set(head, { tree, savedAt: Date.now() });
     this.unsaved.set(tree, 0);
@@ -425,24 +416,8 @@ export class Sidecar {
     const index = await this.savedIndex(), known = index.get(hash);
     if (!known) return false;
     try {
-      let checkpoint: SavedCheckpoint;
-      const native = await saved.readCheckpoint?.(known.tree, hash);
-      if (native) checkpoint = native;
-      else {
-        const bytes = await saved.read(known.tree, hash);
-        if (!bytes) throw new Error("Saved state is missing");
-        const value = JSON.parse(new TextDecoder().decode(bytes)) as {
-          format: string; tree: string; entry: string; object: string; state: string; decisions: LogDecision[];
-          states: Record<string, unknown>; objects: Array<[string, string]>;
-        };
-        if (value.format !== SAVED_FORMAT) throw new Error("Unsupported saved state format");
-        const states = new Map(Object.entries(value.states).map(([id, encoded]) => {
-          const decoded = decodeRetainedState(encoded);
-          if (decoded.id !== id) throw new Error("Saved state does not match its identity");
-          return [id, decoded.state] as const;
-        }));
-        checkpoint = { ...value, states, objects: value.objects.map(([id, base64]) => [id, new Uint8Array(Buffer.from(base64, "base64"))]) };
-      }
+      const checkpoint = await saved.readCheckpoint(known.tree, hash);
+      if (!checkpoint) throw new Error("Saved state is missing");
       if (checkpoint.entry !== hash || checkpoint.tree !== known.tree || !checkpoint.states.has(checkpoint.state))
         throw new Error("Saved state does not match its entry");
       for (const state of checkpoint.states.values()) if (state.tree !== checkpoint.tree) throw new Error("Saved state belongs to another tree");

@@ -55,10 +55,6 @@ The 2026-10-10 rename left readers accepting six old spellings, among them `arbo
 `;arbor-*` locator parameters, because authored content and shared links still carry
 them. Joe wants that tolerance to be temporary: once the rename has been live a few weeks.
 
-**[Performance 002: retire the earlier merge-cache formats](soon/cleanup-performance-002-retire-old-merge-cache-formats.md).**
-The shared cache is live and the iPhone's stuck request went through it. Look at the
-host's cache directory once, then delete the two older readers.
-
 **[overstoryd 001: pack storage follow-ups](soon/cleanup-overstoryd-001-pack-storage-follow-ups.md).**
 Packing is live since 2026-10-09. Architecture notes, a periodic check of pack files and
 packed bytes in the reports remain; take them when the store is next worked on.
@@ -239,6 +235,6 @@ Latency, transfer size and storage overhead: take a plan when its stated problem
 measure both the benefit and the cost to correctness, recovery and offline use.
 [Performance 004](later/performance-004-provenance-index.md) and
 [Native 006](when-needed/performance-006-sparse-ios-placement.md) are the plans; the shared
-merge cache and object packing are live, with their leftovers in the cleanups above. Client
+merge cache and object packing are live, with packing's leftovers in the cleanups above. Client
 coalescing also reduces wire traffic but stays with merge work. [Performance ideas](ideas.md#speed)
 collects measured leads that are not yet plans.

@@ -43,14 +43,11 @@ allocated size can retain its previous high-water mark. Restore keeps at most
 cache-only objects.
 
 The database filename and manifest format version isolate incompatible codecs.
-A `records-v1.sqlite` from the earlier layout (deployed 2026-10-09: gzip JSON
-packs, text hashes, separately gzipped objects; the same record syntax) is listed
-and read until its checkpoints are removed, and then deleted, so the upgrade
-replays nothing. Legacy
-`<tree>/<entry digest>.json` checkpoints remain readable. A successfully
-published replacement removes its matching legacy duplicate; superseded saves
-are collected through normal retention. If the database cannot open or list,
-the sidecar falls back to legacy checkpoints and replay. A corrupt shared record
+The earlier formats (whole-JSON `<tree>/<entry digest>.json` saves, and the
+`records-v1.sqlite` layout deployed on 2026-10-09) are no longer read; the
+host's cache held neither when they were removed on 2026-10-24, and leftover
+`<tree>/` directories are deleted. If the database cannot open or list, the
+cache is empty and entries are replayed. A corrupt shared record
 or missing dependency invalidates the private graph together, preventing later
 saves from reusing damaged dependencies. Every record and private object is
 hash-checked, every state identity is recomputed, and the restored head's root
@@ -87,12 +84,11 @@ was measured on read-only copies; live host and phone state were not modified.
 The repeatable benchmark is:
 
 ```sh
-bun packages/overstoryd-merge/scripts/benchmark-cache.ts CHECKPOINT.json CHECKPOINT.json
+bun packages/overstoryd-merge/scripts/benchmark-cache.ts CACHE_DIRECTORY
 ```
 
-It writes only a fresh temporary cache, verifies exact serialized state shape
-and key order against each original, and launches fresh processes for cold
-restore measurements. See the implementation evidence in [status](../../../status.md)
+It reads a checkpoint cache without changing it and launches a fresh process
+for each checkpoint's cold restore. See the implementation evidence in [status](../../../status.md)
 for the recorded results. `tests/performance/storage/git-history-fixture.ts --traces`
 and `merge-cache-fixture.ts` make disposable inputs for it from a Git
 repository's history. Timing depends on the machine and filesystem cache;
@@ -100,7 +96,7 @@ local measurements are not a production latency guarantee.
 
 Tests cover identical cold/warm answers with open decisions, wide buckets and
 integer keys in a fresh process, interrupted replay across process replacement,
-old concurrent bases with a protected head, legacy fallback, corrupt/missing
+old concurrent bases with a protected head, corrupt/missing
 records, aborted publication, incremental sharing, collection and a second
 writer's collection. The actual queued iPhone merge question was also replayed
 against copied accepted objects with its original candidate bytes and identity.
