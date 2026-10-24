@@ -3,6 +3,7 @@ import type { Check, CollectionSchema } from "./compile.ts";
 function render(check: Check): string {
   switch (check.kind) {
     case "text":
+    case "person":
     case "date": return "string";
     case "bool": return "boolean";
     case "int":

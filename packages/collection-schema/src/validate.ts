@@ -1,5 +1,6 @@
 import { COLLECTION_SCHEMA_LIMITS, pointer, type CollectionSchemaLimit, type ValueDiagnostic } from "./diagnostics.ts";
 import type { Check, CollectionSchema } from "./compile.ts";
+import { isPersonValue } from "@ovst/usl";
 
 const MAX_DIAGNOSTICS = 32;
 
@@ -65,6 +66,8 @@ function check(node: Check, value: unknown, path: Path, context: Context, collec
     case "text":
       if (typeof value !== "string") return report(sink, "type-mismatch", path, "Expected text");
       return wellFormed(value) || report(sink, "invalid-text", path, "Text contains an unpaired surrogate");
+    case "person":
+      return isPersonValue(value) || report(sink, "type-mismatch", path, "Expected a profile id or contact:<key>");
     case "date":
       if (typeof value !== "string") return report(sink, "type-mismatch", path, "Expected a date");
       return !Number.isNaN(Date.parse(value)) || report(sink, "type-mismatch", path, "Expected an ISO 8601 date");

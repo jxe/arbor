@@ -15,7 +15,7 @@ import {
   type Hash,
   type LogicalRow,
 } from "@ovst/protocol";
-import { compileUsl, logicalModels, modelLayer, type CheckResult, type LogicalField, type LogicalModel, type LogicalTables } from "@ovst/usl";
+import { compileUsl, isPersonValue, logicalModels, modelLayer, type CheckResult, type LogicalField, type LogicalModel, type LogicalTables } from "@ovst/usl";
 import { COLLECTION_SCHEMA_LIMITS, CollectionSchemaError, pointer, type ValueDiagnostic } from "./diagnostics.ts";
 import { decodeSchemaSource } from "./compile.ts";
 
@@ -130,7 +130,7 @@ class Validator {
       }
     }
     if (field.type === "Person") {
-      return (typeof value === "string" && value.length > 0) || this.report("type-mismatch", path, "Expected a profile id");
+      return isPersonValue(value) || this.report("type-mismatch", path, "Expected a profile id or contact:<key>");
     }
     const choices = this.enums.get(field.type);
     if (choices) {

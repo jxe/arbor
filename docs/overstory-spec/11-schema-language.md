@@ -124,7 +124,13 @@ model is a cross-reference to a connection ([§5](#5-connections)); it must
 agree with the connection in target and arity.
 
 `Person` is a built-in model: Story accounts, referenced by profile id. It has
-no rows in any collection.
+no rows in any collection. A `Person` value is a profile id, or a
+*placeholder* `contact:<key>` for someone with no profile yet, where `<key>`
+(1 to 128 of `A`–`Z`, `a`–`z`, `0`–`9`, `_` and `-`) names a row of the
+viewer's directory People collection. Any other text beginning `contact:` is
+invalid. A reader shows a placeholder by the name its directory has for that
+row, or by its key when it can't resolve it, and never drops it. When the
+person gets a profile, their placeholders are rewritten to the profile id.
 
 Every row has the implicit fields `id`, `created` and `modified`, which a
 model can't declare. `created` and `modified` are date-times that only
@@ -249,7 +255,8 @@ form ([child backings §2.2](06-child-backings.md#22-rows-and-values)), so the
 two layouts below hold the same rows and changing one never changes data.
 
 - A model with data rows is a table named after the model, or `@table`.
-  `Person` and enums have none: a reference to a person is a profile id, and a
+  `Person` and enums have none: a reference to a person is a profile id (or a
+  `contact:` placeholder), and a
   reference to an enum is the value's name (or its `@stored` text).
 - A table's primary key is its model's key. A key field that refers to another
   model expands to that model's key columns: one column named after the field

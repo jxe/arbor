@@ -5,6 +5,8 @@ import { COLLECTION_SCHEMA_LIMITS, CollectionSchemaError, schemaFailure } from "
 /** Runtime check graph, built from the schema's files layout. */
 export type Check =
   | { kind: "text" }
+  /** A `Person` value: a profile id, or a `contact:<key>` placeholder. */
+  | { kind: "person" }
   | { kind: "date" }
   | { kind: "bool" }
   | { kind: "int" }
@@ -88,6 +90,7 @@ function columnCheck(column: Column, item = false): Check {
   }
   if (item && column.references) return columnCheck({ ...column.references.columns[0]!, array: false, nullable: false });
   if (column.allowed) return { kind: "choice", values: new Set(column.allowed) };
+  if (column.profile) return { kind: "person" };
   return CHECKS[column.type];
 }
 

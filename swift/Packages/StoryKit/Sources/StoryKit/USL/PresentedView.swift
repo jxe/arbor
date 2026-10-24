@@ -18,10 +18,20 @@ public struct PresentedChip: Sendable, Equatable {
     public var member: JSONValue
     public var name: String
     public var color: String?
+    /// A `Person` placeholder (`contact:<key>`): someone with no profile yet.
+    public var placeholder = false
+
+    public init(member: JSONValue, name: String, color: String? = nil, placeholder: Bool = false) {
+        self.member = member
+        self.name = name
+        self.color = color
+        self.placeholder = placeholder
+    }
 
     var json: JSONValue {
         var object: [String: JSONValue] = ["member": member, "name": .string(name)]
         if let color { object["color"] = .string(color) }
+        if placeholder { object["placeholder"] = .bool(true) }
         return .object(object)
     }
 }
@@ -48,6 +58,13 @@ public enum PresentedCell: Sendable, Equatable {
             if let color { object["color"] = .string(color) }
             if bullet { object["bullet"] = .bool(true) }
             return .object(object)
+        }
+    }
+
+    /// The field the cell shows.
+    public var field: String {
+        switch self {
+        case .text(let field, _, _), .markdown(let field, _, _), .chips(let field, _, _, _), .choice(let field, _, _, _): field
         }
     }
 
@@ -90,6 +107,8 @@ public struct PresentedGroup: Sendable, Equatable {
     public var heading: String
     public var member: JSONValue?
     public var color: String?
+    /// A `Person` group whose member is a placeholder.
+    public var placeholder = false
     /// A connection group whose member is a row: that row's table and key.
     public var table: String?
     public var row: String?
@@ -108,6 +127,7 @@ public struct PresentedGroup: Sendable, Equatable {
         ]
         if let member { object["member"] = member }
         if let color { object["color"] = .string(color) }
+        if placeholder { object["placeholder"] = .bool(true) }
         if let table { object["table"] = .string(table) }
         if let row { object["row"] = .string(row) }
         if let headingField { object["headingField"] = .string(headingField) }
@@ -540,7 +560,9 @@ final class USLRowCollection {
     /// A member's chip: its display name and color.
     func chip(_ target: String, _ member: JSONValue) -> PresentedChip {
         if target == "Person" {
-            return PresentedChip(member: member, name: people.first { JSONValue.string($0.id) == member }?.name ?? scalarText(member))
+            let key = uslPersonPlaceholderKey(member)
+            let name = people.first { JSONValue.string($0.id) == member }?.name ?? key ?? scalarText(member)
+            return PresentedChip(member: member, name: name, placeholder: key != nil)
         }
         if uslValueTypeSet.contains(target) { return PresentedChip(member: member, name: scalarText(member)) }
         let model = models[target]
@@ -597,6 +619,7 @@ struct ArrangedGroup {
     var heading: String
     var member: JSONValue?
     var color: String?
+    var placeholder = false
     var table: USLTable?
     var row: String?
     var ordered: Bool
@@ -674,7 +697,7 @@ func arrangeView(_ collection: USLRowCollection, _ options: PresentOptions) thro
         }
         let groupRow = targetTable.flatMap { _ in collection.rowByMember(target, c.member) }
         return ArrangedGroup(
-            id: c.member.jsonText, kind: kind, heading: c.name, member: c.member, color: c.color,
+            id: c.member.jsonText, kind: kind, heading: c.name, member: c.member, color: c.color, placeholder: c.placeholder,
             table: groupRow == nil ? nil : targetTable, row: groupRow.flatMap { uslRowKey(targetTable!, $0) },
             ordered: ordered, remove: remove, rows: rows
         )
@@ -785,7 +808,7 @@ public func presentView(_ schema: USLCheckResult, rows: USLRowsByTable, options:
         let hasRow = group.table != nil && group.row != nil
         presented.append(PresentedGroup(
             id: group.id, kind: group.kind, heading: group.heading, member: group.member, color: group.color,
-            table: hasRow ? collection.opName(group.table!) : nil, row: hasRow ? group.row : nil,
+            placeholder: group.placeholder, table: hasRow ? collection.opName(group.table!) : nil, row: hasRow ? group.row : nil,
             headingField: hasRow ? nameField : nil, ordered: group.ordered, remove: group.remove, lines: lines
         ))
         for line in lines {

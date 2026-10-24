@@ -2,6 +2,7 @@
 // reads or writes a row, whatever the store.
 
 import type { Column, Table } from "./layout.ts";
+import { isPersonValue } from "./relationships.ts";
 
 export interface RowDiagnostic {
   code: "bad-value" | "missing-value" | "extra-column";
@@ -22,6 +23,7 @@ export function fitsColumn(value: unknown, column: Column, item = false): boolea
   }
   switch (column.type) {
     case "text":
+      if (column.profile) return isPersonValue(value);
       return typeof value === "string" && (!column.allowed || column.allowed.includes(value));
     case "int":
       return typeof value === "number" && Number.isSafeInteger(value);
@@ -55,6 +57,8 @@ export function fromCell(cell: string, column: Column): unknown {
 export const describeColumn = (column: Column) =>
   column.references
     ? `a list of ${column.references.table} keys`
+    : column.profile
+    ? `${column.array ? "a list of " : ""}a profile id or contact:<key>`
     : column.allowed
     ? `one of ${column.allowed.map((a) => JSON.stringify(a)).join(", ")}`
     : `${column.type === "position" ? "number" : column.type}${column.array ? "[]" : ""}`;

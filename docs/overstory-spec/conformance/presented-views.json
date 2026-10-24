@@ -1,5 +1,5 @@
 {
-  "description": "Presented views (plan schema-language/002 milestone 3): a collection's rows as one of its views presents them, and what a person does to that view as row operations (spec 10 section 4.1). `fixtures` hold a schema.usl, data-file rows by table and people (profile ids and display names, in order). A presentation case may name the model (by default the one with ~views, else the first with rows), and names a view by index into the model's views (its ~views, or the default arrangement) and an optional search query. An intent case gives the row operations, without `key` and `collection`, and the rows after applying them; `error: true` means the intent is refused. Row and group ids are as the presentation gives them.",
+  "description": "Presented views (plan schema-language/002 milestone 3): a collection's rows as one of its views presents them, and what a person does to that view as row operations (spec 10 section 4.1). `fixtures` hold a schema.usl, data-file rows by table and people (profile ids and display names, in order). A person may be a placeholder, `contact:<key>`, naming a row of the viewer’s directory (People 001): its chip and group carry `placeholder: true` and show the directory’s name for it when `people` lists it, else the key. A presentation case may name the model (by default the one with ~views, else the first with rows), and names a view by index into the model's views (its ~views, or the default arrangement) and an optional search query. An intent case gives the row operations, without `key` and `collection`, and the rows after applying them; `error: true` means the intent is refused. Row and group ids are as the presentation gives them.",
   "fixtures": {
     "games": {
       "schema": "// ~/src/supplies-remake: games, their authors, and lists of games, in\n// layered USL (plan 003). Authors are Story accounts, so there is no Person\n// model to declare. Who may edit a game is access policy now\n// (`who: {property: authors}` in access.yaml), not schema.\n\nmain model Game {\n  name        Text\n  status      Status    // stored as \"Draft\"\n  description Markdown?\n  tags        Text[]    // values, stored on the row\n  authors     Person[]  // cross-reference: declared below\n  lists       List[]    // cross-reference: declared below\n}\n\nmodel List {\n  name  Text\n  games Game[]  // cross-reference\n}\n\n// @fold: in data files, these are arrays on Game and List rows rather than\n// files of their own. A storage default; a placement may choose otherwise.\nGame.authors[] @fold <-> Person.games[]\nordered List.games[] @fold <-> Game.lists[]\nGame.status <-> Status.games[]\n\nenum Status { Draft, Playtested, Polished }\n\nre Game {\n  ~views([\n    { label: \"By game\", line: [status ~bullet, name, authors, description], sort: modified },\n    { label: \"By author\", group: authors },\n    { label: \"By list\", group: lists, sort: modified },\n  ])\n}\n\nre Status {\n  Draft      ~color(\"#9aa0aa\")\n  Playtested ~color(\"#bd861a\")\n  Polished   ~color(\"#27815a\")\n}\n",
@@ -64,6 +64,43 @@
             "modified": "2026-10-05T09:00:00Z"
           }
         ]
+      }
+    },
+    "placeholders": {
+      "schema": "// ~/src/supplies-remake: games, their authors, and lists of games, in\n// layered USL (plan 003). Authors are Story accounts, so there is no Person\n// model to declare. Who may edit a game is access policy now\n// (`who: {property: authors}` in access.yaml), not schema.\n\nmain model Game {\n  name        Text\n  status      Status    // stored as \"Draft\"\n  description Markdown?\n  tags        Text[]    // values, stored on the row\n  authors     Person[]  // cross-reference: declared below\n  lists       List[]    // cross-reference: declared below\n}\n\nmodel List {\n  name  Text\n  games Game[]  // cross-reference\n}\n\n// @fold: in data files, these are arrays on Game and List rows rather than\n// files of their own. A storage default; a placement may choose otherwise.\nGame.authors[] @fold <-> Person.games[]\nordered List.games[] @fold <-> Game.lists[]\nGame.status <-> Status.games[]\n\nenum Status { Draft, Playtested, Polished }\n\nre Game {\n  ~views([\n    { label: \"By game\", line: [status ~bullet, name, authors, description], sort: modified },\n    { label: \"By author\", group: authors },\n    { label: \"By list\", group: lists, sort: modified },\n  ])\n}\n\nre Status {\n  Draft      ~color(\"#9aa0aa\")\n  Playtested ~color(\"#bd861a\")\n  Polished   ~color(\"#27815a\")\n}\n",
+      "people": [
+        {
+          "id": "p-ada",
+          "name": "Ada"
+        },
+        {
+          "id": "contact:bo",
+          "name": "Bo Lin"
+        }
+      ],
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "authors": [
+              "p-ada",
+              "contact:bo"
+            ],
+            "status": "Polished",
+            "modified": "2026-10-01T09:00:00Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "contact:anne-lorraine"
+            ],
+            "status": "Draft",
+            "modified": "2026-10-03T09:00:00Z"
+          }
+        ],
+        "List": []
       }
     },
     "excellences": {
@@ -1197,6 +1234,380 @@
             "delete": true,
             "groups": [
               "\"l1\""
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "placeholders: a placeholder chip shows the directory’s name, else its key",
+      "fixture": "placeholders",
+      "view": 0,
+      "expected": {
+        "model": "Game",
+        "table": "Game",
+        "tabs": [
+          {
+            "label": "By game"
+          },
+          {
+            "label": "By author"
+          },
+          {
+            "label": "By list"
+          }
+        ],
+        "tab": 0,
+        "groups": [
+          {
+            "id": "",
+            "kind": "flat",
+            "heading": "",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g2\"]]",
+                "occurrence": "[\"By game\",\"\",\"[[\\\"id\\\",\\\"g2\\\"]]\"]",
+                "color": "#9aa0aa",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Draft",
+                    "color": "#9aa0aa",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Hanabi"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "contact:anne-lorraine",
+                        "name": "anne-lorraine",
+                        "placeholder": true
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": null,
+                    "paragraph": ""
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"g1\"]]",
+                "occurrence": "[\"By game\",\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "color": "#27815a",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Polished",
+                    "color": "#27815a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Wingspan"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      },
+                      {
+                        "member": "contact:bo",
+                        "name": "Bo Lin",
+                        "placeholder": true
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": null,
+                    "paragraph": ""
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "status": [
+            {
+              "member": "Draft",
+              "name": "Draft",
+              "color": "#9aa0aa"
+            },
+            {
+              "member": "Playtested",
+              "name": "Playtested",
+              "color": "#bd861a"
+            },
+            {
+              "member": "Polished",
+              "name": "Polished",
+              "color": "#27815a"
+            }
+          ],
+          "authors": [
+            {
+              "member": "p-ada",
+              "name": "Ada"
+            },
+            {
+              "member": "contact:bo",
+              "name": "Bo Lin",
+              "placeholder": true
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"g2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          },
+          "[[\"id\",\"g1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          }
+        }
+      }
+    },
+    {
+      "name": "placeholders: a placeholder author is a group of its own",
+      "fixture": "placeholders",
+      "view": 1,
+      "expected": {
+        "model": "Game",
+        "table": "Game",
+        "tabs": [
+          {
+            "label": "By game"
+          },
+          {
+            "label": "By author"
+          },
+          {
+            "label": "By list"
+          }
+        ],
+        "tab": 1,
+        "group": "authors",
+        "groups": [
+          {
+            "id": "\"p-ada\"",
+            "kind": "connection",
+            "heading": "Ada",
+            "member": "p-ada",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g1\"]]",
+                "occurrence": "[\"By author\",\"\\\"p-ada\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "color": "#27815a",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Polished",
+                    "color": "#27815a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Wingspan"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      },
+                      {
+                        "member": "contact:bo",
+                        "name": "Bo Lin",
+                        "placeholder": true
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": null,
+                    "paragraph": ""
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"contact:bo\"",
+            "kind": "connection",
+            "heading": "Bo Lin",
+            "member": "contact:bo",
+            "placeholder": true,
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g1\"]]",
+                "occurrence": "[\"By author\",\"\\\"contact:bo\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "color": "#27815a",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Polished",
+                    "color": "#27815a",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Wingspan"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "p-ada",
+                        "name": "Ada"
+                      },
+                      {
+                        "member": "contact:bo",
+                        "name": "Bo Lin",
+                        "placeholder": true
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": null,
+                    "paragraph": ""
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"contact:anne-lorraine\"",
+            "kind": "connection",
+            "heading": "anne-lorraine",
+            "member": "contact:anne-lorraine",
+            "placeholder": true,
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g2\"]]",
+                "occurrence": "[\"By author\",\"\\\"contact:anne-lorraine\\\"\",\"[[\\\"id\\\",\\\"g2\\\"]]\"]",
+                "color": "#9aa0aa",
+                "cells": [
+                  {
+                    "kind": "choice",
+                    "field": "status",
+                    "value": "Draft",
+                    "color": "#9aa0aa",
+                    "bullet": true
+                  },
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Hanabi"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "authors",
+                    "chips": [
+                      {
+                        "member": "contact:anne-lorraine",
+                        "name": "anne-lorraine",
+                        "placeholder": true
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "markdown",
+                    "field": "description",
+                    "value": null,
+                    "paragraph": ""
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "status": [
+            {
+              "member": "Draft",
+              "name": "Draft",
+              "color": "#9aa0aa"
+            },
+            {
+              "member": "Playtested",
+              "name": "Playtested",
+              "color": "#bd861a"
+            },
+            {
+              "member": "Polished",
+              "name": "Polished",
+              "color": "#27815a"
+            }
+          ],
+          "authors": [
+            {
+              "member": "p-ada",
+              "name": "Ada"
+            },
+            {
+              "member": "contact:bo",
+              "name": "Bo Lin",
+              "placeholder": true
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"g1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"p-ada\"",
+              "\"contact:bo\""
+            ]
+          },
+          "[[\"id\",\"g2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"contact:anne-lorraine\""
             ]
           }
         }
@@ -6854,6 +7265,75 @@
             "modified": "2026-10-05T09:00:00.000Z"
           }
         ]
+      }
+    },
+    {
+      "fixture": "placeholders",
+      "tables": {
+        "Game": [
+          {
+            "key": [
+              [
+                "id",
+                "g1"
+              ]
+            ],
+            "fields": {
+              "name": "Wingspan",
+              "status": "Polished",
+              "authors": [
+                "contact:bo",
+                "p-ada"
+              ]
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-10-01T09:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "g2"
+              ]
+            ],
+            "fields": {
+              "name": "Hanabi",
+              "status": "Draft",
+              "authors": [
+                "contact:anne-lorraine"
+              ]
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-10-03T09:00:00.000Z"
+          }
+        ],
+        "List": []
+      },
+      "rows": {
+        "Game": [
+          {
+            "id": "g1",
+            "name": "Wingspan",
+            "authors": [
+              "contact:bo",
+              "p-ada"
+            ],
+            "status": "Polished",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-10-01T09:00:00.000Z"
+          },
+          {
+            "id": "g2",
+            "name": "Hanabi",
+            "authors": [
+              "contact:anne-lorraine"
+            ],
+            "status": "Draft",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-10-03T09:00:00.000Z"
+          }
+        ],
+        "List": []
       }
     },
     {

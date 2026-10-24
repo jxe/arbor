@@ -61,7 +61,9 @@ Written against `a664714`.
 **The directory is a private tree of collections you own.** It holds two collections:
 
 - **People**: one row per profile you know (people and groups), plus *placeholder* rows for
-  people with no tree ID yet (a name, and an email or phone). Each row carries your notes, its
+  people with no tree ID yet (a name, and an email or phone). A row's key is what a
+  `contact:<key>` `Person` value names ([spec 11 §3](../../docs/overstory-spec/11-schema-language.md#3-models-and-fields)): any collection can list a placeholder as
+  an author or owner before they join, and Story shows it by this row's `name`. Each row carries your notes, its
   *sightings* (how you met: invited you, you invited them, shares with you, in a group together,
   opened their profile), and the last card seen (name, avatar, handle, host).
 - **Trees**: one row per tree you placed, opened, or were shared, or one linked from a page
@@ -73,7 +75,7 @@ A sketch, written before the 2026-10-24 syntax (rewrite it in the layered form i
 field names are placeholders:
 
 ```
-model Contact {
+model Contact {            // keyed by the key `contact:<key>` values name
   profile   Person?        // absent while a placeholder
   name      Text
   reach     Text?          // email or phone, placeholders only
@@ -122,8 +124,15 @@ collapsed sections and are not copied.
   and the current `Directory.json` rows once, then remove `Visits.json`.
 - Story shows the directory with 006's collection view, grouped by group; a contact's row
   lists their trees. Editing in it is what 007 offers; the rest is phase 2.
+- **Placeholders by name.** The People rows without a profile feed `PresentOptions.people`
+  as `contact:<key>` ids, so every collection's placeholder chips and groups (already drawn as
+  not-yet-a-person, showing the key) show the contact's `name`. When a contact gets a profile
+  (an invite claimed, a profile linked by hand), rewrite that contact's `contact:<key>` values
+  to the profile id in the collections Story can write, as row operations, the same way group
+  membership follows them.
 - **Proof:** a person met only through an invite is still in the directory after their host
-  stops listing them; a tree visited on the iPhone shows in the directory on the Mac.
+  stops listing them; a tree visited on the iPhone shows in the directory on the Mac; a games
+  author entered as a placeholder shows by name, and by their profile once they join.
 
 ## Phase 2: People as a database view (after 002 milestones 3, 4 and 7)
 

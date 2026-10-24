@@ -686,7 +686,7 @@
       ]
     },
     {
-      "name": "people are profile ids, and a folded many-to-many is an array",
+      "name": "people are profile ids or contact: placeholders, and a folded many-to-many is an array",
       "source": "model Game {\n  name    Text\n  owner   Person\n  authors Person[]\n}\n\n{ Game.owner, Person.owned[] }\nGame.authors[] @fold <-> Person.games[]\n",
       "accept": {
         "columns": [
@@ -735,6 +735,43 @@
             {
               "code": "missing-member",
               "path": "/owner"
+            }
+          ]
+        },
+        {
+          "value": {
+            "id": "g1",
+            "name": "G",
+            "owner": "contact:anne-lorraine",
+            "authors": [
+              "p1",
+              "contact:Bo_2"
+            ]
+          },
+          "diagnostics": []
+        },
+        {
+          "value": {
+            "id": "g1",
+            "name": "G",
+            "owner": "contact:",
+            "authors": [
+              "contact:two words",
+              ""
+            ]
+          },
+          "diagnostics": [
+            {
+              "code": "type-mismatch",
+              "path": "/owner"
+            },
+            {
+              "code": "type-mismatch",
+              "path": "/authors/0"
+            },
+            {
+              "code": "type-mismatch",
+              "path": "/authors/1"
             }
           ]
         }

@@ -333,6 +333,27 @@ public struct USLRowDiagnostic: Sendable, Equatable {
     public var message: String
 }
 
+/// A `Person` value is a profile id, or `contact:<key>`: a placeholder naming a
+/// row of the viewer's directory People collection (People 001), for someone
+/// with no profile yet. A reader that can't resolve a placeholder shows its key.
+public let uslPersonPlaceholderPrefix = "contact:"
+
+/// The directory key a placeholder names, or nil when `value` isn't a placeholder.
+public func uslPersonPlaceholderKey(_ value: JSONValue) -> String? {
+    guard case .string(let s) = value, s.hasPrefix(uslPersonPlaceholderPrefix) else { return nil }
+    let key = s.dropFirst(uslPersonPlaceholderPrefix.count)
+    guard (1...128).contains(key.utf8.count),
+          key.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x41...0x5a).contains($0) || (0x61...0x7a).contains($0) || $0 == 0x5f || $0 == 0x2d })
+    else { return nil }
+    return String(key)
+}
+
+/// Whether `value` can be stored as a `Person`: a non-empty profile id, or a well-formed placeholder.
+public func uslIsPersonValue(_ value: String) -> Bool {
+    if value.isEmpty { return false }
+    return !value.hasPrefix(uslPersonPlaceholderPrefix) || uslPersonPlaceholderKey(.string(value)) != nil
+}
+
 /// Whether `value` is a valid value for `column`. Null is never valid here; callers decide whether a column may be empty.
 public func uslFitsColumn(_ value: JSONValue, _ column: USLColumn, item: Bool = false) -> Bool {
     if column.array && !item {
@@ -356,6 +377,7 @@ public func uslFitsColumn(_ value: JSONValue, _ column: USLColumn, item: Bool = 
     switch column.type {
     case .text:
         guard case .string(let s) = value else { return false }
+        if column.profile { return uslIsPersonValue(s) }
         return column.allowed.map { $0.contains(s) } ?? true
     case .int:
         guard case .number(let n) = value else { return false }
@@ -374,6 +396,7 @@ public func uslFitsColumn(_ value: JSONValue, _ column: USLColumn, item: Bool = 
 
 func describeColumn(_ column: USLColumn) -> String {
     if let references = column.references { return "a list of \(references.table) keys" }
+    if column.profile { return "\(column.array ? "a list of " : "")a profile id or contact:<key>" }
     if let allowed = column.allowed { return "one of \(allowed.map(jsonString).joined(separator: ", "))" }
     return "\(column.type == .position ? "number" : column.type.rawValue)\(column.array ? "[]" : "")"
 }

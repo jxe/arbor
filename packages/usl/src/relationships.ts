@@ -8,6 +8,28 @@ import type { Table } from "./layout.ts";
 
 export const PERSON_RELATION = "Person";
 
+/**
+ * A `Person` value is a profile id, or `contact:<key>`: a placeholder naming a
+ * row of the viewer's directory People collection (People 001), for someone
+ * with no profile yet. When they get one, their placeholders are rewritten to
+ * it. A reader that can't resolve a placeholder shows its key.
+ */
+export const PERSON_PLACEHOLDER_PREFIX = "contact:";
+const PLACEHOLDER_KEY = /^[A-Za-z0-9_-]{1,128}$/;
+
+/** The directory key a placeholder names, or undefined when `value` isn't a placeholder. */
+export function personPlaceholderKey(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.startsWith(PERSON_PLACEHOLDER_PREFIX)) return undefined;
+  const key = value.slice(PERSON_PLACEHOLDER_PREFIX.length);
+  return PLACEHOLDER_KEY.test(key) ? key : undefined;
+}
+
+/** Whether `value` can be stored as a `Person`: a non-empty profile id, or a well-formed placeholder. */
+export function isPersonValue(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0) return false;
+  return !value.startsWith(PERSON_PLACEHOLDER_PREFIX) || personPlaceholderKey(value) !== undefined;
+}
+
 export interface Relationship {
   /** The table the relationship starts from. */
   source: string;

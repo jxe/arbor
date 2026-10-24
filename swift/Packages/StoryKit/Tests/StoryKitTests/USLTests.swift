@@ -74,6 +74,39 @@ struct USLTests {
         }
     }
 
+    @Test("Person columns take profile ids and contact: placeholders, as the shared vectors' values say")
+    func personValueVectors() throws {
+        let data = try Data(contentsOf: conformance.appending(path: "collection-schemas.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let schemas = try #require(fixture["schemas"] as? [[String: Any]])
+        var checked = 0
+        for schema in schemas {
+            let result = compileUSL(try #require(schema["source"] as? String))
+            guard schema["accept"] != nil, let table = try uslLayout(result, store: .files).first else { continue }
+            let people = table.columns.filter(\.profile)
+            guard !people.isEmpty else { continue }
+            for item in schema["values"] as? [[String: Any]] ?? [] {
+                let value = try #require(item["value"] as? [String: Any])
+                let paths = (item["diagnostics"] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String }
+                for column in people {
+                    guard let stored = value[column.name] else { continue }
+                    let items: [Any] = column.array ? try #require(stored as? [Any]) : [stored]
+                    for (index, element) in items.enumerated() {
+                        let path = column.array ? "/\(column.name)/\(index)" : "/\(column.name)"
+                        var one = column
+                        one.array = false
+                        let fits = (element as? String).map { uslFitsColumn(.string($0), one) } ?? false
+                        #expect(fits == !paths.contains(path), "\(path) of \(value)")
+                        checked += 1
+                    }
+                }
+            }
+        }
+        #expect(checked >= 8)
+        #expect(uslPersonPlaceholderKey(.string("contact:Bo_2")) == "Bo_2")
+        #expect(uslPersonPlaceholderKey(.string("tr_abc")) == nil)
+    }
+
     @Test("Resolution: a connection model is keyed by its ends; 1:n is a column, n:m a join table")
     func resolution() throws {
         let rating = compileUSL("model Game { name Text }\nmodel Rating { Person.ratings[], Game.ratings[], stars Number }\n")

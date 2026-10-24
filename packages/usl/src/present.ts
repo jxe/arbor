@@ -30,6 +30,7 @@
 import type { CheckResult, LineItem, ResolvedField, ResolvedModel, ResolvedView } from "./check.ts";
 import { layoutOf, type Column, type JoinEnd, type Table } from "./layout.ts";
 import type { RowsByTable } from "./records.ts";
+import { personPlaceholderKey } from "./relationships.ts";
 import { fitsColumn, validateRow } from "./rows.ts";
 
 export type Scalar = string | number | boolean;
@@ -45,6 +46,8 @@ export interface Chip {
   member: Scalar;
   name: string;
   color?: string;
+  /** A `Person` placeholder (`contact:<key>`): someone with no profile yet. */
+  placeholder?: true;
 }
 
 export type Cell =
@@ -72,6 +75,8 @@ export interface PresentedGroup {
   heading: string;
   member?: Scalar;
   color?: string;
+  /** A `Person` group whose member is a placeholder. */
+  placeholder?: true;
   /** A connection group whose member is a row: that row's table and key. */
   table?: string;
   row?: string;
@@ -442,7 +447,11 @@ class Collection {
 
   /** A member's chip: its display name and color. */
   chip(target: string, member: Scalar): Chip {
-    if (target === "Person") return { member, name: this.people.find((p) => p.id === member)?.name ?? scalarText(member) };
+    if (target === "Person") {
+      const placeholder = personPlaceholderKey(member);
+      const name = this.people.find((p) => p.id === member)?.name ?? placeholder ?? scalarText(member);
+      return { member, name, ...(placeholder !== undefined ? { placeholder: true } : {}) };
+    }
     if (VALUE_TYPES.has(target)) return { member, name: scalarText(member) };
     const model = this.models.get(target);
     if (model?.rows === "fixed") {
@@ -504,6 +513,7 @@ interface Arranged {
   heading: string;
   member?: Scalar;
   color?: string;
+  placeholder?: true;
   table?: Table;
   row?: string;
   ordered: boolean;
@@ -586,6 +596,7 @@ function arrange(collection: Collection, options: PresentOptions): Arrangement {
       heading: c.name,
       member: c.member,
       ...(c.color ? { color: c.color } : {}),
+      ...(c.placeholder ? { placeholder: true } : {}),
       ...(targetTable && groupRow ? { table: targetTable, row: rowKey(targetTable, groupRow)! } : {}),
       ordered,
       remove,
@@ -713,6 +724,7 @@ export function presentView(schema: CheckResult, rows: RowsByTable, options: Pre
       heading: group.heading,
       ...(group.member !== undefined ? { member: group.member } : {}),
       ...(group.color ? { color: group.color } : {}),
+      ...(group.placeholder ? { placeholder: true } : {}),
       ...(group.table && group.row ? { table: collection.opName(group.table), row: group.row } : {}),
       ...(group.table && group.row && nameField ? { headingField: nameField } : {}),
       ordered: group.ordered,

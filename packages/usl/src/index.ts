@@ -31,7 +31,7 @@ export {
 export { setupSql, columnType, SQL_TYPES, type Dialect, type SetupOptions } from "./sql.ts";
 export { validateRow, fitsColumn, fromCell, type RowDiagnostic } from "./rows.ts";
 export { typeDeclarations } from "./types.ts";
-export { relationshipsOf, PERSON_RELATION, type Relationship } from "./relationships.ts";
+export { relationshipsOf, isPersonValue, personPlaceholderKey, PERSON_PLACEHOLDER_PREFIX, PERSON_RELATION, type Relationship } from "./relationships.ts";
 export {
   checkUsl,
   BUILTIN_MODELS,
