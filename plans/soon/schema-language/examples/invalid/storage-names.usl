@@ -13,9 +13,10 @@ Series.episodes[] @column("episode_ids") <-> Episode.series
 // An unfolded n:m is its own table; its columns aren't either end's.
 Episode.guests[] @column("guest_ids") <-> Person.episodes[]
 model Show { name Text @column(name) }
-model Status {
-  @@fixed { Draft }
-  @@table("statuses")
+enum Status {
+  Draft
+
+  @table("statuses")
 }
 // Only an n:m folds, and only one end of it.
 Episode.season @fold <-> Season.episodes[]

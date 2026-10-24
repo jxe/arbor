@@ -8,7 +8,7 @@ layer should be able to live in another file. That's needed for
 [004](004-logical-collections.md)'s logical collections, whose storage is a
 property of a placement, not of the schema. It is built as
 [005](005-collections-that-sync.md)'s milestone 2. The examples rewritten in this
-form are in [examples/layered](examples/layered).
+form are in [examples](examples).
 
 ## Status
 
@@ -138,10 +138,15 @@ form are in [examples/layered](examples/layered).
 5. **Editors:** the tree-sitter grammar, the highlight queries (one color
    each for keywords, `@` and `~`) and the VS Code TextMate grammar in
    `packages/usl/editors`.
-6. **Move the examples:** `examples/layered/*.usl` replace
-   `examples/*.usl`, the invalid examples gain the new diagnostics, and
+6. **Move the examples:** the layered examples replace `examples/*.usl`,
+   the invalid examples gain the new diagnostics, and
    `examples/supplies/data/schema.usl` is rewritten. supplies-remake and
    excellences follow when they move to `@ovst/usl` 0.3.
+
+Steps 1 to 3, 5 and 6 are on main (2026-10-24). `presentView` has no TS
+counterpart yet: the checker resolves `~views` into each model's `views`,
+which is what it will read. The fingerprint is `modelLayer`, hashed by its
+caller (005 milestone 3).
 7. **Placement storage mappings** in Story Sync: per-collection formats in
    `placements.yaml`, mapping files under `~/.story/`, and writing a mapping
    when it adopts an existing database. This step belongs with

@@ -61,7 +61,7 @@ beforeAll(async () => {
   await writeFile(join(expanded, "c.md"), "---\nid: c\ntitle: Other\n---\n");
   const expandedKeys = join(root, "keys");
   await mkdir(expandedKeys);
-  await writeFile(join(expandedKeys, "schema.usl"), 'model Item {\n  rank Number\n  title Text\n  @@id(rank, id)\n}\n');
+  await writeFile(join(expandedKeys, "schema.usl"), 'model Item (rank, id) {\n  rank Number\n  title Text\n}\n');
   await writeFile(join(expandedKeys, "one.md"), "---\nrank: 2\nid: é\ntitle: Accent\n---\n");
   await writeFile(join(expandedKeys, "two.md"), "---\nrank: 10\nid: a\ntitle: Ten\n---\n");
   await writeFile(join(expandedKeys, "three.md"), "---\nrank: 2\nid: 😀\ntitle: Emoji\n---\n");
@@ -73,7 +73,7 @@ beforeAll(async () => {
 
   const databaseDirectory = join(root, "sqlite");
   await mkdir(databaseDirectory);
-  const schema = "model records {\n  title Text\n}\n\nmodel keys {\n  rank Int\n  title Text\n  @@id(rank, id)\n}\n";
+  const schema = "model records {\n  title Text\n}\n\nmodel keys (rank, id) {\n  rank Int\n  title Text\n}\n";
   await writeFile(join(databaseDirectory, "schema.usl"), schema);
   const database = new Database(join(databaseDirectory, "_store.sqlite3"));
   database.exec(setupSql(layoutOf(compileUsl(schema), { store: "database" }), "sqlite"));

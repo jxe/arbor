@@ -12,6 +12,21 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Schema language layers — 2026-10-24
+
+Implemented, not published: `@ovst/usl` 0.3.0 reads the layered syntax of spec
+11 (plan schema-language 005 milestone 2). The model layer is keywords (`main`,
+`enum`, `re`, `seed`, `ordered`, `unique`, `path`, `as`, header keys), `@`
+marks storage and `~` presentation, and the old `@@` spellings are syntax
+errors. `usl fmt` applies the conventions, `modelLayer` gives the model layer
+the fingerprint hashes, and the tree-sitter, Zed and VS Code grammars follow.
+Every `.usl` and inline schema in the repo is rewritten; cranberries,
+excellences and supplies-remake are not yet. The StoryKit port is on branch
+`claude/project-thread-6kt6l8`, untested.
+
+Validation: typecheck and the full suite pass on Bun 1.4.2 (1,853 tests before
+the fmt and model-layer tests were added).
+
 ## Todo list merge and conflict scope — 2026-10-22
 
 Implemented locally, not deployed: identity-verified Markdown transfers now

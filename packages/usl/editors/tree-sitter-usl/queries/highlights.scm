@@ -6,10 +6,15 @@
 (string) @string
 (number) @number
 
-["model" "view" "of"] @keyword
+["main" "model" "enum" "re" "seed" "as" "view" "of"] @keyword
+(modifier) @keyword
+(end "ordered" @keyword)
 
 ; Models are types; the built-in value types (and Person) stand apart.
 (model name: (identifier) @type)
+(enum name: (identifier) @type)
+(re name: (identifier) @type)
+(key (identifier) @function)
 (field_declaration
   type: (identifier) @type
   (#not-any-of? @type "Text" "Markdown" "Int" "Number" "Bool" "Date" "Person"))
@@ -24,18 +29,18 @@
   (#eq? @constant.builtin "Person"))
 
 ; Fields, where declared, as connection ends, and named in a view's line or
-; group, or in @@editableBy.
+; group.
 (field_declaration name: (identifier) @function)
 (end field: (identifier) @function)
+(end as: (identifier) @function)
 (reference (identifier) @function)
 
-; Field attributes (@fold) and model attributes (@@views) differ. Themes such
-; as Ayu Dark draw @attribute, @label and @type in one blue, so field
-; attributes take @string.regex (teal there), and view keys are plain
-; @variable, apart from the colored names.
-(attribute "@" @string.regex name: (identifier) @string.regex)
-(model_attribute "@@" @preproc name: (identifier) @preproc)
-(rows "@@" @preproc mode: _ @preproc)
+; Storage (@fold) and presentation (~color) attributes differ. Themes such
+; as Ayu Dark draw @attribute, @label and @type in one blue, so storage takes
+; @preproc and presentation @string.regex (teal there), and view keys are
+; plain @variable, apart from the colored names.
+(attribute sigil: "@" @preproc name: (identifier) @preproc)
+(attribute sigil: "~" @string.regex name: (identifier) @string.regex)
 
 (row name: (_) @constant)
 (pair key: (_) @variable)

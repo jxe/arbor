@@ -74,10 +74,10 @@ beforeAll(async () => {
   await writeFile(join(root, "json", "schema.usl"), 'model Item {\n  title Text\n}\n');
   await writeFile(join(root, "json", "_store.json"), '[{"id":"b","title":"Second"},{"id":"a","title":"First"}]\n');
   await mkdir(join(root, "named"));
-  await writeFile(join(root, "named", "schema.usl"), 'model Item {\n  slug  Text @path\n  title Text\n}\n');
+  await writeFile(join(root, "named", "schema.usl"), 'model Item {\n  slug  path Text\n  title Text\n}\n');
   await writeFile(join(root, "named", "_store.json"), '[{"id":"opaque-1","slug":"first-practice","title":"First"}]\n');
   await mkdir(join(root, "markdown"));
-  await writeFile(join(root, "markdown", "schema.usl"), 'model Item {\n  title  Text\n  status Status\n}\nItem.status <-> Status.items[]\nmodel Status {\n  @@fixed { draft, done }\n}\n');
+  await writeFile(join(root, "markdown", "schema.usl"), 'model Item {\n  title  Text\n  status Status\n}\nItem.status <-> Status.items[]\nenum Status { draft, done }\n');
   await writeFile(join(root, "markdown", "one.md"), "---\nid: abc123\ntitle: One\nstatus: draft\n---\nBody\n");
   await mkdir(join(root, "writable-json"));
   await writeFile(join(root, "writable-json", "schema.usl"), 'model Item {\n  title Text\n  count Number\n}\n');
@@ -184,7 +184,7 @@ describe("file-backed collections", () => {
   test("keeps CSV text keys exact and preserves undeclared columns as text", async () => {
     const directory = join(root, "typed-csv");
     await mkdir(directory);
-    await writeFile(join(directory, "schema.usl"), 'model Item {\n  code Text\n  qty Int\n  note Text?\n  active Bool\n  @@id(code)\n}\n');
+    await writeFile(join(directory, "schema.usl"), 'model Item (code) {\n  code Text\n  qty Int\n  note Text?\n  active Bool\n}\n');
     await writeFile(join(directory, "_store.csv"), "code,qty,note,active\n001,2,,true\n010,0,x,false\n");
     const providers = new ProjectionProviderHost();
     const page = await childrenOf(providers, directory, "/typed-csv");

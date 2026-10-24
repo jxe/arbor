@@ -1,11 +1,16 @@
 // expect: duplicate-color
 // expect: misplaced-attribute
+// expect: attribute-layer
 model Tag {
   name       Text
-  color      Text  @color
-  background Text  @color
+  color      Text  ~color
+  background Text  ~color
 }
-model Status {
-  color Text? @color
-  @@fixed { Draft @color("#9aa0aa") }
+enum Status {
+  color Text?  ~color
+  Draft ~color("#9aa0aa")
+}
+// `color` is presentation, not storage.
+model Label {
+  color Text  @color
 }

@@ -127,9 +127,7 @@ model Essay {
 
 Essay.status <-> Status.essays[]
 
-model Status {
-  @@fixed { draft, published }
-}
+enum Status { draft, published }
 ```
 
 Declared properties are checked; any others a page carries are kept as they are. This is how Notion turns page properties into a database.

@@ -13,7 +13,7 @@ function store() {
 
 test("projects declarative collection rows with their undeclared members, and a schema.ts is an ordinary file", async () => {
   const f = store();
-  const schema = 'model Item {\n  slug Text @path\n}\n';
+  const schema = 'model Item {\n  slug path Text\n}\n';
   const rows = [{ id: "1", slug: "first", note: { kept: [null] } }];
   const current = f.directory({
     type: "directory",

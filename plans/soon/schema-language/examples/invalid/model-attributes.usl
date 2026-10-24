@@ -1,13 +1,19 @@
 // expect: unknown-attribute
 // expect: duplicate-attribute
-// expect: editable-by-person
-// expect: unknown-field
+// expect: attribute-layer
+// expect: main-model
+// expect: main-model
 model Book {
   title Text
   owner Person
-  @@search(title)
-  @@editableBy(owner, title, nobody)
-  @@views([{ label: "All" }])
-  @@views([{ label: "Again" }])
+  @search(title)
+  ~views([{ label: "All" }])
+  ~views([{ label: "Again" }])
+  ~table("books")
 }
 Book.owner <-> Person.books[]
+main model Shelf { name Text }
+main model Placement {
+  Book.placements[]
+  Shelf.placements[]
+}

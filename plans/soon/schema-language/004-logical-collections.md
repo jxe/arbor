@@ -263,7 +263,7 @@ arity, rename); the format-only ones in README stop touching data.
 Decided and written up in [003](003-layers-and-sigils.md), revised
 2026-10-24: model keywords (no sigil), `@` storage, `~` presentation, `re`
 blocks, conventions rather than enforced separation, and `usl fmt` applying
-them. Examples are in [examples/layered](examples/layered). Before the
+them. Examples are in [examples](examples). Before the
 revision the model was `@` and storage `&`, so older notes here and in the
 thread use those spellings.
 

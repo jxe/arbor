@@ -124,7 +124,7 @@ describe("usl data files", () => {
 });
 
 describe("usl storage names and folding", () => {
-  test("@@table and @column rename what is stored, references included", () => {
+  test("@table and @column rename what is stored, references included", () => {
     const tables = tablesOf("stress");
     const episode = tables.find((t) => t.name === "Episode")!;
     expect(tables.map((t) => t.name)).toContain("series");
@@ -153,23 +153,23 @@ describe("usl for Overstory", () => {
   });
 
 
-  test("@path names rows by a required text field", () => {
-    const ok = compileUsl(`model Post { slug Text @path, title Text }`);
+  test("`path` names rows by a required text field", () => {
+    const ok = compileUsl(`model Post { slug path Text, title Text }`);
     expect(ok.diagnostics).toEqual([]);
     expect(ok.models.find((m) => m.name === "Post")!.path).toBe("slug");
-    expect(compileUsl(`model Post { slug Text? @path }`).diagnostics.map((d) => d.code)).toEqual(["path-field"]);
-    expect(compileUsl(`model Post { a Text @path, b Text @path }`).diagnostics.map((d) => d.code)).toEqual(["duplicate-path"]);
+    expect(compileUsl(`model Post { slug path Text? }`).diagnostics.map((d) => d.code)).toEqual(["path-field"]);
+    expect(compileUsl(`model Post { a path Text, b path Text }`).diagnostics.map((d) => d.code)).toEqual(["duplicate-path"]);
   });
 
   test("Int is a whole number, stored as INTEGER and bigint", () => {
     const tables = layoutOf(compileUsl(`model Count { n Int }`));
     expect(setupSql(tables, "sqlite")).toContain(`"n" INTEGER NOT NULL`);
     expect(setupSql(tables, "postgres")).toContain(`"n" bigint NOT NULL`);
-    expect(compileUsl(`model C { n Int, @@seed { A { n: 1.5 } } }`).diagnostics.map((d) => d.code)).toContain("bad-value");
+    expect(compileUsl(`model C { name Text, n Int, seed { A { name: "A", n: 1.5 } } }`).diagnostics.map((d) => d.code)).toContain("bad-value");
   });
 
   test("limits stop a hostile schema", () => {
-    const deep = `model A { @@views(${"[".repeat(40)}${"]".repeat(40)}) }`;
+    const deep = `model A { ~views(${"[".repeat(40)}${"]".repeat(40)}) }`;
     expect(compileUsl(deep).diagnostics.map((d) => d.code)).toEqual(["limit"]);
     expect(compileUsl("x".repeat(1_100_000)).diagnostics.map((d) => d.code)).toEqual(["limit"]);
   });
@@ -183,40 +183,38 @@ describe("usl for apps", () => {
   done    Bool
   due     Date?
   authors Person[]
-  @@editableBy(authors)
-  @@index(status, modified)
+
+  @index(status, modified)
 }
 model List {
   name  Text
   owner Person
   games Game[]
 }
-model Note {
+model Note (game, id) {
   game Game
   body Markdown
-  @@id(game, id)
 }
 Game.authors[] @fold <-> Person.games[]
-List.games[] @ordered @fold <-> Game.lists[]
+ordered List.games[] @fold <-> Game.lists[]
 List.owner <-> Person.lists[]
 Note.game <-> Game.notes[]
 Game.status <-> Status.games[]
-model Status { @@fixed { Draft, Done } }
+enum Status { Draft, Done }
 `;
   const result = compileUsl(source);
   const tables = layoutOf(result);
 
-  test("@@editableBy and @@index are resolved", () => {
+  test("@index is resolved", () => {
     expect(result.diagnostics).toEqual([]);
     const game = result.models.find((m) => m.name === "Game")!;
-    expect(game.editableBy).toEqual(["authors"]);
     expect(game.indexes).toEqual([["status", "modified"]]);
     expect(game.fields.map((f) => f.name)).toEqual(["name", "status", "tags", "done", "due", "authors", "lists", "notes"]);
-    const many = compileUsl("model A {\n  tags Text[]\n  @@index(tags)\n  @@index(nope)\n}\n").diagnostics.map((d) => d.code);
+    const many = compileUsl("model A {\n  tags Text[]\n  @index(tags)\n  @index(nope)\n}\n").diagnostics.map((d) => d.code);
     expect(many).toEqual(["index-many", "unknown-field"]);
   });
 
-  test("references and @@index are indexed", () => {
+  test("references and @index are indexed", () => {
     const indexes = Object.fromEntries(tables.map((t) => [t.name, t.indexes]));
     expect(indexes).toEqual({
       Game: [["status", "modified"]],
@@ -263,7 +261,7 @@ model Status { @@fixed { Draft, Done } }
     const read = Object.fromEntries(tables.map((t) => [t.name, db.query(`SELECT * FROM "${t.name}" ORDER BY rowid DESC`).all() as Record<string, unknown>[]]));
     const back = recordsFromRows(tables, read);
     const byId = (rs: Record<string, unknown>[]) => [...rs].sort((a, b) => String(a.id).localeCompare(String(b.id)));
-    // Game.authors isn't @ordered, so its members come back in no particular order.
+    // Game.authors isn't ordered, so its members come back in no particular order.
     const games = byId(back.Game!).map((g) => ({ ...g, authors: [...(g.authors as string[])].sort() }));
     expect(games).toEqual(records.Game);
     expect(back.List).toEqual(records.List);

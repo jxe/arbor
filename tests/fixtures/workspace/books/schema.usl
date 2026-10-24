@@ -5,6 +5,4 @@ model Book {
 
 Book.status <-> Status.books[]
 
-model Status {
-  @@fixed { reading, done }
-}
+enum Status { reading, done }

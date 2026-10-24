@@ -1,6 +1,6 @@
 {
   "name": "@ovst/usl",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Ultimate Schema Language (.usl): parser, checker, setup SQL for SQLite and Postgres, and checks that a database or data files implement a schema.",
   "type": "module",
   "repository": {

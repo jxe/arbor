@@ -1,0 +1,12 @@
+// expect: unknown-model
+// expect: unknown-field
+// expect: ordered-ends
+// expect: duplicate-model
+// `re` only annotates what is declared, and a model is declared once.
+re Missing { name ~color }
+model Book { title Text }
+re Book { subtitle @column("sub") }
+model Book { name Text }
+// At most one end of a connection is ordered.
+ordered Book.shelves[] <-> ordered Shelf.books[]
+model Shelf { name Text }

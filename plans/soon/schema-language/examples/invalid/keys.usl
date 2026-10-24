@@ -2,22 +2,16 @@
 // expect: misplaced-attribute
 // expect: id-field
 // expect: unknown-field
-// expect: id-on-rows
-// Two ends on Person both want the field `person`; name one with @as.
+// Two ends on Person both want the field `person`; name one with `as`.
 model Friendship {
   Person.friends[]
   Person.friendOf[]
 }
-// @as only means something inside a named connection model.
+// `as` only means something inside a named connection model.
 model Game { name Text, tags Text[] }
-Game.authors[] @as(author) <-> Person.games[]
+Game.authors[] as author <-> Person.games[]
 // Key fields hold exactly one value and must exist.
-model Edition {
+model Edition (tags, isbn) {
   title Text
-  @@id(tags, isbn)
-  tags Text[]
-}
-model Status {
-  @@fixed { Draft }
-  @@id
+  tags  Text[]
 }

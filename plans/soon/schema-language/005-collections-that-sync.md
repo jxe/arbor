@@ -137,8 +137,7 @@ until milestones 2 and 3.
 ### 2. USL layers
 
 003's steps 1 to 6: spec 11, the TS parser and checker, `usl fmt`, the
-StoryKit port, the editor grammars, and the examples moved to
-`examples/layered/`. No old spellings are kept (Joe, 2026-10-24: no
+StoryKit port, the editor grammars, and the examples rewritten. No old spellings are kept (Joe, 2026-10-24: no
 collections are live), and `@@editableBy` goes with them. The new syntax ships
 as `@ovst/usl` 0.3.0; cranberries pins `^0.2.0`, whose `documentFromUsl` maps
 `@@editableBy` to `owners` for the live sites, so they keep working until
@@ -152,6 +151,13 @@ row operations.
 
 **Done when:** every `.usl` in the repo, cranberries, excellences and
 supplies-remake is in the layered form and checks the same in TS and Swift.
+
+**Status (2026-10-24):** the TS side is on main: parser, checker, `usl fmt`,
+`modelLayer`, the editor grammars, and every `.usl` and inline schema in the
+repo, with `@ovst/usl` at 0.3.0 (not yet published). The StoryKit port is
+written on `claude/project-thread-6kt6l8`, untested. Left: build and test the
+port on Joe's Mac, publish 0.3.0, and move cranberries, excellences and
+supplies-remake.
 
 ### 3. Logical collections
 

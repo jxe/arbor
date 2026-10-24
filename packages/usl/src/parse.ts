@@ -1,7 +1,10 @@
 // A hand-written lexer and recursive-descent parser for .usl files.
 //
 // Items in any block are separated by newlines or commas. Newlines inside
-// parentheses, lists and object literals are ignored.
+// parentheses, lists and object literals are ignored. The model layer is
+// keywords (`main`, `enum`, `ordered`, `unique`, `path`, `as`, `seed`), which
+// are keywords only where they appear; `@` attributes are storage and `~`
+// attributes presentation.
 
 import type {
   Arity,
@@ -11,6 +14,8 @@ import type {
   EndDecl,
   Expr,
   Member,
+  ModelDecl,
+  Modifier,
   ObjectEntry,
   Position,
   Row,
@@ -46,9 +51,20 @@ export const USL_LIMITS = {
   depth: 32,
 } as const;
 
-const PUNCT = ["<->", "@@", "{", "}", "(", ")", "[", "]", ",", ".", ":", "?", "@", "/"];
+const PUNCT = ["<->", "@@", "{", "}", "(", ")", "[", "]", ",", ".", ":", "?", "@", "~", "/"];
 
-function lex(source: string): Token[] {
+/** Keywords that may come between a field's name and its type. */
+const MODIFIERS = ["ordered", "unique", "path"];
+
+/** A `//` comment, kept only for `usl fmt`. `own` is true when no token precedes it on its line. */
+export interface Comment {
+  line: number;
+  column: number;
+  text: string;
+  own: boolean;
+}
+
+function lex(source: string, comments: Comment[] = []): Token[] {
   if (new TextEncoder().encode(source).length > USL_LIMITS.sourceBytes) {
     throw new UslSyntaxError(`A schema is at most ${USL_LIMITS.sourceBytes} bytes`, { line: 1, column: 1 }, "limit");
   }
@@ -69,7 +85,11 @@ function lex(source: string): Token[] {
     } else if (c === " " || c === "\t" || c === "\r") {
       i++;
     } else if (source.startsWith("//", i)) {
+      const start = i;
       while (i < source.length && source[i] !== "\n") i++;
+      const last = tokens[tokens.length - 1];
+      const own = !last || last.kind === "newline";
+      comments.push({ line, column: start - lineStart + 1, text: source.slice(start, i).trimEnd(), own });
     } else if (/[A-Za-z_]/.test(c)) {
       const start = i;
       while (i < source.length && /[A-Za-z0-9_]/.test(source[i]!)) i++;
@@ -125,6 +145,8 @@ function describe(token: Token): string {
 
 class Parser {
   private pos = 0;
+  /** The line each declaration, member and row ends on, for `usl fmt`. */
+  readonly ends = new WeakMap<object, number>();
 
   constructor(
     private readonly source: string,
@@ -145,6 +167,12 @@ class Parser {
 
   private is(text: string, token = this.token): boolean {
     return (token.kind === "punct" || token.kind === "ident") && token.text === text;
+  }
+
+  /** Records the line of the last token taken as where `node` ends. */
+  private ended<T extends object>(node: T): T {
+    this.ends.set(node, this.tokens[this.pos - 1]!.line);
+    return node;
   }
 
   private fail(expected: string): never {
@@ -189,7 +217,7 @@ class Parser {
     const declarations: Declaration[] = [];
     this.skipNewlines();
     while (!this.atEnd()) {
-      declarations.push(this.declaration());
+      declarations.push(this.ended(this.declaration()));
       if (!this.atEnd() && !this.separators()) this.fail("a new line");
     }
     return { declarations };
@@ -197,10 +225,20 @@ class Parser {
 
   private declaration(): Declaration {
     const at = this.at();
-    if (this.is("model") && this.peek().kind === "ident") {
+    if (this.is("main") && this.is("model", this.peek()) && this.peek(2).kind === "ident") {
+      this.next();
+      return this.model(at, at);
+    }
+    if (this.is("model") && this.peek().kind === "ident") return this.model(at, null);
+    if (this.is("enum") && this.peek().kind === "ident") {
       this.next();
       const name = this.next().text;
-      return { kind: "model", name, members: this.block(), at };
+      return { kind: "model", form: "enum", name, main: null, key: null, members: this.block("enum"), at };
+    }
+    if (this.is("re") && this.peek().kind === "ident") {
+      this.next();
+      const name = this.next().text;
+      return { kind: "re", name, members: this.block("re"), at };
     }
     if (this.is("view") && this.peek().kind === "string") {
       this.next();
@@ -215,56 +253,133 @@ class Parser {
       return { kind: "view", label, of, options, at };
     }
     if (this.is("{")) {
-      return { kind: "connection", spelling: "braces", members: this.block(), at };
+      return { kind: "connection", spelling: "braces", members: this.block("connection"), at };
     }
-    if (this.token.kind === "ident" && this.is(".", this.peek())) {
+    if (this.startsEnd()) {
       const left = this.end();
       this.expect("<->");
       const right = this.end();
       if (this.is("<->")) this.fail("one arrow per connection; use a named model for more ends");
       return { kind: "connection", spelling: "arrow", members: [left, right], at };
     }
-    this.fail("`model`, `view`, a connection `{ A.x, B.y }` or `A.x <-> B.y`");
+    this.oldSpelling();
+    this.fail("`model`, `enum`, `re`, `view`, a connection `{ A.x, B.y }` or `A.x <-> B.y`");
+  }
+
+  /** `model Name [(key, ...)] { ... }`, after any `main`. */
+  private model(at: Position, main: Position | null): ModelDecl {
+    this.expect("model");
+    const name = this.next().text;
+    let key: ModelDecl["key"] = null;
+    if (this.is("(")) {
+      const keyAt = this.at();
+      this.next();
+      const fields: { name: string; at: Position }[] = [];
+      this.separators();
+      while (!this.is(")")) {
+        const field = this.ident("a key field");
+        fields.push({ name: field.text, at: this.at(field) });
+        if (!this.is(")") && !this.separators()) this.fail("`,` or `)`");
+      }
+      this.next();
+      key = { fields, at: keyAt };
+    }
+    return { kind: "model", form: "model", name, main, key, members: this.block("model"), at };
+  }
+
+  /** `[ordered] Model.field` starts here. */
+  private startsEnd(): boolean {
+    if (this.is("ordered") && this.peek().kind === "ident" && this.is(".", this.peek(2))) return true;
+    return this.token.kind === "ident" && this.is(".", this.peek());
+  }
+
+  /** Spellings from before 2026-10-24 get a pointer to the new one. */
+  private oldSpelling() {
+    if (this.is("@@")) {
+      this.fail("an item; USL has no `@@` (write keys as `model X (a, b)`, an enum as `enum X { ... }`, `seed { ... }`, and `@table`, `@index` or `~views`)");
+    }
   }
 
   /** `{ member (sep member)* }` */
-  private block(): Member[] {
+  private block(context: "model" | "enum" | "re" | "connection"): Member[] {
     this.expect("{");
     const members: Member[] = [];
+    const values: Row[] = [];
+    let valuesAt: Position | null = null;
     this.separators();
     while (!this.is("}")) {
-      members.push(this.member());
+      if (context === "enum" && this.startsValue()) {
+        valuesAt ??= this.at();
+        values.push(this.ended(this.row()));
+      } else {
+        members.push(this.ended(this.member(context)));
+      }
       if (!this.is("}") && !this.separators()) this.fail("a new line, `,` or `}`");
     }
     this.next();
+    if (context === "enum") members.push({ kind: "rows", mode: "fixed", rows: values, at: valuesAt ?? this.at() });
     return members;
   }
 
-  private member(): Member {
+  /** In an enum, a value rather than a field: a name not followed by a type. */
+  private startsValue(): boolean {
+    if (this.token.kind === "string") return true;
+    return this.token.kind === "ident" && this.peek().kind !== "ident";
+  }
+
+  private member(context: "model" | "enum" | "re" | "connection"): Member {
     const at = this.at();
-    if (this.is("@@")) {
-      this.next();
-      const name = this.ident("a model attribute name").text;
-      if ((name === "fixed" || name === "seed") && this.is("{")) {
-        return { kind: "rows", mode: name, rows: this.rows(), at };
-      }
-      return { kind: "modelAttribute", name, args: this.is("(") ? this.args() : [], at };
+    this.oldSpelling();
+    if (this.is("@") || this.is("~")) {
+      const sigil = this.next().text as "@" | "~";
+      const name = this.ident("an attribute name").text;
+      return { kind: "modelAttribute", sigil, name, args: this.is("(") ? this.args() : [], at };
     }
-    if (this.token.kind === "ident" && this.is(".", this.peek())) return this.end();
+    if (context === "re") {
+      let name: string;
+      if (this.token.kind === "ident") name = this.next().text;
+      else if (this.token.kind === "string") name = this.next().value as string;
+      else this.fail("a field or value to annotate, or an attribute");
+      const attrs = this.attrs();
+      if (attrs.length === 0) this.fail(`an attribute for \`${name}\` (\`re\` blocks only annotate)`);
+      return { kind: "mention", name, attrs, at };
+    }
+    if (this.is("seed") && this.is("{", this.peek())) {
+      this.next();
+      return { kind: "rows", mode: "seed", rows: this.rows(), at };
+    }
+    if (this.startsEnd()) return this.end();
     if (this.token.kind === "ident") {
       const name = this.next().text;
+      const modifiers: Modifier[] = [];
+      while (MODIFIERS.includes(this.token.text) && this.token.kind === "ident" && this.peek().kind === "ident") {
+        modifiers.push({ name: this.token.text, at: this.at() });
+        this.next();
+      }
       const type = this.ident(`a type for field \`${name}\``).text;
-      return { kind: "field", name, type, arity: this.arity(), attrs: this.attrs(), at };
+      return { kind: "field", name, modifiers, type, arity: this.arity(), attrs: this.attrs(), at };
     }
-    this.fail("a field, a connection end `Model.field`, or `@@attribute`");
+    this.fail("a field, a connection end `Model.field`, or an attribute");
   }
 
   private end(): EndDecl {
     const at = this.at();
+    let ordered: Position | null = null;
+    if (this.is("ordered") && this.peek().kind === "ident" && this.is(".", this.peek(2))) {
+      ordered = this.at();
+      this.next();
+    }
     const model = this.ident("a model name").text;
     this.expect(".");
     const field = this.ident("a field name").text;
-    return { kind: "end", model, field, arity: this.arity(), attrs: this.attrs(), at };
+    const arity = this.arity();
+    let as: EndDecl["as"] = null;
+    if (this.is("as") && this.peek().kind === "ident") {
+      this.next();
+      const name = this.next();
+      as = { name: name.text, at: this.at(name) };
+    }
+    return { kind: "end", model, field, arity, ordered, as, attrs: this.attrs(), at };
   }
 
   private arity(): Arity {
@@ -282,13 +397,27 @@ class Parser {
 
   private attrs(): Attribute[] {
     const attrs: Attribute[] = [];
-    while (this.is("@")) {
+    while (this.is("@") || this.is("~")) {
       const at = this.at();
-      this.next();
+      const sigil = this.next().text as "@" | "~";
       const name = this.ident("an attribute name").text;
-      attrs.push({ name, args: this.is("(") ? this.args() : [], at });
+      attrs.push({ sigil, name, args: this.is("(") ? this.args() : [], at });
     }
     return attrs;
+  }
+
+  private row(): Row {
+    const at = this.at();
+    let name: string;
+    if (this.token.kind === "ident") name = this.next().text;
+    else if (this.token.kind === "string") name = this.next().value as string;
+    else this.fail("a value name");
+    let values: ObjectEntry[] = [];
+    if (this.is("{")) {
+      this.next();
+      values = this.entries("}");
+    }
+    return { name, values, attrs: this.attrs(), at };
   }
 
   private rows(): Row[] {
@@ -296,17 +425,7 @@ class Parser {
     const rows: Row[] = [];
     this.separators();
     while (!this.is("}")) {
-      const at = this.at();
-      let name: string;
-      if (this.token.kind === "ident") name = this.next().text;
-      else if (this.token.kind === "string") name = this.next().value as string;
-      else this.fail("a row name");
-      let values: ObjectEntry[] = [];
-      if (this.is("{")) {
-        this.next();
-        values = this.entries("}");
-      }
-      rows.push({ name, values, attrs: this.attrs(), at });
+      rows.push(this.ended(this.row()));
       if (!this.is("}") && !this.separators()) this.fail("a new line, `,` or `}`");
     }
     this.next();
@@ -399,6 +518,22 @@ export function parseUsl(source: string): ParseResult {
   try {
     const file = new Parser(source, lex(source)).file();
     return { file, diagnostics: [] };
+  } catch (error) {
+    if (error instanceof UslSyntaxError) {
+      return { file: null, diagnostics: [{ code: error.code, message: error.message, ...error.at }] };
+    }
+    throw error;
+  }
+}
+
+/** The syntax tree with what `usl fmt` needs besides: comments, and where each item ends. */
+export function parseUslForFormat(
+  source: string,
+): { file: SchemaFile; comments: Comment[]; ends: WeakMap<object, number> } | { file: null; diagnostics: Diagnostic[] } {
+  try {
+    const comments: Comment[] = [];
+    const parser = new Parser(source, lex(source, comments));
+    return { file: parser.file(), comments, ends: parser.ends };
   } catch (error) {
     if (error instanceof UslSyntaxError) {
       return { file: null, diagnostics: [{ code: error.code, message: error.message, ...error.at }] };

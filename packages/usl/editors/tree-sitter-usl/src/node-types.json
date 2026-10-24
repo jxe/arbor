@@ -48,6 +48,20 @@
             "named": true
           }
         ]
+      },
+      "sigil": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "@",
+            "named": false
+          },
+          {
+            "type": "~",
+            "named": false
+          }
+        ]
       }
     },
     "children": {
@@ -70,6 +84,10 @@
       "required": false,
       "types": [
         {
+          "type": "attribute",
+          "named": true
+        },
+        {
           "type": "end",
           "named": true
         },
@@ -78,11 +96,11 @@
           "named": true
         },
         {
-          "type": "model_attribute",
+          "type": "row",
           "named": true
         },
         {
-          "type": "rows",
+          "type": "seed",
           "named": true
         }
       ]
@@ -111,6 +129,16 @@
     "type": "end",
     "named": true,
     "fields": {
+      "as": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
       "field": {
         "multiple": false,
         "required": true,
@@ -142,6 +170,32 @@
         },
         {
           "type": "attribute",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "enum",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "block",
           "named": true
         }
       ]
@@ -182,6 +236,25 @@
         },
         {
           "type": "attribute",
+          "named": true
+        },
+        {
+          "type": "modifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "key",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "identifier",
           "named": true
         }
       ]
@@ -234,41 +307,24 @@
       }
     },
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": true,
       "types": [
         {
           "type": "block",
+          "named": true
+        },
+        {
+          "type": "key",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "model_attribute",
+    "type": "modifier",
     "named": true,
-    "fields": {
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      }
-    },
-    "children": {
-      "multiple": false,
-      "required": false,
-      "types": [
-        {
-          "type": "arguments",
-          "named": true
-        }
-      ]
-    }
+    "fields": {}
   },
   {
     "type": "object",
@@ -347,6 +403,32 @@
     }
   },
   {
+    "type": "re",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "reference",
     "named": true,
     "fields": {},
@@ -400,24 +482,9 @@
     }
   },
   {
-    "type": "rows",
+    "type": "seed",
     "named": true,
-    "fields": {
-      "mode": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "fixed",
-            "named": false
-          },
-          {
-            "type": "seed",
-            "named": false
-          }
-        ]
-      }
-    },
+    "fields": {},
     "children": {
       "multiple": true,
       "required": false,
@@ -443,7 +510,15 @@
           "named": true
         },
         {
+          "type": "enum",
+          "named": true
+        },
+        {
           "type": "model",
+          "named": true
+        },
+        {
+          "type": "re",
           "named": true
         },
         {
@@ -526,10 +601,6 @@
     "named": false
   },
   {
-    "type": "@@",
-    "named": false
-  },
-  {
     "type": "[",
     "named": false
   },
@@ -538,17 +609,25 @@
     "named": false
   },
   {
+    "type": "as",
+    "named": false
+  },
+  {
     "type": "comment",
     "named": true,
     "extra": true
   },
   {
-    "type": "fixed",
+    "type": "enum",
     "named": false
   },
   {
     "type": "identifier",
     "named": true
+  },
+  {
+    "type": "main",
+    "named": false
   },
   {
     "type": "model",
@@ -563,12 +642,28 @@
     "named": false
   },
   {
+    "type": "ordered",
+    "named": false
+  },
+  {
+    "type": "path",
+    "named": false
+  },
+  {
+    "type": "re",
+    "named": false
+  },
+  {
     "type": "seed",
     "named": false
   },
   {
     "type": "string",
     "named": true
+  },
+  {
+    "type": "unique",
+    "named": false
   },
   {
     "type": "view",
@@ -580,6 +675,10 @@
   },
   {
     "type": "}",
+    "named": false
+  },
+  {
+    "type": "~",
     "named": false
   }
 ]

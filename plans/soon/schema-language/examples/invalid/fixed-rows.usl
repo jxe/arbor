@@ -4,25 +4,24 @@
 // expect: bad-value
 // expect: unknown-field
 // expect: rows-with-ends
-// expect: duplicate-attribute
-model Genre {
+// expect: empty-enum
+// expect: attribute-layer
+// expect: seed-needs-name
+enum Genre {
   blurb Text
   rank  Number?
-  @@fixed {
-    Puzzle   { blurb: "Think" }        @color("blue")
-    Puzzle   { blurb: "Again" }
-    Strategy                           @color("#27815a")
-    Action   { blurb: "Go", rank: "first" }
-    Sports   { blurb: "Run", speed: 3 }
-  }
+
+  Puzzle   { blurb: "Think" }        ~color("blue")
+  Puzzle   { blurb: "Again" }
+  Strategy                           ~color("#27815a")
+  Action   { blurb: "Go", rank: "first" }
+  Sports   { blurb: "Run", speed: 3 }
+  Racing   { blurb: "Fast" }         @color("#27815a")
 }
 model Shelving {
   Genre.shelvings[]
   Shelf.shelvings[]
-  @@fixed { Top, Bottom }
+  seed { Top, Bottom }
 }
 model Shelf { name Text }
-model Twice {
-  @@fixed { A }
-  @@seed { B }
-}
+enum Nothing {}

@@ -8,8 +8,15 @@ databases and derives query relationships from its database layout.
 
 - `compileUsl(source)`: parse (`parseUsl`) and check (`checkUsl`). Returns
   diagnostics for every broken invariant, each model's resolved fields,
-  views, `editableBy` fields and `indexes`, and where each connection is
-  stored.
+  views, `main`, `body` and `title` fields and `indexes`, and where each
+  connection is stored. Model, storage (`@`) and presentation (`~`)
+  attributes are checked against their layer, and `re` blocks are merged
+  into the models they name.
+- `formatUsl(source)`: the schema in the conventional form (`usl fmt`):
+  presentation moved to `re` blocks, model-level items last, names and
+  comments aligned, comments kept.
+- `modelLayer(result)`: the model layer in canonical order, without `@` or
+  `~` attributes. Its canonical CBOR hash is the schema's model fingerprint.
 - `layoutOf(result)`: the relational layout (tables, columns, keys, foreign
   keys, indexes, seed rows) shared by everything below, with the columns that
   hold each field. Its rules are at the top of `src/layout.ts`.
@@ -18,7 +25,7 @@ databases and derives query relationships from its database layout.
   connections as arrays) and the rows of those tables, for a store adaptor.
   `rowOf`, `recordOf` and `joinRowsOf` do one row at a time.
 - `setupSql(tables, "sqlite" | "postgres")`: idempotent setup SQL. It creates
-  only what is missing and inserts `@@seed` rows only when their id is
+  only what is missing and inserts `seed` rows only when their id is
   missing; it never alters or drops.
 - `relationshipsOf(result, tables)`: a named relationship per connection end
   (direct columns or a join table), with people as the `Person` relation.
