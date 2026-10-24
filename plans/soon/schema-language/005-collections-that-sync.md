@@ -19,13 +19,12 @@ placement); the decisions it carries over from 002 are below.
 - **Effort:** XL, in milestones.
 - **Risk:** HIGH. It changes what a tree root holds for a collection, the
   merge protocol (field-level merge) and how SQLite is hashed and synced.
-- **State:** IN PROGRESS. Milestone 1 is written into the spec, and
-  milestone 2's TS side is on main. Milestones 3 to 6 (logical collections,
-  row operations with field-level merge, SQLite that syncs through Story
-  Sync, and rows on the host) and the StoryKit port are built on branch
-  `claude/project-thread-6kt6l8`, not on main; the Swift is untested. Left:
-  the Swift build and tests on Joe's Mac, publishing `@ovst/usl` 0.3.0 and
-  moving the sites, then landing the branch.
+- **State:** IN PROGRESS. Milestones 1 to 6 landed on main on 2026-10-24
+  (merged from `claude/project-thread-6kt6l8` after the Swift tests passed on
+  Joe's Mac and a speed comparison with main; results in the project files,
+  `plan-005/`). Left: publishing `@ovst/usl` 0.3.0 and moving cranberries,
+  excellences and supplies-remake (milestone 2), and the gaps each
+  milestone's State lists.
 - **Depends on:** nothing.
 - **Unblocks:** [People 001](../../later/people-001-directory-and-go-to.md);
   [002](../../later/schema-language-002-cranberries-in-story.md)'s presented views
@@ -155,9 +154,8 @@ supplies-remake is in the layered form and checks the same in TS and Swift.
 **Status (2026-10-24):** the TS side is on main: parser, checker, `usl fmt`,
 `modelLayer`, the editor grammars, and every `.usl` and inline schema in the
 repo, with `@ovst/usl` at 0.3.0 (not yet published). The StoryKit port is
-written on `claude/project-thread-6kt6l8`, untested. Left: build and test the
-port on Joe's Mac, publish 0.3.0, and move cranberries, excellences and
-supplies-remake.
+on main too, tested on Joe's Mac. Left: publish 0.3.0, and move cranberries,
+excellences and supplies-remake.
 
 ### 3. Logical collections
 
@@ -203,7 +201,7 @@ the same root; reformatting the CSV of a placed collection publishes nothing.
 
 ### 4. Row operations and field-level merge
 
-**State (2026-10-24, on the branch):** built in the logical form. Row
+**State (2026-10-24, on main):** built in the logical form. Row
 operations replay on logical tables (`collection-schema/src/row-replay.ts`),
 `collection-fields-v1` merges by row and field, field choices are kept and
 resolved, the host refuses an `at` too far ahead, and Story Sync emits row
@@ -280,7 +278,7 @@ What it does:
 
 ### 5. SQLite placements that sync through Story Sync
 
-**State (2026-10-24, on the branch):** built. `_store.sqlite3` is a
+**State (2026-10-24, on main):** built. `_store.sqlite3` is a
 projection (milestone 3). Story Sync installs a change log in each database
 it projects: `_overstory_changes` and `_overstory_sync` (a nonce), with
 triggers on every table that record the key of each row any program inserts,
@@ -321,7 +319,7 @@ tree's content. The plan as written:
 
 ### 6. Rows on the host
 
-**State (2026-10-24, on the branch):** built. `HostCollections`
+**State (2026-10-24, on main):** built. `HostCollections`
 (`packages/overstoryd/src/collections.ts`) keeps
 `<dataRoot>/materialized/<tree>/<path>/_store.sqlite3` beside a copy of its
 `schema.usl`, with a `__arbor_materialized` record of the accepted update,
@@ -407,12 +405,9 @@ runtime is wired in):
 
 ## Landing the branch
 
-`claude/project-thread-6kt6l8` holds milestones 4, 5 and the StoryKit port in
-their pre-004 form, plus 002's presented views (`presentView`, its StoryKit
-port and `presented-views.json`). Rework on the branch and merge to main a
-milestone at a time. The presented views are pure functions over rows; they can
-land with milestone 4 once their vectors use the logical form, or stay on the
-branch until 002 resumes.
+Landed 2026-10-24 in one merge. 002's presented views (`presentView`, its
+StoryKit port and `presented-views.json`) came with it; they still read layout
+tables and wait for 002 to resume.
 
 ## Invariants
 

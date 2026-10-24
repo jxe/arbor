@@ -20,9 +20,9 @@ and [004: logical collections](soon/schema-language/004-logical-collections.md) 
 [group overview](soon/schema-language/README.md). Joe split it out of Schema language 002 on
 2026-10-22 to do first, because People 001 needs it: the layered USL, collections whose rows are
 the tree's content while each placement chooses files or SQLite, row operations with field-level
-merge, and SQLite that syncs through Story Sync. Milestones 3 to 6 (logical collections, row
-operations and field merge, SQLite sync, and host queries and mutations) are built on branch
-`claude/project-thread-6kt6l8`; the Swift side still needs Joe's Mac.
+merge, and SQLite that syncs through Story Sync. Milestones 1 to 6 (logical collections, row
+operations and field merge, SQLite sync, and host queries and mutations) landed on main on
+2026-10-24; publishing USL 0.3.0 and moving the sites remain.
 
 **[Live 001: see who else is here](soon/live-001-presence.md).**
 Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which
