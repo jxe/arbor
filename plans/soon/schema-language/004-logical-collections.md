@@ -15,7 +15,7 @@ the two questions that decide the design. Nothing here is built.
   question 2 as recommended (option 3); a device's projection lives in
   `placements.yaml`; Story Sync records what it finds on disk the first time;
   host retention belongs to the host operator and the tree configuration.
-  Forks 1 to 5 of the logical form settled 2026-10-24 (see "Forks for Joe"); 6 is open.
+  The forks of the logical form settled 2026-10-24 (see "Forks for Joe").
 - **Built by:** [005](005-collections-that-sync.md), milestones 1 and 3.
 - **Affects:** 005 milestones 4 to 6 (002's former 1, 2 and 2a); spec 01 (representations), 02
   (projection boundary), 06 (§2.1, §3.1, §4, §7), 10 (§4.1); Postgres 002, 004
@@ -370,7 +370,7 @@ With representation per placement, retention is per placement too:
 
 ## Forks for Joe
 
-Settled by Joe on 2026-10-24, as recommended:
+Settled by Joe on 2026-10-24 (1 to 5 as recommended):
 
 1. Only models are addressable; a plain n:m connection is a property on the
    rows at both ends.
@@ -383,7 +383,7 @@ Settled by Joe on 2026-10-24, as recommended:
 5. The logical form is canonical CBOR with a chunked hash from the start,
    replacing the branch's JSONL.
 
-Open:
-
-6. Content in rows: a field named `content` (002's convention), or a
-   `Markdown` field the schema marks as the body?
+6. A row's body is a storage choice, not part of the model: in the logical
+   form it is an ordinary `Markdown` field. A Markdown-records projection
+   writes the field named `content` as the body and `title` as the page
+   title; a storage attribute names other fields (003's storage layer).
