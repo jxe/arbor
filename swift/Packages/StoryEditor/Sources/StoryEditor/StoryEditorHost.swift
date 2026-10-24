@@ -1178,6 +1178,33 @@ public final class StoryEditorHost: EditorHost {
         return blocks.isEmpty ? nil : blocks
     }
 
+    public func serializeBlocksForPasteboardHTML(_ blocks: [Block]) -> String? {
+        StoryPasteboardHTML.html(for: blocks)
+    }
+
+    /// Notion's own block records win when a copy carries them: its plain
+    /// text and HTML write toggles as bullets. Other HTML wins only when it
+    /// holds a toggle the plain text dropped; Story's own copies carry `▸`
+    /// toggles in their Markdown, which keeps everything the HTML would.
+    public func parseBlocksFromPasteboard(_ string: String, rich: PasteboardRichContent) -> [Block]? {
+        let markdown: String
+        if let notion = rich.webCustomData[StoryNotionPasteboard.blocksType],
+           let converted = StoryNotionPasteboard.markdown(fromBlocksJSON: notion) {
+            markdown = converted
+        } else if let html = rich.html, StoryPasteboardHTML.hasToggle(html),
+                  !StoryMarkdownCodec.parseBlocks(string).contains(where: Self.containsToggle) {
+            markdown = StoryPasteboardHTML.markdown(fromHTML: html)
+        } else {
+            return nil
+        }
+        let blocks = StoryMarkdownCodec.parseBlocks(markdown)
+        return blocks.isEmpty ? nil : blocks
+    }
+
+    private static func containsToggle(_ block: Block) -> Bool {
+        block.isToggle || block.children.contains(where: containsToggle)
+    }
+
     public func linkPreview(for url: URL) async -> LinkPreview? {
         await linkPreviewService.preview(for: url)
     }
