@@ -24,7 +24,8 @@ are separate and later. The UX was worked out first in the doc
 - **Effort:** L, in phases.
 - **Risk:** MEDIUM. It's the first collection Story keeps for itself, and group edits write
   to group profile trees on hosts.
-- **State:** phase 1's data side built (d319255, 2026-10-25); the finding UI is to be tried uncommitted on Joe's Mac first (Joe, 2026-10-25).
+- **State:** phase 1 built (2026-10-25, through 6ebe9ea): the directory tree, kept by code, shown with
+  USL views, and found from the Mac's tree picker. Joe: "this will do for now". See "As built" below.
 - **Order** (Joe, 2026-10-24): the directory tree comes first, because it is People's point;
   Go to… and tree-ID links are a side slice for any time.
 - **Gated on:** phase 1 on part 1 of [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md),
@@ -147,15 +148,33 @@ collapsed sections and are not copied.
 `mounts.yaml`, administered by the profile alone, and activated with a seed snapshot that
 `tools/directory-seed.ts` makes from `tools/directory-seed/` into
 `PersonalDirectorySeed.swift` (Story doesn't encode tables; a test checks it is current).
-People holds `Contact` (by hand, later) and `Sighting`; Trees holds `Visit`. Story creates
-contacts never: who you know is every person a sighting or contact names, so no two
-devices create one row. `PersonalDirectoryKeeper` (OverstoryClient) holds its own replica
-in the background and writes through the row queue. Sightings come from the host
-directory refresh (a group you're in together, a person in your sharing rules) and
-profile opens; visits from every page loaded, at most one an hour per page and device;
-`Visits.json` is imported once and kept for now. Not yet: invitation claims, shares made
-elsewhere than a refresh shows, placements as arrivals, and rewriting `contact:` values.
-Changing a schema needs a migration, since the seed's fingerprint is fixed.
+The seed has a `_version` (5). Until the directory has migrations, `PersonalDirectoryKeeper`
+replaces a directory made from an older seed with the current one, which empties it: ties,
+your own trees and placed trees come back on the next refresh, past visits don't. So a change
+to either schema, even to views alone, costs Joe his visits; batch them.
+
+Every row is a fact, keyed so two devices recording it make one row:
+
+- People: `Tie {person, group?, kind}` keyed `kind-person-group` (Community, Group, Shared,
+  SharedWithYou, Invited, InvitedYou, Opened), with the card as seen then; `Contact` (by hand,
+  later). Ties come from the host directory refresh (a group you're in together, a person in
+  your sharing rules, a community for people with another tie) and profile opens; you are
+  listed in your own groups.
+- Trees: `Tree {title, path, host, owner, parent, kind}` keyed by TreeID, with kind (Profile,
+  Group, Community, Settings, Tree) and owner read from the canonical path; `Visit {tree, …}`
+  with a fresh id per page opened (at most one an hour per page and device; pages opened
+  before the keeper is ready are recorded once it is); `Placement {tree, device}` per device.
+  Your profile, configuration and the groups you run (`writableProfiles`) and every tree
+  placed on the device get `Tree` rows on each refresh.
+
+Views use the USL additions of 2026-10-25 (spec 11 §8: `rows:`, `re Person`, paths,
+`~latest`/`~earliest`/`~count`/`~ago`): People by group, Everyone and Recent with
+`rows: person`; Trees Recent (`visits.at ~latest ~ago`), By kind and By owner.
+
+Finding it: on the Mac the sidebar toolbar is the tree picker (Recent, then Special: You,
+Account Settings, groups you run; then People & Trees… ⇧⌘D; then Open Tree…), with search
+below; the People footer and sheet are gone. Not yet: invitation claims, shares made elsewhere
+than a refresh shows, rewriting `contact:` values, a migration path, and the Go to… typeahead.
 
 ## Phase 2: People as a database view (after 002 milestones 3, 4 and 7)
 
