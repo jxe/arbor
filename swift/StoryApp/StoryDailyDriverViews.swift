@@ -7,8 +7,6 @@ import SwiftUI
 
 enum StoryPresentedSheet: String, Identifiable {
     case openLocation
-    case source
-    case history
     case storySyncLogs
     case networkLog
     case keyboardShortcuts
@@ -38,8 +36,6 @@ struct StoryWindowCommands {
     var copyPagePath: () -> Void
     var localTrees: [StoryLocalTreeMenuItem]
     var jumpToLocalTree: (String) -> Void
-    var showHistory: () -> Void
-    var showSource: () -> Void
     var showSyncStatus: () -> Void
     var reviewChoices: () -> Void
     /// Nil while the open tree has no review model (nothing to review).
@@ -56,8 +52,6 @@ struct StoryWindowCommands {
     var canGoParent: Bool
     var canGoHome: Bool
     var canCreatePage: Bool
-    var hasDocument: Bool
-    var hasNode: Bool
     var canRecordAudio: Bool
     var canShare: Bool
     var canRevealPageInFinder: Bool
@@ -1196,8 +1190,6 @@ struct StorySyncStatusView: View {
     /// Names the card after the open tree; the card then says only the
     /// tree's state, not "Story is up to date".
     var treeTitle: String?
-    /// Switches to another tree, out of the way under the card.
-    var treeSwitcher: AnyView?
     /// Shows the open tree's folder in the Finder, when it is placed on this Mac.
     var revealFolder: (() -> Void)?
 
@@ -1271,13 +1263,6 @@ struct StorySyncStatusView: View {
             // In an iOS Form row every tap goes to one button unless each is borderless.
             .buttonStyle(.borderless)
 #endif
-        } footer: {
-            if let treeSwitcher {
-                HStack {
-                    Spacer()
-                    treeSwitcher
-                }
-            }
         }
         if binding?.isSaving == true || diagnostic != nil {
             Section("Current document") {
@@ -1403,100 +1388,6 @@ struct StorySyncStatusView: View {
     private func overallStatusTint(_ diagnostic: StorySaveDiagnostic?) -> Color {
         if diagnostic != nil { return .red }
         return sync.state == .current ? .green : .secondary
-    }
-}
-
-struct StorySourceInspector: View {
-    let node: WorkspaceNode
-    let snapshot: WorkspaceDocumentSnapshot?
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Identity") {
-                    LabeledContent("Tree", value: node.reference.tree.rawValue)
-                    LabeledContent("Path", value: node.reference.path)
-                    if let stableKey = node.reference.stableKey { LabeledContent("Stable key", value: stableKey) }
-                }
-                Section("Provenance") {
-                    LabeledContent("Source", value: node.provenance.sourceDescription)
-                    if let revision = node.provenance.contentRevision { LabeledContent("Revision", value: revision) }
-                    LabeledContent("Access", value: node.isWritable ? "Writable" : "Read only")
-                }
-                if let snapshot {
-                    Section("Exact source") {
-                        Text(snapshot.source)
-                            .font(.body.monospaced())
-                            .textSelection(.enabled)
-                    }
-                }
-            }
-            .navigationTitle("Source and Properties")
-        }
-#if os(macOS)
-        .frame(minWidth: 520, minHeight: 480)
-#endif
-    }
-}
-
-struct StoryHistoryView: View {
-    static let title = "History"
-    static let unavailableTitle = "No history yet"
-    static let unavailableExplanation = "The host does not serve page history yet. Edits wait in this device's change log until the host accepts them."
-
-    let entries: [WorkspaceHistoryEntry]
-    let recover: (String) -> Void
-    @State private var pendingRecovery: WorkspaceHistoryEntry?
-
-    var body: some View {
-        NavigationStack {
-            List(entries) { entry in
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(entry.title)
-                        Text(entry.timestamp, format: .dateTime)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button("Restore as New Change") { pendingRecovery = entry }
-                        .accessibilityLabel("Restore \(entry.title)")
-                        .accessibilityHint("Creates a new current revision without erasing later history")
-                }
-            }
-            .overlay {
-                if entries.isEmpty {
-                    ContentUnavailableView(Self.unavailableTitle, systemImage: "clock")
-                }
-            }
-            .navigationTitle(Self.title)
-            .safeAreaInset(edge: .bottom) {
-                Text(Self.unavailableExplanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .background(.bar)
-            }
-            .confirmationDialog(
-                "Restore this revision as a new change?",
-                isPresented: Binding(
-                    get: { pendingRecovery != nil },
-                    set: { if !$0 { pendingRecovery = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                Button("Restore as New Change") {
-                    guard let entry = pendingRecovery else { return }
-                    pendingRecovery = nil
-                    recover(entry.revision)
-                }
-                Button("Cancel", role: .cancel) { pendingRecovery = nil }
-            }
-        }
-#if os(macOS)
-        .frame(minWidth: 500, minHeight: 420)
-#endif
     }
 }
 

@@ -88,9 +88,6 @@ private struct StoryNavigationCommands: Commands {
             Divider()
             Button("New Window") { commands?.newWindow() }
                 .keyboardShortcut("n", modifiers: [.command, .option])
-            Button("Recover…") { commands?.showHistory() }
-                .keyboardShortcut("\\", modifiers: [.command, .shift])
-                .disabled(commands?.hasDocument != true)
         }
         CommandGroup(after: .sidebar) {
             Button("Back") { commands?.goBack() }
@@ -105,9 +102,6 @@ private struct StoryNavigationCommands: Commands {
             Button("Home") { commands?.goHome() }
                 .keyboardShortcut("h", modifiers: [.command, .shift])
                 .disabled(commands?.canGoHome != true)
-            Button("Source and Properties…") { commands?.showSource() }
-                .keyboardShortcut("i", modifiers: .command)
-                .disabled(commands?.hasNode != true)
         }
         CommandGroup(after: .pasteboard) {
             Button("Find in Page…") { editorCommands?.perform(.findInPage) }

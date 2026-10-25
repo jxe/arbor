@@ -28,6 +28,12 @@ enum StoryCommandLineTool {
         }
     }
 
+    /// Whether the link points at this copy of Story's command.
+    static var isInstalled: Bool {
+        guard let launcher, let target = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path) else { return false }
+        return URL(fileURLWithPath: target).standardizedFileURL == launcher.standardizedFileURL
+    }
+
     /// Link the command, asking for an administrator's password only when the folder needs one.
     static func install() async throws {
         guard let launcher else { throw Failure.refused("This build of Story has no story command inside it.") }

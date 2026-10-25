@@ -297,6 +297,8 @@ final class StoryWorkspaceState {
     private(set) var specialTrees: [PickerTree] = []
     /// Other trees by latest visit, from the directory.
     private(set) var recentTrees: [PickerTree] = []
+    /// Each tree's title in the directory, by TreeID, for naming trees anywhere.
+    private(set) var directoryTreeTitles: [String: String] = [:]
     /// Pages opened before the directory was ready, to record once it is.
     private var earlyVisits: [DirectoryVisit] = []
     var pendingProfileAction: StoryProfileAction?
@@ -2418,8 +2420,6 @@ final class StoryAppModel {
     private(set) var editorHost: StoryEditorHost?
     private(set) var searchResults: [WorkspaceSearchResult] = []
     private(set) var backlinks: [WorkspaceSearchResult] = []
-    private(set) var history: [WorkspaceHistoryEntry] = []
-    private(set) var sourceSnapshot: WorkspaceDocumentSnapshot?
     private(set) var isLoading = false
     private(set) var titleRenameProposal: TitleRenameProposal?
     private(set) var linkedPageTrashPrompt: LinkedPageTrashPrompt?
@@ -3180,30 +3180,6 @@ final class StoryAppModel {
         backlinks = loaded
     }
 
-    /// A session without history (a working tree today) shows the empty state.
-    func loadHistory() async {
-        guard let binding else { history = []; return }
-        history = (try? await binding.history()) ?? []
-    }
-
-    func inspectSource() async {
-        guard let binding else { sourceSnapshot = nil; return }
-        do { sourceSnapshot = try await binding.snapshot() }
-        catch { errorMessage = error.localizedDescription }
-    }
-
-    func recover(_ revision: String) async -> Bool {
-        guard let binding else { return false }
-        do {
-            sourceSnapshot = try await binding.recover(revision: revision)
-            await load()
-            return true
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
-        }
-    }
-
     func dismissError() { errorMessage = nil }
 
     func retryDocumentSave() async {
@@ -3668,8 +3644,9 @@ extension StoryWorkspaceState {
         // community's own tree, at "/", by its host.
         let treeTitle = node.reference.path == "/" && !node.title.isEmpty ? node.title
             : currentTreeCanonical?.path.split(separator: "/").last.map(String.init) ?? host
-        let tree = directoryTree(node.reference.tree.rawValue, title: treeTitle, path: currentTreeCanonical?.path,
+        var tree = directoryTree(node.reference.tree.rawValue, title: treeTitle, path: currentTreeCanonical?.path,
                                  host: host, parent: currentTreeCanonical?.parentTree)
+        tree.named = node.reference.path == "/" && !node.title.isEmpty
         let visit = DirectoryVisit(tree: tree, path: node.reference.path, title: node.title)
         // The page a launch restores opens before the directory does.
         guard personalDirectory != nil else {
@@ -3758,7 +3735,8 @@ extension StoryWorkspaceState {
             let place = [you, host].compactMap { $0 }.joined(separator: " · ")
             let profile = descriptor.profileTree
             if let profile {
-                add(DirectoryTree(id: profile, title: name(profile), path: account.handle.map { "/~\($0)" }, host: host, owner: profile, kind: .profile),
+                add(DirectoryTree(id: profile, title: name(profile), path: account.handle.map { "/~\($0)" }, host: host, owner: profile,
+                                  kind: .profile, named: name(profile) != nil),
                     name(profile).map { "You (\($0))" } ?? "You", place)
             }
             add(DirectoryTree(id: descriptor.configuration.id, title: you.map { "Account Settings (\($0))" }, host: host, owner: profile, kind: .settings),
@@ -3766,7 +3744,7 @@ extension StoryWorkspaceState {
             for group in descriptor.writableProfiles where group.id != profile {
                 let title = name(group.id) ?? group.canonicalPath?.split(separator: "/").last.map(String.init) ?? group.id
                 add(DirectoryTree(id: group.id, title: title, path: group.canonicalPath, host: host, owner: group.id,
-                                  kind: group.id == community ? .community : .group),
+                                  kind: group.id == community ? .community : .group, named: name(group.id) != nil),
                     title, group.id == community ? "Community you run" : "Group you run")
             }
         }
@@ -3803,6 +3781,7 @@ extension StoryWorkspaceState {
             guard let tree = visit["tree"]?.stringValue, let at = visit["at"]?.stringValue else { continue }
             if (latest[tree] ?? "") < at { latest[tree] = at }
         }
+        directoryTreeTitles = rows.compactMapValues { $0["title"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } }
         let skip = Set(specialTrees.map(\.id) + [personalDirectoryTree?.tree.id].compactMap { $0 })
         recentTrees = latest.filter { !skip.contains($0.key) }.sorted { $0.value > $1.value }.prefix(Self.recentTreeCount).map { tree, _ in
             let host = rows[tree]?["host"]?.stringValue

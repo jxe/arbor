@@ -391,12 +391,6 @@ struct StoryAppTests {
         #expect(binding.lastError != nil)
         await binding.close()
     }
-    @Test("History explains that edits wait in the change log")
-    func historyCopy() {
-        #expect(StoryHistoryView.title == "History")
-        #expect(StoryHistoryView.unavailableTitle == "No history yet")
-        #expect(StoryHistoryView.unavailableExplanation.contains("change log"))
-    }
 
     @Test("Share invites accept comma-separated handles and profile URLs")
     func shareInviteLocators() {

@@ -113,28 +113,7 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(window("Sync & Accounts…") { $0.showAccounts() })
         menu.addItem(window("People & Trees…", "d", [.command, .shift]) { $0.showPeople() })
-        let iconItem = NSMenuItem(title: "App Icon", action: nil, keyEquivalent: "")
-        let iconMenu = NSMenu(title: "App Icon")
-        for icon in StoryAppIcon.allCases {
-            let choice = item(icon.title) {
-                Task {
-                    await StoryAppIconSelection.shared.select(icon)
-                    if let error = StoryAppIconSelection.shared.error {
-                        let alert = NSAlert()
-                        alert.messageText = "Couldn’t Change App Icon"
-                        alert.informativeText = error
-                        alert.runModal()
-                    }
-                }
-            }
-            choice.refresh = { $0.state = StoryAppIconSelection.shared.selected == icon ? .on : .off }
-            iconMenu.addItem(choice)
-        }
-        iconItem.submenu = iconMenu
-        menu.addItem(iconItem)
-        if StoryCommandLineTool.launcher != nil {
-            menu.addItem(item("Install Command Line Tool…") { Task { await StoryCommandLineTool.installAndReport() } })
-        }
+        menu.addItem(item("Settings…", ",") { StoryMacSettingsWindow.show() })
         menu.addItem(.separator())
         let services = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
         services.submenu = servicesMenu
@@ -155,6 +134,7 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         localTrees.submenu = localTreesMenu
         menu.addItem(localTrees)
         menu.addItem(window("Open Location…", "l", [.command, .shift]) { $0.openLocation() })
+        menu.addItem(window("Share…", "s", [.command, .option], when: \.canShare) { $0.share() })
         menu.addItem(.separator())
         menu.addItem(window("Search Contents…", "f", [.command, .shift]) { $0.showSearch() })
         menu.addItem(.separator())
@@ -178,21 +158,18 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         menu.addItem(window("Trash Page…", when: \.canMovePageToTrash) { $0.movePageToTrash() })
         menu.addItem(window("Restore Page", when: \.canRestorePage) { $0.restorePage() })
         menu.addItem(.separator())
-        menu.addItem(window("Source and Properties…", "i", when: \.hasNode) { $0.showSource() })
         menu.addItem(window("Reveal Page in Finder", when: \.canRevealPageInFinder) { $0.revealPageInFinder() })
         menu.addItem(window("Copy Link to Page", "l", when: \.canCopyPageLink) { $0.copyPageLink() })
         // Hold Option for the file's path, as Finder's Copy turns into Copy as Pathname.
         let copyPath = window("Copy Path of Page", "l", [.command, .option], when: \.canRevealPageInFinder) { $0.copyPagePath() }
         copyPath.isAlternate = true
         menu.addItem(copyPath)
-        menu.addItem(window("Recover…", "\\", [.command, .shift], when: \.hasDocument) { $0.showHistory() })
         menu.addItem(.separator())
         let record = window("Record Audio", "r", [.command, .option], when: \.canRecordAudio) { [unowned self] in
             $0.recordAudio(self.editorCommands)
         }
         record.refresh = { [unowned self] in $0.title = self.commands?.recordAudioLabel ?? "Record Audio" }
         menu.addItem(record)
-        menu.addItem(window("Share…", "s", [.command, .option], when: \.canShare) { $0.share() })
         return menu
     }
 

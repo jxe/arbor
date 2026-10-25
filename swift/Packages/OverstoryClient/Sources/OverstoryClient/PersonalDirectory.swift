@@ -141,10 +141,14 @@ public struct DirectoryTree: Sendable, Equatable {
     /// The tree it is mounted in.
     public var parent: String?
     public var kind: DirectoryTreeKind
+    /// Whether `title` is the tree's own name (its root page's title, a
+    /// person's name), which replaces one made up from its path.
+    public var named: Bool
 
     public init(id: String, title: String? = nil, path: String? = nil, host: String? = nil, owner: String? = nil,
-                parent: String? = nil, kind: DirectoryTreeKind = .tree) {
+                parent: String? = nil, kind: DirectoryTreeKind = .tree, named: Bool = false) {
         self.id = id; self.title = title; self.path = path; self.host = host; self.owner = owner; self.parent = parent; self.kind = kind
+        self.named = named
     }
 }
 
@@ -334,7 +338,9 @@ public actor PersonalDirectoryKeeper {
                 var filled = row
                 for (field, value) in [("title", tree.title), ("path", tree.path), ("host", tree.host), ("owner", tree.owner), ("parent", parent)] {
                     let before = row[field] ?? .null
-                    guard let value, !value.isEmpty, before == .null || before == .string("") else { continue }
+                    // A tree's own name replaces a title made up from its path.
+                    let renames = field == "title" && tree.named && before != .string(value ?? "")
+                    guard let value, !value.isEmpty, before == .null || before == .string("") || renames else { continue }
                     waiting.append((PersonalDirectory.trees, .set(table: "Tree", row: RowEdit.rowKey(tree.id), field: field,
                         before: before, value: .string(value), at: ProtocolSourceOperation.rowTime(at))))
                     filled[field] = .string(value)

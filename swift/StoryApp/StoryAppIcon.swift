@@ -78,6 +78,9 @@ enum StoryIOSSettings {
 /// Device preferences, pushed from the gear in Sync & Accounts.
 struct StoryIOSSettingsView: View {
     @AppStorage(StoryIOSSettings.showsSidebarHandleKey) private var showsSidebarHandle = true
+    /// Disconnects this iPhone so it can be paired again; nil when it has no account here.
+    var disconnect: (@MainActor () async -> Void)?
+    @State private var confirmingDisconnect = false
 
     var body: some View {
         Form {
@@ -91,11 +94,82 @@ struct StoryIOSSettingsView: View {
             } footer: {
                 Text("A grip on the page's left edge, near the bottom, slides the page aside to show the sidebar. Without it, swipe in from the left edge.")
             }
+            if disconnect != nil {
+                Section {
+                    Button("Disconnect and Pair Again…", role: .destructive) { confirmingDisconnect = true }
+                } header: {
+                    Text("This iPhone")
+                }
+            }
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("Disconnect this iPhone from Overstory?", isPresented: $confirmingDisconnect) {
+            Button("Disconnect and Pair Again", role: .destructive) {
+                Task { await disconnect?() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes this account’s device key and local trees from this iPhone. The server trees and their data are not deleted.")
+        }
     }
 }
+#endif
+
+#if os(macOS)
+/// Story › Settings…: the app icon and the command line tool.
+struct StoryMacSettingsView: View {
+    @State private var installed = StoryCommandLineTool.isInstalled
+
+    var body: some View {
+        Form {
+            Section("App Icon") {
+                StoryAppIconChoices()
+            }
+            Section {
+                if StoryCommandLineTool.launcher == nil {
+                    Text("This build of Story has no story command inside it.").foregroundStyle(.secondary)
+                } else {
+                    LabeledContent(installed ? "Installed at \(StoryCommandLineTool.link.path)" : "Not installed") {
+                        Button(installed ? "Reinstall…" : "Install…") {
+                            Task {
+                                await StoryCommandLineTool.installAndReport()
+                                installed = StoryCommandLineTool.isInstalled
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("Command Line Tool")
+            } footer: {
+                Text("The story command, for the Terminal and for agents.")
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 460)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The one Settings window, made on first use.
+@MainActor
+enum StoryMacSettingsWindow {
+    private static var window: NSWindow?
+
+    static func show() {
+        if window == nil {
+            let window = NSWindow(contentViewController: NSHostingController(rootView: StoryMacSettingsView()))
+            window.title = "Settings"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            self.window = window
+        }
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+}
+#endif
 
 /// The app icons side by side, each tappable, with the current one checked.
 private struct StoryAppIconChoices: View {
@@ -149,4 +223,3 @@ private struct StoryAppIconChoices: View {
         }
     }
 }
-#endif

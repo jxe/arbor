@@ -1847,8 +1847,9 @@ struct StoryRootView: View {
     private var currentSidebarTreeTitle: String {
         let tree = model.currentReference.tree.rawValue
         if let title = (workspace.specialTrees + workspace.recentTrees).first(where: { $0.id == tree })?.title { return title }
-        if let title = sidebarTrees.first(where: { $0.id == tree })?.title { return title }
         if tree == workspace.personalDirectoryTree?.tree.id { return "People & Trees" }
+        if let title = workspace.directoryTreeTitles[tree] { return title }
+        if let title = sidebarTrees.first(where: { $0.id == tree })?.title { return title }
         return workspace.currentTreeCanonicalPath ?? tree
     }
 
@@ -1856,7 +1857,6 @@ struct StoryRootView: View {
     private var accountSyncPanel: StorySyncStatusView {
         var panel = syncStatusPanel
         panel.treeTitle = currentSidebarTreeTitle
-        panel.treeSwitcher = AnyView(accountTreeSwitcher)
 #if os(macOS)
         let tree = model.currentReference.tree.rawValue
         if let path = workspace.localStorySyncOverview?.trees.first(where: { $0.id == tree && $0.missing != true })?.path {
@@ -1864,39 +1864,6 @@ struct StoryRootView: View {
         }
 #endif
         return panel
-    }
-
-    /// Under the status card: switches to the same trees as the sidebar's
-    /// picker, for the iPhone, where the sidebar is easy to miss.
-    private var accountTreeSwitcher: some View {
-        let trees = sidebarTrees
-        let current = model.currentReference.tree.rawValue
-        let accounts = trees.reduce(into: [String]()) { if !$0.contains($1.account) { $0.append($1.account) } }
-        return Menu {
-            ForEach(accounts, id: \.self) { account in
-                Section(account) {
-                    ForEach(trees.filter { $0.account == account }) { tree in
-                        Button { if tree.id != current { openSidebarTree(tree.id) } } label: {
-                            if tree.id == current { Label(tree.title, systemImage: "checkmark") } else { Text(tree.title) }
-                        }
-                    }
-                }
-            }
-        } label: {
-            Label("Switch Tree", systemImage: "chevron.up.chevron.down")
-                .font(.subheadline)
-                .labelStyle(.titleAndIcon)
-        }
-        .menuIndicator(.hidden)
-#if os(macOS)
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-#else
-        .buttonStyle(.borderless)
-        .textCase(nil)
-#endif
-        .accessibilityLabel("Tree")
-        .accessibilityValue(currentSidebarTreeTitle)
     }
 
     /// Where you are and where to go: your profile, the placed trees by
@@ -1994,7 +1961,7 @@ struct StoryRootView: View {
         var seen = skip
         var trees = workspace.recentTrees.filter { seen.insert($0.id).inserted }
         for placed in sidebarTrees where seen.insert(placed.id).inserted {
-            trees.append(PickerTree(id: placed.id, title: placed.title, subtitle: placed.account))
+            trees.append(PickerTree(id: placed.id, title: workspace.directoryTreeTitles[placed.id] ?? placed.title, subtitle: placed.account))
         }
         return trees
     }
@@ -2643,8 +2610,6 @@ struct StoryRootView: View {
             },
             localTrees: localTreeMenuItems,
             jumpToLocalTree: jumpToLocalTree,
-            showHistory: { Task { await model.loadHistory(); presentedSheet = .history } },
-            showSource: { Task { await model.inspectSource(); presentedSheet = .source } },
             showSyncStatus: showStatusPanel,
             reviewChoices: showChoiceReview,
             reviewChoiceCount: workspace.conflictReview.map(\.decisions.count),
@@ -2662,8 +2627,6 @@ struct StoryRootView: View {
             canGoParent: model.canGoParent,
             canGoHome: model.canGoHome,
             canCreatePage: model.node?.isWritable == true && !currentPageIsInTrash,
-            hasDocument: model.binding != nil,
-            hasNode: model.node != nil,
             canRecordAudio: recordingSession.state != .idle || (
                 model.node?.isWritable == true && model.binding != nil
             ),
@@ -3216,14 +3179,6 @@ struct StoryRootView: View {
     @ViewBuilder
     private func sheet(_ sheet: StoryPresentedSheet) -> some View {
         switch sheet {
-        case .source:
-            if let node = model.node { StorySourceInspector(node: node, snapshot: model.sourceSnapshot) }
-        case .history:
-            StoryHistoryView(entries: model.history) { revision in
-                Task {
-                    if await model.recover(revision) { presentedSheet = nil }
-                }
-            }
         case .storySyncLogs:
             NavigationStack {
                 ScrollView { Text(storySyncLogs).font(.body.monospaced()).textSelection(.enabled).padding() }
@@ -5326,7 +5281,6 @@ private struct IOSAccountPanel: View {
     @State private var accountErrors: [String: String] = [:]
     @State private var placements: [String: [StoryPlacement]] = [:]
     @State private var message: String?
-    @State private var disconnectConfirmation = false
     @State private var loading = true
     @State private var addingAccount = false
 
@@ -5351,11 +5305,6 @@ private struct IOSAccountPanel: View {
                         )
                         if let device = snapshots[account.configurationTree]?.device {
                             LabeledContent("This device", value: device.label)
-                        }
-                        if placement?.configurationTree == account.configurationTree {
-                            Button("Disconnect and Pair Again…", role: .destructive) {
-                                disconnectConfirmation = true
-                            }
                         }
                         if let error = accountErrors[account.configurationTree] {
                             Text(error).font(.caption).foregroundStyle(.secondary)
@@ -5389,7 +5338,9 @@ private struct IOSAccountPanel: View {
             .navigationTitle("Sync & Accounts")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink { StoryIOSSettingsView() } label: {
+                    NavigationLink {
+                        StoryIOSSettingsView(disconnect: placement == nil ? nil : { await disconnect() })
+                    } label: {
                         Label("Settings", systemImage: "gearshape")
                     }
                 }
@@ -5399,17 +5350,6 @@ private struct IOSAccountPanel: View {
         .task { await load(); await workspace.refreshDirectory() }
         .sheet(isPresented: $addingAccount, onDismiss: { Task { await load() } }) {
             StoryIOSLaunchView(workspace: workspace, accountAdditionComplete: { addingAccount = false })
-        }
-        .confirmationDialog(
-            "Disconnect this iPhone from Overstory?",
-            isPresented: $disconnectConfirmation
-        ) {
-            Button("Disconnect and Pair Again", role: .destructive) {
-                Task { await disconnect() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes this account’s device key and local trees from this iPhone. The server trees and their data are not deleted.")
         }
     }
 
