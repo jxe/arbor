@@ -44,6 +44,7 @@ struct StoryKeyboardShortcutsView: View {
         .init(keys: "⇧⌘H", effect: "Home"),
         .init(keys: "⌘N", effect: "New page under this one"),
         .init(keys: "⇧⌘L", effect: "Open a location"),
+        .init(keys: "⇧⌘D", effect: "People & Trees: your directory"),
         .init(keys: "⌘L", effect: "Copy a link to the page (⌥⌘L: its file's path)"),
         .init(keys: "⌘\\", effect: "Show or hide the sidebar"),
     ]

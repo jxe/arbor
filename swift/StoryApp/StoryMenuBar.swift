@@ -112,7 +112,7 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         }
         menu.addItem(.separator())
         menu.addItem(window("Sync & Accounts…") { $0.showAccounts() })
-        menu.addItem(window("People…") { $0.showPeople() })
+        menu.addItem(window("People & Trees…", "d", [.command, .shift]) { $0.showPeople() })
         let iconItem = NSMenuItem(title: "App Icon", action: nil, keyEquivalent: "")
         let iconMenu = NSMenu(title: "App Icon")
         for icon in StoryAppIcon.allCases {

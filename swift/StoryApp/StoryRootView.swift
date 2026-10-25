@@ -569,11 +569,18 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
     final class SizerView: NSView {
         private static let toolbarLayoutAllowance: CGFloat = 32
         private static let minimumWidth: CGFloat = 60
+        /// The search row's trailing padding plus the content's offset.
+        private static let rowTrailingInset: CGFloat = 20
 
         private var isDismantled = false
         private var observers: [NSObjectProtocol] = []
         private weak var itemView: NSView?
         private var widthConstraint: NSLayoutConstraint?
+        /// The sidebar row's item, once found over the sidebar. Only it is
+        /// hidden when the sidebar collapses, never the window's other items.
+        private weak var rowItem: NSToolbarItem?
+        private weak var observedSidebar: NSView?
+        private var pendingPasses = 0
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -604,9 +611,33 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
             ] {
                 observers.append(center.addObserver(forName: name, object: window, queue: nil, using: resizeOnNotification))
             }
+            if let sidebar = splitView?.arrangedSubviews.first { observeFrame(of: sidebar) }
             resize()
             // The toolbar item may not exist until the toolbar's first pass.
-            DispatchQueue.main.async { [weak self] in self?.resize() }
+            settle()
+        }
+
+        /// Resize when `view` moves or changes size: the sidebar as it is
+        /// dragged, collapsed or shown, and the row's item as AppKit lays it out.
+        private func observeFrame(of view: NSView) {
+            view.postsFrameChangedNotifications = true
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification, object: view, queue: nil
+            ) { [weak self] _ in MainActor.assumeIsolated { self?.resize() } })
+        }
+
+        /// Resize again on the next few run-loop turns, until AppKit has placed
+        /// the item where the measurement assumes.
+        private func settle() {
+            pendingPasses = 3
+            DispatchQueue.main.async { [weak self] in self?.nextPass() }
+        }
+
+        private func nextPass() {
+            guard pendingPasses > 0 else { return }
+            pendingPasses -= 1
+            resize()
+            if pendingPasses > 0 { DispatchQueue.main.async { [weak self] in self?.nextPass() } }
         }
 
         func tearDown() {
@@ -624,17 +655,35 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
         }
 
         func resize() {
-            guard !isDismantled, let window, let splitView, let sidebar = splitView.arrangedSubviews.first,
-                  let item = searchItem(in: window), let view = item.view else { return }
+            guard !isDismantled, let window, let splitView, let sidebar = splitView.arrangedSubviews.first else { return }
+            if sidebar !== observedSidebar {
+                observedSidebar = sidebar
+                observeFrame(of: sidebar)
+            }
             // Dragging the sidebar closed collapses it without removing the
-            // sidebar's toolbar items, which would leave the search in the
-            // overflow menu.
+            // sidebar's toolbar items, which would leave the row in the
+            // overflow menu. Only the row's own item is hidden.
             let collapsed = splitView.isSubviewCollapsed(sidebar) || sidebar.isHidden || sidebar.frame.width < 1
-            if item.isHidden != collapsed { item.isHidden = collapsed }
-            guard !collapsed else { return }
+            let toolbarItems = window.toolbar?.items ?? []
+            if collapsed {
+                if let rowItem, toolbarItems.contains(where: { $0 === rowItem }), !rowItem.isHidden { rowItem.isHidden = true }
+                return
+            }
+            guard let item = rowItem(in: window, sidebar: sidebar), let view = item.view else {
+                if pendingPasses == 0 { settle() }
+                return
+            }
+            if item.isHidden { item.isHidden = false }
+            // The row ends over the search row's order button: 32pt wide, 10pt
+            // in from the sidebar's edge, where the content's 10pt offset puts
+            // the sidebar toggle. Measured from where AppKit placed the item.
+            let itemMinX = view.convert(view.bounds, to: nil).minX
+            let sidebarMaxX = sidebar.convert(sidebar.bounds, to: nil).maxX
             let width = max(
                 Self.minimumWidth,
-                sidebar.frame.width - buttonsInset(in: window) - Self.toolbarLayoutAllowance
+                itemMinX > 0
+                    ? sidebarMaxX - Self.rowTrailingInset - itemMinX
+                    : sidebar.frame.width - buttonsInset(in: window) - Self.toolbarLayoutAllowance
             )
             if view !== itemView {
                 widthConstraint?.isActive = false
@@ -642,8 +691,12 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
                 constraint.isActive = true
                 itemView = view
                 widthConstraint = constraint
-            } else if widthConstraint?.constant != width {
-                widthConstraint?.constant = width
+                observeFrame(of: view)
+                settle()
+            } else if let constraint = widthConstraint, abs(constraint.constant - width) > 0.5 {
+                constraint.constant = width
+                // A new width can move the item; measure again once it has.
+                if pendingPasses == 0 { settle() }
             }
         }
 
@@ -656,12 +709,19 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
             return nil
         }
 
-        /// The toolbar item in the sidebar section whose view holds a text
-        /// field: the search.
-        private func searchItem(in window: NSWindow) -> NSToolbarItem? {
-            for item in window.toolbar?.items ?? [] {
+        /// The sidebar section's toolbar item, the tree picker and sidebar
+        /// toggle: before the split separator, and over the sidebar.
+        private func rowItem(in window: NSWindow, sidebar: NSView) -> NSToolbarItem? {
+            let items = window.toolbar?.items ?? []
+            if let rowItem, items.contains(where: { $0 === rowItem }), rowItem.view != nil { return rowItem }
+            let sidebarMaxX = sidebar.convert(sidebar.bounds, to: nil).maxX
+            for item in items {
                 if item.itemIdentifier.rawValue.hasPrefix("com.apple.SwiftUI.splitViewSeparator") { break }
-                if let view = item.view, Self.containsTextField(view) { return item }
+                guard let view = item.view, view.window != nil else { continue }
+                if view.convert(view.bounds, to: nil).minX < sidebarMaxX {
+                    rowItem = item
+                    return item
+                }
             }
             return nil
         }
@@ -673,9 +733,6 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
             return superview.convert(zoom.frame, to: nil).maxX
         }
 
-        private static func containsTextField(_ view: NSView) -> Bool {
-            view is NSTextField || view.subviews.contains(where: containsTextField)
-        }
     }
 }
 
@@ -1731,21 +1788,27 @@ struct StoryRootView: View {
     private var sidebarColumn: some View {
 #if os(macOS)
         VStack(spacing: 0) {
+            sidebarPagesHeader
+                .padding(.horizontal, 10)
+                .padding(.top, 4)
+                .padding(.bottom, 6)
             sidebarReviewContent
-            sidebarFooter
         }
         .modifier(StorySidebarSurface(showsDivider: true))
         .background { MacSidebarSearchTitlebarSizer() }
+        .task { await refreshSidebarAccounts() }
         // Toolbar content declared on the sidebar column occupies the
         // toolbar's sidebar section, over the sidebar in the titlebar. The
         // sizer sets the item's width; the controls fill it.
         .toolbar {
             if columnVisibility != .detailOnly {
                 ToolbarItem {
+                    // The tree picker fills the row; the sidebar toggle ends
+                    // it, over the search row's order button.
                     HStack(spacing: 4) {
+                        sidebarTreePicker
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         macSidebarToggle
-                        sidebarPagesHeader
-                            .frame(maxWidth: .infinity)
                     }
                         .frame(maxWidth: .infinity)
                         // AppKit reserves more room after this item than before it.
@@ -1758,11 +1821,14 @@ struct StoryRootView: View {
         }
 #else
         VStack(spacing: 0) {
+            sidebarTreePicker
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
             sidebarPagesHeader
             sidebarReviewContent
-            sidebarFooter
         }
         .modifier(StorySidebarSurface())
+        .task { await refreshSidebarAccounts() }
 #endif
     }
 
@@ -1802,26 +1868,15 @@ struct StoryRootView: View {
                 account: placement.configurationTree.flatMap { accountLabels[$0] } ?? "Other Trees")
         }
 #endif
-        var trees = values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        // The directory Story keeps, until it has a place of its own in the UI.
-        if let directory = workspace.personalDirectoryTree, !trees.contains(where: { $0.id == directory.tree.id }) {
-            trees.append(SidebarTree(id: directory.tree.id, title: "People & Trees", account: trees.first?.account ?? "Other Trees"))
-        }
-        return trees
-    }
-
-    private var sidebarFooter: some View {
-        VStack(spacing: 0) {
-            sidebarTreePicker
-            sidebarPeopleButton
-        }
-        .overlay(alignment: .top) { Divider() }
-        .task { await refreshSidebarAccounts() }
+        return values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
     private var currentSidebarTreeTitle: String {
         let tree = model.currentReference.tree.rawValue
-        return sidebarTrees.first { $0.id == tree }?.title ?? tree
+        if let title = (workspace.specialTrees + workspace.recentTrees).first(where: { $0.id == tree })?.title { return title }
+        if let title = sidebarTrees.first(where: { $0.id == tree })?.title { return title }
+        if tree == workspace.personalDirectoryTree?.tree.id { return "People & Trees" }
+        return workspace.currentTreeCanonicalPath ?? tree
     }
 
     /// The Sync & Accounts sheet's status card, named after the open tree.
@@ -1871,24 +1926,32 @@ struct StoryRootView: View {
         .accessibilityValue(currentSidebarTreeTitle)
     }
 
-    /// Switches the window to another placed tree, grouped by account.
+    /// Where you are and where to go: your profile, the placed trees by
+    /// account, and the directory of people and trees.
     private var sidebarTreePicker: some View {
-        let trees = sidebarTrees
-        let accounts = trees.reduce(into: [String]()) { if !$0.contains($1.account) { $0.append($1.account) } }
+        let current = model.currentReference.tree.rawValue
         return Menu {
-            ForEach(accounts, id: \.self) { account in
-                Section(account) {
-                    ForEach(trees.filter { $0.account == account }) { tree in
-                        Button { openSidebarTree(tree.id) } label: {
-                            if tree.id == model.currentReference.tree.rawValue {
-                                Label(tree.title, systemImage: "checkmark")
-                            } else {
-                                Text(tree.title)
-                            }
-                        }
+            let recent = pickerRecentTrees
+            if !recent.isEmpty {
+                Section("Recent") {
+                    ForEach(recent) { tree in pickerButton(tree, current: current) }
+                }
+            }
+            if !workspace.specialTrees.isEmpty {
+                Section("Special") {
+                    ForEach(workspace.specialTrees) { tree in pickerButton(tree, current: current) }
+                }
+            }
+            Section {
+                Button { showPeoplePanel() } label: {
+                    if current == workspace.personalDirectoryTree?.tree.id {
+                        Label("People & Trees…", systemImage: "checkmark")
+                    } else {
+                        Text("People & Trees…")
                     }
                 }
             }
+            .disabled(workspace.personalDirectoryTree == nil)
             if let sidebarAccountError { Text(sidebarAccountError) }
             Divider()
 #if os(macOS)
@@ -1900,31 +1963,85 @@ struct StoryRootView: View {
             }
 #endif
         } label: {
-            sidebarFooterRow(
-                symbol: "folder",
-                title: currentSidebarTreeTitle,
-                accessory: "chevron.up.chevron.down",
-                hovered: treeFooterHovered
-            )
+#if os(macOS)
+            // Sized and highlighted like the sidebar toggle beside it.
+            HStack(spacing: 6) {
+                Image(systemName: "folder")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(mutedMacToolbarForeground)
+                Text(currentSidebarTreeTitle)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 6)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(mutedMacToolbarForeground)
+            }
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 32, maxHeight: 32, alignment: .leading)
+            // At rest a hairline reads it as one control; hovered, the fill.
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+            }
+            .mutedMacToolbarHover()
+#else
+            HStack(spacing: 6) {
+                Image(systemName: "folder")
+                Text(currentSidebarTreeTitle)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+#endif
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
 #if os(macOS)
-        .onHover { treeFooterHovered = $0 }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Its own tooltip, not the sidebar toggle's beside it.
+        .help("Switch Tree")
 #endif
         .accessibilityLabel("Tree")
         .accessibilityValue(currentSidebarTreeTitle)
     }
 
-    private var sidebarPeopleButton: some View {
-        Button(action: showPeoplePanel) {
-            sidebarFooterRow(symbol: "person.crop.square", title: "People", hovered: peopleFooterHovered)
+    /// Recent trees: the directory's, by latest visit, then trees placed on
+    /// this device that haven't been visited since the directory began, so a
+    /// placed tree never drops out. Special trees and the directory aren't here.
+    private var pickerRecentTrees: [PickerTree] {
+        let skip = Set(workspace.specialTrees.map(\.id) + [workspace.personalDirectoryTree?.tree.id].compactMap { $0 })
+        var seen = skip
+        var trees = workspace.recentTrees.filter { seen.insert($0.id).inserted }
+        for placed in sidebarTrees where seen.insert(placed.id).inserted {
+            trees.append(PickerTree(id: placed.id, title: placed.title, subtitle: placed.account))
         }
-        .buttonStyle(.plain)
-#if os(macOS)
-        .onHover { peopleFooterHovered = $0 }
+        return trees
+    }
+
+    /// A tree in the picker: its human name, a hint beneath, and a check when open.
+    private func pickerButton(_ tree: PickerTree, current: String) -> some View {
+        Button {
+#if os(iOS)
+            closeIOSSidebar()
 #endif
+            sidebarSearchFocused = false
+            Task {
+                do { try await workspace.openNestedTree(TreeID(rawValue: tree.id)) }
+                catch { workspace.errorMessage = error.localizedDescription }
+            }
+        } label: {
+            if tree.id == current { Image(systemName: "checkmark") }
+            Text(tree.title)
+            if let subtitle = tree.subtitle { Text(subtitle) }
+        }
     }
 
     private func sidebarFooterRow(symbol: String, title: String, accessory: String? = nil, hovered: Bool) -> some View {
@@ -2759,11 +2876,15 @@ struct StoryRootView: View {
 #endif
     }
 
+    /// People & Trees: the directory, opened in the window.
     private func showPeoplePanel() {
 #if os(iOS)
         closeIOSSidebar()
 #endif
-        peoplePresented = true
+        Task {
+            do { try await workspace.openPersonalDirectory() }
+            catch { workspace.errorMessage = error.localizedDescription }
+        }
     }
 
     private var syncStatusPanel: StorySyncStatusView {
