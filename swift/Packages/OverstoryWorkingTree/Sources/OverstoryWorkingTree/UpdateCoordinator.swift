@@ -82,6 +82,10 @@ public actor UpdateCoordinator {
     /// its only writer; nil until first read or after an uncertain write.
     var reviewJournal: ConflictReviewJournal?
 
+    // Row-queue state, used by UpdateCoordinator+Rows.
+    var rowState: RowQueueState?
+    var rowPump: Task<Void, Never>?
+
     struct CurrentHead: Sendable {
         var update: String
         var root: String
@@ -147,6 +151,7 @@ public actor UpdateCoordinator {
             dispatch(.recovered(request: preparedRequest(attempt), held: control.held?.reason, detail: control.held?.detail))
         }
         await publishTip()
+        if let rows = try? rowQueue(), !rows.pending.isEmpty { startRowPump() }
     }
 
     /// Encode one request as an immutable attempt: its body carries every
@@ -793,8 +798,15 @@ public actor UpdateCoordinator {
         await publishTip()
     }
 
+    /// Ask the host for its current state now rather than at the next poll.
+    func nudgeFreshness() {
+        if case .current = machine.phase { dispatch(.pollElapsed) }
+    }
+
     public func close() {
         closed = true
+        rowPump?.cancel()
+        rowPump = nil
         deferredApply = nil
         localView = nil
         for timer in timers.values { timer.cancel() }

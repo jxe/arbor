@@ -156,11 +156,25 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
 
     public func collectionRows(_ reference: WorkspaceReference) async throws -> WorkspaceCollectionRows {
         if let coordinator {
-            return try await coordinator
+            var collection = try await coordinator
                 .sourceReadProvider(readOnly: readOnly, materializedRoot: materializedRoot)
                 .collectionRows(reference)
+            // Queued row edits show over the rows last received, one at a
+            // time: one the rows no longer allow is left out, not the rest.
+            let path = try await workingTree.resolve(reference).path
+            for edit in await coordinator.pendingRowEdits(collection: path) {
+                if let rows = try? applyRowEdits(collection.schema, collection.rows, [edit]) { collection.rows = rows }
+            }
+            return collection
         }
         return try await workingTree.collectionRows(for: try await workingTree.resolve(reference))
+    }
+
+    public func appendRowEdits(_ edits: [RowEdit], to reference: WorkspaceReference) async throws {
+        guard !readOnly, let coordinator else { throw WorkspaceProviderError.readOnly(reference) }
+        let node = try await workingTree.resolve(reference)
+        guard node.kind == .directory, node.collection != nil else { throw WorkspaceCollectionError.notCollection }
+        try await coordinator.appendRows(collection: node.path, edits)
     }
 
     @discardableResult

@@ -262,6 +262,34 @@ public enum RowEdit: Sendable, Equatable {
         case .move(_, _, let field, let member, let after, let at): return object("rowMove", ["field": .string(field), "member": member, "after": after ?? .null], at)
         }
     }
+
+    /// The edit `json` spells, read back.
+    public init(json: JSONValue) throws {
+        guard case let .object(o) = json, let kind = o["kind"]?.stringValue, let table = o["table"]?.stringValue,
+              let row = o["row"]?.stringValue else { throw ViewError(message: "not a row edit: \(json.jsonText)") }
+        let at = o["at"]?.stringValue
+        func field() throws -> String {
+            guard let name = o["field"]?.stringValue else { throw ViewError(message: "\(kind) names no field") }
+            return name
+        }
+        func value(_ name: String) throws -> JSONValue {
+            guard let value = o[name] else { throw ViewError(message: "\(kind) has no \(name)") }
+            return value
+        }
+        switch kind {
+        case "rowCreate":
+            guard case let .object(values) = try value("values") else { throw ViewError(message: "rowCreate values aren't an object") }
+            self = .create(table: table, row: row, values: values, at: at)
+        case "rowDelete": self = .delete(table: table, row: row)
+        case "rowSet": self = .set(table: table, row: row, field: try field(), before: try value("before"), value: try value("value"), at: at)
+        case "rowConnect": self = .connect(table: table, row: row, field: try field(), member: try value("member"), at: at)
+        case "rowDisconnect": self = .disconnect(table: table, row: row, field: try field(), member: try value("member"), at: at)
+        case "rowMove":
+            let after = try value("after")
+            self = .move(table: table, row: row, field: try field(), member: try value("member"), after: after.isNull ? nil : after, at: at)
+        default: throw ViewError(message: "unknown row edit \(kind)")
+        }
+    }
 }
 
 /// What a person does to a presented view. Rows and groups are named as the presentation names them.

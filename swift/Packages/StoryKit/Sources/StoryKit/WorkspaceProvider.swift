@@ -499,6 +499,10 @@ public protocol WorkspaceProvider: Sendable {
     /// lay them out, for `presentView`. Throws `WorkspaceCollectionError` when the
     /// folder holds no logical collection or can't be read here.
     func collectionRows(_ reference: WorkspaceReference) async throws -> WorkspaceCollectionRows
+    /// Queue edits to a collection folder's rows (Schema language 007). The
+    /// host derives the tables they make; until its result arrives,
+    /// `collectionRows` shows them applied over the rows last received.
+    func appendRowEdits(_ edits: [RowEdit], to reference: WorkspaceReference) async throws
 }
 
 /// What a collection folder holds, ready to present.
@@ -538,6 +542,10 @@ public extension WorkspaceProvider {
 
     func collectionRows(_ reference: WorkspaceReference) async throws -> WorkspaceCollectionRows {
         throw WorkspaceCollectionError.notCollection
+    }
+
+    func appendRowEdits(_ edits: [RowEdit], to reference: WorkspaceReference) async throws {
+        throw WorkspaceProviderError.readOnly(reference)
     }
 
     func resolve(_ location: WorkspaceLocation) async throws -> WorkspaceNode {
