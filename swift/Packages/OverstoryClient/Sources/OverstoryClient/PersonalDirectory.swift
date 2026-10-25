@@ -271,9 +271,10 @@ public actor PersonalDirectoryKeeper {
             if let row = known[visit.tree] {
                 var filled = row
                 for (field, value) in [("canopy", visit.canopy), ("title", visit.treeTitle)] {
-                    guard let value, row[field] == nil || row[field] == .null, !row.isEmpty else { continue }
+                    let before = row[field] ?? .null
+                    guard let value, !value.isEmpty, before == .null || before == .string(""), !row.isEmpty else { continue }
                     waiting.append((PersonalDirectory.trees, .set(table: "Tree", row: RowEdit.rowKey(visit.tree), field: field,
-                        before: .null, value: .string(value), at: ProtocolSourceOperation.rowTime(visit.at))))
+                        before: before, value: .string(value), at: ProtocolSourceOperation.rowTime(visit.at))))
                     filled[field] = .string(value)
                 }
                 known[visit.tree] = filled

@@ -3654,7 +3654,7 @@ extension StoryWorkspaceState {
         let host = endpoint?.host()
         // A tree is titled by its root page, else its URL's last name; the
         // community's own tree, at "/", by its host.
-        let treeTitle = node.reference.path == "/" ? node.title
+        let treeTitle = node.reference.path == "/" && !node.title.isEmpty ? node.title
             : currentTreeCanonical?.path.split(separator: "/").last.map(String.init) ?? host
         var visit = DirectoryVisit(tree: node.reference.tree.rawValue, path: node.reference.path, title: node.title,
                                    treeTitle: treeTitle, host: host)
