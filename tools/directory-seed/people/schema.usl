@@ -1,27 +1,42 @@
-// The people you know: one row per profile or placeholder you keep notes on,
-// and one Sighting per time Story saw a tie with someone. Story only ever
-// adds sightings, so two devices never edit one row; who you know is every
-// person a sighting or a contact names.
-main model Contact {
+// The people you know. Story adds one Tie per fact it sees (you're in a
+// group or canopy together, you shared a tree with them, you opened their
+// profile), keyed by the fact, so the same fact seen on two devices is one
+// row. Contacts are yours to write: notes, and placeholders for people with
+// no profile yet.
+main model Tie {
+  person Person
+  group  Person?
+  kind   TieKind
+  name   Text?
+  handle Text?
+  host   Text?
+}
+
+model Contact {
   name    Text
   profile Person?
   reach   Text?
   notes   Markdown?
 }
 
-model Sighting {
-  person Person
-  kind   Tie
-  name   Text?
-  handle Text?
-  host   Text?
-  tree   Text?
-  device Text?
-  at     Date
+enum TieKind {
+  Community
+  Group
+  Shared
+  SharedWithYou
+  Invited
+  InvitedYou
+  Opened
 }
 
-enum Tie { Invited, InvitedYou, Shared, SharedWithYou, Group, Opened }
-
+Tie.person <-> Person.ties[]
+Tie.group? <-> Person.members[]
+Tie.kind <-> TieKind.ties[]
 Contact.profile? <-> Person.contacts[]
-Sighting.person <-> Person.sightings[]
-Sighting.kind <-> Tie.sightings[]
+
+re Tie {
+  ~views([
+    { label: "By group", group: group, line: [person, kind] },
+    { label: "By person", group: person, line: [kind, group] },
+  ])
+}

@@ -27,25 +27,29 @@ struct PersonalDirectoryTests {
         }
     }
 
-    @Test("Sightings and visits are new rows the schemas accept")
+    @Test("Ties are keyed by the fact, visits are new rows, and the schemas accept both")
     func rows() async throws {
         try await withSeedTree { provider, tree in
             let at = Date(timeIntervalSince1970: 1_800_000_000)
             let people = try await provider.collectionRows(WorkspaceReference(tree: tree, path: PersonalDirectory.people))
-            let sighting = RowEdit.directory(DirectorySighting(person: "tr_ada", tie: .group, name: "Ada", handle: "ada", host: "arb.example", tree: "tr_club"), device: "Mac", at: at)
-            let placeholder = RowEdit.directory(DirectorySighting(person: "contact:grace", tie: .invited), device: nil, at: at)
-            let rows = try applyRowEdits(people.schema, people.rows, [sighting, placeholder])
-            let sightings = try #require(rows["Sighting"])
-            #expect(sightings.count == 2)
-            let ada = try #require(sightings.first { $0["person"] == .string("tr_ada") })
-            #expect(ada["kind"] == .string("Group") && ada["tree"] == .string("tr_club") && ada["device"] == .string("Mac"))
-            #expect(ada["at"] == .string("2027-01-15T08:00:00.000Z"))
-            #expect(sightings.first { $0["person"] == .string("contact:grace") }?["device"] == nil)
+            let tie = DirectoryTie(person: "tr_ada", kind: .group, group: "tr_club", name: "Ada", handle: "ada", host: "arb.example")
+            #expect(tie.id == "Group-tr_ada-tr_club")
+            let placeholder = DirectoryTie(person: "contact:grace", kind: .invited)
+            let rows = try applyRowEdits(people.schema, people.rows, [.directory(tie, at: at), .directory(placeholder, at: at)])
+            let ties = try #require(rows["Tie"])
+            #expect(ties.count == 2)
+            let ada = try #require(ties.first { $0["person"] == .string("tr_ada") })
+            #expect(ada["kind"] == .string("Group") && ada["group"] == .string("tr_club") && ada["id"] == .string(tie.id))
+            // The same fact again is the same row, which the rows refuse to make twice.
+            #expect(throws: (any Error).self) { try applyRowEdits(people.schema, rows, [.directory(tie, at: at)]) }
 
             let trees = try await provider.collectionRows(WorkspaceReference(tree: tree, path: PersonalDirectory.trees))
-            let visit = RowEdit.directory(DirectoryVisit(tree: "tr_notes", path: "/ideas", title: "Ideas", host: "arb.example", at: at), device: "iPhone")
-            let visits = try #require(try applyRowEdits(trees.schema, trees.rows, [visit])["Visit"])
+            let visit = DirectoryVisit(tree: "tr_notes", path: "/ideas", title: "Ideas", treeTitle: "Notes", host: "arb.example", canopy: "tr_canopy", at: at)
+            let applied = try applyRowEdits(trees.schema, trees.rows, [.directoryTree(visit), .directory(visit, device: "iPhone")])
+            #expect(applied["Tree"]?.first?["id"] == .string("tr_notes") && applied["Tree"]?.first?["canopy"] == .string("tr_canopy"))
+            let visits = try #require(applied["Visit"])
             #expect(visits.first?["how"] == .string("Opened") && visits.first?["path"] == .string("/ideas"))
+            #expect(visits.first?["at"] == .string("2027-01-15T08:00:00.000Z"))
         }
     }
 }

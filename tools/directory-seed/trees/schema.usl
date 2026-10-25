@@ -1,10 +1,16 @@
-// Trees you have been in: one Visit per page opened (at most one an hour
-// per page and device), and per tree placed, shared with you or followed to.
-main model Visit {
+// The trees you have been in. Story adds one Tree per tree, keyed by its
+// TreeID, so two devices adding it make one row, and one Visit per page you
+// open (at most one an hour per page and device).
+main model Tree {
+  canopy Person?
+  title  Text?
+  host   Text?
+}
+
+model Visit {
   tree   Text
   path   Text
   title  Text?
-  host   Text?
   how    Arrival
   device Text?
   at     Date
@@ -12,4 +18,12 @@ main model Visit {
 
 enum Arrival { Opened, Placed, SharedWithYou, Followed }
 
+Tree.canopy? <-> Person.trees[]
 Visit.how <-> Arrival.visits[]
+
+re Tree {
+  ~views([
+    { label: "By canopy", group: canopy, line: [title, host] },
+    { label: "All", line: [title, host] },
+  ])
+}

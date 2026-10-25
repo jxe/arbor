@@ -115,6 +115,8 @@ extension UpdateCoordinator {
                         // Update ids are opaque: the tree has the result once it
                         // installs it, the reported head, or any later state.
                         if heads.acceptedUpdate == accepted.update || heads.acceptedUpdate == accepted.head || heads.acceptedUpdate != accepted.installed {
+                            // Appends may have landed while this awaited; write over the latest.
+                            state = try rowQueue()
                             state.pending.removeAll { submission.batches.contains($0.id) }
                             state.submission = nil
                             try writeRowQueue(state)
@@ -135,16 +137,20 @@ extension UpdateCoordinator {
                         }
                         let update: ProtocolAcceptedUpdate
                         switch last.result { case let .accepted(value), let .unchanged(value): update = value }
-                        state.submission?.accepted = .init(update: update.id, head: response.head.update, installed: try await workingTree.heads().acceptedUpdate)
+                        let installed = try await workingTree.heads().acceptedUpdate
+                        state = try rowQueue()
+                        state.submission?.accepted = .init(update: update.id, head: response.head.update, installed: installed)
                         try writeRowQueue(state)
                         delay = .seconds(1)
                         nudgeFreshness()
                     } catch let http as ProtocolHTTPError where http.code == "base-not-retained" {
                         // Rebuild on the tree's current accepted state.
+                        state = try rowQueue()
                         state.submission = nil
                         try writeRowQueue(state)
                     } catch let http as ProtocolHTTPError where (400..<500).contains(http.status) && ![401, 403, 408, 429].contains(http.status) && http.code != "http-error" && !http.retryable {
                         // The host refused these edits; repeating them can't change that.
+                        state = try rowQueue()
                         state.pending.removeAll { submission.batches.contains($0.id) }
                         state.submission = nil
                         state.refused = http.message ?? http.code
@@ -161,18 +167,44 @@ extension UpdateCoordinator {
                 let base = ProtocolUpdateBase(root: root, update: update)
                 var operations: [ProtocolSourceOperation] = []
                 var objects: [String: String] = [:]
+                var current: [String: WorkspaceCollectionRows] = [:]
+                let treeID = await workingTree.treeID()
                 for batch in state.pending {
-                    if objects[batch.collection] == nil { objects[batch.collection] = try await directoryObject(at: batch.collection, in: root) }
+                    if objects[batch.collection] == nil {
+                        objects[batch.collection] = try await directoryObject(at: batch.collection, in: root)
+                        current[batch.collection] = try? await workingTree.collectionRows(
+                            for: try await workingTree.resolve(WorkspaceReference(tree: treeID, path: batch.collection)))
+                    }
                     for edit in batch.edits {
-                        operations.append(try Self.rowOperation(try RowEdit(json: edit), key: "op-\(operations.count)",
+                        let rowEdit = try RowEdit(json: edit)
+                        // An edit the rows no longer allow, such as making a row
+                        // another device made meanwhile, is left out, as the view
+                        // leaves it out, rather than have the host refuse the rest.
+                        if var collection = current[batch.collection] {
+                            guard let rows = try? applyRowEdits(collection.schema, collection.rows, [rowEdit]) else { continue }
+                            collection.rows = rows
+                            current[batch.collection] = collection
+                        }
+                        operations.append(try Self.rowOperation(rowEdit, key: "op-\(operations.count)",
                             collection: batch.collection, object: objects[batch.collection]!))
                     }
+                }
+                guard !operations.isEmpty else {
+                    // The rows allow none of these edits now; drop their batches, keeping any appended meanwhile.
+                    let batches = Set(state.pending.map(\.id))
+                    var latest = try rowQueue()
+                    latest.pending.removeAll { batches.contains($0.id) }
+                    try writeRowQueue(latest)
+                    await workingTree.invalidateDocumentViews()
+                    return
                 }
                 let element = try ProtocolDerivedUpdate(change: "rows-\(UUID().uuidString)", frames: [operations])
                 let tree = await workingTree.treeID().rawValue
                 let encoding = ProtocolWireEncoding.cbor
+                let batches = state.pending.map(\.id)
+                state = try rowQueue()
                 state.submission = RowSubmission(
-                    tree: tree, batches: state.pending.map(\.id), base: base,
+                    tree: tree, batches: batches, base: base,
                     body: try encoding.encode(ProtocolDerivedUpdateRequest(base: update, updates: [element])),
                     contentType: encoding.storedContentType,
                     requestDigests: derivedUpdateRequestDigests(tree: tree, base: update, updates: [element]))

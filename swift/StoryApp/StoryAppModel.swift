@@ -286,6 +286,9 @@ final class StoryWorkspaceState {
     private var personalDirectoryBusy = false
     /// The directory's tree once found or made, and the account it is under.
     private(set) var personalDirectoryTree: (tree: ProtocolTreeDescriptor, origin: URL, configurationTree: String)?
+    /// Each connected host's community profile, by host name: the canopy a
+    /// tree or person there is under.
+    private var canopies: [String: String] = [:]
     /// People the directory remembers by name: profiles Story has seen, and
     /// placeholders as `contact:<key>`.
     private(set) var rememberedPeople: [PresentedPerson] = []
@@ -1954,7 +1957,7 @@ final class StoryWorkspaceState {
     }
 
     func openDirectoryProfile(_ person: DirectoryPerson) async throws {
-        recordSightings([DirectorySighting(person: person.id, tie: .opened, name: person.entry.displayName,
+        recordTies([DirectoryTie(person: person.id, kind: .opened, name: person.entry.displayName,
             handle: person.entry.handle, host: person.origin.host())])
 #if os(macOS)
         guard let locator = person.entry.locator else {
@@ -3572,13 +3575,20 @@ extension StoryWorkspaceState {
             Self.recordDiagnostic("directory-tree", error)
             return
         }
-        await keeper.record(Self.sightings(in: directory, own: account.profileTree))
+        for other in accounts where other.credentialAvailable {
+            guard let host = other.origin?.host(), canopies[host] == nil,
+                  let client = try? await accountService.client(for: other),
+                  let community = try? await client.account().account.community.id else { continue }
+            canopies[host] = community
+        }
+        await keeper.record(Self.ties(in: directory, own: account.profileTree, canopies: canopies))
 #if os(macOS)
-        let imported = "directory.importedVisits.\(account.configurationTree)"
+        let imported = "directory.importedVisits.\(PersonalDirectory.seedVersion).\(account.configurationTree)"
         if !UserDefaults.standard.bool(forKey: imported), let visits = try? await visitedTreeStore.loadAll() {
             await keeper.record(visits.map { visit in
-                DirectoryVisit(tree: visit.tree.id, path: "/", title: visit.tree.canonicalPath?.split(separator: "/").last.map(String.init),
-                               host: visit.origin.host(), at: visit.visitedAt)
+                let title = visit.tree.canonicalPath?.split(separator: "/").last.map(String.init)
+                return DirectoryVisit(tree: visit.tree.id, path: "/", title: title, treeTitle: title, host: visit.origin.host(),
+                                      canopy: visit.origin.host().flatMap { canopies[$0] }, at: visit.visitedAt)
             })
             UserDefaults.standard.set(true, forKey: imported)
         }
@@ -3587,28 +3597,32 @@ extension StoryWorkspaceState {
     }
 
     /// The ties the hosts list: a group you are in together, and a person
-    /// named in the sharing rules of a tree you administer. Being in the same
-    /// host community is not a tie, and is not copied.
-    nonisolated static func sightings(in people: [DirectoryPerson], own: String?) -> [DirectorySighting] {
+    /// named in the sharing rules of a tree you administer. Someone you have
+    /// one of those ties with is also placed under their host's community, the
+    /// canopy; the rest of a community is not copied.
+    nonisolated static func ties(in people: [DirectoryPerson], own: String?, canopies: [String: String]) -> [DirectoryTie] {
         let mine = Set(people.first { $0.id == own }?.entry.sources ?? [])
-        return people.filter { $0.id != own }.flatMap { person in
-            person.entry.sources.compactMap { source -> DirectorySighting? in
-                let host = person.origin.host()
-                if source == "access" {
-                    return DirectorySighting(person: person.id, tie: .shared, name: person.entry.displayName, handle: person.entry.handle, host: host)
-                }
+        return people.filter { $0.id != own }.flatMap { person -> [DirectoryTie] in
+            let tie = { (kind: DirectoryTieKind, group: String?) in
+                DirectoryTie(person: person.id, kind: kind, group: group, name: person.entry.displayName,
+                             handle: person.entry.handle, host: person.origin.host())
+            }
+            let ties = person.entry.sources.compactMap { source -> DirectoryTie? in
+                if source == "access" { return tie(.shared, nil) }
                 guard source.hasPrefix("group:"), mine.contains(source) else { return nil }
                 let group = String(source.dropFirst("group:".count))
-                guard group != person.id else { return nil }
-                return DirectorySighting(person: person.id, tie: .group, name: person.entry.displayName, handle: person.entry.handle, host: host, tree: group)
+                return group == person.id ? nil : tie(.group, group)
             }
+            guard !ties.isEmpty, person.entry.sources.contains("community"),
+                  let canopy = person.origin.host().flatMap({ canopies[$0] }), canopy != person.id else { return ties }
+            return ties + [tie(.community, canopy)]
         }
     }
 
-    func recordSightings(_ sightings: [DirectorySighting]) {
+    func recordTies(_ ties: [DirectoryTie]) {
         guard let keeper = personalDirectory else { return }
         Task {
-            await keeper.record(sightings)
+            await keeper.record(ties)
             await refreshRememberedPeople()
         }
     }
@@ -3617,8 +3631,10 @@ extension StoryWorkspaceState {
     /// pages are not visits.
     func recordVisit(_ node: WorkspaceNode) {
         guard let keeper = personalDirectory, node.reference.tree.rawValue.hasPrefix("tr_") else { return }
+        let host = currentTreeCanonical.flatMap { URL(string: $0.endpoint)?.host() }
+        let treeTitle = node.reference.path == "/" ? node.title : currentTreeCanonical?.path.split(separator: "/").last.map(String.init)
         let visit = DirectoryVisit(tree: node.reference.tree.rawValue, path: node.reference.path, title: node.title,
-                                   host: currentTreeCanonical.flatMap { URL(string: $0.endpoint)?.host() })
+                                   treeTitle: treeTitle, host: host, canopy: host.flatMap { canopies[$0] })
         Task {
             guard await keeper.tree?.id != visit.tree else { return }
             await keeper.record([visit])
@@ -3653,19 +3669,19 @@ extension StoryWorkspaceState {
     }
 
     /// Names for the people the directory remembers: each profile by the
-    /// latest name a sighting saw, and each contact as `contact:<key>`.
+    /// latest name a tie saw, and each contact as `contact:<key>`.
     func refreshRememberedPeople() async {
         guard let keeper = personalDirectory else { return }
         var seen: [String: (at: String, name: String)] = [:]
-        for row in await keeper.rows(PersonalDirectory.people, model: "Sighting") {
+        for row in await keeper.rows(PersonalDirectory.people, model: "Tie") {
             guard let person = row["person"]?.stringValue,
                   let name = row["name"]?.stringValue ?? row["handle"]?.stringValue.map({ "~" + $0 }) else { continue }
-            let at = row["at"]?.stringValue ?? ""
+            let at = row["modified"]?.stringValue ?? ""
             if (seen[person]?.at ?? "") <= at { seen[person] = (at, name) }
         }
         let contacts = await keeper.rows(PersonalDirectory.people, model: "Contact").compactMap { row -> PresentedPerson? in
             guard let id = row["id"]?.stringValue, let name = row["name"]?.stringValue else { return nil }
-            // A contact's own name for a profile wins over what sightings saw.
+            // A contact's own name for a profile wins over what ties saw.
             if let profile = row["profile"]?.stringValue { seen[profile] = ("", name); return nil }
             return PresentedPerson(id: "contact:\(id)", name: name)
         }
