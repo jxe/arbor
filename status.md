@@ -34,7 +34,8 @@ Plan Schema language 006 is done and deleted; its text is in git history at `58e
   come with the directory ([People 001](plans/later/people-001-directory-and-go-to.md) phase 1).
 - **Tests:** the StoryKit, Overstory and OverstoryWorkingTree package tests and
   `swift/scripts/test-story-app.sh` passed on Joe's Mac (103 passed, 1 skipped at `9b4fb9b`);
-  `bun run test:affected` passes.
+  `bun run test:affected` passes. At `58e23a6` the packages, the TS tests and the Mac and iOS
+  builds passed; the app-hosted tests didn't run, as Joe's debug Story was open (small work).
 
 Next: [Schema language 007](plans/soon/schema-language-007-edit-rows-in-story.md), editing rows
 in Story on the Mac and iPhone.

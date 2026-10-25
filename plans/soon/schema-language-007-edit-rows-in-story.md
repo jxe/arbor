@@ -57,7 +57,8 @@ The People directory needs both, and the iPhone has no Story Sync.
    connect on its holder, a position is a move). Vectors beside `presented-views.json`.
 5. **Simple edits in the collection view, Mac and iPhone.** A bullet choice's dot opens a menu
    of values; the line's first text field renames inline; chips add and remove through a
-   menu; a line's context menu deletes (or removes from the group); a group gets an "Add" line
+   menu (people from the directory Story has, keeping any `contact:` placeholders a row
+   already holds; adding a new placeholder waits for People 001); a line's context menu deletes (or removes from the group); a group gets an "Add" line
    that creates a row there. Each re-presents from the working tree. The rich editor stays
    002 milestone 4.
 6. **Close out.** Record the evidence in `status.md`, delete

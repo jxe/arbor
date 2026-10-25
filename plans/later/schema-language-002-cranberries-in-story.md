@@ -100,7 +100,9 @@ any time before 6; 7 needs only 3 and 4. The directory needs 3, 3a, 4 and 7.
 `presentView` and its StoryKit port on main, the shared vectors, and Story's read-only view on
 the Mac. What is left here: the directory's needs below (an arrangement menu, `sort` on a date,
 read-only groups the host supplies), and fields a client styles today that a schema can't set
-(the bullet tinting the title, Markdown as a note). The iPhone reads with
+(the bullet tinting the title, Markdown as a note). `PresentedView` doesn't say which chips
+and groups are people, so Story guesses from a TreeID or the placeholder flag; give cells and
+groups their field's target type in both stacks and the vectors. The iPhone reads with
 [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md) step 0, and editing is
 007 and milestone 4. The history below predates that.
 
@@ -374,7 +376,10 @@ administrator changes `authors`.
   - `@ordered` positions from `List_games.games_position`.
 - Cranberries has no export command. `readDocument` returns the whole
   snapshot, so a small `cranberries export` that writes it through
-  `@ovst/usl`'s `rowsFromRecords` would serve both sites.
+  `@ovst/usl`'s `rowsFromRecords` would serve both sites. The games sandbox
+  (2026-10-24) was filled this way by a one-off script from the public
+  `GET /api/cranberries?document=games`: ids and `modified` kept, `created`
+  not carried, people's names, avatars and bios dropped (no Person rows).
 - Use excellences' own `lib/schema.usl`, which has the `@fold`s;
   `packages/usl/examples/excellences.usl` has drifted from it, so
   replace the example.
