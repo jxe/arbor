@@ -123,7 +123,8 @@ collapsed sections and are not copied.
 - Record sightings where they happen today: invitation claims, placements, shares, group edits,
   profile opens. Record visits in the Trees collection on Mac and iPhone; import `Visits.json`
   and the current `Directory.json` rows once, then remove `Visits.json`.
-- Story keeps the directory from code (007's `appendRows`) and shows it with 006's read-only
+- Story keeps the directory from code (007's `appendRows`: derived row changes, queued while
+  offline, sent through the host on every device) and shows it with 006's read-only
   collection view, grouped by group; a contact's row lists their trees. Editing it by hand
   comes with 007 part 2, and forming groups in phase 2.
 - **No same-field races.** Both devices write directory rows with nobody at the keyboard, and

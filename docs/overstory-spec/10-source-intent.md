@@ -36,21 +36,23 @@ conservative correspondence, but MUST NOT invent move, copy, undo or resolution 
 ## 2. The trace
 
 ```ts
-type Frame = { before: Hash; after: Hash; operations: Operation[] };
+type Frame = { before?: Hash; after?: Hash; operations: Operation[] };
 ```
 
 A trace is an ordered chain of frames, each one tree root to the next. It records
 the authored transition as the client actually made it, rather than flattening
-several editor generations into one claim that no single basis explains.
+several editor generations into one claim that no single basis explains. A
+*stated* trace names every frame's roots, as below; a *derived* trace names
+none and leaves them to the host (§2.2).
 
-- `trace[0].before` MUST be the candidate's authored basis root, and each later
+- In a stated trace, `trace[0].before` MUST be the candidate's authored basis root, and each later
   frame's `before` MUST equal its predecessor's `after`.
 - The last frame's `after` MUST be `candidate`.
 - Every frame MUST reproduce its `after` exactly, including untouched bytes, when
   its operations execute against its `before` (§3). A frame that does not is
   invalid; the host never falls back to the candidate's bytes. Row operations
-  re-derive the collection they change (§4.1), and that derivation is the
-  frame's exact result.
+  appear only in derived traces (§2.2), and a frame that carries row
+  operations carries no other kind.
 - Each frame carries at least one operation. A change with nothing to state uses
   an empty trace or, for snapshot semantics, `null`.
 
@@ -63,6 +65,34 @@ Limits: at most 64 frames per candidate and 1024 operations across the whole
 trace. The request digest ([tree operations §2.1](01-tree-operations.md#21-the-update-request))
 covers the trace, so the same operations divided into different frames are a
 different change.
+
+### 2.2 Derived candidates
+
+A candidate with `candidate: null` has a *derived* trace: no frame has `before`
+or `after`. Its basis is positional, the element's logical base
+([tree operations §2.1](01-tree-operations.md#21-the-update-request)), and each
+later frame executes on its predecessor's result. The host executes the frames
+exactly as it checks a stated trace (§3, §4), and the last result is the
+element's candidate; acceptance then continues as for any candidate (§5). An
+operation that does not apply on its basis rejects the element, as a frame that
+does not reproduce its `after` would. `resolves` and `ifCurrent` work as for any
+candidate. A derived candidate needs no objects or deltas beyond the content its
+operations introduce. A snapshot (`trace: null`) is never derived: its candidate
+is its content.
+
+Any operation trace may be derived. Row operations (§4.1) MUST be: the tables a
+collection is encoded in are the host's to build, so no client states them,
+whether it is a device editing rows or Story Sync submitting edits made in a
+projection. A client that holds the tree and can compute roots should state
+them: a stated root lets later elements chain on it while earlier ones are in
+flight, and an `after` the host does not reproduce exposes a divergence at once.
+Only derived elements may follow a derived element in one string, since the
+author cannot name the root it would build on; other work waits for the derived
+element's result and is replayed onto it like any accepted change.
+
+A client that cannot encode a collection's tables never needs to: it sends
+row changes as derived candidates, shows them applied over the rows it last received until
+their results arrive, and applies each result as a watch frame.
 
 ## 3. References in authored changes
 
@@ -169,12 +199,8 @@ An authority rejects an `at` more than five minutes ahead of its own clock.
 A row operation names a row by identity, so concurrent changes to one row
 merge field by field (§7.1). It has no material result to reference.
 
-Replay applies a frame's row operations in order to its `before` collection's
-rows, validates the result against the schema, and encodes the changed tables
-in the canonical form of
-[child backings §2.1](06-child-backings.md#21-what-the-tree-holds). The
-frame's `after` MUST equal that tree. A frame that carries row operations
-carries no other kind; a change that also edits text uses separate frames.
+Row operations travel only in derived traces (§2.2), which the host replays
+on the element's basis; no client states the resulting tree.
 
 ## 5. Acceptance and explicit resolution
 

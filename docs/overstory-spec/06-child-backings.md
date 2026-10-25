@@ -257,9 +257,10 @@ title are fields ([schema language §7](11-schema-language.md#7-attributes)).
 
 ### 2.3 Accepted update validation and merge
 
-An update changes a collection by row operations, which the host replays on
-its accepted basis rows; the frame's `after` must equal the tree the replay
-derives ([source intent §2](10-source-intent.md#2-the-trace)). A snapshot
+An update changes a collection by row operations, sent in a derived trace
+that the host replays on its basis rows to derive the candidate
+([source intent §2.2](10-source-intent.md#22-derived-candidates)); clients never
+encode a collection's tables. A snapshot
 update (a `null` trace) that changes a collection is accepted only from a
 caller allowed to `write` the collection's path, and its effects are the row
 differences from its basis. The host validates all keys, references and

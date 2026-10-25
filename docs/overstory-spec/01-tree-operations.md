@@ -748,11 +748,18 @@ type UpdateRequest = {
 type CandidateUpdate = TransitionPayload & {
   change: string;
   trace: Frame[] | null;
-  candidate: Hash;
+  candidate: Hash | null;
   resolves: ResolutionDeclaration[];
   ifCurrent?: string;
 };
 ```
+
+`candidate` is `null` exactly for a *derived* candidate: an operation trace
+whose frames have no `before` or `after`
+([source intent §2.2](10-source-intent.md#22-derived-candidates)). The host
+derives its candidate by executing the trace on the element's logical base.
+Row operations are always sent this way; any other operation trace may be,
+and a snapshot never is.
 
 `change` is a durable authored-change identity; `trace: null` explicitly
 selects snapshot semantics. A trace is a chain of tree-root to tree-root frames
@@ -851,7 +858,11 @@ proves its prefix was processed, while an otherwise unresolved `unchanged`
 element may be evaluated again without creating accepted history.
 
 For each untrimmed element, the logical base root is the preceding submitted
-candidate, not the preceding accepted or merged root. Thus, if `B` to `C1` is
+candidate (for a derived candidate, the root the host derived), not the preceding
+accepted or merged root. An element that follows a derived candidate in the same
+string MUST itself be derived, because its author cannot name the root it
+would be authored on; other work waits for that element's result and is
+replayed onto it like any accepted change. Thus, if `B` to `C1` is
 merged into `M1`, the next element is reconciled as `(base: C1, candidate: C2,
 current: M1)`. Only the incremental `C1` to `C2` change is applied to the
 merged state. Each successful state-changing element is committed and emitted
@@ -991,6 +1002,23 @@ a superseded, merged, or replayed result is applied with the same code that
 applies a watch frame. A result whose projected root equals the candidate returns none, including
 metadata-only acceptance. Its accepted identity still must be applied.
 
+A derived candidate's result also carries `candidate`, the root the host derived,
+and its `reconciliation` is the transition from the preceding result's
+`update.root` (for the first element, the root at `base`) to `update.root`,
+present whenever they differ. The client never held the derived candidate's
+objects, so it applies the result as it applies a watch frame and drops the
+operations from its pending queue.
+
+```ts
+type UpdateResult = {
+  outcome: "unchanged" | "accepted";
+  update: AcceptedUpdate;
+  requestDigest: Hash;
+  candidate?: Hash;            // derived candidates only
+  reconciliation?: TransitionPayload;
+};
+```
+
 A rejected reconciliation uses the shared `OverstoryError` envelope with
 `details.kind: "server-update" | "tree-configuration"`. Its details include
 `completed`, the ordered successful prefix results; `failedIndex`; the current
@@ -1010,7 +1038,9 @@ applied exactly becomes a new client-owned conflict before submission.
 Semantic request identity is the SHA-256 of the
 [canonical CBOR encoding](#41-cbor-and-hashes)
 of `{ domain: "arbor-update/2", tree, base, change, trace, candidate, resolves, ifCurrent }`,
-with absent `ifCurrent` encoded as CBOR null. The digest covers the whole trace,
+with absent `ifCurrent` encoded as CBOR null, and a derived candidate's
+`candidate` as CBOR null. Execution is deterministic (a row operation carries its
+`at`), so a retried derived candidate derives the same root under the same digest. The digest covers the whole trace,
 including each frame's `before` and `after`, so the same operations divided into
 different frames are a different change. Ordered arrays retain their submitted
 order, including resolution declarations and reviewed alternative IDs. Identity is
@@ -1018,7 +1048,8 @@ scoped to the authenticated device, across its sessions. The `domain` string is
 a historical spelling that is part of the hashed bytes.
 For the first element, `base` is the request's accepted update id or `null`.
 For each later element, `base` is
-`{ requestDigest: previousDigest, candidate: previousCandidate }`. This latter
+`{ requestDigest: previousDigest, candidate: previousCandidate }`, where a
+preceding derived candidate's `candidate` is null. This latter
 object is part of semantic identity but is implicit in the ordered JSON request.
 `objects`, `deltas`, their ordering, and the body's
 [encoding](#44-request-and-response-encodings) are
