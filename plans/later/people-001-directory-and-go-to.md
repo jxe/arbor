@@ -176,6 +176,12 @@ Account Settings, groups you run; then People & Trees… ⇧⌘D; then Open Tree
 below; the People footer and sheet are gone. Not yet: invitation claims, shares made elsewhere
 than a refresh shows, rewriting `contact:` values, a migration path, and the Go to… typeahead.
 
+Same-field races between devices need not shape the schema (Joe, 2026-10-25): overstoryd's
+merge sidecar can resolve them, e.g. latest wins for a tree's title or a last-seen time, a
+union for chips, added increments for a count. A general form would be a storage attribute a
+schema asks for (`@merge(latest)`); with it, a tree could be one row with `title`, `lastVisited`
+and `visits` updated in place instead of a Visit row per page.
+
 ## Phase 2: People as a database view (after 002 milestones 3, 4 and 7)
 
 People is the directory's People collection presented and edited with Schema language 002's
