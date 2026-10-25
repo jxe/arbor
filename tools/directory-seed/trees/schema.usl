@@ -1,0 +1,15 @@
+// Trees you have been in: one Visit per page opened (at most one an hour
+// per page and device), and per tree placed, shared with you or followed to.
+main model Visit {
+  tree   Text
+  path   Text
+  title  Text?
+  host   Text?
+  how    Arrival
+  device Text?
+  at     Date
+}
+
+enum Arrival { Opened, Placed, SharedWithYou, Followed }
+
+Visit.how <-> Arrival.visits[]

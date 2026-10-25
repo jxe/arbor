@@ -1,0 +1,27 @@
+// The people you know: one row per profile or placeholder you keep notes on,
+// and one Sighting per time Story saw a tie with someone. Story only ever
+// adds sightings, so two devices never edit one row; who you know is every
+// person a sighting or a contact names.
+main model Contact {
+  name    Text
+  profile Person?
+  reach   Text?
+  notes   Markdown?
+}
+
+model Sighting {
+  person Person
+  kind   Tie
+  name   Text?
+  handle Text?
+  host   Text?
+  tree   Text?
+  device Text?
+  at     Date
+}
+
+enum Tie { Invited, InvitedYou, Shared, SharedWithYou, Group, Opened }
+
+Contact.profile? <-> Person.contacts[]
+Sighting.person <-> Person.sightings[]
+Sighting.kind <-> Tie.sightings[]

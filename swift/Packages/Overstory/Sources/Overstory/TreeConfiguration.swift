@@ -63,6 +63,20 @@ public extension ProtocolClient {
         )
         return try await submitUpdate(submission)
     }
+
+    /// Activate a declared tree with its first snapshot: a null-base request
+    /// whose one element is the snapshot (accounts §6).
+    func activateTree(_ tree: String, snapshot: ProtocolSnapshot, change: String = UUID().uuidString) async throws -> ProtocolUpdateResult {
+        _ = try ProtocolObjectGraph.validate(snapshot)
+        let update = ProtocolCandidateUpdate.activation(snapshot, change: change)
+        let request = ProtocolUpdateRequest(base: nil, updates: [update])
+        let submission = try self.prepared(
+            tree: tree,
+            request: request,
+            requestDigests: updateRequestDigests(tree: tree, base: nil, updates: [update])
+        )
+        return try await submitUpdate(submission)
+    }
 }
 
 public extension ProtocolSnapshot {

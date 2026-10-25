@@ -280,6 +280,13 @@ final class StoryWorkspaceState {
     private(set) var directoryIsRefreshing = false
     private(set) var directoryError: String?
     private var directoryRefreshTask: Task<Void, Never>?
+    /// The directory tree Story keeps (People 001), and the account it is for.
+    private var personalDirectory: PersonalDirectoryKeeper?
+    private var personalDirectoryAccount: String?
+    private var personalDirectoryBusy = false
+    /// People the directory remembers by name: profiles Story has seen, and
+    /// placeholders as `contact:<key>`.
+    private(set) var rememberedPeople: [PresentedPerson] = []
     var pendingProfileAction: StoryProfileAction?
     private let nativePlacementStore = NativePlacementStore()
     private(set) var nativePlacements: [NativePlacementRecord] = []
@@ -1923,6 +1930,7 @@ final class StoryWorkspaceState {
             }
             self.directory = (try? await self.directoryStore.load()) ?? self.directory
             self.directoryError = failures.isEmpty ? nil : failures.joined(separator: "\n")
+            Task { await self.keepPersonalDirectory(accounts: accounts) }
         }
         directoryRefreshTask = task
         await task.value
@@ -1944,6 +1952,8 @@ final class StoryWorkspaceState {
     }
 
     func openDirectoryProfile(_ person: DirectoryPerson) async throws {
+        recordSightings([DirectorySighting(person: person.id, tie: .opened, name: person.entry.displayName,
+            handle: person.entry.handle, host: person.origin.host())])
 #if os(macOS)
         guard let locator = person.entry.locator else {
             throw ProtocolValidationError.invalidValue("Profile is not on this host")
@@ -2571,6 +2581,7 @@ final class StoryAppModel {
             guard requestID == loadRequestID, observedWorkspaceGeneration == workspace.generation else { return }
             tabs.replaceCurrent(with: resolved.location)
             node = resolved
+            workspace.recordVisit(resolved)
             children = loadedChildren
             if searchResults.isEmpty {
                 searchResults = loadedChildren.map {
@@ -3513,5 +3524,122 @@ extension NativePlacementRecord {
         tree.canonicalPath.flatMap { $0.split(separator: "/").last.map(String.init) }
             ?? osPath.map { URL(filePath: $0).lastPathComponent }
             ?? tree.id
+    }
+}
+
+// MARK: The directory tree (People 001)
+
+extension StoryWorkspaceState {
+    /// This device's name on the rows it adds to the directory.
+    private static var directoryDeviceLabel: String {
+#if os(macOS)
+        "Mac"
+#else
+        UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+#endif
+    }
+
+    /// Find or make the home account's directory and keep it open, then add
+    /// the ties the hosts just listed and, once, the Mac's earlier visits.
+    func keepPersonalDirectory(accounts: [HostAccount]) async {
+        guard !personalDirectoryBusy,
+              let account = accounts.first(where: { $0.credentialAvailable && $0.origin != nil && $0.handle != nil && $0.profileTree != nil }),
+              let handle = account.handle else { return }
+        personalDirectoryBusy = true
+        defer { personalDirectoryBusy = false }
+        if personalDirectoryAccount != account.configurationTree {
+            await personalDirectory?.close()
+            personalDirectory = nil
+            do {
+                let key = StorySupportDirectories.workingTreeKey(account.configurationTree)
+                personalDirectory = PersonalDirectoryKeeper(
+                    client: try await accountService.client(for: account), handle: handle,
+                    stateRoot: StorySupportDirectories.root.appending(path: "Directory/\(key)", directoryHint: .isDirectory),
+                    device: Self.directoryDeviceLabel, mayCreate: true)
+                personalDirectoryAccount = account.configurationTree
+            } catch {
+                Self.recordDiagnostic("directory-tree", error)
+                return
+            }
+        }
+        guard let keeper = personalDirectory else { return }
+        do {
+            guard try await keeper.open() != nil else { return }
+        } catch {
+            Self.recordDiagnostic("directory-tree", error)
+            return
+        }
+        await keeper.record(Self.sightings(in: directory, own: account.profileTree))
+#if os(macOS)
+        let imported = "directory.importedVisits.\(account.configurationTree)"
+        if !UserDefaults.standard.bool(forKey: imported), let visits = try? await visitedTreeStore.loadAll() {
+            await keeper.record(visits.map { visit in
+                DirectoryVisit(tree: visit.tree.id, path: "/", title: visit.tree.canonicalPath?.split(separator: "/").last.map(String.init),
+                               host: visit.origin.host(), at: visit.visitedAt)
+            })
+            UserDefaults.standard.set(true, forKey: imported)
+        }
+#endif
+        await refreshRememberedPeople()
+    }
+
+    /// The ties the hosts list: a group you are in together, and a person
+    /// named in the sharing rules of a tree you administer. Being in the same
+    /// host community is not a tie, and is not copied.
+    nonisolated static func sightings(in people: [DirectoryPerson], own: String?) -> [DirectorySighting] {
+        let mine = Set(people.first { $0.id == own }?.entry.sources ?? [])
+        return people.filter { $0.id != own }.flatMap { person in
+            person.entry.sources.compactMap { source -> DirectorySighting? in
+                let host = person.origin.host()
+                if source == "access" {
+                    return DirectorySighting(person: person.id, tie: .shared, name: person.entry.displayName, handle: person.entry.handle, host: host)
+                }
+                guard source.hasPrefix("group:"), mine.contains(source) else { return nil }
+                let group = String(source.dropFirst("group:".count))
+                guard group != person.id else { return nil }
+                return DirectorySighting(person: person.id, tie: .group, name: person.entry.displayName, handle: person.entry.handle, host: host, tree: group)
+            }
+        }
+    }
+
+    func recordSightings(_ sightings: [DirectorySighting]) {
+        guard let keeper = personalDirectory else { return }
+        Task {
+            await keeper.record(sightings)
+            await refreshRememberedPeople()
+        }
+    }
+
+    /// Record arriving at `node`'s page in a hosted tree. The directory's own
+    /// pages are not visits.
+    func recordVisit(_ node: WorkspaceNode) {
+        guard let keeper = personalDirectory, node.reference.tree.rawValue.hasPrefix("tr_") else { return }
+        let visit = DirectoryVisit(tree: node.reference.tree.rawValue, path: node.reference.path, title: node.title,
+                                   host: currentTreeCanonical.flatMap { URL(string: $0.endpoint)?.host() })
+        Task {
+            guard await keeper.tree?.id != visit.tree else { return }
+            await keeper.record([visit])
+        }
+    }
+
+    /// Names for the people the directory remembers: each profile by the
+    /// latest name a sighting saw, and each contact as `contact:<key>`.
+    func refreshRememberedPeople() async {
+        guard let keeper = personalDirectory else { return }
+        var seen: [String: (at: String, name: String)] = [:]
+        for row in await keeper.rows(PersonalDirectory.people, model: "Sighting") {
+            guard let person = row["person"]?.stringValue,
+                  let name = row["name"]?.stringValue ?? row["handle"]?.stringValue.map({ "~" + $0 }) else { continue }
+            let at = row["at"]?.stringValue ?? ""
+            if (seen[person]?.at ?? "") <= at { seen[person] = (at, name) }
+        }
+        let contacts = await keeper.rows(PersonalDirectory.people, model: "Contact").compactMap { row -> PresentedPerson? in
+            guard let id = row["id"]?.stringValue, let name = row["name"]?.stringValue else { return nil }
+            // A contact's own name for a profile wins over what sightings saw.
+            if let profile = row["profile"]?.stringValue { seen[profile] = ("", name); return nil }
+            return PresentedPerson(id: "contact:\(id)", name: name)
+        }
+        rememberedPeople = (seen.map { PresentedPerson(id: $0.key, name: $0.value.name) } + contacts)
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 }

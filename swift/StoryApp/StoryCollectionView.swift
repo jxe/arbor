@@ -65,7 +65,9 @@ struct StoryCollectionView: View {
 
     @ViewBuilder
     private func presented(_ collection: WorkspaceCollectionRows) -> some View {
-        let people = workspace.directory.map { PresentedPerson(id: $0.id, name: $0.title) }
+        let listed = workspace.directory.map { PresentedPerson(id: $0.id, name: $0.title) }
+        // The directory tree names people no host lists any more, and placeholders.
+        let people = listed + workspace.rememberedPeople.filter { remembered in !listed.contains { $0.id == remembered.id } }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         switch Result(catching: {
             try presentView(collection.schema, rows: collection.rows, options: PresentOptions(
