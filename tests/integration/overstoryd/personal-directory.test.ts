@@ -50,9 +50,11 @@ test("the seed activates a private directory under the profile, and Story's deri
       values: { id: "c1", name: "Grace", reach: "grace@example.com" }, at } as SourceOperation,
     tie("Invited-contact:c1", { person: "contact:c1", kind: "Invited" }, "op-2"),
     { key: "op-3", kind: "rowCreate", collection: collection("trees"), model: "Tree", row: JSON.stringify([["id", tree]]),
-      values: { id: tree, canopy: "tr_cccccccccccccccccccccccccc", title: "Directory", host: "arb.example" }, at } as SourceOperation,
+      values: { id: tree, title: "Directory", path: "/~ada/directory", host: "arb.example", owner: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", kind: "Tree" }, at } as SourceOperation,
     { key: "op-4", kind: "rowCreate", collection: collection("trees"), model: "Visit", row: JSON.stringify([["id", "v1"]]),
       values: { id: "v1", tree, path: "/", title: "Directory", how: "Opened", device: "Mac", at }, at } as SourceOperation,
+    { key: "op-5", kind: "rowCreate", collection: collection("trees"), model: "Placement", row: JSON.stringify([["id", `${tree}-Mac`]]),
+      values: { id: `${tree}-Mac`, tree, device: "Mac" }, at } as SourceOperation,
   ];
   const result = (await owner.submitUpdates(tree, { base: descriptor.update, updates: [
     { change: crypto.randomUUID(), candidate: null, trace: [{ operations }], resolves: [], deltas: [], objects: [] },
@@ -66,7 +68,7 @@ test("the seed activates a private directory under the profile, and Story's deri
     return Object.fromEntries(Object.entries(loaded!.tables).map(([model, list]) => [model, list.map((row) => Object.fromEntries(row.key)["id"])]));
   };
   expect(await rows("people")).toEqual({ Contact: ["c1"], Tie: ["Group-tr_ada-tr_club", "Invited-contact:c1"] });
-  expect(await rows("trees")).toEqual({ Tree: [tree], Visit: ["v1"] });
+  expect(await rows("trees")).toEqual({ Placement: [`${tree}-Mac`], Tree: [tree], Visit: ["v1"] });
 });
 
 test("two devices adding the same tie on one base make one row and no decision", async () => {

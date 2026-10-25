@@ -298,7 +298,7 @@ final class StoryWorkspaceState {
     /// Other trees by latest visit, from the directory.
     private(set) var recentTrees: [PickerTree] = []
     /// Pages opened before the directory was ready, to record once it is.
-    private var earlyVisits: [(visit: DirectoryVisit, endpoint: URL?)] = []
+    private var earlyVisits: [DirectoryVisit] = []
     var pendingProfileAction: StoryProfileAction?
     private let nativePlacementStore = NativePlacementStore()
     private(set) var nativePlacements: [NativePlacementRecord] = []
@@ -3608,8 +3608,9 @@ extension StoryWorkspaceState {
         if !UserDefaults.standard.bool(forKey: imported), let visits = try? await visitedTreeStore.loadAll() {
             await keeper.record(visits.map { visit in
                 let title = visit.tree.canonicalPath?.split(separator: "/").last.map(String.init)
-                return DirectoryVisit(tree: visit.tree.id, path: "/", title: title, treeTitle: title, host: visit.origin.host(),
-                                      canopy: visit.origin.host().flatMap { canopies[$0] }, at: visit.visitedAt)
+                return DirectoryVisit(tree: directoryTree(visit.tree.id, title: title, path: visit.tree.canonicalPath,
+                                                          host: visit.origin.host(), parent: visit.tree.parentTree),
+                                      path: "/", title: title, at: visit.visitedAt)
             })
             UserDefaults.standard.set(true, forKey: imported)
         }
@@ -3667,38 +3668,46 @@ extension StoryWorkspaceState {
         // community's own tree, at "/", by its host.
         let treeTitle = node.reference.path == "/" && !node.title.isEmpty ? node.title
             : currentTreeCanonical?.path.split(separator: "/").last.map(String.init) ?? host
-        let visit = DirectoryVisit(tree: node.reference.tree.rawValue, path: node.reference.path, title: node.title,
-                                   treeTitle: treeTitle, host: host)
+        let tree = directoryTree(node.reference.tree.rawValue, title: treeTitle, path: currentTreeCanonical?.path,
+                                 host: host, parent: currentTreeCanonical?.parentTree)
+        let visit = DirectoryVisit(tree: tree, path: node.reference.path, title: node.title)
         // The page a launch restores opens before the directory does.
         guard personalDirectory != nil else {
-            earlyVisits = (earlyVisits + [(visit, endpoint)]).suffix(20)
+            earlyVisits = (earlyVisits + [visit]).suffix(20)
             return
         }
-        Task { await record([(visit, endpoint)]) }
+        Task { await record([visit]) }
     }
 
-    private func record(_ visits: [(visit: DirectoryVisit, endpoint: URL?)]) async {
+    private func record(_ visits: [DirectoryVisit]) async {
         guard let keeper = personalDirectory else { return }
         let directory = await keeper.tree?.id
-        var recorded: [DirectoryVisit] = []
-        for (visit, endpoint) in visits where visit.tree != directory {
-            var visit = visit
-            if let host = visit.host, let endpoint { visit.canopy = await canopy(host: host, endpoint: endpoint) }
-            recorded.append(visit)
-        }
-        await keeper.record(recorded)
+        await keeper.record(visits.filter { $0.tree.id != directory })
         await refreshRecentTrees()
     }
 
-    /// The community profile of the host at `endpoint`, asked once.
-    private func canopy(host: String, endpoint: URL) async -> String? {
-        if let known = canopies[host] { return known }
-        var components = URLComponents()
-        components.scheme = endpoint.scheme; components.host = host; components.port = endpoint.port
-        guard let origin = components.url,
-              let community = try? await accountClient(origin: origin).account().account.community.id else { return nil }
-        canopies[host] = community
-        return community
+    /// A tree as the directory keeps it, its kind and owner read from its
+    /// canonical path: "/" is its host's community, "/~name" a profile or
+    /// group, which owns itself, and a tree below one is that profile's,
+    /// mounted in it when no other parent is known.
+    func directoryTree(_ id: String, title: String?, path: String?, host: String?, parent: String?) -> DirectoryTree {
+        var tree = DirectoryTree(id: id, title: title, path: path, host: host, parent: parent)
+        guard let path else { return tree }
+        if path == "/" {
+            tree.kind = .community
+            tree.owner = id
+            return tree
+        }
+        guard let first = path.split(separator: "/").first, first.hasPrefix("~") else { return tree }
+        let profile = directory.first { $0.entry.handle == String(first.dropFirst()) && $0.origin.host() == host }
+        if path == "/\(first)" {
+            tree.kind = profile?.entry.kind == "group" ? .group : .profile
+            tree.owner = id
+        } else {
+            tree.owner = profile?.id
+            if tree.parent == nil { tree.parent = profile?.id }
+        }
+        return tree
     }
 
     /// Open the directory in the window: the Mac opens it as a remote
@@ -3731,7 +3740,7 @@ extension StoryWorkspaceState {
     /// on this device.
     func refreshSpecialTrees(accounts: [HostAccount]) async {
         var special: [PickerTree] = []
-        var trees: [DirectoryVisit] = []
+        var trees: [DirectoryTree] = []
         for account in accounts where account.credentialAvailable {
             guard let client = try? await accountService.client(for: account),
                   let descriptor = try? await client.account().account else { continue }
@@ -3739,41 +3748,46 @@ extension StoryWorkspaceState {
             let you = account.handle.map { "~\($0)" }
             let community = descriptor.community.id
             let name = { (tree: String) in self.directory.first { $0.id == tree }?.entry.displayName }
-            func add(_ tree: String, _ title: String, _ treeTitle: String?, _ subtitle: String?) {
-                guard !special.contains(where: { $0.id == tree }) else { return }
-                special.append(PickerTree(id: tree, title: title, subtitle: subtitle))
-                trees.append(DirectoryVisit(tree: tree, path: "/", treeTitle: treeTitle ?? title, host: host,
-                                            canopy: tree == community ? nil : community))
+            func add(_ tree: DirectoryTree, _ title: String, _ subtitle: String?) {
+                guard !special.contains(where: { $0.id == tree.id }) else { return }
+                special.append(PickerTree(id: tree.id, title: title, subtitle: subtitle))
+                var tree = tree
+                if tree.title == nil { tree.title = title }
+                trees.append(tree)
             }
             let place = [you, host].compactMap { $0 }.joined(separator: " · ")
-            if let profile = descriptor.profileTree {
-                add(profile, name(profile).map { "You (\($0))" } ?? "You", name(profile), place)
+            let profile = descriptor.profileTree
+            if let profile {
+                add(DirectoryTree(id: profile, title: name(profile), path: account.handle.map { "/~\($0)" }, host: host, owner: profile, kind: .profile),
+                    name(profile).map { "You (\($0))" } ?? "You", place)
             }
-            add(descriptor.configuration.id, "Account Settings", you.map { "Account Settings (\($0))" }, place)
-            for group in descriptor.writableProfiles where group.id != descriptor.profileTree {
+            add(DirectoryTree(id: descriptor.configuration.id, title: you.map { "Account Settings (\($0))" }, host: host, owner: profile, kind: .settings),
+                "Account Settings", place)
+            for group in descriptor.writableProfiles where group.id != profile {
                 let title = name(group.id) ?? group.canonicalPath?.split(separator: "/").last.map(String.init) ?? group.id
-                add(group.id, title, nil, group.id == community ? "Community you run" : "Group you run")
+                add(DirectoryTree(id: group.id, title: title, path: group.canonicalPath, host: host, owner: group.id,
+                                  kind: group.id == community ? .community : .group),
+                    title, group.id == community ? "Community you run" : "Group you run")
             }
         }
         specialTrees = special
         // Trees placed on this device are yours too, opened or not.
-        let specialIDs = Set(special.map(\.id))
+        var placed: [DirectoryTree] = []
 #if os(macOS)
         if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
-        for placed in localStorySyncOverview?.trees ?? [] where placed.path != nil && !placed.missing && !specialIDs.contains(placed.id) {
-            let host = placed.canonicalEndpoint.flatMap { URL(string: $0)?.host() }
-            let title = placed.canonicalPath?.split(separator: "/").last.map(String.init) ?? placed.name
-            trees.append(DirectoryVisit(tree: placed.id, path: "/", treeTitle: title, host: host,
-                                        canopy: host.flatMap { canopies[$0] }, arrival: .placed))
+        for tree in localStorySyncOverview?.trees ?? [] where tree.path != nil && !tree.missing {
+            let title = tree.canonicalPath?.split(separator: "/").last.map(String.init) ?? tree.name
+            placed.append(directoryTree(tree.id, title: title, path: tree.canonicalPath,
+                                        host: tree.canonicalEndpoint.flatMap { URL(string: $0)?.host() }, parent: nil))
         }
 #else
-        for placed in nativePlacements where !specialIDs.contains(placed.tree.id) {
-            let host = placed.origin.host()
-            trees.append(DirectoryVisit(tree: placed.tree.id, path: "/", treeTitle: placed.tree.canonicalPath?.split(separator: "/").last.map(String.init),
-                                        host: host, canopy: host.flatMap { canopies[$0] }, arrival: .placed))
+        for record in nativePlacements {
+            placed.append(directoryTree(record.tree.id, title: record.tree.canonicalPath?.split(separator: "/").last.map(String.init),
+                                        path: record.tree.canonicalPath, host: record.origin.host(), parent: record.tree.parentTree))
         }
 #endif
         await personalDirectory?.record(trees: trees)
+        await personalDirectory?.record(placed: placed)
         await refreshRecentTrees()
     }
 

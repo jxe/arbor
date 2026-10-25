@@ -1,14 +1,18 @@
-// The trees you have been in. Story adds one Tree per tree, keyed by its
-// TreeID, so two devices adding it make one row, and one Visit per page you
-// open (at most one an hour per page and device).
+// The trees you have. Story adds one Tree per tree, keyed by its TreeID, so
+// two devices adding it make one row; one Visit per page you open (at most
+// one an hour per page and device); and one Placement per tree placed on a
+// device. Each is a fact, so no two devices ever change the same field.
 main model Tree {
-  canopy Person?
   title  Text?
+  path   Text?
   host   Text?
+  owner  Person?
+  parent Tree?
+  kind   TreeKind
 }
 
 model Visit {
-  tree   Text
+  tree   Tree
   path   Text
   title  Text?
   how    Arrival
@@ -16,14 +20,25 @@ model Visit {
   at     Date
 }
 
+model Placement {
+  tree   Tree
+  device Text
+}
+
+enum TreeKind { Profile, Group, Community, Settings, Tree }
+
 enum Arrival { Opened, Placed, SharedWithYou, Followed }
 
-Tree.canopy? <-> Person.trees[]
+Tree.owner? <-> Person.trees[]
+Tree.parent? <-> Tree.children[]
+Tree.kind <-> TreeKind.trees[]
+Visit.tree <-> Tree.visits[]
 Visit.how <-> Arrival.visits[]
+Placement.tree <-> Tree.placements[]
 
 re Tree {
   ~views([
-    { label: "By canopy", group: canopy, line: [title, host] },
-    { label: "All", line: [title, host] },
+    { label: "By owner", group: owner, line: [title, path] },
+    { label: "By kind", group: kind, line: [title, path] },
   ])
 }

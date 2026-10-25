@@ -27,7 +27,7 @@ struct PersonalDirectoryTests {
         }
     }
 
-    @Test("Ties are keyed by the fact, visits are new rows, and the schemas accept both")
+    @Test("Ties are keyed by the fact, visits are new rows, and the schemas accept them")
     func rows() async throws {
         try await withSeedTree { provider, tree in
             let at = Date(timeIntervalSince1970: 1_800_000_000)
@@ -44,11 +44,15 @@ struct PersonalDirectoryTests {
             #expect(throws: (any Error).self) { try applyRowEdits(people.schema, rows, [.directory(tie, at: at)]) }
 
             let trees = try await provider.collectionRows(WorkspaceReference(tree: tree, path: PersonalDirectory.trees))
-            let visit = DirectoryVisit(tree: "tr_notes", path: "/ideas", title: "Ideas", treeTitle: "Notes", host: "arb.example", canopy: "tr_canopy", at: at)
-            let applied = try applyRowEdits(trees.schema, trees.rows, [.directoryTree(visit), .directory(visit, device: "iPhone")])
-            #expect(applied["Tree"]?.first?["id"] == .string("tr_notes") && applied["Tree"]?.first?["canopy"] == .string("tr_canopy"))
+            let tree = DirectoryTree(id: "tr_notes", title: "Notes", path: "/~ada/notes", host: "arb.example", owner: "tr_ada")
+            let visit = DirectoryVisit(tree: tree, path: "/ideas", title: "Ideas", at: at)
+            let applied = try applyRowEdits(trees.schema, trees.rows, [.directory(tree, parent: nil, at: at), .directory(visit, device: "iPhone"),
+                                                                      .directoryPlacement(tree: "tr_notes", device: "iPhone", at: at)])
+            let row = try #require(applied["Tree"]?.first)
+            #expect(row["id"] == .string("tr_notes") && row["owner"] == .string("tr_ada") && row["kind"] == .string("Tree"))
+            #expect(applied["Placement"]?.first?["id"] == .string("tr_notes-iPhone"))
             let visits = try #require(applied["Visit"])
-            #expect(visits.first?["how"] == .string("Opened") && visits.first?["path"] == .string("/ideas"))
+            #expect(visits.first?["how"] == .string("Opened") && visits.first?["path"] == .string("/ideas") && visits.first?["tree"] == .string("tr_notes"))
             #expect(visits.first?["at"] == .string("2027-01-15T08:00:00.000Z"))
         }
     }

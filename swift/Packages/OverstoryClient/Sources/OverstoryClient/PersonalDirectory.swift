@@ -120,24 +120,44 @@ public enum DirectoryArrival: String, Sendable, CaseIterable {
     case followed = "Followed"
 }
 
-/// One arrival at a page: a `Visit` row, and the tree's `Tree` row the
-/// first time Story sees the tree.
+/// What a tree is, for its `TreeKind`.
+public enum DirectoryTreeKind: String, Sendable, CaseIterable {
+    case profile = "Profile"
+    case group = "Group"
+    case community = "Community"
+    case settings = "Settings"
+    case tree = "Tree"
+}
+
+/// A tree's `Tree` row, keyed by its TreeID: what it is, whose, and where.
+public struct DirectoryTree: Sendable, Equatable {
+    public var id: String
+    public var title: String?
+    /// Its canonical path on its host.
+    public var path: String?
+    public var host: String?
+    /// The profile or group it lives under; a profile owns itself.
+    public var owner: String?
+    /// The tree it is mounted in.
+    public var parent: String?
+    public var kind: DirectoryTreeKind
+
+    public init(id: String, title: String? = nil, path: String? = nil, host: String? = nil, owner: String? = nil,
+                parent: String? = nil, kind: DirectoryTreeKind = .tree) {
+        self.id = id; self.title = title; self.path = path; self.host = host; self.owner = owner; self.parent = parent; self.kind = kind
+    }
+}
+
+/// One arrival at a page: a `Visit` row, after the tree's `Tree` row.
 public struct DirectoryVisit: Sendable, Equatable {
-    public var tree: String
+    public var tree: DirectoryTree
     public var path: String
     public var title: String?
-    /// The tree's own title, for its `Tree` row.
-    public var treeTitle: String?
-    public var host: String?
-    /// The host community's profile.
-    public var canopy: String?
     public var arrival: DirectoryArrival
     public var at: Date
 
-    public init(tree: String, path: String, title: String? = nil, treeTitle: String? = nil, host: String? = nil, canopy: String? = nil,
-                arrival: DirectoryArrival = .opened, at: Date = .now) {
-        self.tree = tree; self.path = path; self.title = title; self.treeTitle = treeTitle; self.host = host; self.canopy = canopy
-        self.arrival = arrival; self.at = at
+    public init(tree: DirectoryTree, path: String, title: String? = nil, arrival: DirectoryArrival = .opened, at: Date = .now) {
+        self.tree = tree; self.path = path; self.title = title; self.arrival = arrival; self.at = at
     }
 }
 
@@ -163,13 +183,19 @@ extension RowEdit {
     /// A visit, a new row with a fresh id.
     public static func directory(_ visit: DirectoryVisit, device: String?) -> RowEdit {
         let time = ProtocolSourceOperation.rowTime(visit.at)
-        return directoryRow("Visit", id: UUID().uuidString.lowercased(), ["tree": visit.tree, "path": visit.path, "title": visit.title,
+        return directoryRow("Visit", id: UUID().uuidString.lowercased(), ["tree": visit.tree.id, "path": visit.path, "title": visit.title,
             "how": visit.arrival.rawValue, "device": device, "at": time], at: visit.at)
     }
 
-    /// The tree's row, keyed by its TreeID.
-    public static func directoryTree(_ visit: DirectoryVisit) -> RowEdit {
-        directoryRow("Tree", id: visit.tree, ["canopy": visit.canopy, "title": visit.treeTitle, "host": visit.host], at: visit.at)
+    /// The tree's row, keyed by its TreeID. `parent` only when its row exists.
+    public static func directory(_ tree: DirectoryTree, parent: String?, at: Date = .now) -> RowEdit {
+        directoryRow("Tree", id: tree.id, ["title": tree.title, "path": tree.path, "host": tree.host, "owner": tree.owner,
+            "parent": parent, "kind": tree.kind.rawValue], at: at)
+    }
+
+    /// The tree is placed on `device`, keyed by both.
+    public static func directoryPlacement(tree: String, device: String, at: Date = .now) -> RowEdit {
+        directoryRow("Placement", id: "\(tree)-\(device)", ["tree": tree, "device": device], at: at)
     }
 }
 
@@ -261,45 +287,64 @@ public actor PersonalDirectoryKeeper {
     }
 
     /// Record arriving at pages; each page opened at most once an hour on this device.
-    /// A tree's row gets the canopy and title it lacked when a visit knows them.
     public func record(_ visits: [DirectoryVisit]) async {
-        await note(visits, visiting: true)
-    }
-
-    /// Record trees you have without arriving anywhere, such as your profile
-    /// and the groups you run: their `Tree` rows only.
-    public func record(trees: [DirectoryVisit]) async {
-        await note(trees, visiting: false)
-    }
-
-    private func note(_ visits: [DirectoryVisit], visiting: Bool) async {
-        var known = Dictionary(await rows(PersonalDirectory.trees, model: "Tree").compactMap { row in
-            row["id"]?.stringValue.map { ($0, row) }
-        }, uniquingKeysWith: { first, _ in first })
-        for id in waitingIDs("Tree") where known[id] == nil { known[id] = [:] }
+        await note(visits.map(\.tree), at: .now)
         for visit in visits {
-            if let row = known[visit.tree] {
-                var filled = row
-                for (field, value) in [("canopy", visit.canopy), ("title", visit.treeTitle)] {
-                    let before = row[field] ?? .null
-                    guard let value, !value.isEmpty, before == .null || before == .string(""), !row.isEmpty else { continue }
-                    waiting.append((PersonalDirectory.trees, .set(table: "Tree", row: RowEdit.rowKey(visit.tree), field: field,
-                        before: before, value: .string(value), at: ProtocolSourceOperation.rowTime(visit.at))))
-                    filled[field] = .string(value)
-                }
-                known[visit.tree] = filled
-            } else {
-                waiting.append((PersonalDirectory.trees, .directoryTree(visit)))
-                // Queued, not yet in the rows: nothing to fill in for it.
-                known[visit.tree] = [:]
-            }
-            guard visiting else { continue }
-            let key = visit.tree + "\0" + visit.path
+            let key = visit.tree.id + "\0" + visit.path
             if visit.arrival == .opened, let last = lastVisit[key], abs(visit.at.timeIntervalSince(last)) < Self.visitSpacing { continue }
             lastVisit[key] = visit.at
             waiting.append((PersonalDirectory.trees, .directory(visit, device: device)))
         }
         await flush()
+    }
+
+    /// Record trees without arriving anywhere, such as your profile and the
+    /// groups you run: their `Tree` rows only.
+    public func record(trees: [DirectoryTree]) async {
+        await note(trees, at: .now)
+        await flush()
+    }
+
+    /// Record that `trees` are placed on this device: a `Placement` row each.
+    public func record(placed trees: [DirectoryTree]) async {
+        guard let device else { return }
+        await note(trees, at: .now)
+        var seen = Set(await rows(PersonalDirectory.trees, model: "Placement").compactMap { $0["id"]?.stringValue })
+        seen.formUnion(waitingIDs("Placement"))
+        for tree in trees where seen.insert("\(tree.id)-\(device)").inserted {
+            waiting.append((PersonalDirectory.trees, .directoryPlacement(tree: tree.id, device: device)))
+        }
+        await flush()
+    }
+
+    /// Queue a `Tree` row for each tree not yet in the directory, and fill
+    /// the fields a known row lacks. A parent is named only once its own row
+    /// is there or queued ahead, since a connection to a missing row is refused.
+    private func note(_ trees: [DirectoryTree], at: Date) async {
+        var known = Dictionary(await rows(PersonalDirectory.trees, model: "Tree").compactMap { row in
+            row["id"]?.stringValue.map { ($0, row) }
+        }, uniquingKeysWith: { first, _ in first })
+        let written = Set(known.keys)
+        for id in waitingIDs("Tree") where known[id] == nil { known[id] = [:] }
+        for tree in trees {
+            if let row = known[tree.id] {
+                // Queued, not yet in the rows: nothing to fill in for it.
+                guard written.contains(tree.id) else { continue }
+                let parent = tree.parent.flatMap { known[$0] != nil ? $0 : nil }
+                var filled = row
+                for (field, value) in [("title", tree.title), ("path", tree.path), ("host", tree.host), ("owner", tree.owner), ("parent", parent)] {
+                    let before = row[field] ?? .null
+                    guard let value, !value.isEmpty, before == .null || before == .string("") else { continue }
+                    waiting.append((PersonalDirectory.trees, .set(table: "Tree", row: RowEdit.rowKey(tree.id), field: field,
+                        before: before, value: .string(value), at: ProtocolSourceOperation.rowTime(at))))
+                    filled[field] = .string(value)
+                }
+                known[tree.id] = filled
+            } else {
+                waiting.append((PersonalDirectory.trees, .directory(tree, parent: tree.parent.flatMap { known[$0] != nil ? $0 : nil }, at: at)))
+                known[tree.id] = [:]
+            }
+        }
     }
 
     /// Rows already written: from the replica and the queue.
