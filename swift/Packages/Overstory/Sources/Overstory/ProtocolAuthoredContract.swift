@@ -177,7 +177,10 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
     /// Shared by semantic fixtures and complete transport candidates.
     static func validateCandidate(_ u: [String: ProtocolSemanticValue]) throws {
         try keys(u, ["change", "candidate", "trace", "resolves"], ["ifCurrent"])
-        try id(u["change"]); try hash(u["candidate"])
+        try id(u["change"])
+        // A derived candidate is an operation trace whose last frame leaves
+        // its `after` out (source intent §2.2).
+        if u["candidate"] == .null { try check(u["trace"]?.items.map { !$0.isEmpty } == true) } else { try hash(u["candidate"]) }
         if u["ifCurrent"] != nil { try token(u["ifCurrent"]) }
         guard let resolves = u["resolves"]?.items else { throw ProtocolValidationError.invalidValue("Expected resolves") }
         var decisions = Set<String>()
@@ -192,20 +195,22 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
             guard let frames = u["trace"]?.items else { throw ProtocolValidationError.invalidValue("Expected trace") }
             try check(frames.count <= 64 && (!frames.isEmpty || !resolves.isEmpty))
             // The chain is checked here only where the request itself proves it:
-            // each frame continues the previous one and the last reaches the
-            // candidate. The authority binds `trace[0].before` to its basis.
+            // a stated `before` continues a stated previous `after`, and the last
+            // frame's `after` is the candidate. Each root is optional; the
+            // authority binds the rest to its basis.
             var keyed = Set<String>(); var previous: String? = nil; var total = 0
             for raw in frames {
-                let f = try object(raw); try keys(f, ["before", "after", "operations"])
-                try hash(f["before"]); try hash(f["after"])
+                let f = try object(raw); try keys(f, ["operations"], ["before", "after"])
+                if f["before"] != nil { try hash(f["before"]) }
+                if f["after"] != nil { try hash(f["after"]) }
                 guard let ops = f["operations"]?.items else { throw ProtocolValidationError.invalidValue("Expected operations") }
                 try check(!ops.isEmpty); total += ops.count; try check(total <= 1024)
-                try check(previous == nil || previous == f["before"]!.text!); previous = f["after"]!.text!
+                try check(previous == nil || f["before"] == nil || previous == f["before"]!.text!); previous = f["after"]?.text
                 // One key names one authored contribution of this change, so it
                 // is unique across the whole trace, not merely within a frame.
                 for id in try ops.map(validateOperation) { try check(keyed.insert(id).inserted) }
             }
-            try check(previous == nil || previous == u["candidate"]!.text!)
+            try check(frames.isEmpty || previous == u["candidate"]!.text)
         }
     }
 }

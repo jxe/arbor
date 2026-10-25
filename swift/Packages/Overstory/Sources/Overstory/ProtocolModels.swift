@@ -821,14 +821,19 @@ public enum ProtocolUpdateResult: Sendable, Equatable {
 public struct ProtocolUpdateElementResult: Sendable, Equatable, Codable {
     public var result: ProtocolUpdateResult
     public var requestDigest: String
-    /// The transition from the candidate root to the accepted root, present whenever they differ.
+    /// The root the host derived, for a derived candidate only (source intent §2.2).
+    public var candidate: String?
+    /// The transition from the candidate root to the accepted root, present
+    /// whenever they differ. For a derived candidate it starts instead from the
+    /// preceding result's root, or the base's, which the client holds.
     public var reconciliation: ProtocolTransitionPayload?
 
-    private enum CodingKeys: String, CodingKey { case requestDigest, reconciliation }
+    private enum CodingKeys: String, CodingKey { case requestDigest, candidate, reconciliation }
 
-    public init(result: ProtocolUpdateResult, requestDigest: String, reconciliation: ProtocolTransitionPayload? = nil) {
+    public init(result: ProtocolUpdateResult, requestDigest: String, candidate: String? = nil, reconciliation: ProtocolTransitionPayload? = nil) {
         self.result = result
         self.requestDigest = requestDigest
+        self.candidate = candidate
         self.reconciliation = reconciliation
     }
 
@@ -837,6 +842,8 @@ public struct ProtocolUpdateElementResult: Sendable, Equatable, Codable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         requestDigest = try values.decode(String.self, forKey: .requestDigest)
         try validateObjectHash(requestDigest)
+        candidate = try values.decodeIfPresent(String.self, forKey: .candidate)
+        if let candidate { try validateObjectHash(candidate) }
         if values.contains(.reconciliation) {
             reconciliation = try values.decode(ProtocolTransitionPayload.self, forKey: .reconciliation)
         } else { reconciliation = nil }
@@ -846,6 +853,7 @@ public struct ProtocolUpdateElementResult: Sendable, Equatable, Codable {
         try result.encode(to: encoder)
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encode(requestDigest, forKey: .requestDigest)
+        try values.encodeIfPresent(candidate, forKey: .candidate)
         try values.encodeIfPresent(reconciliation, forKey: .reconciliation)
     }
 }

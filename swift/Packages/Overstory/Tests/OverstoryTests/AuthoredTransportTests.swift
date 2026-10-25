@@ -3,9 +3,14 @@ import Testing
 @testable import Overstory
 
 extension ProtocolAuthoredUpdateRequest {
-    /// The request identities as the production submission path computes them.
+    /// The request identities as the production submission path computes them:
+    /// stated requests through `ProtocolCandidateUpdate`, and requests that leave
+    /// roots out from their semantic fields, as `ProtocolDerivedUpdate` does.
     func identities(tree: String) throws -> [(bytes: Data, digest: String)] {
-        updateRequestIdentities(tree: tree, base: base, updates: try updates.map(ProtocolCandidateUpdate.init))
+        if let stated = try? updates.map(ProtocolCandidateUpdate.init) {
+            return updateRequestIdentities(tree: tree, base: base, updates: stated)
+        }
+        return updateRequestIdentities(tree: tree, base: base, elements: updates.map(\.intentFields))
     }
 }
 

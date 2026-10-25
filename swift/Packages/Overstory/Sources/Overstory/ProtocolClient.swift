@@ -680,15 +680,22 @@ private func canonicalUpdateIntent(
     resolves: [ProtocolResolutionDeclaration],
     ifCurrent: String?
 ) -> Data {
+    canonicalUpdateIntent(tree: tree, base: base, fields: ProtocolCandidateUpdate(
+        candidate: candidate, change: change, trace: trace, resolves: resolves, ifCurrent: ifCurrent, objects: []).semantic)
+}
+
+/// The identity bytes of one element from its semantic fields, which may
+/// leave roots for the host to derive (source intent §2).
+func canonicalUpdateIntent(tree: String, base: CanonicalCBORValue, fields: [String: ProtocolSemanticValue]) -> Data {
     CanonicalCBOR.encode(.map([
         ("domain", .text("arbor-update/2")),
-        ("change", .text(change)),
-        ("trace", trace.map { .array($0.map(\.semantic.cbor)) } ?? .null),
+        ("change", fields["change"]!.cbor),
+        ("trace", fields["trace"]?.cbor ?? .null),
         ("tree", .text(tree)),
         ("base", base),
-        ("candidate", .text(candidate)),
-        ("resolves", .array(resolves.map { $0.semantic.cbor })),
-        ("ifCurrent", ifCurrent.map(CanonicalCBORValue.text) ?? .null),
+        ("candidate", fields["candidate"]?.cbor ?? .null),
+        ("resolves", fields["resolves"]!.cbor),
+        ("ifCurrent", fields["ifCurrent"]?.cbor ?? .null),
     ]))
 }
 
@@ -707,23 +714,21 @@ public func updateRequestDigests(tree: String, base: String?, updates: [Protocol
 /// Each update's canonical intent bytes and digest; every update after the
 /// first is based on its predecessor's digest and candidate.
 func updateRequestIdentities(tree: String, base: String?, updates: [ProtocolCandidateUpdate]) -> [(bytes: Data, digest: String)] {
+    updateRequestIdentities(tree: tree, base: base, elements: updates.map(\.semantic))
+}
+
+/// Each element's identity from its semantic fields; a later element's base
+/// is its predecessor's digest and candidate, null for a derived one.
+func updateRequestIdentities(tree: String, base: String?, elements: [[String: ProtocolSemanticValue]]) -> [(bytes: Data, digest: String)] {
     var basis: CanonicalCBORValue = base.map(CanonicalCBORValue.text) ?? .null
     var result: [(bytes: Data, digest: String)] = []
-    for update in updates {
-        let bytes = canonicalUpdateIntent(
-            tree: tree,
-            base: basis,
-            candidate: update.candidate,
-            change: update.change,
-            trace: update.trace,
-            resolves: update.resolves,
-            ifCurrent: update.ifCurrent
-        )
+    for fields in elements {
+        let bytes = canonicalUpdateIntent(tree: tree, base: basis, fields: fields)
         let digest = ProtocolObjectCodec.hash(bytes)
         result.append((bytes, digest))
         basis = .map([
             ("requestDigest", .text(digest)),
-            ("candidate", .text(update.candidate)),
+            ("candidate", fields["candidate"]?.cbor ?? .null),
         ])
     }
     return result

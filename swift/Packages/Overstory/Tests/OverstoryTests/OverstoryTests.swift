@@ -340,6 +340,16 @@ struct UpdateProtocolTests {
                 #expect(throws: (any Error).self) { try JSONDecoder().decode(ProtocolUpdateRequest.self,from:bytes) }
                 continue
             }
+            // A request that leaves roots for the host is a derived request:
+            // the stated codec refuses it, and `ProtocolDerivedUpdate` covers it.
+            let updates = try #require(raw["updates"] as? [[String: Any]])
+            let stated = updates.allSatisfy { u in
+                !(u["candidate"] is NSNull) && ((u["trace"] as? [[String: Any]]) ?? []).allSatisfy { $0["before"] != nil && $0["after"] != nil }
+            }
+            if !stated {
+                #expect(throws: (any Error).self) { try JSONDecoder().decode(ProtocolUpdateRequest.self,from:bytes) }
+                continue
+            }
             let request = try JSONDecoder().decode(ProtocolUpdateRequest.self,from:bytes)
             #expect(try JSONDecoder().decode(ProtocolUpdateRequest.self,from:JSONEncoder().encode(request)) == request)
             let expected = try #require(row["identities"] as? [[String: String]])
