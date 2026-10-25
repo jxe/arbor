@@ -261,14 +261,30 @@ public actor PersonalDirectoryKeeper {
     }
 
     /// Record arriving at pages; each page opened at most once an hour on this device.
+    /// A tree's row gets the canopy and title it lacked when a visit knows them.
     public func record(_ visits: [DirectoryVisit]) async {
-        var trees = Set(await rows(PersonalDirectory.trees, model: "Tree").compactMap { $0["id"]?.stringValue })
-        trees.formUnion(waitingIDs("Tree"))
+        var known = Dictionary(await rows(PersonalDirectory.trees, model: "Tree").compactMap { row in
+            row["id"]?.stringValue.map { ($0, row) }
+        }, uniquingKeysWith: { first, _ in first })
+        for id in waitingIDs("Tree") where known[id] == nil { known[id] = [:] }
         for visit in visits {
+            if let row = known[visit.tree] {
+                var filled = row
+                for (field, value) in [("canopy", visit.canopy), ("title", visit.treeTitle)] {
+                    guard let value, row[field] == nil || row[field] == .null, !row.isEmpty else { continue }
+                    waiting.append((PersonalDirectory.trees, .set(table: "Tree", row: RowEdit.rowKey(visit.tree), field: field,
+                        before: .null, value: .string(value), at: ProtocolSourceOperation.rowTime(visit.at))))
+                    filled[field] = .string(value)
+                }
+                known[visit.tree] = filled
+            } else {
+                waiting.append((PersonalDirectory.trees, .directoryTree(visit)))
+                // Queued, not yet in the rows: nothing to fill in for it.
+                known[visit.tree] = [:]
+            }
             let key = visit.tree + "\0" + visit.path
             if visit.arrival == .opened, let last = lastVisit[key], abs(visit.at.timeIntervalSince(last)) < Self.visitSpacing { continue }
             lastVisit[key] = visit.at
-            if trees.insert(visit.tree).inserted { waiting.append((PersonalDirectory.trees, .directoryTree(visit))) }
             waiting.append((PersonalDirectory.trees, .directory(visit, device: device)))
         }
         await flush()

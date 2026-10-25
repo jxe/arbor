@@ -3648,14 +3648,30 @@ extension StoryWorkspaceState {
     /// pages are not visits.
     func recordVisit(_ node: WorkspaceNode) {
         guard let keeper = personalDirectory, node.reference.tree.rawValue.hasPrefix("tr_") else { return }
-        let host = currentTreeCanonical.flatMap { URL(string: $0.endpoint)?.host() }
-        let treeTitle = node.reference.path == "/" ? node.title : currentTreeCanonical?.path.split(separator: "/").last.map(String.init)
-        let visit = DirectoryVisit(tree: node.reference.tree.rawValue, path: node.reference.path, title: node.title,
-                                   treeTitle: treeTitle, host: host, canopy: host.flatMap { canopies[$0] })
+        let endpoint = currentTreeCanonical.flatMap { URL(string: $0.endpoint) }
+        let host = endpoint?.host()
+        // A tree is titled by its root page, else its URL's last name; the
+        // community's own tree, at "/", by its host.
+        let treeTitle = node.reference.path == "/" ? node.title
+            : currentTreeCanonical?.path.split(separator: "/").last.map(String.init) ?? host
+        var visit = DirectoryVisit(tree: node.reference.tree.rawValue, path: node.reference.path, title: node.title,
+                                   treeTitle: treeTitle, host: host)
         Task {
             guard await keeper.tree?.id != visit.tree else { return }
+            if let host, let endpoint { visit.canopy = await canopy(host: host, endpoint: endpoint) }
             await keeper.record([visit])
         }
+    }
+
+    /// The community profile of the host at `endpoint`, asked once.
+    private func canopy(host: String, endpoint: URL) async -> String? {
+        if let known = canopies[host] { return known }
+        var components = URLComponents()
+        components.scheme = endpoint.scheme; components.host = host; components.port = endpoint.port
+        guard let origin = components.url,
+              let community = try? await accountClient(origin: origin).account().account.community.id else { return nil }
+        canopies[host] = community
+        return community
     }
 
     /// Open the directory in the window: the Mac opens it as a remote
