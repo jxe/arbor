@@ -101,7 +101,7 @@ model Visited {
   host    Text?
   pages   Text[]           // titles, headings, folder paths
   queries Text[]           // what was typed when it was picked
-  visits  Number
+  visits  Number           // derived or per device: see phase 1
   last    Date
 }
 ```
@@ -126,6 +126,12 @@ collapsed sections and are not copied.
 - Story keeps the directory from code (007's `appendRows`) and shows it with 006's read-only
   collection view, grouped by group; a contact's row lists their trees. Editing it by hand
   comes with 007 part 2, and forming groups in phase 2.
+- **No same-field races.** Both devices write directory rows with nobody at the keyboard, and
+  two of them setting the same field of one row makes a decision
+  ([spec 10 §7.1](../../docs/overstory-spec/10-source-intent.md#71-collection-rows)) nobody
+  can answer in a read-only view. So a sighting or a visit is a new row with a fresh id, not an
+  edit to a shared one; counts and last-seen times (`visits`, `last`) are derived when
+  presented or kept per device, never one field both devices bump.
 - **Placeholders by name.** The People rows without a profile feed `PresentOptions.people`
   as `contact:<key>` ids, so every collection's placeholder chips and groups (already drawn as
   not-yet-a-person, showing the key) show the contact's `name`. When a contact gets a profile
