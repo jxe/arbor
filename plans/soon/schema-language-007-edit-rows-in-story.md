@@ -2,7 +2,7 @@
 
 **Why and when:** Joe, 2026-10-24: once Schema language 006 showed a collection read-only
 ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)), the next step goes in soon. This is
-[Schema language 002](../later/schema-language-002-cranberries-in-story.md)'s milestone 3a
+[Schema language 002](schema-language-002-collection-editor.md)'s milestone 3a
 (rows in Story on Mac and iPhone), carved out with a small proof: simple edits in 006's view.
 The People directory needs both, and the iPhone has no Story Sync.
 
@@ -16,10 +16,11 @@ The People directory needs both, and the iPhone has no Story Sync.
 - **Effort:** M.
 - **Risk:** MEDIUM. A protocol addition overstoryd, Story Sync and both clients implement.
   No client encodes a collection's tables, so the two stacks can't disagree about them.
-- **State:** IN PROGRESS. Part 1 is done but for step 0: steps 1 and 3 (aa1b44f, c716532) and
+- **State:** IN PROGRESS. Part 1 is done: step 0 (Joe checked the view on the iPhone,
+  2026-10-25: "it works well"), steps 1 and 3 (aa1b44f, c716532) and
   step 4, in daily use by the People directory, which writes all its rows through it
   ([status](../../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)); step 2
-  dropped. Left: step 0 (the view on the iPhone, unchecked by hand), step 4's two loose ends, and
+  dropped. Left: step 4's two loose ends, and
   part 2 (steps 5–6). 006 is done ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)); try edits on the games
   sandbox tree, which holds supplies-remake's live data.
 
@@ -62,7 +63,7 @@ when part 1 is done: the directory is kept by code and shown read-only. **Part 2
 the view** (steps 5–6), can follow or run beside People 001.
 
 0. **Read on the iPhone.** 006's view on iOS, from the tree's own objects, offline; fix what
-   looks wrong at phone width.
+   looks wrong at phone width. **Done** (Joe, 2026-10-25).
 1. **Derived candidates in TS and overstoryd.** The contract (`candidate: Hash | null`, each
    frame root optional and checked when stated),
    request identity (a derived candidate's `candidate` is null in the digest and in the next
@@ -99,7 +100,7 @@ out, rather than have the host refuse the rest (`0e0d9d9`). Still to do: show th
    The rich editor stays 002 milestone 4.
 7. **Close out.** Record the evidence in `status.md`, delete
    [Apps 010](../later/apps-010-native-offline-collection-file-projection.md) (this covers it),
-   remove milestone 3a from 002, and delete this plan.
+   and delete this plan (002 already points here for its milestone 3a).
 
 **Verification:** `bun run test:affected`, the StoryKit, Overstory and OverstoryWorkingTree
 package tests and `swift/scripts/test-story-app.sh` on Joe's Mac. By hand with Joe: in the

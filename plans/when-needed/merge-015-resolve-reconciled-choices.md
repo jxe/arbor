@@ -4,8 +4,8 @@
 new page. Later accepted edits already produced the intended contents, but the
 conflict remained and its cards showed only older alternatives. overstoryd should
 clear choices it can prove reconciled, and Story should explain the current result
-and make explicit resolution easy. The page-transfer fixes this waited for are
-deployed, so it can start. It is the active merge plan: its first step is the
+and make explicit resolution easy. Joe moved it to when-needed on 2026-10-25: take it when a
+stale whole-tree conflict like that one shows up again. Its first step is the
 foundation every automatic outcome needs, moved here from
 [overstoryd 014](../when-needed/merge-014-merge-handles-many-cases.md) on 2026-10-11.
 

@@ -20,9 +20,24 @@ Story on the Mac ([status](../status.md#collections-in-story-on-the-mac--2026-10
 backend: Story reads collections on the iPhone and writes row operations from code, through
 the host on every device, queued while offline (Schema language 002's milestone 3a). The host
 derives the result (spec 10 §2.2, Joe 2026-10-25), so no client encodes a collection's tables. Part 1
-is done but for the iPhone check; the People directory writes all its rows through it
+is done, the iPhone check included; the People directory writes all its rows through it
 (2026-10-25). Part 2 is simple edits in the view on the games sandbox: a bullet's value, a
 row's name, chips, delete and add.
+
+**[Schema language 002: the collection editor, ownership and pages that show collections](soon/schema-language-002-collection-editor.md).**
+Joe wants collections edited natively in Story: a structured editor (groups, chips, bullets,
+drag, inline Markdown), row ownership as access policy, and pages that show a collection kept
+elsewhere. Its first customer is the People directory. Moved to soon on 2026-10-25, without the
+site ports, which are Schema language 008 in later.
+
+**[People 001: form groups, share with people, and go to any tree](soon/people-001-groups-sharing-and-go-to.md).**
+Joe wants People to remember everyone and every tree he has come across, and to make forming
+groups to share with easy: see whether a group exists, drag people into it, invite whoever is
+missing. Phase 1, the directory tree kept by code, is done (2026-10-25,
+[status](../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)). Left:
+forming groups with 002's editor, a share sheet, and a Go to… field that finds visited trees and
+pages by title, with `overstory://tr_…` links found by asking the directory, then the account
+hosts (a side slice for any time). Moved to soon on 2026-10-25.
 
 **[Live 001: see who else is here](soon/live-001-presence.md).**
 Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which
@@ -30,14 +45,6 @@ page each person is on, and where their cursor is when two people share a page. 
 light: nothing about cursors is sent unless someone else is on the same page. Joe wants it soon (2026-10-20).
 It starts with the spec, because presence is the first live data a host relays that is not
 part of a tree.
-
-**[overstoryd 015: explain automatic resolutions and clear reconciled choices](soon/merge-015-resolve-reconciled-choices.md).**
-Joe encountered a whole-tree conflict after moving blocks into a new page. Later
-accepted edits already produced the intended contents, but the conflict remained
-and its cards showed only older alternatives. overstoryd should clear choices it can
-prove reconciled, and Story should explain the current result and make explicit
-resolution easy. It starts with the portable explanation every automatic outcome
-needs (merge notes, rule revisions), which overstoryd 014's menu reuses.
 
 ### Cleanups
 
@@ -70,26 +77,9 @@ Opening an ordinary folder in the Mac app, and making it into a tree from there,
 with the daemon's editor path; after setup a new tree needs `story place`. Joe wants this
 before the web editor. Mac only; the browser half is an open question in Web 025.
 
-**[People 001: a directory you own, Go to…, and links by tree ID](later/people-001-directory-and-go-to.md).**
-Joe wants People to remember everyone and every tree he has come across, and to make forming
-groups to share with easy: see whether a group exists, drag people into it, invite whoever is
-missing. A Go to… field finds visited trees and pages by title, and an `overstory://tr_…` link
-is found by asking the directory, then the account hosts (Links 001, folded in on 2026-10-24).
-The directory comes first (Joe, 2026-10-24): a private tree of collections, filled from what
-Story already knows and shown with Schema language 006's view once 007 lets Story write rows;
-then Schema language 002's database views. Only Go to… and the share sheet are hand-built, and
-Go to… is a side slice for any time. Phase 1 is done (2026-10-25,
-[status](../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)): the directory
-is kept by code, shown with USL's new summary views, and found from the Mac's tree picker; Joe:
-"this will do for now".
-
-**[Schema language 002: database views in Story](later/schema-language-002-cranberries-in-story.md).**
-Joe wants excellences and supplies-remake to run natively in Story: collections presented as
-views and edited in a native structured editor, embedded in pages, with row ownership as access
-policy, and ports of both sites. The data underneath was split out as Schema language 005 on
-2026-10-22 and is on main since 2026-10-24. Its first customer is the People directory
-(2026-10-24): milestones 3, 3a (rows in Story on Mac and iPhone), 4 and 7 come first, built with
-what the directory needs.
+**[Schema language 008: port excellences and supplies-remake to Story](later/schema-language-008-port-excellences-and-supplies.md).**
+Joe wants the excellences document and supplies-remake to run natively in Story instead of on
+Supabase. Split out of Schema language 002 on 2026-10-25; it needs 002's editor and ownership.
 
 **[Apps 005: source resolution, execution authority and the sidecar](later/apps-005-source-resolution-and-sidecar.md).**
 Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
@@ -186,6 +176,14 @@ representations are possible.
 
 ## When needed
 
+**[overstoryd 015: explain automatic resolutions and clear reconciled choices](when-needed/merge-015-resolve-reconciled-choices.md).**
+Joe encountered a whole-tree conflict after moving blocks into a new page. Later
+accepted edits already produced the intended contents, but the conflict remained
+and its cards showed only older alternatives. overstoryd should clear choices it can
+prove reconciled, and Story should explain the current result and make explicit
+resolution easy. Joe moved it to when-needed on 2026-10-25: take it when a stale whole-tree conflict
+like that one shows up again.
+
 **[overstoryd 014: the merge handles many cases](when-needed/merge-014-merge-handles-many-cases.md).**
 Prose already merges well. Take an item from its menu when a real edit reaches review that
 should have merged.
@@ -224,7 +222,7 @@ Editor intent, client publication, host merging and conflict review. [Native 008
 supplies truthful command evidence; [Clients 002](later/merge-002-identity-preserving-coalescing.md)
 can simplify that evidence after it exists, and must not invent missing copy or move identity;
 [overstoryd 014](when-needed/merge-014-merge-handles-many-cases.md) must support an emitted
-operation form before a client that emits it is installed; [overstoryd 015](soon/merge-015-resolve-reconciled-choices.md)
+operation form before a client that emits it is installed; [overstoryd 015](when-needed/merge-015-resolve-reconciled-choices.md)
 gives every automatic outcome its explanation, which 014's "merge with a note" candidates wait
 for. The numbers are identifiers, not an execution order. History and provenance support
 explanation but do not improve merge decisions; [server refinements](small-work.md#server-refinements)

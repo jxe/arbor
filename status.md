@@ -15,7 +15,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 ## People directory, tree picker and USL summaries — 2026-10-25
 
 Implemented and installed on Joe's Mac (main `6ebe9ea`); Joe 2026-10-25: "this will do for now".
-[People 001](plans/later/people-001-directory-and-go-to.md) phase 1 ("As built" there) and
+[People 001](plans/soon/people-001-groups-sharing-and-go-to.md) phase 1 ("As built" there) and
 [Schema language 007](plans/soon/schema-language-007-edit-rows-in-story.md)'s row queue, which it
 writes through.
 
@@ -56,7 +56,7 @@ Plan Schema language 006 is done and deleted; its text is in git history at `58e
 - **Placeholder people.** A `Person` value is a profile id or `contact:<key>`, naming a contact
   in the viewer's directory ([spec 11 §3](docs/overstory-spec/11-schema-language.md)); both
   stacks check it against shared vectors, and an unresolved placeholder shows its key. Names
-  come with the directory ([People 001](plans/later/people-001-directory-and-go-to.md) phase 1).
+  come with the directory ([People 001](plans/soon/people-001-groups-sharing-and-go-to.md) phase 1).
 - **Tests:** the StoryKit, Overstory and OverstoryWorkingTree package tests and
   `swift/scripts/test-story-app.sh` passed on Joe's Mac (103 passed, 1 skipped at `9b4fb9b`);
   `bun run test:affected` passes. At `58e23a6` the packages, the TS tests and the Mac and iOS
@@ -826,7 +826,7 @@ which captured alternatives. An independent whole-tree choice has an explicit
 “Keep current contents” action: it preserves the pinned root, carries complete
 resolution guards and `ifCurrent`, and refuses stale content or coupled choices.
 Automatic discharge of existing choices is not implemented; remaining work is in
-[overstoryd 015](plans/soon/merge-015-resolve-reconciled-choices.md).
+[overstoryd 015](plans/when-needed/merge-015-resolve-reconciled-choices.md).
 
 Batch preflight now validates a non-plain traced suffix on its complete authored
 prefix, instead of merging it against the tree before that prefix. This prevents

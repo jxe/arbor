@@ -1,150 +1,46 @@
-# People 001: a directory you own, Go to…, and links by tree ID
+# People 001: form groups, share with people, and go to any tree
 
 **Why and when:** Joe asked on 2026-10-20 for People to remember the people and trees he has
 come across, not only what connected hosts list. Its main jobs are finding someone and forming
 groups to share with: family, different groups at work. That means knowing whether a group
 already exists, whether it covers everyone needed, inviting whoever is missing, and finding a
 person whose tree ID you don't know. He also wants a way back to any tree or page he has
-visited without remembering its host URL or path, like Chrome's address bar. The directory is a
-collection with a grouped arrangement, so this plan waited for
-Schema language 005: collections that sync correctly
-([status](../../status.md#collections-that-sync--2026-10-24)), on main since 2026-10-24. Joe, 2026-10-22: that foundation is what has to come first;
-the general database views of [Schema language 002](schema-language-002-cranberries-in-story.md)
-are separate and later. The UX was worked out first in the doc
+visited without remembering its host URL or path, like Chrome's address bar. Phase 1, the
+directory tree kept by code, is done
+([status](../../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25); Joe:
+"this will do for now"). Joe moved what is left to soon on 2026-10-25: forming groups in the
+directory, the share sheet, Go to… and links by tree ID. The UX was worked out in the doc
 [People directory UX](https://claude.ai/code/artifact/b3c3e9a9-aeee-49f9-b973-b9bee2d256bb)
 (thread "People directory memory").
 
-> **Executor instructions**: Refresh "What happens today" against the source first; People and
-> the visit store will have moved. Do the phases in order and stop after each for Joe's
-> hands-on check. Forks 1–3 are settled (Joe, 2026-10-25); settle fork 4 before phase 3. Go to…
-> (a side slice, any time) needs only fork 5.
+Formerly "a directory you own, Go to…, and links by tree ID".
+
+> **Executor instructions**: Refresh each phase against the source first. Do the phases in
+> order and stop after each for Joe's hands-on check. Forks 1–3 are settled (Joe, 2026-10-25);
+> settle fork 4 before phase 3. Go to… (a side slice, any time) needs only fork 5.
 
 ## Status
 
 - **Effort:** L, in phases.
-- **Risk:** MEDIUM. It's the first collection Story keeps for itself, and group edits write
-  to group profile trees on hosts.
-- **State:** phase 1 built (2026-10-25, through 6ebe9ea): the directory tree, kept by code, shown with
-  USL views, and found from the Mac's tree picker. Joe: "this will do for now". See "As built" below.
-- **Order** (Joe, 2026-10-24): the directory tree comes first, because it is People's point;
-  Go to… and tree-ID links are a side slice for any time.
-- **Gated on:** phase 1 on part 1 of [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md),
-  its backend (Story writes rows from code on Mac and iPhone; part of [Schema language 002](schema-language-002-cranberries-in-story.md)'s
-  milestone 3a), not on editing in the view (Joe, 2026-10-25): in phase 1 the directory is kept
-  by code and shown with Schema language 006's read-only view ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)). Phase 2 on 002's milestones 3, 4 and 7. The Go to…
-  slice on nothing. Schema language 005 ([status](../../status.md#collections-that-sync--2026-10-24))
-  is on main.
+- **Risk:** MEDIUM. Group edits write to group profile trees on hosts.
+- **State:** phase 1 done (2026-10-25, through 6ebe9ea). Left: phase 1's loose ends, phases
+  2–4 and the Go to… slice.
+- **Order** (Joe, 2026-10-24): the directory first, because it is People's point; Go to… and
+  tree-ID links are a side slice for any time.
+- **Gated on:** phase 2 on [Schema language 002](schema-language-002-collection-editor.md)'s
+  milestones 3, 4 and 7 (editing by hand in simple ways comes earlier, with
+  [Schema language 007](schema-language-007-edit-rows-in-story.md) part 2). The Go to… slice
+  and phase 1's loose ends on nothing.
 - **Built on 002** (Joe, 2026-10-24): People is the directory's collection shown with 002's
   database views, and the directory is 002's first customer. Only Go to… and the share sheet
   are hand-built.
 - **Includes Links 001** (following a link that names a tree by its ID), folded in on
-  2026-10-24 (the Go to… slice and phase 4): once the directory records trees and where they were found, finding a tree
-  by ID is a directory question. Its earlier text is in git history at `7b29f1b`
+  2026-10-24 (the Go to… slice and phase 4). Its earlier text is in git history at `7b29f1b`
   (`plans/soon/links-001-tree-id-links.md`).
 
-## What happens today
+## The directory as built (phase 1)
 
-Written against `a664714`.
-
-- `StoryDirectoryView` (`swift/StoryApp/StoryDirectoryView.swift`) shows You, People (the host
-  community), Groups, and Others. The list is `StoryWorkspaceState.directory`, the union of each
-  connected host's `/directory` answer (`buildDirectory`, `packages/overstoryd/src/directory.ts`):
-  community members, groups the account can read, and profiles named in access rules on trees it
-  administers.
-- `DirectoryStore` (`swift/StoryApp/StoryDirectory.swift`) caches each origin's answer in
-  `Directory.json` and replaces it on every refresh. Nobody met through an invite, a placement
-  or a followed link is remembered unless a host still lists them.
-- Groups are edited in a Members sheet; New Group is Mac only.
-- Visited trees are in `VisitedTreeStore` (`Visits.json`, `swift/StoryApp/StoryVisits.swift`),
-  Mac only, and nothing searches them by title.
-
-## The design
-
-**The directory is a private tree of collections you own.** It holds two collections:
-
-- **People**: one row per profile you know (people and groups), plus *placeholder* rows for
-  people with no tree ID yet (a name, and an email or phone). A row's key is what a
-  `contact:<key>` `Person` value names ([spec 11 §3](../../docs/overstory-spec/11-schema-language.md#3-models-and-fields)): any collection can list a placeholder as
-  an author or owner before they join, and Story shows it by this row's `name`. Each row carries your notes, its
-  *sightings* (how you met: invited you, you invited them, shares with you, in a group together,
-  opened their profile), and the last card seen (name, avatar, handle, host).
-- **Trees**: one row per tree you placed, opened, or were shared, or one linked from a page
-  you followed. Each row holds the owner (a `Person`), last-known title and host, the pages
-  visited with their titles, headings, folder path and icon, visit times, and the queries you
-  picked it with.
-
-A sketch, written before the 2026-10-24 syntax (rewrite it in the layered form in phase 1);
-field names are placeholders:
-
-```
-model Contact {            // keyed by the key `contact:<key>` values name
-  profile   Person?        // absent while a placeholder
-  name      Text
-  reach     Text?          // email or phone, placeholders only
-  notes     Markdown?
-  invited   Date?
-  sightings Sighting[]
-  lastCard  Text?          // JSON of the last directory card
-}
-
-model Sighting {
-  kind    Text             // invited-you, you-invited, shares, group, opened
-  detail  Text?
-  at      Date
-  contact Contact          // cross-reference
-}
-Contact.sightings[] @fold <-> Sighting.contact
-
-model Visited {
-  tree    Text             // TreeID
-  owner   Person?
-  title   Text
-  host    Text?
-  pages   Text[]           // titles, headings, folder paths
-  queries Text[]           // what was typed when it was picked
-  visits  Number           // derived or per device: see phase 1
-  last    Date
-}
-```
-
-**Group membership is not copied.** Groups stay group profile trees on hosts, because
-sharing needs them there. The People arrangement groups contacts by the groups they are in,
-read from those trees; moving a row under a heading edits that group tree's `members`, through
-002 milestone 7's groups that are other trees.
-
-**What arrives on its own.** A contact row is added when there is a real tie: an invite either
-way, a share either way, a group in common, or opening their profile or tree. A link that only
-appears in a page you read doesn't count until you follow it. Host communities stay live,
-collapsed sections and are not copied.
-
-## Phase 1: the directory tree, kept by code (done 2026-10-25)
-
-- Create the private directory tree on first launch, named from the config tree (fork 1), with
-  its `schema.usl` (People and Trees).
-- Record sightings where they happen today: invitation claims, placements, shares, group edits,
-  profile opens. Record visits in the Trees collection on Mac and iPhone; import `Visits.json`
-  and the current `Directory.json` rows once, then remove `Visits.json`.
-- Story keeps the directory from code (007's `appendRows`: derived row changes, queued while
-  offline, sent through the host on every device) and shows it with 006's read-only
-  collection view, grouped by group; a contact's row lists their trees. Editing it by hand
-  comes with 007 part 2, and forming groups in phase 2.
-- **No same-field races.** Both devices write directory rows with nobody at the keyboard, and
-  two of them setting the same field of one row makes a decision
-  ([spec 10 §7.1](../../docs/overstory-spec/10-source-intent.md#71-collection-rows)) nobody
-  can answer in a read-only view. So a sighting or a visit is a new row with a fresh id, not an
-  edit to a shared one; counts and last-seen times (`visits`, `last`) are derived when
-  presented or kept per device, never one field both devices bump.
-- **Placeholders by name.** The People rows without a profile feed `PresentOptions.people`
-  as `contact:<key>` ids, so every collection's placeholder chips and groups (already drawn as
-  not-yet-a-person, showing the key) show the contact's `name`. When a contact gets a profile
-  (an invite claimed, a profile linked by hand), rewrite that contact's `contact:<key>` values
-  to the profile id in the collections Story can write, as row operations, the same way group
-  membership follows them.
-- **Proof:** a person met only through an invite is still in the directory after their host
-  stops listing them; a tree visited on the iPhone shows in the directory on the Mac; a games
-  author entered as a placeholder shows by name, and by their profile once they join.
-
-**As built (2026-10-25).** The tree is `/~handle/directory`, mounted in the profile's
+The tree is `/~handle/directory`, mounted in the profile's
 `mounts.yaml`, administered by the profile alone, and activated with a seed snapshot that
 `tools/directory-seed.ts` makes from `tools/directory-seed/` into
 `PersonalDirectorySeed.swift` (Story doesn't encode tables; a test checks it is current).
@@ -181,6 +77,29 @@ merge sidecar can resolve them, e.g. latest wins for a tree's title or a last-se
 union for chips, added increments for a count. A general form would be a storage attribute a
 schema asks for (`@merge(latest)`); with it, a tree could be one row with `title`, `lastVisited`
 and `visits` updated in place instead of a Visit row per page.
+
+## Phase 1's loose ends
+
+- **More sightings:** invitation claims, and shares made where a refresh doesn't show them.
+- **Placeholders by name, then by profile.** When a contact gets a profile (an invite claimed,
+  a profile linked by hand), rewrite that contact's `contact:<key>` values to the profile id
+  in the collections Story can write, as row operations, the same way group membership
+  follows them. `Contact` rows (placeholders by hand) come with 007 part 2.
+- **A migration path** for the directory's schema, so a seed bump stops emptying it.
+- **Proof still owed:** a games author entered as a placeholder shows by name, and by their
+  profile once they join.
+
+## Groups and what arrives on its own
+
+**Group membership is not copied.** Groups stay group profile trees on hosts, because
+sharing needs them there. The People arrangement groups contacts by the groups they are in,
+read from those trees; moving a row under a heading edits that group tree's `members`, through
+002 milestone 7's groups that are other trees.
+
+**What arrives on its own.** A contact row is added when there is a real tie: an invite either
+way, a share either way, a group in common, or opening their profile or tree. A link that only
+appears in a page you read doesn't count until you follow it. Host communities stay live,
+collapsed sections and are not copied.
 
 ## Phase 2: People as a database view (after 002 milestones 3, 4 and 7)
 
@@ -305,7 +224,7 @@ descriptor)`). `openRemoteLocator` splits into resolving a path to a descriptor 
   app closed and running.
 - **iPhone.** `.onOpenURL` with the same pending open; `locateTree` places a `.host` result
   with `place(tree:from:configurationTree:)`, so it opens only trees on hosts where the phone
-  has an account. An invitation URL is [Sharing 001](sharing-001-join-on-iphone-first.md)'s;
+  has an account. An invitation URL is [Sharing 001](../later/sharing-001-join-on-iphone-first.md)'s;
   whichever lands first adds the handler and the other adds its case. Open Location takes a
   locator.
 - **The command line.** `/v1/resolve` and `story open` stop reading `tr_` as a DNS name and

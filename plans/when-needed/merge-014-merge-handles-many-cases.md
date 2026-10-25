@@ -61,7 +61,7 @@ syntax, and would become merges or merges with a note.
 
 ## Before the candidates
 
-- **The foundation is [overstoryd 015](../soon/merge-015-resolve-reconciled-choices.md)'s first
+- **The foundation is [overstoryd 015](merge-015-resolve-reconciled-choices.md)'s first
   step**: a portable shape for a merge note, the three outcomes in the spec, and
   rule revisions that are bumped when a rule's decisions change. It moved there on
   2026-10-11 because 015 is the active plan and cannot land without it. A candidate

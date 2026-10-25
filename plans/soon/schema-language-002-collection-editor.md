@@ -1,36 +1,38 @@
-# Schema language 002: cranberries documents in Story
+# Schema language 002: the collection editor, ownership and pages that show collections
 
 **Why and when:** Joe asked on 2026-10-13 whether cranberries could live in
 Story, so that the MAI excellences document and supplies-remake run natively
 in Story.app on the Overstory data model, whose collections are declared in
 `schema.usl` ([schema language](../../docs/overstory-spec/11-schema-language.md)). The design history is in the project
-thread "Cranberries in Story" and its sketch. On 2026-10-22 Joe split the
-data half out as Schema language 005: collections that sync ([status](../../status.md#collections-that-sync--2026-10-24)),
-to do first; this plan keeps the database views (presenting, editing and
-embedding collections in Story), ownership and the two site ports, for later.
-On 2026-10-24 Joe made the [People directory](people-001-directory-and-go-to.md)
-this plan's first customer: People is presented and edited with these views
-rather than hand-built screens, so the database views get proven on something
-Joe uses daily. Milestones 3, 3a, 4 and 7 come first, each built with what the
-directory needs (listed in each); ownership (5) and the site ports (6) follow.
+thread "Cranberries in Story" and its sketch. The data half (Schema language 005,
+[status](../../status.md#collections-that-sync--2026-10-24)) and the read-only view (006,
+[status](../../status.md#collections-in-story-on-the-mac--2026-10-25)) are done, and
+[Schema language 007](schema-language-007-edit-rows-in-story.md) sends row edits from Story
+with simple edits in the view. What is left here is the full editor, row ownership, and pages
+that show a collection kept elsewhere. Joe moved it to soon on 2026-10-25, without the ports
+of excellences and supplies-remake, which are
+[Schema language 008](../later/schema-language-008-port-excellences-and-supplies.md) in later.
+Its first customer is the [People directory](people-001-groups-sharing-and-go-to.md) (Joe,
+2026-10-24): People is presented and edited with these views rather than hand-built screens,
+so the editor gets proven on something Joe uses daily.
+
+Formerly "cranberries documents in Story" and "database views in Story". Milestone numbers
+are kept so earlier references hold: 1, 2 and 2a became 005's 4, 5 and 6; 3a is 007; 6 (the
+site ports) is 008.
 
 ## Status
 
-- **Effort:** XL, in milestones.
+- **Effort:** L, in milestones.
 - **Risk:** HIGH. A new kind of editing surface in Story, and access rules
   that read row data.
-- **State:** milestone 3 mostly done (read-only views on the Mac, 2026-10-25,
-  [status](../../status.md#collections-in-story-on-the-mac--2026-10-25)); 3a is
-  [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md), in soon; 4 to 7
-  are not started. Milestones 1, 2 and 2a moved to 005 (as
-  its milestones 4, 5 and 6); the numbers here are kept so earlier references
-  hold.
-- **Depends on:** 005 ([status](../../status.md#collections-that-sync--2026-10-24)), on main since 2026-10-24:
-  row operations, field-level merge, logical collections, the layered USL and
-  its StoryKit port.
-- **Order:** 3, 3a, 4 and 7 for the directory, then 5 and 6.
-- **Unblocks:** [People 001](people-001-directory-and-go-to.md) (after 3, 3a, 4
-  and 7); porting excellences and supplies-remake off Supabase.
+- **State:** milestone 3 mostly done (006, and People 001 phase 1's summaries); 4, 5 and 7
+  not started.
+- **Depends on:** [Schema language 007](schema-language-007-edit-rows-in-story.md) part 1 (done
+  but for loose ends), whose row queue every edit here goes through.
+- **Order:** 3's leftovers, 4 and 7 for the directory (People 001 phase 2), then 5, which 008
+  needs.
+- **Unblocks:** [People 001](people-001-groups-sharing-and-go-to.md) phase 2;
+  [Schema language 008](../later/schema-language-008-port-excellences-and-supplies.md).
 
 ## Joe's decisions
 
@@ -79,112 +81,42 @@ Story"):
 
 ## Target result
 
-A folder whose `schema.usl` has views opens in Story as an arrangement:
+A folder whose `schema.usl` has views opens in Story as an editable arrangement:
 one line per row, grouped by each view's field, so a row appears under every
 group it belongs to, with a colored bullet and chips for connections. Editing
 a line changes the row; adding a line under a group connects the new row to
-that group. Two people editing the same row at once merge field by field and
-member by member (005). The excellences document and a supplies-remake game
-list run this way, backed by files or SQLite, with the same content they have
-on Supabase today.
+that group; dragging moves it between groups. Two people editing the same row
+at once merge field by field and member by member (005). A page can show a
+collection kept elsewhere, and rows can be owned.
 
 ## Milestones
 
-The screen first, then the people and sites that use it. Milestone 5 can land
-any time before 6; 7 needs only 3 and 4. The directory needs 3, 3a, 4 and 7.
+The screen first, then ownership. Milestone 5 can land any time; 7 needs only 3 and 4. The
+directory needs 3, 4 and 7.
 
-### 3. Presented views
+### 3. Presented views: what is left
 
-**Done in part (2026-10-25,
-[status](../../status.md#collections-in-story-on-the-mac--2026-10-25)):** Schema language 006 built the TS
-`presentView` and its StoryKit port on main, the shared vectors, and Story's read-only view on
-the Mac. People 001 phase 1 added summaries over facts (2026-10-25, spec 11 §8):
-`rows: field`, `re Person` views, paths through connections, `~latest`, `~earliest`,
-`~count` and `~ago`; their lines are read-only. What is left here: the directory's other needs
-below (an arrangement menu, read-only groups the host supplies, a label for "Unassigned"), and fields a client styles today that a schema can't set
-(the bullet tinting the title, Markdown as a note). `PresentedView` doesn't say which chips
-and groups are people, so Story guesses from a TreeID or the placeholder flag; give cells and
-groups their field's target type in both stacks and the vectors. The iPhone reads with
-[Schema language 007](../soon/schema-language-007-edit-rows-in-story.md) step 0, and editing is
-007 and milestone 4. The history below predates that.
+Built (2026-10-25): Schema language 006's `presentView` in TS and StoryKit with shared vectors
+(`presented-views.json`) and Story's read-only view on the Mac and iPhone; People 001 phase 1's
+summaries over facts (spec 11 §8: `rows: field`, `re Person` views, paths through connections,
+`~latest`, `~earliest`, `~count`, `~ago`), whose lines are read-only. Left:
 
-`presentPage` lives in `packages/protocol/src/documents/page-presentation.ts`,
-with inverse `authorPage` and tests in `tests/unit/page-presentation.test.ts`.
-Its Swift counterpart is `StoryPagePresentation` in StoryEditor, working on
-Quagmire blocks. This milestone is where Story.app (Mac and iOS) first shows
-a collection's rows: 005 only makes Story carry collections intact (Joe,
-2026-10-24). On main, only the TS USL checker resolves views:
-`ResolvedModel.views` holds `ResolvedView {label, line: LineItem[], group,
-sort}` (`packages/usl/src/check.ts`). Nothing in Swift parses `schema.usl`
-(`WorkingTree.collection(for:)` only counts rows: from a one-table
-collection reference on the 005 branch, else from store-file lines).
+- **For the directory:** an arrangement with several groupings chosen from a menu (By group,
+  Recent, By host), read-only groups the host supplies alongside the rows (each host
+  community, collapsed, never copied) shown with the same line shape, and a label for
+  "Unassigned".
+- **Fields a client styles today that a schema can't set:** the bullet tinting the title,
+  Markdown as a note.
+- **People in cells.** `PresentedView` doesn't say which chips and groups are people, so Story
+  guesses from a TreeID or the placeholder flag; give cells and groups their field's target
+  type in both stacks and the vectors.
+- **The inverse.** 007 step 5 maps the view's simple edits to row operations; this milestone
+  covers the rest of cranberries' `src/model.ts` intents: create in group (preset the forward
+  field, or connect the reverse owner), move within an `ordered` group, move to another group,
+  and `checkValue`/`validate` before publishing.
 
-**TS.**
-- `presentView(schema, rows, view)` in `packages/protocol` (beside
-  `presentPage`) takes the resolved model and layout and returns tabs, groups
-  (id, heading, kind: connection, choice or unassigned), lines (row key,
-  occurrence id, cells) and per-row capabilities.
-- Cells are text, Markdown (first paragraph), chips (members with display
-  names) and choice (with color, `@bullet`).
-- The inverse maps intents to 005's row operations:
-  - set field;
-  - connect, disconnect;
-  - create in group (preset the forward field, or connect the reverse owner);
-  - delete;
-  - move within an `@ordered` group;
-  - move to another group.
-- The default arrangement: the line is the fields in order, with one grouping
-  per fixed model, connection or `Person` field. The order of an unordered
-  connection's members comes from the view, defaulting to creation order.
-- Port from cranberries' `src/model.ts`, which is pure:
-  - `groups` (flat, field and reverse-relationship grouping, "Unassigned");
-  - `sortGroups`;
-  - `search`;
-  - `newEntity`;
-  - `apply`;
-  - `checkValue`/`validate`.
-
-  `canEdit` doesn't port; ownership is milestone 5.
-
-Note that `packages/protocol` depends only on `@noble/hashes` and `yaml`, not
-on `@ovst/usl`. Either protocol takes that dependency, or `presentView` lives in
-`packages/usl/src/present.ts` and protocol keeps only the presentation types.
-The second keeps protocol free of the schema language.
-
-**Swift.** Port `presentView` to StoryKit, on top of 005's StoryKit port of
-`packages/usl`. Run both stacks against shared conformance vectors (schema,
-rows, view → presentation), as `presentPage` does.
-
-**For the directory:** an arrangement with several groupings chosen from a
-menu (By group, Recent, By host), a `sort` on a date field (Recent), and
-read-only groups the host supplies alongside the rows (each host community,
-collapsed, never copied), shown with the same line shape.
-
-**Done when:** `games.usl` and `excellences.usl` with their data present
-identically in both stacks, and every intent round-trips to row operations
-that `usl verify` accepts.
-
-### 3a. Rows in Story on Mac and iPhone
-
-Being built first as [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md)
-(Joe, 2026-10-24); what it leaves folds back here.
-
-Moved from People 001's phase 0 on 2026-10-24 (before that, from 005
-milestone 5), and now needed: the structured editor sends row operations from
-Story itself, and the directory must work on the iPhone, which has no Story
-Sync.
-
-- Story on Mac and iPhone reads and writes logical collections offline with no
-  Story Sync in the path: a native projection (SQLite, which iOS has) built
-  from the logical form, validated with the StoryKit USL port, and fed by a
-  row-change kind in `UpdateCoordinator` beside `appendStructure`
-  (`UpdateCoordinator+LocalChanges.swift`). 005 milestone 3 already makes
-  native working trees keep a collection's tables and rows.
-- It covers [Apps 010](apps-010-native-offline-collection-file-projection.md)
-  (rows readable offline on native), which can then be deleted.
-
-**Done when:** a collection edited offline on the iPhone and on the Mac merges
-when both reconnect.
+**Done when:** `games.usl` and `excellences.usl` with their data present identically in both
+stacks, and every intent round-trips to row operations that `usl verify` accepts.
 
 ### 4. The structured editor
 
@@ -259,7 +191,7 @@ text field.
 - **Per-row locks** are new: Quagmire's read-only is one page-level boolean,
   so tap, focus, Tab-skip and drag all need gating.
 
-**Story.**
+**Story.** (Written before 006 drew collections; refresh against `StoryCollectionView.swift`.)
 - `WorkspaceSurface.collection(kind:rowCount:)` (StoryKit
   `WorkspaceModels.swift`) gains the resolved schema and views.
 - `WorkspaceSurfaceView` in `StoryRootView.swift` renders it with the new
@@ -275,7 +207,7 @@ text field.
 - View tabs and the search box sit in Story's chrome. The selected tab and
   collapsed groups are the client's own state.
 - A collection session beside `WorkspaceDocumentSession` sends row
-  operations through milestone 3a's `UpdateCoordinator` row-change kind.
+  operations through 007's row queue (`UpdateCoordinator+Rows.swift`).
 - Release: a Quagmire minor version. Pins in `swift/project.yml` and
   `swift/Packages/StoryEditor/Package.swift`. Quagmire's `AGENTS.md` still
   names the old `native/` paths; fix it in passing.
@@ -367,29 +299,6 @@ Today:
 **Done when:** in a shared games tree, an author edits only their own games,
 anyone in the community edits unowned ones, and nobody but an owner or
 administrator changes `authors`.
-
-### 6. Port the two sites
-
-- An importer reads cranberries' snapshot (`GET /api/cranberries`, or the
-  `remake` tables) into a tree:
-  - `games.usl` with JSONL or SQLite;
-  - `excellences.usl` likewise;
-  - `created`/`modified` carried over from cranberries' stamps;
-  - `@ordered` positions from `List_games.games_position`.
-- Cranberries has no export command. `readDocument` returns the whole
-  snapshot, so a small `cranberries export` that writes it through
-  `@ovst/usl`'s `rowsFromRecords` would serve both sites. The games sandbox
-  (2026-10-24) was filled this way by a one-off script from the public
-  `GET /api/cranberries?document=games`: ids and `modified` kept, `created`
-  not carried, people's names, avatars and bios dropped (no Person rows).
-- Use excellences' own `lib/schema.usl`, which has the `@fold`s;
-  `packages/usl/examples/excellences.usl` has drifted from it, so
-  replace the example.
-- Check with `usl verify`, then present the result next to the live site and
-  compare.
-- **People without accounts** become `contact:<key>` placeholders (spec 11
-  §3), keyed by their source id, as the games sandbox does; they show by name
-  once the directory (People 001 phase 1) holds them.
 
 ### 7. Pages that present other collections
 
