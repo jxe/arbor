@@ -42,17 +42,18 @@ type Frame = { before?: Hash; after?: Hash; operations: Operation[] };
 A trace is an ordered chain of frames, each one tree root to the next. It records
 the authored transition as the client actually made it, rather than flattening
 several editor generations into one claim that no single basis explains. A
-*stated* trace names every frame's roots, as below; a *derived* trace names
-none and leaves them to the host (§2.2).
+frame's roots are optional and independent: each one stated is an assertion the
+host checks, and each one omitted the host derives (§2.2).
 
-- In a stated trace, `trace[0].before` MUST be the candidate's authored basis root, and each later
-  frame's `before` MUST equal its predecessor's `after`.
-- The last frame's `after` MUST be `candidate`.
-- Every frame MUST reproduce its `after` exactly, including untouched bytes, when
-  its operations execute against its `before` (§3). A frame that does not is
-  invalid; the host never falls back to the candidate's bytes. Row operations
-  appear only in derived traces (§2.2), and a frame that carries row
-  operations carries no other kind.
+- A frame's basis is positional: `trace[0]` executes on the candidate's authored
+  basis root (the element's logical base), and each later frame on its
+  predecessor's result. A stated `before` MUST equal that basis.
+- A stated `after` MUST be reproduced exactly, including untouched bytes, when
+  the frame's operations execute on its basis (§3). A frame that does not is
+  invalid; the host never falls back to the candidate's bytes.
+- `candidate` is the last frame's `after`, or `null` when that `after` is
+  omitted. A *stated* candidate is one whose last frame states its `after`.
+- A frame that carries row operations (§4.1) carries no other kind.
 - Each frame carries at least one operation. A change with nothing to state uses
   an empty trace or, for snapshot semantics, `null`.
 
@@ -68,27 +69,27 @@ different change.
 
 ### 2.2 Derived candidates
 
-A candidate with `candidate: null` has a *derived* trace: no frame has `before`
-or `after`. Its basis is positional, the element's logical base
-([tree operations §2.1](01-tree-operations.md#21-the-update-request)), and each
-later frame executes on its predecessor's result. The host executes the frames
-exactly as it checks a stated trace (§3, §4), and the last result is the
-element's candidate; acceptance then continues as for any candidate (§5). An
-operation that does not apply on its basis rejects the element, as a frame that
-does not reproduce its `after` would. `resolves` and `ifCurrent` work as for any
-candidate. A derived candidate needs no objects or deltas beyond the content its
-operations introduce. A snapshot (`trace: null`) is never derived: its candidate
-is its content.
+A candidate with `candidate: null` is *derived*: its last frame omits `after`, so
+the host computes the result. The host executes every frame on its basis exactly
+as it checks one that states its roots (§3, §4), checking each root that is
+stated, and the last result is the element's candidate; acceptance then
+continues as for any candidate (§5). An operation that does not apply on its
+basis, or a stated root the execution does not match, rejects the element.
+`resolves` and `ifCurrent` work as for any candidate. A derived candidate needs
+no objects or deltas beyond the content its operations introduce. A snapshot
+(`trace: null`) is never derived: its candidate is its content.
 
-Any operation trace may be derived. Row operations (§4.1) MUST be: the tables a
-collection is encoded in are the host's to build, so no client states them,
-whether it is a device editing rows or Story Sync submitting edits made in a
-projection. A client that holds the tree and can compute roots should state
-them: a stated root lets later elements chain on it while earlier ones are in
-flight, and an `after` the host does not reproduce exposes a divergence at once.
-Only derived elements may follow a derived element in one string, since the
-author cannot name the root it would build on; other work waits for the derived
-element's result and is replayed onto it like any accepted change.
+Any operation trace may be derived. Row operations in practice are: a client
+that does not encode a collection's tables simply leaves out the roots after
+them, and may still state a `before` it knows. A client that holds the tree and
+can compute roots should state them: a stated
+candidate lets later elements chain on it while earlier ones are in flight, and
+an `after` the host does not reproduce exposes a divergence at once.
+
+An element that follows a derived element in one string builds on a root its
+author has not seen, so in practice it is derived as well, and other work waits
+for the derived element's result and is replayed onto it like any accepted
+change.
 
 A client that cannot encode a collection's tables never needs to: it sends
 row changes as derived candidates, shows them applied over the rows it last received until
@@ -199,8 +200,8 @@ An authority rejects an `at` more than five minutes ahead of its own clock.
 A row operation names a row by identity, so concurrent changes to one row
 merge field by field (§7.1). It has no material result to reference.
 
-Row operations travel only in derived traces (§2.2), which the host replays
-on the element's basis; no client states the resulting tree.
+The host replays row operations on their frame's basis, deriving the
+resulting tree or checking a stated one (§2.2).
 
 ## 5. Acceptance and explicit resolution
 

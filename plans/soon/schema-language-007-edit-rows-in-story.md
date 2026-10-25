@@ -26,11 +26,11 @@ The People directory needs both, and the iPhone has no Story Sync.
   writes the accepted rows into a placed folder's projection. Story never writes a projection,
   and only Story Sync (TS) reads and writes SQLite and files. Edits made in a projection by other
   programs still go folder → Story Sync → host.
-- **The host derives the result.** A *derived candidate* (spec 10 §2.2) has `candidate: null`
-  and frames with no `before` or `after`; the host executes them on the element's basis. Any
-  operation trace may be derived (for parsimony); row operations must be, from Story and Story
-  Sync alike; Story keeps stating roots for text and structure. Only derived elements may
-  follow a derived element in one string.
+- **The host derives the result.** Every frame root is optional and independent: a stated
+  root is checked, an omitted one derived (spec 10 §2). A *derived candidate* (§2.2) omits
+  its last `after` and has `candidate: null`; the host executes the trace on the element's
+  basis. Any operation trace may be derived (for parsimony); row operations are in practice,
+  from Story and Story Sync alike (no rule forbids stating them); Story keeps stating roots for text and structure.
 - **Offline is a queue, not a replica.** Pending row operations show at once, applied over the
   rows last received, and are sent when online. That is enough on the iPhone.
 - So there is no Swift port of the replay or of the table encoding (dropped from this plan).
@@ -59,23 +59,23 @@ the view** (steps 5–6), can follow or run beside People 001.
 
 0. **Read on the iPhone.** 006's view on iOS, from the tree's own objects, offline; fix what
    looks wrong at phone width.
-1. **Derived candidates in TS and overstoryd.** The contract (`candidate: Hash | null`, frames
-   without roots, row operations only in derived traces), request identity (a derived
-   candidate's `candidate` is null in the digest and in the next element's `base`), the
-   chaining rule, and the result's `candidate` and reconciliation from the preceding result's
+1. **Derived candidates in TS and overstoryd.** The contract (`candidate: Hash | null`, each
+   frame root optional and checked when stated),
+   request identity (a derived candidate's `candidate` is null in the digest and in the next
+   element's `base`), and the result's `candidate` and reconciliation from the preceding result's
    root (spec 01 §2.4). overstoryd executes a derived trace with the code that checks a stated
    one. Vectors in `protocol-authored-updates.json` and the request-identity cases: rows only,
-   text derived, a string of derived elements, a stated element after a derived one (refused),
-   an operation that doesn't apply on its basis (refused), a retry deriving the same root.
+   text derived, a string of derived elements, a derived frame stating `before` (checked), a
+   stated root the execution doesn't match (refused), an operation that doesn't apply on its basis (refused), a retry deriving the same root.
 2. **Story Sync sends derived row changes.** Edits found in a projection go out as derived
-   candidates, and it applies results as watch frames; stated row frames are then refused by the
-   host. `tests/integration/collection-placements.test.ts` and the row-acceptance tests move
+   candidates, and it applies results as watch frames (the host keeps checking stated row
+   frames). `tests/integration/collection-placements.test.ts` and the row-acceptance tests move
    with it.
 3. **Swift on the wire.** `RowOperation` and derived candidates in Overstory's authored
    contract and request digest, passing the shared vectors; the result's `candidate`.
 4. **A row queue in `UpdateCoordinator`.** `appendRows([RowOperation])` beside
    `appendStructure` keeps pending row operations durably, sends them as derived elements
-   (never followed by a stated element in the same string), and drops them when their result
+   (never followed by a stated element in the same string, which couldn't know its basis), and drops them when their result
    is applied. Text and structural edits made meanwhile wait for the result and rebase as on
    any accepted change. The collection view shows pending operations applied over the last
    received rows (a display-level apply on the logical tables, then `uslRowsFromLogical`;

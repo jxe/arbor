@@ -755,11 +755,12 @@ type CandidateUpdate = TransitionPayload & {
 ```
 
 `candidate` is `null` exactly for a *derived* candidate: an operation trace
-whose frames have no `before` or `after`
-([source intent §2.2](10-source-intent.md#22-derived-candidates)). The host
-derives its candidate by executing the trace on the element's logical base.
-Row operations are always sent this way; any other operation trace may be,
-and a snapshot never is.
+whose last frame omits `after`
+([source intent §2.2](10-source-intent.md#22-derived-candidates)). Every
+frame root is optional; the host derives what is omitted by executing the
+trace on the element's logical base, and checks what is stated.
+Any operation trace may be derived (row operations in practice are), and a
+snapshot never is.
 
 `change` is a durable authored-change identity; `trace: null` explicitly
 selects snapshot semantics. A trace is a chain of tree-root to tree-root frames
@@ -860,9 +861,9 @@ element may be evaluated again without creating accepted history.
 For each untrimmed element, the logical base root is the preceding submitted
 candidate (for a derived candidate, the root the host derived), not the preceding
 accepted or merged root. An element that follows a derived candidate in the same
-string MUST itself be derived, because its author cannot name the root it
-would be authored on; other work waits for that element's result and is
-replayed onto it like any accepted change. Thus, if `B` to `C1` is
+string is in practice derived too, because its author has not seen the root it
+builds on; other work waits for that element's result and is replayed onto it
+like any accepted change. Thus, if `B` to `C1` is
 merged into `M1`, the next element is reconciled as `(base: C1, candidate: C2,
 current: M1)`. Only the incremental `C1` to `C2` change is applied to the
 merged state. Each successful state-changing element is committed and emitted
@@ -1041,7 +1042,7 @@ of `{ domain: "arbor-update/2", tree, base, change, trace, candidate, resolves, 
 with absent `ifCurrent` encoded as CBOR null, and a derived candidate's
 `candidate` as CBOR null. Execution is deterministic (a row operation carries its
 `at`), so a retried derived candidate derives the same root under the same digest. The digest covers the whole trace,
-including each frame's `before` and `after`, so the same operations divided into
+including each frame's `before` and `after` as stated or omitted, so the same operations divided into
 different frames are a different change. Ordered arrays retain their submitted
 order, including resolution declarations and reviewed alternative IDs. Identity is
 scoped to the authenticated device, across its sessions. The `domain` string is
