@@ -297,6 +297,8 @@ final class StoryWorkspaceState {
     private(set) var specialTrees: [PickerTree] = []
     /// Other trees by latest visit, from the directory.
     private(set) var recentTrees: [PickerTree] = []
+    /// Pages opened before the directory was ready, to record once it is.
+    private var earlyVisits: [(visit: DirectoryVisit, endpoint: URL?)] = []
     var pendingProfileAction: StoryProfileAction?
     private let nativePlacementStore = NativePlacementStore()
     private(set) var nativePlacements: [NativePlacementRecord] = []
@@ -3613,6 +3615,9 @@ extension StoryWorkspaceState {
         }
 #endif
         await refreshSpecialTrees(accounts: accounts)
+        let early = earlyVisits
+        earlyVisits = []
+        await record(early)
         await refreshRememberedPeople()
     }
 
@@ -3655,21 +3660,34 @@ extension StoryWorkspaceState {
     /// Record arriving at `node`'s page in a hosted tree. The directory's own
     /// pages are not visits.
     func recordVisit(_ node: WorkspaceNode) {
-        guard let keeper = personalDirectory, node.reference.tree.rawValue.hasPrefix("tr_") else { return }
+        guard node.reference.tree.rawValue.hasPrefix("tr_") else { return }
         let endpoint = currentTreeCanonical.flatMap { URL(string: $0.endpoint) }
         let host = endpoint?.host()
         // A tree is titled by its root page, else its URL's last name; the
         // community's own tree, at "/", by its host.
         let treeTitle = node.reference.path == "/" && !node.title.isEmpty ? node.title
             : currentTreeCanonical?.path.split(separator: "/").last.map(String.init) ?? host
-        var visit = DirectoryVisit(tree: node.reference.tree.rawValue, path: node.reference.path, title: node.title,
+        let visit = DirectoryVisit(tree: node.reference.tree.rawValue, path: node.reference.path, title: node.title,
                                    treeTitle: treeTitle, host: host)
-        Task {
-            guard await keeper.tree?.id != visit.tree else { return }
-            if let host, let endpoint { visit.canopy = await canopy(host: host, endpoint: endpoint) }
-            await keeper.record([visit])
-            await refreshRecentTrees()
+        // The page a launch restores opens before the directory does.
+        guard personalDirectory != nil else {
+            earlyVisits = (earlyVisits + [(visit, endpoint)]).suffix(20)
+            return
         }
+        Task { await record([(visit, endpoint)]) }
+    }
+
+    private func record(_ visits: [(visit: DirectoryVisit, endpoint: URL?)]) async {
+        guard let keeper = personalDirectory else { return }
+        let directory = await keeper.tree?.id
+        var recorded: [DirectoryVisit] = []
+        for (visit, endpoint) in visits where visit.tree != directory {
+            var visit = visit
+            if let host = visit.host, let endpoint { visit.canopy = await canopy(host: host, endpoint: endpoint) }
+            recorded.append(visit)
+        }
+        await keeper.record(recorded)
+        await refreshRecentTrees()
     }
 
     /// The community profile of the host at `endpoint`, asked once.
