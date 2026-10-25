@@ -12,6 +12,33 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Collections in Story on the Mac — 2026-10-25
+
+Implemented (main `9b4fb9b`, `756aacb`, `58e23a6`); verified by Joe on 2026-10-25 against a
+sandbox tree holding supplies-remake's live games (133 games, 2 lists;
+`https://arb.nxhx.org/~joe/games-sandbox`, placed at `~/Documents/arbor-rehearsals/games-sandbox`).
+Plan Schema language 006 is done and deleted; its text is in git history at `58e23a6`.
+
+- **Swift reads collections.** Overstory decodes rows chunks strictly
+  (`ProtocolObjectCodec.decodeRows`); StoryKit ports `rowsFromLogical` (`uslRowsFromLogical`),
+  checked against the `logical` vectors in `presented-views.json`; `WorkingTree` loads a
+  folder's `schema.usl` and rows, served by `WorkspaceProvider.collectionRows`.
+- **Story shows them read-only.** A collection folder is drawn by `presentView` from its
+  schema's `~views`: tabs, groups that collapse, bullets that color the title, author avatars,
+  Markdown notes clamped to five lines, search, and Copy Row Key, styled after the games site
+  (`StoryCollectionView.swift`, `StoryPresentedCollection.swift`). Editing `schema.usl`'s `~`
+  layer changes the view after sync. Mac only by hand; the app builds for iOS.
+- **Placeholder people.** A `Person` value is a profile id or `contact:<key>`, naming a contact
+  in the viewer's directory ([spec 11 §3](docs/overstory-spec/11-schema-language.md)); both
+  stacks check it against shared vectors, and an unresolved placeholder shows its key. Names
+  come with the directory ([People 001](plans/later/people-001-directory-and-go-to.md) phase 1).
+- **Tests:** the StoryKit, Overstory and OverstoryWorkingTree package tests and
+  `swift/scripts/test-story-app.sh` passed on Joe's Mac (103 passed, 1 skipped at `9b4fb9b`);
+  `bun run test:affected` passes.
+
+Next: [Schema language 007](plans/soon/schema-language-007-edit-rows-in-story.md), editing rows
+in Story on the Mac and iPhone.
+
 ## Earlier merge-cache formats retired — 2026-10-24
 
 Implemented; deployed when main is pushed. Plan Performance 002 is done and

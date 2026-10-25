@@ -1,7 +1,7 @@
 # Schema language 007: edit collection rows in Story, on the Mac and iPhone
 
-**Why and when:** Joe, 2026-10-24: once [Schema language 006](schema-language-006-read-only-collection-views.md)
-shows a collection read-only, the next step goes in soon. This is
+**Why and when:** Joe, 2026-10-24: once Schema language 006 showed a collection read-only
+([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)), the next step goes in soon. This is
 [Schema language 002](../later/schema-language-002-cranberries-in-story.md)'s milestone 3a
 (rows in Story on Mac and iPhone), carved out with a small proof: simple edits in 006's view.
 The People directory needs both, and the iPhone has no Story Sync.
@@ -15,7 +15,8 @@ The People directory needs both, and the iPhone has no Story Sync.
 - **Effort:** M–L.
 - **Risk:** MEDIUM. Story starts sending row operations; a wrong replay is refused by the
   host (it replays every frame), so the risk is refused updates, not bad data.
-- **State:** TODO. 006 is on main (9b4fb9b); its close-out waits on Joe's hands-on look.
+- **State:** TODO. 006 is done ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)); try edits on the games
+  sandbox tree, which holds supplies-remake's live data.
 
 ## What exists
 
@@ -23,8 +24,10 @@ The People directory needs both, and the iPhone has no Story Sync.
   `rowConnect`, `rowDisconnect`, `rowMove`; `packages/protocol/src/updates/authored-contract.ts`),
   with vectors in `protocol-authored-updates.json`. The host replays them
   (`packages/collection-schema/src/row-replay.ts`) and merges by field.
-- **Swift:** after 006, Overstory decodes rows chunks, StoryKit has `uslRowsFromLogical`,
-  `presentView` and `viewEdits` (intents to layout-row edits), and Story draws the view. Swift
+- **Swift:** Overstory decodes rows chunks, StoryKit has `uslRowsFromLogical`,
+  `presentView` and `viewEdits` (intents to layout-row edits), and Story draws the view
+  read-only (`StoryCollectionView`, `StoryPresentedCollection`), from
+  `WorkspaceProvider.collectionRows`. Swift
   has no `RowOperation`, no replay and no logical-from-rows direction. Native working trees
   keep a collection's table and rows objects in the overlay (005 milestone 3).
 - **Story:** local changes go through `UpdateCoordinator` (`appendStructure` in

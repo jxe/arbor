@@ -27,6 +27,12 @@ client's current document and working-tree coordinator. Story Sync tree-list
 status remains a daemon/CLI diagnostic and is not folded into Native's badge,
 tree conflict state, or publication eligibility.
 
+A folder holding a logical collection is shown as its rows, not as a document: the schema's
+main model arranged by its `~views` (tabs, groups, lines), read-only for now. The presentation
+is the shared `presentView` (`@ovst/usl` and StoryKit, held to `presented-views.json`); a client
+chooses only styling and keeps collapsed groups and the open tab as its own view state. A
+schema that does not check, or rows not on the device, show a diagnostic in place of the rows.
+
 ## Editing
 
 Overstory clients present the complete operational Markdown returned by story-sync. The first standalone link to an immediate physical child represents that child; story-sync appends ordinary Markdown links for unmatched children without materializing on read. Reordering those rows edits source, so Source view and the block editor always describe the same document.

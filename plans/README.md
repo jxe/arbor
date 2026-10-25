@@ -14,16 +14,12 @@ its evidence in status.
 
 ## Soon
 
-**[Schema language 006: read-only collection views on the Mac](soon/schema-language-006-read-only-collection-views.md).**
-Joe's pick on 2026-10-24 for the small slice to do first: a collection folder in Story on the
-Mac shows its rows arranged by its schema's views, read-only. It is the first part of Schema
-language 002's milestone 3, which the People directory will be built on: Swift decodes rows,
-ports `rowsFromLogical`, and draws the existing `presentView` port.
-
 **[Schema language 007: edit collection rows in Story, on the Mac and iPhone](soon/schema-language-007-edit-rows-in-story.md).**
-Joe, 2026-10-24: the next step after 006. Story writes row operations itself, offline and on
-the iPhone, which has no Story Sync (Schema language 002's milestone 3a), proven by simple edits
-in 006's view: a bullet's value, a row's name, chips, delete and add. The People directory's
+Joe, 2026-10-24: the next step after Schema language 006, which shows collections read-only in
+Story on the Mac ([status](../status.md#collections-in-story-on-the-mac--2026-10-25)). It reads on
+the iPhone first, then Story writes row operations itself, offline and on the iPhone, which has
+no Story Sync (Schema language 002's milestone 3a), proven by simple edits in that view on the
+games sandbox: a bullet's value, a row's name, chips, delete and add. The People directory's
 first phase is built on it.
 
 **[Live 001: see who else is here](soon/live-001-presence.md).**

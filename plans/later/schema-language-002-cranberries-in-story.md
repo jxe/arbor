@@ -19,9 +19,10 @@ directory needs (listed in each); ownership (5) and the site ports (6) follow.
 - **Effort:** XL, in milestones.
 - **Risk:** HIGH. A new kind of editing surface in Story, and access rules
   that read row data.
-- **State:** TODO. Milestone 3's TS `presentView` and its StoryKit port are
-  built on branch `claude/project-thread-6kt6l8`, against the data form 005
-  replaces; 4 to 7 are not started. Milestones 1, 2 and 2a moved to 005 (as
+- **State:** milestone 3 mostly done (read-only views on the Mac, 2026-10-25,
+  [status](../../status.md#collections-in-story-on-the-mac--2026-10-25)); 3a is
+  [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md), in soon; 4 to 7
+  are not started. Milestones 1, 2 and 2a moved to 005 (as
   its milestones 4, 5 and 6); the numbers here are kept so earlier references
   hold.
 - **Depends on:** 005 ([status](../../status.md#collections-that-sync--2026-10-24)), on main since 2026-10-24:
@@ -41,7 +42,8 @@ access:
   003's syntax) and on pages that present collections kept elsewhere
   (`view "…" of path { … }`); a collection with neither gets a default
   arrangement. Views in a schema are defaults a page may override.
-- People are Story accounts: the `Person` model, stored as profile ids.
+- People are Story accounts: the `Person` model, stored as profile ids, or as
+  `contact:<key>` placeholders for people without one (spec 11 §3, Joe 2026-10-24).
 - The editor is native (Swift and Quagmire), not cranberries' React in a web
   view.
 - Eventually a placed tree has a local copy of the data and a visitor uses the
@@ -93,9 +95,14 @@ any time before 6; 7 needs only 3 and 4. The directory needs 3, 3a, 4 and 7.
 
 ### 3. Presented views
 
-The read-only Mac part comes first as
-[Schema language 006](../soon/schema-language-006-read-only-collection-views.md)
-(Joe, 2026-10-24); what it leaves of this milestone folds back here.
+**Done in part (2026-10-25,
+[status](../../status.md#collections-in-story-on-the-mac--2026-10-25)):** Schema language 006 built the TS
+`presentView` and its StoryKit port on main, the shared vectors, and Story's read-only view on
+the Mac. What is left here: the directory's needs below (an arrangement menu, `sort` on a date,
+read-only groups the host supplies), and fields a client styles today that a schema can't set
+(the bullet tinting the title, Markdown as a note). The iPhone reads with
+[Schema language 007](../soon/schema-language-007-edit-rows-in-story.md) step 0, and editing is
+007 and milestone 4. The history below predates that.
 
 `presentPage` lives in `packages/protocol/src/documents/page-presentation.ts`,
 with inverse `authorPage` and tests in `tests/unit/page-presentation.test.ts`.
@@ -373,9 +380,9 @@ administrator changes `authors`.
   replace the example.
 - Check with `usl verify`, then present the result next to the live site and
   compare.
-- **Blocked on identity.** Most authors and leads have no Story account.
-  Until Overstory's identity work gives them profiles, port `Person` fields
-  as plain text, or hold the port.
+- **People without accounts** become `contact:<key>` placeholders (spec 11
+  §3), keyed by their source id, as the games sandbox does; they show by name
+  once the directory (People 001 phase 1) holds them.
 
 ### 7. Pages that present other collections
 

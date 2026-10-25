@@ -29,7 +29,7 @@ are separate and later. The UX was worked out first in the doc
   Go to… and tree-ID links are a side slice for any time.
 - **Gated on:** phase 1 on [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md)
   (Story writes rows on Mac and iPhone; it is [Schema language 002](schema-language-002-cranberries-in-story.md)'s
-  milestone 3a) and on 006's read-only view. Phase 2 on 002's milestones 3, 4 and 7. The Go to…
+  milestone 3a) and on Schema language 006's read-only view ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)). Phase 2 on 002's milestones 3, 4 and 7. The Go to…
   slice on nothing. Schema language 005 ([status](../../status.md#collections-that-sync--2026-10-24))
   is on main.
 - **Built on 002** (Joe, 2026-10-24): People is the directory's collection shown with 002's
