@@ -1170,7 +1170,6 @@ struct StoryRootView: View {
     @State private var model: StoryAppModel
     @State private var recordingSession: VoiceRecordingSession<String>
     @State private var pinchDictation: EditorPinchDictation
-    @State private var peoplePresented = false
     @State private var sidebarAccounts: [HostAccount] = []
     @State private var sidebarAccountError: String?
     @State private var accountFollowUpProfile: String?
@@ -1236,8 +1235,6 @@ struct StoryRootView: View {
     @State private var topOverscrollArmed = false
     @State private var sidebarDismissDragSuppressesTap = false
 #endif
-    @State private var peopleFooterHovered = false
-    @State private var treeFooterHovered = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
 
@@ -1463,30 +1460,6 @@ struct StoryRootView: View {
             macManagementPanel
         }
 #endif
-        .sheet(isPresented: $peoplePresented) {
-            NavigationStack {
-                StoryDirectoryView(
-                    workspace: workspace,
-                    openProfile: { person in
-                        peoplePresented = false
-                        Task { await model.openProfile(tree: person.id) }
-                    },
-                    editMembers: { tree, prefill in
-                        peoplePresented = false
-                        Task { await model.openProfile(tree: tree, membersSheet: true, prefill: prefill) }
-                    },
-                    openGroup: { tree in
-                        peoplePresented = false
-                        Task { await model.openProfile(tree: tree) }
-                    }
-                )
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { peoplePresented = false } } }
-                .task { await workspace.refreshDirectory() }
-            }
-#if os(macOS)
-            .frame(minWidth: 520, minHeight: 440)
-#endif
-        }
         .sheet(isPresented: $searchPresented, onDismiss: {
             searchText = ""
         }) {
@@ -2042,43 +2015,6 @@ struct StoryRootView: View {
             Text(tree.title)
             if let subtitle = tree.subtitle { Text(subtitle) }
         }
-    }
-
-    private func sidebarFooterRow(symbol: String, title: String, accessory: String? = nil, hovered: Bool) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: symbol)
-                .font(.system(size: 18))
-                .frame(width: 20)
-            Text(title)
-                .lineLimit(1)
-                .truncationMode(.middle)
-#if os(macOS)
-                .font(.system(size: 14))
-#endif
-            Spacer(minLength: 0)
-            if let accessory {
-                Image(systemName: accessory)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .foregroundStyle(StorySidebarPalette.foreground(colorScheme))
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-#if os(iOS)
-        .frame(minHeight: 44)
-#endif
-        .contentShape(.rect)
-#if os(macOS)
-        .background {
-            if hovered {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.primary.opacity(0.06))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-            }
-        }
-#endif
     }
 
     private func refreshSidebarAccounts() async {
