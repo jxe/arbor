@@ -495,7 +495,14 @@ class Parser {
     }
     if (token.kind === "ident") {
       this.next();
-      return { kind: "ident", name: token.text, attrs: this.attrs(), at };
+      // A path through connections in a view: `ties.group`.
+      let name = token.text;
+      while (this.is(".") && this.peek().kind === "ident") {
+        this.next();
+        name += `.${this.token.text}`;
+        this.next();
+      }
+      return { kind: "ident", name, attrs: this.attrs(), at };
     }
     if (this.is("[")) {
       this.next();

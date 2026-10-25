@@ -30,7 +30,7 @@
 import type { CheckResult, LineItem, ResolvedField, ResolvedModel, ResolvedView } from "./check.ts";
 import { layoutOf, type Column, type JoinEnd, type Table } from "./layout.ts";
 import type { RowsByTable } from "./records.ts";
-import { personPlaceholderKey } from "./relationships.ts";
+import { PERSON_RELATION, personPlaceholderKey } from "./relationships.ts";
 import { fitsColumn, validateRow } from "./rows.ts";
 
 export type Scalar = string | number | boolean;
@@ -51,7 +51,7 @@ export interface Chip {
 }
 
 export type Cell =
-  | { kind: "text"; field: string; type: "Text" | "Int" | "Number" | "Bool" | "Date"; value: Scalar | null }
+  | { kind: "text"; field: string; type: "Text" | "Int" | "Number" | "Bool" | "Date"; value: Scalar | null; ago?: true }
   | { kind: "markdown"; field: string; value: string | null; paragraph: string }
   | { kind: "chips"; field: string; chips: Chip[]; summary?: true; label?: string }
   | { kind: "choice"; field: string; value: string | null; color?: string; bullet?: true };
@@ -231,6 +231,20 @@ type Access =
 
 const VALUE_TYPES = new Set(["Text", "Markdown", "Int", "Number", "Bool", "Date"]);
 
+/** The lines of a view of Person are keyed by profile id, as `[["id", "tr_..."]]`. */
+const PERSON_TABLE = { name: PERSON_RELATION, stores: PERSON_RELATION, primaryKey: ["id"], columns: [], fields: [] } as unknown as Table;
+
+/** Values without repeats, in first-seen order. */
+function distinct(values: Scalar[]): Scalar[] {
+  const seen = new Set<string>();
+  return values.filter((v) => {
+    const key = canonical(v);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /** A schema and its rows, with what a view needs to read them. */
 class Collection {
   readonly models: Map<string, ResolvedModel>;
@@ -281,6 +295,7 @@ class Collection {
 
   /** The value naming a row of `model` in a reference: its one key column's value. */
   memberOf(model: string, row: Row): Scalar {
+    if (model === PERSON_RELATION) return row.id as Scalar;
     const table = this.tableOf(model)!;
     if (table.primaryKey.length !== 1) throw new ViewError(`\`${model}\` has a key of several columns; a view refers to rows by one`);
     const value = row[table.primaryKey[0]!];
@@ -301,12 +316,13 @@ class Collection {
 
   access(model: ResolvedModel, field: ResolvedField): Access {
     const table = this.tableOf(model.name);
-    if (!table) throw new ViewError(`\`${model.name}\` has no rows`);
-    const stored = table.fields.find((f) => f.name === field.name);
+    // Person has no table: its fields are the other ends of connections.
+    if (!table && model.name !== PERSON_RELATION) throw new ViewError(`\`${model.name}\` has no rows`);
+    const stored = table?.fields.find((f) => f.name === field.name);
     if (stored && !stored.target) return { kind: "value", column: stored.columns[0]!, many: field.arity === "many" };
     if (stored && stored.target) {
       if (stored.columns.length !== 1) throw new ViewError(`\`${model.name}.${field.name}\` refers to a key of several columns`);
-      const column = table.columns.find((c) => c.name === stored.columns[0])!;
+      const column = table!.columns.find((c) => c.name === stored.columns[0])!;
       if (column.array) return { kind: "array", column: column.name, target: stored.target };
       const position = this.positionOn(model, field);
       return {
@@ -314,7 +330,7 @@ class Collection {
         column: column.name,
         target: stored.target,
         nullable: column.nullable,
-        key: table.primaryKey.includes(column.name),
+        key: table!.primaryKey.includes(column.name),
         ...(position ? { position } : {}),
       };
     }
@@ -466,6 +482,68 @@ class Collection {
     return { member, name, ...(typeof color === "string" ? { color } : {}) };
   }
 
+  /** The table a view's lines are keyed by: a model's, or for Person one keyed by profile id. */
+  linesTable(model: string): Table | undefined {
+    return model === PERSON_RELATION ? PERSON_TABLE : this.tableOf(model);
+  }
+
+  /** Person's rows: every person a Person field of any row names, in table, row and column order. */
+  personRows(): Row[] {
+    const seen = new Set<string>();
+    const out: Row[] = [];
+    for (const table of this.tables) {
+      for (const row of this.rowsOf(table)) {
+        for (const column of table.columns) {
+          if (!column.profile) continue;
+          const value = row[column.name];
+          for (const v of Array.isArray(value) ? value : [value]) {
+            if (typeof v === "string" && !seen.has(v)) {
+              seen.add(v);
+              out.push({ id: v });
+            }
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  /** The row of `model` a member names; a person's is just their id. */
+  rowOf(model: string, member: Scalar): Row | undefined {
+    return model === PERSON_RELATION ? { id: member } : this.rowByMember(model, member);
+  }
+
+  /**
+   * The values a field, or a path through connections (`ties.group`), gives
+   * for `rows` of `model`: distinct, in the order they are reached. `many`
+   * when a step can give several. A person's `name` is the person.
+   */
+  pathValues(model: ResolvedModel, rows: Row[], path: string): { field?: ResolvedField; values: Scalar[]; many: boolean } {
+    const steps = path.split(".");
+    let owner = model;
+    let current = rows;
+    let many = false;
+    for (const [i, step] of steps.entries()) {
+      const last = i === steps.length - 1;
+      if (last && owner.name === PERSON_RELATION && step === "name") return { values: distinct(current.map((r) => r.id as Scalar)), many };
+      if (last && (step === "created" || step === "modified")) {
+        return { values: distinct(current.flatMap((r) => (typeof r[step] === "string" ? [r[step] as string] : []))), many };
+      }
+      const field = owner.fields.find((f) => f.name === step);
+      if (!field) throw new ViewError(`\`${owner.name}\` has no field \`${step}\``);
+      if (field.arity === "many") many = true;
+      const values = distinct(current.flatMap((r) => this.members(owner, field, r)));
+      if (last) return { field, values, many };
+      owner = this.model(field.type);
+      const target = field.type;
+      current = values.flatMap((v): Row[] => {
+        const row = this.rowOf(target, v);
+        return row ? [row] : [];
+      });
+    }
+    throw new ViewError("An empty path");
+  }
+
   /** Everything a field can refer to, for a picker and for groups. */
   candidates(target: string): Chip[] {
     if (target === "Person") return this.people.map((p) => this.chip("Person", p.id));
@@ -487,9 +565,15 @@ function byPosition(rows: Row[], position: string): Row[] {
 // ---------------------------------------------------------------------------
 // Views.
 
-/** The model a collection presents: its `main` model, else the one with `~views`, else the first with rows. */
+/**
+ * The model a collection presents: its `main` model, else the one with
+ * `~views`, else Person when `re Person` gives it views and no model with rows
+ * has any, else the first with rows.
+ */
 export function presentedModel(schema: CheckResult): string {
-  const data = schema.models.filter((m) => m.name !== "Person" && m.rows !== "fixed");
+  const data = schema.models.filter((m) => m.name !== PERSON_RELATION && m.rows !== "fixed");
+  const person = schema.models.find((m) => m.name === PERSON_RELATION && m.views.length > 0);
+  if (person && !data.some((m) => m.views.length > 0)) return person.name;
   const model = data.find((m) => m.main) ?? data.find((m) => m.views.length > 0) ?? data.find((m) => m.ends.length < 2) ?? data[0];
   if (!model) throw new ViewError("The schema has no model with rows");
   return model.name;
@@ -539,24 +623,28 @@ const canDisconnect = (access: Access) =>
 /** cranberries' `groups` and `sortGroups`, over rows. */
 function arrange(collection: Collection, options: PresentOptions): Arrangement {
   const model = collection.model(options.model ?? presentedModel(collection.schema));
-  const table = collection.tableOf(model.name);
+  const table = collection.linesTable(model.name);
   if (!table) throw new ViewError(`\`${model.name}\` has no rows to present`);
   const views = options.views ?? viewsOf(collection.schema, model.name);
   const index = options.view ?? 0;
   const view = views[index];
   if (!view) throw new ViewError(`No view ${index}`);
-  const all = collection.rowsOf(table).filter((r) => rowKey(table, r) !== null);
+  const all = model.name === PERSON_RELATION ? collection.personRows() : collection.rowsOf(table).filter((r) => rowKey(table, r) !== null);
   const base = { collection, model, table, views, index, view };
+  // Lines summed up over several rows are sorted as lines, by presentView.
+  const sortHere = (groups: Arranged[]) => (summarized(model, view) ? groups : sortGroups(collection, model, view, groups));
   if (!view.group) {
     const groups: Arranged[] = [{ id: "", kind: "flat", heading: "", ordered: false, remove: "delete", rows: all }];
-    return { ...base, groups: sortGroups(collection, model, view, groups) };
+    return { ...base, groups: sortHere(groups) };
   }
-  const field = model.fields.find((f) => f.name === view.group);
+  // A path (`ties.group`), or any field of Person, groups by the values it reaches.
+  const byPath = view.group.includes(".") || model.name === PERSON_RELATION;
+  const field = byPath ? collection.pathValues(model, [], view.group).field : model.fields.find((f) => f.name === view.group);
   if (!field) throw new ViewError(`\`${model.name}\` has no field \`${view.group}\``);
-  const access = collection.access(model, field);
+  const access = byPath ? undefined : collection.access(model, field);
   const target = field.type;
   const kind: GroupKind = target === "Person" || (!VALUE_TYPES.has(target) && !collection.isFixed(target)) ? "connection" : "choice";
-  const members = new Map(all.map((r) => [r, collection.membersBy(model, access, r)] as const));
+  const members = new Map(all.map((r) => [r, access ? collection.membersBy(model, access, r) : collection.pathValues(model, [r], view.group!).values] as const));
 
   // The groups: everything the field can refer to, then members nobody listed (people, values).
   const listedFirst = VALUE_TYPES.has(target) ? [] : collection.candidates(target);
@@ -571,13 +659,15 @@ function arrange(collection: Collection, options: PresentOptions): Arrangement {
       }
     }
   }
-  const ordered = access.kind === "otherArray" ? access.ordered : access.kind === "join" ? Boolean(access.theirs.position) : access.kind === "column" && Boolean(access.position);
+  const ordered = !access ? false : access.kind === "otherArray" ? access.ordered : access.kind === "join" ? Boolean(access.theirs.position) : access.kind === "column" && Boolean(access.position);
   const targetTable = kind === "connection" ? collection.tableOf(target) : undefined;
-  const remove = kind === "connection" && canDisconnect(access) ? "disconnect" : "delete";
+  const remove = kind === "connection" && access && canDisconnect(access) ? "disconnect" : "delete";
   const groups: Arranged[] = candidates.map((c) => {
     const inGroup = all.filter((r) => members.get(r)!.some((m) => same(m, c.member)));
     let rows = inGroup;
-    if (access.kind === "otherArray") {
+    if (!access) {
+      // A path keeps the lines' own order.
+    } else if (access.kind === "otherArray") {
       // The list's own order: the group's row holds its members.
       const owner = collection.rowByMember(target, c.member);
       const list = (Array.isArray(owner?.[access.column]) ? owner![access.column] : []) as unknown[];
@@ -605,7 +695,12 @@ function arrange(collection: Collection, options: PresentOptions): Arrangement {
   });
   const unassigned = all.filter((r) => !members.get(r)!.some((m) => listed.has(canonical(m))));
   if (unassigned.length) groups.push({ id: "unassigned", kind: "unassigned", heading: "Unassigned", ordered: false, remove: "delete", rows: unassigned });
-  return { ...base, field, access, groups: sortGroups(collection, model, view, groups) };
+  return { ...base, field, ...(access ? { access } : {}), groups: sortHere(groups) };
+}
+
+/** Whether a view's lines are summed up over rows (`rows:`), are people, or sort by a path: sorted as lines. */
+function summarized(model: ResolvedModel, view: ResolvedView): boolean {
+  return Boolean(view.rows) || model.name === PERSON_RELATION || Boolean(view.sort?.includes("."));
 }
 
 /** Newest first for `created` and `modified`; otherwise ascending. Rows without the field keep their place, last. */
@@ -617,6 +712,13 @@ function sortKey(collection: Collection, model: ResolvedModel, sort: string, row
   const members = collection.members(model, field, row);
   if (members.length === 0) return undefined;
   return VALUE_TYPES.has(field.type) ? members[0] : collection.chip(field.type, members[0]!).name;
+}
+
+/** `~latest` or `~earliest` of several values: the greatest or least, as one value. */
+function pick(values: Scalar[], aggregate: "latest" | "earliest" | "count"): Scalar[] {
+  if (values.length === 0 || aggregate === "count") return [];
+  const sorted = [...values].sort(compareScalars);
+  return [aggregate === "latest" ? sorted[sorted.length - 1]! : sorted[0]!];
 }
 
 function compareScalars(a: Scalar, b: Scalar): number {
@@ -661,36 +763,94 @@ export function presentView(schema: CheckResult, rows: RowsByTable, options: Pre
   const { model, table, view, groups } = arranged;
 
   const lineItems = view.line;
+  // A path's field is the one it ends at; a person's `name` has none.
   const fields = lineItems.map((item) => {
-    const field = model.fields.find((f) => f.name === item.field);
-    if (!field) throw new ViewError(`\`${model.name}\` has no field \`${item.field}\``);
+    const field = collection.pathValues(model, [], item.field).field;
+    if (!field && !(model.name === PERSON_RELATION && item.field === "name")) throw new ViewError(`\`${model.name}\` has no field \`${item.field}\``);
     return { item, field };
   });
   const bullet = fields.find(({ item }) => item.bullet);
+  const summed = summarized(model, view);
 
-  const cell = (row: Row, item: LineItem, field: ResolvedField): Cell => {
-    const connected = collection.members(model, field, row);
-    const members = item.sort ? collection.sortMembers(field.type, item.sort, connected) : connected;
+  /** One field's cell from its members, as a single row holds them. */
+  const cellOf = (name: string, item: LineItem, field: ResolvedField, members: Scalar[]): Cell => {
     if (VALUE_TYPES.has(field.type) && field.arity !== "many") {
       const value = members[0] ?? null;
       if (field.type === "Markdown") {
         const text = typeof value === "string" ? value : null;
-        return { kind: "markdown", field: field.name, value: text, paragraph: text === null ? "" : firstParagraph(text) };
+        return { kind: "markdown", field: name, value: text, paragraph: text === null ? "" : firstParagraph(text) };
       }
-      return { kind: "text", field: field.name, type: field.type as "Text", value };
+      return { kind: "text", field: name, type: field.type as "Text", value };
     }
     if (collection.isFixed(field.type) && field.arity !== "many") {
       const value = (members[0] as string | undefined) ?? null;
       const color = value === null ? undefined : collection.chip(field.type, value).color;
-      return { kind: "choice", field: field.name, value, ...(color ? { color } : {}), ...(item.bullet ? { bullet: true as const } : {}) };
+      return { kind: "choice", field: name, value, ...(color ? { color } : {}), ...(item.bullet ? { bullet: true as const } : {}) };
     }
-    return {
-      kind: "chips",
-      field: field.name,
-      chips: members.map((m) => collection.chip(field.type, m)),
-      ...(item.summary ? { summary: true as const } : {}),
-      ...(item.label ? { label: item.label } : {}),
-    };
+    return chipsOf(name, item, field.type, members);
+  };
+  const chipsOf = (name: string, item: LineItem, type: string, members: Scalar[]): Cell => ({
+    kind: "chips",
+    field: name,
+    chips: members.map((m) => collection.chip(type, m)),
+    ...(item.summary ? { summary: true as const } : {}),
+    ...(item.label ? { label: item.label } : {}),
+  });
+
+  const cell = (row: Row, item: LineItem, field: ResolvedField): Cell => {
+    const connected = collection.members(model, field, row);
+    const members = item.sort ? collection.sortMembers(field.type, item.sort, connected) : connected;
+    return cellOf(field.name, item, field, members);
+  };
+
+  /**
+   * An item summed up over the rows of a line: a path's values, or a field
+   * over the rows `rows:` puts on one line. Several values are distinct
+   * chips; `~latest`, `~earliest` and `~count` make them one.
+   */
+  const summedCell = (rows: Row[], item: LineItem, field: ResolvedField | undefined): Cell => {
+    const { values, many } = collection.pathValues(model, rows, item.field);
+    const several = many || (Boolean(view.rows) && item.field !== view.rows);
+    let result: Cell;
+    if (item.aggregate === "count") {
+      result = { kind: "text", field: item.field, type: "Int", value: values.length };
+    } else {
+      const picked = item.aggregate ? pick(values, item.aggregate) : values;
+      if (!field) result = chipsOf(item.field, item, PERSON_RELATION, picked);
+      else if (several && !item.aggregate) result = chipsOf(item.field, item, field.type, picked);
+      else result = cellOf(item.field, item, { ...field, arity: "one" }, picked);
+    }
+    return item.ago && result.kind === "text" ? { ...result, ago: true } : result;
+  };
+
+  /** A group's lines: one per row, or with `rows:` one per value of that field. */
+  const sourcesOf = (rows: Row[]): { key: string; rows: Row[] }[] => {
+    if (!view.rows) return rows.map((r) => ({ key: rowKey(table, r)!, rows: [r] }));
+    const byValue = new Map<string, { key: string; rows: Row[] }>();
+    for (const r of rows) {
+      const value = collection.pathValues(model, [r], view.rows).values[0] ?? null;
+      const id = canonical(value);
+      const entry = byValue.get(id) ?? { key: JSON.stringify([[view.rows, value]]), rows: [] };
+      entry.rows.push(r);
+      byValue.set(id, entry);
+    }
+    return [...byValue.values()];
+  };
+  /** A line's sort key, summed up over its rows: `~latest` and dates of rows newest first. */
+  const sortValue = (rows: Row[]): Scalar | undefined => {
+    const sort = view.sort!;
+    const { field, values } = collection.pathValues(model, rows, sort);
+    const picked = view.sortAggregate ? pick(values, view.sortAggregate) : values;
+    const value = picked[0];
+    if (value === undefined) return undefined;
+    if (!field) return collection.chip(PERSON_RELATION, value).name;
+    return VALUE_TYPES.has(field.type) ? value : collection.chip(field.type, value).name;
+  };
+  const sortLines = (sources: { key: string; rows: Row[] }[]) => {
+    if (!summed || !view.sort) return sources;
+    const last = view.sort.split(".").pop();
+    const descending = view.sortAggregate === "latest" || last === "created" || last === "modified";
+    return sortBy(sources, (src) => sortValue(src.rows), descending);
   };
 
   const words = (options.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
@@ -708,9 +868,9 @@ export function presentView(schema: CheckResult, rows: RowsByTable, options: Pre
   for (const group of groups) {
     const keepAll = words.length === 0 || (group.kind !== "flat" && group.kind !== "unassigned" && has(group.heading));
     const lines: PresentedLine[] = [];
-    for (const row of group.rows) {
-      const key = rowKey(table, row)!;
-      const cells = fields.map(({ item, field }) => cell(row, item, field));
+    for (const { key, rows: sourceRows } of sortLines(sourcesOf(group.rows))) {
+      const cells = fields.map(({ item, field }) =>
+        summed || item.field.includes(".") || !field ? summedCell(sourceRows, item, field) : cell(sourceRows[0]!, item, field));
       if (!keepAll && !has(haystack(cells))) continue;
       const bulletCell = bullet ? cells[fields.indexOf(bullet)] : undefined;
       const color = bulletCell?.kind === "choice" ? bulletCell.color : undefined;
@@ -732,15 +892,16 @@ export function presentView(schema: CheckResult, rows: RowsByTable, options: Pre
       lines,
     });
     for (const line of lines) {
-      const edit = options.canEdit?.(collection.opName(table), line.row) ?? true;
+      // A line summed up over rows, or a person, is not one row to edit.
+      const edit = !summed && (options.canEdit?.(collection.opName(table), line.row) ?? true);
       const entry = (capabilities[line.row] ??= { edit, delete: edit, groups: [] });
       if (group.kind !== "flat") entry.groups.push(group.id);
     }
   }
 
   const options_: Record<string, Chip[]> = {};
-  for (const { field } of fields) {
-    if (VALUE_TYPES.has(field.type)) continue;
+  for (const { item, field } of fields) {
+    if (!field || item.field.includes(".") || VALUE_TYPES.has(field.type)) continue;
     options_[field.name] = collection.candidates(field.type);
   }
 
@@ -929,6 +1090,7 @@ export function viewEdits(schema: CheckResult, rows: RowsByTable, options: Prese
   const collection = new Collection(schema, rows, options.people);
   const arrangement = arrange(collection, { ...options, query: undefined });
   const { model, table } = arrangement;
+  if (summarized(model, arrangement.view)) throw new ViewError("A view summed up over rows, or of people, is read-only");
   const edits: RowEdit[] = [];
   const at = intent.at !== undefined ? { at: intent.at } : {};
   // Each edit is computed against the rows the earlier ones leave.

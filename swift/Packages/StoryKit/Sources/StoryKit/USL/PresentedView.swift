@@ -37,15 +37,17 @@ public struct PresentedChip: Sendable, Equatable {
 }
 
 public enum PresentedCell: Sendable, Equatable {
-    case text(field: String, type: String, value: JSONValue)
+    case text(field: String, type: String, value: JSONValue, ago: Bool = false)
     case markdown(field: String, value: String?, paragraph: String)
     case chips(field: String, chips: [PresentedChip], summary: Bool, label: String?)
     case choice(field: String, value: String?, color: String?, bullet: Bool)
 
     var json: JSONValue {
         switch self {
-        case .text(let field, let type, let value):
-            return .object(["kind": .string("text"), "field": .string(field), "type": .string(type), "value": value])
+        case .text(let field, let type, let value, let ago):
+            var object: [String: JSONValue] = ["kind": .string("text"), "field": .string(field), "type": .string(type), "value": value]
+            if ago { object["ago"] = .bool(true) }
+            return .object(object)
         case .markdown(let field, let value, let paragraph):
             return .object(["kind": .string("markdown"), "field": .string(field), "value": value.map(JSONValue.string) ?? .null, "paragraph": .string(paragraph)])
         case .chips(let field, let chips, let summary, let label):
@@ -64,7 +66,7 @@ public enum PresentedCell: Sendable, Equatable {
     /// The field the cell shows.
     public var field: String {
         switch self {
-        case .text(let field, _, _), .markdown(let field, _, _), .chips(let field, _, _, _), .choice(let field, _, _, _): field
+        case .text(let field, _, _, _), .markdown(let field, _, _), .chips(let field, _, _, _), .choice(let field, _, _, _): field
         }
     }
 
@@ -74,7 +76,7 @@ public enum PresentedCell: Sendable, Equatable {
         case .chips(_, let chips, _, _): chips.map(\.name).joined(separator: " ")
         case .markdown(_, let value, _): value ?? ""
         case .choice(_, let value, _, _): value ?? ""
-        case .text(_, _, let value): value.isNull ? "" : scalarText(value)
+        case .text(_, _, let value, _): value.isNull ? "" : scalarText(value)
         }
     }
 }
@@ -383,6 +385,30 @@ private func sortBy<T>(_ items: [T], _ key: (T) -> JSONValue?, descending: Bool)
 
 let uslValueTypeSet: Set<String> = ["Text", "Markdown", "Int", "Number", "Bool", "Date"]
 
+/// The lines of a view of Person are keyed by profile id, as `[["id", "tr_..."]]`.
+private let personLinesTable = USLTable(name: "Person", stores: "Person", columns: [], primaryKey: ["id"], uniques: [], foreignKeys: [], indexes: [], fields: [], ends: nil, seed: [])
+
+/// Values without repeats, in first-seen order.
+private func distinctValues(_ values: [JSONValue]) -> [JSONValue] {
+    var seen = Set<String>()
+    return values.filter { seen.insert($0.jsonText).inserted }
+}
+
+/// `~latest` or `~earliest` of several values: the greatest or least, as one value.
+private func pick(_ values: [JSONValue], _ aggregate: USLAggregate) -> [JSONValue] {
+    guard !values.isEmpty, aggregate != .count else { return [] }
+    let sorted = values.enumerated().sorted { a, b in
+        let d = compareScalars(a.element, b.element)
+        return d != 0 ? d < 0 : a.offset < b.offset
+    }.map(\.element)
+    return [aggregate == .latest ? sorted.last! : sorted.first!]
+}
+
+/// Whether a view's lines are summed up over rows (`rows:`), are people, or sort by a path: sorted as lines.
+func uslViewSummarized(_ model: USLResolvedModel, _ view: USLResolvedView) -> Bool {
+    view.rows != nil || model.name == "Person" || (view.sort?.contains(".") ?? false)
+}
+
 // MARK: - Where a field's members are stored
 
 enum USLFieldAccess {
@@ -454,6 +480,7 @@ final class USLRowCollection {
 
     /// The value naming a row of `model` in a reference: its one key column's value.
     func memberOf(_ model: String, _ row: USLRow) throws -> JSONValue {
+        if model == "Person" { return row["id"] ?? .null }
         let table = tableOf(model)!
         if table.primaryKey.count != 1 { throw ViewError(message: "`\(model)` has a key of several columns; a view refers to rows by one") }
         guard let value = row[table.primaryKey[0]], value.isScalar else { throw ViewError(message: "A row of `\(model)` has no key") }
@@ -471,8 +498,10 @@ final class USLRowCollection {
     }
 
     func access(_ model: USLResolvedModel, _ field: USLResolvedField) throws -> USLFieldAccess {
-        guard let table = tableOf(model.name) else { throw ViewError(message: "`\(model.name)` has no rows") }
-        if let stored = table.fields.first(where: { $0.name == field.name }) {
+        // Person has no table: its fields are the other ends of connections.
+        let table = tableOf(model.name)
+        if table == nil && model.name != "Person" { throw ViewError(message: "`\(model.name)` has no rows") }
+        if let table, let stored = table.fields.first(where: { $0.name == field.name }) {
             guard let target = stored.target else { return .value(column: stored.columns[0], many: field.arity == .many) }
             if stored.columns.count != 1 { throw ViewError(message: "`\(model.name).\(field.name)` refers to a key of several columns") }
             let column = table.columns.first { $0.name == stored.columns[0] }!
@@ -606,6 +635,57 @@ final class USLRowCollection {
         return PresentedChip(member: member, name: name, color: color)
     }
 
+    /// The table a view's lines are keyed by: a model's, or for Person one keyed by profile id.
+    func linesTable(_ model: String) -> USLTable? {
+        model == "Person" ? personLinesTable : tableOf(model)
+    }
+
+    /// Person's rows: every person a Person field of any row names, in table, row and column order.
+    func personRows() -> [USLRow] {
+        var seen = Set<String>()
+        var out: [USLRow] = []
+        for table in tables {
+            for row in rowsOf(table) {
+                for column in table.columns where column.profile {
+                    let value = row[column.name] ?? .null
+                    for v in value.arrayValue ?? [value] {
+                        if case .string(let id) = v, seen.insert(id).inserted { out.append(["id": .string(id)]) }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    /// The row of `model` a member names; a person's is just their id.
+    func rowOf(_ model: String, _ member: JSONValue) -> USLRow? {
+        model == "Person" ? ["id": member] : rowByMember(model, member)
+    }
+
+    /// The values a field, or a path through connections (`ties.group`), gives
+    /// for `rows` of `model`: distinct, in the order they are reached. `many`
+    /// when a step can give several. A person's `name` is the person.
+    func pathValues(_ model: USLResolvedModel, _ rows: [USLRow], _ path: String) throws -> (field: USLResolvedField?, values: [JSONValue], many: Bool) {
+        let steps = path.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        var owner = model
+        var current = rows
+        var many = false
+        for (i, step) in steps.enumerated() {
+            let last = i == steps.count - 1
+            if last && owner.name == "Person" && step == "name" { return (nil, distinctValues(current.map { $0["id"] ?? .null }), many) }
+            if last && (step == "created" || step == "modified") {
+                return (nil, distinctValues(current.compactMap { if case .string(let s)? = $0[step] { JSONValue.string(s) } else { nil } }), many)
+            }
+            guard let field = owner.fields.first(where: { $0.name == step }) else { throw ViewError(message: "`\(owner.name)` has no field `\(step)`") }
+            if field.arity == .many { many = true }
+            let values = distinctValues(try current.flatMap { try members(owner, field, $0) })
+            if last { return (field, values, many) }
+            owner = try self.model(field.type)
+            current = values.compactMap { rowOf(field.type, $0) }
+        }
+        throw ViewError(message: "An empty path")
+    }
+
     /// Everything a field can refer to, for a picker and for groups.
     func candidates(_ target: String) throws -> [PresentedChip] {
         if target == "Person" { return people.map { chip("Person", .string($0.id)) } }
@@ -617,9 +697,15 @@ final class USLRowCollection {
 
 // MARK: - Views
 
-/// The model a collection presents: its `main` model, else the one with `~views`, else the first with rows.
+/// The model a collection presents: its `main` model, else the one with
+/// `~views`, else Person when `re Person` gives it views and no model with rows
+/// has any, else the first with rows.
 public func presentedModel(_ schema: USLCheckResult) throws -> String {
     let data = schema.models.filter { $0.name != "Person" && $0.rows != .fixed }
+    // `re Person` gives Person views: it is presented when no model with rows has any.
+    if let person = schema.models.first(where: { $0.name == "Person" && !$0.views.isEmpty }), !data.contains(where: { !$0.views.isEmpty }) {
+        return person.name
+    }
     guard let model = data.first(where: \.main) ?? data.first(where: { !$0.views.isEmpty }) ?? data.first(where: { $0.ends.count < 2 }) ?? data.first else {
         throw ViewError(message: "The schema has no model with rows")
     }
@@ -669,21 +755,29 @@ struct ViewArrangement {
 /// cranberries' `groups` and `sortGroups`, over rows.
 func arrangeView(_ collection: USLRowCollection, _ options: PresentOptions) throws -> ViewArrangement {
     let model = try collection.model(try options.model ?? presentedModel(collection.schema))
-    guard let table = collection.tableOf(model.name) else { throw ViewError(message: "`\(model.name)` has no rows to present") }
+    guard let table = collection.linesTable(model.name) else { throw ViewError(message: "`\(model.name)` has no rows to present") }
     let views = try options.views ?? viewsOf(collection.schema, model: model.name)
     let index = options.view
     guard index >= 0 && index < views.count else { throw ViewError(message: "No view \(index)") }
     let view = views[index]
-    let all = collection.rowsOf(table).filter { uslRowKey(table, $0) != nil }
+    let all = model.name == "Person" ? collection.personRows() : collection.rowsOf(table).filter { uslRowKey(table, $0) != nil }
+    // Lines summed up over several rows are sorted as lines, by presentView.
+    func sortHere(_ groups: [ArrangedGroup]) throws -> [ArrangedGroup] {
+        uslViewSummarized(model, view) ? groups : try sortGroups(collection, model, view, groups)
+    }
     guard let groupName = view.group else {
         let groups = [ArrangedGroup(id: "", kind: .flat, heading: "", ordered: false, remove: .delete, rows: all)]
-        return ViewArrangement(model: model, table: table, views: views, index: index, view: view, groups: try sortGroups(collection, model, view, groups))
+        return ViewArrangement(model: model, table: table, views: views, index: index, view: view, groups: try sortHere(groups))
     }
-    guard let field = model.fields.first(where: { $0.name == groupName }) else { throw ViewError(message: "`\(model.name)` has no field `\(groupName)`") }
-    let access = try collection.access(model, field)
+    // A path (`ties.group`), or any field of Person, groups by the values it reaches.
+    let byPath = groupName.contains(".") || model.name == "Person"
+    guard let field = byPath ? try collection.pathValues(model, [], groupName).field : model.fields.first(where: { $0.name == groupName }) else {
+        throw ViewError(message: "`\(model.name)` has no field `\(groupName)`")
+    }
+    let access = byPath ? nil : try collection.access(model, field)
     let target = field.type
     let kind: PresentedGroupKind = target == "Person" || (!uslValueTypeSet.contains(target) && !collection.isFixed(target)) ? .connection : .choice
-    let members = try all.map { try collection.membersBy(model, access, $0) }
+    let members = try all.map { row in try access.map { try collection.membersBy(model, $0, row) } ?? collection.pathValues(model, [row], groupName).values }
 
     // The groups: everything the field can refer to, then members nobody listed (people, values).
     var candidates = uslValueTypeSet.contains(target) ? [] : try collection.candidates(target)
@@ -699,26 +793,27 @@ func arrangeView(_ collection: USLRowCollection, _ options: PresentOptions) thro
     }
     let ordered: Bool
     switch access {
-    case .otherArray(_, _, _, let isOrdered): ordered = isOrdered
-    case .join(_, _, let theirs, _): ordered = theirs.position != nil
-    case .column(_, _, _, _, let position): ordered = position != nil
+    case .otherArray(_, _, _, let isOrdered)?: ordered = isOrdered
+    case .join(_, _, let theirs, _)?: ordered = theirs.position != nil
+    case .column(_, _, _, _, let position)?: ordered = position != nil
     default: ordered = false
     }
     let targetTable = kind == .connection ? collection.tableOf(target) : nil
-    let remove: PresentedGroup.Remove = kind == .connection && access.canDisconnect ? .disconnect : .delete
+    let remove: PresentedGroup.Remove = kind == .connection && (access?.canDisconnect ?? false) ? .disconnect : .delete
     var groups: [ArrangedGroup] = try candidates.map { c in
         let inGroup = all.indices.filter { members[$0].contains { sameJSON($0, c.member) } }.map { all[$0] }
         var rows = inGroup
+        // A path keeps the lines' own order.
         switch access {
-        case .otherArray(_, let column, _, _):
+        case .otherArray(_, let column, _, _)?:
             // The list's own order: the group's row holds its members.
             let list = collection.rowByMember(target, c.member)?[column]?.arrayValue ?? []
             rows = try list.flatMap { m in try inGroup.filter { sameJSON(try collection.memberOf(model.name, $0), m) } }
-        case .join(let joinTable, let mine, let theirs, _):
+        case .join(let joinTable, let mine, let theirs, _)?:
             let joined = collection.rowsOf(joinTable).filter { sameJSON($0[theirs.columns[0]], c.member) }
             let sorted = theirs.position.map { rowsByPosition(joined, $0) } ?? joined
             rows = try sorted.flatMap { j in try inGroup.filter { sameJSON(try collection.memberOf(model.name, $0), j[mine.columns[0]]) } }
-        case .column(_, _, _, _, let position?):
+        case .column(_, _, _, _, let position?)?:
             rows = rowsByPosition(inGroup, position)
         default:
             break
@@ -734,7 +829,7 @@ func arrangeView(_ collection: USLRowCollection, _ options: PresentOptions) thro
     if !unassigned.isEmpty {
         groups.append(ArrangedGroup(id: "unassigned", kind: .unassigned, heading: "Unassigned", ordered: false, remove: .delete, rows: unassigned))
     }
-    return ViewArrangement(model: model, table: table, views: views, index: index, view: view, field: field, access: access, groups: try sortGroups(collection, model, view, groups))
+    return ViewArrangement(model: model, table: table, views: views, index: index, view: view, field: field, access: access, groups: try sortHere(groups))
 }
 
 /// Newest first for `created` and `modified`; otherwise ascending. Rows without the field keep their place, last.
@@ -786,29 +881,97 @@ public func presentView(_ schema: USLCheckResult, rows: USLRowsByTable, options:
     let arranged = try arrangeView(collection, options)
     let model = arranged.model, table = arranged.table, view = arranged.view
 
-    let fields: [(item: USLLineItem, field: USLResolvedField)] = try view.line.map { item in
-        guard let field = model.fields.first(where: { $0.name == item.field }) else { throw ViewError(message: "`\(model.name)` has no field `\(item.field)`") }
+    // A path's field is the one it ends at; a person's `name` has none.
+    let fields: [(item: USLLineItem, field: USLResolvedField?)] = try view.line.map { item in
+        let field = try collection.pathValues(model, [], item.field).field
+        if field == nil && !(model.name == "Person" && item.field == "name") { throw ViewError(message: "`\(model.name)` has no field `\(item.field)`") }
         return (item, field)
     }
     let bulletIndex = fields.firstIndex { $0.item.bullet }
+    let summed = uslViewSummarized(model, view)
+
+    /// One field's cell from its members, as a single row holds them.
+    func cellOf(_ name: String, _ item: USLLineItem, _ field: USLResolvedField, _ members: [JSONValue], many: Bool) -> PresentedCell {
+        if uslValueTypeSet.contains(field.type) && !many {
+            let value = members.first ?? .null
+            if field.type == "Markdown" {
+                let text = value.stringValue
+                return .markdown(field: name, value: text, paragraph: text.map(uslFirstParagraph) ?? "")
+            }
+            return .text(field: name, type: field.type, value: value)
+        }
+        if collection.isFixed(field.type) && !many {
+            let value = members.first?.stringValue
+            let color = value.flatMap { collection.chip(field.type, .string($0)).color }
+            return .choice(field: name, value: value, color: color, bullet: item.bullet)
+        }
+        return .chips(field: name, chips: members.map { collection.chip(field.type, $0) }, summary: item.summary, label: item.label)
+    }
 
     func cell(_ row: USLRow, _ item: USLLineItem, _ field: USLResolvedField) throws -> PresentedCell {
         let connected = try collection.members(model, field, row)
         let members = try item.sort.map { try collection.sortMembers(field.type, $0, connected) { $0 } } ?? connected
-        if uslValueTypeSet.contains(field.type) && field.arity != .many {
-            let value = members.first ?? .null
-            if field.type == "Markdown" {
-                let text = value.stringValue
-                return .markdown(field: field.name, value: text, paragraph: text.map(uslFirstParagraph) ?? "")
+        return cellOf(field.name, item, field, members, many: field.arity == .many)
+    }
+
+    /// An item summed up over the rows of a line: a path's values, or a field
+    /// over the rows `rows:` puts on one line. Several values are distinct
+    /// chips; `~latest`, `~earliest` and `~count` make them one.
+    func summedCell(_ rows: [USLRow], _ item: USLLineItem, _ field: USLResolvedField?) throws -> PresentedCell {
+        let reached = try collection.pathValues(model, rows, item.field)
+        let several = reached.many || (view.rows != nil && item.field != view.rows)
+        var result: PresentedCell
+        if item.aggregate == .count {
+            result = .text(field: item.field, type: "Int", value: .number(Double(reached.values.count)))
+        } else {
+            let picked = item.aggregate.map { pick(reached.values, $0) } ?? reached.values
+            if let field {
+                result = cellOf(item.field, item, field, picked, many: several && item.aggregate == nil)
+            } else {
+                result = .chips(field: item.field, chips: picked.map { collection.chip("Person", $0) }, summary: item.summary, label: item.label)
             }
-            return .text(field: field.name, type: field.type, value: value)
         }
-        if collection.isFixed(field.type) && field.arity != .many {
-            let value = members.first?.stringValue
-            let color = value.flatMap { collection.chip(field.type, .string($0)).color }
-            return .choice(field: field.name, value: value, color: color, bullet: item.bullet)
+        if item.ago, case .text(let name, let type, let value, _) = result { result = .text(field: name, type: type, value: value, ago: true) }
+        return result
+    }
+
+    /// A group's lines: one per row, or with `rows:` one per value of that field.
+    func sourcesOf(_ rows: [USLRow]) throws -> [(key: String, rows: [USLRow])] {
+        guard let rowsField = view.rows else { return rows.map { (uslRowKey(table, $0)!, [$0]) } }
+        var order: [String] = []
+        var byValue: [String: (key: String, rows: [USLRow])] = [:]
+        for r in rows {
+            let value = try collection.pathValues(model, [r], rowsField).values.first ?? .null
+            let id = value.jsonText
+            if byValue[id] == nil {
+                order.append(id)
+                byValue[id] = (JSONValue.array([.array([.string(rowsField), value])]).jsonText, [])
+            }
+            byValue[id]!.rows.append(r)
         }
-        return .chips(field: field.name, chips: members.map { collection.chip(field.type, $0) }, summary: item.summary, label: item.label)
+        return order.map { byValue[$0]! }
+    }
+    /// A line's sort key, summed up over its rows: `~latest` and dates of rows newest first.
+    func sortValue(_ rows: [USLRow]) throws -> JSONValue? {
+        let reached = try collection.pathValues(model, rows, view.sort!)
+        let picked = view.sortAggregate.map { pick(reached.values, $0) } ?? reached.values
+        guard let value = picked.first else { return nil }
+        guard let field = reached.field else { return .string(collection.chip("Person", value).name) }
+        return uslValueTypeSet.contains(field.type) ? value : .string(collection.chip(field.type, value).name)
+    }
+    func sortLines(_ sources: [(key: String, rows: [USLRow])]) throws -> [(key: String, rows: [USLRow])] {
+        guard summed, let sort = view.sort else { return sources }
+        let last = sort.split(separator: ".").last.map(String.init)
+        let descending = view.sortAggregate == .latest || last == "created" || last == "modified"
+        var failure: Error?
+        let sorted = sortBy(sources, { source in
+            do { return try sortValue(source.rows) } catch {
+                failure = error
+                return nil
+            }
+        }, descending: descending)
+        if let failure { throw failure }
+        return sorted
     }
 
     let words = (options.query ?? "").lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
@@ -822,9 +985,12 @@ public func presentView(_ schema: USLCheckResult, rows: USLRowsByTable, options:
     for group in arranged.groups {
         let keepAll = words.isEmpty || (group.kind != .flat && group.kind != .unassigned && has(group.heading))
         var lines: [PresentedLine] = []
-        for row in group.rows {
-            let key = uslRowKey(table, row)!
-            let cells = try fields.map { try cell(row, $0.item, $0.field) }
+        for source in try sortLines(try sourcesOf(group.rows)) {
+            let key = source.key
+            let cells = try fields.map { entry in
+                guard !summed, !entry.item.field.contains("."), let field = entry.field else { return try summedCell(source.rows, entry.item, entry.field) }
+                return try cell(source.rows[0], entry.item, field)
+            }
             if !keepAll && !has(cells.map(\.searchText).joined(separator: "\n")) { continue }
             var color: String?
             if let bulletIndex, case .choice(_, _, let c, _) = cells[bulletIndex] { color = c }
@@ -840,7 +1006,8 @@ public func presentView(_ schema: USLCheckResult, rows: USLRowsByTable, options:
             headingField: hasRow ? nameField : nil, ordered: group.ordered, remove: group.remove, lines: lines
         ))
         for line in lines {
-            let edit = options.canEdit?(collection.opName(table), line.row) ?? true
+            // A line summed up over rows, or a person, is not one row to edit.
+            let edit = !summed && (options.canEdit?(collection.opName(table), line.row) ?? true)
             var entry = capabilities[line.row] ?? PresentedRowCapabilities(edit: edit, delete: edit, groups: [])
             if group.kind != .flat { entry.groups.append(group.id) }
             capabilities[line.row] = entry
@@ -848,7 +1015,8 @@ public func presentView(_ schema: USLCheckResult, rows: USLRowsByTable, options:
     }
 
     var pickers: [String: [PresentedChip]] = [:]
-    for (_, field) in fields where !uslValueTypeSet.contains(field.type) {
+    for (item, field) in fields {
+        guard let field, !item.field.contains("."), !uslValueTypeSet.contains(field.type) else { continue }
         pickers[field.name] = try collection.candidates(field.type)
     }
 

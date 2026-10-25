@@ -1,5 +1,5 @@
 {
-  "description": "Presented views (plan schema-language/002 milestone 3): a collection's rows as one of its views presents them, and what a person does to that view as row operations (spec 10 section 4.1). `fixtures` hold a schema.usl, data-file rows by table and people (profile ids and display names, in order). A person may be a placeholder, `contact:<key>`, naming a row of the viewer’s directory (People 001): its chip and group carry `placeholder: true` and show the directory’s name for it when `people` lists it, else the key. A presentation case may name the model (by default the one with ~views, else the first with rows), and names a view by index into the model's views (its ~views, or the default arrangement) and an optional search query. An intent case gives the row operations, without `key` and `collection`, and the rows after applying them; `error: true` means the intent is refused. Row and group ids are as the presentation gives them.",
+  "description": "Presented views (plan schema-language/002 milestone 3): a collection's rows as one of its views presents them, and what a person does to that view as row operations (spec 10 section 4.1). `fixtures` hold a schema.usl, data-file rows by table and people (profile ids and display names, in order). A person may be a placeholder, `contact:<key>`, naming a row of the viewer’s directory (People 001): its chip and group carry `placeholder: true` and show the directory’s name for it when `people` lists it, else the key. A view may be of Person (`re Person { ~views }`, a line per person the rows name), take paths through connections (`ties.group`), sum up a line with `rows: field` and `~latest`/`~earliest`/`~count`, and mark a date `~ago`. A presentation case may name the model (by default the one with ~views, else the first with rows), and names a view by index into the model's views (its ~views, or the default arrangement) and an optional search query. An intent case gives the row operations, without `key` and `collection`, and the rows after applying them; `error: true` means the intent is refused. Row and group ids are as the presentation gives them.",
   "fixtures": {
     "games": {
       "schema": "// ~/src/supplies-remake: games, their authors, and lists of games, in\n// layered USL (plan 003). Authors are Story accounts, so there is no Person\n// model to declare. Who may edit a game is access policy now\n// (`who: {property: authors}` in access.yaml), not schema.\n\nmain model Game {\n  name        Text\n  status      Status    // stored as \"Draft\"\n  description Markdown?\n  tags        Text[]    // values, stored on the row\n  authors     Person[]  // cross-reference: declared below\n  lists       List[]    // cross-reference: declared below\n}\n\nmodel List {\n  name  Text\n  games Game[]  // cross-reference\n}\n\n// @fold: in data files, these are arrays on Game and List rows rather than\n// files of their own. A storage default; a placement may choose otherwise.\nGame.authors[] @fold <-> Person.games[]\nordered List.games[] @fold <-> Game.lists[]\nGame.status <-> Status.games[]\n\nenum Status { Draft, Playtested, Polished }\n\nre Game {\n  ~views([\n    { label: \"By game\", line: [status ~bullet, name, authors, description], sort: modified },\n    { label: \"By author\", group: authors },\n    { label: \"By list\", group: lists, sort: modified },\n  ])\n}\n\nre Status {\n  Draft      ~color(\"#9aa0aa\")\n  Playtested ~color(\"#bd861a\")\n  Polished   ~color(\"#27815a\")\n}\n",
@@ -272,6 +272,83 @@
           {
             "id": "t2",
             "name": "cards"
+          }
+        ]
+      }
+    },
+    "directory": {
+      "schema": "model Tie {\n  person Person\n  group  Person?\n  kind   TieKind\n}\nenum TieKind { Community, Group, Shared, Opened }\nTie.person <-> Person.ties[]\nTie.group? <-> Person.members[]\nTie.kind <-> TieKind.ties[]\n\nmodel Tree {\n  title Text?\n  owner Person?\n}\nmodel Visit {\n  tree Tree\n  at   Date\n}\nTree.owner? <-> Person.trees[]\nVisit.tree <-> Tree.visits[]\n\nre Person {\n  ~views([\n    { label: \"By group\", group: ties.group, line: [name] },\n    { label: \"Everyone\", line: [name, ties.group, ties.kind, ties ~count], sort: name },\n  ])\n}\nre Tie {\n  ~views([\n    { label: \"People\", rows: person, line: [person, group, kind] },\n  ])\n}\nre Tree {\n  ~views([\n    { label: \"Recent\", line: [title, owner, visits.at ~latest ~ago], sort: visits.at ~latest },\n  ])\n}\n",
+      "people": [
+        {
+          "id": "p-joe",
+          "name": "Joe"
+        },
+        {
+          "id": "p-oliver",
+          "name": "Oliver"
+        },
+        {
+          "id": "g-canopy",
+          "name": "Canopy"
+        },
+        {
+          "id": "g-team",
+          "name": "Team"
+        }
+      ],
+      "rows": {
+        "Tie": [
+          {
+            "id": "t1",
+            "person": "p-oliver",
+            "group": "g-canopy",
+            "kind": "Group"
+          },
+          {
+            "id": "t2",
+            "person": "p-joe",
+            "group": "g-canopy",
+            "kind": "Community"
+          },
+          {
+            "id": "t3",
+            "person": "p-oliver",
+            "group": "g-team",
+            "kind": "Group"
+          },
+          {
+            "id": "t4",
+            "person": "p-oliver",
+            "kind": "Opened"
+          }
+        ],
+        "Tree": [
+          {
+            "id": "tr-a",
+            "title": "Todos",
+            "owner": "p-joe"
+          },
+          {
+            "id": "tr-b",
+            "title": "Games",
+            "owner": "p-oliver"
+          }
+        ],
+        "Visit": [
+          {
+            "id": "v1",
+            "tree": "tr-a",
+            "at": "2026-10-25T09:00:00Z"
+          },
+          {
+            "id": "v2",
+            "tree": "tr-a",
+            "at": "2026-10-25T11:00:00Z"
+          },
+          {
+            "id": "v3",
+            "tree": "tr-b",
+            "at": "2026-10-25T10:00:00Z"
           }
         ]
       }
@@ -3856,6 +3933,707 @@
             "groups": [
               "\"t2\""
             ]
+          }
+        }
+      }
+    },
+    {
+      "name": "directory: re Person, grouped by a path through connections",
+      "fixture": "directory",
+      "model": "Person",
+      "view": 0,
+      "expected": {
+        "model": "Person",
+        "table": "Person",
+        "tabs": [
+          {
+            "label": "By group"
+          },
+          {
+            "label": "Everyone"
+          }
+        ],
+        "tab": 0,
+        "group": "ties.group",
+        "groups": [
+          {
+            "id": "\"p-joe\"",
+            "kind": "connection",
+            "heading": "Joe",
+            "member": "p-joe",
+            "ordered": false,
+            "remove": "delete",
+            "lines": []
+          },
+          {
+            "id": "\"p-oliver\"",
+            "kind": "connection",
+            "heading": "Oliver",
+            "member": "p-oliver",
+            "ordered": false,
+            "remove": "delete",
+            "lines": []
+          },
+          {
+            "id": "\"g-canopy\"",
+            "kind": "connection",
+            "heading": "Canopy",
+            "member": "g-canopy",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"p-oliver\"]]",
+                "occurrence": "[\"By group\",\"\\\"g-canopy\\\"\",\"[[\\\"id\\\",\\\"p-oliver\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "chips",
+                    "field": "name",
+                    "chips": [
+                      {
+                        "member": "p-oliver",
+                        "name": "Oliver"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"p-joe\"]]",
+                "occurrence": "[\"By group\",\"\\\"g-canopy\\\"\",\"[[\\\"id\\\",\\\"p-joe\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "chips",
+                    "field": "name",
+                    "chips": [
+                      {
+                        "member": "p-joe",
+                        "name": "Joe"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"g-team\"",
+            "kind": "connection",
+            "heading": "Team",
+            "member": "g-team",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"p-oliver\"]]",
+                "occurrence": "[\"By group\",\"\\\"g-team\\\"\",\"[[\\\"id\\\",\\\"p-oliver\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "chips",
+                    "field": "name",
+                    "chips": [
+                      {
+                        "member": "p-oliver",
+                        "name": "Oliver"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "unassigned",
+            "kind": "unassigned",
+            "heading": "Unassigned",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g-canopy\"]]",
+                "occurrence": "[\"By group\",\"unassigned\",\"[[\\\"id\\\",\\\"g-canopy\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "chips",
+                    "field": "name",
+                    "chips": [
+                      {
+                        "member": "g-canopy",
+                        "name": "Canopy"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"g-team\"]]",
+                "occurrence": "[\"By group\",\"unassigned\",\"[[\\\"id\\\",\\\"g-team\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "chips",
+                    "field": "name",
+                    "chips": [
+                      {
+                        "member": "g-team",
+                        "name": "Team"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {},
+        "capabilities": {
+          "[[\"id\",\"p-oliver\"]]": {
+            "edit": false,
+            "delete": false,
+            "groups": [
+              "\"g-canopy\"",
+              "\"g-team\""
+            ]
+          },
+          "[[\"id\",\"p-joe\"]]": {
+            "edit": false,
+            "delete": false,
+            "groups": [
+              "\"g-canopy\""
+            ]
+          },
+          "[[\"id\",\"g-canopy\"]]": {
+            "edit": false,
+            "delete": false,
+            "groups": [
+              "unassigned"
+            ]
+          },
+          "[[\"id\",\"g-team\"]]": {
+            "edit": false,
+            "delete": false,
+            "groups": [
+              "unassigned"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "directory: re Person, paths shown distinct, ~count, sorted by name",
+      "fixture": "directory",
+      "model": "Person",
+      "view": 1,
+      "expected": {
+        "model": "Person",
+        "table": "Person",
+        "tabs": [
+          {
+            "label": "By group"
+          },
+          {
+            "label": "Everyone"
+          }
+        ],
+        "tab": 1,
+        "groups": [
+          {
+            "id": "",
+            "kind": "flat",
+            "heading": "",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"g-canopy\"]]",
+                "occurrence": "[\"Everyone\",\"\",\"[[\\\"id\\\",\\\"g-canopy\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "chips",
+                    "field": "name",
+                    "chips": [
+                      {
+                        "member": "g-canopy",
+                        "name": "Canopy"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "ties.group",
+                    "chips": []
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "ties.kind",
+                    "chips": []
+                  },
+                  {
+                    "kind": "text",
+                    "field": "ties",
+                    "type": "Int",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"p-joe\"]]",
+                "occurrence": "[\"Everyone\",\"\",\"[[\\\"id\\\",\\\"p-joe\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "chips",
+                    "field": "name",
+                    "chips": [
+                      {
+                        "member": "p-joe",
+                        "name": "Joe"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "ties.group",
+                    "chips": [
+                      {
+                        "member": "g-canopy",
+                        "name": "Canopy"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "ties.kind",
+                    "chips": [
+                      {
+                        "member": "Community",
+                        "name": "Community"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "text",
+                    "field": "ties",
+                    "type": "Int",
+                    "value": 1
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"p-oliver\"]]",
+                "occurrence": "[\"Everyone\",\"\",\"[[\\\"id\\\",\\\"p-oliver\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "chips",
+                    "field": "name",
+                    "chips": [
+                      {
+                        "member": "p-oliver",
+                        "name": "Oliver"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "ties.group",
+                    "chips": [
+                      {
+                        "member": "g-canopy",
+                        "name": "Canopy"
+                      },
+                      {
+                        "member": "g-team",
+                        "name": "Team"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "ties.kind",
+                    "chips": [
+                      {
+                        "member": "Group",
+                        "name": "Group"
+                      },
+                      {
+                        "member": "Opened",
+                        "name": "Opened"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "text",
+                    "field": "ties",
+                    "type": "Int",
+                    "value": 3
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"g-team\"]]",
+                "occurrence": "[\"Everyone\",\"\",\"[[\\\"id\\\",\\\"g-team\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "chips",
+                    "field": "name",
+                    "chips": [
+                      {
+                        "member": "g-team",
+                        "name": "Team"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "ties.group",
+                    "chips": []
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "ties.kind",
+                    "chips": []
+                  },
+                  {
+                    "kind": "text",
+                    "field": "ties",
+                    "type": "Int",
+                    "value": 0
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "ties": [
+            {
+              "member": "t1",
+              "name": "t1"
+            },
+            {
+              "member": "t2",
+              "name": "t2"
+            },
+            {
+              "member": "t3",
+              "name": "t3"
+            },
+            {
+              "member": "t4",
+              "name": "t4"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"g-canopy\"]]": {
+            "edit": false,
+            "delete": false,
+            "groups": []
+          },
+          "[[\"id\",\"p-joe\"]]": {
+            "edit": false,
+            "delete": false,
+            "groups": []
+          },
+          "[[\"id\",\"p-oliver\"]]": {
+            "edit": false,
+            "delete": false,
+            "groups": []
+          },
+          "[[\"id\",\"g-team\"]]": {
+            "edit": false,
+            "delete": false,
+            "groups": []
+          }
+        }
+      }
+    },
+    {
+      "name": "directory: rows: person, other fields summed up over the rows sharing it",
+      "fixture": "directory",
+      "model": "Tie",
+      "view": 0,
+      "expected": {
+        "model": "Tie",
+        "table": "Tie",
+        "tabs": [
+          {
+            "label": "People"
+          }
+        ],
+        "tab": 0,
+        "groups": [
+          {
+            "id": "",
+            "kind": "flat",
+            "heading": "",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"person\",\"p-oliver\"]]",
+                "occurrence": "[\"People\",\"\",\"[[\\\"person\\\",\\\"p-oliver\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "chips",
+                    "field": "person",
+                    "chips": [
+                      {
+                        "member": "p-oliver",
+                        "name": "Oliver"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "group",
+                    "chips": [
+                      {
+                        "member": "g-canopy",
+                        "name": "Canopy"
+                      },
+                      {
+                        "member": "g-team",
+                        "name": "Team"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "kind",
+                    "chips": [
+                      {
+                        "member": "Group",
+                        "name": "Group"
+                      },
+                      {
+                        "member": "Opened",
+                        "name": "Opened"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "row": "[[\"person\",\"p-joe\"]]",
+                "occurrence": "[\"People\",\"\",\"[[\\\"person\\\",\\\"p-joe\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "chips",
+                    "field": "person",
+                    "chips": [
+                      {
+                        "member": "p-joe",
+                        "name": "Joe"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "group",
+                    "chips": [
+                      {
+                        "member": "g-canopy",
+                        "name": "Canopy"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "kind",
+                    "chips": [
+                      {
+                        "member": "Community",
+                        "name": "Community"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "person": [
+            {
+              "member": "p-joe",
+              "name": "Joe"
+            },
+            {
+              "member": "p-oliver",
+              "name": "Oliver"
+            },
+            {
+              "member": "g-canopy",
+              "name": "Canopy"
+            },
+            {
+              "member": "g-team",
+              "name": "Team"
+            }
+          ],
+          "group": [
+            {
+              "member": "p-joe",
+              "name": "Joe"
+            },
+            {
+              "member": "p-oliver",
+              "name": "Oliver"
+            },
+            {
+              "member": "g-canopy",
+              "name": "Canopy"
+            },
+            {
+              "member": "g-team",
+              "name": "Team"
+            }
+          ],
+          "kind": [
+            {
+              "member": "Community",
+              "name": "Community"
+            },
+            {
+              "member": "Group",
+              "name": "Group"
+            },
+            {
+              "member": "Shared",
+              "name": "Shared"
+            },
+            {
+              "member": "Opened",
+              "name": "Opened"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"person\",\"p-oliver\"]]": {
+            "edit": false,
+            "delete": false,
+            "groups": []
+          },
+          "[[\"person\",\"p-joe\"]]": {
+            "edit": false,
+            "delete": false,
+            "groups": []
+          }
+        }
+      }
+    },
+    {
+      "name": "directory: a path with ~latest ~ago, sorted by it newest first",
+      "fixture": "directory",
+      "model": "Tree",
+      "view": 0,
+      "expected": {
+        "model": "Tree",
+        "table": "Tree",
+        "tabs": [
+          {
+            "label": "Recent"
+          }
+        ],
+        "tab": 0,
+        "groups": [
+          {
+            "id": "",
+            "kind": "flat",
+            "heading": "",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"tr-a\"]]",
+                "occurrence": "[\"Recent\",\"\",\"[[\\\"id\\\",\\\"tr-a\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Todos"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": [
+                      {
+                        "member": "p-joe",
+                        "name": "Joe"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "text",
+                    "field": "visits.at",
+                    "type": "Date",
+                    "value": "2026-10-25T11:00:00Z",
+                    "ago": true
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"tr-b\"]]",
+                "occurrence": "[\"Recent\",\"\",\"[[\\\"id\\\",\\\"tr-b\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "title",
+                    "type": "Text",
+                    "value": "Games"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "owner",
+                    "chips": [
+                      {
+                        "member": "p-oliver",
+                        "name": "Oliver"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "text",
+                    "field": "visits.at",
+                    "type": "Date",
+                    "value": "2026-10-25T10:00:00Z",
+                    "ago": true
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "owner": [
+            {
+              "member": "p-joe",
+              "name": "Joe"
+            },
+            {
+              "member": "p-oliver",
+              "name": "Oliver"
+            },
+            {
+              "member": "g-canopy",
+              "name": "Canopy"
+            },
+            {
+              "member": "g-team",
+              "name": "Team"
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"tr-a\"]]": {
+            "edit": false,
+            "delete": false,
+            "groups": []
+          },
+          "[[\"id\",\"tr-b\"]]": {
+            "edit": false,
+            "delete": false,
+            "groups": []
           }
         }
       }
@@ -7766,6 +8544,220 @@
           {
             "id": "t2",
             "name": "cards",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "directory",
+      "tables": {
+        "Tie": [
+          {
+            "key": [
+              [
+                "id",
+                "t1"
+              ]
+            ],
+            "fields": {
+              "person": "p-oliver",
+              "group": "g-canopy",
+              "kind": "Group"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "t2"
+              ]
+            ],
+            "fields": {
+              "person": "p-joe",
+              "group": "g-canopy",
+              "kind": "Community"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "t3"
+              ]
+            ],
+            "fields": {
+              "person": "p-oliver",
+              "group": "g-team",
+              "kind": "Group"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "t4"
+              ]
+            ],
+            "fields": {
+              "person": "p-oliver",
+              "kind": "Opened"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Tree": [
+          {
+            "key": [
+              [
+                "id",
+                "tr-a"
+              ]
+            ],
+            "fields": {
+              "title": "Todos",
+              "owner": "p-joe"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "tr-b"
+              ]
+            ],
+            "fields": {
+              "title": "Games",
+              "owner": "p-oliver"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Visit": [
+          {
+            "key": [
+              [
+                "id",
+                "v1"
+              ]
+            ],
+            "fields": {
+              "tree": "tr-a",
+              "at": "2026-10-25T09:00:00Z"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "v2"
+              ]
+            ],
+            "fields": {
+              "tree": "tr-a",
+              "at": "2026-10-25T11:00:00Z"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "v3"
+              ]
+            ],
+            "fields": {
+              "tree": "tr-b",
+              "at": "2026-10-25T10:00:00Z"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ]
+      },
+      "rows": {
+        "Tie": [
+          {
+            "id": "t1",
+            "person": "p-oliver",
+            "group": "g-canopy",
+            "kind": "Group",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "t2",
+            "person": "p-joe",
+            "group": "g-canopy",
+            "kind": "Community",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "t3",
+            "person": "p-oliver",
+            "group": "g-team",
+            "kind": "Group",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "t4",
+            "person": "p-oliver",
+            "kind": "Opened",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Tree": [
+          {
+            "id": "tr-a",
+            "title": "Todos",
+            "owner": "p-joe",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "tr-b",
+            "title": "Games",
+            "owner": "p-oliver",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Visit": [
+          {
+            "id": "v1",
+            "at": "2026-10-25T09:00:00Z",
+            "tree": "tr-a",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "v2",
+            "at": "2026-10-25T11:00:00Z",
+            "tree": "tr-a",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "v3",
+            "at": "2026-10-25T10:00:00Z",
+            "tree": "tr-b",
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z"
           }

@@ -1,0 +1,26 @@
+// expect: unknown-field
+// expect: view-field
+// expect: view-rows
+// expect: view-rows
+// expect: misplaced-attribute
+model Tie {
+  person Person
+  group  Person?
+  note   Text?
+}
+
+Tie.person <-> Person.ties[]
+Tie.group? <-> Person.members[]
+
+re Person {
+  ~views([
+    { label: "Unknown step", line: [name, ties.nobody] },
+    { label: "Through a value", line: [ties.note.more] },
+    { label: "Rows of people", rows: ties, line: [name] },
+  ])
+  ~color
+}
+
+re Tie {
+  ~views([{ label: "Rows of a path", rows: person.ties, line: [person] }])
+}

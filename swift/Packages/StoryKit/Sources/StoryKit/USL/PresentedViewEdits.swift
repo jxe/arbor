@@ -46,6 +46,7 @@ private final class ViewEditor {
         self.schema = schema
         self.collection = collection
         self.arrangement = try arrangeView(collection, options)
+        if uslViewSummarized(arrangement.model, arrangement.view) { throw ViewError(message: "A view summed up over rows, or of people, is read-only") }
         self.at = at
     }
 

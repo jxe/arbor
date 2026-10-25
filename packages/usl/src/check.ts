@@ -30,12 +30,15 @@ const FIELD_ATTRIBUTES: Record<string, Sigil> = { column: "@", fold: "@", body: 
 const MODEL_ATTRIBUTES: Record<string, Sigil> = { table: "@", index: "@", fold: "@", views: "~" };
 const VALUE_ATTRIBUTES: Record<string, Sigil> = { stored: "@", color: "~" };
 const MODIFIERS = ["ordered", "unique", "path"];
-const VIEW_OPTIONS = ["label", "line", "group", "sort"];
+const VIEW_OPTIONS = ["label", "line", "group", "sort", "rows"];
 // Presentation of one item in a view's line: `~bullet` draws an enum value as
 // the row's colored bullet, `~summary` shows a many-valued field as a count,
 // `~label("lead")` names one of its members, and `~sort(field)` lists a
 // connection's members by a field of theirs.
-const LINE_ATTRIBUTES = ["bullet", "summary", "label", "sort"];
+const LINE_ATTRIBUTES = ["bullet", "summary", "label", "sort", "latest", "earliest", "count", "ago"];
+/** How a line item, or a view's sort, sums up the several values a path or `rows` gives it. */
+const AGGREGATES = ["latest", "earliest", "count"] as const;
+export type Aggregate = (typeof AGGREGATES)[number];
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 
 export interface ResolvedField {
@@ -105,7 +108,7 @@ export interface ResolvedModel {
   indexes: string[][];
 }
 
-/** One item of a view's line: a field and its presentation. */
+/** One item of a view's line: a field, or a path through connections (`ties.group`), and its presentation. */
 export interface LineItem {
   field: string;
   bullet: boolean;
@@ -113,6 +116,10 @@ export interface LineItem {
   label?: string;
   /** `~sort(field)`: lists a connection's members by a field of theirs instead of as connected. */
   sort?: string;
+  /** `~latest`, `~earliest`, `~count`: one value for the several the item gives. */
+  aggregate?: Aggregate;
+  /** `~ago`: a date shown relative to now, by the client. */
+  ago?: true;
 }
 
 /** A default arrangement from `~views`. A view without a `line` uses the first view's. */
@@ -123,6 +130,10 @@ export interface ResolvedView {
   /** `group: field ~sort(name)`: the groups in order of a field of theirs. */
   groupSort?: string;
   sort?: string;
+  /** `sort: visits.at ~latest`: how a sort sums up several values. */
+  sortAggregate?: Aggregate;
+  /** `rows: field`: one line per distinct value of a field, the other items summed up over the rows sharing it. */
+  rows?: string;
 }
 
 export interface ResolvedConnection {
@@ -201,7 +212,8 @@ export function checkUsl(parsed: SchemaFile): CheckResult {
   }
   const mains = [...models.values()].filter((m) => m.main);
   for (const extra of mains.slice(1)) report("main-model", extra.main!, "A schema has at most one `main` model");
-  mergeRe(file, models, report);
+  // `re Person { ... }` presents the built-in Person model; it declares nothing.
+  const person = mergeRe(file, models, report);
   const modelExists = (name: string) => models.has(name) || (BUILTIN_MODELS as readonly string[]).includes(name);
   const rowsOf = (model: ModelDecl) => model.members.find((m): m is RowsBlock => m.kind === "rows");
   const connectionEndsOf = (decl: { members: Member[] }) => decl.members.filter((m): m is EndDecl => m.kind === "end");
@@ -384,7 +396,7 @@ export function checkUsl(parsed: SchemaFile): CheckResult {
           ...(stored?.kind === "string" ? { stored: stored.value } : {}),
         };
       }),
-      views: model ? resolvedViews(model) : [],
+      views: model ? resolvedViews(model) : name === "Person" ? resolvedViews(person) : [],
       indexes: [],
     };
     resolved.set(name, entry);
@@ -514,7 +526,17 @@ export function checkUsl(parsed: SchemaFile): CheckResult {
       ? field === "name" || Boolean(fieldMaps.get(target)?.has(field))
       : (IMPLICIT_FIELDS as readonly string[]).includes(field) || Boolean(fieldMaps.get(target)?.has(field));
 
-  // 5. Header keys and model attributes.
+  // 5. Header keys and model attributes. Person takes only `~views`.
+  for (const member of person.members) {
+    if (member.kind !== "modelAttribute") continue;
+    if (member.name !== "views" || member.sigil !== "~") {
+      report("misplaced-attribute", member.at, "`re Person` takes only `~views`: Person is a built-in model with no rows of its own");
+    } else if (person.members.filter((m) => m.kind === "modelAttribute" && m.name === "views")[0] !== member) {
+      report("duplicate-attribute", member.at, "`~views` appears twice");
+    } else {
+      checkViews(member, "Person", fieldMaps.get("Person")!, sortable, report, (name) => fieldMaps.get(name));
+    }
+  }
   for (const model of models.values()) {
     const fields = fieldMaps.get(model.name)!;
     const seen = new Set<string>();
@@ -555,7 +577,7 @@ export function checkUsl(parsed: SchemaFile): CheckResult {
       } else if (layer !== member.sigil) {
         report("attribute-layer", member.at, `\`${member.name}\` is ${layer === "@" ? "storage" : "presentation"}: write \`${layer}${member.name}\``);
       } else if (member.name === "views") {
-        checkViews(member, model.name, fields, sortable, report);
+        checkViews(member, model.name, fields, sortable, report, (name) => fieldMaps.get(name));
       } else if (member.name === "index") {
         if (member.args.length === 0) report("attribute-arguments", member.at, "`@index` names at least one field");
         const index: string[] = [];
@@ -682,7 +704,7 @@ export function checkUsl(parsed: SchemaFile): CheckResult {
 type Report = (code: string, at: Position, message: string) => void;
 
 /** A model's `~views`, as far as they are well formed; checkViews reports the rest. */
-function resolvedViews(model: ModelDecl): ResolvedView[] {
+function resolvedViews(model: { members: Member[] }): ResolvedView[] {
   const attr = model.members.find((m): m is ModelAttribute => m.kind === "modelAttribute" && m.name === "views");
   const list = attr?.args[0];
   if (list?.kind !== "list") return [];
@@ -697,12 +719,15 @@ function resolvedViews(model: ModelDecl): ResolvedView[] {
       ? line.items.flatMap((item) => {
         if (item.kind !== "ident") return [];
         const named = item.attrs.find((a) => a.name === "label" && a.sigil === "~")?.args[0];
+        const aggregate = aggregateOf(item.attrs);
         return [{
           field: item.name,
           bullet: item.attrs.some((a) => a.name === "bullet" && a.sigil === "~"),
           summary: item.attrs.some((a) => a.name === "summary" && a.sigil === "~"),
           ...(named?.kind === "string" ? { label: named.value } : {}),
           ...sortOf(item.attrs),
+          ...(aggregate ? { aggregate } : {}),
+          ...(item.attrs.some((a) => a.name === "ago" && a.sigil === "~") ? { ago: true as const } : {}),
         }];
       })
       : views[0]?.line ?? [];
@@ -710,15 +735,25 @@ function resolvedViews(model: ModelDecl): ResolvedView[] {
     const groupBy = option("group");
     const groupSort = groupBy?.kind === "ident" ? sortOf(groupBy.attrs).sort : undefined;
     const sort = ident(option("sort"));
+    const sortBy = option("sort");
+    const sortAggregate = sortBy?.kind === "ident" ? aggregateOf(sortBy.attrs) : undefined;
+    const rows = ident(option("rows"));
     views.push({
       label: label?.kind === "string" ? label.value : "",
       line: items,
       ...(group ? { group } : {}),
       ...(groupSort ? { groupSort } : {}),
       ...(sort ? { sort } : {}),
+      ...(sortAggregate && sortAggregate !== "count" ? { sortAggregate } : {}),
+      ...(rows ? { rows } : {}),
     });
   }
   return views;
+}
+
+/** The aggregate among the attributes, if any. */
+function aggregateOf(attrs: Attribute[]): Aggregate | undefined {
+  return AGGREGATES.find((name) => attrs.some((a) => a.name === name && a.sigil === "~"));
 }
 
 /** `{ sort: "…" }` when `~sort(field)` is among the attributes. */
@@ -733,6 +768,7 @@ function checkViews(
   fields: Map<string, ResolvedField>,
   sortable: (target: string, field: string) => boolean,
   report: Report,
+  fieldsOf: (model: string) => Map<string, ResolvedField> | undefined,
 ) {
   /** `~sort(x)` on a view's field: it names a field of the members of a connection. */
   const checkSort = (field: string, a: Attribute) => {
@@ -751,13 +787,32 @@ function checkViews(
     report("attribute-arguments", attr.at, "`~views` takes one list of views: `~views([ { label: ... }, ... ])`");
     return;
   }
+  // A field, or a path through connections: each step but the last reaches
+  // the rows of another model. A person is called by their `name`.
   const fieldRef = (expr: Expr, allowImplicit: boolean) => {
     if (expr.kind !== "ident") {
       report("view-field", expr.at, "Expected a field name");
       return;
     }
-    const implicit = allowImplicit && (expr.name === "created" || expr.name === "modified");
-    if (!implicit && !fields.has(expr.name)) report("unknown-field", expr.at, `\`${model}\` has no field \`${expr.name}\``);
+    const steps = expr.name.split(".");
+    let owner = model;
+    let ownerFields: Map<string, ResolvedField> | undefined = fields;
+    for (const [i, step] of steps.entries()) {
+      const last = i === steps.length - 1;
+      const implicit = last && ((allowImplicit && (step === "created" || step === "modified")) || (owner === "Person" && step === "name"));
+      const field = ownerFields?.get(step);
+      if (!implicit && !field) {
+        report("unknown-field", expr.at, `\`${owner}\` has no field \`${step}\``);
+        return;
+      }
+      if (last || !field) return;
+      if (isValueType(field.type)) {
+        report("view-field", expr.at, `\`${owner}.${step}\` holds values; a path goes on only through connections`);
+        return;
+      }
+      owner = field.type;
+      ownerFields = fieldsOf(owner);
+    }
   };
   const labels = new Set<string>();
   for (const view of list.items) {
@@ -791,7 +846,8 @@ function checkViews(
             } else if (a.sigil !== "~") {
               report("attribute-layer", a.at, `\`${a.name}\` is presentation: write \`~${a.name}\``);
             } else if (a.name === "sort") {
-              checkSort(item.name, a);
+              if (item.name.includes(".")) report("sort-field", a.at, "`~sort` orders the members of one field, not of a path");
+              else checkSort(item.name, a);
             } else if (a.name === "label" ? a.args.length !== 1 || a.args[0]!.kind !== "string" : a.args.length > 0) {
               report("attribute-arguments", a.at, a.name === "label" ? '`~label` takes one string: `~label("lead")`' : `\`~${a.name}\` takes no arguments`);
             } else if (a.name === "bullet" && ++bullets > 1) {
@@ -805,8 +861,16 @@ function checkViews(
         for (const a of entry.value.attrs) {
           if (entry.key === "group" && a.name === "sort" && a.sigil !== "~") report("attribute-layer", a.at, "`sort` is presentation: write `~sort`");
           else if (entry.key === "group" && a.name === "sort") checkSort(entry.value.name, a);
-          else report("misplaced-attribute", a.at, entry.key === "group" ? "A `group` takes only `~sort`; other attributes go on the items of a `line`" : "Attributes go on the items of a `line`");
+          else if (entry.key === "sort" && (a.name === "latest" || a.name === "earliest") && a.sigil === "~" && a.args.length === 0) continue;
+          else report("misplaced-attribute", a.at, entry.key === "group" ? "A `group` takes only `~sort`; other attributes go on the items of a `line`" : "A `sort` takes only `~latest` or `~earliest`; other attributes go on the items of a `line`");
         }
+      } else if (entry.key === "rows") {
+        const value = entry.value;
+        if (model === "Person") report("view-rows", value.at, "A view of Person lists people already; `rows` goes on a view of the rows that name them");
+        else if (value.kind !== "ident" || value.name.includes(".")) report("view-rows", value.at, "`rows` names one field of the model");
+        else if (!fields.has(value.name)) report("unknown-field", value.at, `\`${model}\` has no field \`${value.name}\``);
+        else if (fields.get(value.name)!.arity === "many") report("view-rows", value.at, `\`${value.name}\` holds many values; \`rows\` takes a single-valued field`);
+        else if (value.attrs.length > 0) report("misplaced-attribute", value.attrs[0]!.at, "Attributes go on the items of a `line`");
       }
     }
   }
@@ -893,10 +957,13 @@ function checkValue(entry: ObjectEntry, field: FieldDecl, report: Report) {
  * its attributes to that field, end or value, and a model attribute joins the
  * model's own. Nothing in a `re` block declares.
  */
-function mergeRe(file: SchemaFile, models: Map<string, ModelDecl>, report: Report) {
+function mergeRe(file: SchemaFile, models: Map<string, ModelDecl>, report: Report): { members: Member[] } {
+  // The built-in Person model has no declaration; its `re` blocks gather here.
+  const person: { members: Member[] } = { members: [] };
   for (const decl of file.declarations) {
     if (decl.kind !== "re") continue;
-    const model = models.get(decl.name);
+    const model: { name: string; members: Member[] } | undefined =
+      models.get(decl.name) ?? (decl.name === "Person" ? { name: "Person", members: person.members } : undefined);
     if (!model) {
       report("unknown-model", decl.at, `No model or enum \`${decl.name}\` to annotate`);
       continue;
@@ -920,4 +987,5 @@ function mergeRe(file: SchemaFile, models: Map<string, ModelDecl>, report: Repor
       target.attrs.push(...member.attrs);
     }
   }
+  return person;
 }

@@ -648,8 +648,14 @@ private struct Parser {
         }
         if t.kind == .ident {
             next()
+            // A path through connections in a view: `ties.group`.
+            var name = t.text
+            while `is`("."), peek().kind == .ident {
+                next()
+                name += "." + next().text
+            }
             let attributes = try attrs()
-            return .ident(t.text, attrs: attributes, at: start)
+            return .ident(name, attrs: attributes, at: start)
         }
         if `is`("[") {
             next()

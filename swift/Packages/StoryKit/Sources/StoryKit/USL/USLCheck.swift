@@ -15,12 +15,15 @@ private let fieldAttributes: [String: USLSigil] = ["column": .storage, "fold": .
 private let modelAttributes: [String: USLSigil] = ["table": .storage, "index": .storage, "fold": .storage, "views": .presentation]
 private let valueAttributes: [String: USLSigil] = ["stored": .storage, "color": .presentation]
 private let modifierNames = ["ordered", "unique", "path"]
-private let viewOptions = ["label", "line", "group", "sort"]
+private let viewOptions = ["label", "line", "group", "sort", "rows"]
 // Presentation of one item in a view's line: `~bullet` draws an enum value as
 // the row's colored bullet, `~summary` shows a many-valued field as a count,
 // `~label("lead")` names one of its members, and `~sort(field)` lists a
 // connection's members by a field of theirs.
-private let lineAttributes = ["bullet", "summary", "label", "sort"]
+private let lineAttributes = ["bullet", "summary", "label", "sort", "latest", "earliest", "count", "ago"]
+
+/// How a line item, or a view's sort, sums up the several values a path or `rows` gives it.
+public enum USLAggregate: String, Sendable, CaseIterable { case latest, earliest, count }
 
 private func layerName(_ sigil: USLSigil) -> String { sigil == .storage ? "storage" : "presentation" }
 
@@ -95,7 +98,7 @@ public struct USLSchemaRow: Sendable, Equatable {
     }
 }
 
-/// One item of a view's line: a field and its presentation.
+/// One item of a view's line: a field, or a path through connections (`ties.group`), and its presentation.
 public struct USLLineItem: Sendable, Equatable {
     public var field: String
     public var bullet: Bool
@@ -103,13 +106,20 @@ public struct USLLineItem: Sendable, Equatable {
     public var label: String?
     /// `~sort(field)`: lists a connection's members by a field of theirs instead of as connected.
     public var sort: String?
+    /// `~latest`, `~earliest`, `~count`: one value for the several the item gives.
+    public var aggregate: USLAggregate?
+    /// `~ago`: a date shown relative to now, by the client.
+    public var ago: Bool
 
-    public init(field: String, bullet: Bool = false, summary: Bool = false, label: String? = nil, sort: String? = nil) {
+    public init(field: String, bullet: Bool = false, summary: Bool = false, label: String? = nil, sort: String? = nil,
+                aggregate: USLAggregate? = nil, ago: Bool = false) {
         self.field = field
         self.bullet = bullet
         self.summary = summary
         self.label = label
         self.sort = sort
+        self.aggregate = aggregate
+        self.ago = ago
     }
 }
 
@@ -121,13 +131,20 @@ public struct USLResolvedView: Sendable, Equatable {
     /// `group: field ~sort(name)`: the groups in order of a field of theirs.
     public var groupSort: String?
     public var sort: String?
+    /// `sort: visits.at ~latest`: how a sort sums up several values.
+    public var sortAggregate: USLAggregate?
+    /// `rows: field`: one line per distinct value of a field, the other items summed up over the rows sharing it.
+    public var rows: String?
 
-    public init(label: String, line: [USLLineItem], group: String? = nil, groupSort: String? = nil, sort: String? = nil) {
+    public init(label: String, line: [USLLineItem], group: String? = nil, groupSort: String? = nil, sort: String? = nil,
+                sortAggregate: USLAggregate? = nil, rows: String? = nil) {
         self.label = label
         self.line = line
         self.group = group
         self.groupSort = groupSort
         self.sort = sort
+        self.sortAggregate = sortAggregate
+        self.rows = rows
     }
 }
 
@@ -282,7 +299,8 @@ public func checkUSL(_ parsed: USLSchemaFile) -> USLCheckResult {
     }
     let mains = models.values.compactMap(\.main)
     for extra in mains.dropFirst() { report("main-model", extra, "A schema has at most one `main` model") }
-    mergeRe(&file, &models, report)
+    // `re Person { ... }` presents the built-in Person model; it declares nothing.
+    let person = mergeRe(&file, &models, report)
     let modelExists = { (name: String) in models.has(name) || uslBuiltinModels.contains(name) }
     let rowsOf = { (model: USLModelDecl) -> USLRowsBlock? in rowBlocksOf(model.members).first }
     let isFixed = { (name: String) -> Bool in
@@ -433,7 +451,7 @@ public func checkUSL(_ parsed: USLSchemaFile) -> USLCheckResult {
             name: name, main: model?.main != nil, table: nil,
             rows: rows.map { $0.mode == .fixed ? USLResolvedModel.Rows.fixed : USLResolvedModel.Rows.seed } ?? USLResolvedModel.Rows.data, key: key,
             fields: ordered, storage: nil, path: nil, body: nil, title: nil, ends: modelEnds.map(resolvedEnd), schemaRows: schemaRows,
-            views: model.map(resolvedViews) ?? [], indexes: []
+            views: model.map { resolvedViews($0.members) } ?? (name == "Person" ? resolvedViews(person) : []), indexes: []
         )
         fieldMaps[name] = fields
     }
@@ -561,7 +579,17 @@ public func checkUSL(_ parsed: USLSchemaFile) -> USLCheckResult {
         return target == "Person" || isFixed(target) ? field == "name" || hasField : uslImplicitFields.contains(field) || hasField
     }
 
-    // 5. Header keys and model attributes.
+    // 5. Header keys and model attributes. Person takes only `~views`.
+    let personAttributes = modelAttributesOf(person)
+    for (i, attr) in personAttributes.enumerated() {
+        if attr.name != "views" || attr.sigil != .presentation {
+            report("misplaced-attribute", attr.at, "`re Person` takes only `~views`: Person is a built-in model with no rows of its own")
+        } else if personAttributes.firstIndex(where: { $0.name == "views" }) != i {
+            report("duplicate-attribute", attr.at, "`~views` appears twice")
+        } else {
+            checkViews(attr, "Person", fieldMaps["Person"]!, sortable, report) { fieldMaps[$0] }
+        }
+    }
     for model in models.values {
         let fields = fieldMaps[model.name]!
         var seen = Set<String>()
@@ -606,7 +634,7 @@ public func checkUSL(_ parsed: USLSchemaFile) -> USLCheckResult {
             if layer != attr.sigil {
                 report("attribute-layer", attr.at, "`\(attr.name)` is \(layerName(layer)): write `\(layer.rawValue)\(attr.name)`")
             } else if attr.name == "views" {
-                checkViews(attr, model.name, fields, sortable, report)
+                checkViews(attr, model.name, fields, sortable, report) { fieldMaps[$0] }
             } else if attr.name == "index" {
                 if attr.args.isEmpty { report("attribute-arguments", attr.at, "`@index` names at least one field") }
                 var index: [String] = []
@@ -730,8 +758,8 @@ public func checkUSL(_ parsed: USLSchemaFile) -> USLCheckResult {
 }
 
 /// A model's `~views`, as far as they are well formed; checkViews reports the rest.
-private func resolvedViews(_ model: USLModelDecl) -> [USLResolvedView] {
-    let attr = modelAttributesOf(model.members).first { $0.name == "views" }
+private func resolvedViews(_ members: [USLMember]) -> [USLResolvedView] {
+    let attr = modelAttributesOf(members).first { $0.name == "views" }
     guard case .list(let list, _)? = attr?.args.first else { return [] }
     func ident(_ e: USLExpr?) -> String? {
         if case .ident(let name, _, _)? = e { return name }
@@ -749,7 +777,7 @@ private func resolvedViews(_ model: USLModelDecl) -> [USLResolvedView] {
                 if case .string(let value, _)? = attrs.first(where: { $0.name == "label" && $0.sigil == .presentation })?.args.first { label = value }
                 return USLLineItem(
                     field: name, bullet: hasAttr(attrs, "bullet", .presentation), summary: hasAttr(attrs, "summary", .presentation),
-                    label: label, sort: identArg(attrs, "sort")
+                    label: label, sort: identArg(attrs, "sort"), aggregate: aggregateOf(attrs), ago: hasAttr(attrs, "ago", .presentation)
                 )
             }
         } else {
@@ -759,14 +787,22 @@ private func resolvedViews(_ model: USLModelDecl) -> [USLResolvedView] {
         if case .string(let value, _)? = option("label") { label = value }
         var groupSort: String?
         if case .ident(_, let attrs, _)? = option("group") { groupSort = identArg(attrs, "sort") }
-        views.append(USLResolvedView(label: label, line: items, group: ident(option("group")), groupSort: groupSort, sort: ident(option("sort"))))
+        var sortAggregate: USLAggregate?
+        if case .ident(_, let attrs, _)? = option("sort"), let aggregate = aggregateOf(attrs), aggregate != .count { sortAggregate = aggregate }
+        views.append(USLResolvedView(label: label, line: items, group: ident(option("group")), groupSort: groupSort, sort: ident(option("sort")),
+                                     sortAggregate: sortAggregate, rows: ident(option("rows"))))
     }
     return views
 }
 
+/// The aggregate among the attributes, if any.
+private func aggregateOf(_ attrs: [USLAttribute]) -> USLAggregate? {
+    USLAggregate.allCases.first { hasAttr(attrs, $0.rawValue, .presentation) }
+}
+
 private func checkViews(
     _ attr: USLModelAttribute, _ model: String, _ fields: OrderedMap<USLResolvedField>,
-    _ sortable: (String, String) -> Bool, _ report: Report
+    _ sortable: (String, String) -> Bool, _ report: Report, _ fieldsOf: (String) -> OrderedMap<USLResolvedField>?
 ) {
     /// `~sort(x)` on a view's field: it names a field of the members of a connection.
     func checkSort(_ field: String, _ a: USLAttribute) {
@@ -785,13 +821,32 @@ private func checkViews(
         report("attribute-arguments", attr.at, "`~views` takes one list of views: `~views([ { label: ... }, ... ])`")
         return
     }
+    // A field, or a path through connections: each step but the last reaches
+    // the rows of another model. A person is called by their `name`.
     func fieldRef(_ expr: USLExpr, _ allowImplicit: Bool) {
         guard case .ident(let name, _, _) = expr else {
             report("view-field", expr.at, "Expected a field name")
             return
         }
-        let implicit = allowImplicit && (name == "created" || name == "modified")
-        if !implicit && !fields.has(name) { report("unknown-field", expr.at, "`\(model)` has no field `\(name)`") }
+        let steps = name.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        var owner = model
+        var ownerFields: OrderedMap<USLResolvedField>? = fields
+        for (i, step) in steps.enumerated() {
+            let last = i == steps.count - 1
+            let implicit = last && ((allowImplicit && (step == "created" || step == "modified")) || (owner == "Person" && step == "name"))
+            let field = ownerFields?[step]
+            if !implicit && field == nil {
+                report("unknown-field", expr.at, "`\(owner)` has no field `\(step)`")
+                return
+            }
+            guard !last, let field else { return }
+            if isValueType(field.type) {
+                report("view-field", expr.at, "`\(owner).\(step)` holds values; a path goes on only through connections")
+                return
+            }
+            owner = field.type
+            ownerFields = fieldsOf(owner)
+        }
     }
     var labels = Set<String>()
     for view in list {
@@ -829,7 +884,8 @@ private func checkViews(
                         } else if a.sigil != .presentation {
                             report("attribute-layer", a.at, "`\(a.name)` is presentation: write `~\(a.name)`")
                         } else if a.name == "sort" {
-                            checkSort(itemName, a)
+                            if itemName.contains(".") { report("sort-field", a.at, "`~sort` orders the members of one field, not of a path") }
+                            else { checkSort(itemName, a) }
                         } else if badArguments {
                             report("attribute-arguments", a.at, a.name == "label" ? "`~label` takes one string: `~label(\"lead\")`" : "`~\(a.name)` takes no arguments")
                         } else if a.name == "bullet" {
@@ -844,7 +900,22 @@ private func checkViews(
                 for a in attrs {
                     if entry.key == "group" && a.name == "sort" && a.sigil != .presentation { report("attribute-layer", a.at, "`sort` is presentation: write `~sort`") }
                     else if entry.key == "group" && a.name == "sort" { checkSort(name, a) }
-                    else { report("misplaced-attribute", a.at, entry.key == "group" ? "A `group` takes only `~sort`; other attributes go on the items of a `line`" : "Attributes go on the items of a `line`") }
+                    else if entry.key == "sort" && (a.name == "latest" || a.name == "earliest") && a.sigil == .presentation && a.args.isEmpty { continue }
+                    else { report("misplaced-attribute", a.at, entry.key == "group" ? "A `group` takes only `~sort`; other attributes go on the items of a `line`" : "A `sort` takes only `~latest` or `~earliest`; other attributes go on the items of a `line`") }
+                }
+            } else if entry.key == "rows" {
+                let value = entry.value
+                if model == "Person" {
+                    report("view-rows", value.at, "A view of Person lists people already; `rows` goes on a view of the rows that name them")
+                } else if case .ident(let name, let attrs, _) = value, !name.contains(".") {
+                    if let field = fields[name] {
+                        if field.arity == .many { report("view-rows", value.at, "`\(name)` holds many values; `rows` takes a single-valued field") }
+                        else if let first = attrs.first { report("misplaced-attribute", first.at, "Attributes go on the items of a `line`") }
+                    } else {
+                        report("unknown-field", value.at, "`\(model)` has no field `\(name)`")
+                    }
+                } else {
+                    report("view-rows", value.at, "`rows` names one field of the model")
                 }
             }
         }
@@ -930,8 +1001,22 @@ private func checkValue(_ entry: USLObjectEntry, _ field: USLFieldDecl, _ report
 /// Merges each `re Name { ... }` into the model or enum it names: a mention adds
 /// its attributes to that field, end or value, and a model attribute joins the
 /// model's own. Nothing in a `re` block declares.
-private func mergeRe(_ file: inout USLSchemaFile, _ models: inout OrderedMap<USLModelDecl>, _ report: Report) {
+private func mergeRe(_ file: inout USLSchemaFile, _ models: inout OrderedMap<USLModelDecl>, _ report: Report) -> [USLMember] {
+    // The built-in Person model has no declaration; its `re` blocks gather here.
+    var person: [USLMember] = []
     for case .re(let decl) in file.declarations {
+        if models[decl.name] == nil, decl.name == "Person" {
+            for member in decl.members {
+                if case .modelAttribute = member {
+                    person.append(member)
+                    continue
+                }
+                guard case .mention(let mention) = member else { continue }
+                if annotateOutsideEnd(&file, &models, model: "Person", field: mention.name, attrs: mention.attrs) { continue }
+                report("unknown-field", mention.at, "`Person` has no field or value `\(mention.name)`")
+            }
+            continue
+        }
         guard var model = models[decl.name] else {
             report("unknown-model", decl.at, "No model or enum `\(decl.name)` to annotate")
             continue
@@ -972,6 +1057,7 @@ private func mergeRe(_ file: inout USLSchemaFile, _ models: inout OrderedMap<USL
         }
         models[decl.name] = model
     }
+    return person
 }
 
 /// Adds attributes to the end `model.field` declared by an unnamed connection or another model.

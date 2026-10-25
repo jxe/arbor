@@ -196,7 +196,7 @@ private struct StoryCollectionLine<Avatar: View>: View {
     @ViewBuilder
     private func cellView(_ cell: PresentedCell, tint: Color?) -> some View {
         switch cell {
-        case let .text(_, _, value):
+        case let .text(_, _, value, _):
             let text = Self.display(value)
             if !text.isEmpty {
                 Text(text)

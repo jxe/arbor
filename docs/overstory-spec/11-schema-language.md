@@ -234,6 +234,33 @@ the same way. A view without a `line` uses the first view's. A model without
 `Person` field. A page may override any of a schema's views; views never
 change data.
 
+A line, `group` or `sort` item may be a **path** through connections: each
+step but the last is a connection field, followed to the rows it reaches
+(`ties.group`, `visits.at`). A path that crosses a many-valued field reaches
+several values; they show without repeats, in the order first reached. Three
+attributes sum several values up as one: `~latest` and `~earliest` take the
+greatest or least, `~count` the number. `~ago` asks a client to show a date
+relative to now. A `sort` takes `~latest` or `~earliest` too (`sort:
+visits.at ~latest`); a sort by `~latest`, like one by `created` or
+`modified`, is newest first. A `group` by a path puts a row under each value
+it reaches.
+
+`rows: field` makes a view's lines the distinct values of one single-valued
+field rather than its model's rows. Every other item of the line is summed
+up over the rows sharing that value: its values show without repeats unless
+an aggregate makes them one. With a `group`, rows are grouped first, so a
+value has a line in each group it appears in.
+
+`re Person { ~views([...]) }` gives the built-in `Person` model views. Its
+lines are every person any `Person` field of the collection's rows names, in
+table, row and column order, each keyed by profile id; its fields are the
+connection ends declared on `Person` (`Tie.person <-> Person.ties[]` gives it
+`ties`), and `name` is the person. `re Person` takes only `~views`. A
+collection presents Person when no model with rows has views.
+
+Lines of a `rows:` view or of Person are read-only: each stands for several
+rows, or for none.
+
 ## 9. Fingerprints
 
 A collection binds to its schema's **model fingerprint**: the canonical CBOR
