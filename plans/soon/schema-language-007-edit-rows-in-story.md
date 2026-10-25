@@ -52,10 +52,11 @@ The People directory needs both, and the iPhone has no Story Sync.
 
 ## Steps
 
-Two parts. **Part 1, the backend** (steps 0–4): Story reads collections on the iPhone and
-writes row operations from code, queued offline, on both devices. People 001 phase 1 starts
-when part 1 is done: the directory is kept by code and shown read-only. **Part 2, editing in
-the view** (steps 5–6), can follow or run beside People 001.
+Two parts, both before People 001 (Joe, 2026-10-25: overstoryd, then Story Sync, then the
+clients including editing, then the directory). **Part 1, the backend** (steps 0–4): Story
+reads collections on the iPhone and writes row operations from code, queued offline, on both
+devices. **Part 2, editing in the view** (steps 5–6). People 001 phase 1 starts when both are
+done.
 
 0. **Read on the iPhone.** 006's view on iOS, from the tree's own objects, offline; fix what
    looks wrong at phone width.
