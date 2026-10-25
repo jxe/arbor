@@ -89,7 +89,10 @@ can compute roots should state them: a stated
 candidate lets later elements chain on it while earlier ones are in flight, and
 an `after` the host does not reproduce exposes a divergence at once.
 
-An element that follows a derived element in one string builds on a root its
+Basis references still name objects in their frame's basis, so a client can
+reference material only in a basis it holds: it puts operations that build on
+each other in one frame, as row operations on one collection run in order
+within it (§4.1). An element that follows a derived element in one string builds on a root its
 author has not seen, so in practice it is derived as well, and other work waits
 for the derived element's result and is replayed onto it like any accepted
 change.

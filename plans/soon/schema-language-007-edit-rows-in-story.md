@@ -16,7 +16,7 @@ The People directory needs both, and the iPhone has no Story Sync.
 - **Effort:** M.
 - **Risk:** MEDIUM. A protocol addition overstoryd, Story Sync and both clients implement.
   No client encodes a collection's tables, so the two stacks can't disagree about them.
-- **State:** TODO. 006 is done ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)); try edits on the games
+- **State:** IN PROGRESS. Steps 1 and 3 done (aa1b44f, c716532); step 2 dropped; step 4 built, testing. 006 is done ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)); try edits on the games
   sandbox tree, which holds supplies-remake's live data.
 
 ## Joe's decisions (2026-10-25)
@@ -71,14 +71,17 @@ the view** (steps 5–6), can follow or run beside People 001.
    in TS and keeps stating roots for row changes, so its queue is unchanged.
 3. **Swift on the wire.** `RowOperation` and derived candidates in Overstory's authored
    contract and request digest, passing the shared vectors; the result's `candidate`.
-4. **A row queue in `UpdateCoordinator`.** `appendRows([RowOperation])` beside
-   `appendStructure` keeps pending row operations durably, sends them as derived elements
-   (never followed by a stated element in the same string, which couldn't know its basis), and drops them when their result
-   is applied. Text and structural edits made meanwhile wait for the result and rebase as on
-   any accepted change. The collection view shows pending operations applied over the last
-   received rows (a display-level apply on the logical tables, then `uslRowsFromLogical`;
-   nothing hashed). A refusal shows like any other declined change; a row-field decision (the
-   same field changed on two devices) shows at least read-only.
+4. **A row queue in `UpdateCoordinator`.** Built 2026-10-25 (`UpdateCoordinator+Rows.swift`,
+   `WorkspaceProvider.appendRowEdits`). Edits (StoryKit `RowEdit`s) wait durably in
+   `sync/row-changes.json`, independent of the change log's stated chain. One request at a
+   time carries every pending batch as one derived element with one frame (a later frame or
+   element couldn't name the collection object it builds on), based on the tree's accepted
+   update; the host merges it like any concurrent change. Its body is fixed for exact retries.
+   Batches stay shown (`applyRowEdits` over the rows, one edit at a time) until the tree
+   installs the result, the reported head or anything later; edits made meanwhile go in the
+   next request. A refusal drops the batch and keeps its reason (`refusedRowEdits`);
+   `base-not-retained` rebuilds on the current base. Still to do: show the refusal in the UI,
+   and a field decision (the same field on two devices) at least read-only.
 5. **From the view to row operations.** Map `viewEdits`' layout-row edits to logical row
    operations (a join-table row is a connect on its holder, a position is a move). Vectors
    beside `presented-views.json`.
