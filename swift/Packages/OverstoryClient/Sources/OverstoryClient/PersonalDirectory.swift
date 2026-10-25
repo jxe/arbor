@@ -42,8 +42,20 @@ public enum PersonalDirectory {
             if resolved.ref.path == "/", resolved.ref.tree != profile {
                 return try await client.descriptor(tree: resolved.ref.tree).tree
             }
+            // Resolving answers for a path that names nothing too, inside the
+            // tree that would hold it; only an entry there is in the way.
+            var taken = resolved.ref.tree != profile
+            if !taken {
+                guard case let .directory(entries, _) = try ProtocolObjectCodec.decode(
+                    try await client.object(tree: profile, hash: resolved.enclosingTree.root), kind: .directory)
+                else { throw ProtocolValidationError.invalidValue("\(profilePath) has no root directory") }
+                taken = entries.contains { $0.name == mountName || $0.name == "\(mountName).md" }
+            }
+            if taken {
+                guard create else { return nil }
+                throw ProtocolValidationError.invalidValue("\(profilePath)/\(mountName) is already a page in your profile")
+            }
             guard create else { return nil }
-            throw ProtocolValidationError.invalidValue("\(profilePath)/\(mountName) is already a page in your profile")
         } catch let error as ProtocolHTTPError where error.status == 404 {
             guard create else { return nil }
         }
