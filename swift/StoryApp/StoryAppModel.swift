@@ -3655,14 +3655,11 @@ extension StoryWorkspaceState {
         }
         try await editorWorkspace.flushAll()
         try await closeOpenTree()
-        if storySyncClient == nil { _ = try? await ensureStorySync() }
-        let platform: any ObjectStore = if let daemon = storySyncClient {
-            DaemonObjectStore(client: daemon, tree: tree.id, origin: remote.origin)
-        } else {
-            HostObjectStore(client: client, tree: tree.id)
-        }
+        // Objects come from the host, as the keeper's do: Story Sync has no
+        // placement of the directory and answers 404 for its files.
         let locator = tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
-        try await openWritableRemoteTree(tree: tree, locator: locator, client: client, platform: platform)
+        try await openWritableRemoteTree(tree: tree, locator: locator, client: client,
+                                         platform: HostObjectStore(client: client, tree: tree.id))
 #else
         try await place(tree: directory.tree, from: directory.origin, configurationTree: directory.configurationTree)
 #endif
