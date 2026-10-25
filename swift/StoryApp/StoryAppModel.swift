@@ -3625,11 +3625,28 @@ extension StoryWorkspaceState {
         }
     }
 
-    /// Open the directory in the window: the Mac visits it, the iPhone places it.
+    /// Open the directory in the window: the Mac opens it as a remote
+    /// working tree, the iPhone places it. Not by its locator: that falls
+    /// inside the placed profile it is mounted under, which would open
+    /// instead, at a page it doesn't hold.
     func openPersonalDirectory() async throws {
         guard let directory = personalDirectoryTree else { return }
 #if os(macOS)
-        try await openNestedTree(TreeID(rawValue: directory.tree.id))
+        let client = try await accountClient(origin: directory.origin)
+        let tree = try await client.descriptor(tree: directory.tree.id).tree
+        guard let remote = OverstoryRemoteLocator(tree.httpURL ?? directory.origin.absoluteString) else {
+            throw ProtocolValidationError.invalidValue("The directory has no locator")
+        }
+        try await editorWorkspace.flushAll()
+        try await closeOpenTree()
+        if storySyncClient == nil { _ = try? await ensureStorySync() }
+        let platform: any ObjectStore = if let daemon = storySyncClient {
+            DaemonObjectStore(client: daemon, tree: tree.id, origin: remote.origin)
+        } else {
+            HostObjectStore(client: client, tree: tree.id)
+        }
+        let locator = tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
+        try await openWritableRemoteTree(tree: tree, locator: locator, client: client, platform: platform)
 #else
         try await place(tree: directory.tree, from: directory.origin, configurationTree: directory.configurationTree)
 #endif
