@@ -16,11 +16,12 @@ its evidence in status.
 
 **[Schema language 007: edit collection rows in Story, on the Mac and iPhone](soon/schema-language-007-edit-rows-in-story.md).**
 Joe, 2026-10-24: the next step after Schema language 006, which shows collections read-only in
-Story on the Mac ([status](../status.md#collections-in-story-on-the-mac--2026-10-25)). It reads on
-the iPhone first, then Story writes row operations itself, offline and on the iPhone, which has
-no Story Sync (Schema language 002's milestone 3a), proven by simple edits in that view on the
-games sandbox: a bullet's value, a row's name, chips, delete and add. The People directory's
-first phase is built on it.
+Story on the Mac ([status](../status.md#collections-in-story-on-the-mac--2026-10-25)). Part 1 is the
+backend: Story reads collections on the iPhone and writes row operations from code, offline and
+on the iPhone, which has no Story Sync (Schema language 002's milestone 3a). The People
+directory's first phase starts on that, kept by code and shown read-only (Joe, 2026-10-25). Part
+2 is simple edits in the view on the games sandbox: a bullet's value, a row's name, chips,
+delete and add.
 
 **[Live 001: see who else is here](soon/live-001-presence.md).**
 Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which

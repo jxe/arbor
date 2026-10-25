@@ -30,7 +30,7 @@ are separate and later. The UX was worked out first in the doc
 - **Gated on:** phase 1 on part 1 of [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md),
   its backend (Story writes rows from code on Mac and iPhone; part of [Schema language 002](schema-language-002-cranberries-in-story.md)'s
   milestone 3a), not on editing in the view (Joe, 2026-10-25): in phase 1 the directory is kept
-  by code and shown read-only, and on Schema language 006's read-only view ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)). Phase 2 on 002's milestones 3, 4 and 7. The Go to…
+  by code and shown with Schema language 006's read-only view ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)). Phase 2 on 002's milestones 3, 4 and 7. The Go to…
   slice on nothing. Schema language 005 ([status](../../status.md#collections-that-sync--2026-10-24))
   is on main.
 - **Built on 002** (Joe, 2026-10-24): People is the directory's collection shown with 002's
@@ -116,15 +116,16 @@ way, a share either way, a group in common, or opening their profile or tree. A 
 appears in a page you read doesn't count until you follow it. Host communities stay live,
 collapsed sections and are not copied.
 
-## Phase 1: the directory tree (after Schema language 007)
+## Phase 1: the directory tree, kept by code (after Schema language 007 part 1)
 
 - Create the private directory tree on first launch, named from the config tree (fork 1), with
   its `schema.usl` (People and Trees).
 - Record sightings where they happen today: invitation claims, placements, shares, group edits,
   profile opens. Record visits in the Trees collection on Mac and iPhone; import `Visits.json`
   and the current `Directory.json` rows once, then remove `Visits.json`.
-- Story shows the directory with 006's collection view, grouped by group; a contact's row
-  lists their trees. Editing in it is what 007 offers; the rest is phase 2.
+- Story keeps the directory from code (007's `appendRows`) and shows it with 006's read-only
+  collection view, grouped by group; a contact's row lists their trees. Editing it by hand
+  comes with 007 part 2, and forming groups in phase 2.
 - **Placeholders by name.** The People rows without a profile feed `PresentOptions.people`
   as `contact:<key>` ids, so every collection's placeholder chips and groups (already drawn as
   not-yet-a-person, showing the key) show the contact's `name`. When a contact gets a profile
