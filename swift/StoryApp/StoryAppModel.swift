@@ -1399,6 +1399,16 @@ final class StoryWorkspaceState {
 
     /// Open a remote tree by locator without a filesystem placement. Writable
     /// trees use an app-owned durable replica; readable trees remain visits.
+    /// Whether `remote`, below the placed tree at `root`, is a page of that
+    /// tree rather than of a tree mounted under it, such as a project or the
+    /// directory under a profile. Only the host knows its mounts; offline,
+    /// the page is taken to be the placed tree's.
+    private static func locator(_ remote: OverstoryRemoteLocator, staysIn placed: String, root: String, client: ProtocolClient?) async -> Bool {
+        guard remote.path != root, let client,
+              let resolved = try? await client.resolve(path: remote.path) else { return true }
+        return resolved.ref.tree == placed
+    }
+
     func openRemoteLocator(_ locator: String) async throws {
         guard let remote = OverstoryRemoteLocator(locator) else {
             throw ProtocolValidationError.invalidValue("Enter an http(s):// or overstory:// locator")
@@ -1416,7 +1426,7 @@ final class StoryWorkspaceState {
                 && (candidate.canonicalEndpoint
                     ?? localStorySyncOverview?.accounts.first { $0.configurationTree == candidate.configurationTree }?.host)
                     .flatMap(URL.init(string:)).map { Self.sameOrigin($0, remote.origin) } == true
-        }) {
+        }), await Self.locator(remote, staysIn: placed.id, root: placed.canonicalPath ?? "/", client: try? await accountClient(origin: remote.origin)) {
             // The locator names a tree placed on this Mac: open the working tree instead of visiting,
             // at the page it names below the tree's root.
             let root = placed.canonicalPath ?? "/"
@@ -1993,6 +2003,10 @@ final class StoryWorkspaceState {
     /// by People. Prefer an existing Mac placement, then the hosted profile
     /// locator carried by the directory.
     func openNestedTree(_ tree: TreeID) async throws {
+        if tree.rawValue == personalDirectoryTree?.tree.id {
+            try await openPersonalDirectory()
+            return
+        }
 #if os(macOS)
         if localStorySyncOverview?.trees.contains(where: {
             $0.id == tree.rawValue && $0.path != nil && $0.missing != true
