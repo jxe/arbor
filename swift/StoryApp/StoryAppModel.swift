@@ -284,6 +284,8 @@ final class StoryWorkspaceState {
     private var personalDirectory: PersonalDirectoryKeeper?
     private var personalDirectoryAccount: String?
     private var personalDirectoryBusy = false
+    /// The directory's tree once found or made, and the account it is under.
+    private(set) var personalDirectoryTree: (tree: ProtocolTreeDescriptor, origin: URL, configurationTree: String)?
     /// People the directory remembers by name: profiles Story has seen, and
     /// placeholders as `contact:<key>`.
     private(set) var rememberedPeople: [PresentedPerson] = []
@@ -3564,7 +3566,8 @@ extension StoryWorkspaceState {
         }
         guard let keeper = personalDirectory else { return }
         do {
-            guard try await keeper.open() != nil else { return }
+            guard let tree = try await keeper.open(), let origin = account.origin else { return }
+            if personalDirectoryTree?.tree.id != tree.id { personalDirectoryTree = (tree, origin, account.configurationTree) }
         } catch {
             Self.recordDiagnostic("directory-tree", error)
             return
@@ -3620,6 +3623,16 @@ extension StoryWorkspaceState {
             guard await keeper.tree?.id != visit.tree else { return }
             await keeper.record([visit])
         }
+    }
+
+    /// Open the directory in the window: the Mac visits it, the iPhone places it.
+    func openPersonalDirectory() async throws {
+        guard let directory = personalDirectoryTree else { return }
+#if os(macOS)
+        try await openNestedTree(TreeID(rawValue: directory.tree.id))
+#else
+        try await place(tree: directory.tree, from: directory.origin, configurationTree: directory.configurationTree)
+#endif
     }
 
     /// Names for the people the directory remembers: each profile by the

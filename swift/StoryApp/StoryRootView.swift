@@ -1802,7 +1802,12 @@ struct StoryRootView: View {
                 account: placement.configurationTree.flatMap { accountLabels[$0] } ?? "Other Trees")
         }
 #endif
-        return values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        var trees = values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        // The directory Story keeps, until it has a place of its own in the UI.
+        if let directory = workspace.personalDirectoryTree, !trees.contains(where: { $0.id == directory.tree.id }) {
+            trees.append(SidebarTree(id: directory.tree.id, title: "People & Trees", account: trees.first?.account ?? "Other Trees"))
+        }
+        return trees
     }
 
     private var sidebarFooter: some View {
@@ -1973,6 +1978,16 @@ struct StoryRootView: View {
 
     private func openSidebarTree(_ id: String) {
         sidebarSearchFocused = false
+        if id == workspace.personalDirectoryTree?.tree.id {
+#if os(iOS)
+            closeIOSSidebar()
+#endif
+            Task {
+                do { try await workspace.openPersonalDirectory() }
+                catch { workspace.errorMessage = error.localizedDescription }
+            }
+            return
+        }
 #if os(macOS)
         Task {
             do { try await workspace.openPlacedTree(id) }
