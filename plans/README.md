@@ -19,10 +19,10 @@ Joe, 2026-10-24: the next step after Schema language 006, which shows collection
 Story on the Mac ([status](../status.md#collections-in-story-on-the-mac--2026-10-25)). Part 1 is the
 backend: Story reads collections on the iPhone and writes row operations from code, through
 the host on every device, queued while offline (Schema language 002's milestone 3a). The host
-derives the result (spec 10 §2.2, Joe 2026-10-25), so no client encodes a collection's tables. The People
-directory's first phase starts on that, kept by code and shown read-only (Joe, 2026-10-25). Part
-2 is simple edits in the view on the games sandbox: a bullet's value, a row's name, chips,
-delete and add.
+derives the result (spec 10 §2.2, Joe 2026-10-25), so no client encodes a collection's tables. Part 1
+is done but for the iPhone check; the People directory writes all its rows through it
+(2026-10-25). Part 2 is simple edits in the view on the games sandbox: a bullet's value, a
+row's name, chips, delete and add.
 
 **[Live 001: see who else is here](soon/live-001-presence.md).**
 Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which
@@ -78,7 +78,10 @@ is found by asking the directory, then the account hosts (Links 001, folded in o
 The directory comes first (Joe, 2026-10-24): a private tree of collections, filled from what
 Story already knows and shown with Schema language 006's view once 007 lets Story write rows;
 then Schema language 002's database views. Only Go to… and the share sheet are hand-built, and
-Go to… is a side slice for any time.
+Go to… is a side slice for any time. Phase 1 is done (2026-10-25,
+[status](../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)): the directory
+is kept by code, shown with USL's new summary views, and found from the Mac's tree picker; Joe:
+"this will do for now".
 
 **[Schema language 002: database views in Story](later/schema-language-002-cranberries-in-story.md).**
 Joe wants excellences and supplies-remake to run natively in Story: collections presented as

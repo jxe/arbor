@@ -117,7 +117,7 @@ way, a share either way, a group in common, or opening their profile or tree. A 
 appears in a page you read doesn't count until you follow it. Host communities stay live,
 collapsed sections and are not copied.
 
-## Phase 1: the directory tree, kept by code (after Schema language 007 part 1)
+## Phase 1: the directory tree, kept by code (done 2026-10-25)
 
 - Create the private directory tree on first launch, named from the config tree (fork 1), with
   its `schema.usl` (People and Trees).

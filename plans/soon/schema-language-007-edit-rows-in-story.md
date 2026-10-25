@@ -16,7 +16,11 @@ The People directory needs both, and the iPhone has no Story Sync.
 - **Effort:** M.
 - **Risk:** MEDIUM. A protocol addition overstoryd, Story Sync and both clients implement.
   No client encodes a collection's tables, so the two stacks can't disagree about them.
-- **State:** IN PROGRESS. Steps 1 and 3 done (aa1b44f, c716532); step 2 dropped; step 4 built and in daily use by the People directory, which writes all its rows through it ([status](../../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)). 006 is done ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)); try edits on the games
+- **State:** IN PROGRESS. Part 1 is done but for step 0: steps 1 and 3 (aa1b44f, c716532) and
+  step 4, in daily use by the People directory, which writes all its rows through it
+  ([status](../../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)); step 2
+  dropped. Left: step 0 (the view on the iPhone, unchecked by hand), step 4's two loose ends, and
+  part 2 (steps 5–6). 006 is done ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)); try edits on the games
   sandbox tree, which holds supplies-remake's live data.
 
 ## Joe's decisions (2026-10-25)
@@ -80,7 +84,9 @@ the view** (steps 5–6), can follow or run beside People 001.
    Batches stay shown (`applyRowEdits` over the rows, one edit at a time) until the tree
    installs the result, the reported head or anything later; edits made meanwhile go in the
    next request. A refusal drops the batch and keeps its reason (`refusedRowEdits`);
-   `base-not-retained` rebuilds on the current base. Still to do: show the refusal in the UI,
+   `base-not-retained` rebuilds on the current base. An edit the current rows no longer allow
+(another device made the same row meanwhile) is left out of the request, as the view leaves it
+out, rather than have the host refuse the rest (`0e0d9d9`). Still to do: show the refusal in the UI,
    and a field decision (the same field on two devices) at least read-only.
 5. **From the view to row operations.** Map `viewEdits`' layout-row edits to logical row
    operations (a join-table row is a connect on its holder, a position is a move). Vectors

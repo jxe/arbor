@@ -98,8 +98,10 @@ any time before 6; 7 needs only 3 and 4. The directory needs 3, 3a, 4 and 7.
 **Done in part (2026-10-25,
 [status](../../status.md#collections-in-story-on-the-mac--2026-10-25)):** Schema language 006 built the TS
 `presentView` and its StoryKit port on main, the shared vectors, and Story's read-only view on
-the Mac. What is left here: the directory's needs below (an arrangement menu, `sort` on a date,
-read-only groups the host supplies), and fields a client styles today that a schema can't set
+the Mac. People 001 phase 1 added summaries over facts (2026-10-25, spec 11 §8):
+`rows: field`, `re Person` views, paths through connections, `~latest`, `~earliest`,
+`~count` and `~ago`; their lines are read-only. What is left here: the directory's other needs
+below (an arrangement menu, read-only groups the host supplies, a label for "Unassigned"), and fields a client styles today that a schema can't set
 (the bullet tinting the title, Markdown as a note). `PresentedView` doesn't say which chips
 and groups are people, so Story guesses from a TreeID or the placeholder flag; give cells and
 groups their field's target type in both stacks and the vectors. The iPhone reads with
