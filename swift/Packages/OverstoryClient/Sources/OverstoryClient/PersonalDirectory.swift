@@ -244,7 +244,7 @@ public actor PersonalDirectoryKeeper {
     /// replaced by the current seed. Story rewrites what it recorded: ties
     /// on the next refresh, visits as pages are opened.
     private func replaceWithSeed(_ tree: ProtocolTreeDescriptor) async throws -> ProtocolTreeDescriptor {
-        let prepared = try client.prepareUpdate(tree: tree.id, base: ProtocolUpdateBase(root: tree.root, update: tree.update),
+        let prepared = try await client.prepareUpdate(tree: tree.id, base: ProtocolUpdateBase(root: tree.root, update: tree.update),
             snapshot: try PersonalDirectory.seed(), ifCurrent: tree.update)
         _ = try await client.submitUpdate(prepared)
         return try await client.descriptor(tree: tree.id).tree
