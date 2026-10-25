@@ -28,7 +28,12 @@ git history at `ac1a7de`.
   shared before 2026-10-10 that still carry them no longer resolve, as Joe accepted on
   2026-10-10. The `.arbor` state directory and `.arbor-*` temporaries stay never-content
   ([old names](docs/architecture/old-names.md), "Kept").
-- **Tests:** see the commit.
+- **Tests:** `bun run test:affected` (1881 pass; one timing flake in
+  `story-sync-claim-sync.test.ts` passes alone); on Joe's Mac at `b1b0be4` the StoryKit (61),
+  Overstory (76), OverstoryWorkingTree (137) and StoryEditor (121, against local Quagmire, as main
+  needs until the next Quagmire release) package tests, the protocol gate's TS (409) and Swift
+  suites, and the Mac and iOS builds passed. The app-hosted tests didn't run, as Story was open
+  (small work).
 
 ## People directory, tree picker and USL summaries — 2026-10-25
 
