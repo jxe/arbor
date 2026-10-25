@@ -3613,8 +3613,10 @@ extension StoryWorkspaceState {
                 let group = String(source.dropFirst("group:".count))
                 return group == person.id ? nil : tie(.group, group)
             }
+            // A community the host also lists as a group is already there.
             guard !ties.isEmpty, person.entry.sources.contains("community"),
-                  let canopy = person.origin.host().flatMap({ canopies[$0] }), canopy != person.id else { return ties }
+                  let canopy = person.origin.host().flatMap({ canopies[$0] }), canopy != person.id,
+                  !ties.contains(where: { $0.group == canopy }) else { return ties }
             return ties + [tie(.community, canopy)]
         }
     }

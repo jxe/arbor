@@ -36,7 +36,7 @@ Contact.profile? <-> Person.contacts[]
 
 re Tie {
   ~views([
-    { label: "By group", group: group, line: [person, kind] },
+    { label: "By group", group: group, line: [person] },
     { label: "By person", group: person, line: [kind, group] },
   ])
 }
