@@ -19,7 +19,8 @@ import {
 import { handleOfPath } from "./profile.ts";
 import { PhaseTimer, withPhaseTimer } from "./updates/timing.ts";
 import {
-  decodeUpdateRequestJSON,
+  decodeDerivableUpdateRequestJSON,
+  isStatedUpdate,
   encodeAcceptedTransitionJSON,
   type AcceptedTransition,
   type AcceptedUpdate,
@@ -799,14 +800,15 @@ export async function serveHost(options: {
             const answer = answerEncoding(request);
             timer.mark("body");
             timer.count("body-bytes", body.bytes);
-            const update = decodeUpdateRequestJSON(body.value, body.encoding);
+            const update = decodeDerivableUpdateRequestJSON(body.value, body.encoding);
             timer.count("trace-frames", update.updates.reduce((sum, element) => sum + (element.trace?.length ?? 0), 0));
             timer.count("trace-ops", update.updates.reduce((sum, element) =>
               sum + (element.trace ?? []).reduce((ops, frame) => ops + frame.operations.length, 0), 0));
             const tree = overstoryd.get(treeID);
             // Declaring a tree is the null-base first update of its configuration.
             if (!tree && reference.governs && update.base === null && !execution) {
-              const declared = await overstoryd.declareTree(reference.governs, update, authentication);
+              if (!update.updates.every(isStatedUpdate)) throw new UpdateProtocolError("unsupported-operation", "A declaration states its roots");
+              const declared = await overstoryd.declareTree(reference.governs, { base: null, updates: update.updates.flatMap((element) => isStatedUpdate(element) ? [element] : []) }, authentication);
               return updateResponse(overstoryd, treeID, declared.result, answer, declared.status);
             }
             const writable = tree ? overstoryd.canWrite(account, tree, link) : false;

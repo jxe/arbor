@@ -43,19 +43,34 @@ export function isRowOperation(operation: { kind: string }): operation is RowOpe
   return (ROW_OPERATION_KINDS as readonly string[]).includes(operation.kind);
 }
 /** One tree-root to tree-root step of a change's authored evidence. Basis
- * references inside a frame name objects in that frame's `before` tree, and
- * operation references name an earlier key in the same change, so two traces
- * concatenate without rebasing. */
-export interface AuthoredFrame { before: string; after: string; operations: AuthoredOperation[] }
+ * references inside a frame name objects in that frame's basis tree (the
+ * previous frame's result, or the element's logical base), and operation
+ * references name an earlier key in the same change, so two traces
+ * concatenate without rebasing. Each root is optional (spec 10 §2): a stated
+ * one is checked, an omitted one the authority derives. */
+export interface DerivableFrame { before?: string; after?: string; operations: AuthoredOperation[] }
+/** A frame with both roots stated, as an authority holds it once it has
+ * derived what the author left out. */
+export interface AuthoredFrame extends DerivableFrame { before: string; after: string }
 /** `trace: null` is a snapshot: exact bytes with no authored evidence. A trace
  * is evidence the authority checks, never a hint it may skip: every frame must
- * reproduce its own `after`, and the last frame ends at the candidate. An empty
- * trace carries no evidence but is not a snapshot; only a resolution uses it. */
-export interface AuthoredUpdateIntent {
-  change: string; candidate: string; trace: AuthoredFrame[] | null;
+ * reproduce each root it states, and a stated last `after` is the candidate.
+ * `candidate: null` is a derived candidate (spec 10 §2.2): the last frame omits
+ * `after` and the authority computes it. An empty trace carries no evidence
+ * but is not a snapshot; only a resolution uses it. */
+export interface DerivableUpdateIntent {
+  change: string; candidate: string | null; trace: DerivableFrame[] | null;
   resolves: ResolutionDeclaration[]; ifCurrent?: string;
 }
+/** An update with every root stated: what a client that computes roots sends,
+ * and what an authority works on once it has derived the rest. */
+export interface AuthoredUpdateIntent extends DerivableUpdateIntent { candidate: string; trace: AuthoredFrame[] | null }
+/** Whether `update` states every root, so it needs nothing derived. */
+export function isStatedUpdate(update: DerivableUpdateIntent): update is AuthoredUpdateIntent {
+  return update.candidate !== null && (update.trace ?? []).every((frame) => frame.before !== undefined && frame.after !== undefined);
+}
 export interface AuthoredRequestIntent { base: string | null; updates: AuthoredUpdateIntent[] }
+export interface DerivableRequestIntent { base: string | null; updates: DerivableUpdateIntent[] }
 type Obj = Record<string, any>;
 function require(ok: unknown): asserts ok { if (!ok) throw new Error("Invalid authored update contract"); }
 function obj(v: unknown): Obj { require(v && typeof v === "object" && !Array.isArray(v)); return v as Obj; }
@@ -154,7 +169,7 @@ function operation(raw: unknown): AuthoredOperation {
   }
   return v as AuthoredOperation;
 }
-export function decodeAuthoredRequestIntent(raw: unknown): AuthoredRequestIntent {
+export function decodeAuthoredRequestIntent(raw: unknown): DerivableRequestIntent {
   const v = obj(raw); keys(v, ["base", "updates"]); if (v.base !== null) token(v.base);
   require(Array.isArray(v.updates) && v.updates.length > 0); const changes = new Set();
   for (const raw of v.updates) {
@@ -162,19 +177,22 @@ export function decodeAuthoredRequestIntent(raw: unknown): AuthoredRequestIntent
     require(!changes.has(u.change)); changes.add(u.change);
   }
   if (v.base === null) { const first = v.updates[0]; require(!Object.hasOwn(first, "ifCurrent") && first.resolves.length === 0); }
-  return v as AuthoredRequestIntent;
+  return v as DerivableRequestIntent;
 }
 /** A validated request's per-element identities; the chain itself is `updateRequestIdentities`. */
-export function authoredRequestIdentities(tree: string, request: AuthoredRequestIntent) {
+export function authoredRequestIdentities(tree: string, request: DerivableRequestIntent) {
   token(tree); decodeAuthoredRequestIntent(request);
   return updateRequestIdentities(tree, request);
 }
 
 export { reference as decodeMaterialRef };
 
-export function decodeAuthoredCandidateIntent(raw: unknown): AuthoredUpdateIntent {
+export function decodeAuthoredCandidateIntent(raw: unknown): DerivableUpdateIntent {
   const u = obj(raw); keys(u, ["change", "candidate", "trace", "resolves"], ["ifCurrent"]);
-  id(u.change); hash(u.candidate);
+  id(u.change);
+  // A derived candidate is an operation trace whose last frame omits `after`.
+  if (u.candidate !== null) hash(u.candidate);
+  else require(Array.isArray(u.trace) && u.trace.length > 0);
   if (Object.hasOwn(u, "ifCurrent")) token(u.ifCurrent);
   require(Array.isArray(u.resolves)); const decisions = new Set();
   for (const raw of u.resolves) {
@@ -184,20 +202,22 @@ export function decodeAuthoredCandidateIntent(raw: unknown): AuthoredUpdateInten
   }
   if (u.trace !== null) {
     require(Array.isArray(u.trace) && u.trace.length <= 64 && (u.trace.length > 0 || u.resolves.length > 0));
-    // The chain is checked here only where the request itself proves it: each
-    // frame continues the previous one and the last reaches the candidate. The
-    // authority binds `trace[0].before` to the basis it holds.
-    const seen = new Set<string>(); let previous: string | null = null, total = 0;
+    // The chain is checked here only where the request itself proves it: a
+    // stated `before` continues a stated previous `after`, and the last frame's
+    // `after` is the candidate. The authority binds the rest to the basis it holds.
+    const seen = new Set<string>(); let previous: string | undefined, total = 0;
     for (const raw of u.trace) {
-      const f = obj(raw); keys(f, ["before", "after", "operations"]); hash(f.before); hash(f.after);
+      const f = obj(raw); keys(f, ["operations"], ["before", "after"]);
+      if (Object.hasOwn(f, "before")) hash(f.before);
+      if (Object.hasOwn(f, "after")) hash(f.after);
       require(Array.isArray(f.operations) && f.operations.length > 0);
       total += f.operations.length; require(total <= 1024);
-      require(previous === null || previous === f.before); previous = f.after;
+      require(previous === undefined || f.before === undefined || previous === f.before); previous = f.after;
       // One key names one authored contribution of this change, so it is unique
       // across the whole trace and a later frame may reference an earlier one.
       for (const op of f.operations.map(operation)) { require(!seen.has(op.key)); seen.add(op.key); }
     }
-    require(previous === null || previous === u.candidate);
+    require(u.trace.length === 0 || (previous ?? null) === u.candidate);
   }
-  return u as AuthoredUpdateIntent;
+  return u as DerivableUpdateIntent;
 }

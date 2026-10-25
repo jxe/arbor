@@ -3,7 +3,7 @@ import type {
   AcceptedTransition,
   UpdateConflictResult,
   CandidateUpdate,
-  UpdateRequest,
+  DerivableUpdateRequest,
   UpdateResponse,
   UpdateResult,
   ObjectDelta,
@@ -555,7 +555,7 @@ export class ProtocolClient {
    * confirmed watchpoint. `encoding` chooses how the request and its success
    * response travel; either carries the same request and digests.
    */
-  async submitUpdates(tree: string, request: UpdateRequest, options: { encoding?: WireEncoding } = {}): Promise<UpdateResponse> {
+  async submitUpdates(tree: string, request: DerivableUpdateRequest, options: { encoding?: WireEncoding } = {}): Promise<UpdateResponse> {
     const encoding = options.encoding ?? this.encoding;
     // A `tr_x;overstory-config` reference is answered under the configuration's TreeID.
     // Rename 002: a caller's `tr_x;arbor-config` is read too; the request names the new spelling.

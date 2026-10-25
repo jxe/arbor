@@ -1,9 +1,9 @@
 import { canonicalCBORHash, encodeCanonicalCBOR } from "../index.ts";
 import type { ObjectHash } from "../objects.ts";
-import type { CandidateUpdate, UpdateRequest } from "./types.ts";
+import type { DerivableCandidateUpdate, DerivableUpdateRequest } from "./types.ts";
 
-export type UpdateIntentBase = string | null | { requestDigest: ObjectHash; candidate: ObjectHash };
-export type UpdateIntent = Pick<CandidateUpdate, "candidate" | "ifCurrent" | "resolves" | "change" | "trace"> & { base: UpdateIntentBase };
+export type UpdateIntentBase = string | null | { requestDigest: ObjectHash; candidate: ObjectHash | null };
+export type UpdateIntent = Pick<DerivableCandidateUpdate, "candidate" | "ifCurrent" | "resolves" | "change" | "trace"> & { base: UpdateIntentBase };
 
 function intent(tree: string, request: UpdateIntent) {
   return {
@@ -36,7 +36,7 @@ export function updateRequestDigest(tree: string, request: UpdateIntent): string
  * string: each later element's base is its predecessor's
  * `{ requestDigest, candidate }`.
  */
-export function updateRequestIdentities(tree: string, request: Pick<UpdateRequest, "base"> & { updates: UpdateIntent[] | readonly Omit<UpdateIntent, "base">[] }): Array<{ bytes: Uint8Array; digest: ObjectHash }> {
+export function updateRequestIdentities(tree: string, request: Pick<DerivableUpdateRequest, "base"> & { updates: UpdateIntent[] | readonly Omit<UpdateIntent, "base">[] }): Array<{ bytes: Uint8Array; digest: ObjectHash }> {
   let base: UpdateIntentBase = request.base;
   return request.updates.map((update) => {
     const value = intent(tree, { ...update, base });
@@ -47,6 +47,6 @@ export function updateRequestIdentities(tree: string, request: Pick<UpdateReques
 }
 
 /** Stable per-element identities for one append-only update string. */
-export function updateRequestDigests(tree: string, request: UpdateRequest): ObjectHash[] {
+export function updateRequestDigests(tree: string, request: DerivableUpdateRequest): ObjectHash[] {
   return updateRequestIdentities(tree, request).map((identity) => identity.digest);
 }

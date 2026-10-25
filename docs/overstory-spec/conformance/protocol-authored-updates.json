@@ -4141,6 +4141,1115 @@
           }
         ]
       }
+    },
+    {
+      "name": "derived row change",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": null,
+            "trace": [
+              {
+                "operations": [
+                  {
+                    "key": "create",
+                    "kind": "rowCreate",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g2\"]]",
+                    "values": {
+                      "id": "g2",
+                      "title": "Go"
+                    }
+                  },
+                  {
+                    "key": "set",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "title",
+                    "before": "Chess",
+                    "value": "Chess960",
+                    "at": "2026-10-15T09:38:25.123Z"
+                  },
+                  {
+                    "key": "clear",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "rating",
+                    "before": 4,
+                    "value": null
+                  },
+                  {
+                    "key": "connect",
+                    "kind": "rowConnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l1"
+                  },
+                  {
+                    "key": "disconnect",
+                    "kind": "rowDisconnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l2"
+                  },
+                  {
+                    "key": "move",
+                    "kind": "rowMove",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "steps",
+                    "member": 3,
+                    "after": null
+                  },
+                  {
+                    "key": "delete",
+                    "kind": "rowDelete",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g3\"]]"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:15f46696cad869ff84bffaf9889937513c8ae983ac2fa04c85cd03ae0cc0a86b",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGham9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZW1vZGVsZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZWNsZWFyY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRmcm93U2V0ZWZpZWxkZnJhdGluZ2Vtb2RlbGRHYW1lZXZhbHVl9mZiZWZvcmUEamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWdjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRqcm93Q29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlqZGlzY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kbXJvd0Rpc2Nvbm5lY3RlZmllbGRlbGlzdHNlbW9kZWxkR2FtZWZtZW1iZXJibDJqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZG1vdmVjcm93bVtbImlkIiwiZzEiXV1ka2luZGdyb3dNb3ZlZWFmdGVy9mVmaWVsZGVzdGVwc2Vtb2RlbGRHYW1lZm1lbWJlcgNqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqVja2V5ZmRlbGV0ZWNyb3dtW1siaWQiLCJnMyJdXWRraW5kaXJvd0RlbGV0ZWVtb2RlbGRHYW1lamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGX2aWlmQ3VycmVudPY="
+        }
+      ]
+    },
+    {
+      "name": "derived text trace",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": null,
+            "trace": [
+              {
+                "operations": [
+                  {
+                    "key": "first",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "Mon"
+                  }
+                ]
+              },
+              {
+                "operations": [
+                  {
+                    "key": "second",
+                    "kind": "moveSource",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "first"
+                      }
+                    },
+                    "at": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        4,
+                        4
+                      ]
+                    },
+                    "side": "before"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:66efdc4dcf8e539f03ff3c1eab26d3ff60d1344564500add2585dee178219b1d",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYKham9wZXJhdGlvbnOBpGNrZXllZmlyc3Rka2luZGplZGl0U291cmNlZHRleHRjTW9uZnNvdXJjZaJlcmFuZ2WCAABobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGgvbm90ZS5tZGZvYmplY3R4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwoWpvcGVyYXRpb25zgaViYXSiZXJhbmdlggQEaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhoL25vdGUubWRmb2JqZWN0eEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWNrZXlmc2Vjb25kZGtpbmRqbW92ZVNvdXJjZWRzaWRlZmJlZm9yZWZzb3VyY2WhaG1hdGVyaWFso2RraW5kaW9wZXJhdGlvbmZjaGFuZ2VqY2hhbmdlLW9uZWlvcGVyYXRpb25lZmlyc3RmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGX2aWlmQ3VycmVudPY="
+        }
+      ]
+    },
+    {
+      "name": "derived frame states its before",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": null,
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "create",
+                    "kind": "rowCreate",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g2\"]]",
+                    "values": {
+                      "id": "g2",
+                      "title": "Go"
+                    }
+                  },
+                  {
+                    "key": "set",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "title",
+                    "before": "Chess",
+                    "value": "Chess960",
+                    "at": "2026-10-15T09:38:25.123Z"
+                  },
+                  {
+                    "key": "clear",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "rating",
+                    "before": 4,
+                    "value": null
+                  },
+                  {
+                    "key": "connect",
+                    "kind": "rowConnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l1"
+                  },
+                  {
+                    "key": "disconnect",
+                    "kind": "rowDisconnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l2"
+                  },
+                  {
+                    "key": "move",
+                    "kind": "rowMove",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "steps",
+                    "member": 3,
+                    "after": null
+                  },
+                  {
+                    "key": "delete",
+                    "kind": "rowDelete",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g3\"]]"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:f5ad0167e85357d7e30cdc8806fe2a974752b9162e152bba6478382ddceccf28",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGiZmJlZm9yZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBqb3BlcmF0aW9uc4emY2tleWZjcmVhdGVjcm93bVtbImlkIiwiZzIiXV1ka2luZGlyb3dDcmVhdGVlbW9kZWxkR2FtZWZ2YWx1ZXOiYmlkYmcyZXRpdGxlYkdvamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKpYmF0eBgyMDI2LTEwLTE1VDA5OjM4OjI1LjEyM1pja2V5Y3NldGNyb3dtW1siaWQiLCJnMSJdXWRraW5kZnJvd1NldGVmaWVsZGV0aXRsZWVtb2RlbGRHYW1lZXZhbHVlaENoZXNzOTYwZmJlZm9yZWVDaGVzc2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqGNrZXllY2xlYXJjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRmcmF0aW5nZW1vZGVsZEdhbWVldmFsdWX2ZmJlZm9yZQRqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqdja2V5Z2Nvbm5lY3Rjcm93bVtbImlkIiwiZzEiXV1ka2luZGpyb3dDb25uZWN0ZWZpZWxkZWxpc3RzZW1vZGVsZEdhbWVmbWVtYmVyYmwxamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWpkaXNjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRtcm93RGlzY29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMmpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqGNrZXlkbW92ZWNyb3dtW1siaWQiLCJnMSJdXWRraW5kZ3Jvd01vdmVlYWZ0ZXL2ZWZpZWxkZXN0ZXBzZW1vZGVsZEdhbWVmbWVtYmVyA2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIypWNrZXlmZGVsZXRlY3Jvd21bWyJpZCIsImczIl1dZGtpbmRpcm93RGVsZXRlZW1vZGVsZEdhbWVqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMmZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOAaWNhbmRpZGF0ZfZpaWZDdXJyZW509g=="
+        }
+      ]
+    },
+    {
+      "name": "omitted intermediate roots with a stated candidate",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "trace": [
+              {
+                "operations": [
+                  {
+                    "key": "first",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "Mon"
+                  }
+                ]
+              },
+              {
+                "after": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+                "operations": [
+                  {
+                    "key": "second",
+                    "kind": "moveSource",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "first"
+                      }
+                    },
+                    "at": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        4,
+                        4
+                      ]
+                    },
+                    "side": "before"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:99b98dddb50f18e6b10bd2d7abd6cf4a88af08c4981c643c52f8b3a4c5494d08",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYKham9wZXJhdGlvbnOBpGNrZXllZmlyc3Rka2luZGplZGl0U291cmNlZHRleHRjTW9uZnNvdXJjZaJlcmFuZ2WCAABobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGgvbm90ZS5tZGZvYmplY3R4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwomVhZnRlcnhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJqb3BlcmF0aW9uc4GlYmF0omVyYW5nZYIEBGhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoaC9ub3RlLm1kZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFja2V5ZnNlY29uZGRraW5kam1vdmVTb3VyY2Vkc2lkZWZiZWZvcmVmc291cmNloWhtYXRlcmlhbKNka2luZGlvcGVyYXRpb25mY2hhbmdlamNoYW5nZS1vbmVpb3BlcmF0aW9uZWZpcnN0ZmNoYW5nZWpjaGFuZ2Utb25lZmRvbWFpbm5hcmJvci11cGRhdGUvMmhyZXNvbHZlc4BpY2FuZGlkYXRleEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMmlpZkN1cnJlbnT2"
+        }
+      ]
+    },
+    {
+      "name": "derived elements in one string",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": null,
+            "trace": [
+              {
+                "operations": [
+                  {
+                    "key": "create",
+                    "kind": "rowCreate",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g2\"]]",
+                    "values": {
+                      "id": "g2",
+                      "title": "Go"
+                    }
+                  },
+                  {
+                    "key": "set",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "title",
+                    "before": "Chess",
+                    "value": "Chess960",
+                    "at": "2026-10-15T09:38:25.123Z"
+                  },
+                  {
+                    "key": "clear",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "rating",
+                    "before": 4,
+                    "value": null
+                  },
+                  {
+                    "key": "connect",
+                    "kind": "rowConnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l1"
+                  },
+                  {
+                    "key": "disconnect",
+                    "kind": "rowDisconnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l2"
+                  },
+                  {
+                    "key": "move",
+                    "kind": "rowMove",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "steps",
+                    "member": 3,
+                    "after": null
+                  },
+                  {
+                    "key": "delete",
+                    "kind": "rowDelete",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g3\"]]"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          },
+          {
+            "change": "change-two",
+            "candidate": null,
+            "trace": [
+              {
+                "operations": [
+                  {
+                    "key": "set",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "title",
+                    "before": "Chess",
+                    "value": "Chess960",
+                    "at": "2026-10-15T09:38:25.123Z"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:15f46696cad869ff84bffaf9889937513c8ae983ac2fa04c85cd03ae0cc0a86b",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGham9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZW1vZGVsZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZWNsZWFyY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRmcm93U2V0ZWZpZWxkZnJhdGluZ2Vtb2RlbGRHYW1lZXZhbHVl9mZiZWZvcmUEamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWdjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRqcm93Q29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlqZGlzY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kbXJvd0Rpc2Nvbm5lY3RlZmllbGRlbGlzdHNlbW9kZWxkR2FtZWZtZW1iZXJibDJqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZG1vdmVjcm93bVtbImlkIiwiZzEiXV1ka2luZGdyb3dNb3ZlZWFmdGVy9mVmaWVsZGVzdGVwc2Vtb2RlbGRHYW1lZm1lbWJlcgNqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqVja2V5ZmRlbGV0ZWNyb3dtW1siaWQiLCJnMyJdXWRraW5kaXJvd0RlbGV0ZWVtb2RlbGRHYW1lamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGX2aWlmQ3VycmVudPY="
+        },
+        {
+          "digest": "sha256:d4c406153a851142c99356022704d47b02bc1c99dc9c224baab255608a2114b2",
+          "canonicalCBORBase64": "qGRiYXNlomljYW5kaWRhdGX2bXJlcXVlc3REaWdlc3R4R3NoYTI1NjoxNWY0NjY5NmNhZDg2OWZmODRiZmZhZjk4ODk5Mzc1MTNjOGFlOTgzYWMyZmEwNGM4NWNkMDNhZTBjYzBhODZiZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGham9wZXJhdGlvbnOBqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMmZjaGFuZ2VqY2hhbmdlLXR3b2Zkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOAaWNhbmRpZGF0ZfZpaWZDdXJyZW509g=="
+        }
+      ]
+    },
+    {
+      "name": "derived element then a stated one",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": null,
+            "trace": [
+              {
+                "operations": [
+                  {
+                    "key": "create",
+                    "kind": "rowCreate",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g2\"]]",
+                    "values": {
+                      "id": "g2",
+                      "title": "Go"
+                    }
+                  },
+                  {
+                    "key": "set",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "title",
+                    "before": "Chess",
+                    "value": "Chess960",
+                    "at": "2026-10-15T09:38:25.123Z"
+                  },
+                  {
+                    "key": "clear",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "rating",
+                    "before": 4,
+                    "value": null
+                  },
+                  {
+                    "key": "connect",
+                    "kind": "rowConnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l1"
+                  },
+                  {
+                    "key": "disconnect",
+                    "kind": "rowDisconnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l2"
+                  },
+                  {
+                    "key": "move",
+                    "kind": "rowMove",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "steps",
+                    "member": 3,
+                    "after": null
+                  },
+                  {
+                    "key": "delete",
+                    "kind": "rowDelete",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g3\"]]"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          },
+          {
+            "change": "change-two",
+            "candidate": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "trace": [
+              {
+                "before": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "after": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+                "operations": [
+                  {
+                    "key": "set",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "title",
+                    "before": "Chess",
+                    "value": "Chess960",
+                    "at": "2026-10-15T09:38:25.123Z"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:15f46696cad869ff84bffaf9889937513c8ae983ac2fa04c85cd03ae0cc0a86b",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGham9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZW1vZGVsZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZWNsZWFyY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRmcm93U2V0ZWZpZWxkZnJhdGluZ2Vtb2RlbGRHYW1lZXZhbHVl9mZiZWZvcmUEamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWdjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRqcm93Q29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlqZGlzY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kbXJvd0Rpc2Nvbm5lY3RlZmllbGRlbGlzdHNlbW9kZWxkR2FtZWZtZW1iZXJibDJqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZG1vdmVjcm93bVtbImlkIiwiZzEiXV1ka2luZGdyb3dNb3ZlZWFmdGVy9mVmaWVsZGVzdGVwc2Vtb2RlbGRHYW1lZm1lbWJlcgNqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqVja2V5ZmRlbGV0ZWNyb3dtW1siaWQiLCJnMyJdXWRraW5kaXJvd0RlbGV0ZWVtb2RlbGRHYW1lamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGX2aWlmQ3VycmVudPY="
+        },
+        {
+          "digest": "sha256:bea02ef3d0fba52c9ebcf59059ae0281b12363102bd8f942df3c901550778d57",
+          "canonicalCBORBase64": "qGRiYXNlomljYW5kaWRhdGX2bXJlcXVlc3REaWdlc3R4R3NoYTI1NjoxNWY0NjY5NmNhZDg2OWZmODRiZmZhZjk4ODk5Mzc1MTNjOGFlOTgzYWMyZmEwNGM4NWNkMDNhZTBjYzBhODZiZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMmZiZWZvcmV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExam9wZXJhdGlvbnOBqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMmZjaGFuZ2VqY2hhbmdlLXR3b2Zkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOAaWNhbmRpZGF0ZXhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJpaWZDdXJyZW509g=="
+        }
+      ]
+    },
+    {
+      "name": "derived candidate needs a trace",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": null,
+            "trace": null,
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "derived candidate needs frames",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": null,
+            "trace": [],
+            "resolves": [
+              {
+                "state": "reviewed",
+                "conflict": "deadline",
+                "alternatives": [
+                  "a"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "derived candidate leaves its last after out",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": null,
+            "trace": [
+              {
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "create",
+                    "kind": "rowCreate",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g2\"]]",
+                    "values": {
+                      "id": "g2",
+                      "title": "Go"
+                    }
+                  },
+                  {
+                    "key": "set",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "title",
+                    "before": "Chess",
+                    "value": "Chess960",
+                    "at": "2026-10-15T09:38:25.123Z"
+                  },
+                  {
+                    "key": "clear",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "rating",
+                    "before": 4,
+                    "value": null
+                  },
+                  {
+                    "key": "connect",
+                    "kind": "rowConnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l1"
+                  },
+                  {
+                    "key": "disconnect",
+                    "kind": "rowDisconnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l2"
+                  },
+                  {
+                    "key": "move",
+                    "kind": "rowMove",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "steps",
+                    "member": 3,
+                    "after": null
+                  },
+                  {
+                    "key": "delete",
+                    "kind": "rowDelete",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g3\"]]"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "omitted last after needs a derived candidate",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "create",
+                    "kind": "rowCreate",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g2\"]]",
+                    "values": {
+                      "id": "g2",
+                      "title": "Go"
+                    }
+                  },
+                  {
+                    "key": "set",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "title",
+                    "before": "Chess",
+                    "value": "Chess960",
+                    "at": "2026-10-15T09:38:25.123Z"
+                  },
+                  {
+                    "key": "clear",
+                    "kind": "rowSet",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "rating",
+                    "before": 4,
+                    "value": null
+                  },
+                  {
+                    "key": "connect",
+                    "kind": "rowConnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l1"
+                  },
+                  {
+                    "key": "disconnect",
+                    "kind": "rowDisconnect",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "lists",
+                    "member": "l2"
+                  },
+                  {
+                    "key": "move",
+                    "kind": "rowMove",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g1\"]]",
+                    "field": "steps",
+                    "member": 3,
+                    "after": null
+                  },
+                  {
+                    "key": "delete",
+                    "kind": "rowDelete",
+                    "collection": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/games",
+                        "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                      }
+                    },
+                    "model": "Game",
+                    "row": "[[\"id\",\"g3\"]]"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "omitted roots still chain where stated",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": null,
+            "trace": [
+              {
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "first",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "Mon"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+                "operations": [
+                  {
+                    "key": "second",
+                    "kind": "moveSource",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "first"
+                      }
+                    },
+                    "at": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        4,
+                        4
+                      ]
+                    },
+                    "side": "before"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
     }
   ]
 }

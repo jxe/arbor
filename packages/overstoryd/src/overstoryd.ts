@@ -12,7 +12,7 @@ import { Recent } from "./recent.ts";
 import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { retainedObjects } from "./retention.ts";
-import { checkPlainTrace, isRowOperation, TreeReader, type DecisionPage } from "@ovst/protocol";
+import { checkPlainTrace, deriveTrace, isRowOperation, isStatedUpdate, TreeReader, UnsupportedDerivation, type DecisionPage, type DerivableUpdateRequest } from "@ovst/protocol";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -1752,13 +1752,81 @@ export class HostDaemon implements AsyncDisposable {
     }
   }
 
-  async submitUpdate(treeID: string, request: UpdateRequest, caller: UpdateCaller): Promise<StoredUpdateResponse> {
+  async submitUpdate(treeID: string, request: DerivableUpdateRequest, caller: UpdateCaller): Promise<StoredUpdateResponse> {
     return this.withTreeLock(treeID, () => this.submitUpdatesLocked(treeID, request, caller));
   }
 
-  private async submitUpdatesLocked(treeID: string, request: UpdateRequest, caller: UpdateCaller): Promise<StoredUpdateResponse> {
+  /**
+   * Fill in the roots a request left out (spec 10 §2): each element's frames
+   * execute on its logical base, the preceding element's candidate or the
+   * base's root. Every stated root is checked; an invalid operation fails the
+   * whole request, as invalid evidence does, so no prefix is accepted. The
+   * derived objects join the element's own, and `derived` records each derived
+   * candidate for its result.
+   */
+  private async deriveRoots(sent: DerivableUpdateRequest, baseRoot: ObjectHash | null): Promise<{ request: UpdateRequest; derived: Array<ObjectHash | undefined> }> {
+    const derived: Array<ObjectHash | undefined> = [];
+    const updates: CandidateUpdate[] = [];
+    const supplied = new Map<ObjectHash, Uint8Array>();
+    let root = baseRoot;
+    for (const update of sent.updates) {
+      for (const object of update.objects) supplied.set(object.hash, object.bytes);
+      if (isStatedUpdate(update)) {
+        updates.push(update);
+        derived.push(undefined);
+        root = update.candidate;
+        continue;
+      }
+      if (root === null || update.trace === null) throw new UpdateProtocolError("unsupported-operation", `Update ${updates.length} (${update.change}) leaves roots out without a basis`);
+      let result: Awaited<ReturnType<typeof deriveTrace>>;
+      try {
+        result = await deriveTrace(root, update.trace, (hash) => this.objects.load(hash, supplied), replayCollectionRows);
+      } catch (error) {
+        if (error instanceof UnsupportedDerivation) throw new UpdateProtocolError("unsupported-operation", error.message);
+        throw error;
+      }
+      if (update.candidate !== null && update.candidate !== result.root) throw new Error("Invalid source edit: operations do not reproduce the candidate");
+      const objects = new Map(update.objects.map((object) => [object.hash, object.bytes]));
+      for (const [hash, bytes] of result.generated) { objects.set(hash, bytes); supplied.set(hash, bytes); }
+      updates.push({
+        ...update,
+        candidate: result.root,
+        trace: result.frames.map((frame) => ({ before: frame.before, after: frame.after, operations: [...frame.operations] })),
+        objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })),
+      });
+      derived.push(update.candidate === null ? result.root : undefined);
+      root = result.root;
+    }
+    return { request: { base: sent.base, updates }, derived };
+  }
+
+  /** A derived candidate's result names the root the host derived, and its
+   * reconciliation starts from the preceding result's root (or the base's),
+   * which the client holds, rather than from a candidate it never built. */
+  private async derivedResults(
+    results: UpdateResult[],
+    derived: ReadonlyArray<ObjectHash | undefined>,
+    baseRoot: ObjectHash | null,
+  ): Promise<UpdateResult[]> {
+    let previous = baseRoot;
+    const out: UpdateResult[] = [];
+    for (const [index, result] of results.entries()) {
+      const candidate = derived[index];
+      if (candidate !== undefined && previous !== null) {
+        const { reconciliation: _reconciliation, ...rest } = result;
+        out.push(previous === result.update.root
+          ? { ...rest, candidate }
+          : { ...rest, candidate, reconciliation: await this.acceptedTransitionPayload(previous, result.update.root) });
+      } else out.push(result);
+      previous = result.update.root;
+    }
+    return out;
+  }
+
+  private async submitUpdatesLocked(treeID: string, sent: DerivableUpdateRequest, caller: UpdateCaller): Promise<StoredUpdateResponse> {
     const { account, linkDigest, authentication } = caller;
-    validateUpdateRequestIntent(request);
+    validateUpdateRequestIntent(sent);
+    let request = sent as UpdateRequest;
     if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.trace !== null || u.resolves.length))) throw new PermissionDeniedError("Execution update form is not allowed");
     const retainedTree = this.get(treeID);
     // Preflight the whole batch: unsupported semantics must never accept a prefix.
@@ -1774,7 +1842,8 @@ export class HostDaemon implements AsyncDisposable {
         );
       }
     }
-    const digests = updateRequestDigests(treeID, request);
+    // Identity is the request as sent, roots left out included.
+    const digests = updateRequestDigests(treeID, sent);
     const completed: UpdateResult[] = [];
     let accepted = false;
     let baseRoot: ObjectHash | null = null;
@@ -1797,6 +1866,10 @@ export class HostDaemon implements AsyncDisposable {
     }
     const traced = request.base !== null && request.updates.some((update) => update.trace !== null);
     if (traced && subject === null) throw new PermissionDeniedError("Write access is not allowed");
+    const { request: stated, derived } = await this.deriveRoots(sent, baseRoot);
+    request = stated;
+    const firstRoot = baseRoot;
+    const finish = (results: UpdateResult[]) => derived.some((root) => root !== undefined) ? this.derivedResults(results, derived, firstRoot) : Promise.resolve(results);
     markPhase("receipts");
     // The author's basis for each element: an accepted entry, and the batch
     // candidates authored on it that no entry records as the author wrote them.
@@ -1824,7 +1897,7 @@ export class HostDaemon implements AsyncDisposable {
         if (results.length === request.updates.length)
           return {
             status: 201,
-            result: { results },
+            result: { results: await finish(results) },
           };
       }
       // Check every traced element against the request's base before any is
@@ -1911,7 +1984,7 @@ export class HostDaemon implements AsyncDisposable {
         index === 0 ? prepared : undefined,
       );
       if ("error" in result.result) {
-        result.result.details.completed = completed;
+        result.result.details.completed = await finish(completed);
         result.result.details.failedIndex = index;
         return { status: result.status, result: result.result };
       }
@@ -1927,7 +2000,7 @@ export class HostDaemon implements AsyncDisposable {
     }
     return {
       status: accepted ? 201 : 200,
-      result: { results: completed },
+      result: { results: await finish(completed) },
     };
   }
 

@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import fixtures from "../../../docs/overstory-spec/conformance/protocol-authored-updates.json";
-import { canonicalUpdateIntent, decodeUpdateRequestJSON, encodeUpdateRequestJSON, updateRequestDigest, updateRequestDigests } from "@ovst/protocol";
+import { canonicalUpdateIntent, decodeDerivableUpdateRequestJSON, encodeUpdateRequestJSON, updateRequestDigest, updateRequestDigests } from "@ovst/protocol";
 import type { UpdateIntentBase } from "@ovst/protocol";
 
 for (const fixture of fixtures.cases) test(`active authored grammar: ${fixture.name}`, () => {
   const value = { ...fixture.value, updates: fixture.value.updates.map(u => ({...u,objects:[],deltas:[]})) };
-  if (!fixture.valid) { expect(() => decodeUpdateRequestJSON(value)).toThrow(); return; }
-  const request = decodeUpdateRequestJSON(value);
+  if (!fixture.valid) { expect(() => decodeDerivableUpdateRequestJSON(value)).toThrow(); return; }
+  const request = decodeDerivableUpdateRequestJSON(value);
   expect<unknown>(encodeUpdateRequestJSON(request)).toEqual(value);
   const digests = updateRequestDigests(fixtures.tree,request);
   expect(digests).toEqual(fixture.identities!.map(x => x.digest));

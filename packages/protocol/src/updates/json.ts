@@ -1,5 +1,5 @@
 import { decodeTransitionBasis, decodeAcceptedUpdate } from "./accepted-contract.ts";
-import { decodeAuthoredCandidateIntent, decodeAuthoredRequestIntent, type AuthoredRequestIntent, type AuthoredUpdateIntent } from "./authored-contract.ts";
+import { decodeAuthoredCandidateIntent, decodeAuthoredRequestIntent, isStatedUpdate, type AuthoredUpdateIntent, type DerivableRequestIntent, type DerivableUpdateIntent } from "./authored-contract.ts";
 import { hashObject, protocolObjectReferences, type ProtocolObjectKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
 import { decodeCanonicalCBOR, encodeCanonicalCBOR } from "../model/cbor.ts";
 import type {
@@ -10,6 +10,8 @@ import type {
   UpdateConflictResult,
   TransitionPayload,
   CandidateUpdate,
+  DerivableCandidateUpdate,
+  DerivableUpdateRequest,
   UpdateRequest,
   UpdateHead,
   UpdateResponse,
@@ -78,10 +80,11 @@ export interface ObjectDeltaJSON<B extends string | Uint8Array = string> {
 
 export interface UpdateRequestJSON<B extends string | Uint8Array = string> {
   base: string | null;
-  updates: CandidateUpdateJSON<B>[];
+  updates: DerivableCandidateUpdateJSON<B>[];
 }
 
 export interface CandidateUpdateJSON<B extends string | Uint8Array = string> extends AuthoredUpdateIntent, TransitionPayloadJSON<B> {}
+export interface DerivableCandidateUpdateJSON<B extends string | Uint8Array = string> extends DerivableUpdateIntent, TransitionPayloadJSON<B> {}
 
 export interface TransitionPayloadJSON<B extends string | Uint8Array = string> {
   objects: ObjectEnvelopeJSON<B>[];
@@ -245,7 +248,7 @@ export function decodeAcceptedTransitionJSON(value: unknown): AcceptedTransition
 }
 
 /** A request's semantic intent: the transport fields stripped, unknown semantic fields failing closed. */
-export function authoredIntentFromTransport(raw: unknown): AuthoredRequestIntent {
+export function authoredIntentFromTransport(raw: unknown): DerivableRequestIntent {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Expected update request");
   const { updates, ...request } = raw as Record<string, unknown>;
   if (!Array.isArray(updates)) throw new Error("Expected updates array");
@@ -257,19 +260,36 @@ export function authoredIntentFromTransport(raw: unknown): AuthoredRequestIntent
 }
 
 /** Validate semantic claims without re-encoding large transport payloads. */
-export function validateUpdateRequestIntent(request: UpdateRequest): void {
+export function validateUpdateRequestIntent(request: DerivableUpdateRequest): void {
   authoredIntentFromTransport(request);
 }
 
-/** Decode a request and verify its complete object bytes; graph and operation execution are authority checks. */
-export function decodeUpdateRequestJSON(value: unknown, encoding: WireEncoding = "json"): UpdateRequest {
+/** Decode a request as an authority receives it, roots it may derive left out
+ * (spec 10 §2), and verify its complete object bytes; graph and operation
+ * execution are authority checks. */
+export function decodeDerivableUpdateRequestJSON(value: unknown, encoding: WireEncoding = "json"): DerivableUpdateRequest {
   const intent = authoredIntentFromTransport(value);
-  const updates = (value as { updates: Record<string, unknown>[] }).updates.map((raw) => decodeCandidateUpdateJSON(raw, false, encoding));
+  const updates = (value as { updates: Record<string, unknown>[] }).updates.map((raw) => decodeDerivableCandidateUpdateJSON(raw, false, encoding));
   if (intent.base === null && updates[0]!.deltas.length) throw new Error("Activation has no delta basis");
   return { base: intent.base, updates };
 }
 
+/** Decode a request whose every root is stated. */
+export function decodeUpdateRequestJSON(value: unknown, encoding: WireEncoding = "json"): UpdateRequest {
+  const request = decodeDerivableUpdateRequestJSON(value, encoding);
+  return { base: request.base, updates: request.updates.map(stated) };
+}
+
 export function decodeCandidateUpdateJSON(value: unknown, activation = false, encoding: WireEncoding = "json"): CandidateUpdate {
+  return stated(decodeDerivableCandidateUpdateJSON(value, activation, encoding));
+}
+
+function stated(update: DerivableCandidateUpdate): CandidateUpdate {
+  if (!isStatedUpdate(update)) throw new Error("Expected every root stated");
+  return update;
+}
+
+export function decodeDerivableCandidateUpdateJSON(value: unknown, activation = false, encoding: WireEncoding = "json"): DerivableCandidateUpdate {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected candidate");
   const { objects, deltas, ...fields } = value as Record<string, unknown>;
   const intent = decodeAuthoredCandidateIntent(fields);
@@ -290,14 +310,16 @@ export function decodeCandidateUpdateJSON(value: unknown, activation = false, en
  * validated and every object's bytes must hash to its name. The bytes are
  * checked as they are, not encoded and decoded again.
  */
-export function encodeUpdateRequestJSON<E extends WireEncoding = "json">(request: UpdateRequest, encoding: E = "json" as E): UpdateRequestJSON<WireBytes<E>> {
+export function encodeUpdateRequestJSON<E extends WireEncoding = "json">(request: DerivableUpdateRequest, encoding: E = "json" as E): UpdateRequestJSON<WireBytes<E>> {
   const intent = authoredIntentFromTransport(request);
   if (intent.base === null && request.updates[0]?.deltas.length) throw new Error("Activation has no delta basis");
   request.updates.forEach(verifyCandidateObjects);
   return { base: intent.base, updates: intent.updates.map((update, index) => ({ ...update, ...encodeTransitionPayloadJSON(request.updates[index]!, encoding) })) };
 }
 
-export function encodeCandidateUpdateJSON<E extends WireEncoding = "json">(update: CandidateUpdate, encoding: E = "json" as E): CandidateUpdateJSON<WireBytes<E>> {
+export function encodeCandidateUpdateJSON<E extends WireEncoding = "json">(update: CandidateUpdate, encoding?: E): CandidateUpdateJSON<WireBytes<E>>;
+export function encodeCandidateUpdateJSON<E extends WireEncoding = "json">(update: DerivableCandidateUpdate, encoding?: E): DerivableCandidateUpdateJSON<WireBytes<E>>;
+export function encodeCandidateUpdateJSON<E extends WireEncoding = "json">(update: DerivableCandidateUpdate, encoding: E = "json" as E): DerivableCandidateUpdateJSON<WireBytes<E>> {
   const { objects: _objects, deltas: _deltas, ...fields } = update;
   verifyCandidateObjects(update);
   return { ...decodeAuthoredCandidateIntent(fields), ...encodeTransitionPayloadJSON(update, encoding) };
@@ -433,7 +455,8 @@ export function decodeUpdateResultJSON(value: unknown, encoding: WireEncoding = 
   if (!value || typeof value !== "object") throw new Error("Update result must be an object");
   const record = value as Record<string, unknown>;
   if (typeof record.outcome !== "string" || !OUTCOMES.has(record.outcome)
-    || typeof record.requestDigest !== "string" || !HASH.test(record.requestDigest)) {
+    || typeof record.requestDigest !== "string" || !HASH.test(record.requestDigest)
+    || (record.candidate !== undefined && (typeof record.candidate !== "string" || !HASH.test(record.candidate)))) {
     throw new Error("Invalid update result");
   }
   const update = decodeAcceptedUpdateJSON(record.update);
@@ -441,6 +464,7 @@ export function decodeUpdateResultJSON(value: unknown, encoding: WireEncoding = 
     outcome: record.outcome as UpdateResult["outcome"],
     update,
     requestDigest: record.requestDigest as ObjectHash,
+    ...(record.candidate === undefined ? {} : { candidate: record.candidate as ObjectHash }),
     ...(record.reconciliation === undefined ? {} : { reconciliation: decodeVerifiedTransitionPayload(record.reconciliation, encoding) }),
   };
 }

@@ -74,7 +74,10 @@ the host computes the result. The host executes every frame on its basis exactly
 as it checks one that states its roots (§3, §4), checking each root that is
 stated, and the last result is the element's candidate; acceptance then
 continues as for any candidate (§5). An operation that does not apply on its
-basis, or a stated root the execution does not match, rejects the element.
+basis, or a stated root the execution does not match, is invalid evidence and
+fails the request before any element is accepted. A host that does not execute
+some operation outside a stated trace answers `unsupported-operation` for a frame
+that leaves its result out; it always executes row operations.
 `resolves` and `ifCurrent` work as for any candidate. A derived candidate needs
 no objects or deltas beyond the content its operations introduce. A snapshot
 (`trace: null`) is never derived: its candidate is its content.

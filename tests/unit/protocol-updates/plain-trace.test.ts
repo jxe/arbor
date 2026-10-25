@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { checkPlainTrace, encodeProtocolDirectory, hashObject, type SourceOperation, type ProtocolDirectoryEntry } from "@ovst/protocol";
+import { checkPlainTrace, deriveTrace, UnsupportedDerivation, encodeProtocolDirectory, hashObject, type SourceOperation, type ProtocolDirectoryEntry } from "@ovst/protocol";
 import { decodeLogEntry, encodeLogEntry, LOG_ENTRY_FORMAT, type LogEntry } from "@ovst/merge-protocol";
 
 const objects = new Map<string, Uint8Array>();
@@ -48,4 +48,22 @@ test("a log entry's bytes are canonical and name it", () => {
   expect(() => decodeLogEntry(new TextEncoder().encode(JSON.stringify(entry, null, 1)))).toThrow("canonical");
   expect(() => encodeLogEntry({ ...entry, decisions: [{ ...entry.decisions[0]!, selected: 2 }] })).toThrow();
   expect(() => encodeLogEntry({ ...entry, decisions: [{ ...entry.decisions[0]!, path: undefined, range: [0, 1] }] })).toThrow();
+});
+
+test("deriving a trace fills in the roots a stating client would have stated, and checks the ones stated", async () => {
+  const edited = text("HELLO world"), added = text("new");
+  const middle = dir([{ name: "docs", directory: dir([{ name: "a.md", file: edited }]) }, { name: "top.md", file: note }]);
+  const middleInner = dir([{ name: "a.md", file: edited }]);
+  const second: SourceOperation = { key: "add", kind: "addEntry", destination: { parent: { material: { kind: "basis", path: "/docs", object: middleInner } }, name: "b.md" }, value: { file: added } };
+  const after = dir([{ name: "docs", directory: dir([{ name: "a.md", file: edited }, { name: "b.md", file: added }]) }, { name: "top.md", file: note }]);
+  const derived = await deriveTrace(root, [{ operations: [edit("/docs/a.md", note, [0, 5], "HELLO")] }, { operations: [second] }], load);
+  expect(derived.frames.map((f) => [f.before, f.after])).toEqual([[root, middle], [middle, after]]);
+  expect(derived.root).toBe(after);
+  // A stated root is checked: right ones pass, a wrong one is invalid.
+  expect((await deriveTrace(root, [{ before: root, operations: [edit("/docs/a.md", note, [0, 5], "HELLO")] }, { after, operations: [second] }], load)).root).toBe(after);
+  await expect(deriveTrace(root, [{ before: middle, operations: [edit("/docs/a.md", note, [0, 5], "HELLO")] }], load)).rejects.toThrow(/basis/);
+  await expect(deriveTrace(root, [{ after: root, operations: [edit("/docs/a.md", note, [0, 5], "HELLO")] }], load)).rejects.toThrow(/reproduce/);
+  // An operation the plain executor does not run cannot be derived; that is not a rejection of it.
+  const moveEntry = { key: "move", kind: "moveEntry", source: { material: { kind: "basis", path: "/top.md", object: note } }, destination: { parent: { material: { kind: "basis", path: "/", object: root } }, name: "moved.md" } } as SourceOperation;
+  await expect(deriveTrace(root, [{ operations: [moveEntry] }], load)).rejects.toBeInstanceOf(UnsupportedDerivation);
 });

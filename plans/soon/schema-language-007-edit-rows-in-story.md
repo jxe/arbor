@@ -29,8 +29,8 @@ The People directory needs both, and the iPhone has no Story Sync.
 - **The host derives the result.** Every frame root is optional and independent: a stated
   root is checked, an omitted one derived (spec 10 §2). A *derived candidate* (§2.2) omits
   its last `after` and has `candidate: null`; the host executes the trace on the element's
-  basis. Any operation trace may be derived (for parsimony); row operations are in practice,
-  from Story and Story Sync alike (no rule forbids stating them); Story keeps stating roots for text and structure.
+  basis. Any operation trace may be derived (for parsimony); Story leaves the roots after row
+  operations out; Story Sync, which encodes tables, keeps stating them (Joe); Story keeps stating roots for text and structure.
 - **Offline is a queue, not a replica.** Pending row operations show at once, applied over the
   rows last received, and are sent when online. That is enough on the iPhone.
 - So there is no Swift port of the replay or of the table encoding (dropped from this plan).
@@ -67,10 +67,8 @@ the view** (steps 5–6), can follow or run beside People 001.
    one. Vectors in `protocol-authored-updates.json` and the request-identity cases: rows only,
    text derived, a string of derived elements, a derived frame stating `before` (checked), a
    stated root the execution doesn't match (refused), an operation that doesn't apply on its basis (refused), a retry deriving the same root.
-2. **Story Sync sends derived row changes.** Edits found in a projection go out as derived
-   candidates, and it applies results as watch frames (the host keeps checking stated row
-   frames). `tests/integration/collection-placements.test.ts` and the row-acceptance tests move
-   with it.
+2. ~~Story Sync sends derived row changes.~~ Dropped (Joe, 2026-10-25): Story Sync encodes tables
+   in TS and keeps stating roots for row changes, so its queue is unchanged.
 3. **Swift on the wire.** `RowOperation` and derived candidates in Overstory's authored
    contract and request digest, passing the shared vectors; the result's `candidate`.
 4. **A row queue in `UpdateCoordinator`.** `appendRows([RowOperation])` beside

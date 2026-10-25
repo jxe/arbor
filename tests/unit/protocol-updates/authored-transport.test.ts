@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import transport from "../../../docs/overstory-spec/conformance/protocol-authored-transport.json";
 import semantics from "../../../docs/overstory-spec/conformance/protocol-authored-updates.json";
-import { decodeUpdateRequestJSON, encodeUpdateRequestJSON } from "../../../packages/protocol/src/updates/json.ts";
+import { decodeDerivableUpdateRequestJSON, decodeUpdateRequestJSON, encodeUpdateRequestJSON } from "../../../packages/protocol/src/updates/json.ts";
+import { isStatedUpdate } from "../../../packages/protocol/src/updates/authored-contract.ts";
 import { updateRequestIdentities } from "../../../packages/protocol/src/updates/intent.ts";
 import { applyObjectDelta } from "../../../packages/protocol/src/updates/apply.ts";
 import { decodeObjectEnvelopes, verifyTreeSnapshotGraph } from "../../../packages/protocol/src/updates/json.ts";
@@ -17,8 +18,11 @@ for (const c of transport.cases) test(`authored transport: ${c.name}`, () => {
 });
 for (const c of semantics.cases) test(`authored transport preserves semantic grammar: ${c.name}`, () => {
   const raw = { ...c.value, updates: c.value.updates.map(u => ({...u,objects:[],deltas:[]})) };
-  if (!c.valid) { expect(() => decodeUpdateRequestJSON(raw)).toThrow(); return; }
-  const request = decodeUpdateRequestJSON(raw);
+  if (!c.valid) { expect(() => decodeDerivableUpdateRequestJSON(raw)).toThrow(); return; }
+  const request = decodeDerivableUpdateRequestJSON(raw);
+  // The stated decoder takes exactly the requests that leave no root out.
+  if (request.updates.every(isStatedUpdate)) expect<unknown>(decodeUpdateRequestJSON(raw)).toEqual(request);
+  else expect(() => decodeUpdateRequestJSON(raw)).toThrow();
   expect(updateRequestIdentities(semantics.tree, request).map(x => ({digest:String(x.digest),canonicalCBORBase64:Buffer.from(x.bytes).toString("base64")}))).toEqual(c.identities!);
 });
 test("complete and sparse requests reconstruct the same exact candidate with the same digest", () => {

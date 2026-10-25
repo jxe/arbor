@@ -231,72 +231,133 @@ export async function checkPlainTrace(
   try {
     for (const [index, frame] of frames.entries()) {
       if (index && frames[index - 1]!.after !== frame.before) return { plain: false, reason: "frame does not follow its basis" };
-      if (!frame.operations.length) return { plain: false, reason: "frame carries no operations" };
-      if (frame.operations.some(isRowOperation)) {
-        for (const operation of frame.operations) {
-          if (keys.has(operation.key)) return { plain: false, reason: "duplicate operation key" };
-          keys.add(operation.key);
-        }
-        if (!rows) return { plain: false, reason: "row operations need a collection replay" };
-        const result = await executeRowOperations(frame.before, frame.operations, read, rows);
-        for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
-        for (const path of result.touched) touched.add(path);
-        if (result.root !== frame.after) return { plain: false, reason: "operations do not reproduce the frame" };
-        continue;
-      }
-      const edits: AuthoredOperation[] = [], additions: Array<Extract<AuthoredOperation, { kind: "addEntry" }>> = [];
-      for (const operation of frame.operations) {
-        if (keys.has(operation.key)) return { plain: false, reason: "duplicate operation key" };
-        keys.add(operation.key);
-        if (operation.kind === "editSource") edits.push(operation);
-        else if (operation.kind === "moveSource") {
-          edits.push(operation);
-          for (const ref of [operation.source, operation.at])
-            if (ref.material.kind === "basis") touched.add(ref.material.path + (ref.within?.length ? "/" + ref.within.join("/") : ""));
-        }
-        else if (operation.kind === "addEntry") additions.push(operation);
-        else return { plain: false, reason: `operation ${operation.kind}` };
-      }
-      let root = frame.before;
-      if (edits.length) {
-        const result = await executeExactSourceEdits(frame.before, edits, read);
-        for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
-        for (const evidence of result.evidence) touched.add(evidence.path);
-        root = result.root;
-      }
-      const names = new Set<string>();
-      for (const addition of additions) {
-        const parent = addition.destination.parent;
-        if (parent.material.kind !== "basis" || parent.range) return { plain: false, reason: "addEntry into non-basis material" };
-        const base = components(parent.material.path), within = parent.within ?? [];
-        if (within.length) components("/" + within.join("/"));
-        // The parent must be the named basis directory in this frame's `before`.
-        const parts = [...base, ...within];
-        let object = frame.before;
-        for (let depth = 0; depth <= parts.length; depth++) {
-          if (depth === base.length && object !== parent.material.object) invalid("basis object does not match path");
-          if (depth === parts.length) break;
-          const entry = decodeProtocolDirectory(await read(object)).entries.find((e) => e.name === parts[depth]);
-          if (!entry?.directory) return { plain: false, reason: "addEntry parent is not a basis directory" };
-          object = entry.directory;
-        }
-        const path = [...base, ...within, addition.destination.name];
-        components("/" + path.join("/"));
-        const key = path.join("/");
-        if (names.has(key)) return { plain: false, reason: "addEntry names one entry twice" };
-        names.add(key);
-        const entry = { name: addition.destination.name, ...addition.value } as ProtocolDirectoryEntry;
-        const next = await addEntryAt(root, path, entry, read, generated);
-        if (!next) return { plain: false, reason: "addEntry names an existing entry" };
-        root = next;
-        touched.add("/" + key);
-      }
+      const root = await executePlainFrame(frame.before, frame.operations, read, rows, { keys, touched, generated });
+      if (typeof root !== "string") return { plain: false, reason: root.reason };
       if (root !== frame.after) return { plain: false, reason: "operations do not reproduce the frame" };
     }
   } catch (error) {
     return { plain: false, reason: error instanceof Error ? error.message : "invalid trace" };
   }
   return { plain: true, touched: [...touched], generated };
+}
+
+/** A frame whose roots may be left out (spec 10 §2). */
+export interface DerivableSourceFrame {
+  before?: ObjectHash;
+  after?: ObjectHash;
+  operations: readonly AuthoredOperation[];
+}
+
+/** Why an authority cannot derive a trace's omitted roots: an operation its
+ * plain executor does not run. Not a rejection of the operations. */
+export class UnsupportedDerivation extends Error {}
+
+/** Execute a trace on `basis`, deriving each omitted root and checking each
+ * stated one (spec 10 §2.2), with the executor `checkPlainTrace` uses. A stated
+ * root the execution does not match, or an operation that does not apply, is
+ * invalid; an operation outside that executor is an `UnsupportedDerivation`.
+ * Returns the frames with every root stated and the objects they generate. */
+export async function deriveTrace(
+  basis: ObjectHash,
+  frames: readonly DerivableSourceFrame[],
+  load: (hash: ObjectHash) => Promise<Uint8Array>,
+  rows?: CollectionRowReplay,
+): Promise<{ frames: SourceFrame[]; root: ObjectHash; generated: Map<ObjectHash, Uint8Array> }> {
+  if (!frames.length) invalid("trace has no frames");
+  const generated = new Map<ObjectHash, Uint8Array>();
+  const read = async (hash: ObjectHash) => generated.get(hash) ?? await load(hash);
+  const keys = new Set<string>(), touched = new Set<string>();
+  const stated: SourceFrame[] = [];
+  let root = basis;
+  for (const frame of frames) {
+    if (frame.before !== undefined && frame.before !== root) invalid("frame does not follow its basis");
+    let after: Awaited<ReturnType<typeof executePlainFrame>>;
+    try {
+      after = await executePlainFrame(root, frame.operations, read, rows, { keys, touched, generated });
+    } catch (error) {
+      if (error instanceof UnsupportedSourceEdit) throw new UnsupportedDerivation(error.message);
+      throw error;
+    }
+    if (typeof after !== "string") throw new UnsupportedDerivation(`Cannot derive a frame with ${after.reason}`);
+    if (frame.after !== undefined && frame.after !== after) invalid("operations do not reproduce the frame");
+    stated.push({ before: root, after, operations: frame.operations });
+    root = after;
+  }
+  return { frames: stated, root, generated };
+}
+
+/** Execute one frame of plain operations on `before`: row operations, or
+ * `moveSource` and `editSource` over basis material and then `addEntry` of new
+ * names. Returns the result root, or the reason the frame is not plain.
+ * Throws on an operation that does not apply. */
+async function executePlainFrame(
+  before: ObjectHash,
+  operations: readonly AuthoredOperation[],
+  read: (hash: ObjectHash) => Promise<Uint8Array>,
+  rows: CollectionRowReplay | undefined,
+  into: { keys: Set<string>; touched: Set<string>; generated: Map<ObjectHash, Uint8Array> },
+): Promise<ObjectHash | { reason: string }> {
+  const { keys, touched, generated } = into;
+  if (!operations.length) return { reason: "frame carries no operations" };
+  if (operations.some(isRowOperation)) {
+    for (const operation of operations) {
+      if (keys.has(operation.key)) return { reason: "duplicate operation key" };
+      keys.add(operation.key);
+    }
+    if (!rows) return { reason: "row operations need a collection replay" };
+    const result = await executeRowOperations(before, operations, read, rows);
+    for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
+    for (const path of result.touched) touched.add(path);
+    return result.root;
+  }
+  const edits: AuthoredOperation[] = [], additions: Array<Extract<AuthoredOperation, { kind: "addEntry" }>> = [];
+  for (const operation of operations) {
+    if (keys.has(operation.key)) return { reason: "duplicate operation key" };
+    keys.add(operation.key);
+    if (operation.kind === "editSource") edits.push(operation);
+    else if (operation.kind === "moveSource") {
+      edits.push(operation);
+      for (const ref of [operation.source, operation.at])
+        if (ref.material.kind === "basis") touched.add(ref.material.path + (ref.within?.length ? "/" + ref.within.join("/") : ""));
+    }
+    else if (operation.kind === "addEntry") additions.push(operation);
+    else return { reason: `operation ${operation.kind}` };
+  }
+  let root = before;
+  if (edits.length) {
+    const result = await executeExactSourceEdits(before, edits, read);
+    for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
+    for (const evidence of result.evidence) touched.add(evidence.path);
+    root = result.root;
+  }
+  const names = new Set<string>();
+  for (const addition of additions) {
+    const parent = addition.destination.parent;
+    if (parent.material.kind !== "basis" || parent.range) return { reason: "addEntry into non-basis material" };
+    const base = components(parent.material.path), within = parent.within ?? [];
+    if (within.length) components("/" + within.join("/"));
+    // The parent must be the named basis directory in this frame's `before`.
+    const parts = [...base, ...within];
+    let object = before;
+    for (let depth = 0; depth <= parts.length; depth++) {
+      if (depth === base.length && object !== parent.material.object) invalid("basis object does not match path");
+      if (depth === parts.length) break;
+      const entry = decodeProtocolDirectory(await read(object)).entries.find((e) => e.name === parts[depth]);
+      if (!entry?.directory) return { reason: "addEntry parent is not a basis directory" };
+      object = entry.directory;
+    }
+    const path = [...base, ...within, addition.destination.name];
+    components("/" + path.join("/"));
+    const key = path.join("/");
+    if (names.has(key)) return { reason: "addEntry names one entry twice" };
+    names.add(key);
+    const entry = { name: addition.destination.name, ...addition.value } as ProtocolDirectoryEntry;
+    const next = await addEntryAt(root, path, entry, read, generated);
+    if (!next) return { reason: "addEntry names an existing entry" };
+    root = next;
+    touched.add("/" + key);
+  }
+  return root;
 }
 
 /** Apply one collection directory's row operations, in order, and return its

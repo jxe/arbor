@@ -3,8 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
 import { loadDirectoryCollection, replayCollectionRows } from "@ovst/collection-schema";
-import { decodeProtocolDirectory, encodeProtocolDirectory, executeRowOperations, hashObject, ProtocolClient,
-  type CandidateUpdate, type ProtocolDirectory, type SourceOperation } from "@ovst/protocol";
+import { applyTransitionPayload, decodeProtocolDirectory, encodeProtocolDirectory, executeRowOperations, hashObject, ProtocolClient,
+  type CandidateUpdate, type DerivableCandidateUpdate, type DerivableUpdateRequest, type ProtocolDirectory, type SourceOperation } from "@ovst/protocol";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
 import { collectionDirectory, idRow } from "../../support/collection-trees.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
@@ -130,4 +130,75 @@ test("a stale value seen is invalid, not merged", async () => {
   const op = update.trace![0]!.operations[0] as SourceOperation & { before: unknown };
   op.before = "stale";
   await expect(submit(update)).rejects.toThrow();
+});
+
+/** A derived row change (spec 10 §2.2): no roots stated, and no objects. */
+function derivedChange(operations: (collection: { material: { kind: "basis"; path: string; object: string } }) => SourceOperation[], basisRoot = root, frame: { before?: string } = {}): DerivableCandidateUpdate {
+  return { change: crypto.randomUUID(), candidate: null, resolves: [], deltas: [], objects: [],
+    trace: [{ ...frame, operations: operations({ material: { kind: "basis", path: "/items", object: items(basisRoot) } }) }] };
+}
+async function status(request: DerivableUpdateRequest) {
+  try { await client.submitUpdates(tree, request); return 200; }
+  catch (error) { return (error as { status?: number }).status; }
+}
+
+test("a derived row change is executed by the host, which returns the root it derived", async () => {
+  const held = new Map(objects);
+  const update = derivedChange(set("a", "title", "A", "Alpha") as never);
+  const result = (await client.submitUpdates(tree, { base, updates: [update] })).results[0]!;
+  expect(result.outcome).toBe("accepted");
+  expect(result.update.conflicted).toBe(false);
+  // The host derives what a stating client would have stated.
+  const expected = await executeRowOperations(root, update.trace![0]!.operations, async (hash) => objects.get(hash)!, replayCollectionRows);
+  expect(result.candidate).toBe(expected.root);
+  expect(result.update.root).toBe(expected.root);
+  // The reconciliation runs from the root the client holds, so it needs no
+  // object the host derived.
+  const applied = applyTransitionPayload(held, result.reconciliation!);
+  for (const [hash, bytes] of applied) objects.set(hash, bytes);
+  expect(await rows(result.update.root)).toEqual([{ id: "a", title: "Alpha", tags: ["x"] }, { id: "b", title: "B" }]);
+  // A retry is the same request: same digest, same derived root, no second entry.
+  const again = (await client.submitUpdates(tree, { base, updates: [update] })).results[0]!;
+  expect(again.requestDigest).toBe(result.requestDigest);
+  expect(again.candidate).toBe(result.candidate);
+  expect(again.update.id).toBe(result.update.id);
+  await running.overstoryd.verifyIntegrity();
+});
+
+test("derived elements chain on the roots the host derives, and a later element may state roots", async () => {
+  const first = derivedChange(set("a", "title", "A", "Alpha") as never);
+  const firstRoot = (await executeRowOperations(root, first.trace![0]!.operations, async (hash) => objects.get(hash)!, replayCollectionRows));
+  for (const [hash, bytes] of firstRoot.generated) objects.set(hash, bytes);
+  const second = derivedChange(set("a", "done", null, true) as never, firstRoot.root);
+  const secondRoot = await executeRowOperations(firstRoot.root, second.trace![0]!.operations, async (hash) => objects.get(hash)!, replayCollectionRows);
+  for (const [hash, bytes] of secondRoot.generated) objects.set(hash, bytes);
+  // A client that can compute the root may state it after a derived element.
+  const third = await rowChange(secondRoot.root, set("b", "title", "B", "Bee") as never);
+  const { results } = await client.submitUpdates(tree, { base, updates: [first, second, third] });
+  expect(results.map((r) => r.candidate)).toEqual([firstRoot.root, secondRoot.root, undefined]);
+  expect(results[2]!.reconciliation).toBeUndefined();
+  await remember(results[2]!.update.root);
+  expect(await rows(results[2]!.update.root)).toEqual([{ id: "a", title: "Alpha", done: true, tags: ["x"] }, { id: "b", title: "Bee" }]);
+});
+
+test("a derived frame's stated before is checked", async () => {
+  const good = derivedChange(set("a", "title", "A", "Alpha") as never, root, { before: root });
+  expect((await client.submitUpdates(tree, { base, updates: [good] })).results[0]!.update.conflicted).toBe(false);
+  const wrong = derivedChange(set("b", "title", "B", "Bee") as never, root, { before: items(root) });
+  expect(await status({ base, updates: [wrong] })).toBe(400);
+});
+
+test("a derived operation that does not apply on its basis rejects the whole request", async () => {
+  const ok = derivedChange(set("a", "title", "A", "Alpha") as never);
+  const stale = derivedChange(set("b", "title", "stale", "Bee") as never);
+  expect(await status({ base, updates: [ok, stale] })).toBe(400);
+  expect((await client.descriptor(tree)).tree.update).toBe(base);
+});
+
+test("a derived change on a stale base merges field by field like a stated one", async () => {
+  await submit(await rowChange(root, set("a", "title", "A", "Alpha") as never));
+  const result = (await client.submitUpdates(tree, { base, updates: [derivedChange(set("a", "done", null, true) as never)] })).results[0]!;
+  expect(result.update.conflicted).toBe(false);
+  await remember(result.update.root);
+  expect((await rows(result.update.root))[0]).toEqual({ id: "a", title: "Alpha", done: true, tags: ["x"] });
 });

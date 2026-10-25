@@ -1,4 +1,4 @@
-import type { AuthoredUpdateIntent } from "./authored-contract.ts";
+import type { AuthoredUpdateIntent, DerivableUpdateIntent } from "./authored-contract.ts";
 import type { ObjectHash } from "../objects.ts";
 
 export interface UpdateConflict {
@@ -75,12 +75,20 @@ export interface AcceptedTransition extends TransitionPayload {
 }
 
 export interface CandidateUpdate extends TransitionPayload, AuthoredUpdateIntent {}
+/** An update as sent, whose roots may be left for the authority to derive (spec 10 §2). */
+export interface DerivableCandidateUpdate extends TransitionPayload, DerivableUpdateIntent {}
 
 export interface UpdateRequest {
   /** The accepted update from which this append-only string begins, or null to activate a reserved tree. */
   base: string | null;
   /** A nonempty ordered string; every later candidate derives from the preceding submitted candidate. */
   updates: CandidateUpdate[];
+}
+
+/** A request as sent: any element may leave roots for the authority to derive. */
+export interface DerivableUpdateRequest {
+  base: string | null;
+  updates: DerivableCandidateUpdate[];
 }
 
 /** One element's acceptance receipt. Observation progress is the enclosing
@@ -91,6 +99,10 @@ export interface UpdateResult {
   outcome: "unchanged" | "accepted";
   update: AcceptedUpdate;
   requestDigest: ObjectHash;
+  /** The root the authority derived; present only for a derived candidate. */
+  candidate?: ObjectHash;
+  /** For a stated candidate, from the candidate to `update.root`; for a
+   * derived one, from the preceding result's root (or the base's) to it. */
   reconciliation?: TransitionPayload;
 }
 
