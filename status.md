@@ -12,6 +12,31 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## People directory, tree picker and USL summaries — 2026-10-25
+
+Implemented and installed on Joe's Mac (main `6ebe9ea`); Joe 2026-10-25: "this will do for now".
+[People 001](plans/later/people-001-directory-and-go-to.md) phase 1 ("As built" there) and
+[Schema language 007](plans/soon/schema-language-007-edit-rows-in-story.md)'s row queue, which it
+writes through.
+
+- **Rows from Story go through the host.** Story sends row edits as derived candidates
+  (spec 10 §2.2) from a durable queue, shown over the rows until installed; an edit the
+  current rows no longer allow is left out rather than failing the batch (`330c48c`, `0e0d9d9`).
+- **The directory tree.** `/~handle/directory`, private, mounted in the profile, made from a
+  seed (`tools/directory-seed.ts`, `_version` 5) and kept by `PersonalDirectoryKeeper` in the
+  background. People holds `Tie` facts; Trees holds `Tree`, `Visit` and `Placement` facts, each
+  keyed so devices never race. A directory from an older seed is replaced, which empties it.
+- **USL summaries** ([spec 11 §8](docs/overstory-spec/11-schema-language.md#8-views)):
+  `rows: field`, `re Person { ~views }`, paths through connections, `~latest`, `~earliest`,
+  `~count` and `~ago`, in both stacks with shared vectors (`df636b4`). The Mac draws `~ago` as
+  a relative time.
+- **Finding it.** On the Mac the sidebar toolbar is the tree picker (Recent, Special, People &
+  Trees… ⇧⌘D, Open Tree…) with search below it; the People footer and sheet are gone
+  (`d79cc92`).
+- **Tests:** StoryKit (44), OverstoryClient (29) and OverstoryWorkingTree (136) package tests,
+  `bun run test:affected` and the Mac and iOS builds passed on Joe's Mac; the app-hosted Xcode
+  tests didn't run, as Story was open (small work).
+
 ## Collections in Story on the Mac — 2026-10-25
 
 Implemented (main `9b4fb9b`, `756aacb`, `58e23a6`); verified by Joe on 2026-10-25 against a

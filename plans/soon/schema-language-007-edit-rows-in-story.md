@@ -16,7 +16,7 @@ The People directory needs both, and the iPhone has no Story Sync.
 - **Effort:** M.
 - **Risk:** MEDIUM. A protocol addition overstoryd, Story Sync and both clients implement.
   No client encodes a collection's tables, so the two stacks can't disagree about them.
-- **State:** IN PROGRESS. Steps 1 and 3 done (aa1b44f, c716532); step 2 dropped; step 4 built, testing. 006 is done ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)); try edits on the games
+- **State:** IN PROGRESS. Steps 1 and 3 done (aa1b44f, c716532); step 2 dropped; step 4 built and in daily use by the People directory, which writes all its rows through it ([status](../../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)). 006 is done ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)); try edits on the games
   sandbox tree, which holds supplies-remake's live data.
 
 ## Joe's decisions (2026-10-25)

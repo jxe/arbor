@@ -112,8 +112,14 @@ short ids (`p1`, `p-ada`).
 ### Collection tests after 58e23a6
 
 - [ ] With Joe's debug Story quit, run `swift/scripts/test-story-app.sh` and
-  `bun run test:protocol` (its app-hosted step) at or after `58e23a6`, and add the counts to
-  status ("Collections in Story on the Mac").
+  `bun run test:protocol` (its app-hosted step) at or after `6ebe9ea`, and add the counts to
+  status ("Collections in Story on the Mac" and "People directory").
+
+### Story Sync and trees it hasn't placed
+
+- [ ] Story Sync answers 404 for objects of a tree it hasn't placed, so the Mac opens the
+  People directory with `HostObjectStore` instead of the window's usual store
+  (`openPersonalDirectory`). Serve such objects from the host, or say why not.
 
 ## Native release and hands-on review
 
