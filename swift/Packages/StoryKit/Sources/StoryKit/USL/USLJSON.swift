@@ -59,7 +59,7 @@ extension JSONValue {
         }
     }
 
-    var stringValue: String? {
+    public var stringValue: String? {
         switch self { case .string(let s): s; default: nil }
     }
     var numberValue: Double? {

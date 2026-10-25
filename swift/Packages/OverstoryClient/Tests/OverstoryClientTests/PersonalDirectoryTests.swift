@@ -21,9 +21,9 @@ struct PersonalDirectoryTests {
     func seed() async throws {
         try await withSeedTree { provider, tree in
             let people = try await provider.collectionRows(WorkspaceReference(tree: tree, path: PersonalDirectory.people))
-            #expect(people.rows.values.allSatisfy(\.isEmpty))
+            #expect(people.rows.values.allSatisfy { $0.isEmpty })
             let trees = try await provider.collectionRows(WorkspaceReference(tree: tree, path: PersonalDirectory.trees))
-            #expect(trees.rows.values.allSatisfy(\.isEmpty))
+            #expect(trees.rows.values.allSatisfy { $0.isEmpty })
         }
     }
 
