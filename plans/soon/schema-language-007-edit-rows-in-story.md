@@ -35,6 +35,11 @@ The People directory needs both, and the iPhone has no Story Sync.
 
 ## Steps
 
+Two parts (Joe, 2026-10-25). **Part 1, the backend** (steps 0–3): Story reads collections on
+the iPhone and writes row operations from code, offline, on both devices. People 001 phase 1
+starts when part 1 is done: the directory is kept by code and shown read-only. **Part 2,
+editing in the view** (steps 4–5), can follow or run beside People 001.
+
 0. **Read on the iPhone first.** 006's view on iOS, from the tree's own objects, offline. This
    half is all People 001 and 002 milestone 4 need to start.
 1. **Row operations on the Swift wire.** `RowOperation` in Overstory's authored contract,

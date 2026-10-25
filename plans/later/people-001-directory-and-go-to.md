@@ -16,8 +16,8 @@ are separate and later. The UX was worked out first in the doc
 
 > **Executor instructions**: Refresh "What happens today" against the source first; People and
 > the visit store will have moved. Do the phases in order and stop after each for Joe's
-> hands-on check. Settle forks 1–4 before phase 1; Go to… (a side slice, any time) needs
-> only fork 5.
+> hands-on check. Forks 1–3 are settled (Joe, 2026-10-25); settle fork 4 before phase 3. Go to…
+> (a side slice, any time) needs only fork 5.
 
 ## Status
 
@@ -27,9 +27,10 @@ are separate and later. The UX was worked out first in the doc
 - **State:** TODO.
 - **Order** (Joe, 2026-10-24): the directory tree comes first, because it is People's point;
   Go to… and tree-ID links are a side slice for any time.
-- **Gated on:** phase 1 on [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md)
-  (Story writes rows on Mac and iPhone; it is [Schema language 002](schema-language-002-cranberries-in-story.md)'s
-  milestone 3a) and on Schema language 006's read-only view ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)). Phase 2 on 002's milestones 3, 4 and 7. The Go to…
+- **Gated on:** phase 1 on part 1 of [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md),
+  its backend (Story writes rows from code on Mac and iPhone; part of [Schema language 002](schema-language-002-cranberries-in-story.md)'s
+  milestone 3a), not on editing in the view (Joe, 2026-10-25): in phase 1 the directory is kept
+  by code and shown read-only, and on Schema language 006's read-only view ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)). Phase 2 on 002's milestones 3, 4 and 7. The Go to…
   slice on nothing. Schema language 005 ([status](../../status.md#collections-that-sync--2026-10-24))
   is on main.
 - **Built on 002** (Joe, 2026-10-24): People is the directory's collection shown with 002's
@@ -271,13 +272,13 @@ two hosts, stop and bring it to Joe.
 
 ## Forks for Joe
 
-1. **Where the directory lives.** Recommended: its own private tree that the config tree
-   names. The config tree is governed by `tree-config-v1` (spec 04 §7), whose closed set of
+1. **Where the directory lives.** *Settled (Joe, 2026-10-25): its own tree.* Its own private
+   tree that the config tree names. The config tree is governed by `tree-config-v1` (spec 04 §7), whose closed set of
    files the server validates, so collections inside it would mean changing that policy. A
    separate tree could later be shared as a household address book.
-2. **Privacy.** Visits and sightings sync through the home host, which can then see them.
-   Accept that, or keep the Trees collection on each device.
-3. **Groups you can't edit.** Show them as locked headings, or only groups you're in.
+2. **Privacy.** *Settled (Joe, 2026-10-25): yes, they sync.* Visits and sightings sync through
+   the home host, which can then see them.
+3. **Groups you can't edit.** *Settled (Joe, 2026-10-25): show them, as locked headings.*
 4. **Placeholder invites.** One link that covers every group a placeholder is in, or one per
    group.
 5. **Go to… metadata.** Pages are in. Anything else beyond the list in the Go to… slice, such as front
