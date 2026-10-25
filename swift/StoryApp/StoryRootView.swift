@@ -558,9 +558,23 @@ private extension View {
 /// a layout pass after the split view resizes, which pushes the item into the
 /// overflow menu when the sidebar narrows. So the width is an AppKit constraint
 /// on the item's view, updated as the split view resizes.
+///
+/// It also sets `leadingOffset`, the row content's shift within the item: in
+/// full screen, where no window buttons sit before it, the shift that starts
+/// the tree picker at the search field's leading edge.
 private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
-    func makeNSView(context: Context) -> SizerView { SizerView() }
-    func updateNSView(_ view: SizerView, context: Context) { view.resize() }
+    @Binding var leadingOffset: CGFloat
+
+    func makeNSView(context: Context) -> SizerView {
+        let view = SizerView()
+        view.leadingOffsetChanged = { leadingOffset = $0 }
+        return view
+    }
+
+    func updateNSView(_ view: SizerView, context: Context) {
+        view.leadingOffsetChanged = { leadingOffset = $0 }
+        view.resize()
+    }
 
     static func dismantleNSView(_ view: SizerView, coordinator: ()) {
         view.tearDown()
@@ -569,8 +583,14 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
     final class SizerView: NSView {
         private static let toolbarLayoutAllowance: CGFloat = 32
         private static let minimumWidth: CGFloat = 60
-        /// The search row's trailing padding plus the content's offset.
-        private static let rowTrailingInset: CGFloat = 20
+        /// The search row's padding from the sidebar's edges.
+        private static let rowInset: CGFloat = 10
+        /// The content's shift beside the window buttons. AppKit reserves more
+        /// room after the item than before it; this centers the row between.
+        static let windowedLeadingOffset: CGFloat = 10
+
+        var leadingOffsetChanged: ((CGFloat) -> Void)?
+        private var leadingOffset = windowedLeadingOffset
 
         private var isDismantled = false
         private var observers: [NSObjectProtocol] = []
@@ -674,15 +694,23 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
                 return
             }
             if item.isHidden { item.isHidden = false }
-            // The row ends over the search row's order button: 32pt wide, 10pt
-            // in from the sidebar's edge, where the content's 10pt offset puts
-            // the sidebar toggle. Measured from where AppKit placed the item.
+            // The row spans the search field below it: it ends 10pt in from
+            // the sidebar's edge, and in full screen starts 10pt in. Measured
+            // from where AppKit placed the item.
             let itemMinX = view.convert(view.bounds, to: nil).minX
-            let sidebarMaxX = sidebar.convert(sidebar.bounds, to: nil).maxX
+            let sidebarFrame = sidebar.convert(sidebar.bounds, to: nil)
+            let offset = itemMinX > 0 && buttonsInset(in: window) == 0
+                ? sidebarFrame.minX + Self.rowInset - itemMinX
+                : Self.windowedLeadingOffset
+            if abs(offset - leadingOffset) > 0.5 {
+                leadingOffset = offset
+                let changed = leadingOffsetChanged
+                DispatchQueue.main.async { changed?(offset) }
+            }
             let width = max(
                 Self.minimumWidth,
                 itemMinX > 0
-                    ? sidebarMaxX - Self.rowTrailingInset - itemMinX
+                    ? sidebarFrame.maxX - Self.rowInset - offset - itemMinX
                     : sidebar.frame.width - buttonsInset(in: window) - Self.toolbarLayoutAllowance
             )
             if view !== itemView {
@@ -762,7 +790,8 @@ private struct MacPageOrderPicker: NSViewRepresentable {
             button.addItem(withTitle: order.label)
             let item = button.lastItem
             item?.representedObject = order.rawValue
-            item?.image = NSImage(systemSymbolName: order.symbol, accessibilityDescription: order.label)
+            item?.image = NSImage(systemSymbolName: order.symbol, accessibilityDescription: order.label)?
+                .withSymbolConfiguration(.init(pointSize: 12, weight: .regular))
             item?.image?.isTemplate = true
         }
         return button
@@ -799,11 +828,11 @@ private final class PageOrderPopUpButton: NSPopUpButton {
     override var focusRingMaskBounds: NSRect { bounds }
 
     override func drawFocusRingMask() {
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: 6, yRadius: 6).fill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 5, yRadius: 5).fill()
     }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: 32, height: 32)
+        NSSize(width: 24, height: 24)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1044,31 +1073,41 @@ struct StoryPageSearchControls: View {
                     .help("Clear Search")
                     .accessibilityLabel("Clear Search")
                 }
-            }
-            .padding(.horizontal, 8)
 #if os(macOS)
-            .frame(height: 28)
+                // The order lives in the field's trailing end, after the clear
+                // button, so the field spans the row under the tree picker.
+                MacPageOrderPicker(selection: $order)
+                    .frame(width: 24, height: 24)
+                    .mutedMacToolbarHover()
+                    .help("Page order: \(order.label)")
+#endif
+            }
+            .padding(.leading, 8)
+#if os(macOS)
+            .padding(.trailing, 4)
+#else
+            .padding(.trailing, 8)
+#endif
+#if os(macOS)
+            // The tree picker's height above it.
+            .frame(height: 32)
 #else
             .frame(height: 40)
 #endif
             .background {
+                // A fill reads it as a place to type, apart from the
+                // hairline-bordered buttons around it; focused, it gains one.
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color.primary.opacity(isShowingFocus ? 0.065 : 0.035))
+                    .fill(Color.primary.opacity(isShowingFocus ? 0.065 : 0.05))
                     .overlay {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .stroke(
-                                Color.primary.opacity(isShowingFocus ? 0.18 : 0.075),
-                                lineWidth: 0.75
-                            )
+                        if isShowingFocus {
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .stroke(Color.primary.opacity(0.18), lineWidth: 0.75)
+                        }
                     }
             }
 
-#if os(macOS)
-            MacPageOrderPicker(selection: $order)
-                .frame(width: 32, height: 32)
-                .mutedMacToolbarHover()
-                .help("Page order: \(order.label)")
-#else
+#if os(iOS)
             Menu {
                 ForEach(StorySidebarPageOrder.allCases) { candidate in
                     Button {
@@ -1098,9 +1137,10 @@ struct StoryPageSearchControls: View {
 #endif
     }
 
+    /// On the Mac, the tree picker's radius above it.
     private var cornerRadius: CGFloat {
 #if os(macOS)
-        7
+        6
 #else
         10
 #endif
@@ -1183,6 +1223,9 @@ struct StoryRootView: View {
     @State private var storySyncLogs = ""
     @State private var voiceLaunchReady = false
     @AppStorage("pageOrder.sidebar") private var sidebarPageOrder = StorySidebarPageOrder.folders
+#if os(macOS)
+    @State private var sidebarRowLeadingOffset = MacSidebarSearchTitlebarSizer.SizerView.windowedLeadingOffset
+#endif
     @AppStorage("collapsedSections.sidebar") private var sidebarCollapsedSections = StoryCollapsedPageSections()
     @AppStorage(StoryIOSSettings.showsSidebarHandleKey) private var showsSidebarHandle = true
     @State private var sidebarSearchText = ""
@@ -1763,12 +1806,12 @@ struct StoryRootView: View {
         VStack(spacing: 0) {
             sidebarPagesHeader
                 .padding(.horizontal, 10)
-                .padding(.top, 4)
+                .padding(.top, 6)
                 .padding(.bottom, 6)
             sidebarReviewContent
         }
         .modifier(StorySidebarSurface(showsDivider: true))
-        .background { MacSidebarSearchTitlebarSizer() }
+        .background { MacSidebarSearchTitlebarSizer(leadingOffset: $sidebarRowLeadingOffset) }
         .task { await refreshSidebarAccounts() }
         // Toolbar content declared on the sidebar column occupies the
         // toolbar's sidebar section, over the sidebar in the titlebar. The
@@ -1777,17 +1820,16 @@ struct StoryRootView: View {
             if columnVisibility != .detailOnly {
                 ToolbarItem {
                     // The tree picker fills the row; the sidebar toggle ends
-                    // it, over the search row's order button.
+                    // it, both edges over the search field's.
                     HStack(spacing: 4) {
                         sidebarTreePicker
                             .frame(maxWidth: .infinity, alignment: .leading)
                         macSidebarToggle
                     }
                         .frame(maxWidth: .infinity)
-                        // AppKit reserves more room after this item than before it.
-                        // Use part of the toolbar layout allowance to center the
-                        // visible search controls without increasing the item width.
-                        .offset(x: 10)
+                        // Set by the sizer: shifted within the item without
+                        // increasing its width.
+                        .offset(x: sidebarRowLeadingOffset)
                 }
                 .sharedBackgroundVisibility(.hidden)
             }
@@ -1904,11 +1946,9 @@ struct StoryRootView: View {
 #endif
         } label: {
 #if os(macOS)
-            // Sized and highlighted like the sidebar toggle beside it.
+            // Sized and highlighted like the sidebar toggle beside it. The
+            // title leads, with the tree's own emoji if it has one.
             HStack(spacing: 6) {
-                Image(systemName: "folder")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(mutedMacToolbarForeground)
                 Text(currentSidebarTreeTitle)
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
