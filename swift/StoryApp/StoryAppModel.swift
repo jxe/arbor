@@ -292,6 +292,11 @@ final class StoryWorkspaceState {
     /// People the directory remembers by name: profiles Story has seen, and
     /// placeholders as `contact:<key>`.
     private(set) var rememberedPeople: [PresentedPerson] = []
+    /// Trees that are yours to keep: your profile, your account's
+    /// configuration, and the groups you run, named for people.
+    private(set) var specialTrees: [PickerTree] = []
+    /// Other trees by latest visit, from the directory.
+    private(set) var recentTrees: [PickerTree] = []
     var pendingProfileAction: StoryProfileAction?
     private let nativePlacementStore = NativePlacementStore()
     private(set) var nativePlacements: [NativePlacementRecord] = []
@@ -3607,6 +3612,7 @@ extension StoryWorkspaceState {
             UserDefaults.standard.set(true, forKey: imported)
         }
 #endif
+        await refreshSpecialTrees(accounts: accounts)
         await refreshRememberedPeople()
     }
 
@@ -3662,6 +3668,7 @@ extension StoryWorkspaceState {
             guard await keeper.tree?.id != visit.tree else { return }
             if let host, let endpoint { visit.canopy = await canopy(host: host, endpoint: endpoint) }
             await keeper.record([visit])
+            await refreshRecentTrees()
         }
     }
 
@@ -3700,6 +3707,62 @@ extension StoryWorkspaceState {
 #endif
     }
 
+    /// Your profile, your account's configuration, and each group you run
+    /// (a writable profile other than your own), for every connected account;
+    /// each is also kept as a tree in the directory.
+    func refreshSpecialTrees(accounts: [HostAccount]) async {
+        var special: [PickerTree] = []
+        var trees: [DirectoryVisit] = []
+        for account in accounts where account.credentialAvailable {
+            guard let client = try? await accountService.client(for: account),
+                  let descriptor = try? await client.account().account else { continue }
+            let host = account.origin?.host()
+            let you = account.handle.map { "~\($0)" }
+            let community = descriptor.community.id
+            let name = { (tree: String) in self.directory.first { $0.id == tree }?.entry.displayName }
+            func add(_ tree: String, _ title: String, _ treeTitle: String?, _ subtitle: String?) {
+                guard !special.contains(where: { $0.id == tree }) else { return }
+                special.append(PickerTree(id: tree, title: title, subtitle: subtitle))
+                trees.append(DirectoryVisit(tree: tree, path: "/", treeTitle: treeTitle ?? title, host: host,
+                                            canopy: tree == community ? nil : community))
+            }
+            let place = [you, host].compactMap { $0 }.joined(separator: " · ")
+            if let profile = descriptor.profileTree {
+                add(profile, name(profile).map { "You (\($0))" } ?? "You", name(profile), place)
+            }
+            add(descriptor.configuration.id, "Account Settings", you.map { "Account Settings (\($0))" }, place)
+            for group in descriptor.writableProfiles where group.id != descriptor.profileTree {
+                let title = name(group.id) ?? group.canonicalPath?.split(separator: "/").last.map(String.init) ?? group.id
+                add(group.id, title, nil, group.id == community ? "Community you run" : "Group you run")
+            }
+        }
+        specialTrees = special
+        await personalDirectory?.record(trees: trees)
+        await refreshRecentTrees()
+    }
+
+    /// The directory's trees by latest visit, leaving out the special ones
+    /// and the directory itself.
+    func refreshRecentTrees() async {
+        guard let keeper = personalDirectory else { return }
+        let rows = Dictionary(await keeper.rows(PersonalDirectory.trees, model: "Tree").compactMap { row in
+            row["id"]?.stringValue.map { ($0, row) }
+        }, uniquingKeysWith: { first, _ in first })
+        var latest: [String: String] = [:]
+        for visit in await keeper.rows(PersonalDirectory.trees, model: "Visit") {
+            guard let tree = visit["tree"]?.stringValue, let at = visit["at"]?.stringValue else { continue }
+            if (latest[tree] ?? "") < at { latest[tree] = at }
+        }
+        let skip = Set(specialTrees.map(\.id) + [personalDirectoryTree?.tree.id].compactMap { $0 })
+        recentTrees = latest.filter { !skip.contains($0.key) }.sorted { $0.value > $1.value }.prefix(Self.recentTreeCount).map { tree, _ in
+            let host = rows[tree]?["host"]?.stringValue
+            let title = rows[tree]?["title"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? host ?? tree
+            return PickerTree(id: tree, title: title, subtitle: host)
+        }
+    }
+
+    static let recentTreeCount = 8
+
     /// Names for the people the directory remembers: each profile by the
     /// latest name a tie saw, and each contact as `contact:<key>`.
     func refreshRememberedPeople() async {
@@ -3720,4 +3783,11 @@ extension StoryWorkspaceState {
         rememberedPeople = (seen.map { PresentedPerson(id: $0.key, name: $0.value.name) } + contacts)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
+}
+
+/// A tree the tree picker lists by name.
+struct PickerTree: Identifiable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let subtitle: String?
 }

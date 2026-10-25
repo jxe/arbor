@@ -263,6 +263,16 @@ public actor PersonalDirectoryKeeper {
     /// Record arriving at pages; each page opened at most once an hour on this device.
     /// A tree's row gets the canopy and title it lacked when a visit knows them.
     public func record(_ visits: [DirectoryVisit]) async {
+        await note(visits, visiting: true)
+    }
+
+    /// Record trees you have without arriving anywhere, such as your profile
+    /// and the groups you run: their `Tree` rows only.
+    public func record(trees: [DirectoryVisit]) async {
+        await note(trees, visiting: false)
+    }
+
+    private func note(_ visits: [DirectoryVisit], visiting: Bool) async {
         var known = Dictionary(await rows(PersonalDirectory.trees, model: "Tree").compactMap { row in
             row["id"]?.stringValue.map { ($0, row) }
         }, uniquingKeysWith: { first, _ in first })
@@ -283,6 +293,7 @@ public actor PersonalDirectoryKeeper {
                 // Queued, not yet in the rows: nothing to fill in for it.
                 known[visit.tree] = [:]
             }
+            guard visiting else { continue }
             let key = visit.tree + "\0" + visit.path
             if visit.arrival == .opened, let last = lastVisit[key], abs(visit.at.timeIntervalSince(last)) < Self.visitSpacing { continue }
             lastVisit[key] = visit.at
