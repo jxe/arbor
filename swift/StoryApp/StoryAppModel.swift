@@ -3727,7 +3727,8 @@ extension StoryWorkspaceState {
 
     /// Your profile, your account's configuration, and each group you run
     /// (a writable profile other than your own), for every connected account;
-    /// each is also kept as a tree in the directory.
+    /// each is also kept as a tree in the directory, as are the trees placed
+    /// on this device.
     func refreshSpecialTrees(accounts: [HostAccount]) async {
         var special: [PickerTree] = []
         var trees: [DirectoryVisit] = []
@@ -3755,6 +3756,23 @@ extension StoryWorkspaceState {
             }
         }
         specialTrees = special
+        // Trees placed on this device are yours too, opened or not.
+        let specialIDs = Set(special.map(\.id))
+#if os(macOS)
+        if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
+        for placed in localStorySyncOverview?.trees ?? [] where placed.path != nil && !placed.missing && !specialIDs.contains(placed.id) {
+            let host = placed.canonicalEndpoint.flatMap { URL(string: $0)?.host() }
+            let title = placed.canonicalPath?.split(separator: "/").last.map(String.init) ?? placed.name
+            trees.append(DirectoryVisit(tree: placed.id, path: "/", treeTitle: title, host: host,
+                                        canopy: host.flatMap { canopies[$0] }, arrival: .placed))
+        }
+#else
+        for placed in nativePlacements where !specialIDs.contains(placed.tree.id) {
+            let host = placed.origin.host()
+            trees.append(DirectoryVisit(tree: placed.tree.id, path: "/", treeTitle: placed.tree.canonicalPath?.split(separator: "/").last.map(String.init),
+                                        host: host, canopy: host.flatMap { canopies[$0] }, arrival: .placed))
+        }
+#endif
         await personalDirectory?.record(trees: trees)
         await refreshRecentTrees()
     }
