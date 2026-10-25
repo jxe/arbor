@@ -34,9 +34,11 @@ Tie.group? <-> Person.members[]
 Tie.kind <-> TieKind.ties[]
 Contact.profile? <-> Person.contacts[]
 
+// One line per person, whatever the ties behind it.
 re Tie {
   ~views([
-    { label: "By group", group: group, line: [person] },
-    { label: "By person", group: person, line: [kind, group] },
+    { label: "By group", group: group, rows: person, line: [person] },
+    { label: "Everyone", rows: person, line: [person, group, kind], sort: person },
+    { label: "Recent", rows: person, line: [person, kind], sort: modified ~latest },
   ])
 }

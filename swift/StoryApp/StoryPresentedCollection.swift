@@ -196,8 +196,8 @@ private struct StoryCollectionLine<Avatar: View>: View {
     @ViewBuilder
     private func cellView(_ cell: PresentedCell, tint: Color?) -> some View {
         switch cell {
-        case let .text(_, _, value, _):
-            let text = Self.display(value)
+        case let .text(_, _, value, ago):
+            let text = ago ? Self.ago(value) : Self.display(value)
             if !text.isEmpty {
                 Text(text)
                     .foregroundStyle(tint ?? .primary)
@@ -223,6 +223,14 @@ private struct StoryCollectionLine<Avatar: View>: View {
                 Text(value).foregroundStyle(color.flatMap(Color.init(collectionHex:)) ?? .secondary)
             }
         }
+    }
+
+    /// A date as "3 hours ago"; other values as they are.
+    private static func ago(_ value: JSONValue) -> String {
+        guard let text = value.stringValue,
+              let date = (try? Date(text, strategy: .iso8601)) ?? (try? Date(text, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: true)))
+        else { return display(value) }
+        return RelativeDateTimeFormatter().localizedString(for: date, relativeTo: .now)
     }
 
     /// "authors" → "author", for "No author" and counts.

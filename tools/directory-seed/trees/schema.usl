@@ -38,7 +38,8 @@ Placement.tree <-> Tree.placements[]
 
 re Tree {
   ~views([
-    { label: "By owner", group: owner, line: [title, path] },
-    { label: "By kind", group: kind, line: [title, path] },
+    { label: "Recent", line: [title, owner, visits.at ~latest ~ago], sort: visits.at ~latest },
+    { label: "By kind", group: kind, line: [title, owner, parent] },
+    { label: "By owner", group: owner, line: [title, visits.at ~latest ~ago] },
   ])
 }
