@@ -56,10 +56,9 @@ describe("story/data query planning", () => {
     expect(() => compileQuery(fromPeople, schema)).toThrow("must stay inside the database");
   });
 
-  // Rename 002: authored sources may still carry the old spelling.
-  test("reads the old arbor: node path", () => {
-    expect(node("arbor://garden.example/~ada/data/List").path).toBe("arbor://garden.example/~ada/data/List");
+  test("reads an overstory: node path and refuses other schemes", () => {
     expect(node("overstory://garden.example/~ada/data/List").children).toBeDefined();
+    expect(() => node("arbor://garden.example/~ada/data/List")).toThrow("node() requires");
     expect(() => node("ftp://garden.example/data/List")).toThrow("node() requires");
   });
 });

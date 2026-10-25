@@ -24,15 +24,15 @@ struct IgnorePolicyTests {
         var cases: [Case]
     }
 
-    /// Rename 002: the old-spelling cases the TypeScript policy also runs. Delete with the aliases.
-    struct LegacyFixture: Decodable {
+    /// The kept old names (docs/architecture/old-names.md): cases the TypeScript policy also runs.
+    struct KeptFixture: Decodable {
         var ignorePolicy: [Case]
     }
 
-    static func legacyCases() throws -> [Case] {
+    static func keptCases() throws -> [Case] {
         let root = ProcessInfo.processInfo.environment["STORY_REFERENCE_FIXTURES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../tests/fixtures").standardizedFileURL
-        return try JSONDecoder().decode(LegacyFixture.self, from: Data(contentsOf: root.appending(path: "legacy-names/aliases.json"))).ignorePolicy
+        return try JSONDecoder().decode(KeptFixture.self, from: Data(contentsOf: root.appending(path: "old-names/kept.json"))).ignorePolicy
     }
 
     static func cases() throws -> [Case] {
@@ -52,10 +52,19 @@ struct IgnorePolicyTests {
         try decide(Self.cases())
     }
 
-    // Rename 002: the names from before the Overstory rename are read and never written.
-    @Test("The old ignore file, state directory and temporaries are read as the TypeScript policy reads them")
-    func legacyFixture() throws {
-        try decide(Self.legacyCases())
+    @Test("The old state directory and temporaries are decided as the TypeScript policy decides them")
+    func keptFixture() throws {
+        try decide(Self.keptCases())
+    }
+
+    @Test("A .arborignore is ordinary content now")
+    func oldIgnoreFileIsContent() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "ignore-old-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try place(".arborignore", Data("draft.md\n".utf8), in: root)
+        let policy = IgnorePolicy(root: root)
+        #expect(!IgnorePolicy.isIgnoreFileName(".arborignore"))
+        #expect(policy.decision("/draft.md", isDirectory: false).membership == .included)
     }
 
     private func decide(_ cases: [Case]) throws {
@@ -109,7 +118,7 @@ struct IgnorePolicyTests {
         #expect(paths == ["/", "/notes", "/notes/kept"])
     }
 
-    // Rename 002: the preview and name validation follow the same old names.
+    // The preview and name validation follow the same kept old names.
     @Test("The old state directory and old temporaries are never tree content")
     func legacyMandatoryNames() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "ignore-legacy-\(UUID().uuidString)", directoryHint: .isDirectory)

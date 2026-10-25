@@ -15,7 +15,7 @@ export const WORKSPACE_WATCHER_IGNORE_GLOBS = [
   ...[...IGNORED_WORKSPACE_DIRECTORIES].map((name) => `**/${name}/**`),
   "**/*.overstory-txn-*",
   "**/*.overstory-write-*",
-  // Rename 002: temporaries left by a build from before the Overstory rename.
+  // Temporaries left by a build from before the Overstory rename (old names, "Kept").
   "**/*.arbor-txn-*",
   "**/*.arbor-write-*",
   "**/.DS_Store",

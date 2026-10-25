@@ -1,4 +1,3 @@
-import { normalizeLegacyLocator } from "./logical-url.ts";
 
 /** Resource policy is independent of transport credentials and provider implementation. */
 export const ACCESS_OPERATIONS = [
@@ -78,10 +77,9 @@ export function isHomeHostOrigin(value: string): boolean {
  */
 export function parseProfileLocator(input: unknown): { locator: string; origin: string } | null {
   if (typeof input !== "string") return null;
-  // Rename 002: `arbor://host/path` is read as `overstory://host/path`.
   // A join link names the account it invites to: its `#overstory-invite=`
   // code is a secret, never part of the canonical spelling or the pin key.
-  const value = normalizeLegacyLocator(input).replace(/^((?:overstory|https?):\/\/[^?#]*)#overstory-invite=[A-Za-z0-9._~-]+$/, "$1");
+  const value = input.replace(/^((?:overstory|https?):\/\/[^?#]*)#overstory-invite=[A-Za-z0-9._~-]+$/, "$1");
   // URL parsing folds dot segments away, so they are refused as written.
   if (value.startsWith("tr_") || /\/\.{1,2}(\/|$)/.test(value)) return null;
   let url: URL;

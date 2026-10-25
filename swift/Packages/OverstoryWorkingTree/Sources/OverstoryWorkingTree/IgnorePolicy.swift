@@ -33,20 +33,14 @@ public final class IgnorePolicy {
     /// Directory names that are never tree content, wherever they appear.
     public static let mandatoryDirectoryNames: Set<String> = [
         ".git", "node_modules", ".overstory",
-        // Rename 002: a device's state directory from before the Overstory rename.
+        // A device's state directory from before the Overstory rename (old names, "Kept").
         ".arbor",
         "Trash", ".build", "DerivedData",
     ]
     /// Ignore-rule files, lowest precedence first: `.overstoryignore` wins over `.gitignore` beside it.
     public static let ignoreFileNames = [".gitignore", ".overstoryignore"]
-    /// Rename 002: `.overstoryignore` as folders from before the Overstory rename
-    /// spell it. Its rules are read in `.overstoryignore`'s place when a directory
-    /// has no `.overstoryignore`; beside one it contributes no rules. Either way
-    /// it is an ignore file: tree content that no rule can ignore.
-    public static let legacyIgnoreFileName = ".arborignore"
-
     public static func isIgnoreFileName(_ name: String) -> Bool {
-        ignoreFileNames.contains(name) || name == legacyIgnoreFileName
+        ignoreFileNames.contains(name)
     }
 
     public let root: URL
@@ -77,7 +71,7 @@ public final class IgnorePolicy {
     /// An Overstory write or transaction temporary.
     static func isTransactionTemporaryName(_ name: String) -> Bool {
         name.contains(".overstory-write-") || name.contains(".overstory-txn-")
-            // Rename 002: strays left by a build from before the Overstory rename are never content.
+            // Strays left by a build from before the Overstory rename are never content (old names, "Kept").
             || name.contains(".arbor-write-") || name.contains(".arbor-txn-")
     }
 
@@ -135,8 +129,6 @@ public final class IgnorePolicy {
         if let loaded = files[key] { return loaded }
         let loaded = Self.ignoreFileNames.compactMap { name in
             readRules(segments + [name])
-                // Rename 002: the old name is read only where the new one is absent.
-                ?? (name == ".overstoryignore" ? readRules(segments + [Self.legacyIgnoreFileName]) : nil)
         }
         files[key] = loaded
         return loaded

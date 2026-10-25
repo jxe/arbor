@@ -2175,7 +2175,7 @@ struct TransferPlanTests {
     @Test("Moved relative links are rewritten to lead where they did from the destination's directory")
     func movedLinksAreRebased() throws {
         // /Social/Life.md moves a section to /Social.md, whose links resolve from the root.
-        let origin = "Intro\n\n# Search\n\n[Questions](../Work/3-Questions.md#arbor-key=id:341rcu)\n\n[Dating](../Dating-profiles.md#overstory-key=id:24vifr)\n\n"
+        let origin = "Intro\n\n# Search\n\n[Questions](../Work/3-Questions.md#overstory-key=id:341rcu)\n\n[Dating](../Dating-profiles.md#overstory-key=id:24vifr)\n\n"
             + "- See [the plan](Plans/2026.md?view=board#goals) and ![map](Assets/map.png)\n  - [nested](./Sub/page.md)\n\n"
             + "[Web](https://example.org/a.md) and [rooted](/Top.md) and [tree](overstory://tr_other/x) stay.\n"
         let destination = "# Social\n\nBody.\n"
@@ -2183,7 +2183,7 @@ struct TransferPlanTests {
         let b = StoryMarkdownCodec.open(source: destination, revision: "b1", identitySeed: "destination")
         let planned = try #require(StoryMarkdownCodec.transfer([a.blocks[1]], from: a.blocks, ledger: a.ledger, into: b, relink: (from: "/Social", to: "/")))
         #expect(planned.originSource == "Intro\n\n")
-        #expect(planned.destinationSource == "# Social\n\nBody.\n\n# Search\n\n[Questions](Work/3-Questions.md#arbor-key=id:341rcu)\n\n[Dating](Dating-profiles.md#overstory-key=id:24vifr)\n\n"
+        #expect(planned.destinationSource == "# Social\n\nBody.\n\n# Search\n\n[Questions](Work/3-Questions.md#overstory-key=id:341rcu)\n\n[Dating](Dating-profiles.md#overstory-key=id:24vifr)\n\n"
             + "- See [the plan](Social/Plans/2026.md?view=board#goals) and ![map](Social/Assets/map.png)\n  - [nested](Social/Sub/page.md)\n\n"
             + "[Web](https://example.org/a.md) and [rooted](/Top.md) and [tree](overstory://tr_other/x) stay.\n")
         // One exact change: the moves and edits reproduce both sources.
@@ -2193,17 +2193,17 @@ struct TransferPlanTests {
             moves: planned.moves, edits: planned.edits, originSource: planned.originSource, destinationSource: planned.destinationSource)
         #expect(transfer.moves.count == 1)
         #expect(transfer.edits.filter { $0.document == .origin }.map(\.edit.replacement)
-            == ["Work/3-Questions.md#arbor-key=id:341rcu", "Dating-profiles.md#overstory-key=id:24vifr", "Social/Plans/2026.md?view=board#goals", "Social/Assets/map.png", "Social/Sub/page.md"])
+            == ["Work/3-Questions.md#overstory-key=id:341rcu", "Dating-profiles.md#overstory-key=id:24vifr", "Social/Plans/2026.md?view=board#goals", "Social/Assets/map.png", "Social/Sub/page.md"])
         // The rewritten links name the same nodes from the new directory.
-        #expect(resolveNodeTarget(sourceDirectory: "/", href: "Work/3-Questions.md#arbor-key=id:341rcu")
-            == resolveNodeTarget(sourceDirectory: "/Social", href: "../Work/3-Questions.md#arbor-key=id:341rcu"))
+        #expect(resolveNodeTarget(sourceDirectory: "/", href: "Work/3-Questions.md#overstory-key=id:341rcu")
+            == resolveNodeTarget(sourceDirectory: "/Social", href: "../Work/3-Questions.md#overstory-key=id:341rcu"))
         // Deeper, a link gains the steps back up.
         let deeper = try #require(StoryMarkdownCodec.transfer([a.blocks[1]], from: a.blocks, ledger: a.ledger, into: b, relink: (from: "/Social", to: "/Social/Life/Notes")))
-        #expect(deeper.destinationSource.contains("[Questions](../../../Work/3-Questions.md#arbor-key=id:341rcu)"))
+        #expect(deeper.destinationSource.contains("[Questions](../../../Work/3-Questions.md#overstory-key=id:341rcu)"))
         #expect(deeper.destinationSource.contains("[nested](../../Sub/page.md)"))
         // Without a change of directory the bytes move untouched.
         let same = try #require(StoryMarkdownCodec.transfer([a.blocks[1]], from: a.blocks, ledger: a.ledger, into: b))
-        #expect(same.destinationSource.contains("[Questions](../Work/3-Questions.md#arbor-key=id:341rcu)"))
+        #expect(same.destinationSource.contains("[Questions](../Work/3-Questions.md#overstory-key=id:341rcu)"))
     }
 
     @Test("Blocks retyped into another directory keep their links' targets")
@@ -2407,65 +2407,6 @@ struct MarkdownLinkWritingTests {
                 resolveNodeTarget(sourceDirectory: directory.sourceDirectory, href: $0.reference.rawValue)?.path
             }
             #expect(generated.sorted() == item.expectedGeneratedChildren.sorted(), comment)
-            #expect(StoryMarkdownCodec.admission(blocks: projected, ledger: opened.ledger).0.source == item.source, comment)
-        }
-    }
-
-    // Rename 002: `tests/fixtures/legacy-names/aliases.json` holds the old-spelling cases the
-    // TypeScript reader also runs. Delete with the aliases.
-    private struct LegacyMarkerFixture: Decodable {
-        struct Case: Decodable {
-            var name: String
-            var directory: DirectoryFixture.Case.Placement
-            var source: String
-            var children: [DirectoryFixture.Case.Child]
-            var expectedGeneratedChildren: [String]
-            var expectedGeneratedAfterMarker: Bool
-            var expectedDiagnosticCodes: [String]
-        }
-        var childrenMarker: [Case]
-    }
-
-    private static func legacyAliases() throws -> Data {
-        let root = ProcessInfo.processInfo.environment["STORY_REFERENCE_FIXTURES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../tests/fixtures").standardizedFileURL
-        return try Data(contentsOf: root.appending(path: "legacy-names/aliases.json"))
-    }
-
-    @Test("The old children marker is read as the marker and kept as written")
-    func legacyChildrenMarkerVectors() throws {
-        let fixture = try JSONDecoder().decode(LegacyMarkerFixture.self, from: Self.legacyAliases())
-        #expect(!fixture.childrenMarker.isEmpty)
-        for item in fixture.childrenMarker {
-            let directory = Self.node(item.directory.path, body: item.directory.body)
-            let children = item.children.map { Self.node($0.path, body: $0.body, stableKey: $0.stableKey, title: $0.name) }
-            let opened = StoryMarkdownCodec.open(source: item.source, revision: "r1", identitySeed: item.name)
-            let projected = StoryMarkdownCodec.placeDirectoryChildren(
-                children,
-                in: opened.blocks,
-                directory: directory.reference,
-                sourceDirectory: directory.sourceDirectory
-            ).document
-            let comment = Comment(rawValue: item.name)
-            // Document order: each marker (shown as "Children") and each generated row.
-            func order(_ blocks: [Block]) -> [String] {
-                blocks.flatMap { block -> [String] in
-                    var own: [String] = []
-                    if case let .unsupported(_, display) = block.kind, display == "Children" { own = ["marker"] }
-                    if StoryMarkdownCodec.isProjectedChild(block), case let .documentLink(_, reference) = block.kind {
-                        own = [resolveNodeTarget(sourceDirectory: directory.sourceDirectory, href: reference.rawValue)?.path ?? reference.rawValue]
-                    }
-                    return own + order(block.children)
-                }
-            }
-            let sequence = order(projected)
-            let markers = sequence.filter { $0 == "marker" }.count
-            // Two markers are the duplicate the TypeScript reader diagnoses; nothing is generated.
-            #expect((markers > 1) == item.expectedDiagnosticCodes.contains("duplicate-children-marker"), comment)
-            #expect(sequence.filter { $0 != "marker" } == item.expectedGeneratedChildren, comment)
-            if item.expectedGeneratedAfterMarker {
-                #expect(Array(sequence.prefix(1 + item.expectedGeneratedChildren.count)) == ["marker"] + item.expectedGeneratedChildren, comment)
-            }
             #expect(StoryMarkdownCodec.admission(blocks: projected, ledger: opened.ledger).0.source == item.source, comment)
         }
     }

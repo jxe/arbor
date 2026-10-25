@@ -84,8 +84,7 @@ public struct ProfileLocator: Hashable, Sendable {
         switch scheme {
         case "https": output = "https"
         case "http" where loopback: output = "http"
-        // Rename 002: `arbor://host/path` is read as `overstory://host/path`.
-        case "overstory", "arbor": output = loopback ? "http" : "https"
+        case "overstory": output = loopback ? "http" : "https"
         default: return nil
         }
         let implied = output == "https" ? 443 : 80

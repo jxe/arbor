@@ -75,21 +75,8 @@ struct ResourcePolicyTests {
         #expect(throws: (any Error).self) { try ProtocolAppAccessRule(resource: "tr_notes", who: .profile("https://club.example/"), allow: [.read]) }
     }
 
-    // Rename 002: `arbor://` is read as `overstory://` and never written. The cases are the
-    // ones the TypeScript parser runs, in `tests/fixtures/legacy-names/aliases.json`.
-    @Test func theOldSchemeNamesTheSameProfile() throws {
-        let fixture = try #require(JSONSerialization.jsonObject(with: legacyAliases()) as? [String: Any])
-        let cases = try #require(fixture["profileLocators"] as? [[String: String]])
-        #expect(!cases.isEmpty)
-        for item in cases {
-            let input = try #require(item["input"])
-            let parsed = try #require(ProfileLocator(input), "\(input)")
-            #expect(parsed.locator == item["locator"], "\(input)")
-            #expect(parsed.origin == item["origin"], "\(input)")
-            let decoded = try JSONDecoder().decode(ProtocolResourceWho.self, from: JSONSerialization.data(withJSONObject: ["profile": input]))
-            #expect(decoded == .profile(parsed.locator))
-            #expect(String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self).contains("arbor") == false)
-        }
+    @Test func theOldSchemeIsNotAProfile() {
+        #expect(ProfileLocator("arbor://club.example/~club") == nil)
         #expect(ProfileLocator("arbor://tr_club/") == nil)
     }
 
@@ -118,36 +105,16 @@ struct TreeConfigurationTests {
         }
     }
 
-    // Rename 002: `;arbor-config` is read as `;overstory-config` and never written.
-    @Test func bothConfigurationSpellingsAreRead() throws {
+    @Test func configurationReferencesAreRead() throws {
         #expect(treeConfigurationParameter == "overstory-config")
-        let fixture = try #require(JSONSerialization.jsonObject(with: legacyAliases()) as? [String: Any])
-        let cases = try #require(fixture["treeReferences"] as? [[String: Any]])
-        #expect(!cases.isEmpty)
-        for item in cases {
-            let value = try #require(item["value"] as? String)
-            let parsed = parseTreeReference(value)
-            if item["invalid"] as? Bool == true {
-                #expect(parsed == nil, "\(value)")
-            } else {
-                #expect(parsed?.tree == item["tree"] as? String, "\(value)")
-                #expect(parsed?.configuration == item["configuration"] as? Bool, "\(value)")
-            }
-        }
         let new = try #require(parseTreeReference("tr_abc;overstory-config"))
         #expect(new.tree == "tr_abc" && new.configuration)
         let plain = try #require(parseTreeReference("tr_abc"))
         #expect(plain.tree == "tr_abc" && !plain.configuration)
         #expect(parseTreeReference("notes;overstory-config") == nil)
-        let split = splittingTreeConfigurationParameter("https://host.example/~joe/todos;arbor-config")
+        let split = splittingTreeConfigurationParameter("https://host.example/~joe/todos;overstory-config")
         #expect(split.reference == "https://host.example/~joe/todos" && split.configuration)
+        #expect(parseTreeReference("tr_abc;arbor-config") == nil)
         #expect(splittingTreeConfigurationParameter("/~joe/todos").configuration == false)
     }
-}
-
-/// Rename 002: the old-spelling cases shared with TypeScript. Delete with the aliases.
-private func legacyAliases() throws -> Data {
-    let root = ProcessInfo.processInfo.environment["STORY_REFERENCE_FIXTURES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-        ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../tests/fixtures").standardizedFileURL
-    return try Data(contentsOf: root.appending(path: "legacy-names/aliases.json"))
 }

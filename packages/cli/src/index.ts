@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, normalizeLegacyLocator, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
+import { agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { constants as osConstants } from "node:os";
@@ -188,10 +188,7 @@ export async function attachedStorySyncURL(target: OpenTarget, selectedOrigin?: 
   }
 }
 
-// Rename 002: `arbor://` is the old spelling of `overstory://` in links already
-// shared. The CLI recognizes both here and respells the old one with
-// `normalizeLegacyLocator` before parsing; it writes only `overstory://`.
-const CANONICAL_INPUT = /^(?:https?|overstory|arbor):\/\//;
+const CANONICAL_INPUT = /^(?:https?|overstory):\/\//;
 
 interface CanonicalTarget {
   endpoint: string;
@@ -200,7 +197,7 @@ interface CanonicalTarget {
 }
 
 function canonicalTarget(input: string): CanonicalTarget {
-  const url = new URL(normalizeLegacyLocator(input)); // Rename 002
+  const url = new URL(input);
   if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "overstory:") {
     throw new Error("Use an HTTP or overstory:// canonical URL");
   }
@@ -227,7 +224,7 @@ export interface OpenTarget {
 export function openTarget(input: string, cwd = process.cwd()): OpenTarget {
   if (!CANONICAL_INPUT.test(input)) return { path: resolve(cwd, input) };
   const target = canonicalTarget(input);
-  const source = new URL(normalizeLegacyLocator(input)); // Rename 002
+  const source = new URL(input);
   const remoteURL = source.protocol === "overstory:"
     ? `${target.endpoint}${source.pathname}${source.search}${source.hash}`
     : source.toString();

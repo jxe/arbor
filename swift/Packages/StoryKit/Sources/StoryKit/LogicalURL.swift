@@ -48,51 +48,6 @@ private let httpInviteLocatorExpression = try! NSRegularExpression(
 )
 private let overstoryScheme = "overstory://"
 
-// Rename 002: the spellings from before the Overstory rename, read wherever a
-// locator is parsed and never written. Remove with `normalizeLegacyLocator`.
-private let legacyScheme = "arbor://"
-private let legacyParameterExpression = try! NSRegularExpression(pattern: ";arbor-(?=key=|rev=|config$)")
-private let legacyKeyFragment = "#arbor-key="
-
-/// Rename 002: respell a locator written before the Overstory rename. `arbor://` becomes
-/// `overstory://`; on the final path segment `;arbor-key=`, `;arbor-rev=` and a trailing
-/// `;arbor-config` become their `;overstory-` forms; a fragment beginning `arbor-key=` becomes
-/// `overstory-key=`. It accepts an absolute locator, a relative or tree-rooted href, or a bare
-/// `tr_x;arbor-config` tree reference, and returns anything else (a URL in another scheme
-/// included) unchanged. Queries and other fragments are never touched. Every parser in this
-/// package applies it first, so parsed results and whatever is built from them carry only the new
-/// spelling; partial parsers elsewhere do the same.
-public func normalizeLegacyLocator(_ text: String) -> String {
-    var scheme = ""
-    var rest = Substring(text)
-    if text.hasPrefix(legacyScheme) {
-        scheme = overstoryScheme
-        rest = text.dropFirst(legacyScheme.count)
-    } else if text.hasPrefix(overstoryScheme) {
-        scheme = overstoryScheme
-        rest = text.dropFirst(overstoryScheme.count)
-    } else if schemeExpression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
-        return text
-    }
-    let fragmentStart = rest.firstIndex(of: "#") ?? rest.endIndex
-    let beforeFragment = rest[..<fragmentStart]
-    let fragment = rest[fragmentStart...]
-    let queryStart = beforeFragment.firstIndex(of: "?") ?? beforeFragment.endIndex
-    let path = beforeFragment[..<queryStart]
-    let query = beforeFragment[queryStart...]
-    let segmentStart = path.lastIndex(of: "/").map { path.index(after: $0) } ?? path.startIndex
-    let segment = String(path[segmentStart...])
-    let respelledSegment = legacyParameterExpression.stringByReplacingMatches(
-        in: segment,
-        range: NSRange(segment.startIndex..., in: segment),
-        withTemplate: parameterMarker
-    )
-    let respelledFragment = fragment.hasPrefix(legacyKeyFragment)
-        ? "#\(markdownKeyPrefix)\(fragment.dropFirst(legacyKeyFragment.count))"
-        : String(fragment)
-    return "\(scheme)\(path[..<segmentStart])\(respelledSegment)\(query)\(respelledFragment)"
-}
-
 private func splitOnce(_ value: String, separator: Character) -> (String, String?) {
     guard let index = value.firstIndex(of: separator) else { return (value, nil) }
     return (String(value[..<index]), String(value[value.index(after: index)...]))
@@ -380,8 +335,7 @@ private func parseOverstoryURL(_ href: String) -> ResolvedLink? {
 /// the tree directory holding the source file (see `markdownSourceDirectory`), exactly as an
 /// ordinary Markdown reader resolves it. `x.md`, `x/_index.md`, `x/` and `x` all name the node `x`.
 public func resolveLogicalURL(sourceDirectory: String, href: String) -> ResolvedLink? {
-    // Rename 002: old spellings are read as the new ones.
-    let raw = normalizeLegacyLocator(href.trimmingCharacters(in: .whitespacesAndNewlines))
+    let raw = href.trimmingCharacters(in: .whitespacesAndNewlines)
     if raw.isEmpty { return nil }
     if raw.hasPrefix("#") {
         let fragment = String(raw.dropFirst())
@@ -595,12 +549,10 @@ public func buildInviteLocator(account: String, code: String) -> String? {
 
 private let inviteAccountExpression = try! NSRegularExpression(pattern: #"^(overstory|https?)://([^/?#;@]+)(/[^?#;]*)?$"#)
 
-/// The spelling under which two `overstory://` locators name the same thing: the new scheme and
-/// parameter spellings (Rename 002: `arbor://` and `;arbor-…` are read as their `overstory`
-/// forms), a canonical path, and the stable key or `;overstory-config` when the locator has one.
+/// The spelling under which two `overstory://` locators name the same thing: a canonical path, and the stable key or `;overstory-config` when the locator has one.
 /// A TreeID root is `overstory://tr_x/`, with or without the trailing slash in the input. The
 /// invitation code, revision, query and fragment are not identity and are left out. Nil for
-/// anything that is not an absolute `overstory://` (or `arbor://`) locator.
+/// anything that is not an absolute `overstory://` locator.
 public func canonicalOverstoryLocator(_ value: String) -> String? {
     guard case let .overstory(authority, path, state)? = resolveLogicalURL(sourceDirectory: "/", href: value) else { return nil }
     let name: String

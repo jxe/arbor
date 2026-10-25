@@ -61,11 +61,6 @@ Collections that sync landed on 2026-10-24 ([status](../status.md#collections-th
 Mixed row and text frames are refused, host materializations are never evicted, a mutation's
 guard is the whole tree, and a receipt lost in a crash refuses the retry. None blocks People 001.
 
-**[Rename 002: remove the old-spelling read aliases](soon/cleanup-rename-002-remove-old-spelling-aliases.md).**
-The 2026-10-10 rename left readers accepting six old spellings, among them `arbor://` and the
-`;arbor-*` locator parameters, because authored content and shared links still carry
-them. Joe wants that tolerance to be temporary: once the rename has been live a few weeks.
-
 **[overstoryd 001: pack storage follow-ups](soon/cleanup-overstoryd-001-pack-storage-follow-ups.md).**
 Packing is live since 2026-10-09. Architecture notes, a periodic check of pack files and
 packed bytes in the reports remain; take them when the store is next worked on.

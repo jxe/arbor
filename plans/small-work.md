@@ -7,6 +7,14 @@ and evidence in [status](../status.md) and delete it here.
 
 ## Small work
 
+### Place a host-root group tree into an empty folder
+
+Found 2026-10-25 (Rename 002): `story place https://arb.nxhx.org/` into an empty folder fails with
+"A new placement contains local content but has no accepted-update base". `placeFromHost`
+(`packages/story-sync/src/folder-sync.ts`, around line 650) counts the root's mount boundaries
+(`/~joe`, `/~chungus`, …) as local content. Putting the host's current `_index.md` in the folder
+first got past it. Fix the check, with a test that places a root tree holding mounts.
+
 ### Show declined folders in the Mac app
 
 Formerly Native 012. Story Sync keeps a folder's declined paths unpublished while the rest

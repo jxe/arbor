@@ -107,15 +107,13 @@ struct OverstoryRemoteLocator: Equatable, Sendable {
         components.host = host
         components.port = url.port
         switch scheme {
-        // Rename 002: `arbor://host/path` is read as `overstory://host/path`.
-        case "overstory", "arbor": components.scheme = url.port == nil ? "https" : "http"
+        case "overstory": components.scheme = url.port == nil ? "https" : "http"
         case "http", "https": components.scheme = scheme
         default: return nil
         }
         guard let origin = components.url else { return nil }
         self.origin = origin
         // Read the parameter from the encoded path: a `%3B` filename is data.
-        // Rename 002: `splittingTreeConfigurationParameter` also reads `;arbor-config`.
         let encoded = splittingTreeConfigurationParameter(url.path(percentEncoded: true))
         self.configuration = encoded.configuration
         let raw = encoded.reference.removingPercentEncoding ?? encoded.reference

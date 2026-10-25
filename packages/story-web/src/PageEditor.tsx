@@ -44,9 +44,8 @@ const STORY_DRAG_TYPE = "application/overstory-logical-paths";
 const PROFILE_HANDLE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const PROFILE_TREE = /^tr_[a-z2-7]+$/;
 
-// Rename 002: `arbor://` is the old spelling of `overstory://`; read both, write the new one.
 function isOverstoryScheme(protocol: string): boolean {
-  return protocol === "overstory:" || protocol === "arbor:";
+  return protocol === "overstory:";
 }
 
 function communityStoryOrigin(canonical: string | undefined): string | null {

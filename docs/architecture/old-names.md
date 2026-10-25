@@ -26,18 +26,9 @@ Persisted on devices and never shown to people. Changing them costs a keychain m
 - Bundle id `org.nxhx.Arbor` and its suffixes, including the test and lab ids
 - Keychain services `org.arbor.person-profile`, `org.arbor.community-account`, `org.arbor.connections` (CLI and daemon) and `org.nxhx.Arbor.profile`, `org.nxhx.Arbor.device…` (iPhone)
 - UserDefaults keys `arbor.uiSoundsEnabled`, `Canopy.manuallyNamedPages`; OSLog subsystem `org.arbor.native`
+- A device's state directory `.arbor` and the `.arbor-write-` / `.arbor-txn-` temporaries, which builds from before the rename left in placed folders. They stay never-content (`fs/src/ignore-policy.ts`, `fs/src/discovery.ts`, `OverstoryWorkingTree/IgnorePolicy.swift`, `WorkingTreeSemantics.validateName`), so a stray one is never published; `tests/fixtures/old-names/kept.json` holds their cases.
 
-## Read old, write new
-
-These spellings are inside authored content or in links already shared. Readers accept both; writers emit only the new one. The spec describes only the new spellings. [Rename 002](../../plans/soon/cleanup-rename-002-remove-old-spelling-aliases.md) rewrites live content and removes the aliases. Every alias site carries the comment marker `Rename 002` so they can be found.
-
-| Old spelling | Where it is read |
-|---|---|
-| `arbor://` | The two locator parsers (`packages/protocol/src/model/logical-url.ts`, `StoryKit/LogicalURL.swift`) and every partial parser that tests the scheme itself: `overstoryd/src/profile.ts` (`PROFILE_LOCATOR`, which decides group membership), `protocol/src/model/resource-policy.ts`, `Overstory/ResourcePolicy.swift`, `StoryApp/StoryDirectory.swift` (regex and the exact-string member comparisons), `StoryApp/StoryRootView.swift`, `StoryApp/StoryVisits.swift`, `story-web` (`PageEditor.tsx`, `App.tsx`), `story-sync/src/service.ts`, `cli/src/index.ts`, `apps-runtime/src/authoring.ts` |
-| `;arbor-key=`, `;arbor-rev=`, `;arbor-config`, `#arbor-key=` | The same two parsers, plus `protocol/src/config/tree-config.ts`, `overstoryd/src/host.ts`, `protocol/src/transport.ts`, `Overstory/TreeConfiguration.swift` |
-| `<!-- arbor:children -->` | `protocol/src/documents/directory-document.ts`, `StoryEditor/MarkdownCodec.swift` |
-| `.arborignore` | `fs/src/ignore-policy.ts`, `OverstoryWorkingTree/IgnorePolicy.swift`. When both files exist in a directory, `.overstoryignore` wins. |
-| `#arbor-access=` | `overstoryd/src/host.ts` |
+The old spellings in authored content and links (`arbor://`, `;arbor-key=`, `;arbor-rev=`, `;arbor-config`, `#arbor-key=`, `<!-- arbor:children -->`, `.arborignore`, `#arbor-access=`) are no longer read: Rename 002 rewrote the last of them in live trees and removed the aliases on 2026-10-25 ([status](../../status.md#old-spellings-no-longer-read--2026-10-25)).
 
 ## Cutover guard
 

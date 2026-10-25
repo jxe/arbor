@@ -64,7 +64,7 @@
   },
   {
     "name": "a keyed link whose stale path climbs above the root heals by key",
-    "source": "[Q](../Work/Questions.md#arbor-key=id:341rcu)\n\n[D](../Dating.md#overstory-key=id:24vifr)\n\n[Lost](../Lost.md)\n",
+    "source": "[Q](../Work/Questions.md#overstory-key=id:341rcu)\n\n[D](../Dating.md#overstory-key=id:24vifr)\n\n[Lost](../Lost.md)\n",
     "resolveFrom": "/",
     "writeFrom": "/",
     "tree": "tr_same",

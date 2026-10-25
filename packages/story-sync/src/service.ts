@@ -12,7 +12,7 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@ovst/protocol";
-import { canonicalNodePath, HostAccountStore, normalizeLegacyLocator, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, protocolObjectReferences, verifyTreeSnapshotGraph, type ObjectHash, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
+import { canonicalNodePath, HostAccountStore, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, protocolObjectReferences, verifyTreeSnapshotGraph, type ObjectHash, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@ovst/client";
 import { savePlacementSyncMetadata, type SharedTreePlacement } from "./state/index.ts";
@@ -296,8 +296,7 @@ export class StorySyncDaemon implements AsyncDisposable {
   }
 
   async resolveLocator(input: string): Promise<LocatorResolution> {
-    // Rename 002: `arbor://` and `;arbor-config` are the old spellings, read as the new ones.
-    const locator = input.startsWith("arbor://") ? normalizeLegacyLocator(input) : input;
+    const locator = input;
     if (!/^(?:https?|overstory):\/\//.test(locator)) {
       const absolute = resolveUserPath(locator);
       const scope = await this.files.resolveScope(absolute);
@@ -305,7 +304,7 @@ export class StorySyncDaemon implements AsyncDisposable {
       const enclosingTree = (await this.trees.descriptors()).find((tree) => tree.id === scope.workspace.tree);
       return { ref: scope.ref, ...(enclosingTree ? { enclosingTree } : {}), historical: false, observedThrough: this.events.currentCursor() };
     }
-    if (/;(?:overstory|arbor)-config$/.test(locator)) return this.resolveConfigurationLocator(locator);
+    if (/;overstory-config$/.test(locator)) return this.resolveConfigurationLocator(locator);
     const parsed = new URL(locator);
     const overstoryScheme = parsed.protocol === "overstory:";
     if (overstoryScheme && parsed.hostname === "tree") {

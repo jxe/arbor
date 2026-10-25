@@ -165,8 +165,7 @@ function scopeChip(node: NodeSnapshot): { label: string; className: string; icon
 function reservedProfileTarget(input: string): { origin: string; handle: string } | null {
   try {
     const url = new URL(input.trim());
-    // Rename 002: `arbor://` is the old spelling of `overstory://`; read both.
-    const overstoryScheme = url.protocol === "overstory:" || url.protocol === "arbor:";
+    const overstoryScheme = url.protocol === "overstory:";
     if (url.protocol !== "http:" && url.protocol !== "https:" && !overstoryScheme) return null;
     const path = `/${url.pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`;
     const match = /^\/~([a-z0-9][a-z0-9-]{0,62})$/.exec(path);

@@ -1,0 +1,51 @@
+{
+  "description": "Old names that are kept (docs/architecture/old-names.md, \"Kept\"): a device's state directory `.arbor` and the `.arbor-write-`/`.arbor-txn-` temporaries from builds before the Overstory rename are never tree content. `ignorePolicy` uses the schema of ignore-policy/cases.json.",
+  "ignorePolicy": [
+    {
+      "name": "old write temporary",
+      "files": {},
+      "path": "/notes/.page.md.arbor-write-0b5c",
+      "isDirectory": false,
+      "decision": "mandatory"
+    },
+    {
+      "name": "old transaction temporary",
+      "files": {},
+      "path": "/notes/.page.md.arbor-txn-77",
+      "isDirectory": false,
+      "decision": "mandatory"
+    },
+    {
+      "name": "old temporary cannot be negated",
+      "files": {
+        ".gitignore": "!*\n"
+      },
+      "path": "/.x.arbor-txn-1",
+      "isDirectory": false,
+      "decision": "mandatory"
+    },
+    {
+      "name": "old state directory",
+      "files": {},
+      "path": "/x/.arbor",
+      "isDirectory": true,
+      "decision": "mandatory"
+    },
+    {
+      "name": "content of the old state directory",
+      "files": {
+        ".gitignore": "!*\n"
+      },
+      "path": "/.arbor/state.json",
+      "isDirectory": false,
+      "decision": "mandatory"
+    },
+    {
+      "name": "a file named like the old state directory is content",
+      "files": {},
+      "path": "/.arbor",
+      "isDirectory": false,
+      "decision": "included"
+    }
+  ]
+}

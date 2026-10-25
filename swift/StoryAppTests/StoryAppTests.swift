@@ -754,40 +754,23 @@ struct StoryAppTests {
         #expect(OverstoryRemoteLocator("~joe") == nil)
     }
 
-    // Rename 002: remove with the `arbor://` alias.
-    @Test("Remote locators read arbor:// and ;arbor-config as their Overstory spellings")
-    func remoteLocatorLegacySpellings() throws {
-        let legacy = try #require(OverstoryRemoteLocator("arbor://community.example/~joe/notes"))
-        #expect(legacy == OverstoryRemoteLocator("overstory://community.example/~joe/notes"))
-        let configuration = try #require(OverstoryRemoteLocator("arbor://community.example/~joe/todos;arbor-config"))
-        #expect(configuration.configuration && configuration.path == "/~joe/todos")
-        #expect(configuration == OverstoryRemoteLocator("overstory://community.example/~joe/todos;overstory-config"))
+    @Test("Remote locators don't read the spellings from before the Overstory rename")
+    func remoteLocatorOldSpellings() throws {
+        #expect(OverstoryRemoteLocator("arbor://community.example/~joe/notes") == nil)
+        let configuration = try #require(OverstoryRemoteLocator("overstory://community.example/~joe/todos;arbor-config"))
+        #expect(!configuration.configuration && configuration.path == "/~joe/todos;arbor-config")
         // The app's own name is not a locator scheme.
         #expect(OverstoryRemoteLocator("story://community.example/~joe") == nil)
     }
 
-    // Rename 002: remove with the `arbor://` alias.
-    @Test("A member authored as arbor:// is the same member as its overstory:// spelling")
-    func legacyMemberLocators() throws {
-        let source = "---\ntype: group\nmembers:\n  - profile: \"arbor://tr_alice/\"\n    handle: \"alice\"\n  - arbor://tr_bob\n---\n\n# Garden\n"
-        let profile = try #require(StoryProfileDocument.parse(source))
-        #expect(profile.members.map(\.treeID) == ["tr_alice", "tr_bob"])
-        #expect(profile.hasMember("overstory://tr_alice/"))
-        #expect(profile.hasMember("overstory://tr_bob/"))
-        #expect(!profile.hasMember("overstory://tr_carol/"))
-        #expect(profile.memberHandle(for: "overstory://tr_alice/") == "alice")
-        #expect(throws: (any Error).self) {
-            try StoryProfileDocument.addingMember(profileTree: "tr_alice", handle: nil, to: source)
-        }
-        // Writers emit only the new spelling and leave authored entries as written.
-        let added = try StoryProfileDocument.addingMember(profileTree: "tr_carol", handle: nil, to: source)
-        #expect(added.contains("  - profile: \"overstory://tr_carol/\"\n"))
-        #expect(added.contains("  - profile: \"arbor://tr_alice/\"\n"))
-        let removed = try StoryProfileDocument.removingMember(profile: "overstory://tr_alice/", from: source)
-        #expect(!removed.contains("tr_alice") && removed.contains("arbor://tr_bob"))
-        // A profile at a host is one member under its overstory:// and https:// spellings.
-        #expect(StoryProfileDocument.memberKey("arbor://Garden.example/~carol/") == "https://garden.example/~carol")
+    @Test("A profile at a host is one member under its overstory:// and https:// spellings")
+    func memberLocatorSpellings() throws {
+        #expect(StoryProfileDocument.memberKey("overstory://Garden.example/~carol/") == "https://garden.example/~carol")
         #expect(StoryProfileDocument.memberKey("overstory://garden.example/~carol") == "https://garden.example/~carol")
+        let source = "---\ntype: group\nmembers:\n  - profile: \"arbor://tr_alice/\"\n    handle: \"alice\"\n---\n\n# Garden\n"
+        let profile = try #require(StoryProfileDocument.parse(source))
+        #expect(profile.members.map(\.treeID) == [nil])
+        #expect(!profile.hasMember("overstory://tr_alice/"))
     }
 
     @Test("An overstory:// URL carrying an invitation starts a claim; any other names a locator to open")

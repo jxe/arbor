@@ -5,13 +5,10 @@ import Foundation
 public let treeConfigurationParameter = "overstory-config"
 
 /// Split a trailing `;overstory-config` from a tree reference or locator path.
-/// Rename 002: `;arbor-config` is read as `;overstory-config`. Writers build
-/// the reference from `treeConfigurationParameter`, the new spelling.
 public func splittingTreeConfigurationParameter(_ value: String) -> (reference: String, configuration: Bool) {
-    for suffix in [";\(treeConfigurationParameter)", ";arbor-config"] where value.hasSuffix(suffix) {
-        return (String(value.dropLast(suffix.count)), true)
-    }
-    return (value, false)
+    let suffix = ";\(treeConfigurationParameter)"
+    guard value.hasSuffix(suffix) else { return (value, false) }
+    return (String(value.dropLast(suffix.count)), true)
 }
 
 /// A tree reference as the host routes read it: `tr_x` or `tr_x;overstory-config`.

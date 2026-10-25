@@ -558,8 +558,7 @@ export class ProtocolClient {
   async submitUpdates(tree: string, request: DerivableUpdateRequest, options: { encoding?: WireEncoding } = {}): Promise<UpdateResponse> {
     const encoding = options.encoding ?? this.encoding;
     // A `tr_x;overstory-config` reference is answered under the configuration's TreeID.
-    // Rename 002: a caller's `tr_x;arbor-config` is read too; the request names the new spelling.
-    const reference = /^tr_[a-z2-7]+;(?:overstory|arbor)-config$/.test(tree) ? parseTreeReference(tree) : null;
+    const reference = /^tr_[a-z2-7]+;overstory-config$/.test(tree) ? parseTreeReference(tree) : null;
     const expected = updateRequestDigests(reference ? treeConfigurationID(reference.tree) : tree, request);
     const target = reference ? `${reference.tree};${CONFIGURATION_PARAMETER}` : tree;
     const response = await this.request(`/.overstory/trees/${encodeURIComponent(target)}/updates`, {

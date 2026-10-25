@@ -187,7 +187,7 @@ final class LogicalURLTests: XCTestCase {
 
     func testRelativeHrefsRebaseBetweenDirectories() {
         // Source moved from a file in /Social to a file at the root, and back down.
-        XCTAssertEqual(rebasedRelativeHref("../Work/Q.md#arbor-key=id:341rcu", from: "/Social", to: "/"), "Work/Q.md#arbor-key=id:341rcu")
+        XCTAssertEqual(rebasedRelativeHref("../Work/Q.md#overstory-key=id:341rcu", from: "/Social", to: "/"), "Work/Q.md#overstory-key=id:341rcu")
         XCTAssertEqual(rebasedRelativeHref("Plans/2026.md?view=board#goals", from: "/Social", to: "/"), "Social/Plans/2026.md?view=board#goals")
         XCTAssertEqual(rebasedRelativeHref("Work/Q.md;overstory-key=id:341rcu#part", from: "/", to: "/Social/Life"), "../../Work/Q.md;overstory-key=id:341rcu#part")
         XCTAssertEqual(rebasedRelativeHref("My%20Notes/a%20b.md", from: "/x", to: "/y"), "../x/My%20Notes/a%20b.md")
@@ -206,7 +206,7 @@ final class LogicalURLTests: XCTestCase {
 
     func testAKeyedLinkAboveTheRootResolvesByItsKey() {
         // The bytes of a link moved from /Social/x.md to /Social.md: the path is stale, the key is not.
-        let moved = resolveNodeTarget(sourceDirectory: "/", href: "../Dating-profiles.md#arbor-key=id:24vifr")
+        let moved = resolveNodeTarget(sourceDirectory: "/", href: "../Dating-profiles.md#overstory-key=id:24vifr")
         XCTAssertEqual(moved?.stableKey, "[[\"id\",\"24vifr\"]]")
         XCTAssertEqual(moved?.path, "/Dating-profiles")
         XCTAssertNil(resolveNodeTarget(sourceDirectory: "/", href: "../Dating-profiles.md"))
@@ -363,61 +363,15 @@ final class LogicalURLTests: XCTestCase {
         )
     }
 
-    // Rename 002: `tests/fixtures/legacy-names/aliases.json` holds the old-spelling cases the
-    // TypeScript parser also runs. Delete with the aliases.
-    private struct LegacyAliases: Decodable {
-        struct Locator: Decodable {
-            var sourceDirectory: String
-            var input: String
-            var normalized: String
-            var resolves: Bool
-        }
-        struct Rewrite: Decodable {
-            var sourceDirectory: String
-            var href: String
-            var target: MarkdownLinkTarget
-            var expected: String
-        }
-        var locators: [Locator]
-        var rewrites: [Rewrite]
-    }
-
-    private func legacyAliases() throws -> LegacyAliases {
-        let root = ProcessInfo.processInfo.environment["STORY_REFERENCE_FIXTURES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../tests/fixtures").standardizedFileURL
-        return try JSONDecoder().decode(LegacyAliases.self, from: Data(contentsOf: root.appending(path: "legacy-names/aliases.json")))
-    }
-
-    func testOldSpellingsAreReadAsTheNewOnes() throws {
-        let fixture = try legacyAliases()
-        XCTAssertGreaterThan(fixture.locators.count, 10)
-        for item in fixture.locators {
-            XCTAssertEqual(normalizeLegacyLocator(item.input), item.normalized, item.input)
-            XCTAssertEqual(normalizeLegacyLocator(item.normalized), item.normalized, item.normalized)
-            let resolved = resolveLogicalURL(sourceDirectory: item.sourceDirectory, href: item.input)
-            XCTAssertEqual(resolved, resolveLogicalURL(sourceDirectory: item.sourceDirectory, href: item.normalized), item.input)
-            XCTAssertEqual(resolved != nil, item.resolves, item.input)
-        }
-        XCTAssertFalse(fixture.rewrites.isEmpty)
-        for item in fixture.rewrites {
-            // Writers emit only the new spelling, also when the link they rewrite was an old one.
-            XCTAssertEqual(rewriteLocalLinkPath(sourceDirectory: item.sourceDirectory, href: item.href, target: item.target), item.expected, item.href)
-        }
-        XCTAssertEqual(
-            resolveNodeTarget(sourceDirectory: "/", href: "arbor://tr_abc/notes;arbor-key=id:x7f3q2"),
-            ResolvedNodeTarget(tree: "tr_abc", path: "/notes", stableKey: #"[["id","x7f3q2"]]"#)
-        )
-    }
-
-    func testCanonicalLocatorsCompareAcrossSpellings() {
-        XCTAssertEqual(canonicalOverstoryLocator("arbor://tr_abc/"), "overstory://tr_abc/")
-        XCTAssertEqual(canonicalOverstoryLocator("arbor://tr_abc"), "overstory://tr_abc/")
+    func testCanonicalLocators() {
+        XCTAssertEqual(canonicalOverstoryLocator("overstory://tr_abc"), "overstory://tr_abc/")
         XCTAssertEqual(canonicalOverstoryLocator("overstory://tr_abc/"), "overstory://tr_abc/")
-        XCTAssertEqual(canonicalOverstoryLocator("arbor://Garden.example/~carol/"), "overstory://garden.example/~carol")
+        XCTAssertEqual(canonicalOverstoryLocator("overstory://Garden.example/~carol/"), "overstory://garden.example/~carol")
         XCTAssertEqual(canonicalOverstoryLocator("overstory://garden.example/~carol#overstory-invite=abc123"), "overstory://garden.example/~carol")
-        XCTAssertEqual(canonicalOverstoryLocator("arbor://tr_abc/notes;arbor-key=id:x7f3q2"), "overstory://tr_abc/notes;overstory-key=id:x7f3q2")
-        XCTAssertEqual(canonicalOverstoryLocator("arbor://tr_abc;arbor-config"), "overstory://tr_abc/;overstory-config")
+        XCTAssertEqual(canonicalOverstoryLocator("overstory://tr_abc/notes;overstory-key=id:x7f3q2"), "overstory://tr_abc/notes;overstory-key=id:x7f3q2")
         XCTAssertEqual(canonicalOverstoryLocator("overstory://tr_abc/;overstory-config"), "overstory://tr_abc/;overstory-config")
+        // The spellings from before the Overstory rename are no longer read.
+        XCTAssertNil(canonicalOverstoryLocator("arbor://tr_abc/"))
         XCTAssertNil(canonicalOverstoryLocator("https://garden.example/~carol"))
         XCTAssertNil(canonicalOverstoryLocator("notes.md"))
     }
@@ -473,12 +427,6 @@ final class LogicalURLTests: XCTestCase {
         ] {
             XCTAssertEqual(resolveLogicalURL(sourceDirectory: "/", href: web), .external(href: web), web)
         }
-        // Rename 002 reads old spellings of parameters that existed; the invitation never had one.
-        guard case let .overstory(_, oldPath, oldState)? = resolveLogicalURL(sourceDirectory: "/", href: "arbor://arb.nxhx.org/~alice;arbor-invite=abc") else {
-            return XCTFail("an unknown old-style parameter is path data")
-        }
-        XCTAssertEqual(oldPath, "/~alice;arbor-invite=abc")
-        XCTAssertNil(oldState.invite)
         XCTAssertNil(buildInviteLocator(account: "overstory://tr_abc/", code: "abc"))
         XCTAssertNil(buildInviteLocator(account: "https://arb.nxhx.org/~alice?x=1", code: "abc"))
         XCTAssertNil(buildInviteLocator(account: "https://arb.nxhx.org/~alice", code: "a/b"))

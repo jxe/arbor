@@ -365,8 +365,7 @@ function relationFromPath(path: string): string {
 }
 
 export function node(path: string): NodeHandle {
-  // Rename 002: `arbor:` is the old spelling of `overstory:` in authored sources; read both.
-  if (!path || (!path.startsWith(".") && !path.startsWith("/") && !path.startsWith("overstory:") && !path.startsWith("arbor:"))) {
+  if (!path || (!path.startsWith(".") && !path.startsWith("/") && !path.startsWith("overstory:"))) {
     throw new Error("node() requires a relative, logical, or overstory: path");
   }
   const handle = { path } as NodeHandle;

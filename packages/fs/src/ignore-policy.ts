@@ -20,7 +20,7 @@ export const MANDATORY_DIRECTORY_NAMES: ReadonlySet<string> = new Set([
   ".git",
   "node_modules",
   ".overstory",
-  // Rename 002: a device's state directory from before the Overstory rename.
+  // A device's state directory from before the Overstory rename (old names, "Kept").
   ".arbor",
   "Trash",
   ".build",
@@ -30,22 +30,14 @@ export const MANDATORY_DIRECTORY_NAMES: ReadonlySet<string> = new Set([
 /** Ignore-rule files, lowest precedence first: `.overstoryignore` wins over `.gitignore` beside it. */
 export const IGNORE_FILE_NAMES = [".gitignore", ".overstoryignore"] as const;
 
-/**
- * Rename 002: `.overstoryignore` as folders from before the Overstory rename
- * spell it. Its rules are read in `.overstoryignore`'s place when a directory
- * has no `.overstoryignore`; beside one it contributes no rules. Either way
- * it is an ignore file: tree content that no rule can ignore.
- */
-export const LEGACY_IGNORE_FILE_NAME = ".arborignore";
-
 export function isIgnoreFileName(name: string): boolean {
-  return (IGNORE_FILE_NAMES as readonly string[]).includes(name) || name === LEGACY_IGNORE_FILE_NAME;
+  return (IGNORE_FILE_NAMES as readonly string[]).includes(name);
 }
 
 /** An Overstory write or transaction temporary. */
 export function isTransactionTemporaryName(name: string): boolean {
   return name.includes(".overstory-write-") || name.includes(".overstory-txn-")
-    // Rename 002: strays left by a build from before the Overstory rename are never content.
+    // Strays left by a build from before the Overstory rename are never content (old names, "Kept").
     || name.includes(".arbor-write-") || name.includes(".arbor-txn-");
 }
 
@@ -334,8 +326,6 @@ export class IgnorePolicy {
     if (!files) {
       files = Promise.all(IGNORE_FILE_NAMES.map(async (name) =>
         await this.readRules([...segments, name])
-          // Rename 002: the old name is read only where the new one is absent.
-          ?? (name === ".overstoryignore" ? this.readRules([...segments, LEGACY_IGNORE_FILE_NAME]) : null)
       )).then((loaded) => loaded.filter((file): file is RuleFile => file !== null));
       this.files.set(key, files);
     }

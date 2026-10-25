@@ -43,49 +43,6 @@ const INVITE_CODE = /^[A-Za-z0-9._~-]+$/;
 const HTTP_INVITE_LOCATOR = /^(?:https:\/\/|http:\/\/(?=(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:[\/#]|$)))([^\/?#;@]+(?:\/[^?#]*)?#overstory-invite=[A-Za-z0-9._~-]+)$/i;
 const SCHEME = "overstory://";
 
-// Rename 002: the spellings from before the Overstory rename, read wherever a
-// locator is parsed and never written. Remove with `normalizeLegacyLocator`.
-const LEGACY_SCHEME = "arbor://";
-const LEGACY_PARAMETER = /;arbor-(?=key=|rev=|config$)/g;
-const LEGACY_KEY_FRAGMENT = "#arbor-key=";
-
-/**
- * Rename 002: respell a locator written before the Overstory rename. `arbor://`
- * becomes `overstory://`; on the final path segment `;arbor-key=`, `;arbor-rev=`
- * and a trailing `;arbor-config` become their `;overstory-` forms; a fragment
- * beginning `arbor-key=` becomes `overstory-key=`. It accepts an absolute
- * locator, a relative or tree-rooted href, or a bare `tr_x;arbor-config` tree
- * reference, and returns anything else (a URL in another scheme included)
- * unchanged. Queries and other fragments are never touched. Every parser in
- * this package applies it first, so parsed results and whatever is built from
- * them carry only the new spelling; partial parsers elsewhere do the same.
- */
-export function normalizeLegacyLocator(text: string): string {
-  let scheme = "";
-  let rest = text;
-  if (text.startsWith(LEGACY_SCHEME)) {
-    scheme = SCHEME;
-    rest = text.slice(LEGACY_SCHEME.length);
-  } else if (text.startsWith(SCHEME)) {
-    scheme = SCHEME;
-    rest = text.slice(SCHEME.length);
-  } else if (SCHEME_PATTERN.test(text)) {
-    return text;
-  }
-  const fragmentStart = rest.indexOf("#");
-  const beforeFragment = fragmentStart === -1 ? rest : rest.slice(0, fragmentStart);
-  const fragment = fragmentStart === -1 ? "" : rest.slice(fragmentStart);
-  const queryStart = beforeFragment.indexOf("?");
-  const path = queryStart === -1 ? beforeFragment : beforeFragment.slice(0, queryStart);
-  const query = queryStart === -1 ? "" : beforeFragment.slice(queryStart);
-  const segmentStart = path.lastIndexOf("/") + 1;
-  const segment = path.slice(segmentStart).replace(LEGACY_PARAMETER, PARAMETER_MARKER);
-  const respelledFragment = fragment.startsWith(LEGACY_KEY_FRAGMENT)
-    ? `#${MARKDOWN_KEY_PREFIX}${fragment.slice(LEGACY_KEY_FRAGMENT.length)}`
-    : fragment;
-  return `${scheme}${path.slice(0, segmentStart)}${segment}${query}${respelledFragment}`;
-}
-
 function splitOnce(value: string, separator: string): [string, string | null] {
   const index = value.indexOf(separator);
   return index === -1
@@ -252,8 +209,7 @@ function parseOverstoryURL(href: string): ResolvedLink {
  * it. `x.md`, `x/_index.md`, `x/` and `x` all name the node `x`.
  */
 export function resolveLogicalURL(sourceDirectory: LogicalPath, href: string): ResolvedLink {
-  // Rename 002: old spellings are read as the new ones.
-  const raw = normalizeLegacyLocator(href.trim());
+  const raw = href.trim();
   if (!raw) return null;
 
   if (raw.startsWith("#")) {

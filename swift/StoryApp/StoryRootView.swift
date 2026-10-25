@@ -3211,8 +3211,7 @@ struct StoryRootView: View {
     /// not a placed tree cannot be opened here.
     private func openLocation(_ value: String) async {
 #if os(macOS)
-        // Rename 002: `arbor://` is read as `overstory://`.
-        if let url = URL(string: value), ["http", "https", "overstory", "arbor"].contains(url.scheme?.lowercased() ?? "") {
+        if let url = URL(string: value), ["http", "https", "overstory"].contains(url.scheme?.lowercased() ?? "") {
             do { try await workspace.openRemoteLocator(value) }
             catch { workspace.errorMessage = error.localizedDescription }
             return

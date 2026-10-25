@@ -41,7 +41,7 @@ public enum LocalFolderPreview {
             let entries = try manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys)
                 .filter { url in
                     let name = url.lastPathComponent
-                    // Rename 002: the temporary names include the spellings from before the Overstory rename.
+                    // The temporary names include the spellings from before the Overstory rename (old names, "Kept").
                     return !name.hasPrefix(".") && !IgnorePolicy.isTransactionTemporaryName(name)
                 }
                 .sorted { $0.lastPathComponent < $1.lastPathComponent }

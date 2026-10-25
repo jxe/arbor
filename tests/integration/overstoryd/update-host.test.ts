@@ -630,10 +630,9 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const bootstrapSource = await bootstrap.text();
       expect(bootstrapSource).toContain('"Overstory-Access-Link": secret');
       expect(bootstrapSource).not.toContain("X-Overstory-Access");
-      // Rename 002: the page reads the secret from the current fragment and from
-      // the one in links shared before the rename, by each marker's own length.
-      expect(bootstrapSource).toContain('["#overstory-access=", "#arbor-access="]');
+      expect(bootstrapSource).toContain('const marker = "#overstory-access="');
       expect(bootstrapSource).toContain("location.hash.slice(marker.length)");
+      expect(bootstrapSource).not.toContain("arbor");
 
       const mergeBase = await client.descriptor(treeID);
       const renamedPath = join(treePath, "renamed.md");

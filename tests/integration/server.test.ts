@@ -409,11 +409,9 @@ describe("story-sync bootstrap and credential routes", () => {
     await rm(sandbox, { recursive: true, force: true });
   });
 
-  // Rename 002: `arbor://` is still read wherever `overstory://` is.
-  test("resolves a raw tree locator in either scheme spelling", async () => {
+  test("resolves a raw tree locator", async () => {
     const current = await placedClient.resolve(`overstory://tree/${tree}/note`);
     expect(current.ref).toMatchObject({ tree, path: "/note" });
-    expect((await placedClient.resolve(`arbor://tree/${tree}/note`)).ref).toEqual(current.ref);
   });
 
   test("bootstraps a clean placed tree with a sparse spine", async () => {

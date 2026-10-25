@@ -12,6 +12,24 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Old spellings no longer read — 2026-10-25
+
+Implemented; deployed when main is pushed. Plan Rename 002 is done and deleted; its text is in
+git history at `ac1a7de`.
+
+- **Live content rewritten** (Joe's go-ahead, 2026-10-25), as ordinary authored edits from Joe's
+  Mac: `#arbor-key=` ×17 in 11 files of `/~joe/todos` (update 12822, from its placed folder) and
+  one `arbor://` member in the host root group's `_index.md` (update 12824, from a temporary
+  placement since removed). A read-only recount of all 24 trees and the host's tables on the
+  live host found none left.
+- **Aliases removed** in TypeScript and Swift: `arbor://`, `;arbor-key=`, `;arbor-rev=`,
+  `;arbor-config`, `#arbor-key=`, `<!-- arbor:children -->`, `.arborignore` and `#arbor-access=`
+  are no longer read (`normalizeLegacyLocator` is gone in both stacks). Old revisions and links
+  shared before 2026-10-10 that still carry them no longer resolve, as Joe accepted on
+  2026-10-10. The `.arbor` state directory and `.arbor-*` temporaries stay never-content
+  ([old names](docs/architecture/old-names.md), "Kept").
+- **Tests:** see the commit.
+
 ## People directory, tree picker and USL summaries — 2026-10-25
 
 Implemented and installed on Joe's Mac (main `6ebe9ea`); Joe 2026-10-25: "this will do for now".
@@ -1502,9 +1520,8 @@ app, the `story` command and the `story-sync` daemon, with data home
 `~/.story`. The npm scope is `@ovst`. Swift modules are `StoryKit`,
 `StoryEditor` and `OverstoryWorkingTree`. Join links are the account locator
 with `;overstory-invite=<code>`, and Story registers the `overstory` scheme.
-The old spellings that remain on purpose, including the read aliases that
-[Rename 002](plans/soon/cleanup-rename-002-remove-old-spelling-aliases.md) will remove, are
-listed in [old names](docs/architecture/old-names.md). The bundle identifier
+The old spellings that remain on purpose (the read aliases went with Rename 002 on
+2026-10-25) are listed in [old names](docs/architecture/old-names.md). The bundle identifier
 and keychain service names did not change, so the iPhone app updated in place.
 
 - **Repository**: `2f10ba4e` (scripted pass), `ba24472d`, `598b6fa4`. Gates at

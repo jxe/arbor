@@ -241,7 +241,7 @@ function placementAccountDescriptor(origin: string, overstoryd: HostDaemon, acco
  * the tree's administrators.
  */
 function treeReference(segment: string): { id: string; governs?: string } {
-  const decoded = currentConfigurationSpelling(decodeURIComponent(segment));
+  const decoded = decodeURIComponent(segment);
   try {
     const reference = parseTreeReference(decoded);
     return reference.configuration ? { id: treeConfigurationID(reference.tree), governs: reference.tree } : { id: reference.tree };
@@ -251,16 +251,6 @@ function treeReference(segment: string): { id: string; governs?: string } {
 }
 
 const CONFIGURATION_SUFFIX = ";overstory-config";
-// Rename 002: links shared before the rename end in `;arbor-config`. It is
-// read wherever the suffix is; redirects and new links write only the current one.
-const OLD_CONFIGURATION_SUFFIX = ";arbor-config";
-
-/** `value` with an old-spelling configuration suffix rewritten to the current one. */
-function currentConfigurationSpelling(value: string): string {
-  return value.endsWith(OLD_CONFIGURATION_SUFFIX)
-    ? `${value.slice(0, -OLD_CONFIGURATION_SUFFIX.length)}${CONFIGURATION_SUFFIX}`
-    : value;
-}
 
 /** The configuration of the tree whose canonical root is `path`, or null when no tree's root is there. */
 function configurationAt(overstoryd: HostDaemon, path: string) {
@@ -285,9 +275,8 @@ function linkDigest(request: Request): string | undefined {
  * address with it in a header. Constant text, permitted by its hash.
  */
 const ACCESS_LINK_SCRIPT: PageScript = { connects: true, source: `
-// Rename 002: links shared before the rename carry "#arbor-access=".
-const marker = ["#overstory-access=", "#arbor-access="].find(prefix => location.hash.startsWith(prefix));
-const secret = marker ? decodeURIComponent(location.hash.slice(marker.length)) : "";
+const marker = "#overstory-access=";
+const secret = location.hash.startsWith(marker) ? decodeURIComponent(location.hash.slice(marker.length)) : "";
 if (!secret) document.body.textContent = "This Overstory tree requires access.";
 else fetch(location.pathname + location.search, { headers: { "Overstory-Access-Link": secret } })
   .then(async response => {
@@ -726,10 +715,9 @@ export async function serveHost(options: {
             ? decodeURIComponent(url.pathname.slice("/.well-known/overstory".length))
             : null;
         // The raw path: a literal `%3Boverstory-config` filename is data, not the parameter.
-        // Rename 002: `;arbor-config` is read as `;overstory-config`.
-        if (wellKnown !== null && request.method === "GET" && currentConfigurationSpelling(url.pathname).endsWith(CONFIGURATION_SUFFIX)) {
+        if (wellKnown !== null && request.method === "GET" && url.pathname.endsWith(CONFIGURATION_SUFFIX)) {
           // `/~joe/todos;overstory-config`: the configuration of the tree whose root the path names.
-          const configuration = configurationAt(overstoryd, currentConfigurationSpelling(wellKnown).slice(0, -CONFIGURATION_SUFFIX.length) || "/");
+          const configuration = configurationAt(overstoryd, wellKnown.slice(0, -CONFIGURATION_SUFFIX.length) || "/");
           const level = configuration ? overstoryd.accessLevel(account, configuration, link) : null;
           if (!configuration || !level) return notFound();
           return json({
@@ -961,8 +949,7 @@ export async function serveHost(options: {
           const pageNotFound = () => request.headers.get("accept")?.includes("text/html")
             ? html(renderNoticePage("Not found", "<h1>Not found</h1><p>Nothing is published at this address.</p>"), 404)
             : notFound();
-          // Rename 002: a canonical URL ending in `;arbor-config` is read as `;overstory-config`.
-          const requestLocator = resolveLogicalURL("/", `${currentConfigurationSpelling(url.pathname)}${url.search}`);
+          const requestLocator = resolveLogicalURL("/", `${url.pathname}${url.search}`);
           if (!requestLocator || requestLocator.kind !== "local") return pageNotFound();
           if (requestLocator.configuration) {
             // A canonical URL with `;overstory-config`: administrators are sent to the

@@ -43,12 +43,8 @@ public struct StoryMarkdownOpenedDocument: Sendable {
 
 public enum StoryMarkdownCodec {
     static let childrenMarker = "<!-- overstory:children -->"
-    // Rename 002: the marker as documents from before the Overstory rename spell
-    // it. Both are read as the children marker; an authored marker is kept as
-    // written, and nothing writes the old spelling.
-    private static let legacyChildrenMarker = "<!-- arbor:children -->"
     private static func isChildrenMarkerText(_ text: String) -> Bool {
-        text == childrenMarker || text == legacyChildrenMarker
+        text == childrenMarker
     }
     static let projectedChildMetadataKey = "story.projected-child"
     /// Where a generated child link was placed among its siblings, so a reorder can be told.

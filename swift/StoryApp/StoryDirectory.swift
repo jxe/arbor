@@ -111,17 +111,14 @@ struct StoryProfileDocument: Equatable {
 
         /// The Profile TreeID a structured `overstory://<TreeID>/` locator names.
         var treeID: String? {
-            // Rename 002: a member authored as `arbor://<TreeID>/` is the same member.
-            let locator = normalizeLegacyLocator(profile)
-            guard locator.range(of: #"^overstory://tr_[a-z2-7]+/?$"#, options: .regularExpression) != nil else { return nil }
-            return String(locator.dropFirst("overstory://".count).prefix { $0 != "/" })
+            guard profile.range(of: #"^overstory://tr_[a-z2-7]+/?$"#, options: .regularExpression) != nil else { return nil }
+            return String(profile.dropFirst("overstory://".count).prefix { $0 != "/" })
         }
     }
 
     /// The spelling under which two member locators name the same member: a
     /// profile at a host by its canonical HTTP(S) locator, a TreeID profile by
-    /// its canonical `overstory://<TreeID>/`. Rename 002: `arbor://tr_x/` and
-    /// `overstory://tr_x/` are one member; writers emit only `overstory://`.
+    /// its canonical `overstory://<TreeID>/`.
     static func memberKey(_ profile: String) -> String {
         ProfileLocator(profile)?.locator ?? canonicalOverstoryLocator(profile) ?? profile
     }
@@ -213,7 +210,6 @@ struct StoryProfileDocument: Equatable {
         guard let block = envelope.memberEntries() else {
             throw ProtocolValidationError.invalidValue("This group has no members")
         }
-        // Rename 002: the entry may be authored as `arbor://` while `profile` is spelled `overstory://`.
         let key = memberKey(profile)
         let matches = block.entries.filter { memberKey($0.member.profile) == key }
         guard let entry = matches.first else {
