@@ -106,7 +106,6 @@ extension UpdateCoordinator {
     private func pumpRows() async {
         var delay: Duration = .seconds(1)
         var waits = 0
-        func pause() async { try? await Task.sleep(for: delay); delay = min(delay * 2, .seconds(60)) }
         while (try? requireOpen()) != nil {
             do {
                 var state = try rowQueue()
@@ -152,13 +151,13 @@ extension UpdateCoordinator {
                         try writeRowQueue(state)
                         await workingTree.invalidateDocumentViews()
                     } catch {
-                        await pause()
+                        await Self.pause(&delay)
                     }
                     continue
                 }
                 guard !state.pending.isEmpty else { return }
                 let heads = try await workingTree.heads()
-                guard let root = heads.acceptedRoot, let update = heads.acceptedUpdate else { await pause(); continue }
+                guard let root = heads.acceptedRoot, let update = heads.acceptedUpdate else { await Self.pause(&delay); continue }
                 let base = ProtocolUpdateBase(root: root, update: update)
                 var operations: [ProtocolSourceOperation] = []
                 var objects: [String: String] = [:]
@@ -180,9 +179,15 @@ extension UpdateCoordinator {
                 try writeRowQueue(state)
             } catch {
                 Self.syncLog.error("row edits not sent: \(String(describing: error), privacy: .public)")
-                await pause()
+                await Self.pause(&delay)
             }
         }
+    }
+
+    /// Wait out `delay`, then double it, up to a minute.
+    private static func pause(_ delay: inout Duration) async {
+        try? await Task.sleep(for: delay)
+        delay = min(delay * 2, .seconds(60))
     }
 
     /// The directory object at `path` below the accepted `root`.
