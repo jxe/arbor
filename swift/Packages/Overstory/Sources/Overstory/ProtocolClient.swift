@@ -33,7 +33,7 @@ public actor ProtocolClient {
     private var session: URLSession { sessionSource() }
     private let retryDelay: RetryDelay
     /// How requests that carry objects travel (tree operations §4.4).
-    private let wireEncoding: ProtocolWireEncoding
+    let wireEncoding: ProtocolWireEncoding
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         // Protocol retries are byte-stable as well as semantically identical.

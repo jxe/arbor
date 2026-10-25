@@ -46,7 +46,8 @@ struct DerivedUpdateTests {
         let operations = try #require(element["trace"]?.items?.first?.fields?["operations"]?.items).map { try ProtocolSourceOperation(#require($0.fields)) }
         let update = try ProtocolDerivedUpdate(change: #require(element["change"]?.text), frames: [operations])
         let expected = try #require(c["identities"] as? [[String: String]])
-        #expect(derivedUpdateRequestDigests(tree: tree, base: #require(value.fields["base"]?.text), updates: [update]) == expected.map { $0["digest"]! })
+        let base = try #require(value.fields["base"]?.text)
+        #expect(derivedUpdateRequestDigests(tree: tree, base: base, updates: [update]) == expected.map { $0["digest"]! })
         // A stated decoder refuses it: it names no candidate.
         let body = try JSONEncoder().encode(ProtocolDerivedUpdateRequest(base: "accepted", updates: [update]))
         #expect(throws: (any Error).self) { try JSONDecoder().decode(ProtocolUpdateRequest.self, from: body) }
