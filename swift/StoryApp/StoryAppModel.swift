@@ -3608,7 +3608,8 @@ extension StoryWorkspaceState {
                              handle: person.entry.handle, host: person.origin.host())
             }
             let ties = person.entry.sources.compactMap { source -> DirectoryTie? in
-                if source == "access" { return tie(.shared, nil) }
+                // Sharing with a group is a fact about the tree, not a person you know.
+                if source == "access" { return person.entry.kind == "group" ? nil : tie(.shared, nil) }
                 guard source.hasPrefix("group:"), mine.contains(source) else { return nil }
                 let group = String(source.dropFirst("group:".count))
                 return group == person.id ? nil : tie(.group, group)
