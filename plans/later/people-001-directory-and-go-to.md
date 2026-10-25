@@ -24,7 +24,7 @@ are separate and later. The UX was worked out first in the doc
 - **Effort:** L, in phases.
 - **Risk:** MEDIUM. It's the first collection Story keeps for itself, and group edits write
   to group profile trees on hosts.
-- **State:** TODO.
+- **State:** phase 1's data side built (d319255, 2026-10-25); the finding UI is to be tried uncommitted on Joe's Mac first (Joe, 2026-10-25).
 - **Order** (Joe, 2026-10-24): the directory tree comes first, because it is People's point;
   Go to… and tree-ID links are a side slice for any time.
 - **Gated on:** phase 1 on part 1 of [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md),
@@ -142,6 +142,20 @@ collapsed sections and are not copied.
 - **Proof:** a person met only through an invite is still in the directory after their host
   stops listing them; a tree visited on the iPhone shows in the directory on the Mac; a games
   author entered as a placeholder shows by name, and by their profile once they join.
+
+**As built (2026-10-25).** The tree is `/~handle/directory`, mounted in the profile's
+`mounts.yaml`, administered by the profile alone, and activated with a seed snapshot that
+`tools/directory-seed.ts` makes from `tools/directory-seed/` into
+`PersonalDirectorySeed.swift` (Story doesn't encode tables; a test checks it is current).
+People holds `Contact` (by hand, later) and `Sighting`; Trees holds `Visit`. Story creates
+contacts never: who you know is every person a sighting or contact names, so no two
+devices create one row. `PersonalDirectoryKeeper` (OverstoryClient) holds its own replica
+in the background and writes through the row queue. Sightings come from the host
+directory refresh (a group you're in together, a person in your sharing rules) and
+profile opens; visits from every page loaded, at most one an hour per page and device;
+`Visits.json` is imported once and kept for now. Not yet: invitation claims, shares made
+elsewhere than a refresh shows, placements as arrivals, and rewriting `contact:` values.
+Changing a schema needs a migration, since the seed's fingerprint is fixed.
 
 ## Phase 2: People as a database view (after 002 milestones 3, 4 and 7)
 
