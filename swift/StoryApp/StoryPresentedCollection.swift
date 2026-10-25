@@ -17,11 +17,12 @@ struct StoryPresentedCollection<Avatar: View>: View {
 
     var body: some View {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let groups = view.groups.filter { !$0.lines.isEmpty || trimmed.isEmpty }
+        // Read-only, a group with no lines has nothing to show or to add to.
+        let groups = view.groups.filter { !$0.lines.isEmpty }
         VStack(alignment: .leading, spacing: 0) {
             header
                 .padding(.bottom, 24)
-            if groups.allSatisfy(\.lines.isEmpty) {
+            if groups.isEmpty {
                 Text(trimmed.isEmpty ? "No \(noun)s yet." : "No \(noun)s match.")
                     .foregroundStyle(.tertiary)
             }
