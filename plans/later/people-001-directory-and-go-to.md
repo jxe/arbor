@@ -27,10 +27,10 @@ are separate and later. The UX was worked out first in the doc
 - **State:** TODO.
 - **Order** (Joe, 2026-10-24): the directory tree comes first, because it is People's point;
   Go to… and tree-ID links are a side slice for any time.
-- **Gated on:** phase 1 on all of [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md):
-  rows written through the host from code on Mac and iPhone, and simple editing in the view
-  (Joe, 2026-10-25: overstoryd, Story Sync, then the clients including editing, then the
-  directory). In phase 1 the directory is kept by code and editable through 007's view. Phase 2 on 002's milestones 3, 4 and 7. The Go to…
+- **Gated on:** phase 1 on part 1 of [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md),
+  its backend (Story writes rows from code on Mac and iPhone; part of [Schema language 002](schema-language-002-cranberries-in-story.md)'s
+  milestone 3a), not on editing in the view (Joe, 2026-10-25): in phase 1 the directory is kept
+  by code and shown with Schema language 006's read-only view ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)). Phase 2 on 002's milestones 3, 4 and 7. The Go to…
   slice on nothing. Schema language 005 ([status](../../status.md#collections-that-sync--2026-10-24))
   is on main.
 - **Built on 002** (Joe, 2026-10-24): People is the directory's collection shown with 002's
@@ -116,7 +116,7 @@ way, a share either way, a group in common, or opening their profile or tree. A 
 appears in a page you read doesn't count until you follow it. Host communities stay live,
 collapsed sections and are not copied.
 
-## Phase 1: the directory tree, kept by code (after Schema language 007)
+## Phase 1: the directory tree, kept by code (after Schema language 007 part 1)
 
 - Create the private directory tree on first launch, named from the config tree (fork 1), with
   its `schema.usl` (People and Trees).
@@ -124,9 +124,9 @@ collapsed sections and are not copied.
   profile opens. Record visits in the Trees collection on Mac and iPhone; import `Visits.json`
   and the current `Directory.json` rows once, then remove `Visits.json`.
 - Story keeps the directory from code (007's `appendRows`: derived row changes, queued while
-  offline, sent through the host on every device) and shows it with 007's collection
-  view, grouped by group, with its simple edits; a contact's row lists their trees. Forming
-  groups comes in phase 2.
+  offline, sent through the host on every device) and shows it with 006's read-only
+  collection view, grouped by group; a contact's row lists their trees. Editing it by hand
+  comes with 007 part 2, and forming groups in phase 2.
 - **No same-field races.** Both devices write directory rows with nobody at the keyboard, and
   two of them setting the same field of one row makes a decision
   ([spec 10 §7.1](../../docs/overstory-spec/10-source-intent.md#71-collection-rows)) nobody

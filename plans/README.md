@@ -19,7 +19,8 @@ Joe, 2026-10-24: the next step after Schema language 006, which shows collection
 Story on the Mac ([status](../status.md#collections-in-story-on-the-mac--2026-10-25)). Part 1 is the
 backend: Story reads collections on the iPhone and writes row operations from code, through
 the host on every device, queued while offline (Schema language 002's milestone 3a). The host
-derives the result (spec 10 §2.2, Joe 2026-10-25), so no client encodes a collection's tables. Part
+derives the result (spec 10 §2.2, Joe 2026-10-25), so no client encodes a collection's tables. The People
+directory's first phase starts on that, kept by code and shown read-only (Joe, 2026-10-25). Part
 2 is simple edits in the view on the games sandbox: a bullet's value, a row's name, chips,
 delete and add.
 
