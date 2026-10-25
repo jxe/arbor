@@ -3613,23 +3613,25 @@ extension StoryWorkspaceState {
     /// The ties the hosts list: a group you are in together, and a person
     /// named in the sharing rules of a tree you administer. Someone you have
     /// one of those ties with is also placed under their host's community, the
-    /// canopy; the rest of a community is not copied.
+    /// canopy; the rest of a community is not copied. You are listed in your
+    /// own groups and community too.
     nonisolated static func ties(in people: [DirectoryPerson], own: String?, canopies: [String: String]) -> [DirectoryTie] {
         let mine = Set(people.first { $0.id == own }?.entry.sources ?? [])
-        return people.filter { $0.id != own }.flatMap { person -> [DirectoryTie] in
+        return people.flatMap { person -> [DirectoryTie] in
+            let isOwn = person.id == own
             let tie = { (kind: DirectoryTieKind, group: String?) in
                 DirectoryTie(person: person.id, kind: kind, group: group, name: person.entry.displayName,
                              handle: person.entry.handle, host: person.origin.host())
             }
             let ties = person.entry.sources.compactMap { source -> DirectoryTie? in
                 // Sharing with a group is a fact about the tree, not a person you know.
-                if source == "access" { return person.entry.kind == "group" ? nil : tie(.shared, nil) }
+                if source == "access" { return isOwn || person.entry.kind == "group" ? nil : tie(.shared, nil) }
                 guard source.hasPrefix("group:"), mine.contains(source) else { return nil }
                 let group = String(source.dropFirst("group:".count))
                 return group == person.id ? nil : tie(.group, group)
             }
             // A community the host also lists as a group is already there.
-            guard !ties.isEmpty, person.entry.sources.contains("community"),
+            guard isOwn || !ties.isEmpty, person.entry.sources.contains("community"),
                   let canopy = person.origin.host().flatMap({ canopies[$0] }), canopy != person.id,
                   !ties.contains(where: { $0.group == canopy }) else { return ties }
             return ties + [tie(.community, canopy)]
