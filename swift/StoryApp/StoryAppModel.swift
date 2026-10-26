@@ -1463,11 +1463,9 @@ final class StoryWorkspaceState {
             return
         }
         let treeID = TreeID(rawValue: tree.id)
-        let platform: any ObjectStore = if let daemon = storySyncClient {
-            DaemonObjectStore(client: daemon, tree: tree.id, origin: remote.origin)
-        } else {
-            HostObjectStore(client: client, tree: tree.id)
-        }
+        // Story Sync serves only placed trees; a visit reads from the host,
+        // with the account's session when there is one.
+        let platform = HostObjectStore(client: client, tree: tree.id)
         let rootLocator = remote.configuration
             ? remote.locator(path: remote.path) + ";overstory-config"
             : tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
@@ -3701,8 +3699,7 @@ extension StoryWorkspaceState {
         }
         try await editorWorkspace.flushAll()
         try await closeOpenTree()
-        // Objects come from the host, as the keeper's do: Story Sync has no
-        // placement of the directory and answers 404 for its files.
+        // Objects come from the host, as for any tree not placed here.
         let locator = tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
         try await openWritableRemoteTree(tree: tree, locator: locator, client: client,
                                          platform: HostObjectStore(client: client, tree: tree.id))

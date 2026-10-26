@@ -89,9 +89,7 @@ export function syncHandler(service: SyncHTTPService, options: {
       if (!OBJECT_HASH_PATTERN.test(hash)) throw new ProtocolError("invalid-request", "Object hashes are sha256:<64 hex>", 400);
       const tree = url.searchParams.get("tree");
       if (!tree) throw new ProtocolError("invalid-request", "objects requires explicit tree scope", 400);
-      const origin = url.searchParams.get("origin") ?? undefined;
-      if (origin !== undefined && !/^https?:\/\//.test(origin)) throw new ProtocolError("invalid-request", "origin must be an http(s) URL", 400);
-      const bytes = await service.objectBytes(tree, hash, origin);
+      const bytes = await service.objectBytes(tree, hash);
       if (!bytes) throw new ProtocolError("not-found", `Object is not available: ${hash}`, 404, { tree });
       return new Response(Buffer.from(bytes), {
         headers: {

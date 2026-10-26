@@ -73,7 +73,6 @@ class UnsynchronizedTreeError extends ProtocolError {
     super("unavailable", detail ?? `Tree could not synchronize: ${tree}`, 503, { tree });
   }
 }
-const WIRE_SYNC_TIMEOUT_MS = 60_000;
 
 async function sparseSpine(
   snapshotRoot: ObjectHash,
@@ -179,18 +178,17 @@ export class StorySyncDaemon implements AsyncDisposable {
       workspaceFor: (tree) => trees.workspaceByTree(tree),
       boundariesFor: (workspace) => trees.sharedBoundariesWithin(workspace.root),
       exclusionsFor: (workspace) => trees.excludedMountsWithin(workspace.root),
-      clientFor: async (tree, origin) => {
+      clientFor: async (tree) => {
         const placement = trees.placementFor(tree);
-        if (placement) return this.accountClient(placement);
-        return origin ? new ProtocolClient(origin, undefined, { timeoutMs: WIRE_SYNC_TIMEOUT_MS }) : undefined;
+        return placement ? this.accountClient(placement) : undefined;
       },
     });
     if (options.autoSync !== false) this.startAutoSync(options.syncIntervalMs);
   }
 
   /** Verified object bytes for a tree from the index, its pending changes, or the host. */
-  objectBytes(tree: string, hash: ObjectHash, origin?: string): Promise<Uint8Array | undefined> {
-    return this.objectCache.bytes(tree, hash, origin);
+  objectBytes(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined> {
+    return this.objectCache.bytes(tree, hash);
   }
 
   /**

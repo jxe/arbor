@@ -272,11 +272,11 @@ struct LoopbackServicesTests {
         let hash = ProtocolObjectCodec.hash(bytes)
         await LoopbackStub.state.install { _, _ in (200, bytes, "application/cbor") }
         let client = stubbedClient()
-        let served = try await client.object(tree: "tr_notes", hash: hash, origin: URL(string: "https://notes.example")!)
+        let served = try await client.object(tree: "tr_notes", hash: hash)
         #expect(served == bytes)
         let request = try #require(await LoopbackStub.state.requests().first)
         #expect(request.path == "/v1/objects/\(hash)")
-        #expect(request.query == "tree=tr_notes&origin=https://notes.example")
+        #expect(request.query == "tree=tr_notes")
         #expect(request.accept == "application/cbor")
 
         await #expect(throws: ProtocolValidationError.self) {

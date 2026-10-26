@@ -80,12 +80,6 @@ bytes, is part of [overstoryd 007](features/history-007-document-history-routes-
 - **Ignored paths in the Mac app's publish view.** Mark which paths the ignore rules keep
   out and which ignored paths are still tracked.
 
-### Story Sync and trees it hasn't placed
-
-- [ ] Story Sync answers 404 for objects of a tree it hasn't placed, so the Mac opens the
-  People directory with `HostObjectStore` instead of the window's usual store
-  (`openPersonalDirectory`). Serve such objects from the host, or say why not.
-
 ## Native release and hands-on review
 
 - [ ] Install the tested rejected-update retirement, broader operation capture and

@@ -148,9 +148,9 @@ export class StorySyncRESTClient {
     return this.request("/v1/trees");
   }
 
-  /** Verified wire object bytes for a tree; `origin` names the host for an unplaced tree. */
-  async object(tree: string, hash: string, origin?: string): Promise<Uint8Array> {
-    const query = new URLSearchParams({ tree, ...(origin ? { origin } : {}) });
+  /** Verified wire object bytes for a tree placed on this device. */
+  async object(tree: string, hash: string): Promise<Uint8Array> {
+    const query = new URLSearchParams({ tree });
     const response = await this.fetcher(`${this.baseURL}/v1/objects/${encodeURIComponent(hash)}?${query}`);
     if (!response.ok) await this.throwResponse(response);
     return new Uint8Array(await response.arrayBuffer());

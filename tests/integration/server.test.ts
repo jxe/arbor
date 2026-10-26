@@ -287,50 +287,10 @@ describe("story-sync object route", () => {
     expect(gone.status).toBe(404);
   });
 
-  test("fetches through to the host for an unplaced tree named by origin", async () => {
-    const { serveHost } = await import("@ovst/overstoryd");
-    const { hashObject } = await import("@ovst/protocol");
-    const { resolveSnapshot, snapshotDirectory } = await import("@ovst/fs");
-    const hostRoot = await mkdtemp(join(tmpdir(), "story-object-overstoryd-"));
-    const token = "object-route-owner";
-    const overstoryd = await serveHost({
-      dataRoot: join(hostRoot, "overstoryd"),
-      accounts: [testAccount("owner", token, { communityWriter: true })],
-      publicOrigin: "http://127.0.0.1:0",
-      hostname: "127.0.0.1",
-      port: 0,
-    });
-    try {
-      const owner = await deviceClient(overstoryd.url, token);
-      const account = await owner.account();
-      const communityTree = account.account.community.id;
-      const community = await owner.descriptor(communityTree);
-      const source = join(hostRoot, "community");
-      await mkdir(source, { recursive: true });
-      // The community keeps its member: a group that administers a tree keeps one.
-      await writeFile(join(source, "_index.md"), `---\ntype: group\nmembers:\n  - profile: "overstory://${account.account.profileTree!}/"\n    handle: owner\n---\n# Community\n`);
-      const remoteOnly = new TextEncoder().encode("only-on-overstoryd");
-      await writeFile(join(source, "remote-only.bin"), remoteOnly);
-      const boundaries = new Map([[join(source, "~owner"), account.account.profileTree!]]);
-      await owner.submitUpdate(communityTree, community.tree.update, await resolveSnapshot(await snapshotDirectory(source, boundaries)));
-      // The local copy is gone; the daemon has no placement for this tree.
-      await rm(join(source, "remote-only.bin"));
-      const hash = hashObject(remoteOnly);
-
-      const served = await client.object(communityTree, hash, overstoryd.url);
-      expect(hashObject(served)).toBe(hash);
-      const response = await fetch(`${base}/v1/objects/${encodeURIComponent(hash)}?tree=${encodeURIComponent(communityTree)}&origin=${encodeURIComponent(overstoryd.url)}`);
-      expect(response.headers.get("etag")).toBe(`"${hash}"`);
-
-      // Fetched bytes are retained by hash, so a repeat needs no origin.
-      expect(await client.object(communityTree, hash)).toEqual(served);
-      const unknown = await fetch(`${base}/v1/objects/${validHash("1e")}?tree=${encodeURIComponent(communityTree)}&origin=${encodeURIComponent(overstoryd.url)}`);
-      expect(unknown.status).toBe(404);
-    } finally {
-      overstoryd.server.stop(true);
-      await overstoryd.overstoryd[Symbol.asyncDispose]();
-      await rm(hostRoot, { recursive: true, force: true });
-    }
+  test("serves no objects for a tree it has not placed, whatever origin is named", async () => {
+    const hash = validHash("2f");
+    const response = await fetch(`${base}/v1/objects/${encodeURIComponent(hash)}?tree=tr_unplaced&origin=${encodeURIComponent("http://127.0.0.1:9")}`);
+    expect(response.status).toBe(404);
   });
 
   test("answers 404 for unavailable objects and 400 for malformed hashes", async () => {

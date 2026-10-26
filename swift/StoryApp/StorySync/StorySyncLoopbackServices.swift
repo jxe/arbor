@@ -84,18 +84,10 @@ actor StorySyncCredentialProvider: ProtocolCredentialProvider {
 struct DaemonObjectStore: ObjectStore {
     let client: StorySyncRESTClient
     let tree: String
-    /// The host origin for a tree the daemon has no placement for (a visit).
-    let origin: URL?
-
-    init(client: StorySyncRESTClient, tree: String, origin: URL? = nil) {
-        self.client = client
-        self.tree = tree
-        self.origin = origin
-    }
 
     func bytes(_ hash: String) async throws -> Data {
         do {
-            return try await client.object(tree: tree, hash: hash, origin: origin)
+            return try await client.object(tree: tree, hash: hash)
         } catch let error as StorySyncServerError where error.status == 404 {
             throw ObjectStoreError.missing(hash)
         } catch let error as ProtocolValidationError {

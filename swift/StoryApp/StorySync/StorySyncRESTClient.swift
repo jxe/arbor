@@ -261,16 +261,14 @@ actor StorySyncRESTClient {
         return value.token
     }
 
-    /// `GET /v1/objects/{hash}?tree=[&origin=]`: one canonical wire object, hash-verified
-    /// before it is returned. A 404 surfaces as `StorySyncServerError` with status 404.
-    func object(tree: String, hash: String, origin: URL? = nil) async throws -> Data {
+    /// `GET /v1/objects/{hash}?tree=`: one canonical wire object of a placed tree,
+    /// hash-verified before it is returned. A 404 surfaces as `StorySyncServerError` with status 404.
+    func object(tree: String, hash: String) async throws -> Data {
         guard hash.range(of: #"^sha256:[a-f0-9]{64}$"#, options: .regularExpression) != nil else {
             throw ProtocolValidationError.invalidHash(hash)
         }
         var components = URLComponents(url: url("/v1/objects/\(hash)"), resolvingAgainstBaseURL: false)!
-        var items = [URLQueryItem(name: "tree", value: tree)]
-        if let origin { items.append(URLQueryItem(name: "origin", value: origin.absoluteString)) }
-        components.queryItems = items
+        components.queryItems = [URLQueryItem(name: "tree", value: tree)]
         var request = URLRequest(url: components.url!)
         request.setValue("application/cbor", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: Self.authorized(request, token: token))

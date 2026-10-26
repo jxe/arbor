@@ -214,7 +214,7 @@ placed, visited, or cached by resolution.
 ### 3a. Objects
 
 ```text
-GET /v1/objects/{hash}?tree={TreeID}[&origin={url}]
+GET /v1/objects/{hash}?tree={TreeID}
 ```
 
 Serves one Overstory object (`application/octet-stream`) by its `sha256:<64 hex>`
@@ -231,9 +231,12 @@ The daemon looks the object up in this order:
    raw file bytes; a directory row re-encodes the directory from its children
    rows, walking the subtree only where a child row is missing or invalid.
 2. The tree's stored pending update body, including transmitted successors.
-3. overstoryd, through the tree's account client, or through an anonymous client
-   for `origin` when the tree has no local placement (a visit). Fetched bytes
-   are retained in a bounded in-memory LRU (64 MiB by default) keyed by hash.
+3. overstoryd, through the tree's account client. Fetched bytes are retained in
+   a bounded in-memory LRU (64 MiB by default) keyed by hash.
+
+The daemon serves only trees placed on this device. A client reading a tree
+that isn't placed here (a visit) asks the tree's host itself, with its own account
+session.
 
 The index is an optimization, never authority. A file row is valid only while
 its complete stat tuple (size, mtime, ctime, inode, device) still matches;

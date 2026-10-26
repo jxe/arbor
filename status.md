@@ -12,6 +12,20 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Story Sync serves only placed trees — 2026-10-26
+
+Implemented; the Swift change is installed when Joe next builds Story, the Story Sync change
+when it next restarts on this build.
+
+- **Story Sync's `/v1/objects` serves only trees placed on the device.** It used to fetch a
+  visited tree's objects through an anonymous client for an `origin` the caller named, so a
+  private tree that wasn't placed answered 404 (the People directory had a workaround). The
+  `origin` parameter is gone from the route, `@ovst/cli`'s daemon client and Story's
+  `StorySyncRESTClient`.
+- **The Mac reads a tree it hasn't placed from the host,** with `HostObjectStore` and the
+  account's session when there is one, as the iPhone and the People directory already did. One
+  path for every visit.
+
 ## Mutation retries, claims and sidebar creations — 2026-10-26
 
 Implemented; the Swift change is installed when Joe next builds Story.

@@ -10,8 +10,8 @@ export interface TreeObjectCacheDeps {
   exclusionsFor(workspace: Workspace): readonly string[];
   /** Bytes a tree's pending local changes carry. */
   pendingBytes(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined>;
-  /** The account client for a placed tree, or an anonymous client for `origin`. */
-  clientFor(tree: string, origin?: string): Promise<ProtocolClient | undefined>;
+  /** The account client for a placed tree; nothing for a tree placed elsewhere. */
+  clientFor(tree: string): Promise<ProtocolClient | undefined>;
   /** Bounded bytes retained for fetched-through objects. */
   maxFetchedBytes?: number;
   report?: ObjectReadReporter;
@@ -64,10 +64,10 @@ export class TreeObjectCache {
     this.fetched = new ByteLRU(deps.maxFetchedBytes ?? 64 * 1024 * 1024);
   }
 
-  async bytes(tree: string, hash: ObjectHash, origin?: string): Promise<Uint8Array | undefined> {
+  async bytes(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined> {
     return await this.fromIndex(tree, hash)
       ?? await this.fromPending(tree, hash)
-      ?? await this.fromHost(tree, hash, origin);
+      ?? await this.fromHost(tree, hash);
   }
 
   private async fromIndex(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined> {
@@ -97,10 +97,10 @@ export class TreeObjectCache {
     return undefined;
   }
 
-  private async fromHost(tree: string, hash: ObjectHash, origin?: string): Promise<Uint8Array | undefined> {
+  private async fromHost(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined> {
     const cached = this.fetched.get(hash);
     if (cached) return cached;
-    const client = await this.deps.clientFor(tree, origin).catch((error) => {
+    const client = await this.deps.clientFor(tree).catch((error) => {
       this.report(objectReadError({ source: "overstoryd-client", tree, hash }, error));
       return undefined;
     });
