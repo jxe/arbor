@@ -2,7 +2,7 @@
 import { Database } from "bun:sqlite";
 import { link, lstat, readdir, rename, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { ObjectStore } from "@ovst/object-store";
+import { ObjectStore, type PackUsage } from "@ovst/object-store";
 import type { ObjectHash } from "@ovst/protocol";
 import { retainedObjects } from "./retention.ts";
 import { assertCurrentHostSchema } from "./schema.ts";
@@ -64,9 +64,9 @@ export interface CollectReport {
   /** Set-aside files from an interrupted run, restored first. */
   recovered: number;
   /** Packed objects (overstoryd 001): dropped (or droppable), used within the
-   * grace period, kept (live), and packs
-   * rewritten after losing half their bytes. */
-  packed: { deleted: Tally; young: number; kept: number; rewritten: number };
+   * grace period, kept (live), packs rewritten after losing half their bytes,
+   * and what the packs hold afterwards. */
+  packed: { deleted: Tally; young: number; kept: number; rewritten: number; stored: PackUsage };
   ms: number;
 }
 
@@ -144,7 +144,7 @@ export async function collectObjects(dataRoot: string, options: CollectOptions =
 
   // Packed objects: the same definition and grace period, by index row.
   const packedResult = await store.packs.collect(retained.live, cutoff, remove);
-  const packed = { deleted: { objects: packedResult.objects, bytes: packedResult.bytes }, young: packedResult.young, kept: packedResult.kept, rewritten: packedResult.rewritten };
+  const packed = { deleted: { objects: packedResult.objects, bytes: packedResult.bytes }, young: packedResult.young, kept: packedResult.kept, rewritten: packedResult.rewritten, stored: store.packs.usage() };
   if (packedResult.objects) progress(`${remove ? "dropped" : "would drop"} ${packedResult.objects} packed objects; ${packedResult.rewritten} packs rewritten`);
 
   return {

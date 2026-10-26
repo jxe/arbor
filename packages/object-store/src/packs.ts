@@ -341,6 +341,41 @@ export class Packs {
     return name;
   }
 
+  /** What the index holds: pack files and their bytes on disk, and the
+   * objects they hold with their canonical bytes. */
+  usage(): PackUsage {
+    const db = this.index();
+    if (!db) return { packs: 0, bytes: 0, objects: 0, objectBytes: 0 };
+    const packs = db.query("SELECT count(*) AS packs, coalesce(sum(bytes), 0) AS bytes FROM packs").get() as { packs: number; bytes: number };
+    const objects = db.query("SELECT count(*) AS objects, coalesce(sum(size), 0) AS objectBytes FROM packed_objects").get() as { objects: number; objectBytes: number };
+    return { ...packs, ...objects };
+  }
+
+  /**
+   * Hash every indexed pack file against its name and size. Reads check each
+   * object they decode, so without this a damaged pack is found only when one
+   * of its objects is read. Returns the usage and the names of damaged or
+   * missing packs.
+   */
+  async verify(): Promise<PackUsage & { damaged: string[] }> {
+    const db = this.index();
+    if (!db) return { ...this.usage(), damaged: [] };
+    const damaged: string[] = [];
+    // A collection in another process may rewrite a pack meanwhile; only a pack still indexed counts.
+    const indexed = db.query("SELECT 1 FROM packs WHERE name = ?");
+    for (const { name, bytes } of db.query("SELECT name, bytes FROM packs ORDER BY id").all() as Array<{ name: string; bytes: number }>) {
+      const file = Bun.file(join(this.directory, name));
+      let sound = await file.exists() && file.size === bytes;
+      if (sound) {
+        const hasher = new Bun.CryptoHasher("sha256");
+        for await (const chunk of file.stream()) hasher.update(chunk);
+        sound = `${hasher.digest("hex")}.pack` === name;
+      }
+      if (!sound && indexed.get(name)) damaged.push(name);
+    }
+    return { ...this.usage(), damaged };
+  }
+
   /** Delete pack files no index row names (left by a crash before commit)
    * and temporary files, once older than `minAgeMs`, and packs no row uses. */
   async removeOrphans(minAgeMs = 60 * 60_000): Promise<string[]> {
@@ -369,6 +404,15 @@ export class Packs {
     }
     return removed;
   }
+}
+
+export interface PackUsage {
+  /** Pack files, and their bytes on disk. */
+  packs: number;
+  bytes: number;
+  /** Objects packed in them, and those objects' canonical bytes. */
+  objects: number;
+  objectBytes: number;
 }
 
 export interface PackCandidate {

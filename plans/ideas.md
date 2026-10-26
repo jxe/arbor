@@ -76,6 +76,10 @@ Measure before promoting any of these.
   (all reverify).
 - **Minimal changed-document reconciliation**, only if large external rewrites make
   whole-document `replaceBlocks` disruptive.
+- **Stream the pack experiment harness.** `tests/performance/storage/pack-experiments.ts`
+  keeps every object in memory (4 GB RSS on the 2026-10-09 live copy). Only if the store
+  grows much further. Also unmeasured on the live host: backup size and time with packs, and
+  foreground latency while a pass runs under a burst; measure them with the next backup.
 
 ## Cleanup
 

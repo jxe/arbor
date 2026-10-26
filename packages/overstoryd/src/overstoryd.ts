@@ -74,7 +74,7 @@ import { authorizePersonConfigTransition, mergeTreeConfigTrees, TREE_CONFIG_POLI
 import { decideUpdate, reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
 import { AcceptedUpdateStore } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
-import { ObjectStore } from "@ovst/object-store";
+import { ObjectStore, type PackUsage } from "@ovst/object-store";
 import { AccessControl } from "./access.ts";
 import { AccountDirectory, isRecoveryPairing } from "./accounts.ts";
 import {
@@ -95,6 +95,11 @@ export { AlreadyClaimedError, RefConflictError, ReservedBoundaryConflictError, U
 /** Who submits an update: the account it acts for (an execution's caller
  * under execution authority), the access link it presents, and the device
  * session that authenticated it, if any. */
+/** What a passing integrity audit found: what the packs hold. */
+export interface IntegrityReport {
+  packs: PackUsage;
+}
+
 export interface UpdateCaller {
   account: HostAccount | null;
   linkDigest?: string;
@@ -2543,17 +2548,17 @@ export class HostDaemon implements AsyncDisposable {
     }
   }
 
-  private integrityRun: Promise<void> | null = null;
+  private integrityRun: Promise<IntegrityReport> | null = null;
 
-  /** Verify SQLite, the row invariants `assertHostData` names, and every
-   * object reachable from retained accepted history.
+  /** Verify SQLite, the row invariants `assertHostData` names, every
+   * object reachable from retained accepted history, and every pack file.
    * This walks all retained history, so concurrent callers share one run. */
-  verifyIntegrity(): Promise<void> {
+  verifyIntegrity(): Promise<IntegrityReport> {
     this.integrityRun ??= this.auditIntegrity().finally(() => { this.integrityRun = null; });
     return this.integrityRun;
   }
 
-  private async auditIntegrity(): Promise<void> {
+  private async auditIntegrity(): Promise<IntegrityReport> {
     this.verifyDatabase();
     assertHostData(this.db);
     // The same closure the object collector keeps: every object it names is
@@ -2579,6 +2584,10 @@ export class HostDaemon implements AsyncDisposable {
         at = value.previous;
       }
     }
+    // Every pack file still hashes to its name, including packs no retained object is read from.
+    const { damaged, ...packs } = await this.objects.packs.verify();
+    if (damaged.length) throw new Error(`Damaged object packs: ${damaged.join(", ")}`);
+    return { packs };
   }
 
   /** The object route is gated on tree read access only. Objects are

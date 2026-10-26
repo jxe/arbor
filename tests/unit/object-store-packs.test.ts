@@ -88,6 +88,22 @@ test("a pack whose bytes do not match its index fails the read", async () => {
   await expect(new ObjectStore(root).read(docs[0]!.hash)).rejects.toThrow();
 });
 
+test("verification hashes each pack against its name and counts what packs hold", async () => {
+  const { root, store } = fresh();
+  const docs = versions(3);
+  await store.store(docs);
+  const { packBytes } = await store.pack(docs);
+  const sound = await new ObjectStore(root).packs.verify();
+  expect(sound).toEqual({ packs: 1, bytes: packBytes, objects: 3, objectBytes: docs.reduce((n, d) => n + d.bytes.byteLength, 0), damaged: [] });
+  const name = readdirSync(join(root, "packs")).find((n) => n.endsWith(".pack"))!;
+  const bytes = readFileSync(join(root, "packs", name));
+  // A byte no read decodes yet: only verification finds it.
+  bytes[bytes.length - 1] = bytes[bytes.length - 1]! ^ 0xff;
+  writeFileSync(join(root, "packs", name), bytes);
+  expect((await new ObjectStore(root).packs.verify()).damaged).toEqual([name]);
+  expect(await new ObjectStore(join(root, "never-packed")).packs.verify()).toEqual({ packs: 0, bytes: 0, objects: 0, objectBytes: 0, damaged: [] });
+});
+
 test("an interrupted pass leaves every object readable and a rerun converges", async () => {
   const { root, store } = fresh();
   const docs = versions(4);

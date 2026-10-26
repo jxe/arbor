@@ -517,8 +517,8 @@ export async function serveHost(options: {
         if (request.method === "GET" && url.pathname === "/.overstory/integrity") {
           server.timeout(request, 0);
           try {
-            await overstoryd.verifyIntegrity();
-            return json({ status: "ok" });
+            const report = await overstoryd.verifyIntegrity();
+            return json({ status: "ok", ...report });
           } catch (error) {
             console.error("overstoryd integrity check failed", error);
             return protocolError("internal-error", "Host integrity check failed", 503, true);

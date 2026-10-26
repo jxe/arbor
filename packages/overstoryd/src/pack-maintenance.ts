@@ -23,6 +23,9 @@ import { decodeProtocolDirectory, protocolObjectReferences, type ObjectHash } fr
  *   document's versions share zstd frames of about 1 MiB (see
  *   `prepareRecords`).
  * - **Headroom.** A pass defers when free disk is under twice a batch.
+ * - **Verification.** Every `verifyMs`, at an idle check, each pack file is
+ *   hashed against its name; a damaged one is reported on stderr. Reads check
+ *   only the objects they decode.
  */
 export interface PackMaintenanceOptions {
   minAgeMs?: number;
@@ -32,6 +35,7 @@ export interface PackMaintenanceOptions {
   idleMs?: number;
   batchObjects?: number;
   batchBytes?: number;
+  verifyMs?: number;
 }
 
 export interface PackReport {
@@ -60,11 +64,13 @@ export class PackMaintenance {
   private disposed = false;
   /** The last few passes, newest last; a diagnostic. */
   readonly reports: PackReport[] = [];
+  /** When packs were last hashed against their names, and what was damaged. */
+  verified: { at: number; damaged: string[] } | null = null;
 
   constructor(private readonly db: Database, private readonly objects: ObjectStore, private readonly root: string, options: PackMaintenanceOptions = {}) {
     this.options = {
       minAgeMs: 60 * 60_000, highObjects: 4000, highBytes: 64 << 20, debounceMs: 30_000, idleMs: 30 * 60_000,
-      batchObjects: 4000, batchBytes: 32 << 20, ...options,
+      batchObjects: 4000, batchBytes: 32 << 20, verifyMs: 24 * 60 * 60_000, ...options,
     };
   }
 
@@ -91,6 +97,9 @@ export class PackMaintenance {
     if (this.disposed) return;
     this.idle = setTimeout(async () => {
       await this.check("idle");
+      if (!this.disposed && Date.now() - (this.verified?.at ?? 0) >= this.options.verifyMs) await this.verify().catch((error) => {
+        process.stderr.write(`Pack verification failed: ${error instanceof Error ? error.message : String(error)}\n`);
+      });
       this.scheduleIdle();
     }, this.options.idleMs);
     this.idle.unref?.();
@@ -102,6 +111,14 @@ export class PackMaintenance {
     await this.run(trigger).catch((error) => {
       process.stderr.write(`Object packing failed: ${error instanceof Error ? error.message : String(error)}\n`);
     });
+  }
+
+  /** Hash every pack against its name; reports damaged packs on stderr. */
+  async verify(): Promise<string[]> {
+    const { damaged } = await this.objects.packs.verify();
+    this.verified = { at: Date.now(), damaged };
+    if (damaged.length) process.stderr.write(`Damaged object packs: ${damaged.join(", ")}\n`);
+    return damaged;
   }
 
   /** One pass now (or the one already running). */

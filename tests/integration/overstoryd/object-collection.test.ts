@@ -181,7 +181,17 @@ test("packed history reads, verifies, accepts and collects like loose history", 
   // Collection drops the packed dead object only, and history stays intact.
   const collected = await collectObjects(dir, { delete: true, graceMs: 0 });
   expect(collected.packed.deleted.objects).toBe(1);
+  expect(collected.packed.stored).toEqual(new ObjectStore(join(dir, "objects")).packs.usage());
+  expect(collected.packed.stored.objects).toBe(report.packed - 1);
   await expect(new ObjectStore(join(dir, "objects")).read(dead.hash)).rejects.toThrow();
   await restart();
-  await running.overstoryd.verifyIntegrity();
+  expect((await running.overstoryd.verifyIntegrity()).packs).toEqual(collected.packed.stored);
+  // A damaged pack fails the audit even when no read has touched it.
+  const name = (await readdir(join(dir, "objects", "packs"))).find((n) => n.endsWith(".pack"))!;
+  const bytes = await Bun.file(join(dir, "objects", "packs", name)).bytes();
+  bytes[bytes.length - 1] = bytes[bytes.length - 1]! ^ 0xff;
+  await Bun.write(join(dir, "objects", "packs", name), bytes);
+  await expect(running.overstoryd.verifyIntegrity()).rejects.toThrow(`Damaged object packs: ${name}`);
+  bytes[bytes.length - 1] = bytes[bytes.length - 1]! ^ 0xff;
+  await Bun.write(join(dir, "objects", "packs", name), bytes);
 });

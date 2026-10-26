@@ -160,7 +160,8 @@ domain actually arrives with, and count from that.
 
 `GET /` is the readiness probe; Railway checks it. `GET /.overstory/health` is a
 cheap SQLite check. `GET /.overstory/integrity` runs the full integrity audit of the
-database, its row invariants and foreign keys, and every retained object. It is a
+database, its row invariants and foreign keys, every retained object, and every
+pack file, and answers with what the packs hold. It is a
 maintenance command, not a readiness check: it can exceed a short request
 timeout, and polling it has exhausted the memory of a live instance. Call it
 deliberately, once, after a deploy or migration.
@@ -188,7 +189,10 @@ and on a 30-minute idle check; it removes loose files only after reading every
 packed object back. The same pass runs by hand, against a copy or beside a
 serving host, with `bun run packages/overstoryd/src/pack-maintenance.ts <data-root>`
 (`--min-age-hours N`; prints one JSON report). To stop packing, set
-`OVERSTORYD_OBJECT_PACKING=0`; packs stay readable. To roll back to a build without
+`OVERSTORYD_OBJECT_PACKING=0`; packs stay readable. Once a day the idle check
+hashes every pack against its name and logs `Damaged object packs: …` for any
+that differ; `/.overstory/integrity` checks the same and reports what the packs
+hold. To roll back to a build without
 pack support, first stop the host and run `pack-maintenance.ts <data-root>
 --unpack`, which writes every packed object back as a loose file and removes
 the packs.
@@ -201,7 +205,8 @@ once they have gone unused for a grace period. It runs as a separate process
 beside the serving overstoryd, which keeps serving; it never writes the database.
 It prints one JSON report line on stdout (objects and bytes scanned, live,
 young, deleted; objects put back because a writer used them mid-run; absent
-optional pins; non-object files; milliseconds) and progress on stderr. Without
+optional pins; non-object files; packed objects dropped and what the packs hold
+afterwards; milliseconds) and progress on stderr. Without
 `--delete` it is a dry run that reports what it would delete.
 
 On Railway, from the linked repository directory:

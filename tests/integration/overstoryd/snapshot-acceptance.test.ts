@@ -399,7 +399,7 @@ test("health checks only the database while integrity audits history in one shar
   await first;
   const integrity = await fetch(`${running.url}/.overstory/integrity`);
   expect(integrity.status).toBe(200);
-  expect(await integrity.json()).toEqual({ status: "ok" });
+  expect(await integrity.json()).toEqual({ status: "ok", packs: { packs: 0, bytes: 0, objects: 0, objectBytes: 0 } });
 });
 
 test("the host validates logical collections itself", async () => {

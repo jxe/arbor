@@ -267,6 +267,53 @@ collector renames each candidate aside and checks its time again, putting back
 one freshened in between; a freshen that finds the file gone fails its
 acceptance rather than committing a reference to a missing object.
 
+### Packed objects
+
+`ObjectStore` reads an object from its loose file, else from a pack
+(`packages/object-store/src/packs.ts`); a hash names canonical bytes wherever
+they live, and every read is checked against it. Packs are immutable files
+under `objects/packs/`, each named by the sha256 of its contents, indexed in
+`objects/packs/index.sqlite3`: a `packs` row per file (name, bytes) and a
+`packed_objects` row per object (pack, offset, length, encoding, the slice of a
+shared frame, size, `used_at`). A record is raw bytes, one zstd frame, or a
+member of a frame of about 1 MiB raw that holds one document's versions in
+acceptance order; an object of 1 MiB or more is packed alone, and no object
+depends on another. The index belongs to the object store, so overstoryd's
+schema is untouched and the merge sidecar opens it read-only.
+
+`pack-maintenance.ts` runs one pass at a time in the serving process: at
+startup, after acceptances pass 4,000 loose objects or 64 MiB (debounced 30 s),
+and on a 30-minute idle check; an accepted update never waits for one. A pass
+packs loose objects older than an hour, outside every tree's current closure,
+in batches of 4,000 objects or 32 MiB, deferring when free disk is under twice
+a batch. Each batch checks every candidate's hash, writes and syncs the pack
+under its content's name, indexes it in one transaction, reads every object
+back through the index, and only then removes the loose files. A crash at any
+point leaves each object loose, packed, or both: an unindexed pack or
+temporary file older than an hour is removed by the next pass, and a loose
+file whose object is already packed is removed by it too. What stays loose:
+every tree's current closure (the hot set), anything younger than an hour, and
+whatever arrives between passes.
+
+The collector applies the same retention and grace period to packed rows:
+`Packs.collect` deletes a dead row only while its `used_at` is still before the
+cutoff, so a concurrent freshen wins, then rewrites any pack whose remaining
+records are under half its bytes and removes packs no row uses. Its report's
+`packed.stored` gives what the packs hold afterwards (files and bytes on disk,
+objects and their canonical bytes). Because a read checks only the objects it
+decodes, the idle check hashes every pack against its name once a day and
+reports a damaged one on stderr, and the integrity audit does the same and
+returns the same counts.
+
+Any later packing or pruning keeps these obligations. Schema 9 made basis and
+candidate roots explicit retention dependencies of each authored change,
+checked by the audit, so those graphs are retained with the operation records
+and inverse material. The store stays append-only from the point of view of
+accepted receipts: historical rule results and receipts are never recomputed.
+A collector must pin job inputs, staged inputs, results awaiting commit,
+hidden alternatives and provenance dependencies; the merge job manifest alone
+is not a completed lease protocol.
+
 A tree watch reauthorizes before every event it sends and every 250 ms while
 idle, and an execution authority watch every 250 ms; revocation closes the
 stream within that interval. Between checks overstoryd reuses the previous
