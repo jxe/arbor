@@ -128,21 +128,6 @@ actor NativePlacementStore {
         try encoder.encode(collection).write(to: url, options: .atomic)
     }
 
-    /// Point placements saved under `old` at `new`, keeping the selection.
-    /// Accounts saved before overstoryd 005 were rekeyed to their derived
-    /// configuration TreeID; their placements must follow, or they open with
-    /// no credential.
-    func rekey(configurationTree old: String, to new: String) throws {
-        guard var collection = try loadCollectionIfPresent(),
-              collection.placements.contains(where: { $0.configurationTree == old }) else { return }
-        for index in collection.placements.indices where collection.placements[index].configurationTree == old {
-            collection.placements[index].configurationTree = new
-        }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(collection).write(to: url, options: .atomic)
-    }
-
     func clear(configurationTree: String?) throws {
         guard var collection = try loadCollectionIfPresent() else { return }
         collection.placements.removeAll { $0.configurationTree == configurationTree }
@@ -170,28 +155,19 @@ actor NativePlacementStore {
 
     private nonisolated static func loadCollection(at url: URL) throws -> NativePlacementCollection {
         let data = try Data(contentsOf: url)
-        // A file with a `placements` key is the collection layout; anything
-        // else is the original single-record file. Decode errors are reported
-        // for the layout the file actually has, never for the other one.
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        if let placements = object?["placements"] {
-            guard object?["version"] as? Int == 2, let entries = placements as? [Any] else {
-                throw ProtocolValidationError.invalidValue("Unsupported native placement collection")
-            }
-            // The collection only remembers what the daemon already knows, so a
-            // record this build can no longer read (a retired tree kind, a
-            // configuration an earlier protocol named) is dropped, never fatal.
-            let records = usable(entries.compactMap { entry in
-                (try? JSONSerialization.data(withJSONObject: entry))
-                    .flatMap { try? JSONDecoder().decode(NativePlacementRecord.self, from: $0) }
-            })
-            let selected = (object?["selectedTree"] as? String).flatMap { tree in records.contains { $0.tree.id == tree } ? tree : nil }
-            return NativePlacementCollection(selectedTree: selected, placements: records)
+        guard object?["version"] as? Int == 2, let entries = object?["placements"] as? [Any] else {
+            throw ProtocolValidationError.invalidValue("Unsupported native placement collection")
         }
-        guard let record = usable([try JSONDecoder().decode(NativePlacementRecord.self, from: data)]).first else {
-            return NativePlacementCollection(placements: [])
-        }
-        return NativePlacementCollection(selectedTree: record.tree.id, placements: [record])
+        // The collection only remembers what the daemon already knows, so a
+        // record this build can no longer read (a retired tree kind, a
+        // configuration an earlier protocol named) is dropped, never fatal.
+        let records = usable(entries.compactMap { entry in
+            (try? JSONSerialization.data(withJSONObject: entry))
+                .flatMap { try? JSONDecoder().decode(NativePlacementRecord.self, from: $0) }
+        })
+        let selected = (object?["selectedTree"] as? String).flatMap { tree in records.contains { $0.tree.id == tree } ? tree : nil }
+        return NativePlacementCollection(selectedTree: selected, placements: records)
     }
 
     /// Records this build can use: a known version and a valid descriptor, the first per tree.

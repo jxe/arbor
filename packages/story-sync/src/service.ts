@@ -12,11 +12,11 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@ovst/protocol";
-import { canonicalNodePath, HostAccountStore, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, protocolObjectReferences, verifyTreeSnapshotGraph, type ObjectHash, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
+import { canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, protocolObjectReferences, verifyTreeSnapshotGraph, type ObjectHash, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@ovst/client";
-import { savePlacementSyncMetadata, type SharedTreePlacement } from "./state/index.ts";
-import { ensureProfilePlacement, resolveUserPath } from "@ovst/client";
+import { type SharedTreePlacement } from "./state/index.ts";
+import { resolveUserPath } from "@ovst/client";
 import { EventBus } from "./events.ts";
 import { decodeRequestPath } from "./http.ts";
 import { TreeObjectCache } from "./object-cache.ts";
@@ -105,26 +105,6 @@ async function sparseSpine(
   await visit(snapshotRoot);
   verifyTreeSnapshotGraph({ root: snapshotRoot, objects: spine }, "sparse-files");
   return encodeSparseSnapshotBundle(spine);
-}
-
-/**
- * A data home that joined before claims placed the profile folder gets that
- * placement at start. The host's profile is the claim's upload of this same
- * folder, so the placement starts from the host's current update: edits made
- * since then publish as changes instead of meeting the host as a conflict.
- */
-async function placeEarlierProfileFolder(): Promise<void> {
-  try {
-    const placement = await ensureProfilePlacement();
-    if (!placement) return;
-    const connection = await new HostAccountStore(placement.configurationTree).get();
-    if (!connection) return;
-    const { tree } = await new ProtocolClient(connection.record.origin, connection.accountToken).descriptor(placement.tree);
-    if (!tree.root || !tree.update) return;
-    await savePlacementSyncMetadata(placement.tree, { ref: tree.root, update: tree.update, access: tree.access }, placement.configurationTree);
-  } catch (error) {
-    console.warn(`The profile folder could not be placed: ${error instanceof Error ? error.message : String(error)}`);
-  }
 }
 
 /**
@@ -252,7 +232,6 @@ export class StorySyncDaemon implements AsyncDisposable {
     options: Omit<WorkspaceOptions, "events" | "tree" | "tracking"> = {},
     daemon: StorySyncDaemonOptions = {},
   ): Promise<StorySyncDaemon> {
-    await placeEarlierProfileFolder();
     const events = new EventBus();
     const trees = new TreeManager(events);
     await trees.init();
@@ -265,7 +244,6 @@ export class StorySyncDaemon implements AsyncDisposable {
 
   /** Open system/account services without attaching Story to a filesystem session. */
   static async openControl(options: StorySyncDaemonOptions = {}): Promise<StorySyncDaemon> {
-    await placeEarlierProfileFolder();
     const events = new EventBus();
     const trees = new TreeManager(events);
     await trees.init();

@@ -78,50 +78,6 @@ test("a running daemon syncs the configuration an account claim places, and reso
   }
 }, 30_000);
 
-test("a data home that joined before claims placed the profile folder places it at the next start, keeping later edits", async () => {
-  process.env.STORY_HOME = join(sandbox, "earlier-home");
-  const profile = join(sandbox, "earlier-profile");
-  await mkdir(profile, { recursive: true });
-  const identity = await new ProfileIdentityStore().create(profile);
-  const host = await serveHost({
-    dataRoot: join(sandbox, "earlier-host"), publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
-    community: { handle: "garden", name: "Garden", firstWriter: { handle: "oliver", profileTree: identity.profileTree } },
-  });
-  const configuration = treeConfigurationID(identity.profileTree);
-  let daemon = await serveStorySyncControl({ port: 0 });
-  try {
-    const claim = await fetch(`${daemon.url}/v1/bootstrap/accounts`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ account: `${host.url}/~oliver`, path: profile }),
-    });
-    expect(claim.status).toBe(201);
-    daemon.server.stop(true);
-    await daemon.service[Symbol.asyncDispose]();
-
-    // What an earlier claim left: the profile activated at the host, but no placement and no sync state for it.
-    await writeFile(join(process.env.STORY_HOME!, "placements.yaml"), "{}\n");
-    await rm(join(process.env.STORY_HOME!, ".state", "accounts", configuration, "refs", `${identity.profileTree}.json`), { force: true });
-    await rm(join(process.env.STORY_HOME!, ".state", "trees", Buffer.from(identity.profileTree).toString("base64url")), { recursive: true, force: true });
-    await writeFile(join(profile, "photo.txt"), "Added while unplaced\n");
-
-    daemon = await serveStorySyncControl({ port: 0 });
-    expect(await readFile(join(process.env.STORY_HOME!, "placements.yaml"), "utf8")).toContain(identity.profileTree);
-    const hosted = new ProtocolClient(host.url);
-    let photo: string | undefined;
-    for (let attempt = 0; attempt < 100 && photo === undefined; attempt += 1) {
-      photo = await hostedFile(hosted, identity.profileTree, "photo.txt");
-      if (photo === undefined) await Bun.sleep(100);
-    }
-    expect(photo).toBe("Added while unplaced\n");
-  } finally {
-    daemon.server.stop(true);
-    await daemon.service[Symbol.asyncDispose]();
-    host.server.stop(true);
-    await host.overstoryd[Symbol.asyncDispose]();
-  }
-}, 30_000);
-
 async function hostedFile(client: ProtocolClient, tree: string, name: string): Promise<string | undefined> {
   try {
     const { tree: descriptor } = await client.descriptor(tree);
