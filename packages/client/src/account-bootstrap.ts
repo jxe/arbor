@@ -104,12 +104,19 @@ async function claimAccountProfileBootstrap(
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   let credential: string | null = null;
   if (pending) {
-    if (pending.version !== 3 || (pending.account !== account && account !== origin) || pending.origin !== origin || pending.path !== path || pending.profileTree !== profileTree) {
+    if (pending.version !== 3 || pending.origin !== origin || pending.path !== path || pending.profileTree !== profileTree) {
       throw new ProtocolError("conflict", "A different account bootstrap is already pending in this data home", 409);
     }
     credential = await new HostAccountStore(pending.configurationTree).provisionalCredential();
-    if (inviteCode && pending.inviteCode && inviteCode !== pending.inviteCode) {
-      throw new ProtocolError("conflict", "A different invitation code is already pending for this account", 409);
+    if ((pending.account !== account && account !== origin) || (inviteCode && pending.inviteCode && inviteCode !== pending.inviteCode)) {
+      if (pending.stage !== "prepared") throw new ProtocolError("conflict", "A different account or invitation code is already pending in this data home", 409);
+      // The claim was never sent, so the host refused at most a challenge: the
+      // account and code entered now replace the ones it was refused for.
+      pending.account = account;
+      pending.inviteCode = inviteCode;
+      delete pending.challenge;
+      delete pending.publicKey;
+      delete pending.signature;
     }
     if (inviteCode && !pending.inviteCode) pending.inviteCode = inviteCode;
     if (!credential || !pending.key || deviceKeyFromSeed(credential) !== pending.key) {

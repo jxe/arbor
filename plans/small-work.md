@@ -58,8 +58,6 @@ Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-peop
   `/usr/local/bin/story`, the administrator prompt when that folder needs one, and `story
   --help` in a new Terminal window. The bundled command runs through a link; the menu item
   and the prompt have not been tried.
-- A wrong invitation code leaves a pending claim that refuses the right code until it is
-  cancelled; the short join form should cancel it or say so.
 - Editing a group's members without opening its page needs a second writable working tree
   on the device; it is a design question, not small work.
 

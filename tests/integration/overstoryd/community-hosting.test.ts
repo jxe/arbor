@@ -12,6 +12,7 @@ import { editTreeConfig, hostTree, readTreeConfig } from "../../helpers/tree-con
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { testProfileIdentity } from "../../helpers/profile-identity.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
+import { reserveMembers } from "../../helpers/community-reservations.ts";
 import { deviceClient, newTestDevice, testAccount, testDevice } from "../../helpers/devices.ts";
 
 const ownerToken = "owner-device-credential";
@@ -837,6 +838,45 @@ describe("membership does not administer the host", () => {
       expect(host.overstoryd.canAdminister(ada, community)).toBe(false);
       expect(host.overstoryd.canWrite(ada, community)).toBe(false);
     } finally {
+      host.server.stop(true);
+      await host.overstoryd[Symbol.asyncDispose]();
+    }
+  });
+});
+
+describe("a refused invitation code", () => {
+  test("is replaced by the right one when entered again, since the claim was never sent", async () => {
+    const host = await serveHost({
+      dataRoot: join(sandbox, "plaza-host"),
+      publicOrigin: "http://127.0.0.1:0",
+      hostname: "127.0.0.1",
+      port: 0,
+      community: { handle: "plaza", name: "Plaza" },
+      accounts: [testAccount("owner", "plaza-owner", { communityWriter: true })],
+    });
+    const previous = process.env.STORY_HOME;
+    const home = join(sandbox, "dana-home"), profilePath = join(sandbox, "dana-profile");
+    await mkdir(home, { recursive: true });
+    await mkdir(profilePath, { recursive: true });
+    process.env.STORY_HOME = home;
+    await new ProfileIdentityStore().create(profilePath);
+    const service = await StorySyncDaemon.open(profilePath, {}, { autoSync: false });
+    const configurationTree = treeConfigurationID(service.session.tree);
+    try {
+      const code = "danadanadanadanadanada";
+      await reserveMembers(await deviceClient(host.url, "plaza-owner"), sandbox, { dana: `sha256:${sha256(code)}` });
+      const bootstrap = new LocalAccountService({ trees: service.trees, events: service.events });
+      const account = `${new URL(host.url).origin}/~dana`;
+      await expect(bootstrap.claimHostAccount(account, profilePath, "Dana", "wrongwrongwrongwrongwr")).rejects.toThrow("exact profile reservation");
+      expect(await bootstrap.pendingClaim()).toMatchObject({ canCancel: true });
+      await bootstrap.claimHostAccount(account, profilePath, "Dana", code);
+      expect(await bootstrap.pendingClaim()).toBeNull();
+      expect(await bootstrap.accountList()).toMatchObject([{ handle: "dana", profileTree: service.session.tree }]);
+    } finally {
+      await service[Symbol.asyncDispose]();
+      await new HostAccountStore(configurationTree).remove();
+      if (previous === undefined) delete process.env.STORY_HOME;
+      else process.env.STORY_HOME = previous;
       host.server.stop(true);
       await host.overstoryd[Symbol.asyncDispose]();
     }
