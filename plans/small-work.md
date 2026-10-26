@@ -97,16 +97,6 @@ index with excerpts as marked ranges.
 - **Sidebar creations as `addEntry`.** The sidebar's `createMarkdown`/`createDirectory`
   still publish snapshots; emit `addEntry` from `retainStructure` for them too.
 
-### Person values: hold profile ids to the TreeID grammar
-
-Spec 11 §3 makes a `Person` value a profile id or a `contact:<key>` placeholder. Both stacks
-(`isPersonValue` in `@ovst/usl`, `uslIsPersonValue` in StoryKit) check the placeholder form
-but take any other non-empty text as a profile id, because the shared vectors and fixtures use
-short ids (`p1`, `p-ada`).
-
-- [ ] Change those ids in `presented-views.json`, `collection-schemas.json` and the unit
-  fixtures to TreeIDs, require the TreeID grammar in both checks, and add a rejected case.
-
 ### Story Sync and trees it hasn't placed
 
 - [ ] Story Sync answers 404 for objects of a tree it hasn't placed, so the Mac opens the

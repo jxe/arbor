@@ -124,7 +124,8 @@ model is a cross-reference to a connection ([§5](#5-connections)); it must
 agree with the connection in target and arity.
 
 `Person` is a built-in model: Story accounts, referenced by profile id. It has
-no rows in any collection. A `Person` value is a profile id, or a
+no rows in any collection. A `Person` value is a profile id (the profile's
+TreeID: `tr_` and lowercase base32, `a`–`z` and `2`–`7`), or a
 *placeholder* `contact:<key>` for someone with no profile yet, where `<key>`
 (1 to 128 of `A`–`Z`, `a`–`z`, `0`–`9`, `_` and `-`) names a row of the
 viewer's directory People collection. Any other text beginning `contact:` is

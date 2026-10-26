@@ -212,7 +212,7 @@ describe("the games example placed as files", () => {
     const source = await readFile(join(import.meta.dir, "../../packages/usl/examples/games.usl"), "utf8");
     const tree = collectionTree(source, {
       Game: [
-        idRow("g1", { name: "Chess", status: "Polished", tags: ["board", "classic"], authors: ["p-ada"] }),
+        idRow("g1", { name: "Chess", status: "Polished", tags: ["board", "classic"], authors: ["tr_ada"] }),
         idRow("g2", { name: "Go", status: "Draft", description: "Black and **white**.\n" }),
       ],
       List: [idRow("l1", { name: "Favorites", games: ["g1"] })],

@@ -348,10 +348,13 @@ public func uslPersonPlaceholderKey(_ value: JSONValue) -> String? {
     return String(key)
 }
 
-/// Whether `value` can be stored as a `Person`: a non-empty profile id, or a well-formed placeholder.
+/// Whether `value` can be stored as a `Person`: a profile TreeID, or a well-formed placeholder.
 public func uslIsPersonValue(_ value: String) -> Bool {
-    if value.isEmpty { return false }
-    return !value.hasPrefix(uslPersonPlaceholderPrefix) || uslPersonPlaceholderKey(.string(value)) != nil
+    if value.hasPrefix("tr_"), value.utf8.count > 3,
+       value.utf8.dropFirst(3).allSatisfy({ (0x61...0x7a).contains($0) || (0x32...0x37).contains($0) }) {
+        return true
+    }
+    return uslPersonPlaceholderKey(.string(value)) != nil
 }
 
 /// Whether `value` is a valid value for `column`. Null is never valid here; callers decide whether a column may be empty.

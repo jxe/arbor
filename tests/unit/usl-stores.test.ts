@@ -235,10 +235,10 @@ enum Status { Draft, Done }
   test("records round-trip through SQLite tables", () => {
     const records = {
       Game: [
-        { id: "g1", name: "Chess", status: "Done", tags: ["old"], done: true, due: "2026-10-14", authors: ["p1", "p2"] },
+        { id: "g1", name: "Chess", status: "Done", tags: ["old"], done: true, due: "2026-10-14", authors: ["tr_pa", "tr_pb"] },
         { id: "g2", name: "Go", status: "Draft", tags: [], done: false, due: null, authors: [] },
       ],
-      List: [{ id: "l1", name: "Favorites", owner: "p1", games: ["g2", "g1"] }],
+      List: [{ id: "l1", name: "Favorites", owner: "tr_pa", games: ["g2", "g1"] }],
       Note: [{ game: "g1", id: "n1", body: "Opening" }],
     };
     const rows = rowsFromRecords(tables, records);

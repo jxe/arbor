@@ -50,7 +50,7 @@ describe("logical rows and projections", () => {
   const games = schema("games");
   const tables: LogicalTables = {
     Game: [
-      row([["id", "g1"]], { name: "Chess", status: "Draft", tags: ["board", "classic"], authors: ["prof_a", "prof_b"] }),
+      row([["id", "g1"]], { name: "Chess", status: "Draft", tags: ["board", "classic"], authors: ["tr_profa", "tr_profb"] }),
       row([["id", "g2"]], { name: "Go", status: "Polished" }),
     ],
     List: [row([["id", "l1"]], { name: "Favorites", games: ["g2", "g1"] })],
@@ -83,8 +83,8 @@ describe("logical rows and projections", () => {
     const logical: LogicalTables = {
       Contribution: [],
       Item: [row([["list", "l1"], ["practice", "p1"]])],
-      List: [row([["id", "l1"]], { name: "Walks", visibility: "Public", kind: "Tagged", openToEdits: false, owner: "prof_a", items: [[["list", "l1"], ["practice", "p1"]]] })],
-      Practice: [row([["id", "p1"]], { name: "Walking", authors: ["prof_a"] })],
+      List: [row([["id", "l1"]], { name: "Walks", visibility: "Public", kind: "Tagged", openToEdits: false, owner: "tr_profa", items: [[["list", "l1"], ["practice", "p1"]]] })],
+      Practice: [row([["id", "p1"]], { name: "Walking", authors: ["tr_profa"] })],
       Reaction: [],
       Tag: [row([["list", "l1"], ["id", "t1"]], { name: "outdoor", practices: ["p1"] })],
     };

@@ -707,7 +707,7 @@
           "value": {
             "id": "g1",
             "name": "G",
-            "owner": "p1"
+            "owner": "tr_pa"
           },
           "diagnostics": []
         },
@@ -715,10 +715,10 @@
           "value": {
             "id": "g1",
             "name": "G",
-            "owner": "p1",
+            "owner": "tr_pa",
             "authors": [
-              "p1",
-              "p2"
+              "tr_pa",
+              "tr_pb"
             ]
           },
           "diagnostics": []
@@ -728,7 +728,7 @@
             "id": "g1",
             "name": "G",
             "authors": [
-              "p1"
+              "tr_pa"
             ]
           },
           "diagnostics": [
@@ -744,7 +744,7 @@
             "name": "G",
             "owner": "contact:anne-lorraine",
             "authors": [
-              "p1",
+              "tr_pa",
               "contact:Bo_2"
             ]
           },
@@ -757,7 +757,10 @@
             "owner": "contact:",
             "authors": [
               "contact:two words",
-              ""
+              "",
+              "p1",
+              "tr_Upper",
+              "https://garden.example/~ada"
             ]
           },
           "diagnostics": [
@@ -772,6 +775,18 @@
             {
               "code": "type-mismatch",
               "path": "/authors/1"
+            },
+            {
+              "code": "type-mismatch",
+              "path": "/authors/2"
+            },
+            {
+              "code": "type-mismatch",
+              "path": "/authors/3"
+            },
+            {
+              "code": "type-mismatch",
+              "path": "/authors/4"
             }
           ]
         }

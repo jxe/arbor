@@ -16,6 +16,7 @@ export const PERSON_RELATION = "Person";
  */
 export const PERSON_PLACEHOLDER_PREFIX = "contact:";
 const PLACEHOLDER_KEY = /^[A-Za-z0-9_-]{1,128}$/;
+const PROFILE_ID = /^tr_[a-z2-7]+$/;
 
 /** The directory key a placeholder names, or undefined when `value` isn't a placeholder. */
 export function personPlaceholderKey(value: unknown): string | undefined {
@@ -24,10 +25,10 @@ export function personPlaceholderKey(value: unknown): string | undefined {
   return PLACEHOLDER_KEY.test(key) ? key : undefined;
 }
 
-/** Whether `value` can be stored as a `Person`: a non-empty profile id, or a well-formed placeholder. */
+/** Whether `value` can be stored as a `Person`: a profile TreeID, or a well-formed placeholder. */
 export function isPersonValue(value: unknown): value is string {
-  if (typeof value !== "string" || value.length === 0) return false;
-  return !value.startsWith(PERSON_PLACEHOLDER_PREFIX) || personPlaceholderKey(value) !== undefined;
+  if (typeof value !== "string") return false;
+  return PROFILE_ID.test(value) || personPlaceholderKey(value) !== undefined;
 }
 
 export interface Relationship {

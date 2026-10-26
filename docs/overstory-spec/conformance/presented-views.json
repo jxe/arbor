@@ -5,11 +5,11 @@
       "schema": "// ~/src/supplies-remake: games, their authors, and lists of games, in\n// layered USL (plan 003). Authors are Story accounts, so there is no Person\n// model to declare. Who may edit a game is access policy now\n// (`who: {property: authors}` in access.yaml), not schema.\n\nmain model Game {\n  name        Text\n  status      Status    // stored as \"Draft\"\n  description Markdown?\n  tags        Text[]    // values, stored on the row\n  authors     Person[]  // cross-reference: declared below\n  lists       List[]    // cross-reference: declared below\n}\n\nmodel List {\n  name  Text\n  games Game[]  // cross-reference\n}\n\n// @fold: in data files, these are arrays on Game and List rows rather than\n// files of their own. A storage default; a placement may choose otherwise.\nGame.authors[] @fold <-> Person.games[]\nordered List.games[] @fold <-> Game.lists[]\nGame.status <-> Status.games[]\n\nenum Status { Draft, Playtested, Polished }\n\nre Game {\n  ~views([\n    { label: \"By game\", line: [status ~bullet, name, authors, description], sort: modified },\n    { label: \"By author\", group: authors },\n    { label: \"By list\", group: lists, sort: modified },\n  ])\n}\n\nre Status {\n  Draft      ~color(\"#9aa0aa\")\n  Playtested ~color(\"#bd861a\")\n  Polished   ~color(\"#27815a\")\n}\n",
       "people": [
         {
-          "id": "p-ada",
+          "id": "tr_ada",
           "name": "Ada"
         },
         {
-          "id": "p-bo",
+          "id": "tr_bo",
           "name": "Bo"
         }
       ],
@@ -24,7 +24,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -33,8 +33,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -70,7 +70,7 @@
       "schema": "// ~/src/supplies-remake: games, their authors, and lists of games, in\n// layered USL (plan 003). Authors are Story accounts, so there is no Person\n// model to declare. Who may edit a game is access policy now\n// (`who: {property: authors}` in access.yaml), not schema.\n\nmain model Game {\n  name        Text\n  status      Status    // stored as \"Draft\"\n  description Markdown?\n  tags        Text[]    // values, stored on the row\n  authors     Person[]  // cross-reference: declared below\n  lists       List[]    // cross-reference: declared below\n}\n\nmodel List {\n  name  Text\n  games Game[]  // cross-reference\n}\n\n// @fold: in data files, these are arrays on Game and List rows rather than\n// files of their own. A storage default; a placement may choose otherwise.\nGame.authors[] @fold <-> Person.games[]\nordered List.games[] @fold <-> Game.lists[]\nGame.status <-> Status.games[]\n\nenum Status { Draft, Playtested, Polished }\n\nre Game {\n  ~views([\n    { label: \"By game\", line: [status ~bullet, name, authors, description], sort: modified },\n    { label: \"By author\", group: authors },\n    { label: \"By list\", group: lists, sort: modified },\n  ])\n}\n\nre Status {\n  Draft      ~color(\"#9aa0aa\")\n  Playtested ~color(\"#bd861a\")\n  Polished   ~color(\"#27815a\")\n}\n",
       "people": [
         {
-          "id": "p-ada",
+          "id": "tr_ada",
           "name": "Ada"
         },
         {
@@ -84,7 +84,7 @@
             "id": "g1",
             "name": "Wingspan",
             "authors": [
-              "p-ada",
+              "tr_ada",
               "contact:bo"
             ],
             "status": "Polished",
@@ -107,11 +107,11 @@
       "schema": "// meaningalignment/excellences: the MAI roles document, in layered USL\n// (plan 003). Leads were a `person` collection with a portrait; now they are\n// Story accounts, and portraits come from their profiles.\n\nmain model Excellence {\n  name       Text\n  assessment Assessment\n  leads      Person[]   // cross-reference\n  projects   Project[]  // cross-reference\n}\n\nmodel Project {\n  name        Text\n  excellences Excellence[]  // cross-reference\n}\n\nExcellence.leads[] <-> Person.excellences[]\nExcellence.projects[] <-> Project.excellences[]\nExcellence.assessment <-> Assessment.excellences[]\n\nenum Assessment { Good, Improving, Bad, \"Current focus\", \"Not recorded\" }\n\nre Excellence {\n  ~views([\n    { label: \"By project\", line: [name, leads ~label(\"lead\"), assessment ~bullet, projects ~summary ~label(\"project\")], group: projects },\n    { label: \"By lead\", group: leads },\n    { label: \"By assessment\", group: assessment },\n  ])\n}\n\nre Assessment {\n  Good            ~color(\"#27815a\")\n  Improving       ~color(\"#bd861a\")\n  Bad             ~color(\"#c25357\")\n  \"Current focus\" ~color(\"#4278c0\")\n  \"Not recorded\"  ~color(\"#9aa0aa\")\n}\n",
       "people": [
         {
-          "id": "p-cy",
+          "id": "tr_cy",
           "name": "Cy"
         },
         {
-          "id": "p-di",
+          "id": "tr_di",
           "name": "Di"
         }
       ],
@@ -146,15 +146,15 @@
         "Excellence_leads": [
           {
             "excellence": "e1",
-            "person": "p-di"
+            "person": "tr_di"
           },
           {
             "excellence": "e2",
-            "person": "p-cy"
+            "person": "tr_cy"
           },
           {
             "excellence": "e1",
-            "person": "p-cy"
+            "person": "tr_cy"
           }
         ],
         "Excellence_projects": [
@@ -177,7 +177,7 @@
       "schema": "// No ~views: the default arrangement. Tasks keep their order within a project.\nmodel Task {\n  title   Text\n  notes   Markdown?\n  points  Int?\n  done    Bool\n  owner   Person?\n  project Project?\n  labels  Text[]\n}\n\nmodel Project {\n  name  Text\n  color Text? ~color\n}\n\nordered Project.tasks[] <-> Task.project?\nTask.owner? <-> Person.tasks[]\n",
       "people": [
         {
-          "id": "p-ed",
+          "id": "tr_ed",
           "name": "Ed"
         }
       ],
@@ -189,7 +189,7 @@
             "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
             "points": 3,
             "done": false,
-            "owner": "p-ed",
+            "owner": "tr_ed",
             "project": "pj1",
             "tasks_position": 1,
             "labels": [
@@ -207,7 +207,7 @@
             "id": "t3",
             "title": "Print",
             "done": false,
-            "owner": "p-fay",
+            "owner": "tr_fay",
             "project": "pj2",
             "tasks_position": 0
           },
@@ -234,11 +234,11 @@
       "schema": "// Members listed by a field of theirs (`~sort`) instead of the order\n// they were connected in.\n\nmodel Game {\n  name    Text\n  authors Person[]\n  tags    Tag[]\n\n  ~views([\n    { label: \"Games\",  line: [name, authors ~sort(name), tags ~sort(name)] },\n    { label: \"By tag\", group: tags ~sort(name) },\n  ])\n}\n\nmodel Tag {\n  name Text\n}\n\nGame.authors[] @fold <-> Person.games[]\nGame.tags[] @fold <-> Tag.games[]\n",
       "people": [
         {
-          "id": "p-zed",
+          "id": "tr_zed",
           "name": "Zed"
         },
         {
-          "id": "p-ada",
+          "id": "tr_ada",
           "name": "Ada"
         }
       ],
@@ -248,8 +248,8 @@
             "id": "g1",
             "name": "Wingspan",
             "authors": [
-              "p-zed",
-              "p-ada"
+              "tr_zed",
+              "tr_ada"
             ],
             "tags": [
               "t1",
@@ -280,19 +280,19 @@
       "schema": "model Tie {\n  person Person\n  group  Person?\n  kind   TieKind\n}\nenum TieKind { Community, Group, Shared, Opened }\nTie.person <-> Person.ties[]\nTie.group? <-> Person.members[]\nTie.kind <-> TieKind.ties[]\n\nmodel Tree {\n  title Text?\n  owner Person?\n}\nmodel Visit {\n  tree Tree\n  at   Date\n}\nTree.owner? <-> Person.trees[]\nVisit.tree <-> Tree.visits[]\n\nre Person {\n  ~views([\n    { label: \"By group\", group: ties.group, line: [name] },\n    { label: \"Everyone\", line: [name, ties.group, ties.kind, ties ~count], sort: name },\n  ])\n}\nre Tie {\n  ~views([\n    { label: \"People\", rows: person, line: [person, group, kind] },\n  ])\n}\nre Tree {\n  ~views([\n    { label: \"Recent\", line: [title, owner, visits.at ~latest ~ago], sort: visits.at ~latest },\n  ])\n}\n",
       "people": [
         {
-          "id": "p-joe",
+          "id": "tr_joe",
           "name": "Joe"
         },
         {
-          "id": "p-oliver",
+          "id": "tr_oliver",
           "name": "Oliver"
         },
         {
-          "id": "g-canopy",
+          "id": "tr_gcanopy",
           "name": "Canopy"
         },
         {
-          "id": "g-team",
+          "id": "tr_gteam",
           "name": "Team"
         }
       ],
@@ -300,25 +300,25 @@
         "Tie": [
           {
             "id": "t1",
-            "person": "p-oliver",
-            "group": "g-canopy",
+            "person": "tr_oliver",
+            "group": "tr_gcanopy",
             "kind": "Group"
           },
           {
             "id": "t2",
-            "person": "p-joe",
-            "group": "g-canopy",
+            "person": "tr_joe",
+            "group": "tr_gcanopy",
             "kind": "Community"
           },
           {
             "id": "t3",
-            "person": "p-oliver",
-            "group": "g-team",
+            "person": "tr_oliver",
+            "group": "tr_gteam",
             "kind": "Group"
           },
           {
             "id": "t4",
-            "person": "p-oliver",
+            "person": "tr_oliver",
             "kind": "Opened"
           }
         ],
@@ -326,12 +326,12 @@
           {
             "id": "tr-a",
             "title": "Todos",
-            "owner": "p-joe"
+            "owner": "tr_joe"
           },
           {
             "id": "tr-b",
             "title": "Games",
-            "owner": "p-oliver"
+            "owner": "tr_oliver"
           }
         ],
         "Visit": [
@@ -405,11 +405,11 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       },
                       {
-                        "member": "p-bo",
+                        "member": "tr_bo",
                         "name": "Bo"
                       }
                     ]
@@ -445,7 +445,7 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       }
                     ]
@@ -512,11 +512,11 @@
           ],
           "authors": [
             {
-              "member": "p-ada",
+              "member": "tr_ada",
               "name": "Ada"
             },
             {
-              "member": "p-bo",
+              "member": "tr_bo",
               "name": "Bo"
             }
           ]
@@ -562,16 +562,16 @@
         "group": "authors",
         "groups": [
           {
-            "id": "\"p-ada\"",
+            "id": "\"tr_ada\"",
             "kind": "connection",
             "heading": "Ada",
-            "member": "p-ada",
+            "member": "tr_ada",
             "ordered": false,
             "remove": "disconnect",
             "lines": [
               {
                 "row": "[[\"id\",\"g1\"]]",
-                "occurrence": "[\"By author\",\"\\\"p-ada\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "occurrence": "[\"By author\",\"\\\"tr_ada\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
                 "color": "#27815a",
                 "cells": [
                   {
@@ -592,7 +592,7 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       }
                     ]
@@ -607,7 +607,7 @@
               },
               {
                 "row": "[[\"id\",\"g2\"]]",
-                "occurrence": "[\"By author\",\"\\\"p-ada\\\"\",\"[[\\\"id\\\",\\\"g2\\\"]]\"]",
+                "occurrence": "[\"By author\",\"\\\"tr_ada\\\"\",\"[[\\\"id\\\",\\\"g2\\\"]]\"]",
                 "color": "#9aa0aa",
                 "cells": [
                   {
@@ -628,11 +628,11 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       },
                       {
-                        "member": "p-bo",
+                        "member": "tr_bo",
                         "name": "Bo"
                       }
                     ]
@@ -648,16 +648,16 @@
             ]
           },
           {
-            "id": "\"p-bo\"",
+            "id": "\"tr_bo\"",
             "kind": "connection",
             "heading": "Bo",
-            "member": "p-bo",
+            "member": "tr_bo",
             "ordered": false,
             "remove": "disconnect",
             "lines": [
               {
                 "row": "[[\"id\",\"g2\"]]",
-                "occurrence": "[\"By author\",\"\\\"p-bo\\\"\",\"[[\\\"id\\\",\\\"g2\\\"]]\"]",
+                "occurrence": "[\"By author\",\"\\\"tr_bo\\\"\",\"[[\\\"id\\\",\\\"g2\\\"]]\"]",
                 "color": "#9aa0aa",
                 "cells": [
                   {
@@ -678,11 +678,11 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       },
                       {
-                        "member": "p-bo",
+                        "member": "tr_bo",
                         "name": "Bo"
                       }
                     ]
@@ -758,11 +758,11 @@
           ],
           "authors": [
             {
-              "member": "p-ada",
+              "member": "tr_ada",
               "name": "Ada"
             },
             {
-              "member": "p-bo",
+              "member": "tr_bo",
               "name": "Bo"
             }
           ]
@@ -772,15 +772,15 @@
             "edit": true,
             "delete": true,
             "groups": [
-              "\"p-ada\""
+              "\"tr_ada\""
             ]
           },
           "[[\"id\",\"g2\"]]": {
             "edit": true,
             "delete": true,
             "groups": [
-              "\"p-ada\"",
-              "\"p-bo\""
+              "\"tr_ada\"",
+              "\"tr_bo\""
             ]
           },
           "[[\"id\",\"g3\"]]": {
@@ -848,7 +848,7 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       }
                     ]
@@ -897,11 +897,11 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       },
                       {
-                        "member": "p-bo",
+                        "member": "tr_bo",
                         "name": "Bo"
                       }
                     ]
@@ -937,7 +937,7 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       }
                     ]
@@ -1013,11 +1013,11 @@
           ],
           "authors": [
             {
-              "member": "p-ada",
+              "member": "tr_ada",
               "name": "Ada"
             },
             {
-              "member": "p-bo",
+              "member": "tr_bo",
               "name": "Bo"
             }
           ]
@@ -1071,16 +1071,16 @@
         "group": "authors",
         "groups": [
           {
-            "id": "\"p-ada\"",
+            "id": "\"tr_ada\"",
             "kind": "connection",
             "heading": "Ada",
-            "member": "p-ada",
+            "member": "tr_ada",
             "ordered": false,
             "remove": "disconnect",
             "lines": [
               {
                 "row": "[[\"id\",\"g1\"]]",
-                "occurrence": "[\"By author\",\"\\\"p-ada\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "occurrence": "[\"By author\",\"\\\"tr_ada\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
                 "color": "#27815a",
                 "cells": [
                   {
@@ -1101,7 +1101,7 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       }
                     ]
@@ -1137,11 +1137,11 @@
           ],
           "authors": [
             {
-              "member": "p-ada",
+              "member": "tr_ada",
               "name": "Ada"
             },
             {
-              "member": "p-bo",
+              "member": "tr_bo",
               "name": "Bo"
             }
           ]
@@ -1151,7 +1151,7 @@
             "edit": true,
             "delete": true,
             "groups": [
-              "\"p-ada\""
+              "\"tr_ada\""
             ]
           }
         }
@@ -1213,11 +1213,11 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       },
                       {
-                        "member": "p-bo",
+                        "member": "tr_bo",
                         "name": "Bo"
                       }
                     ]
@@ -1253,7 +1253,7 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       }
                     ]
@@ -1289,11 +1289,11 @@
           ],
           "authors": [
             {
-              "member": "p-ada",
+              "member": "tr_ada",
               "name": "Ada"
             },
             {
-              "member": "p-bo",
+              "member": "tr_bo",
               "name": "Bo"
             }
           ]
@@ -1403,7 +1403,7 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       },
                       {
@@ -1444,7 +1444,7 @@
           ],
           "authors": [
             {
-              "member": "p-ada",
+              "member": "tr_ada",
               "name": "Ada"
             },
             {
@@ -1490,16 +1490,16 @@
         "group": "authors",
         "groups": [
           {
-            "id": "\"p-ada\"",
+            "id": "\"tr_ada\"",
             "kind": "connection",
             "heading": "Ada",
-            "member": "p-ada",
+            "member": "tr_ada",
             "ordered": false,
             "remove": "disconnect",
             "lines": [
               {
                 "row": "[[\"id\",\"g1\"]]",
-                "occurrence": "[\"By author\",\"\\\"p-ada\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
+                "occurrence": "[\"By author\",\"\\\"tr_ada\\\"\",\"[[\\\"id\\\",\\\"g1\\\"]]\"]",
                 "color": "#27815a",
                 "cells": [
                   {
@@ -1520,7 +1520,7 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       },
                       {
@@ -1572,7 +1572,7 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       },
                       {
@@ -1661,7 +1661,7 @@
           ],
           "authors": [
             {
-              "member": "p-ada",
+              "member": "tr_ada",
               "name": "Ada"
             },
             {
@@ -1676,7 +1676,7 @@
             "edit": true,
             "delete": true,
             "groups": [
-              "\"p-ada\"",
+              "\"tr_ada\"",
               "\"contact:bo\""
             ]
           },
@@ -1738,11 +1738,11 @@
                     "field": "leads",
                     "chips": [
                       {
-                        "member": "p-di",
+                        "member": "tr_di",
                         "name": "Di"
                       },
                       {
-                        "member": "p-cy",
+                        "member": "tr_cy",
                         "name": "Cy"
                       }
                     ],
@@ -1785,7 +1785,7 @@
                     "field": "leads",
                     "chips": [
                       {
-                        "member": "p-cy",
+                        "member": "tr_cy",
                         "name": "Cy"
                       }
                     ],
@@ -1845,7 +1845,7 @@
                     "field": "leads",
                     "chips": [
                       {
-                        "member": "p-cy",
+                        "member": "tr_cy",
                         "name": "Cy"
                       }
                     ],
@@ -1924,11 +1924,11 @@
         "options": {
           "leads": [
             {
-              "member": "p-cy",
+              "member": "tr_cy",
               "name": "Cy"
             },
             {
-              "member": "p-di",
+              "member": "tr_di",
               "name": "Di"
             }
           ],
@@ -2018,16 +2018,16 @@
         "group": "leads",
         "groups": [
           {
-            "id": "\"p-cy\"",
+            "id": "\"tr_cy\"",
             "kind": "connection",
             "heading": "Cy",
-            "member": "p-cy",
+            "member": "tr_cy",
             "ordered": false,
             "remove": "disconnect",
             "lines": [
               {
                 "row": "[[\"id\",\"e2\"]]",
-                "occurrence": "[\"By lead\",\"\\\"p-cy\\\"\",\"[[\\\"id\\\",\\\"e2\\\"]]\"]",
+                "occurrence": "[\"By lead\",\"\\\"tr_cy\\\"\",\"[[\\\"id\\\",\\\"e2\\\"]]\"]",
                 "color": "#4278c0",
                 "cells": [
                   {
@@ -2041,7 +2041,7 @@
                     "field": "leads",
                     "chips": [
                       {
-                        "member": "p-cy",
+                        "member": "tr_cy",
                         "name": "Cy"
                       }
                     ],
@@ -2074,7 +2074,7 @@
               },
               {
                 "row": "[[\"id\",\"e1\"]]",
-                "occurrence": "[\"By lead\",\"\\\"p-cy\\\"\",\"[[\\\"id\\\",\\\"e1\\\"]]\"]",
+                "occurrence": "[\"By lead\",\"\\\"tr_cy\\\"\",\"[[\\\"id\\\",\\\"e1\\\"]]\"]",
                 "color": "#27815a",
                 "cells": [
                   {
@@ -2088,11 +2088,11 @@
                     "field": "leads",
                     "chips": [
                       {
-                        "member": "p-di",
+                        "member": "tr_di",
                         "name": "Di"
                       },
                       {
-                        "member": "p-cy",
+                        "member": "tr_cy",
                         "name": "Cy"
                       }
                     ],
@@ -2122,16 +2122,16 @@
             ]
           },
           {
-            "id": "\"p-di\"",
+            "id": "\"tr_di\"",
             "kind": "connection",
             "heading": "Di",
-            "member": "p-di",
+            "member": "tr_di",
             "ordered": false,
             "remove": "disconnect",
             "lines": [
               {
                 "row": "[[\"id\",\"e1\"]]",
-                "occurrence": "[\"By lead\",\"\\\"p-di\\\"\",\"[[\\\"id\\\",\\\"e1\\\"]]\"]",
+                "occurrence": "[\"By lead\",\"\\\"tr_di\\\"\",\"[[\\\"id\\\",\\\"e1\\\"]]\"]",
                 "color": "#27815a",
                 "cells": [
                   {
@@ -2145,11 +2145,11 @@
                     "field": "leads",
                     "chips": [
                       {
-                        "member": "p-di",
+                        "member": "tr_di",
                         "name": "Di"
                       },
                       {
-                        "member": "p-cy",
+                        "member": "tr_cy",
                         "name": "Cy"
                       }
                     ],
@@ -2224,11 +2224,11 @@
         "options": {
           "leads": [
             {
-              "member": "p-cy",
+              "member": "tr_cy",
               "name": "Cy"
             },
             {
-              "member": "p-di",
+              "member": "tr_di",
               "name": "Di"
             }
           ],
@@ -2275,15 +2275,15 @@
             "edit": true,
             "delete": true,
             "groups": [
-              "\"p-cy\""
+              "\"tr_cy\""
             ]
           },
           "[[\"id\",\"e1\"]]": {
             "edit": true,
             "delete": true,
             "groups": [
-              "\"p-cy\"",
-              "\"p-di\""
+              "\"tr_cy\"",
+              "\"tr_di\""
             ]
           },
           "[[\"id\",\"e3\"]]": {
@@ -2342,11 +2342,11 @@
                     "field": "leads",
                     "chips": [
                       {
-                        "member": "p-di",
+                        "member": "tr_di",
                         "name": "Di"
                       },
                       {
-                        "member": "p-cy",
+                        "member": "tr_cy",
                         "name": "Cy"
                       }
                     ],
@@ -2420,7 +2420,7 @@
                     "field": "leads",
                     "chips": [
                       {
-                        "member": "p-cy",
+                        "member": "tr_cy",
                         "name": "Cy"
                       }
                     ],
@@ -2501,11 +2501,11 @@
         "options": {
           "leads": [
             {
-              "member": "p-cy",
+              "member": "tr_cy",
               "name": "Cy"
             },
             {
-              "member": "p-di",
+              "member": "tr_di",
               "name": "Di"
             }
           ],
@@ -2632,7 +2632,7 @@
                     "field": "owner",
                     "chips": [
                       {
-                        "member": "p-ed",
+                        "member": "tr_ed",
                         "name": "Ed"
                       }
                     ]
@@ -2744,8 +2744,8 @@
                     "field": "owner",
                     "chips": [
                       {
-                        "member": "p-fay",
-                        "name": "p-fay"
+                        "member": "tr_fay",
+                        "name": "tr_fay"
                       }
                     ]
                   },
@@ -2817,7 +2817,7 @@
         "options": {
           "owner": [
             {
-              "member": "p-ed",
+              "member": "tr_ed",
               "name": "Ed"
             }
           ],
@@ -2879,16 +2879,16 @@
         "group": "owner",
         "groups": [
           {
-            "id": "\"p-ed\"",
+            "id": "\"tr_ed\"",
             "kind": "connection",
             "heading": "Ed",
-            "member": "p-ed",
+            "member": "tr_ed",
             "ordered": false,
             "remove": "disconnect",
             "lines": [
               {
                 "row": "[[\"id\",\"t1\"]]",
-                "occurrence": "[\"By owner\",\"\\\"p-ed\\\"\",\"[[\\\"id\\\",\\\"t1\\\"]]\"]",
+                "occurrence": "[\"By owner\",\"\\\"tr_ed\\\"\",\"[[\\\"id\\\",\\\"t1\\\"]]\"]",
                 "cells": [
                   {
                     "kind": "text",
@@ -2919,7 +2919,7 @@
                     "field": "owner",
                     "chips": [
                       {
-                        "member": "p-ed",
+                        "member": "tr_ed",
                         "name": "Ed"
                       }
                     ]
@@ -2950,16 +2950,16 @@
             ]
           },
           {
-            "id": "\"p-fay\"",
+            "id": "\"tr_fay\"",
             "kind": "connection",
-            "heading": "p-fay",
-            "member": "p-fay",
+            "heading": "tr_fay",
+            "member": "tr_fay",
             "ordered": false,
             "remove": "disconnect",
             "lines": [
               {
                 "row": "[[\"id\",\"t3\"]]",
-                "occurrence": "[\"By owner\",\"\\\"p-fay\\\"\",\"[[\\\"id\\\",\\\"t3\\\"]]\"]",
+                "occurrence": "[\"By owner\",\"\\\"tr_fay\\\"\",\"[[\\\"id\\\",\\\"t3\\\"]]\"]",
                 "cells": [
                   {
                     "kind": "text",
@@ -2990,8 +2990,8 @@
                     "field": "owner",
                     "chips": [
                       {
-                        "member": "p-fay",
-                        "name": "p-fay"
+                        "member": "tr_fay",
+                        "name": "tr_fay"
                       }
                     ]
                   },
@@ -3123,7 +3123,7 @@
         "options": {
           "owner": [
             {
-              "member": "p-ed",
+              "member": "tr_ed",
               "name": "Ed"
             }
           ],
@@ -3144,14 +3144,14 @@
             "edit": true,
             "delete": true,
             "groups": [
-              "\"p-ed\""
+              "\"tr_ed\""
             ]
           },
           "[[\"id\",\"t3\"]]": {
             "edit": true,
             "delete": true,
             "groups": [
-              "\"p-fay\""
+              "\"tr_fay\""
             ]
           },
           "[[\"id\",\"t2\"]]": {
@@ -3288,7 +3288,7 @@
                     "field": "owner",
                     "chips": [
                       {
-                        "member": "p-ed",
+                        "member": "tr_ed",
                         "name": "Ed"
                       }
                     ]
@@ -3362,8 +3362,8 @@
                     "field": "owner",
                     "chips": [
                       {
-                        "member": "p-fay",
-                        "name": "p-fay"
+                        "member": "tr_fay",
+                        "name": "tr_fay"
                       }
                     ]
                   },
@@ -3444,7 +3444,7 @@
         "options": {
           "owner": [
             {
-              "member": "p-ed",
+              "member": "tr_ed",
               "name": "Ed"
             }
           ],
@@ -3653,11 +3653,11 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       },
                       {
-                        "member": "p-zed",
+                        "member": "tr_zed",
                         "name": "Zed"
                       }
                     ]
@@ -3711,11 +3711,11 @@
         "options": {
           "authors": [
             {
-              "member": "p-zed",
+              "member": "tr_zed",
               "name": "Zed"
             },
             {
-              "member": "p-ada",
+              "member": "tr_ada",
               "name": "Ada"
             }
           ],
@@ -3788,11 +3788,11 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       },
                       {
-                        "member": "p-zed",
+                        "member": "tr_zed",
                         "name": "Zed"
                       }
                     ]
@@ -3868,11 +3868,11 @@
                     "field": "authors",
                     "chips": [
                       {
-                        "member": "p-ada",
+                        "member": "tr_ada",
                         "name": "Ada"
                       },
                       {
-                        "member": "p-zed",
+                        "member": "tr_zed",
                         "name": "Zed"
                       }
                     ]
@@ -3899,11 +3899,11 @@
         "options": {
           "authors": [
             {
-              "member": "p-zed",
+              "member": "tr_zed",
               "name": "Zed"
             },
             {
-              "member": "p-ada",
+              "member": "tr_ada",
               "name": "Ada"
             }
           ],
@@ -3957,41 +3957,41 @@
         "group": "ties.group",
         "groups": [
           {
-            "id": "\"p-joe\"",
+            "id": "\"tr_joe\"",
             "kind": "connection",
             "heading": "Joe",
-            "member": "p-joe",
+            "member": "tr_joe",
             "ordered": false,
             "remove": "delete",
             "lines": []
           },
           {
-            "id": "\"p-oliver\"",
+            "id": "\"tr_oliver\"",
             "kind": "connection",
             "heading": "Oliver",
-            "member": "p-oliver",
+            "member": "tr_oliver",
             "ordered": false,
             "remove": "delete",
             "lines": []
           },
           {
-            "id": "\"g-canopy\"",
+            "id": "\"tr_gcanopy\"",
             "kind": "connection",
             "heading": "Canopy",
-            "member": "g-canopy",
+            "member": "tr_gcanopy",
             "ordered": false,
             "remove": "delete",
             "lines": [
               {
-                "row": "[[\"id\",\"p-oliver\"]]",
-                "occurrence": "[\"By group\",\"\\\"g-canopy\\\"\",\"[[\\\"id\\\",\\\"p-oliver\\\"]]\"]",
+                "row": "[[\"id\",\"tr_oliver\"]]",
+                "occurrence": "[\"By group\",\"\\\"tr_gcanopy\\\"\",\"[[\\\"id\\\",\\\"tr_oliver\\\"]]\"]",
                 "cells": [
                   {
                     "kind": "chips",
                     "field": "name",
                     "chips": [
                       {
-                        "member": "p-oliver",
+                        "member": "tr_oliver",
                         "name": "Oliver"
                       }
                     ]
@@ -3999,15 +3999,15 @@
                 ]
               },
               {
-                "row": "[[\"id\",\"p-joe\"]]",
-                "occurrence": "[\"By group\",\"\\\"g-canopy\\\"\",\"[[\\\"id\\\",\\\"p-joe\\\"]]\"]",
+                "row": "[[\"id\",\"tr_joe\"]]",
+                "occurrence": "[\"By group\",\"\\\"tr_gcanopy\\\"\",\"[[\\\"id\\\",\\\"tr_joe\\\"]]\"]",
                 "cells": [
                   {
                     "kind": "chips",
                     "field": "name",
                     "chips": [
                       {
-                        "member": "p-joe",
+                        "member": "tr_joe",
                         "name": "Joe"
                       }
                     ]
@@ -4017,23 +4017,23 @@
             ]
           },
           {
-            "id": "\"g-team\"",
+            "id": "\"tr_gteam\"",
             "kind": "connection",
             "heading": "Team",
-            "member": "g-team",
+            "member": "tr_gteam",
             "ordered": false,
             "remove": "delete",
             "lines": [
               {
-                "row": "[[\"id\",\"p-oliver\"]]",
-                "occurrence": "[\"By group\",\"\\\"g-team\\\"\",\"[[\\\"id\\\",\\\"p-oliver\\\"]]\"]",
+                "row": "[[\"id\",\"tr_oliver\"]]",
+                "occurrence": "[\"By group\",\"\\\"tr_gteam\\\"\",\"[[\\\"id\\\",\\\"tr_oliver\\\"]]\"]",
                 "cells": [
                   {
                     "kind": "chips",
                     "field": "name",
                     "chips": [
                       {
-                        "member": "p-oliver",
+                        "member": "tr_oliver",
                         "name": "Oliver"
                       }
                     ]
@@ -4050,15 +4050,15 @@
             "remove": "delete",
             "lines": [
               {
-                "row": "[[\"id\",\"g-canopy\"]]",
-                "occurrence": "[\"By group\",\"unassigned\",\"[[\\\"id\\\",\\\"g-canopy\\\"]]\"]",
+                "row": "[[\"id\",\"tr_gcanopy\"]]",
+                "occurrence": "[\"By group\",\"unassigned\",\"[[\\\"id\\\",\\\"tr_gcanopy\\\"]]\"]",
                 "cells": [
                   {
                     "kind": "chips",
                     "field": "name",
                     "chips": [
                       {
-                        "member": "g-canopy",
+                        "member": "tr_gcanopy",
                         "name": "Canopy"
                       }
                     ]
@@ -4066,15 +4066,15 @@
                 ]
               },
               {
-                "row": "[[\"id\",\"g-team\"]]",
-                "occurrence": "[\"By group\",\"unassigned\",\"[[\\\"id\\\",\\\"g-team\\\"]]\"]",
+                "row": "[[\"id\",\"tr_gteam\"]]",
+                "occurrence": "[\"By group\",\"unassigned\",\"[[\\\"id\\\",\\\"tr_gteam\\\"]]\"]",
                 "cells": [
                   {
                     "kind": "chips",
                     "field": "name",
                     "chips": [
                       {
-                        "member": "g-team",
+                        "member": "tr_gteam",
                         "name": "Team"
                       }
                     ]
@@ -4086,29 +4086,29 @@
         ],
         "options": {},
         "capabilities": {
-          "[[\"id\",\"p-oliver\"]]": {
+          "[[\"id\",\"tr_oliver\"]]": {
             "edit": false,
             "delete": false,
             "groups": [
-              "\"g-canopy\"",
-              "\"g-team\""
+              "\"tr_gcanopy\"",
+              "\"tr_gteam\""
             ]
           },
-          "[[\"id\",\"p-joe\"]]": {
+          "[[\"id\",\"tr_joe\"]]": {
             "edit": false,
             "delete": false,
             "groups": [
-              "\"g-canopy\""
+              "\"tr_gcanopy\""
             ]
           },
-          "[[\"id\",\"g-canopy\"]]": {
+          "[[\"id\",\"tr_gcanopy\"]]": {
             "edit": false,
             "delete": false,
             "groups": [
               "unassigned"
             ]
           },
-          "[[\"id\",\"g-team\"]]": {
+          "[[\"id\",\"tr_gteam\"]]": {
             "edit": false,
             "delete": false,
             "groups": [
@@ -4144,15 +4144,15 @@
             "remove": "delete",
             "lines": [
               {
-                "row": "[[\"id\",\"g-canopy\"]]",
-                "occurrence": "[\"Everyone\",\"\",\"[[\\\"id\\\",\\\"g-canopy\\\"]]\"]",
+                "row": "[[\"id\",\"tr_gcanopy\"]]",
+                "occurrence": "[\"Everyone\",\"\",\"[[\\\"id\\\",\\\"tr_gcanopy\\\"]]\"]",
                 "cells": [
                   {
                     "kind": "chips",
                     "field": "name",
                     "chips": [
                       {
-                        "member": "g-canopy",
+                        "member": "tr_gcanopy",
                         "name": "Canopy"
                       }
                     ]
@@ -4176,15 +4176,15 @@
                 ]
               },
               {
-                "row": "[[\"id\",\"p-joe\"]]",
-                "occurrence": "[\"Everyone\",\"\",\"[[\\\"id\\\",\\\"p-joe\\\"]]\"]",
+                "row": "[[\"id\",\"tr_joe\"]]",
+                "occurrence": "[\"Everyone\",\"\",\"[[\\\"id\\\",\\\"tr_joe\\\"]]\"]",
                 "cells": [
                   {
                     "kind": "chips",
                     "field": "name",
                     "chips": [
                       {
-                        "member": "p-joe",
+                        "member": "tr_joe",
                         "name": "Joe"
                       }
                     ]
@@ -4194,7 +4194,7 @@
                     "field": "ties.group",
                     "chips": [
                       {
-                        "member": "g-canopy",
+                        "member": "tr_gcanopy",
                         "name": "Canopy"
                       }
                     ]
@@ -4218,15 +4218,15 @@
                 ]
               },
               {
-                "row": "[[\"id\",\"p-oliver\"]]",
-                "occurrence": "[\"Everyone\",\"\",\"[[\\\"id\\\",\\\"p-oliver\\\"]]\"]",
+                "row": "[[\"id\",\"tr_oliver\"]]",
+                "occurrence": "[\"Everyone\",\"\",\"[[\\\"id\\\",\\\"tr_oliver\\\"]]\"]",
                 "cells": [
                   {
                     "kind": "chips",
                     "field": "name",
                     "chips": [
                       {
-                        "member": "p-oliver",
+                        "member": "tr_oliver",
                         "name": "Oliver"
                       }
                     ]
@@ -4236,11 +4236,11 @@
                     "field": "ties.group",
                     "chips": [
                       {
-                        "member": "g-canopy",
+                        "member": "tr_gcanopy",
                         "name": "Canopy"
                       },
                       {
-                        "member": "g-team",
+                        "member": "tr_gteam",
                         "name": "Team"
                       }
                     ]
@@ -4268,15 +4268,15 @@
                 ]
               },
               {
-                "row": "[[\"id\",\"g-team\"]]",
-                "occurrence": "[\"Everyone\",\"\",\"[[\\\"id\\\",\\\"g-team\\\"]]\"]",
+                "row": "[[\"id\",\"tr_gteam\"]]",
+                "occurrence": "[\"Everyone\",\"\",\"[[\\\"id\\\",\\\"tr_gteam\\\"]]\"]",
                 "cells": [
                   {
                     "kind": "chips",
                     "field": "name",
                     "chips": [
                       {
-                        "member": "g-team",
+                        "member": "tr_gteam",
                         "name": "Team"
                       }
                     ]
@@ -4323,22 +4323,22 @@
           ]
         },
         "capabilities": {
-          "[[\"id\",\"g-canopy\"]]": {
+          "[[\"id\",\"tr_gcanopy\"]]": {
             "edit": false,
             "delete": false,
             "groups": []
           },
-          "[[\"id\",\"p-joe\"]]": {
+          "[[\"id\",\"tr_joe\"]]": {
             "edit": false,
             "delete": false,
             "groups": []
           },
-          "[[\"id\",\"p-oliver\"]]": {
+          "[[\"id\",\"tr_oliver\"]]": {
             "edit": false,
             "delete": false,
             "groups": []
           },
-          "[[\"id\",\"g-team\"]]": {
+          "[[\"id\",\"tr_gteam\"]]": {
             "edit": false,
             "delete": false,
             "groups": []
@@ -4369,15 +4369,15 @@
             "remove": "delete",
             "lines": [
               {
-                "row": "[[\"person\",\"p-oliver\"]]",
-                "occurrence": "[\"People\",\"\",\"[[\\\"person\\\",\\\"p-oliver\\\"]]\"]",
+                "row": "[[\"person\",\"tr_oliver\"]]",
+                "occurrence": "[\"People\",\"\",\"[[\\\"person\\\",\\\"tr_oliver\\\"]]\"]",
                 "cells": [
                   {
                     "kind": "chips",
                     "field": "person",
                     "chips": [
                       {
-                        "member": "p-oliver",
+                        "member": "tr_oliver",
                         "name": "Oliver"
                       }
                     ]
@@ -4387,11 +4387,11 @@
                     "field": "group",
                     "chips": [
                       {
-                        "member": "g-canopy",
+                        "member": "tr_gcanopy",
                         "name": "Canopy"
                       },
                       {
-                        "member": "g-team",
+                        "member": "tr_gteam",
                         "name": "Team"
                       }
                     ]
@@ -4413,15 +4413,15 @@
                 ]
               },
               {
-                "row": "[[\"person\",\"p-joe\"]]",
-                "occurrence": "[\"People\",\"\",\"[[\\\"person\\\",\\\"p-joe\\\"]]\"]",
+                "row": "[[\"person\",\"tr_joe\"]]",
+                "occurrence": "[\"People\",\"\",\"[[\\\"person\\\",\\\"tr_joe\\\"]]\"]",
                 "cells": [
                   {
                     "kind": "chips",
                     "field": "person",
                     "chips": [
                       {
-                        "member": "p-joe",
+                        "member": "tr_joe",
                         "name": "Joe"
                       }
                     ]
@@ -4431,7 +4431,7 @@
                     "field": "group",
                     "chips": [
                       {
-                        "member": "g-canopy",
+                        "member": "tr_gcanopy",
                         "name": "Canopy"
                       }
                     ]
@@ -4454,37 +4454,37 @@
         "options": {
           "person": [
             {
-              "member": "p-joe",
+              "member": "tr_joe",
               "name": "Joe"
             },
             {
-              "member": "p-oliver",
+              "member": "tr_oliver",
               "name": "Oliver"
             },
             {
-              "member": "g-canopy",
+              "member": "tr_gcanopy",
               "name": "Canopy"
             },
             {
-              "member": "g-team",
+              "member": "tr_gteam",
               "name": "Team"
             }
           ],
           "group": [
             {
-              "member": "p-joe",
+              "member": "tr_joe",
               "name": "Joe"
             },
             {
-              "member": "p-oliver",
+              "member": "tr_oliver",
               "name": "Oliver"
             },
             {
-              "member": "g-canopy",
+              "member": "tr_gcanopy",
               "name": "Canopy"
             },
             {
-              "member": "g-team",
+              "member": "tr_gteam",
               "name": "Team"
             }
           ],
@@ -4508,12 +4508,12 @@
           ]
         },
         "capabilities": {
-          "[[\"person\",\"p-oliver\"]]": {
+          "[[\"person\",\"tr_oliver\"]]": {
             "edit": false,
             "delete": false,
             "groups": []
           },
-          "[[\"person\",\"p-joe\"]]": {
+          "[[\"person\",\"tr_joe\"]]": {
             "edit": false,
             "delete": false,
             "groups": []
@@ -4558,7 +4558,7 @@
                     "field": "owner",
                     "chips": [
                       {
-                        "member": "p-joe",
+                        "member": "tr_joe",
                         "name": "Joe"
                       }
                     ]
@@ -4587,7 +4587,7 @@
                     "field": "owner",
                     "chips": [
                       {
-                        "member": "p-oliver",
+                        "member": "tr_oliver",
                         "name": "Oliver"
                       }
                     ]
@@ -4607,19 +4607,19 @@
         "options": {
           "owner": [
             {
-              "member": "p-joe",
+              "member": "tr_joe",
               "name": "Joe"
             },
             {
-              "member": "p-oliver",
+              "member": "tr_oliver",
               "name": "Oliver"
             },
             {
-              "member": "g-canopy",
+              "member": "tr_gcanopy",
               "name": "Canopy"
             },
             {
-              "member": "g-team",
+              "member": "tr_gteam",
               "name": "Team"
             }
           ]
@@ -4673,7 +4673,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -4682,8 +4682,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -4747,7 +4747,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -4757,8 +4757,8 @@
             "name": "Hanabi",
             "description": "Cooperative.\n",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -4821,7 +4821,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -4830,8 +4830,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -4924,7 +4924,7 @@
               "engine"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -4933,8 +4933,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -4974,7 +4974,7 @@
         "kind": "connect",
         "row": "[[\"id\",\"g3\"]]",
         "field": "authors",
-        "member": "p-bo"
+        "member": "tr_bo"
       },
       "operations": [
         {
@@ -4982,7 +4982,7 @@
           "table": "Game",
           "row": "[[\"id\",\"g3\"]]",
           "field": "authors",
-          "member": "p-bo"
+          "member": "tr_bo"
         }
       ],
       "rows": {
@@ -4996,7 +4996,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -5005,8 +5005,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -5015,7 +5015,7 @@
             "id": "g3",
             "name": "Untitled",
             "authors": [
-              "p-bo"
+              "tr_bo"
             ],
             "status": "Playtested"
           }
@@ -5049,7 +5049,7 @@
         "kind": "disconnect",
         "row": "[[\"id\",\"g2\"]]",
         "field": "authors",
-        "member": "p-ada"
+        "member": "tr_ada"
       },
       "operations": [
         {
@@ -5057,7 +5057,7 @@
           "table": "Game",
           "row": "[[\"id\",\"g2\"]]",
           "field": "authors",
-          "member": "p-ada"
+          "member": "tr_ada"
         }
       ],
       "rows": {
@@ -5071,7 +5071,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -5080,7 +5080,7 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-bo"
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -5144,7 +5144,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -5153,8 +5153,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -5196,8 +5196,8 @@
         "row": "[[\"id\",\"g2\"]]",
         "field": "authors",
         "value": [
-          "p-bo",
-          "p-cy"
+          "tr_bo",
+          "tr_cy"
         ]
       },
       "operations": [
@@ -5206,14 +5206,14 @@
           "table": "Game",
           "row": "[[\"id\",\"g2\"]]",
           "field": "authors",
-          "member": "p-ada"
+          "member": "tr_ada"
         },
         {
           "kind": "rowConnect",
           "table": "Game",
           "row": "[[\"id\",\"g2\"]]",
           "field": "authors",
-          "member": "p-cy"
+          "member": "tr_cy"
         }
       ],
       "rows": {
@@ -5227,7 +5227,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -5236,8 +5236,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-bo",
-              "p-cy"
+              "tr_bo",
+              "tr_cy"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -5305,7 +5305,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -5314,8 +5314,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -5361,7 +5361,7 @@
       "intent": {
         "kind": "create",
         "id": "g4",
-        "group": "\"p-bo\"",
+        "group": "\"tr_bo\"",
         "values": {
           "name": "Azul"
         }
@@ -5375,7 +5375,7 @@
             "id": "g4",
             "name": "Azul",
             "authors": [
-              "p-bo"
+              "tr_bo"
             ],
             "status": "Draft"
           }
@@ -5392,7 +5392,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -5401,8 +5401,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -5416,7 +5416,7 @@
             "id": "g4",
             "name": "Azul",
             "authors": [
-              "p-bo"
+              "tr_bo"
             ],
             "status": "Draft"
           }
@@ -5493,7 +5493,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -5502,8 +5502,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -5576,7 +5576,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -5585,8 +5585,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -5630,7 +5630,7 @@
       "intent": {
         "kind": "remove",
         "row": "[[\"id\",\"g2\"]]",
-        "group": "\"p-ada\""
+        "group": "\"tr_ada\""
       },
       "operations": [
         {
@@ -5638,7 +5638,7 @@
           "table": "Game",
           "row": "[[\"id\",\"g2\"]]",
           "field": "authors",
-          "member": "p-ada"
+          "member": "tr_ada"
         }
       ],
       "rows": {
@@ -5652,7 +5652,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -5661,7 +5661,7 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-bo"
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -5724,7 +5724,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -5733,8 +5733,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -5792,7 +5792,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -5801,8 +5801,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -5856,7 +5856,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -5865,8 +5865,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -5928,8 +5928,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -5988,7 +5988,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -5997,8 +5997,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -6052,7 +6052,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -6061,8 +6061,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -6140,7 +6140,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -6149,8 +6149,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -6190,7 +6190,7 @@
         "kind": "regroup",
         "row": "[[\"id\",\"g3\"]]",
         "from": "unassigned",
-        "to": "\"p-bo\""
+        "to": "\"tr_bo\""
       },
       "operations": [
         {
@@ -6198,7 +6198,7 @@
           "table": "Game",
           "row": "[[\"id\",\"g3\"]]",
           "field": "authors",
-          "member": "p-bo"
+          "member": "tr_bo"
         }
       ],
       "rows": {
@@ -6212,7 +6212,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -6221,8 +6221,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -6231,7 +6231,7 @@
             "id": "g3",
             "name": "Untitled",
             "authors": [
-              "p-bo"
+              "tr_bo"
             ],
             "status": "Playtested"
           }
@@ -6264,8 +6264,8 @@
       "intent": {
         "kind": "regroup",
         "row": "[[\"id\",\"g2\"]]",
-        "from": "\"p-ada\"",
-        "to": "\"p-bo\""
+        "from": "\"tr_ada\"",
+        "to": "\"tr_bo\""
       },
       "operations": [
         {
@@ -6273,7 +6273,7 @@
           "table": "Game",
           "row": "[[\"id\",\"g2\"]]",
           "field": "authors",
-          "member": "p-ada"
+          "member": "tr_ada"
         }
       ],
       "rows": {
@@ -6287,7 +6287,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -6296,7 +6296,7 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-bo"
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -6360,7 +6360,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -6369,8 +6369,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -6408,7 +6408,7 @@
       "view": 1,
       "intent": {
         "kind": "rename",
-        "group": "\"p-ada\"",
+        "group": "\"tr_ada\"",
         "value": "Ada L."
       },
       "error": true
@@ -6421,17 +6421,17 @@
         "kind": "connect",
         "row": "[[\"id\",\"e3\"]]",
         "field": "leads",
-        "member": "p-di",
+        "member": "tr_di",
         "at": "2026-10-15T10:00:00Z"
       },
       "operations": [
         {
           "kind": "rowCreate",
           "table": "Excellence_leads",
-          "row": "[[\"excellence\",\"e3\"],[\"person\",\"p-di\"]]",
+          "row": "[[\"excellence\",\"e3\"],[\"person\",\"tr_di\"]]",
           "values": {
             "excellence": "e3",
-            "person": "p-di"
+            "person": "tr_di"
           },
           "at": "2026-10-15T10:00:00Z"
         }
@@ -6467,19 +6467,19 @@
         "Excellence_leads": [
           {
             "excellence": "e1",
-            "person": "p-di"
+            "person": "tr_di"
           },
           {
             "excellence": "e2",
-            "person": "p-cy"
+            "person": "tr_cy"
           },
           {
             "excellence": "e1",
-            "person": "p-cy"
+            "person": "tr_cy"
           },
           {
             "excellence": "e3",
-            "person": "p-di",
+            "person": "tr_di",
             "created": "2026-10-15T10:00:00Z",
             "modified": "2026-10-15T10:00:00Z"
           }
@@ -6547,15 +6547,15 @@
         "Excellence_leads": [
           {
             "excellence": "e1",
-            "person": "p-di"
+            "person": "tr_di"
           },
           {
             "excellence": "e2",
-            "person": "p-cy"
+            "person": "tr_cy"
           },
           {
             "excellence": "e1",
-            "person": "p-cy"
+            "person": "tr_cy"
           }
         ],
         "Excellence_projects": [
@@ -6583,12 +6583,12 @@
         {
           "kind": "rowDelete",
           "table": "Excellence_leads",
-          "row": "[[\"excellence\",\"e1\"],[\"person\",\"p-di\"]]"
+          "row": "[[\"excellence\",\"e1\"],[\"person\",\"tr_di\"]]"
         },
         {
           "kind": "rowDelete",
           "table": "Excellence_leads",
-          "row": "[[\"excellence\",\"e1\"],[\"person\",\"p-cy\"]]"
+          "row": "[[\"excellence\",\"e1\"],[\"person\",\"tr_cy\"]]"
         },
         {
           "kind": "rowDelete",
@@ -6627,7 +6627,7 @@
         "Excellence_leads": [
           {
             "excellence": "e2",
-            "person": "p-cy"
+            "person": "tr_cy"
           }
         ],
         "Excellence_projects": [
@@ -6693,15 +6693,15 @@
         "Excellence_leads": [
           {
             "excellence": "e1",
-            "person": "p-di"
+            "person": "tr_di"
           },
           {
             "excellence": "e2",
-            "person": "p-cy"
+            "person": "tr_cy"
           },
           {
             "excellence": "e1",
-            "person": "p-cy"
+            "person": "tr_cy"
           }
         ],
         "Excellence_projects": [
@@ -6789,15 +6789,15 @@
         "Excellence_leads": [
           {
             "excellence": "e1",
-            "person": "p-di"
+            "person": "tr_di"
           },
           {
             "excellence": "e2",
-            "person": "p-cy"
+            "person": "tr_cy"
           },
           {
             "excellence": "e1",
-            "person": "p-cy"
+            "person": "tr_cy"
           }
         ],
         "Excellence_projects": [
@@ -6880,15 +6880,15 @@
         "Excellence_leads": [
           {
             "excellence": "e1",
-            "person": "p-di"
+            "person": "tr_di"
           },
           {
             "excellence": "e2",
-            "person": "p-cy"
+            "person": "tr_cy"
           },
           {
             "excellence": "e1",
-            "person": "p-cy"
+            "person": "tr_cy"
           }
         ],
         "Excellence_projects": [
@@ -6957,15 +6957,15 @@
         "Excellence_leads": [
           {
             "excellence": "e1",
-            "person": "p-di"
+            "person": "tr_di"
           },
           {
             "excellence": "e2",
-            "person": "p-cy"
+            "person": "tr_cy"
           },
           {
             "excellence": "e1",
-            "person": "p-cy"
+            "person": "tr_cy"
           }
         ],
         "Excellence_projects": [
@@ -7017,7 +7017,7 @@
             ],
             "project": "pj1",
             "tasks_position": -1,
-            "owner": "p-ed"
+            "owner": "tr_ed"
           },
           {
             "id": "t2",
@@ -7030,7 +7030,7 @@
             "id": "t3",
             "title": "Print",
             "done": false,
-            "owner": "p-fay",
+            "owner": "tr_fay",
             "project": "pj2",
             "tasks_position": 0
           },
@@ -7090,7 +7090,7 @@
             "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
             "points": 3,
             "done": false,
-            "owner": "p-ed",
+            "owner": "tr_ed",
             "project": "pj1",
             "tasks_position": 1,
             "labels": [
@@ -7108,7 +7108,7 @@
             "id": "t3",
             "title": "Print",
             "done": false,
-            "owner": "p-fay",
+            "owner": "tr_fay",
             "project": "pj2",
             "tasks_position": 0
           },
@@ -7167,7 +7167,7 @@
             "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
             "points": 3,
             "done": false,
-            "owner": "p-ed",
+            "owner": "tr_ed",
             "project": "pj1",
             "tasks_position": 1,
             "labels": [
@@ -7185,7 +7185,7 @@
             "id": "t3",
             "title": "Print",
             "done": false,
-            "owner": "p-fay"
+            "owner": "tr_fay"
           },
           {
             "id": "t4",
@@ -7240,7 +7240,7 @@
             "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
             "points": 3,
             "done": false,
-            "owner": "p-ed",
+            "owner": "tr_ed",
             "project": "pj1",
             "tasks_position": 1,
             "labels": [
@@ -7258,7 +7258,7 @@
             "id": "t3",
             "title": "Print",
             "done": false,
-            "owner": "p-fay",
+            "owner": "tr_fay",
             "project": "pj2",
             "tasks_position": 0
           },
@@ -7316,7 +7316,7 @@
             "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
             "points": 3,
             "done": false,
-            "owner": "p-ed",
+            "owner": "tr_ed",
             "project": "pj1",
             "tasks_position": 1,
             "labels": [
@@ -7334,7 +7334,7 @@
             "id": "t3",
             "title": "Print",
             "done": false,
-            "owner": "p-fay",
+            "owner": "tr_fay",
             "project": "pj2",
             "tasks_position": 0
           },
@@ -7390,7 +7390,7 @@
             "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
             "points": 3,
             "done": false,
-            "owner": "p-ed",
+            "owner": "tr_ed",
             "project": "pj1",
             "tasks_position": 1,
             "labels": [
@@ -7408,7 +7408,7 @@
             "id": "t3",
             "title": "Print",
             "done": false,
-            "owner": "p-fay",
+            "owner": "tr_fay",
             "project": "pj2",
             "tasks_position": 0
           },
@@ -7452,7 +7452,7 @@
         "kind": "set",
         "row": "[[\"id\",\"t4\"]]",
         "field": "owner",
-        "value": "p-ed"
+        "value": "tr_ed"
       },
       "operations": [
         {
@@ -7461,7 +7461,7 @@
           "row": "[[\"id\",\"t4\"]]",
           "field": "owner",
           "before": null,
-          "value": "p-ed"
+          "value": "tr_ed"
         }
       ],
       "rows": {
@@ -7472,7 +7472,7 @@
             "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
             "points": 3,
             "done": false,
-            "owner": "p-ed",
+            "owner": "tr_ed",
             "project": "pj1",
             "tasks_position": 1,
             "labels": [
@@ -7490,7 +7490,7 @@
             "id": "t3",
             "title": "Print",
             "done": false,
-            "owner": "p-fay",
+            "owner": "tr_fay",
             "project": "pj2",
             "tasks_position": 0
           },
@@ -7498,7 +7498,7 @@
             "id": "t4",
             "title": "Someday",
             "done": false,
-            "owner": "p-ed"
+            "owner": "tr_ed"
           }
         ],
         "Project": [
@@ -7521,7 +7521,7 @@
       "intent": {
         "kind": "remove",
         "row": "[[\"id\",\"t1\"]]",
-        "group": "\"p-ed\""
+        "group": "\"tr_ed\""
       },
       "operations": [
         {
@@ -7529,7 +7529,7 @@
           "table": "Task",
           "row": "[[\"id\",\"t1\"]]",
           "field": "owner",
-          "before": "p-ed",
+          "before": "tr_ed",
           "value": null
         }
       ],
@@ -7558,7 +7558,7 @@
             "id": "t3",
             "title": "Print",
             "done": false,
-            "owner": "p-fay",
+            "owner": "tr_fay",
             "project": "pj2",
             "tasks_position": 0
           },
@@ -7604,7 +7604,7 @@
             "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
             "points": 3,
             "done": false,
-            "owner": "p-ed",
+            "owner": "tr_ed",
             "project": "pj1",
             "tasks_position": 1,
             "labels": [
@@ -7615,7 +7615,7 @@
             "id": "t3",
             "title": "Print",
             "done": false,
-            "owner": "p-fay",
+            "owner": "tr_fay",
             "project": "pj2",
             "tasks_position": 0
           },
@@ -7697,7 +7697,7 @@
             "labels": [
               "writing"
             ],
-            "owner": "p-ed"
+            "owner": "tr_ed"
           },
           {
             "id": "t2",
@@ -7708,7 +7708,7 @@
             "id": "t3",
             "title": "Print",
             "done": false,
-            "owner": "p-fay",
+            "owner": "tr_fay",
             "project": "pj2",
             "tasks_position": 0
           },
@@ -7764,7 +7764,7 @@
               "cards"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "modified": "2026-10-01T09:00:00Z"
@@ -7773,8 +7773,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "modified": "2026-10-03T09:00:00Z"
@@ -7841,7 +7841,7 @@
             "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
             "points": 3,
             "done": false,
-            "owner": "p-ed",
+            "owner": "tr_ed",
             "project": "pj1",
             "tasks_position": 1,
             "labels": [
@@ -7859,7 +7859,7 @@
             "id": "t3",
             "title": "Print",
             "done": false,
-            "owner": "p-fay",
+            "owner": "tr_fay",
             "project": "pj2",
             "tasks_position": 0
           },
@@ -7911,7 +7911,7 @@
                 "engine"
               ],
               "authors": [
-                "p-ada"
+                "tr_ada"
               ]
             },
             "created": "2026-01-01T00:00:00.000Z",
@@ -7928,8 +7928,8 @@
               "name": "Hanabi",
               "status": "Draft",
               "authors": [
-                "p-ada",
-                "p-bo"
+                "tr_ada",
+                "tr_bo"
               ]
             },
             "created": "2026-01-01T00:00:00.000Z",
@@ -7997,7 +7997,7 @@
               "engine"
             ],
             "authors": [
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "created": "2026-01-01T00:00:00.000Z",
@@ -8007,8 +8007,8 @@
             "id": "g2",
             "name": "Hanabi",
             "authors": [
-              "p-ada",
-              "p-bo"
+              "tr_ada",
+              "tr_bo"
             ],
             "status": "Draft",
             "created": "2026-01-01T00:00:00.000Z",
@@ -8061,7 +8061,7 @@
               "status": "Polished",
               "authors": [
                 "contact:bo",
-                "p-ada"
+                "tr_ada"
               ]
             },
             "created": "2026-01-01T00:00:00.000Z",
@@ -8094,7 +8094,7 @@
             "name": "Wingspan",
             "authors": [
               "contact:bo",
-              "p-ada"
+              "tr_ada"
             ],
             "status": "Polished",
             "created": "2026-01-01T00:00:00.000Z",
@@ -8129,8 +8129,8 @@
               "name": "Clear writing",
               "assessment": "Good",
               "leads": [
-                "p-cy",
-                "p-di"
+                "tr_cy",
+                "tr_di"
               ],
               "projects": [
                 "pr1"
@@ -8150,7 +8150,7 @@
               "name": "Fast reviews",
               "assessment": "Current focus",
               "leads": [
-                "p-cy"
+                "tr_cy"
               ],
               "projects": [
                 "pr1",
@@ -8247,19 +8247,19 @@
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z",
             "excellence": "e1",
-            "person": "p-cy"
+            "person": "tr_cy"
           },
           {
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z",
             "excellence": "e1",
-            "person": "p-di"
+            "person": "tr_di"
           },
           {
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z",
             "excellence": "e2",
-            "person": "p-cy"
+            "person": "tr_cy"
           }
         ],
         "Excellence_projects": [
@@ -8329,7 +8329,7 @@
               "notes": "\n\n  First pass  \nof the text.\n\nThen edit.",
               "points": 3,
               "done": false,
-              "owner": "p-ed",
+              "owner": "tr_ed",
               "labels": [
                 "writing"
               ]
@@ -8361,7 +8361,7 @@
             "fields": {
               "title": "Print",
               "done": false,
-              "owner": "p-fay"
+              "owner": "tr_fay"
             },
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z"
@@ -8393,7 +8393,7 @@
             "labels": [
               "writing"
             ],
-            "owner": "p-ed",
+            "owner": "tr_ed",
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z"
           },
@@ -8408,7 +8408,7 @@
             "id": "t3",
             "title": "Print",
             "done": false,
-            "owner": "p-fay",
+            "owner": "tr_fay",
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z"
           },
@@ -8451,8 +8451,8 @@
             "fields": {
               "name": "Wingspan",
               "authors": [
-                "p-ada",
-                "p-zed"
+                "tr_ada",
+                "tr_zed"
               ],
               "tags": [
                 "t1",
@@ -8514,8 +8514,8 @@
             "id": "g1",
             "name": "Wingspan",
             "authors": [
-              "p-ada",
-              "p-zed"
+              "tr_ada",
+              "tr_zed"
             ],
             "tags": [
               "t1",
@@ -8562,8 +8562,8 @@
               ]
             ],
             "fields": {
-              "person": "p-oliver",
-              "group": "g-canopy",
+              "person": "tr_oliver",
+              "group": "tr_gcanopy",
               "kind": "Group"
             },
             "created": "2026-01-01T00:00:00.000Z",
@@ -8577,8 +8577,8 @@
               ]
             ],
             "fields": {
-              "person": "p-joe",
-              "group": "g-canopy",
+              "person": "tr_joe",
+              "group": "tr_gcanopy",
               "kind": "Community"
             },
             "created": "2026-01-01T00:00:00.000Z",
@@ -8592,8 +8592,8 @@
               ]
             ],
             "fields": {
-              "person": "p-oliver",
-              "group": "g-team",
+              "person": "tr_oliver",
+              "group": "tr_gteam",
               "kind": "Group"
             },
             "created": "2026-01-01T00:00:00.000Z",
@@ -8607,7 +8607,7 @@
               ]
             ],
             "fields": {
-              "person": "p-oliver",
+              "person": "tr_oliver",
               "kind": "Opened"
             },
             "created": "2026-01-01T00:00:00.000Z",
@@ -8624,7 +8624,7 @@
             ],
             "fields": {
               "title": "Todos",
-              "owner": "p-joe"
+              "owner": "tr_joe"
             },
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z"
@@ -8638,7 +8638,7 @@
             ],
             "fields": {
               "title": "Games",
-              "owner": "p-oliver"
+              "owner": "tr_oliver"
             },
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z"
@@ -8693,31 +8693,31 @@
         "Tie": [
           {
             "id": "t1",
-            "person": "p-oliver",
-            "group": "g-canopy",
+            "person": "tr_oliver",
+            "group": "tr_gcanopy",
             "kind": "Group",
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z"
           },
           {
             "id": "t2",
-            "person": "p-joe",
-            "group": "g-canopy",
+            "person": "tr_joe",
+            "group": "tr_gcanopy",
             "kind": "Community",
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z"
           },
           {
             "id": "t3",
-            "person": "p-oliver",
-            "group": "g-team",
+            "person": "tr_oliver",
+            "group": "tr_gteam",
             "kind": "Group",
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z"
           },
           {
             "id": "t4",
-            "person": "p-oliver",
+            "person": "tr_oliver",
             "kind": "Opened",
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z"
@@ -8727,14 +8727,14 @@
           {
             "id": "tr-a",
             "title": "Todos",
-            "owner": "p-joe",
+            "owner": "tr_joe",
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z"
           },
           {
             "id": "tr-b",
             "title": "Games",
-            "owner": "p-oliver",
+            "owner": "tr_oliver",
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z"
           }
