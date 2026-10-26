@@ -61,8 +61,7 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
 - **overstoryd authorization characterization** (reverify): revoked grants, read-link write
   denial, non-admin access mutation, transitive group removal.
 - **Cross-client group workflow coverage**, once the first-party flow is designed.
-- **`mergeBlocks` characterization** and **Markdown/BlockNote round-trip fixtures**
-  (reverify) before changing alignment or expanding Web 025 B3.
+- **Markdown/BlockNote round-trip fixtures** (reverify) before expanding Web 025 B3.
 
 ## Speed
 

@@ -23,25 +23,6 @@ struct UpdateControlFiles: Sendable {
         try DurableFile.createPrivateDirectory(directory)
     }
 
-    var hasEarlierChangeLog: Bool {
-        FileManager.default.fileExists(atPath: directory.appending(path: "source-admissions.json").path)
-    }
-
-    /// Move a journal written under its earlier name (`source-admissions.json`
-    /// and `source-admission-objects/`, the same schema) to the change log's
-    /// names. Objects move first; the journal's presence marks a complete move.
-    func adoptEarlierChangeLog() throws {
-        let journal = directory.appending(path: "source-admissions.json")
-        let objects = directory.appending(path: "source-admission-objects", directoryHint: .isDirectory)
-        let manager = FileManager.default
-        guard !manager.fileExists(atPath: changeLogURL.path), manager.fileExists(atPath: journal.path) else { return }
-        if manager.fileExists(atPath: objects.path), !manager.fileExists(atPath: changeLogObjectsDirectory.path) {
-            try manager.moveItem(at: objects, to: changeLogObjectsDirectory)
-        }
-        try manager.moveItem(at: journal, to: changeLogURL)
-        try DurableFile.syncDirectory(directory)
-    }
-
     func lockChangeLog() throws -> Int32 {
         let descriptor = Darwin.open(directory.appending(path: "change-log.lock").path, O_RDWR | O_CREAT, 0o600)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }

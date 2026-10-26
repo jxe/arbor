@@ -19,7 +19,7 @@ support directory, keyed by the percent-encoded `TreeID`:
     indexes/search.json       # search and backlink index (format 2), rebuilt when its format or generation differs
     objects/<hash>            # the overlay: this tree's own unaccepted objects
   Sync/<key>/
-    sync/update-control.json  # UpdateControl, schema 2: attempt, durable head, hold, conflict
+    sync/update-control.json  # UpdateControl, schema 5: attempt, durable head, hold, conflict
     sync/objects/<hash>       # head objects too large to carry inline
 ```
 
@@ -29,7 +29,7 @@ every other file is a hash resolved on demand through the layered object store
 (`objects/` first, then overstoryd), so whole-tree hashing touches only directories
 and Markdown and the tree neither fetches nor retains every object. The state
 files are not decoded leniently: an older layout is re-placed from overstoryd
-rather than migrated in place. The format marker is `4` (content references,
+rather than migrated in place. The format marker is `5` (content references,
 the `WorkingTrees/` layout, `update-control.json`); a phone placed under an
 older marker re-places from overstoryd on its next launch, which discards edits
 overstoryd has not accepted yet, so the phone is synchronized before the build
@@ -145,14 +145,11 @@ from editor recovery. The complete journal is written to a private temporary
 file, fsynced, renamed, and its directory fsynced before a write returns;
 Swift locks concurrent writers and TypeScript serializes within the owning
 process. One process must own a state directory; cross-process ownership is
-not enforced. Opening a corrupt journal fails without rewriting it. A journal
-written under its earlier name, `sync/source-admissions.json` with
-`sync/source-admission-objects/`, is moved to the new names on first open.
+not enforced. Opening a corrupt journal fails without rewriting it.
 
-Journal schemas: 2 stores roots, ordered object hashes, and authored metadata;
-3 stores the protocol element verbatim with a capture summary; 4 stores one
-frame per record, reading a schema-3 flat operation list once as a single
-frame and rewriting it. A schema-4 record may also carry `transfer`: the
+The journal is schema 4: each record keeps the protocol element verbatim, one
+frame per record, with a capture summary; both stacks refuse any other schema.
+A record may also carry `transfer`: the
 destination document (reference, path and basis revision) of a Move to
 Document, whose one frame moves source out of the record's `document` and into
 it. A reader that ignores the field still publishes the record exactly; it only

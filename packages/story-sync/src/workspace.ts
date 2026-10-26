@@ -1,5 +1,5 @@
 import type { LocalTreeDescriptor, ObjectHash, ProtocolDirectory, TreeID } from "@ovst/protocol";
-import { decodeProtocolDirectory, nodePathFromPhysical, sha256, workspaceState } from "@ovst/protocol";
+import { decodeProtocolDirectory, nodePathFromPhysical, workspaceState } from "@ovst/protocol";
 import { loadDirectoryCollection } from "@ovst/collection-schema";
 import { resolveTreePath, toTreePath } from "@ovst/protocol/path";
 import { type FsEvent, isIgnoreFileName, type SnapshotObjectIndex, WorkspaceFS } from "@ovst/fs";
@@ -48,10 +48,10 @@ export class Workspace implements AsyncDisposable {
   private excludedRoots: string[];
   private unsubscribeFS: () => void;
   private unsubscribeRediscovery: () => void;
-  private constructor(root: string, stateDirectory: string, fs: WorkspaceFS, options: WorkspaceOptions) {
+  private constructor(root: string, stateDirectory: string, fs: WorkspaceFS, options: WorkspaceOptions & { tree: TreeID }) {
     this.root = root;
     this.events = options.events ?? new EventBus();
-    this.tree = options.tree ?? `rt_${sha256(root).slice(0, 10)}`;
+    this.tree = options.tree;
     this.displayName = options.displayName ?? basename(root);
     this.treeDescriptor = options.treeDescriptor ?? {};
     this.discovery = options.discovery ?? "recursive";

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareSourceChange, type SourceIntent, type LocalChange } from "@ovst/working-tree";
@@ -43,16 +43,6 @@ async function withQueue(body: (q: ChangeLog, root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "story-source-queue-"));
   try { await body(new ChangeLog(fixture.tree, root), root); } finally { await rm(root, { recursive: true, force: true }); }
 }
-
-test("a journal under its earlier name is adopted in place, objects first", async () => withQueue(async (q, root) => {
-  const all = records();
-  for (const record of all) await q.retain(record);
-  await rename(join(root, "sync", "change-log-objects"), join(root, "sync", "source-admission-objects"));
-  await rename(join(root, "sync", "change-log.json"), join(root, "sync", "source-admissions.json"));
-  expect(await new ChangeLog(fixture.tree, root).retained()).toEqual(all);
-  expect(await readdir(join(root, "sync"))).not.toContain("source-admissions.json");
-  expect(await readdir(join(root, "sync"))).not.toContain("source-admission-objects");
-}));
 
 test("discarding a change removes it and every change authored on it", async () => withQueue(async (q) => {
   const all = records();

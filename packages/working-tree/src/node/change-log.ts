@@ -17,23 +17,9 @@ export class ChangeLog {
   private records?: LocalChange[];
   private fingerprint?: JournalFingerprint;
   private readonly objects = new Map<string, Uint8Array>();
-  private readonly earlier: { path: string; objects: string };
-  private adopted = false;
   constructor(readonly tree: string, stateRoot: string, private readonly platform?: ChangeLogObjectStore) {
     this.path = resolve(stateRoot, "sync", "change-log.json");
     this.objectsPath = resolve(stateRoot, "sync", "change-log-objects");
-    this.earlier = { path: resolve(stateRoot, "sync", "source-admissions.json"), objects: resolve(stateRoot, "sync", "source-admission-objects") };
-  }
-  /** Move a journal written under its earlier name (the same schema) to the
-   * change log's names once. Objects move first; the journal marks a complete move. */
-  private async adoptEarlier(): Promise<void> {
-    if (this.adopted) return;
-    this.adopted = true;
-    const exists = (path: string) => stat(path).then(() => true, () => false);
-    if (await exists(this.path) || !await exists(this.earlier.path)) return;
-    if (await exists(this.earlier.objects) && !await exists(this.objectsPath)) await rename(this.earlier.objects, this.objectsPath);
-    await rename(this.earlier.path, this.path);
-    const dir = await open(dirname(this.path), "r"); try { await dir.sync(); } finally { await dir.close(); }
   }
   /** Changes a request carries remain until settled; nothing else in the log changes. */
   async discard(changes: ReadonlySet<string>): Promise<void> {
@@ -119,7 +105,6 @@ export class ChangeLog {
   }
 
   private async load(settled: ReadonlySet<string> = new Set()): Promise<void> {
-    await this.adoptEarlier();
     let value: unknown;
     try { value = JSON.parse(await readFile(this.path, "utf8")); }
     catch (error) {
@@ -233,7 +218,6 @@ export class ChangeLog {
     } finally { await rm(temporary, { force: true }); }
   }
   private async currentFingerprint(): Promise<JournalFingerprint | undefined> {
-    await this.adoptEarlier();
     try {
       const value = await stat(this.path);
       return { size: value.size, modified: value.mtimeMs, inode: Number(value.ino) };

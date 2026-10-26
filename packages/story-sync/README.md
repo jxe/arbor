@@ -17,7 +17,7 @@ that the `story` command and the Story app use.
 - `filesystem-object-source.ts`, `object-cache.ts`, `object-read-diagnostics.ts`:
   serving the folder itself as the object store.
 - `filesystem-node-surface.ts`, `node-provider-router.ts`, `node-sampling.ts`,
-  `generated-types.ts`, `property-changes.ts`, `root-title.ts`: the node
+  `generated-types.ts`, `root-title.ts`: the node
   model over files and collections.
 - `state/`: daemon-local state, the tree registry, placements, connections,
   local accounts, profile identity, projection providers, and the object

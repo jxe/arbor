@@ -2195,29 +2195,6 @@ extension SourceSessionPublicationTests {
 }
 
 extension SourceSessionPublicationTests {
-    @Test("A journal written under its earlier name is adopted by the change log")
-    func earlierJournalAdopted() async throws {
-        try await withTemporaryRoot { root in
-            let initial = try snapshot(markdown: "Before\n"), tree = try await makeTree(initial, update: "up_initial")
-            let transport = SourceModeTransport(initial: initial, peer: initial)
-            let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-            let session = try await WorkingTreeProvider(workingTree: tree, coordinator: coordinator).openDocument(.init(tree: treeID, path: "/note"))
-            _ = try await replace("Retained\n", session: session, basis: session.snapshot())
-            await session.close(); await coordinator.close()
-            let sync = root.appending(path: "sync")
-            let manager = FileManager.default
-            try manager.moveItem(at: sync.appending(path: "change-log.json"), to: sync.appending(path: "source-admissions.json"))
-            try manager.moveItem(at: sync.appending(path: "change-log-objects"), to: sync.appending(path: "source-admission-objects"))
-            let adopted = try await ChangeLog(tree: treeID.rawValue, stateRoot: root).retained()
-            #expect(adopted.count == 1)
-            #expect(manager.fileExists(atPath: sync.appending(path: "change-log.json").path))
-            #expect(!manager.fileExists(atPath: sync.appending(path: "source-admissions.json").path))
-            await tree.close()
-        }
-    }
-}
-
-extension SourceSessionPublicationTests {
     @Test("Sibling-body actions retain compound intent and private trash across restart", arguments: [false, true])
     func compoundStructuralAdmissions(shadowed: Bool) async throws {
         try await withTemporaryRoot { root in

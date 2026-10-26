@@ -26,10 +26,8 @@ describe("Story private state", () => {
     await prepareStoryDataRoot();
 
     const privateRoot = join(state, ".state");
-    await mkdir(join(privateRoot, "refs"), { recursive: true });
     await mkdir(join(privateRoot, "sync"), { recursive: true });
     await mkdir(join(privateRoot, "workspaces", "one"), { recursive: true });
-    await writeFile(join(privateRoot, "refs", "tree.json"), "{}\n");
     await writeFile(join(privateRoot, "sync", "tree.json"), "{}\n");
     await writeFile(join(privateRoot, "workspaces", "one", "index.json"), "{}\n");
     await writeFile(join(privateRoot, "device.json"), "keep\n");
@@ -37,7 +35,6 @@ describe("Story private state", () => {
 
     await prepareStoryDataRoot();
 
-    await expect(stat(join(privateRoot, "refs"))).rejects.toMatchObject({ code: "ENOENT" });
     await expect(stat(join(privateRoot, "sync"))).rejects.toMatchObject({ code: "ENOENT" });
     await expect(stat(join(privateRoot, "workspaces", "one", "index.json"))).rejects.toMatchObject({ code: "ENOENT" });
     expect(await readFile(join(privateRoot, "device.json"), "utf8")).toBe("keep\n");
@@ -158,6 +155,6 @@ test.each([["old-state"], [{ stateID: "old-state", path: "/missing" }], [null], 
   const root = await realpath(state), path = join(state, ".state", "workspaces.json");
   const source = JSON.stringify({ [root]: value });
   await writeFile(path, source);
-  await expect(workspaceIdentity(root)).rejects.toThrow("offline migration required");
+  await expect(workspaceIdentity(root)).rejects.toThrow("Invalid workspace registry");
   expect(await readFile(path, "utf8")).toBe(source);
 });

@@ -245,23 +245,6 @@ export async function isReservedProfile(target: OpenTarget): Promise<boolean> {
   }
 }
 
-export async function placedRemotePath(target: OpenTarget, client: StorySyncRESTClient): Promise<string | null> {
-  if (!target.remoteURL) return null;
-  try {
-    const canonical = canonicalTarget(target.remoteURL);
-    const placement = (await client.trees()).snapshot.filter((tree) =>
-      tree.osPath
-      && tree.canonical?.endpoint === canonical.endpoint
-      && sameOrDescendantPath(canonical.canonicalPath, tree.canonical.path)
-    ).sort((left, right) => right.canonical!.path.length - left.canonical!.path.length)[0];
-    if (!placement?.osPath || !placement.canonical) return null;
-    const relative = canonical.canonicalPath.slice(placement.canonical.path.length);
-    return `${placement.osPath}${relative}`;
-  } catch {
-    return null;
-  }
-}
-
 type CliAudienceOperation =
   | { kind: "clear" }
   | { kind: "set"; subject: string; access: "none" | "read" | "write" };

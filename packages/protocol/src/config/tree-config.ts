@@ -22,15 +22,13 @@ import {
   type ResourceAccessRule,
 } from "../model/resource-policy.ts";
 
-/**
+/*
  * A tree configuration: the private tree, edited only by a tree's
  * administrators, that holds who may do what to the tree (`access.yaml`) and
  * which child trees it mounts (`mounts.yaml`). A profile tree's configuration
  * also holds the apps that may use the profile's access (`apps.yaml`) and, for
- * a person, their devices (`devices.yaml`). Its server policy is
- * `tree-config-v1`.
+ * a person, their devices (`devices.yaml`).
  */
-export const TREE_CONFIG_POLICY = "tree-config-v1";
 
 /** Which files a configuration may hold follows from the kind of its tree. */
 export type TreeConfigKind = "tree" | "person" | "group";

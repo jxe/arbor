@@ -28,7 +28,3 @@ Persisted on devices and never shown to people. Changing them costs a keychain m
 - A device's state directory `.arbor` and the `.arbor-write-` / `.arbor-txn-` temporaries, which builds from before the rename left in placed folders. They stay never-content (`fs/src/ignore-policy.ts`, `fs/src/discovery.ts`, `OverstoryWorkingTree/IgnorePolicy.swift`, `WorkingTreeSemantics.validateName`), so a stray one is never published; `tests/fixtures/old-names/kept.json` holds their cases.
 
 The old spellings in authored content and links (`arbor://`, `;arbor-key=`, `;arbor-rev=`, `;arbor-config`, `#arbor-key=`, `<!-- arbor:children -->`, `.arborignore`, `#arbor-access=`) are no longer read: Rename 002 rewrote the last of them in live trees and removed the aliases on 2026-10-25 ([status](../../status.md#old-spellings-no-longer-read--2026-10-25)).
-
-## Cutover guard
-
-`overstoryd` refuses to start when its data root holds `canopy.sqlite3` and no `overstoryd.sqlite3` (`packages/overstoryd/src/cli.ts`). A backup archive made before 2026-10-10 restores under the old file name, so the guard stays until those backups have aged out.

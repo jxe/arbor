@@ -15,5 +15,4 @@ engine, cache or process of its own.
   take the other side's bytes without conflict.
 
 The [merge sidecar](../overstoryd-merge/README.md) merges snapshot candidates
-with it, and the [Story Sync tree recovery](../story-sync/recovery/README.md)
-tool merges recovery candidates with it.
+with it.

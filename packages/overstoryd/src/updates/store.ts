@@ -44,10 +44,10 @@ const UPDATE_SELECT = `
 export class AcceptedUpdateStore {
   constructor(private readonly db: Database) {}
 
-  /** The table alone, under another name while an offline migration rebuilds it. */
-  static createTable(db: Database, name = "accepted_updates"): void {
+  /** The table alone. */
+  static createTable(db: Database): void {
     db.run(`
-      CREATE TABLE IF NOT EXISTS ${name} (
+      CREATE TABLE IF NOT EXISTS accepted_updates (
         ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
         tree_id TEXT NOT NULL REFERENCES trees(id),
         root TEXT NOT NULL,

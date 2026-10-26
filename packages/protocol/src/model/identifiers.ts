@@ -6,6 +6,3 @@ export type ContentRevision = string;
 export type DirectoryRevision = string;
 export type EventCursor = string;
 export type Hash = `sha256:${string}`;
-
-export const LOCAL_TREE: TreeRef = "local";
-export const SYSTEM_TREE: TreeRef = "system";

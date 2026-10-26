@@ -92,7 +92,6 @@ overstoryd reads these variables at start; all are optional.
 | `OVERSTORYD_OBJECT_CACHE_MB` | 256 | In-memory cache of hash-verified immutable objects, in overstoryd and (passed through) in the merge sidecar. |
 | `OVERSTORYD_MERGE_CACHE_MB` | 512 | The merge sidecar's in-memory cache of replayed states; dropped whole, and rebuilt from log entries, when exceeded. |
 | `OVERSTORYD_MERGE_REPLAY_MS` | 10000 | How long one merge question may spend rebuilding the sidecar's cache before it answers a retryable 503 and keeps its progress for the retry. |
-| `OVERSTORYD_OBJECT_PACKING` | on | `0` turns off background packing of cold objects (overstoryd 001); packs already written are still read. |
 | `OVERSTORYD_RATE_LIMITS` | off | `1` limits unauthenticated session challenges and pairing claims per caller; see [rate limits and proxies](#rate-limits-and-proxies). |
 | `OVERSTORYD_TRUSTED_PROXY_HOPS` | 0 | How many reverse proxies in front of overstoryd append to `X-Forwarded-For`; see [rate limits and proxies](#rate-limits-and-proxies). |
 | `OVERSTORYD_STORY_MAC_URL` | unset | Where to get Story for Mac. The page at a reserved, unclaimed `/~handle` offers it as "Get Story for Mac" to a person who opened an invitation link; no link when unset. |
@@ -188,14 +187,10 @@ A pass runs at startup, after acceptances pass 4,000 loose objects or 64 MiB,
 and on a 30-minute idle check; it removes loose files only after reading every
 packed object back. The same pass runs by hand, against a copy or beside a
 serving host, with `bun run packages/overstoryd/src/pack-maintenance.ts <data-root>`
-(`--min-age-hours N`; prints one JSON report). To stop packing, set
-`OVERSTORYD_OBJECT_PACKING=0`; packs stay readable. Once a day the idle check
+(`--min-age-hours N`; prints one JSON report). Packing is always on. Once a day the idle check
 hashes every pack against its name and logs `Damaged object packs: …` for any
 that differ; `/.overstory/integrity` checks the same and reports what the packs
-hold. To roll back to a build without
-pack support, first stop the host and run `pack-maintenance.ts <data-root>
---unpack`, which writes every packed object back as a loose file and removes
-the packs.
+hold.
 
 ### Collecting unreferenced objects
 

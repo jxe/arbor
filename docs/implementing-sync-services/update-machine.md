@@ -103,8 +103,7 @@ Under a tree's state root:
   element verbatim (`trace` or `null`, `resolves`, objects the basis does not
   retain, or deltas), and a capture summary. Records never retain document
   sources or editor transactions. Appends are fsynced and flock-serialized; a
-  corrupt journal fails without being rewritten. A journal written under the
-  earlier name `source-admissions.json` is moved in place on first open.
+  corrupt journal fails without being rewritten.
 - **`sync/update-control.json`** (`UpdateControl`, schema 5): the exact
   `UpdateAttempt` and the change it ends at, the held reason, the settled
   changes the log has not yet compacted, the accepted unresolved signal, and
