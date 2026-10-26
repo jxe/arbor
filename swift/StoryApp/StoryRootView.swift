@@ -4734,6 +4734,8 @@ struct StoryIOSLaunchView: View {
     @State private var selectedConfigurationTree: String?
     @State private var trees: [ProtocolTreeDescriptor] = []
     @State private var syncingTree: ProtocolTreeDescriptor?
+    /// The sample pages' bar steps aside while the keyboard is up, so it never sits on top of it.
+    @State private var keyboardShown = false
 
     var body: some View {
         Group {
@@ -4742,7 +4744,7 @@ struct StoryIOSLaunchView: View {
             } else if ready {
                 StoryRootView(workspace: workspace, onDisconnect: { resetForPairing() }, windowRequest: windowRequest)
                 .safeAreaInset(edge: .bottom) {
-                    if workspace.isShowingTour {
+                    if workspace.isShowingTour, !keyboardShown {
                         HStack {
                             Text("Sample pages. Nothing here is saved.")
                                 .font(.footnote).foregroundStyle(.secondary)
@@ -4754,6 +4756,8 @@ struct StoryIOSLaunchView: View {
                         .background(.bar)
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardShown = true }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardShown = false }
             } else {
                 onboarding
             }
