@@ -1584,8 +1584,10 @@ and keychain service names did not change, so the iPhone app updated in place.
 - **Backup**: `.backups/railway/20261010T142244Z/` (`volume.tar` sha256
   `b2ce58d0…`, `dot-arbor.before`, the old launchd plist, authored
   manifests). Joe deleted it on 2026-10-26, with the volume folders
-  `/data/backups/rename-001` and `rename-001-final` and the old `ARBOR_*`
-  Railway variables. The Railway service is still
+  `/data/backups/rename-001` and `rename-001-final`. The old `ARBOR_*`
+  Railway variables (`ARBOR_COMMUNITY_HANDLE`, `ARBOR_DOMAIN`,
+  `ARBOR_FIRST_WRITER_HANDLE`, `ARBOR_FIRST_WRITER_PROFILE`) are still set and
+  read by nothing; they are for Joe to delete. The Railway service is still
   named `canopy-arb-nxhx-org`; renaming it is optional.
 - **Not caused by the rename, and still open**: `bun run test:protocol` stops
   at the "Live source admission" suite (13 issues, identical at `fde6cc31`),
