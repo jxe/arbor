@@ -76,18 +76,8 @@ bytes, is part of [overstoryd 007](later/history-007-document-history-routes-and
   ([deployment](../packages/overstoryd/deploy/README.md#collecting-unreferenced-objects))
   daily or weekly from Joe's machine, keeping each report. Joe's go-ahead.
 
-### Search excerpts are inert
-
-Formerly Security 001, whose vulnerable daemon code is deleted. Web 025 builds its text
-index with excerpts as marked ranges.
-
-- [ ] Confirm the native app's search renders excerpts as text with highlighted ranges,
-  never as markup.
-
 ### Smaller candidates
 
-- **Mac app acknowledgements.** Left from Release 001: add an acknowledgements file to the
-  Mac app for Bun, `@parcel/watcher`, Quagmire, Yams and Sparkle.
 - **`story untrack`.** Ignore rules never untrack an already-published path; today the
   recipe is move out, sync the deletion, move back. One command could publish the deletion
   and leave the bytes. The bytes stay in accepted history, so a leaked secret still needs
