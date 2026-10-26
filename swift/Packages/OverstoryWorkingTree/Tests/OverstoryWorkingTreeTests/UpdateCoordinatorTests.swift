@@ -1990,8 +1990,12 @@ extension SourceSessionPublicationTests {
             let queue = try await ChangeLog(tree: treeID.rawValue, stateRoot: root)
             let records = try await queue.retained()
             #expect(records.count == 8)
-            #expect(records[0].update.trace == nil)
+            // The sidebar's creations add their new entries.
+            #expect(records[0].update.trace?.first?.operations.map(\.kind) == ["addEntry"])
+            #expect(records[0].creation?.removals == ["/created.md"])
             #expect(records[1].update.trace?.first?.operations.first?.kind == "editSource")
+            #expect(records[2].update.trace?.first?.operations.map(\.kind) == ["addEntry"])
+            #expect(records[2].creation?.removals == ["/group"])
             #expect(records[3].update.trace?.first?.operations.first?.kind == "moveEntry")
             // New directory material is added, not edited from a made-up source identity.
             #expect(records[4].update.trace?.first?.operations.map(\.kind) == ["addEntry"])

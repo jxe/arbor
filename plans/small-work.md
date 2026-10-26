@@ -79,8 +79,6 @@ bytes, is part of [overstoryd 007](later/history-007-document-history-routes-and
   rotating.
 - **Ignored paths in the Mac app's publish view.** Mark which paths the ignore rules keep
   out and which ignored paths are still tracked.
-- **Sidebar creations as `addEntry`.** The sidebar's `createMarkdown`/`createDirectory`
-  still publish snapshots; emit `addEntry` from `retainStructure` for them too.
 
 ### Story Sync and trees it hasn't placed
 

@@ -108,24 +108,42 @@ extension UpdateCoordinator {
                         actions = EntryActions(transfers:transfers, promotedParent: promotedParent)
                     }
                 }
-                var creation: SourcePageCreation?
-                if case let .pageCreation(_, _, _, _, document) = structural {
-                    // Remove the first branch introduced by creation. A promoted
-                    // Markdown parent's sibling body stays exactly where it was.
-                    let parts = (node.reference.path + ".md").dropFirst().split(separator: "/").map(String.init)
+                // A creation adds the first branch it introduced (`addEntry`).
+                // A promoted Markdown parent's sibling body stays exactly where it was.
+                func introducedBranch(_ path: String) throws -> String? {
+                    let parts = path.dropFirst().split(separator: "/").map(String.init)
                     let objects = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
                     var hash = graph.root, prefix: [String] = []
                     for part in parts {
                         prefix.append(part)
                         guard case let .directory(entries, _)? = objects[hash] else { throw ProtocolValidationError.invalidValue("Invalid creation parent") }
-                        guard let entry = entries.first(where: { $0.name == part }) else { break }
+                        guard let entry = entries.first(where: { $0.name == part }) else { return "/" + prefix.joined(separator: "/") }
                         guard let next = entry.directory else { throw ProtocolValidationError.invalidValue("Creation overwrote an existing entry") }
                         hash = next
                     }
-                    creation = .init(document: document, removals: ["/" + prefix.joined(separator: "/")])
+                    return nil
                 }
-                var record = try LocalChange(tree: await workingTree.treeID().rawValue, basis: basis,
-                    graph: graph, candidate:candidate, entryActions:actions, creation:creation)
+                var creation: SourcePageCreation?
+                var sidebarCreation = false
+                switch structural {
+                case let .pageCreation(_, _, _, _, document):
+                    creation = .init(document: document, removals: [try introducedBranch(node.reference.path + ".md") ?? node.reference.path + ".md"])
+                case .action(.createMarkdown), .action(.createDirectory):
+                    // The sidebar's creations, traced the same way; the created node stands for the document.
+                    let created = try await staging.resolve(node.reference)
+                    if let branch = try introducedBranch(created.kind == .markdown ? created.path + ".md" : created.path) {
+                        creation = .init(document: node.reference, removals: [branch]); sidebarCreation = true
+                    }
+                default: break
+                }
+                let tree = try await workingTree.treeID().rawValue
+                var record: LocalChange
+                do {
+                    record = try LocalChange(tree: tree, basis: basis, graph: graph, candidate:candidate, entryActions:actions, creation:creation)
+                } catch where sidebarCreation {
+                    // A sidebar creation that changed more than its new branch publishes as a snapshot.
+                    record = try LocalChange(tree: tree, basis: basis, graph: graph, candidate:candidate, entryActions:actions)
+                }
                 record.localTrash = try await staging.captureLocalTrash()
                 prepared = (record, node)
                 preparedStructures[key] = prepared
