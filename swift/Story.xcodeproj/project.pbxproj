@@ -39,7 +39,6 @@
 		9C704388497EA12B9D978089 /* StoryApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63D9EA3BB99A535CFAB23B48 /* StoryApp.swift */; };
 		A4E6F18847B2453BAB914E79 /* OverstoryObjectStore in Frameworks */ = {isa = PBXBuildFile; productRef = 491E232029FB50606050C5E4 /* OverstoryObjectStore */; };
 		AA89544D1E5D6CBF675BD8B1 /* StoryPresentedCollection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3BA07DA90783DCD9751C14D /* StoryPresentedCollection.swift */; };
-		B56723C6076CACD5D8D612F9 /* Credits.html in Resources */ = {isa = PBXBuildFile; fileRef = 627FA519B312F08B44AF9730 /* Credits.html */; };
 		B7927EDF50F594B3EB1D11E5 /* StoryVisits.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */; };
 		C20D247C8BC789EA714ECA50 /* Overstory in Frameworks */ = {isa = PBXBuildFile; productRef = 3DE1482AFACF580E96254A07 /* Overstory */; };
 		C8A9FA9F81FECD5E612F0AA2 /* StoryAgentBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4988444CA00D5B4D30BFBF9 /* StoryAgentBundle.swift */; };
@@ -84,7 +83,6 @@
 		50109D993611D59CF73FE0A4 /* StoryNetworkLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryNetworkLogView.swift; sourceTree = "<group>"; };
 		570CA5BE42A3C7740713926E /* StorySyncRESTClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncRESTClient.swift; sourceTree = "<group>"; };
 		5CA3B5A57DFF35B1C2881F8B /* HostAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostAccountService.swift; sourceTree = "<group>"; };
-		627FA519B312F08B44AF9730 /* Credits.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = Credits.html; sourceTree = "<group>"; };
 		63D9EA3BB99A535CFAB23B48 /* StoryApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryApp.swift; sourceTree = "<group>"; };
 		71E92471C42C9DD9FAE87E05 /* StoryTour.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryTour.swift; sourceTree = "<group>"; };
 		73B68E87641593E3050F1F40 /* StoryEditor */ = {isa = PBXFileReference; lastKnownFileType = folder; name = StoryEditor; path = Packages/StoryEditor; sourceTree = SOURCE_ROOT; };
@@ -176,7 +174,6 @@
 			children = (
 				5E6022070C3F3F46BAD35E4B /* StorySync */,
 				0F57E1CDD14CFF64B73C4196 /* Assets.xcassets */,
-				627FA519B312F08B44AF9730 /* Credits.html */,
 				5CA3B5A57DFF35B1C2881F8B /* HostAccountService.swift */,
 				424024AA24CF8BB8FF279D58 /* Info.plist */,
 				1EBBD6708255637AC1839184 /* PrivacyInfo.xcprivacy */,
@@ -329,7 +326,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				138AB71328EADD327DF05358 /* Assets.xcassets in Resources */,
-				B56723C6076CACD5D8D612F9 /* Credits.html in Resources */,
 				4BB7FFC47B9602F5F4F43F15 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

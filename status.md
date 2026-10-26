@@ -20,8 +20,8 @@ the build number) stamps the latest `v*` tag's version and its commit into Info.
 built, since the bundled helper reports it and a mismatch would restart Story Sync at every
 launch), so About Story reads "Version 0.1.5 (development build 9a53bffa)"
 rather than the project's placeholder "0.1.0 (1)"; a release reads "Version 0.1.5 (1484)".
-Regenerating the project also bundles `Credits.html`, which 9400bb4 added without it, so the
-0.1.5 release's About panel has no acknowledgements.
+`swift/StoryApp/Credits.html` stays in the repo and out of the app bundle, so About Story
+shows no acknowledgements (Joe, 2026-10-26).
 
 ## Legacy cleanup — 2026-10-26
 
@@ -261,8 +261,8 @@ Joe asked for the plans to be filed by timing (`plans/soon/`, `plans/later/`,
 
 - **Release 001, the first Mac and iPhone builds.** `tools/release.sh` has published
   `v0.1.1`, `v0.1.2` and `v0.1.3` (Mac DMG with Sparkle, iPhone on TestFlight, `@ovst/cli`
-  on npm), so the update path has been used. The acknowledgements file for the Mac app was
-  never added; it is in [small work](plans/small-work.md#smaller-candidates).
+  on npm), so the update path has been used. The acknowledgements live in the repo
+  (`swift/StoryApp/Credits.html`), not in the app (2026-10-26).
 - **Release 004, the intro video.** Recorded and cut on Joe's Mac (`dist/video/`, takes and
   builds; `616b1536`), by Joe's account. Removing the demo account from the host was the
   plan's last step and was not checked here.

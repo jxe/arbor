@@ -45,6 +45,8 @@ targets:
           - org.nxhx.story.sync.plist
           - story-command.sh
           - IconPreviews
+          # Acknowledgements live in the repo only, not in About Story.
+          - Credits.html
     dependencies:
       - package: StoryKit
       - package: OverstoryWorkingTree
