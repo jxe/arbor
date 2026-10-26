@@ -196,5 +196,6 @@ discards a saved head or alters protocol semantics.
 
 **Resource policy soak.** Exercise Story consent and revocation and configuration
 conflict resolution on the isolated production copy, including queued configuration writes.
-Keep the schema 13 migration backups until this soak closes. Required before enabling a
+The schema 13 migration backups were deleted on 2026-10-26, so take a fresh backup of the
+live host before the soak. Required before enabling a
 real application ([Apps 005](later/apps-005-source-resolution-and-sidecar.md)).

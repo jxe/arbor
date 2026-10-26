@@ -430,7 +430,7 @@ packing failed`; container memory peaked at 1.32 GB of 8 GB. Packing is on by
 default; `OVERSTORYD_OBJECT_PACKING=0` stops it and packs stay readable.
 `pack-maintenance.ts <root> --unpack` is the rollback to a build without pack
 support, with the host stopped and Joe's go-ahead. Backup:
-`.backups/railway/20261009T143155Z/`, kept until about 2026-10-23.
+`.backups/railway/20261009T143155Z/`, deleted 2026-10-26 after it aged out.
 
 **Layout.** A pack holds zstd frames of about 1 MiB raw. Each frame holds one
 document's versions in acceptance order; documents follow each other in a
@@ -1583,9 +1583,9 @@ and keychain service names did not change, so the iPhone app updated in place.
   from both.
 - **Backup**: `.backups/railway/20261010T142244Z/` (`volume.tar` sha256
   `b2ce58d0…`, `dot-arbor.before`, the old launchd plist, authored
-  manifests); keep until about 2026-10-24. Volume folders
-  `/data/backups/rename-001` and `rename-001-final`, and the old `ARBOR_*`
-  Railway variables, are for Joe to delete. The Railway service is still
+  manifests). Joe deleted it on 2026-10-26, with the volume folders
+  `/data/backups/rename-001` and `rename-001-final` and the old `ARBOR_*`
+  Railway variables. The Railway service is still
   named `canopy-arb-nxhx-org`; renaming it is optional.
 - **Not caused by the rename, and still open**: `bun run test:protocol` stops
   at the "Live source admission" suite (13 issues, identical at `fde6cc31`),
