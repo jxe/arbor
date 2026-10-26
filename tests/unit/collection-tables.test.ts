@@ -97,7 +97,7 @@ describe("a schema with several tables", () => {
       .replace("ordered List.games[] @fold", "ordered List.games[]");
     const directory = join(sandbox, "games");
     await Bun.write(join(directory, "schema.usl"), games);
-    await writeFile(join(directory, "Game.jsonl"), '{"id":"g1","name":"Chess","status":"Draft","tags":["board"],"authors":["joe"]}\n');
+    await writeFile(join(directory, "Game.jsonl"), '{"id":"g1","name":"Chess","status":"Draft","tags":["board"],"authors":["tr_joe"]}\n');
     await writeFile(join(directory, "List.jsonl"), '{"id":"l1","name":"Favorites"}\n');
     await writeFile(join(directory, "List_games.jsonl"), '{"list":"l1","game":"g1","games_position":1}\n');
     const diagnostics = await verifyStore(compileUsl(games), directory);
