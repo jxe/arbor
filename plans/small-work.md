@@ -7,29 +7,6 @@ and evidence in [status](../status.md) and delete it here.
 
 ## Small work
 
-### Show declined folders in the Mac app
-
-Formerly Native 012. Story Sync keeps a folder's declined paths unpublished while the rest
-syncs and serves `GET /v1/declined`, `POST /v1/declined/restore` and
-`POST /v1/declined/resend` ([API](../docs/implementing-sync-services/story-sync-api.md#4-identity-account-bootstrap-and-declined-changes),
-[declined folder changes](../docs/implementing-editors/declined-folder-changes.md));
-`story sync declined` is the reference client. The Mac app reads none of it.
-
-- [ ] Decode `declined` on daemon trees (`LocalStorySyncTreePresentation`) and list each
-  placed folder that has it in Sync Status: name, path, declined paths, the host's reason,
-  and the guide's sentence (kept in the folder, not published; the rest keeps syncing;
-  making them match the host releases them).
-- [ ] Add `restoreDeclined(tree:)` and `resendDeclined(tree:)` beside `discardHeld`; offer
-  "Restore Host Version…" (confirmation names the paths and says edits there are lost) and
-  "Send Again"; refresh after either.
-- [ ] Keep `sync: "conflict"` with the existing discard. Reword
-  `editProfileConfigurationFile`'s check, which names a review that no longer exists, to use
-  `declined` and point at Sync Status. Keep `conflicted: true` (accepted alternatives)
-  visually distinct.
-- [ ] Verify with a `StoryAppTests` case on the bundled daemon (make a declined change as
-  `tests/integration/self-sync.test.ts` does, see it listed, restore it), then by hand on
-  Joe's Mac with his go-ahead.
-
 ### Teach external agents to work in placed folders
 
 Formerly CLI 004. Agents edit placed folders with their own tools; `story sync status [<locator>]
@@ -80,17 +57,6 @@ bytes, is part of [overstoryd 007](features/history-007-document-history-routes-
 - **Ignored paths in the Mac app's publish view.** Mark which paths the ignore rules keep
   out and which ignored paths are still tracked.
 
-## Native release and hands-on review
-
-- [ ] Install the tested rejected-update retirement, broader operation capture and
-  accepted-choice review when Joe can quit both apps. Verify the exact revision and
-  destination server support first. Quagmire 0.9.0 is pinned.
-- [ ] Verify opening existing state, automatic publication, cross-device propagation and
-  restart without losing drafts, pending requests or newer editor work. Do not overwrite
-  active source journals with an older snapshot-only build.
-- [ ] macOS/iPhone hands-on: layout, typing, focus, selection, scrolling, keyboard routing,
-  VoiceOver, large text and installed review-draft recovery.
-
 ## Native 011 hand checks
 
 The client folds, route removals and shared account service
@@ -109,22 +75,6 @@ on a Mac; these have not been tried by hand.
 - [ ] iPhone through `KeychainAccountService`: pair from the Mac's QR code, list accounts,
   Place a Tree and Sync & Accounts panels, a People profile and avatar, Disconnect and Pair
   Again; no keychain entry moves.
-
-## Overstory identifier rename hand check
-
-The 2026-09-24 rename ([status](../status.md#overstory-identifiers-and-ui-copy--2026-09-24))
-builds and passes its suites on a Mac.
-
-- [ ] Install the Mac app and check the renamed copy: Make This an Overstory Tree, Story is
-  up to date, and the camera, microphone and speech permission prompts.
-
-## Ignore policy restart check
-
-Filesystem 005 ([status](../status.md#ignored-filesystem-content-filesystem-005--2026-09-25))
-passes its Swift tests on a Mac.
-
-- [ ] Restart the installed Story Sync on this build and confirm each placed folder returns
-  to idle without publishing a change.
 
 ## Server refinements
 

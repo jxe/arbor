@@ -21,6 +21,22 @@ rather than the project's placeholder "0.1.0 (1)"; a release reads "Version 0.1.
 Regenerating the project also bundles `Credits.html`, which 9400bb4 added without it, so the
 0.1.5 release's About panel has no acknowledgements.
 
+## Legacy cleanup — 2026-10-26
+
+Implemented; deployed with the next push of main, and on the Mac and iPhone with the next
+Story build. About 1,400 lines removed; nothing changes on the wire or in live host data.
+
+- **Gone:** Story Sync's recovery tool; both stacks' adoption of `source-admissions.json` as
+  the change log; overstoryd's `canopy.sqlite3` cutover guard; the pack rollback (`--unpack`
+  and `OVERSTORYD_OBJECT_PACKING`; packing is always on); pre-schema-30 branches in the
+  migration compare tool; Story Sync's start-time `placeEarlierProfileFolder`, which would
+  re-place a profile folder you had removed; the iPhone's single-record placements file and
+  its account re-keying from before overstoryd 005; `arbor://` invite links; and a dozen
+  dead exports and three unused dependencies.
+- **Retired gates in small work:** the native release review (Quagmire 0.9.0), the
+  2026-09-24 rename hand check and the ignore-policy restart check, all overtaken by daily
+  use. Showing declined folders in the Mac app is dropped.
+
 ## Story Sync serves only placed trees — 2026-10-26
 
 Implemented; the Swift change is installed when Joe next builds Story, the Story Sync change
@@ -1029,7 +1045,7 @@ measurements before broadening the implementation.
 | Plural local accounts and devices: one data home holds several host accounts, including several at one origin, in `account.yaml`, `trees.yaml`, and `devices.yaml`; Mac-to-iPhone pairing | installed, verified | [local system](docs/architecture/story-sync/data-home.md#data-home) |
 | Short-lived cloud workspaces: reusable one-account bundles, exact placements under an isolated root, detached Story Sync, explicit finish, bundle revocation, `story status`; Mac Share panel "Use with an agent" creates, shares, and revokes one-tree bundles (not yet exercised against a live host) | implemented | [CLI](docs/getting-started/cli.md#short-lived-cloud-sessions) |
 | Declarative collection schemas: `schema.usl` in Ultimate Schema Language (CDDL, `schema.sql` and `relationships.json` removed 2026-10-14, see [Schema language](#schema-language-replaces-cddl--2026-10-14)), one collection descriptor version (1, naming `schema.usl`) in TypeScript and Swift, open rows that accept and preserve undeclared members while declared members validate strictly, schema-directed CSV cells, validation that never normalizes, generated collection types without Zod; overstoryd acceptance and projection, the merge rules and Story Sync providers use the pure `@ovst/collection-schema` package, and QuickJS is no longer a dependency. No collections existed before, so there is nothing to migrate; a `schema.ts` is an ordinary file | deployed, not installed; the Swift model edits build and pass their suites on a Mac ([2026-10-11](#cli-package-people-and-joining-by-invitation--2026-10-11)) | [collection schemas](docs/architecture/collection-schema/README.md), [child backings §2.4](docs/overstory-spec/06-child-backings.md#2-logical-collections) |
-| Ignored filesystem content (Filesystem 005): one membership policy in `@ovst/fs` for discovery, listing, resolution, watching, snapshots, object reads and materialization; `.overstoryignore` and `.gitignore` in Git's grammar, mandatory exclusions that rules cannot negate, and tracked paths (the folder's last-held root) that stay synchronized until deleted; the Swift preview uses a port of the same matcher | implemented, not installed; `LocalFolderPreviewTests` pass on a Mac (2026-10-11); the [restart check](plans/small-work.md#ignore-policy-restart-check) remains | [directory format §7](docs/overstory-spec/02-directory-format.md#7-tree-membership-and-ignore-files), [ignored content](docs/architecture/story-sync/data-home.md#ignored-content) |
+| Ignored filesystem content (Filesystem 005): one membership policy in `@ovst/fs` for discovery, listing, resolution, watching, snapshots, object reads and materialization; `.overstoryignore` and `.gitignore` in Git's grammar, mandatory exclusions that rules cannot negate, and tracked paths (the folder's last-held root) that stay synchronized until deleted; the Swift preview uses a port of the same matcher | implemented, not installed; `LocalFolderPreviewTests` pass on a Mac (2026-10-11); the restart check was retired 2026-10-26, overtaken by daily use | [directory format §7](docs/overstory-spec/02-directory-format.md#7-tree-membership-and-ignore-files), [ignored content](docs/architecture/story-sync/data-home.md#ignored-content) |
 | Headless executable-data core: SQLite-backed query lowering and execution over the Supplies corpus, dependency-sensitive live result streams, authorized transactional mutations with durable retry receipts | implemented | [apps runtime](packages/apps-runtime/README.md), [Supplies](examples/supplies/README.md) |
 | One merge-state model and squashed history: every acceptance records a merge state (tree creation, pairing, account configuration and boundary rewrites checkpoint their root; no whole-entry conflict rows); schema 18 keeps one accepted update per tree, and migration 016 squashes history to each head, keeping roots, head ids, entry dates and document versions | deployed 2026-09-24 at schema 18; history cut 2026-09-24 by migration 016 | migration 016 (deleted; its runbook is `packages/overstoryd/migrations/016-squash-history/README.md` at `d15ddce`) |
 | Operational hosting: Railway and VPS deployment, persistent storage, backup and restore, coordinated upgrades, one-off migrations | deployed | [deployment](packages/overstoryd/deploy/README.md), [migrations](packages/overstoryd/migrations/README.md) |
@@ -1038,7 +1054,7 @@ measurements before broadening the implementation.
 
 | Area | State | Remaining | Owning plan |
 |---|---|---|---|
-| Story editing and review | implemented, not installed | Copies with changes, paste and inline provenance, compound undo, and interactive acceptance of the implemented review UI | [Native 008](plans/when-needed/merge-008-copies-with-changes-and-compound-undo.md), [release gate](plans/small-work.md#native-release-and-hands-on-review) |
+| Story editing and review | implemented, not installed | Copies with changes, paste and inline provenance, compound undo, and interactive acceptance of the implemented review UI | [Native 008](plans/when-needed/merge-008-copies-with-changes-and-compound-undo.md), release gate retired 2026-10-26 |
 | Markdown source-transfer policy | deployed, not hand-verified | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order. Also deployed: list items, table rows and contextual links, same-anchor ordering, keyed JSON/YAML members and TS/JS function declaration moves ([transfers](docs/architecture/overstoryd/merge-tool.md#transfers)); their hand checks are in [small work](plans/small-work.md#server-refinements). Swift/Python declaration moves, structured moves between files, cross-document fragment and reference links and richer list hosts still require review | [overstoryd 014](plans/when-needed/merge-014-merge-handles-many-cases.md) |
 | Resource policy providers | deployed | Provider-specific enforcement, source resolution, activation consent, the execution sidecar, observation and soak | [Apps 005](plans/later/apps-005-source-resolution-and-sidecar.md), [small work](plans/small-work.md#manual-recipes) |
 | Working-tree client transition | installed | The explicit soak closeout | [small work](plans/small-work.md#observation-and-soak-closeout) |
@@ -1478,7 +1494,7 @@ unreadable-directory discovery test runs as root). The overstoryd merge suites p
 toolchain and passed the shared fixture under swift-testing, plus 9,600 random
 cases compared with the TypeScript decisions; `LocalFolderPreview.swift` and
 the preview test depend on Apple-only modules and have not compiled
-([Mac gate](plans/small-work.md#ignore-policy-restart-check)). A warm
+(the Mac gate was retired 2026-10-26). A warm
 50,000-file scan with the policy took about 10% longer in that container
 (8.5 s against 9.4 s, noisy); one decision costs about 5 µs. Not done: marking
 ignored paths in the Mac app's "what it would publish" view, and an
@@ -1659,8 +1675,8 @@ in the known environment set (libsecret, sidecar restart, workspace
 discovery, client-generated profile bootstrap, journal compaction, a
 node-query race that passes alone). Not verified: every Swift rename is
 uncompiled, and `swift/Canopy.xcodeproj` was hand-edited for the renamed app
-files and must be regenerated with xcodegen on a Mac; the gates are in
-[small work](plans/small-work.md#overstory-identifier-rename-hand-check).
+files and must be regenerated with xcodegen on a Mac; the hand check was retired
+on 2026-10-26, overtaken by daily use.
 
 ## Native 011 account service — 2026-09-25
 
@@ -1826,7 +1842,7 @@ Console tree (arb.nxhx.org) published a new file in 1.3 s and its removal in
 1.2 s through the watcher alone, leaving no retained request. The longer soak
 is on Joe's own list. Clients 001 closed the same day; its plan is deleted (git
 history). Its follow-ups: held folders in the Mac app
-([small work](plans/small-work.md#show-declined-folders-in-the-mac-app)), the browser client
+(dropped 2026-10-26), the browser client
 ([Web 025](plans/later/story-web-025-story-web.md)), a Hetzner sync lab run
 ([small work](plans/small-work.md)), and History on
 working trees ([open questions](plans/ideas.md#open-questions)).

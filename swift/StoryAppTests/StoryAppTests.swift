@@ -837,34 +837,6 @@ struct StoryAppTests {
     }
 #endif
 
-    @Test("A legacy single iPhone placement migrates when another tree is placed")
-    func legacyNativePlacementMigration() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appending(path: "StoryLegacyNativePlacement-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let url = root.appending(path: "placement.json")
-        let legacy = NativePlacementRecord(
-            origin: try #require(URL(string: "https://overstory.example")),
-            configurationTree: "tr_accountconfiguration",
-            tree: ProtocolTreeDescriptor(
-                id: "tr_legacy",
-                kind: "ordinary",
-                root: "sha256:\(String(repeating: "c", count: 64))",
-                access: "write",
-                canonical: ProtocolCanonicalDescriptor(path: "/~joe/legacy", endpoint: "https://overstory.example"),
-                update: "up_legacy"
-            )
-        )
-        try JSONEncoder().encode(legacy).write(to: url)
-        let store = NativePlacementStore(url: url)
-
-        #expect(try await store.loadAll() == [legacy])
-        try await store.save(legacy)
-        #expect(try await store.load() == legacy)
-        #expect(try await store.loadAll() == [legacy])
-    }
-
     @Test("Placement records this build cannot read are dropped, not fatal")
     func unreadableNativePlacementsAreDropped() async throws {
         let root = FileManager.default.temporaryDirectory
