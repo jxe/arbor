@@ -67,7 +67,7 @@ on a Mac; these have not been tried by hand.
 - [ ] From the Mac app against a disposable host, create a pairing offer and pair a second
   device with it.
 - [ ] Mac onboarding through `StorySyncAccountService` against a disposable data home and
-  host: create an identity, back it up, recover it, adopt a legacy keychain identity, claim
+  host: create an identity, back it up, recover it, claim
   an account, cancel and resume a claim, pair from another device's code and resume an
   interrupted pairing, choose a tree; the account panel's actions likewise. Check
   `GET /v1/accounts` shows the identity, account and credential in the data home, not the

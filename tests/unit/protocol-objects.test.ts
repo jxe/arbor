@@ -25,7 +25,6 @@ import {
   resolveSnapshot,
   snapshotDirectory,
   trackedEntries,
-  withoutPlatformMetadata,
   type SnapshotObjectIndex,
 } from "@ovst/fs";
 
@@ -338,8 +337,6 @@ describe("canonical tree objects", () => {
       const top = decodeProtocolDirectory(objects.get(clean.root)!);
       const legacy = put(encodeProtocolDirectory({ ...top, entries: [{ name: ".DS_Store", file: put(new TextEncoder().encode("old finder")) }, ...top.entries] }));
       const load = async (hash: string) => objects.get(hash)!;
-      expect(await withoutPlatformMetadata(legacy, load)).toBe(clean.root);
-      expect(await withoutPlatformMetadata(clean.root, load)).toBe(clean.root);
 
       await writeFile(join(destination, ".DS_Store"), "local finder");
       await materializeTree(destination, legacy, load);

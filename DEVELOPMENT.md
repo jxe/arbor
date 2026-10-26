@@ -243,6 +243,14 @@ review. Approving the npm publish, when npm stages it, stays manual. The pieces
 are `swift/scripts/release-mac.sh`, `swift/scripts/release-ios.sh`,
 `tools/testflight.ts` and `bun run build:cli:package`.
 
+## Check-ins
+
+`bun tools/log-checkin.ts` writes one Markdown report on how the host, Story
+Sync and Story.app have been doing, from overstoryd's Railway logs, Story
+Sync's launchd log and Story.app's logs. It runs on Joe's Mac from a checkout
+linked to Railway and only reads, except `--mark`, which starts a new period;
+`--since <time>` reports from a given time instead.
+
 ## Disposable browser smoke test
 
 Use fresh directories rather than the checked-in fixture or your real Story data home:

@@ -123,20 +123,15 @@ test("interrupted replay advances across eviction and process replacement", asyn
   expect(completed).toBe(true);
 });
 
-test("disk checkpoints give the same answers, and leftover tree directories go", async () => {
+test("disk checkpoints give the same answers", async () => {
   const { savedStatesIn } = await import("../../../packages/overstoryd-merge/src/saved-states.ts");
   const { mkdtemp, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const path = await mkdtemp(join(tmpdir(), "merge-native-replay-"));
   try {
-    const { mkdir, writeFile, readdir } = await import("node:fs/promises");
-    // A tree directory of whole-JSON saves from before the database.
-    await mkdir(join(path, "tr_old"), { recursive: true });
-    await writeFile(join(path, "tr_old", `${"a".repeat(64)}.json`), "{}");
     const f = new Fixture(), disk = savedStatesIn(path);
     const { head } = await history(f, sidecar(f, disk, true), 40);
-    expect(await readdir(path)).not.toContain("tr_old");
     const first = (await disk.list()).map((value) => value.entry);
     const question = { base: head, head, candidate: { root: withFiles(f, decodeLogEntry(f.objects.get(head)!).root, { "a.md": "next" }),
       change: "next", trace: null, resolves: [] }, rules: { id: "tree-default", revision: 1 } };

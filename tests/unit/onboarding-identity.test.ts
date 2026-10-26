@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, spyOn } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile, rename, mkdir, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { overstoryPrivateRoot, loadWorkspaceRegistry, sha256 } from "@ovst/protocol";
+import { overstoryPrivateRoot, loadWorkspaceRegistry } from "@ovst/protocol";
 import { ProfileIdentityStore } from "../../packages/client/src/profile-identity.ts";
 
 let root: string;
@@ -163,21 +163,6 @@ describe("onboarding identity preservation", () => {
       expect(await store.status()).toEqual(first);
       expect(records.size).toBe(1);
     } finally { get.mockRestore(); set.mockRestore(); }
-  });
-
-  test("legacy credentials migrate without deleting the original", async () => {
-    const store = new ProfileIdentityStore();
-    const first = await store.create(join(root, "profile"));
-    const recordPath = join(overstoryPrivateRoot(), "self.identity.json");
-    const record = JSON.parse(await readFile(recordPath, "utf8"));
-    const metadataPath = join(overstoryPrivateRoot(), "self.json");
-    const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
-    metadata.credential = `org.arbor.person-profile/self-${sha256(`${overstoryPrivateRoot()}\0${first.profileTree}`).slice(0, 24)}`;
-    await writeFile(metadataPath, JSON.stringify(metadata));
-    await writeFile(join(overstoryPrivateRoot(), "self.key"), record.privateKey);
-    await rm(recordPath);
-    expect((await store.status())?.profileTree).toBe(first.profileTree);
-    expect(await readFile(join(overstoryPrivateRoot(), "self.key"), "utf8")).toBe(record.privateKey);
   });
 
   test("explicit matching backup repairs metadata and preserves damaged bytes", async () => {

@@ -33,7 +33,6 @@ import {
   materializeTree,
   membershipSkip,
   trackedEntries,
-  withoutPlatformMetadata,
   type MaterializeCollection,
   type SkipPath,
 } from "@ovst/fs";
@@ -452,8 +451,7 @@ export class FolderSync implements AcceptedTree {
    * deleted: a path that `root` lacks stays when the rules the folder held
    * (`held`, the root it last held) or the rules `root` brings ignore it. True
    * when content only the earlier rules ignored remains, which the folder
-   * must now publish, as when `root` holds platform metadata the folder
-   * leaves out. `"changed"` when something else changed the folder while it
+   * must now publish. `"changed"` when something else changed the folder while it
    * was written: it then holds local changes on the root it last held, and
    * publishes them rather than stopping.
    */
@@ -485,11 +483,9 @@ export class FolderSync implements AcceptedTree {
     const shown = points.length
       ? (await maskDeclined(written.root, root as ObjectHash, points, this.loader(written, fromLazyThen(written, load)))).root
       : written.root;
-    const loadHash = (hash: ObjectHash) => load(hash);
-    const holdable = await withoutPlatformMetadata(root as ObjectHash, loadHash);
-    if (shown !== holdable) {
+    if (shown !== root) {
       // A folder that still holds what it held was not written at all: stop.
-      if (!held || shown === await withoutPlatformMetadata(held.root, (hash) => held.load(hash))) {
+      if (!held || shown === held.root) {
         throw new UpdateValidationError("The folder does not hold the accepted root it was given");
       }
       console.error(`[story-sync:folder] ${this.tree} changed while it was written; publishing what it holds`);
@@ -498,7 +494,7 @@ export class FolderSync implements AcceptedTree {
     }
     this.recentObjects = written.objects;
     this.host.materialized();
-    return uncovered || holdable !== root;
+    return uncovered;
   }
 
   // MARK: The folder as a source
@@ -644,7 +640,7 @@ export class FolderSync implements AcceptedTree {
       // first snapshot, and collection rows the host holds keep its times.
       const load = async (hash: ObjectHash) => await this.host.objectBytes(hash) ?? client.object(this.tree, hash);
       const lazy = await this.host.scan(null, undefined, { root: current.tree.root as ObjectHash, load });
-      if (lazy.root !== await withoutPlatformMetadata(current.tree.root as ObjectHash, load)) {
+      if (lazy.root !== current.tree.root) {
         // A mount the host lists is a boundary entry in the scan, not local content.
         if (await holdsLocalContent(lazy.root, async (hash) => await lazy.objects.get(hash)!.bytes())) {
           throw new ProtocolError("conflict", "A new placement contains local content but has no accepted-update base", 409, {

@@ -286,9 +286,9 @@ final class StoryWorkspaceState {
     private var personalDirectoryBusy = false
     /// The directory's tree once found or made, and the account it is under.
     private(set) var personalDirectoryTree: (tree: ProtocolTreeDescriptor, origin: URL, configurationTree: String)?
-    /// Each connected host's community profile, by host name: the canopy a
+    /// Each connected host's community profile, by host name: the community a
     /// tree or person there is under.
-    private var canopies: [String: String] = [:]
+    private var communities: [String: String] = [:]
     /// People the directory remembers by name: profiles Story has seen, and
     /// placeholders as `contact:<key>`.
     private(set) var rememberedPeople: [PresentedPerson] = []
@@ -2358,6 +2358,7 @@ struct StorySidebarRetentions {
 @MainActor
 @Observable
 final class StoryAppModel {
+    // Stored under the app's earlier name; renaming the key would forget saved names.
     private static let manuallyNamedPagesDefaultsKey = "Canopy.manuallyNamedPages"
 
     private struct PagePresentationKey: Hashable {
@@ -3555,12 +3556,12 @@ extension StoryWorkspaceState {
             return
         }
         for other in accounts where other.credentialAvailable {
-            guard let host = other.origin?.host(), canopies[host] == nil,
+            guard let host = other.origin?.host(), communities[host] == nil,
                   let client = try? await accountService.client(for: other),
                   let community = try? await client.account().account.community.id else { continue }
-            canopies[host] = community
+            communities[host] = community
         }
-        await keeper.record(Self.ties(in: directory, own: account.profileTree, canopies: canopies))
+        await keeper.record(Self.ties(in: directory, own: account.profileTree, communities: communities))
 #if os(macOS)
         let imported = "directory.importedVisits.\(PersonalDirectory.seedVersion).\(account.configurationTree)"
         if !UserDefaults.standard.bool(forKey: imported), let visits = try? await visitedTreeStore.loadAll() {
@@ -3582,10 +3583,10 @@ extension StoryWorkspaceState {
 
     /// The ties the hosts list: a group you are in together, and a person
     /// named in the sharing rules of a tree you administer. Someone you have
-    /// one of those ties with is also placed under their host's community, the
-    /// canopy; the rest of a community is not copied. You are listed in your
+    /// one of those ties with is also placed under their host's community;
+    /// the rest of a community is not copied. You are listed in your
     /// own groups and community too.
-    nonisolated static func ties(in people: [DirectoryPerson], own: String?, canopies: [String: String]) -> [DirectoryTie] {
+    nonisolated static func ties(in people: [DirectoryPerson], own: String?, communities: [String: String]) -> [DirectoryTie] {
         let mine = Set(people.first { $0.id == own }?.entry.sources ?? [])
         return people.flatMap { person -> [DirectoryTie] in
             let isOwn = person.id == own
@@ -3602,9 +3603,9 @@ extension StoryWorkspaceState {
             }
             // A community the host also lists as a group is already there.
             guard isOwn || !ties.isEmpty, person.entry.sources.contains("community"),
-                  let canopy = person.origin.host().flatMap({ canopies[$0] }), canopy != person.id,
-                  !ties.contains(where: { $0.group == canopy }) else { return ties }
-            return ties + [tie(.community, canopy)]
+                  let community = person.origin.host().flatMap({ communities[$0] }), community != person.id,
+                  !ties.contains(where: { $0.group == community }) else { return ties }
+            return ties + [tie(.community, community)]
         }
     }
 

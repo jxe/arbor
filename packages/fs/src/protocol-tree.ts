@@ -245,27 +245,6 @@ function contained(root: string, path: string): string {
   return target;
 }
 
-/**
- * `root` as a folder can hold it: without platform metadata, which a root
- * written before it was excluded may still hold. Unchanged roots keep their
- * hash; directory objects load through `load`.
- */
-export async function withoutPlatformMetadata(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<ObjectHash> {
-  const visit = async (hash: ObjectHash): Promise<ObjectHash> => {
-    const directory = decodeProtocolDirectory(await load(hash));
-    let changed = false;
-    const entries: ProtocolDirectoryEntry[] = [];
-    for (const entry of directory.entries) {
-      if (isPlatformMetadataName(entry.name)) { changed = true; continue; }
-      const nested = entry.directory ? await visit(entry.directory) : undefined;
-      if (nested && nested !== entry.directory) { changed = true; entries.push({ name: entry.name, directory: nested }); continue; }
-      entries.push(entry);
-    }
-    return changed ? hashObject(encodeProtocolDirectory({ ...directory, entries })) : hash;
-  };
-  return visit(root);
-}
-
 export async function materializeTree(
   root: string,
   rootHash: ObjectHash,

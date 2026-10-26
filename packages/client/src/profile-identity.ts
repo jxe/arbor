@@ -144,10 +144,6 @@ function generatedMaterial(): { seed: Buffer; publicKey: Buffer; profileTree: st
   return materialFromSeed(privateDER.subarray(PKCS8_PREFIX.byteLength));
 }
 
-function credentialName(profileTree: string): string {
-  return `self-${sha256(`${overstoryPrivateRoot()}\0${profileTree}`).slice(0, 24)}`;
-}
-
 interface IdentityRecord extends ProfileIdentityBackup { profilePath: string }
 
 function verifiedRecord(input: unknown): IdentityRecord {
@@ -201,7 +197,7 @@ export class ProfileIdentityStore {
       const value = JSON.parse(await readFile(this.path, "utf8")) as Partial<ProfileIdentityMetadata>;
       if (!value || value.version !== 1 || typeof value.profileTree !== "string" || !isPersonProfileTreeID(value.profileTree)
         || typeof value.publicKey !== "string" || typeof value.profilePath !== "string"
-        || typeof value.credential !== "string" || !/^org\.arbor\.person-profile\/(?:self-[a-f0-9]{24}|primary-v2|home-v2-[a-f0-9]{24})$/.test(value.credential)) {
+        || typeof value.credential !== "string" || !/^org\.arbor\.person-profile\/(?:primary-v2|home-v2-[a-f0-9]{24})$/.test(value.credential)) {
         throw new Error("Malformed Story identity metadata; recover the existing identity");
       }
       if (personProfileTreeID(bytes(value.publicKey, 32, "Profile public key")) !== value.profileTree) {
@@ -240,50 +236,10 @@ export class ProfileIdentityStore {
     const metadata = await this.metadata();
     // A moved data home keeps the credential reference it already owns.
     const storedName = metadata?.credential.slice(SERVICE.length + 1);
-    const slot = storedName && !storedName.startsWith("self-") ? storedName : this.slot;
-    let record = await this.readRecord(slot);
+    const slot = storedName ?? this.slot;
+    const record = await this.readRecord(slot);
     if (record && metadata && (record.profileTree !== metadata.profileTree || record.publicKey !== metadata.publicKey)) {
       throw new Error("Stored profile identity does not match its private key");
-    }
-    if (!record && metadata) {
-      const seed = this.fileCredentials
-        ? await readFile(join(overstoryPrivateRoot(), "self.key"), "utf8").catch((error: NodeJS.ErrnoException) => {
-            if (error.code === "ENOENT") return null;
-            throw error;
-          })
-        : storedName?.startsWith("self-") ? await Bun.secrets.get({ service: SERVICE, name: storedName }) : null;
-      if (seed !== null) {
-        record = verifiedRecord({ ...metadata, privateKey: seed });
-        await this.saveRecord(record, slot);
-      }
-    }
-    if (!record && !metadata) {
-      const registry = await loadWorkspaceRegistry();
-      const candidates: IdentityRecord[] = [];
-      for (const entry of Object.values(registry.registry)) {
-        if (!isPersonProfileTreeID(entry.rootID)) continue;
-        const seed = this.fileCredentials
-          ? await readFile(join(overstoryPrivateRoot(), "self.key"), "utf8").catch((error: NodeJS.ErrnoException) => {
-              if (error.code === "ENOENT") return null;
-              throw error;
-            })
-          : await Bun.secrets.get({ service: SERVICE, name: credentialName(entry.rootID) });
-        if (!seed) continue;
-        const material = materialFromSeed(bytes(seed, 32, "Profile private key"));
-        if (material.profileTree === entry.rootID) candidates.push({ version: 1, profileTree: material.profileTree,
-          publicKey: base64url(material.publicKey), privateKey: seed, profilePath: entry.path });
-      }
-      if (candidates.length > 1) throw new Error("Several existing identities were found; recover the intended identity backup");
-      if (candidates.length === 1) {
-        record = candidates[0]!;
-        await this.saveRecord(record, slot);
-      } else if (this.fileCredentials) {
-        const orphan = await readFile(join(overstoryPrivateRoot(), "self.key"), "utf8").catch((error: NodeJS.ErrnoException) => {
-          if (error.code === "ENOENT") return null;
-          throw error;
-        });
-        if (orphan !== null) throw new Error("An identity key survives without its profile metadata. Recover its backup before creating an identity.");
-      }
     }
     return { metadata, record, slot };
   }
@@ -430,18 +386,6 @@ export class ProfileIdentityStore {
         }
         await readFile(this.path, "utf8");
         await rename(this.path, `${this.path}.damaged-${crypto.randomUUID()}`);
-      }
-      if (!await this.metadata() && !await this.readRecord(this.slot)) {
-        const seed = this.fileCredentials
-          ? await readFile(join(overstoryPrivateRoot(), "self.key"), "utf8").catch((error: NodeJS.ErrnoException) => {
-              if (error.code === "ENOENT") return null; throw error;
-            })
-          : await Bun.secrets.get({ service: SERVICE, name: credentialName(material.profileTree) });
-        if (seed !== null) {
-          if (seed !== value.privateKey) throw new Error("The surviving identity key does not match this backup");
-          await this.saveRecord({ version: 1, profileTree: material.profileTree, publicKey: value.publicKey!,
-            privateKey: seed, profilePath: await ensureProfileFolder(profilePath) }, this.slot);
-        }
       }
       return this.install(material, profilePath);
     });
