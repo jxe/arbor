@@ -96,8 +96,6 @@ index with excerpts as marked ranges.
 
 - **Mac app acknowledgements.** Left from Release 001: add an acknowledgements file to the
   Mac app for Bun, `@parcel/watcher`, Quagmire, Yams and Sparkle.
-- **Remove the intro video's demo account.** Left from Release 004: with Joe's go-ahead,
-  remove the throwaway demo account from the host, if it is still there.
 - **`story untrack`.** Ignore rules never untrack an already-published path; today the
   recipe is move out, sync the deletion, move back. One command could publish the deletion
   and leave the bytes. The bytes stay in accepted history, so a leaked secret still needs
@@ -116,12 +114,6 @@ short ids (`p1`, `p-ada`).
 
 - [ ] Change those ids in `presented-views.json`, `collection-schemas.json` and the unit
   fixtures to TreeIDs, require the TreeID grammar in both checks, and add a rejected case.
-
-### Collection tests after 58e23a6
-
-- [ ] With Joe's debug Story quit, run `swift/scripts/test-story-app.sh` and
-  `bun run test:protocol` (its app-hosted step) at or after `6ebe9ea`, and add the counts to
-  status ("Collections in Story on the Mac" and "People directory").
 
 ### Story Sync and trees it hasn't placed
 
@@ -193,15 +185,6 @@ publishes them may be installed. None of it has been tried by hand.
   result and that the replayed history check still passes.
 - No client emits a new transfer form before its server step is on main and recorded in
   status.
-
-## Aged migration directories and backups
-
-- [ ] With Joe's go-ahead, delete the migration directories and local backups whose keep
-  dates have passed: `packages/overstoryd/migrations/021-file-relative-links` and `022-tree-configurations`
-  ([status](../status.md#known-gaps) gives 2026-10-10 for 022's `legacy.ts`), then `026`,
-  `027` and `029` after 2026-10-12, and the matching directories under `.backups/railway/`.
-  Check each directory's README for its own date first, and that `bun run typecheck` does
-  not depend on any of them.
 
 ## Placement hosts
 

@@ -2,7 +2,7 @@
 
 On 2026-10-10 the names Arbor and Canopy were replaced throughout: Overstory is the protocol, `overstoryd` the host, and Story the app, the `story` command and the `story-sync` daemon. A few old spellings are still in the code on purpose. This page lists them, so a search for `arbor` or `canopy` can be checked against it. Anything else that turns up is a leftover to fix.
 
-Dated history in [status](../../status.md), and the completed migrations 018 to 023 under `packages/overstoryd/migrations/`, also keep old names.
+Dated history in [status](../../status.md) also keeps old names.
 
 ## Never renamed
 
@@ -16,7 +16,6 @@ Opaque tags and names. Some are hashed into identifiers or authenticate artifact
 - The `__arbor_` table prefix inside trees' own `_store.sqlite3` files
 - `arbor-child-…` generated block ids
 - `https://canopy.example` inside `conformance/device-keys.json`, which is signed and has no generator
-- Completed migrations 018–023 under `packages/overstoryd/migrations/`, kept verbatim as history and excluded from typecheck
 - Outside the repo: the lab's hcloud context and Hetzner key `arbor-lab`, the Tailscale tag `tag:arbor-lab`, and `~/.ssh/arbor_hetzner`
 
 ## Kept

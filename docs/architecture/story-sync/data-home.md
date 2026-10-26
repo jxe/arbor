@@ -35,9 +35,8 @@ no reader of the old name remains. `placements.yaml` is local-only and groups
 absolute filesystem paths by configuration TreeID (its format is
 [below](#placementsyaml)). Other trees' configurations
 are never checked out; clients read and edit them through the host.
-`packages/overstoryd/migrations/022-tree-configurations/rekey-data-home.ts`
-moves a data home from the earlier random account-configuration TreeID to the
-derived one. The plural layout above is the only supported account layout. The former
+Migration 022's `rekey-data-home.ts` (deleted; at `66a76f5`) moved a data home from the earlier
+random account-configuration TreeID to the derived one. The plural layout above is the only supported account layout. The former
 root-level account graph and singleton credential record were retired on
 2026-09-21. Workspace registry records require `stateID`, `rootID`, and `path`;
 existing `rt_` and `tr_` root identities are preserved unchanged. Incomplete

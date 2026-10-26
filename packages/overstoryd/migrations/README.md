@@ -204,8 +204,8 @@ Add a step to [`next/`](next/README.md) rather than a new directory: a
 `steps/NNN-<name>.ts` for the schema change, its row in the batch README with
 the product change it brings at cutover, and a test case. A migration that is
 more than schema steps (a data rewrite such as 022's) is still a step, with its
-report in `run.ts`'s output. Earlier migrations, one directory each, predate
-batching; for their shape see `023-device-keys/`: a `README.md` with the
+report in `run.ts`'s output. Earlier migrations, one directory each, predated
+batching (deleted on 2026-10-26; `023-device-keys/` at `66a76f5` shows the shape): a `README.md` with the
 change, the exact order, and the rehearsal log; a `run.ts` that takes a data
 root and is idempotent (it checks the schema stamp and refuses to run twice)
 and ends by checking the result with both `assertCurrentHostSchema` and

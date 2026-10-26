@@ -105,7 +105,7 @@ configurations have their shape, and the tests for each refused case, are in
   in `devices.yaml`, which is authoritative, and accepting a configuration
   refuses an entry without a key or with a key other than the row's. The key is
   required unless the row is revoked: devices revoked while they still had
-  bearer credentials, before [schema 26](../../../packages/overstoryd/migrations/026-key-devices-only/README.md),
+  bearer credentials, before schema 26 (`packages/overstoryd/migrations/026-key-devices-only/README.md` at `66a76f5`),
   keep keyless rows so their DeviceIDs are never reused. `devices.yaml` history
   from before then still parses, entries without `key` included. Session challenges
   are `challenges` rows of purpose `device-session` (account claims' are
@@ -131,7 +131,7 @@ configurations have their shape, and the tests for each refused case, are in
 - **Placement role.** overstoryd is also a placement host
   ([accounts §1.3, §5.4](../../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)).
   A placement account is an `accounts` row whose `home_host` names the
-  profile's home origin (NULL for a home account, [schema 27](../../../packages/overstoryd/migrations/027-placement-accounts/README.md)).
+  profile's home origin (NULL for a home account, schema 27 (`packages/overstoryd/migrations/027-placement-accounts/README.md` at `66a76f5`)).
   There is no placement claim: a community member naming a profile by its
   locator at another host (`profile: https://home.example/~alice`) is one.
   When an accept of the community root adds such a member,

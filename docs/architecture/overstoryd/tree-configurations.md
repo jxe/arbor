@@ -5,7 +5,7 @@ Every hosted tree is configured in its own private configuration tree
 [access control §1](../../overstory-spec/05-access-control.md#1-subjects-and-rules)).
 This page keeps why it has that shape and which tests show each failure is
 refused. It was overstoryd 005, cut over live on 2026-09-26 by
-[migration 022](../../../packages/overstoryd/migrations/022-tree-configurations/README.md).
+migration 022 (`packages/overstoryd/migrations/022-tree-configurations/README.md` at `66a76f5`).
 
 ## Decided
 

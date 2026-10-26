@@ -26,12 +26,6 @@
     "packages/overstoryd/migrations/**/*.ts"
   ],
   "exclude": [
-    "packages/story-web/**",
-    "packages/overstoryd/migrations/018-log-entries/**",
-    "packages/overstoryd/migrations/019-one-access-store/**",
-    "packages/overstoryd/migrations/020-profile-facts-per-tree/**",
-    "packages/overstoryd/migrations/021-file-relative-links/**",
-    "packages/overstoryd/migrations/022-tree-configurations/**",
-    "packages/overstoryd/migrations/023-device-keys/**"
+    "packages/story-web/**"
   ]
 }
