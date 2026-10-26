@@ -12,6 +12,15 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Story's version in About — 2026-10-26
+
+Implemented; shows in the next build. A build that isn't a release (the release scripts set
+the build number) takes the latest `v*` tag's version and stamps its commit into Info.plist
+(`StoryDevelopmentBuild`), so About Story reads "Version 0.1.5 (development build 9a53bffa)"
+rather than the project's placeholder "0.1.0 (1)"; a release reads "Version 0.1.5 (1484)".
+Regenerating the project also bundles `Credits.html`, which 9400bb4 added without it, so the
+0.1.5 release's About panel has no acknowledgements.
+
 ## Story Sync serves only placed trees — 2026-10-26
 
 Implemented; the Swift change is installed when Joe next builds Story, the Story Sync change

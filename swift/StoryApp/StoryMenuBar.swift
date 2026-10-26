@@ -106,7 +106,7 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
 
     private func applicationMenu() -> NSMenu {
         let menu = NSMenu(title: "Story")
-        menu.addItem(standard("About Story", #selector(NSApplication.orderFrontStandardAboutPanel(_:))))
+        menu.addItem(item("About Story") { Self.showAbout() })
         if let updates, updates.isAvailable {
             menu.addItem(item("Check for Updates…") { updates.check() })
         }
@@ -283,6 +283,17 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
     private static let rightArrow = String(UnicodeScalar(NSRightArrowFunctionKey)!)
 
     /// An item AppKit routes down the responder chain and enables itself.
+    /// The standard About panel. A release shows its build number beside the
+    /// version; a development build names its commit instead (`StoryDevelopmentBuild`,
+    /// stamped by the build).
+    private static func showAbout() {
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
+        if let commit = Bundle.main.object(forInfoDictionaryKey: "StoryDevelopmentBuild") as? String {
+            options[.version] = "development build \(commit)"
+        }
+        NSApp.orderFrontStandardAboutPanel(options: options)
+    }
+
     private func standard(
         _ title: String, _ action: Selector, _ key: String = "", _ modifiers: NSEvent.ModifierFlags = .command
     ) -> NSMenuItem {
