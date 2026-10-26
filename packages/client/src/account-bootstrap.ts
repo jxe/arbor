@@ -273,7 +273,10 @@ async function claimAccountProfileBootstrap(
   await store.clearProvisionalCredential();
   await rm(pendingPath, { force: true });
   // The claim declared the profile tree; its first snapshot activates it at
-  // the community's /~handle. A later retry can do the same.
+  // the community's /~handle. If that fails, nothing is lost: the profile
+  // folder is placed below, and Story Sync activates a placed tree the host
+  // doesn't list yet on its next pass, showing the folder's sync state
+  // (offline or error) until it succeeds.
   await (async () => {
     const hosted = new ProtocolClient(origin, (await store.get())!.accountToken);
     await hosted.submitUpdate(pending.profileTree, null, await resolveSnapshot(await snapshotDirectory(path)));

@@ -51,8 +51,6 @@ MCP server, no new story-sync routes.
 Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-people-and-joining-by-invitation--2026-10-11)).
 
 - [ ] Show pending invitations in the People list itself, not only in the host's member sheet.
-- [ ] Tell the person when their profile failed to activate after a claim; today
-  `packages/client/src/account-bootstrap.ts` only logs it.
 - [ ] Go through the Mac getting-started list by hand after a join: photo, Sync a Folder,
   a new folder in Documents, opening a shared tree. The host side is checked (a folder
   becomes a tree under a just-claimed account); the screen itself has only been compiled.
