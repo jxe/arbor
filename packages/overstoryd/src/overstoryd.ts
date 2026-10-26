@@ -564,6 +564,11 @@ export class HostDaemon implements AsyncDisposable {
     return this.acceptedStore.current(treeID);
   }
 
+  /** The id of the accepted update of `treeID` that carries change identity `change`, if any. */
+  acceptedChange(treeID: string, change: string): string | null {
+    return this.acceptedStore.acceptedChange(treeID, change);
+  }
+
   /** Latest retained observation cursor for one tree, or for the whole server. */
   observedThrough(treeID?: string): string {
     return this.observations.latestCursor(treeID) ?? "0";

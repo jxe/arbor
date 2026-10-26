@@ -216,6 +216,35 @@ describe.serial("rows on the host", () => {
     expect(rows(join(other, "supplies", "_store.sqlite3"))).toEqual(rows(join(folder, "supplies", "_store.sqlite3")));
   }, 30_000);
 
+  test("a retry after the host stopped between accepting a mutation and writing its receipt is answered from the accepted update", async () => {
+    process.env.STORY_HOME = state;
+    const before = host.overstoryd.acceptedUpdates(tree).length;
+    // The receipt is lost: reading the cursor for it fails once, after the update was accepted.
+    const submit = host.overstoryd.submitUpdate.bind(host.overstoryd), observed = host.overstoryd.observedThrough.bind(host.overstoryd);
+    let accepted = false, lost = false;
+    host.overstoryd.submitUpdate = async (id, request, caller) => { const response = await submit(id, request, caller); accepted = true; return response; };
+    host.overstoryd.observedThrough = (id) => {
+      if (accepted && !lost) { lost = true; throw new Error("Stopped before the receipt"); }
+      return observed(id);
+    };
+    try {
+      expect((await mutate({ name: "Made before a stop", visibility: "Private" }, "lost-receipt")).status).not.toBe(200);
+      expect(lost).toBe(true);
+      expect(host.overstoryd.acceptedUpdates(tree).length).toBe(before + 1);
+      accepted = false;
+      const retry = await mutate({ name: "Made before a stop", visibility: "Private" }, "lost-receipt");
+      expect(retry.status).toBe(200);
+      expect(accepted).toBe(false);
+      expect(host.overstoryd.acceptedUpdates(tree).length).toBe(before + 1);
+      const id = retry.body.result.id as string;
+      expect(rows(materialized(), `select name from List where id = '${id}'`)).toEqual([{ name: "Made before a stop" }]);
+      expect((await mutate({ name: "Made before a stop", visibility: "Private" }, "lost-receipt")).body).toEqual(retry.body);
+    } finally {
+      host.overstoryd.submitUpdate = submit;
+      host.overstoryd.observedThrough = observed;
+    }
+  }, 30_000);
+
   test("dropping the host's materialization and restarting rebuilds it to the same rows", async () => {
     const held = dump(materialized());
     host.server.stop(true);

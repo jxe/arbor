@@ -12,6 +12,21 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Mutation retries, claims and sidebar creations — 2026-10-26
+
+Implemented; the Swift change is installed when Joe next builds Story.
+
+- **A lost mutation receipt no longer refuses the retry** (Schema language 005's gap 4). The
+  host writes a mutation's result before submitting its update; a retry after a stop between
+  acceptance and receipt finds the accepted update by its change identity and answers with
+  that result (`HostCollections.mutate`).
+- **A wrong invitation code no longer blocks the right one.** A claim that was never sent
+  takes the account and code entered again, instead of refusing them as "a different
+  invitation code" until cancelled. Story's native claim saves nothing before the host issues
+  a challenge, so it never had this.
+- **The sidebar's new pages and folders publish as `addEntry`**, as an editor's page creation
+  does; a creation that changed more than its new branch still publishes as a snapshot.
+
 ## Pack checks and notes — 2026-10-26
 
 Implemented; deployed when main is pushed. Plan overstoryd 001's follow-ups are done and the

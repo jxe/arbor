@@ -344,6 +344,8 @@ export class HostCollections implements AsyncDisposable {
     this.receipts = new Database(join(dataRoot, "mutation-receipts.sqlite3"), { create: true, strict: true });
     this.receipts.exec("pragma journal_mode = wal");
     this.receipts.exec("create table if not exists receipts (tree text not null, subject text not null, mutation_id text not null, request_digest text not null, update_id text, observed_through text not null, result_json text not null, primary key (tree, subject, mutation_id))");
+    // A mutation's result, written before its update is submitted, so a retry after a stop between acceptance and receipt is answered.
+    this.receipts.exec("create table if not exists pending_receipts (tree text not null, subject text not null, mutation_id text not null, request_digest text not null, change text not null, result_json text not null, primary key (tree, subject, mutation_id))");
     this.stopAccepted = daemon.subscribeAccepted((update) => {
       for (const collection of this.open.values()) {
         if (collection.tree !== update.tree) continue;
@@ -497,6 +499,20 @@ export class HostCollections implements AsyncDisposable {
         }
         return { mutationID: request.mutationID, requestDigest: prepared.requestDigest, observedThrough: stored.observed_through, result: JSON.parse(stored.result_json) };
       }
+      const change = `mutation-${sha256(`${tree}\0${subject}\0${request.mutationID}\0${prepared.requestDigest}`).slice(0, 32)}`;
+      const pending = this.receipts.query("select request_digest, result_json from pending_receipts where tree = ? and subject = ? and mutation_id = ?")
+        .get(tree, subject, request.mutationID) as { request_digest: string; result_json: string } | null;
+      if (pending) {
+        if (pending.request_digest !== prepared.requestDigest) {
+          throw new MutationCallError({ code: "conflict", message: "The mutation identity was already used for different intent", retryable: false });
+        }
+        // The host stopped after submitting: the update that carries the change answers the retry.
+        const landed = this.daemon.acceptedChange(tree, change);
+        if (landed) {
+          await this.current(tree, entry.collection);
+          return this.settleReceipt(tree, subject, request.mutationID, prepared.requestDigest, landed, JSON.parse(pending.result_json));
+        }
+      }
       const trial = await collection.mutations.trial(entry.handle, call, prepared);
       if (collection.applied.id !== base.id) continue;
       let accepted: string | null = null;
@@ -505,7 +521,8 @@ export class HostCollections implements AsyncDisposable {
         const read: Read = async (hash) => candidate.objects.get(hash) ?? this.read(hash);
         const operations = await deriveRowOperations(base.root, candidate.root, read);
         if (!operations) throw new MutationCallError({ code: "internal-error", message: "The mutation's changes can't be stated as row operations", retryable: false });
-        const change = `mutation-${sha256(`${tree}\0${subject}\0${request.mutationID}\0${prepared.requestDigest}`).slice(0, 32)}`;
+        this.receipts.query("insert or replace into pending_receipts (tree, subject, mutation_id, request_digest, change, result_json) values (?, ?, ?, ?, ?, ?)")
+          .run(tree, subject, request.mutationID, prepared.requestDigest, change, JSON.stringify(trial.result ?? null));
         const response = await this.daemon.submitUpdate(tree, {
           base: base.id,
           updates: [{
@@ -523,17 +540,20 @@ export class HostCollections implements AsyncDisposable {
         accepted = response.result.results.at(-1)!.update.id;
         await this.current(tree, entry.collection);
       }
-      const receipt: MutationResultReceipt = {
-        mutationID: request.mutationID,
-        requestDigest: prepared.requestDigest,
-        observedThrough: this.daemon.observedThrough(tree),
-        result: trial.result,
-      };
-      this.receipts.query("insert into receipts (tree, subject, mutation_id, request_digest, update_id, observed_through, result_json) values (?, ?, ?, ?, ?, ?, ?)")
-        .run(tree, subject, request.mutationID, prepared.requestDigest, accepted, receipt.observedThrough, JSON.stringify(trial.result ?? null));
-      return receipt;
+      return this.settleReceipt(tree, subject, request.mutationID, prepared.requestDigest, accepted, trial.result);
     }
     throw new MutationCallError({ code: "conflict", message: "The tree kept changing while the mutation ran", retryable: true });
+  }
+
+  /** Record a mutation's receipt in place of its pending result, and return it. */
+  private settleReceipt(tree: string, subject: string, mutationID: string, requestDigest: MutationResultReceipt["requestDigest"], update: string | null, result: unknown): MutationResultReceipt {
+    const receipt: MutationResultReceipt = { mutationID, requestDigest, observedThrough: this.daemon.observedThrough(tree), result };
+    this.receipts.transaction(() => {
+      this.receipts.query("insert into receipts (tree, subject, mutation_id, request_digest, update_id, observed_through, result_json) values (?, ?, ?, ?, ?, ?, ?)")
+        .run(tree, subject, mutationID, requestDigest, update, receipt.observedThrough, JSON.stringify(result ?? null));
+      this.receipts.query("delete from pending_receipts where tree = ? and subject = ? and mutation_id = ?").run(tree, subject, mutationID);
+    })();
+    return receipt;
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

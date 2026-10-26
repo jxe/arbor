@@ -24,11 +24,7 @@ worked on.
    `ifCurrent` on the tree, so any unrelated accepted update forces a rerun (up
    to three). Scope the guard to the rows the handler read. This is a spec 01
    and 07 addition.
-4. **A lost receipt refuses the retry.** If the host stops between accepting a
-   mutation and writing its receipt, an exact retry is refused (its change
-   identity is taken) instead of answered. Recover the receipt from the
-   accepted update that carries that change identity.
-5. **Smaller differences.** A query stream reads one collection; a query's
+4. **Smaller differences.** A query stream reads one collection; a query's
    `observedThrough` is the live broker's cursor rather than the materialization's
    applied ordinal; catch-up runs just after the commit rather than inside the
    tree lock (serialized per collection, readers catch up first). Change these

@@ -58,8 +58,8 @@ Collections that sync landed on 2026-10-24 ([status](../status.md#collections-th
 0.2.0 syntax. Joe deferred both that day; take it when a site is next worked on.
 
 **[Schema language 005: gaps left in collections that sync](soon/cleanup-schema-language-005-collection-gaps.md).**
-Mixed row and text frames are refused, host materializations are never evicted, a mutation's
-guard is the whole tree, and a receipt lost in a crash refuses the retry. None blocks People 001.
+Mixed row and text frames are refused, host materializations are never evicted, and a
+mutation's guard is the whole tree. None blocks People 001.
 
 ## Later
 
