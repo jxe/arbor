@@ -84,11 +84,11 @@ export async function prepareStoryDataRoot(): Promise<Diagnostic[]> {
  */
 export const STORY_SYNC_STATE_VERSION = "6";
 
-const REBUILDABLE_PRIVATE_ENTRIES = ["sync", "refs"] as const;
+const REBUILDABLE_PRIVATE_ENTRIES = ["sync"] as const;
 
 /**
- * A private state written by an older build archives per-tree sync journals
- * and placement refs, then discards rebuildable workspace indexes, so every
+ * A private state written by an older build archives per-tree sync journals,
+ * then discards rebuildable workspace indexes, so every
  * placement re-places itself from a snapshot on the next pass; authored files
  * are compared byte for byte before anything is rewritten. Credentials,
  * device identity, and system records are kept.
@@ -97,10 +97,8 @@ async function reconcilePrivateStateVersion(state: string): Promise<void> {
   const stampPath = join(state, "version");
   const stamp = await readFile(stampPath, "utf8").then((value) => value.trim()).catch(() => null);
   if (stamp === STORY_SYNC_STATE_VERSION) return;
-  // An unstamped state that already holds placement refs was written by a build
-  // before the stamp existed; an unstamped state without them is new.
-  const olderBuild = stamp !== null || await pathKind(join(state, "refs")) !== "missing";
-  if (olderBuild) {
+  // An unstamped state is new.
+  if (stamp !== null) {
     const recovery = join(state, "format-recovery", crypto.randomUUID());
     await mkdir(recovery, { recursive: true, mode: 0o700 });
     for (const name of REBUILDABLE_PRIVATE_ENTRIES) {
@@ -133,11 +131,11 @@ async function normalizeRegistry(stored: StoredWorkspaceRegistry): Promise<{
   registry: Record<string, WorkspaceRegistryRecord>;
   changed: boolean;
 }> {
-  if (!stored || typeof stored !== "object" || Array.isArray(stored)) throw new Error("Invalid workspace registry: expected object records; offline migration required");
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) throw new Error("Invalid workspace registry: expected object records");
   for (const [path, value] of Object.entries(stored)) {
     if (!value || typeof value !== "object" || Array.isArray(value)
       || ![value.stateID, value.rootID, value.path].every(field => typeof field === "string" && field.length > 0)) {
-      throw new Error(`Invalid workspace registry record at ${path}: stateID, rootID and path are required; offline migration required`);
+      throw new Error(`Invalid workspace registry record at ${path}: stateID, rootID and path are required`);
     }
   }
   const registry: Record<string, WorkspaceRegistryRecord> = {};
@@ -220,8 +218,6 @@ export async function workspaceIdentity(root: string): Promise<WorkspaceRegistry
     record = {
       stateID: `${sha256(canonical).slice(0, 12)}-${crypto.randomUUID().slice(0, 8)}`,
       // New local roots enter the same global TreeID space as hosted trees.
-      // The path-derived rt_ form is retained only while normalizing legacy
-      // registry entries above; migration can replace those identities later.
       rootID: generateOverstoryID("tr"),
       path: canonical,
       ...fingerprint,
@@ -270,8 +266,4 @@ export async function workspaceState(root: string): Promise<WorkspaceState> {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700).catch(() => {});
   return { identity, directory };
-}
-
-export async function workspaceStateDirectory(root: string): Promise<string> {
-  return (await workspaceState(root)).directory;
 }

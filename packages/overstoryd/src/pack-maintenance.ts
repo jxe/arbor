@@ -252,18 +252,17 @@ export async function looseObjects(root: string): Promise<Array<{ hash: ObjectHa
   return out;
 }
 
-const USAGE = "usage: bun run packages/overstoryd/src/pack-maintenance.ts <data-root> [--min-age-hours N] | <data-root> --unpack";
+const USAGE = "usage: bun run packages/overstoryd/src/pack-maintenance.ts <data-root> [--min-age-hours N]";
 
 /** One pass from the command line, for a copy of a data root or a stopped
- * host: `--unpack` expands every pack back into loose files instead. It may
- * also run beside a serving overstoryd, which packs on its own schedule. */
+ * host. It may also run beside a serving overstoryd, which packs on its own
+ * schedule. */
 if (import.meta.main) {
   const args = process.argv.slice(2);
-  let dataRoot: string | undefined, minAgeHours = 1, unpack = false;
+  let dataRoot: string | undefined, minAgeHours = 1;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
-    if (arg === "--unpack") unpack = true;
-    else if (arg === "--min-age-hours") {
+    if (arg === "--min-age-hours") {
       minAgeHours = Number(args[++i]);
       if (!Number.isFinite(minAgeHours) || minAgeHours < 0) { console.error(USAGE); process.exit(2); }
     } else if (!arg.startsWith("--") && !dataRoot) dataRoot = resolve(arg);
@@ -271,12 +270,9 @@ if (import.meta.main) {
   }
   if (!dataRoot) { console.error(USAGE); process.exit(2); }
   const store = new ObjectStore(join(dataRoot, "objects"));
-  if (unpack) console.log(JSON.stringify(await store.unpack()));
-  else {
-    const db = new Database(join(dataRoot, "overstoryd.sqlite3"), { readonly: true });
-    try {
-      const report = await new PackMaintenance(db, store, join(dataRoot, "objects"), { minAgeMs: minAgeHours * 3_600_000 }).run("command");
-      console.log(JSON.stringify(report));
-    } finally { db.close(); }
-  }
+  const db = new Database(join(dataRoot, "overstoryd.sqlite3"), { readonly: true });
+  try {
+    const report = await new PackMaintenance(db, store, join(dataRoot, "objects"), { minAgeMs: minAgeHours * 3_600_000 }).run("command");
+    console.log(JSON.stringify(report));
+  } finally { db.close(); }
 }

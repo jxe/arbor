@@ -67,7 +67,7 @@ public struct ProfileLocator: Hashable, Sendable {
         // A join link names the account it invites to: its `#overstory-invite=`
         // code is a secret, never part of the canonical spelling or the pin key.
         var value = input
-        if value.range(of: #"^(overstory|arbor|https?)://[^?#]*#overstory-invite=[A-Za-z0-9._~-]+$"#, options: .regularExpression) != nil,
+        if value.range(of: #"^(overstory|https?)://[^?#]*#overstory-invite=[A-Za-z0-9._~-]+$"#, options: .regularExpression) != nil,
            let parameter = value.range(of: "#overstory-invite=", options: .backwards) {
             value = String(value[..<parameter.lowerBound])
         }

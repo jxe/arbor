@@ -15,8 +15,6 @@
     "@ovst/fs": "workspace:*",
     "@ovst/apps-runtime": "workspace:*",
     "@ovst/collection-schema": "workspace:*",
-    "@ovst/tree-merge": "workspace:*",
-    "@ovst/usl": "workspace:*",
-    "csv-parse": "6.1.0"
+    "@ovst/usl": "workspace:*"
   }
 }

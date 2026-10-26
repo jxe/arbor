@@ -277,41 +277,6 @@ export class ObjectStore {
     return { packed: candidates.length, bytes, packBytes };
   }
 
-  /**
-   * Rollback for packing: write every packed object back as a durable loose
-   * file (each hash-checked), then drop its index row; packs left without
-   * rows are removed. Code that predates packs can then read the store.
-   */
-  async unpack(): Promise<{ objects: number; bytes: number }> {
-    const db = this.packs.index();
-    if (!db) return { objects: 0, bytes: 0 };
-    const rows = (db.query("SELECT hash, used_at FROM packed_objects").all() as Array<{ hash: Uint8Array; used_at: number }>)
-      .map(({ hash, used_at }) => ({ hash: `sha256:${Buffer.from(hash).toString("hex")}`, usedAt: used_at }));
-    const usedAt = new Map(rows.map((r) => [r.hash, r.usedAt]));
-    const hashes = rows.map((r) => r.hash);
-    let bytes = 0;
-    for (let i = 0; i < hashes.length; i += 1000) {
-      const batch: Array<{ hash: ObjectHash; bytes: Uint8Array }> = [];
-      for (const hash of hashes.slice(i, i + 1000)) {
-        const value = await this.packs.read(hash);
-        if (!value || hashObject(value) !== hash) throw new Error(`Packed object does not read back: ${hash}`);
-        batch.push({ hash, bytes: value });
-        bytes += value.byteLength;
-      }
-      await this.publish(batch, true, { loose: true });
-      // The loose file keeps the packed object's last use, so the
-      // collector's grace period is unchanged by unpacking.
-      for (const { hash } of batch) {
-        const time = new Date(Math.min(usedAt.get(hash)!, Date.now()));
-        await utimes(this.path(hash), time, time);
-      }
-      const drop = db.query("DELETE FROM packed_objects WHERE hash = ?");
-      db.transaction(() => { for (const { hash } of batch) drop.run(Buffer.from(hash.slice(7), "hex")); })();
-    }
-    await this.packs.removeOrphans();
-    return { objects: hashes.length, bytes };
-  }
-
   /** Durably publish objects; an object already present must be byte-identical. */
   async store(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>): Promise<void> {
     await this.publish(objects, true);

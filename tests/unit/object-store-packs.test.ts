@@ -125,20 +125,6 @@ test("an interrupted pass leaves every object readable and a rerun converges", a
   }
 });
 
-test("unpacking writes every packed object back loose and removes the packs", async () => {
-  const { root, store } = fresh();
-  const docs = versions(5);
-  await store.store(docs);
-  await store.pack(docs);
-  expect(await exists(store.path(docs[0]!.hash))).toBe(false);
-  expect(await store.unpack()).toEqual({ objects: 5, bytes: docs.reduce((n, d) => n + d.bytes.byteLength, 0) });
-  for (const o of docs) {
-    expect(await exists(store.path(o.hash))).toBe(true);
-    expect(await new ObjectStore(root).read(o.hash)).toEqual(o.bytes);
-  }
-  expect(readdirSync(join(root, "packs")).filter((n) => n.endsWith(".pack"))).toEqual([]);
-});
-
 test("a pass after one interrupted between indexing and removing loose files removes them", async () => {
   const { root, store } = fresh();
   const docs = versions(4);
@@ -156,7 +142,7 @@ test("a pass after one interrupted between indexing and removing loose files rem
   }
 });
 
-test("packing and unpacking keep each object's last use", async () => {
+test("packing keeps each object's last use", async () => {
   const { store } = fresh();
   const docs = versions(2);
   await store.store(docs);
@@ -164,7 +150,4 @@ test("packing and unpacking keep each object's last use", async () => {
   await store.pack(docs.map((d) => ({ ...d, usedAt: past })));
   const rows = store.packs.index()!.query("SELECT used_at FROM packed_objects").all() as Array<{ used_at: number }>;
   expect(rows.map((r) => r.used_at)).toEqual([past, past]);
-  await store.unpack();
-  const { statSync } = await import("node:fs");
-  for (const d of docs) expect(Math.abs(statSync(store.path(d.hash)).mtimeMs - past)).toBeLessThan(1000);
 });
