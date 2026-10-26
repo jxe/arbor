@@ -179,7 +179,9 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           # The release scripts set the version and build number. Any other build
-          # takes the latest release's version and names its commit, for the About panel.
+          # records the latest release's version and its commit, for the About panel.
+          # CFBundleShortVersionString stays as built: the bundled helper reports it,
+          # and a mismatch would restart Story Sync at every launch.
           if [[ "$CURRENT_PROJECT_VERSION" != "1" ]]; then
             exit 0
           fi
@@ -188,8 +190,10 @@ targets:
           COMMIT="$(/usr/bin/git rev-parse --short HEAD)"
           /usr/bin/git diff --quiet HEAD 2>/dev/null || COMMIT="$COMMIT, modified"
           PLIST="$TARGET_BUILD_DIR/$INFOPLIST_PATH"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${TAG#v}" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Delete :StoryDevelopmentBuild" "$PLIST" 2>/dev/null || true
+          for KEY in StoryDevelopmentVersion StoryDevelopmentBuild; do
+            /usr/libexec/PlistBuddy -c "Delete :$KEY" "$PLIST" 2>/dev/null || true
+          done
+          /usr/libexec/PlistBuddy -c "Add :StoryDevelopmentVersion string ${TAG#v}" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :StoryDevelopmentBuild string $COMMIT" "$PLIST"
 
   StoryAppTests:

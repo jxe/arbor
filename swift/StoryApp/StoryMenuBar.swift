@@ -282,18 +282,22 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
     private static let leftArrow = String(UnicodeScalar(NSLeftArrowFunctionKey)!)
     private static let rightArrow = String(UnicodeScalar(NSRightArrowFunctionKey)!)
 
-    /// An item AppKit routes down the responder chain and enables itself.
     /// The standard About panel. A release shows its build number beside the
-    /// version; a development build names its commit instead (`StoryDevelopmentBuild`,
+    /// version; a development build shows the latest release's version and names
+    /// its commit instead (`StoryDevelopmentVersion`, `StoryDevelopmentBuild`,
     /// stamped by the build).
     private static func showAbout() {
         var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
         if let commit = Bundle.main.object(forInfoDictionaryKey: "StoryDevelopmentBuild") as? String {
             options[.version] = "development build \(commit)"
+            if let version = Bundle.main.object(forInfoDictionaryKey: "StoryDevelopmentVersion") as? String {
+                options[.applicationVersion] = version
+            }
         }
         NSApp.orderFrontStandardAboutPanel(options: options)
     }
 
+    /// An item AppKit routes down the responder chain and enables itself.
     private func standard(
         _ title: String, _ action: Selector, _ key: String = "", _ modifiers: NSEvent.ModifierFlags = .command
     ) -> NSMenuItem {
