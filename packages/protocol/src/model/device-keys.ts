@@ -51,10 +51,6 @@ export function isDeviceKey(value: unknown): value is string {
   try { parseDeviceKey(value); return true; } catch { return false; }
 }
 
-export function formatDeviceKey(key: DeviceKey): string {
-  return `${key.algorithm}:${base64url(key.publicKey)}`;
-}
-
 /** The key's DER SubjectPublicKeyInfo, which verifiers load. A `p256` key
  * stays compressed; OpenSSL and CryptoKit both accept that form. */
 export function deviceKeySPKI(value: string): Uint8Array {

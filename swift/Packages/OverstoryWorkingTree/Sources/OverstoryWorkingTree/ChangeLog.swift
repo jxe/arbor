@@ -644,11 +644,6 @@ public actor ChangeLog {
     ) async throws {
         self.tree = tree
         files = try UpdateControlFiles(root: stateRoot)
-        if files.hasEarlierChangeLog {
-            let descriptor = try files.lockChangeLog()
-            do { try files.adoptEarlierChangeLog() } catch { files.unlockChangeLog(descriptor); throw error }
-            files.unlockChangeLog(descriptor)
-        }
         objects = try DirectoryObjectStore(directory: files.changeLogObjectsDirectory)
         self.platform = platform
         records = []

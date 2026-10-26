@@ -378,9 +378,8 @@ export class HostDaemon implements AsyncDisposable {
   private readonly remoteGroups: RemoteGroups;
   private readonly locatorPins: LocatorPins;
   private remoteGroupTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Background object packing (overstoryd 001); `OVERSTORYD_OBJECT_PACKING=0`
-   * turns it off. */
-  readonly packing: PackMaintenance | undefined;
+  /** Background object packing (overstoryd 001). */
+  readonly packing: PackMaintenance;
   private disposed = false;
 
   private constructor(
@@ -398,9 +397,7 @@ export class HostDaemon implements AsyncDisposable {
     });
     this.acceptedStore = new AcceptedUpdateStore(db);
     this.history = new MergeHistory(this.acceptedStore, this.objects);
-    this.packing = process.env.OVERSTORYD_OBJECT_PACKING !== "0"
-      ? new PackMaintenance(db, this.objects, join(dataRoot, "objects"))
-      : undefined;
+    this.packing = new PackMaintenance(db, this.objects, join(dataRoot, "objects"));
     this.observations = new ObservationLog(db);
     this.accounts = new AccountDirectory(db);
     this.access = new AccessControl(db, {
@@ -460,7 +457,7 @@ export class HostDaemon implements AsyncDisposable {
     overstoryd.scheduleDeviceKeyRefresh();
     overstoryd.scheduleRemoteGroupRefresh();
     void overstoryd.refreshRemoteGroups();
-    overstoryd.packing?.start();
+    overstoryd.packing.start();
     return overstoryd;
   }
 
@@ -2526,7 +2523,7 @@ export class HostDaemon implements AsyncDisposable {
     for (const listener of [...this.acceptedListeners]) {
       try { listener(update); } catch (error) { console.error("overstoryd accepted-update listener failed", error); }
     }
-    this.packing?.notify();
+    this.packing.notify();
     const record = this.observations.get(update.id);
     if (record) this.notifyObservation(record);
     // A configuration may name a remote group this host has no copy of yet.
@@ -3052,7 +3049,7 @@ export class HostDaemon implements AsyncDisposable {
     this.disposed = true;
     clearTimeout(this.deviceKeyTimer);
     clearTimeout(this.remoteGroupTimer);
-    await this.packing?.[Symbol.asyncDispose]();
+    await this.packing[Symbol.asyncDispose]();
     await this.mergeTool[Symbol.asyncDispose]();
     this.wireSchemas.clear();
     this.db.close();

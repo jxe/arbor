@@ -286,14 +286,6 @@ does, writing the `{tree, host}` form of `placements.yaml` above.
 
 ## Migration
 
-The alpha implementation moved legacy caches, rehearsal state, Finder
-metadata, registries, journals, and recovery data beneath `.state` without
-moving declared authored-tree placements. The account-layout cutover ran as an
-explicit offline migration: it converted the synchronized v1 graph to v2 and
-extracted OS paths into local `placements.yaml`. Its repository artifact and
-compatibility readers remain during the rollback window, but normal startup
-does not perform that conversion implicitly.
-
 Overstory format 5 uses raw file payloads and typed directory entries. Sparse
 bootstraps are rooted at the recorded accepted overstoryd root and include its
 directories and Markdown; daemon-local pending/conflict state is not part of

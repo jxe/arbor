@@ -163,8 +163,8 @@ will not fire.
 
 ## Schema history
 
-overstoryd stamps its SQLite schema version and refuses to serve a newer stamp
-than it understands. The stamps that have shipped:
+overstoryd stamps its SQLite schema version and refuses to serve any stamp but
+its own. The stamps that have shipped:
 
 | Schema | Change |
 |---|---|
@@ -195,8 +195,8 @@ than it understands. The stamps that have shipped:
 | 32 | `profile_facts.facts` loses `version: 3` (batch 032, step 032). No wire change in the batch. |
 
 Client-side formats have their own ladders, recorded in [the local system
-reference](../../../docs/architecture/story-sync/data-home.md): iOS working-tree format marker 4, local
-update-control schema 3 (source mode), and admission journal schemas 2 to 4.
+reference](../../../docs/architecture/story-browser/local-state.md): iOS working-tree format marker 5, local
+update-control schema 5, and change-log journal schema 4.
 
 ## Writing the next migration
 
@@ -209,7 +209,6 @@ batching (deleted on 2026-10-26; `023-device-keys/` at `66a76f5` shows the shape
 change, the exact order, and the rehearsal log; a `run.ts` that takes a data
 root and is idempotent (it checks the schema stamp and refuses to run twice)
 and ends by checking the result with both `assertCurrentHostSchema` and
-`assertHostData` from `schema.ts` (startup checks only the former, and 019's
-`run.ts` predates the latter); a `migrate.test.ts` runnable with
+`assertHostData` from `schema.ts` (startup checks only the former); a `migrate.test.ts` runnable with
 `bun run test:migration packages/overstoryd/migrations/NNN-<name>`. Batch wire changes into one
 migration whenever they are ready together.

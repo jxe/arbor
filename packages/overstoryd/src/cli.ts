@@ -64,25 +64,9 @@ function parsePort(args: string[]): number {
   return port;
 }
 
-/**
- * Whether the data root holds a community: its database file is there.
- *
- * Rename 001 cutover guard: a data root that still holds the database under
- * its old name, `canopy.sqlite3`, and none under the new name is refused.
- * Treating it as empty would bootstrap a second, empty community beside the
- * real one.
- */
+/** Whether the data root holds a community: its database file is there. */
 export async function hasCommunity(dataRoot: string): Promise<boolean> {
-  const present = (name: string) => stat(resolve(dataRoot, name)).then(() => true).catch(() => false);
-  if (await present("overstoryd.sqlite3")) return true;
-  // Rename 001 cutover guard: `canopy.sqlite3` is the pre-rename file name.
-  if (await present("canopy.sqlite3")) {
-    throw new Error(
-      `${dataRoot} holds canopy.sqlite3 but no overstoryd.sqlite3. The database must be renamed before this build serves it: `
-      + "stop the host, checkpoint the WAL, rename canopy.sqlite3 to overstoryd.sqlite3, and remove any stale canopy.sqlite3-wal and canopy.sqlite3-shm.",
-    );
-  }
-  return false;
+  return stat(resolve(dataRoot, "overstoryd.sqlite3")).then(() => true).catch(() => false);
 }
 
 /**

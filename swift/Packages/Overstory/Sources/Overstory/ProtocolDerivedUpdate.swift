@@ -46,23 +46,6 @@ public func derivedUpdateRequestDigests(tree: String, base: String, updates: [Pr
     updateRequestIdentities(tree: tree, base: base, elements: updates.map(\.semantic)).map(\.digest)
 }
 
-extension ProtocolClient {
-    /// Fix a derived request's body; every retry sends these bytes. Its
-    /// results carry the candidates the host derived.
-    public func prepareDerivedUpdates(tree: String, base: ProtocolUpdateBase, updates: [ProtocolDerivedUpdate]) throws -> PreparedProtocolUpdate {
-        guard !tree.isEmpty, !base.update.isEmpty, !updates.isEmpty else {
-            throw ProtocolValidationError.invalidValue("Update string identity is empty")
-        }
-        let request = ProtocolDerivedUpdateRequest(base: base.update, updates: updates)
-        return PreparedProtocolUpdate(
-            tree: tree,
-            body: try wireEncoding.encode(request.authored()),
-            requestDigests: derivedUpdateRequestDigests(tree: tree, base: base.update, updates: updates),
-            contentType: wireEncoding.storedContentType
-        )
-    }
-}
-
 /// A row operation's target (source intent §4.1): the collection directory as
 /// basis material, the model and the row's canonical stable key.
 public struct ProtocolRowTarget: Sendable, Equatable {

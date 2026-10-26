@@ -43,7 +43,6 @@ export * from "./documents/page-presentation.ts";
 export * from "./documents/child-links.ts";
 export * from "./documents/document-icon.ts";
 export * from "./documents/display-title.ts";
-export * from "./documents/merge.ts";
 
 export * from "./config/private-state.ts";
 export * from "./config/story-sync-access.ts";

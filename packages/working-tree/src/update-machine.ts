@@ -13,8 +13,6 @@
 
 /** Trailing delay before unsent durable local work is published. */
 export const PUBLICATION_DELAY_MS = 250;
-/** Optional cap for continuously active sources; interactive clients wait for idle. */
-export const PUBLICATION_MAX_DELAY_MS: number | undefined = undefined;
 
 /** Select one contiguous authored branch in admission order. Prepared requests
  * bypass this selector: uncertain/in-flight bodies must be retried exactly. */

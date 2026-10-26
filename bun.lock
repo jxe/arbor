@@ -45,7 +45,6 @@
       "dependencies": {
         "@ovst/protocol": "workspace:*",
         "@ovst/usl": "workspace:*",
-        "yaml": "2.9.1",
       },
     },
     "packages/cli": {
@@ -149,10 +148,8 @@
         "@ovst/collection-schema": "workspace:*",
         "@ovst/fs": "workspace:*",
         "@ovst/protocol": "workspace:*",
-        "@ovst/tree-merge": "workspace:*",
         "@ovst/usl": "workspace:*",
         "@ovst/working-tree": "workspace:*",
-        "csv-parse": "6.1.0",
       },
     },
     "packages/story-web": {

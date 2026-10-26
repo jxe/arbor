@@ -120,8 +120,3 @@ export function summarizeExpandedNode(node: ExpandedNode, tree: TreeRef, writabl
   }
   return summary;
 }
-
-export function summarizeSample(sample: NodeResponse): NodeSummary {
-  const { observedThrough: _observedThrough, content: _content, enclosingTree: _enclosingTree, ...summary } = sample;
-  return summary;
-}

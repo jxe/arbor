@@ -2,10 +2,6 @@ import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { revisionOf } from "../index.ts";
 
-export function transactionTemporaryPath(path: string, transactionId: string): string {
-  return join(dirname(path), `.${path.split("/").pop()}.overstory-txn-${transactionId}`);
-}
-
 export async function prepareAtomic(path: string, contents: string | Uint8Array, temporary?: string): Promise<string> {
   await mkdir(dirname(path), { recursive: true });
   const target = temporary ?? join(dirname(path), `.${path.split("/").pop()}.overstory-write-${crypto.randomUUID()}`);

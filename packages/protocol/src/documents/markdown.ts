@@ -460,13 +460,3 @@ export function serializeMarkdown(
 ): string {
   return `${patchFrontmatter(document.frontmatterSource, frontmatterPatch) ?? ""}${serializeBlocks(blocks)}`;
 }
-
-export function mintPageID(existing: Set<string>): string {
-  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-  for (;;) {
-    let value = "";
-    const bytes = crypto.getRandomValues(new Uint8Array(6));
-    for (const byte of bytes) value += alphabet[byte! % alphabet.length];
-    if (!existing.has(value)) return value;
-  }
-}
