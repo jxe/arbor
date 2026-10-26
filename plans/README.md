@@ -1,16 +1,77 @@
 # Plans
 
-Plans are filed by when Joe wants them: [`soon/`](soon), [`later/`](later) and
-[`when-needed/`](when-needed), which holds plans that wait on a trigger ("when merges bite",
-"when size hurts") rather than a date. Within a folder a file is named by its topic and number,
-such as `soon/live-001-presence.md`. Move a file when its timing changes, and move its
-paragraph here with it.
+Feature plans, the things you would notice in Story, are in [`features/`](features) whatever
+their timing, which leads each one's entry here and its file. The rest are filed by when Joe
+wants them: [`soon/`](soon), [`later/`](later) and [`when-needed/`](when-needed), which holds
+plans that wait on a trigger ("when merges bite", "when size hurts") rather than a date. A file
+is named by its topic and number, such as `features/live-001-presence.md`. When a plan's timing
+changes, move the file (or, in `features/`, change its timing line) and its paragraph here.
 
 Each plan starts with why and when Joe wants it; the same paragraph is below. Small tasks
 and install, deploy and soak checks are in [small work](small-work.md); unplanned candidates
 and open design questions are in [ideas](ideas.md). Current behavior is in
 [status](../status.md). Plans carry no priorities. Delete a plan once done, after recording
 its evidence in status.
+
+## Features
+
+What you would notice in Story, as opposed to protocol, host or data plumbing.
+
+**[Live 001: see who else is here](features/live-001-presence.md).**
+*Soon.* Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which
+page each person is on, and where their cursor is when two people share a page. It must be
+light: nothing about cursors is sent unless someone else is on the same page. Joe wants it soon (2026-10-20).
+It starts with the spec, because presence is the first live data a host relays that is not
+part of a tree.
+
+**[People 001: form groups, share with people, and go to any tree](features/people-001-groups-sharing-and-go-to.md).**
+*Soon.* Joe wants People to remember everyone and every tree he has come across, and to make forming
+groups to share with easy: see whether a group exists, drag people into it, invite whoever is
+missing. Phase 1, the directory tree kept by code, is done (2026-10-25,
+[status](../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)). Left:
+forming groups with 002's editor, a share sheet, and a Go to… field that finds visited trees and
+pages by title, with `overstory://tr_…` links found by asking the directory, then the account
+hosts (a side slice for any time). Moved to soon on 2026-10-25.
+
+**[Filesystem 024: open plain folders on the Mac](features/filesystem-024-open-plain-folders-on-the-mac.md).**
+*Later.* Opening an ordinary folder in the Mac app, and making it into a tree from there, went away
+with the daemon's editor path; after setup a new tree needs `story place`. Joe wants this
+before the web editor. Mac only; the browser half is an open question in Web 025.
+
+**[Sharing 001: join on an iPhone first, add a Mac later](features/sharing-001-join-on-iphone-first.md).**
+*Later.* An invitation link is usually tapped on a phone, where today it ends at an app that can only
+pair with a Mac. Join from the iPhone with the same link, then add a Mac by scanning a code
+the Mac shows. After Release 001. It owns what an invitation link does on the iPhone;
+People 001 phase 4 owns the iPhone's other link opens.
+
+**[Sharing 002: invite from the command line, through a client library](features/sharing-002-invite-from-the-command-line.md).**
+*Later.* Setting up the intro video, Joe could make an invitation only in the Mac app. He wants
+`story invite`, built the way the other clients work: the command talks to the host itself
+through `@ovst/client`, with Story Sync out of the path. The rest of the CLI's host edits
+moving the same way is recorded there as a follow-up.
+
+**[Security 012: get back into an account with the admin's help](features/security-012-get-back-in-with-the-admins-help.md).**
+*Later.* A person who has lost every device gets back in through the host's administrator, as the
+spec has it; Joe wants that to be as easy as possible for both. The administrator makes a
+link from Story, or approves a request the person sends from the new Mac. Before people
+depend on Story enough to lose a Mac.
+
+**[overstoryd 007: document history and restore](features/history-007-document-history-routes-and-restore.md).**
+*Later.* Seeing and restoring earlier versions of a page; it also decides how long document
+versions are kept, which is most of what overstoryd retains.
+
+**[Editor 001: snippets you type or say](features/editor-001-snippets.md).**
+*When needed.* Joe asked on 2026-10-24 for TextMate-style snippets in place of template buttons: a page he
+edits like any other, such as his standard day outline, that expands where he is when he
+picks it from @ or says its name in a pinch recording. Template buttons go away. Forks open:
+where a page is marked as a snippet, and exactly what the spoken trigger is. Joe moved it
+from soon to when needed on 2026-10-24.
+
+**[Editor 002: dictate several items in one recording](features/editor-002-dictated-lists.md).**
+*When needed.* Joe chose spoken breaks on 2026-10-24: "next item", "next item indented" and an outdent
+phrase split one pinch recording into several bullets, so a day plan of time rows and tasks
+can be dictated in one go. A recording without commands stays one paragraph. Joe moved it
+from soon to when needed on 2026-10-24.
 
 ## Soon
 
@@ -30,22 +91,6 @@ drag, inline Markdown), row ownership as access policy, and pages that show a co
 elsewhere. Its first customer is the People directory. Moved to soon on 2026-10-25, without the
 site ports, which are Schema language 008 in later.
 
-**[People 001: form groups, share with people, and go to any tree](soon/people-001-groups-sharing-and-go-to.md).**
-Joe wants People to remember everyone and every tree he has come across, and to make forming
-groups to share with easy: see whether a group exists, drag people into it, invite whoever is
-missing. Phase 1, the directory tree kept by code, is done (2026-10-25,
-[status](../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)). Left:
-forming groups with 002's editor, a share sheet, and a Go to… field that finds visited trees and
-pages by title, with `overstory://tr_…` links found by asking the directory, then the account
-hosts (a side slice for any time). Moved to soon on 2026-10-25.
-
-**[Live 001: see who else is here](soon/live-001-presence.md).**
-Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which
-page each person is on, and where their cursor is when two people share a page. It must be
-light: nothing about cursors is sent unless someone else is on the same page. Joe wants it soon (2026-10-20).
-It starts with the spec, because presence is the first live data a host relays that is not
-part of a tree.
-
 ### Cleanups
 
 What a finished project left behind: old readers to delete, notes to write. Each is small and
@@ -62,11 +107,6 @@ Mixed row and text frames are refused, host materializations are never evicted, 
 mutation's guard is the whole tree. None blocks People 001.
 
 ## Later
-
-**[Filesystem 024: open plain folders on the Mac](later/filesystem-024-open-plain-folders-on-the-mac.md).**
-Opening an ordinary folder in the Mac app, and making it into a tree from there, went away
-with the daemon's editor path; after setup a new tree needs `story place`. Joe wants this
-before the web editor. Mac only; the browser half is an open question in Web 025.
 
 **[Schema language 008: port excellences and supplies-remake to Story](later/schema-language-008-port-excellences-and-supplies.md).**
 Joe wants the excellences document and supplies-remake to run natively in Story instead of on
@@ -129,31 +169,9 @@ idle-based publication baseline, extend simplification beyond repeated moves of
 one unchanged span. Implement each case in the Swift and TypeScript clients,
 using shared examples and the host merge engine to prove the result.
 
-**[Sharing 001: join on an iPhone first, add a Mac later](later/sharing-001-join-on-iphone-first.md).**
-An invitation link is usually tapped on a phone, where today it ends at an app that can only
-pair with a Mac. Join from the iPhone with the same link, then add a Mac by scanning a code
-the Mac shows. After Release 001. It owns what an invitation link does on the iPhone;
-People 001 phase 4 owns the iPhone's other link opens.
-
-**[Sharing 002: invite from the command line, through a client library](later/sharing-002-invite-from-the-command-line.md).**
-Setting up the intro video, Joe could make an invitation only in the Mac app. He wants
-`story invite`, built the way the other clients work: the command talks to the host itself
-through `@ovst/client`, with Story Sync out of the path. The rest of the CLI's host edits
-moving the same way is recorded there as a follow-up.
-
-**[Security 012: get back into an account with the admin's help](later/security-012-get-back-in-with-the-admins-help.md).**
-A person who has lost every device gets back in through the host's administrator, as the
-spec has it; Joe wants that to be as easy as possible for both. The administrator makes a
-link from Story, or approves a request the person sends from the new Mac. Before people
-depend on Story enough to lose a Mac.
-
 **[Release 003: the iPhone app on the App Store](later/release-003-app-store.md).** After friends
 are using the TestFlight build. A sketch of what review requires: account deletion, report
 and block, and policy pages. The sample pages are the reviewer's way in.
-
-**[overstoryd 007: document history and restore](later/history-007-document-history-routes-and-restore.md).**
-Seeing and restoring earlier versions of a page; it also decides how long document
-versions are kept, which is most of what overstoryd retains.
 
 **[overstoryd 006: line provenance](later/history-006-line-provenance.md).** After
 overstoryd 007: who submitted each current line. With Performance 004's index it reads
@@ -189,19 +207,6 @@ a tree too big to place on the iPhone in one download.
 **[Security 010: signed profile statements](when-needed/security-010-signed-profile-statements.md).**
 When a host Joe does not control is involved, or a home host must be left behind.
 
-**[Editor 001: snippets you type or say](when-needed/editor-001-snippets.md).**
-Joe asked on 2026-10-24 for TextMate-style snippets in place of template buttons: a page he
-edits like any other, such as his standard day outline, that expands where he is when he
-picks it from @ or says its name in a pinch recording. Template buttons go away. Forks open:
-where a page is marked as a snippet, and exactly what the spoken trigger is. Joe moved it
-here from soon on 2026-10-24.
-
-**[Editor 002: dictate several items in one recording](when-needed/editor-002-dictated-lists.md).**
-Joe chose spoken breaks on 2026-10-24: "next item", "next item indented" and an outdent
-phrase split one pinch recording into several bullets, so a day plan of time rows and tasks
-can be dictated in one go. A recording without commands stays one paragraph. Joe moved it
-here from soon on 2026-10-24.
-
 ## Groups
 
 Some plans cover different stages of the same work. They stay separate files because their
@@ -224,7 +229,7 @@ include editor alignment and round-trip characterization.
 
 ### History and revisions
 
-[overstoryd 007](later/history-007-document-history-routes-and-restore.md) (history and
+[overstoryd 007](features/history-007-document-history-routes-and-restore.md) (history and
 restore) comes before [overstoryd 006](later/history-006-line-provenance.md) (line
 provenance), which builds on the history API and adds its own metadata and policy. Merge
 explanations can link to this history; their provenance proofs and conflict rules stay with

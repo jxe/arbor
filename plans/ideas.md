@@ -10,7 +10,7 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
 - **Claimed-member removal, restoration and access-history recovery.** Confirmation,
   revocation, historical visibility and restoration without a parallel group database.
 - **Claim disputes and recovery without the operator.** Operator recovery exists
-  (`overstoryd recover`), and [Security 012](later/security-012-get-back-in-with-the-admins-help.md)
+  (`overstoryd recover`), and [Security 012](features/security-012-get-back-in-with-the-admins-help.md)
   makes it an administrator's action in Story; recovery by the profile key or DNS across hosts keeps the same
   Profile TreeID with auditable proof of control ([Security 010](when-needed/security-010-signed-profile-statements.md)).
 - **Persistent-host administration.** Permanent domains, graceful restart,

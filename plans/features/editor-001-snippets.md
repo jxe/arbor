@@ -1,5 +1,7 @@
 # Editor 001: snippets you type or say
 
+**Timing:** When needed: it waits on a trigger, not a date.
+
 **Why and when:** Joe plans his day in Story on the iPhone as time rows ("9–11") with tasks
 under them, mostly by voice. On 2026-10-24 he asked for TextMate-style snippets instead of
 template buttons: a piece of page he keeps and edits like any other, such as his standard day

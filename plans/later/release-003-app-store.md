@@ -6,7 +6,7 @@
 
 - **Effort**: L
 - **Risk**: MEDIUM. Review outcomes are not predictable.
-- **Depends on**: Release 001; [Sharing 001](sharing-001-join-on-iphone-first.md) if the listing is for people who start on a phone
+- **Depends on**: Release 001; [Sharing 001](../features/sharing-001-join-on-iphone-first.md) if the listing is for people who start on a phone
 - **Category**: release
 
 ## What review requires that Story lacks
@@ -18,7 +18,7 @@
 
 ## What it has already
 
-- **A way in for the reviewer.** Look Around First (TestFlight build 2) shows sample pages on a phone with no account. Whether App Store review accepts sample pages alone is not known; beta review of the same build will say something. If it does not, [Sharing 001](sharing-001-join-on-iphone-first.md) lets a reviewer join from an invitation link on the phone, which replaces Joe's 2026-10-10 decision not to build joining on the iPhone.
+- **A way in for the reviewer.** Look Around First (TestFlight build 2) shows sample pages on a phone with no account. Whether App Store review accepts sample pages alone is not known; beta review of the same build will say something. If it does not, [Sharing 001](../features/sharing-001-join-on-iphone-first.md) lets a reviewer join from an invitation link on the phone, which replaces Joe's 2026-10-10 decision not to build joining on the iPhone.
 
 ## Open questions
 

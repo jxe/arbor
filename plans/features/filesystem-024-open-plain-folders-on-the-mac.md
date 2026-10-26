@@ -1,8 +1,10 @@
 # Filesystem 024: Open plain folders on the Mac
 
+**Timing:** Later.
+
 **Why and when:** opening an ordinary folder in the Mac app, and making it into a tree from there, went away with the daemon's editor path; today a new tree needs `story place`. Joe wants this soon, before the web editor.
 
-Historical identifier: **Native 024**, formerly "Disk editors for non-tree folders". On 2026-10-11 Joe cut the plan to the Mac. The earlier design also gave Story Sync `/v1/fs/*` routes for a browser folder editor; that half is an open question in [Web 025](story-web-025-story-web.md#open-plain-folders-in-the-browser) and its design is in this file's git history.
+Historical identifier: **Native 024**, formerly "Disk editors for non-tree folders". On 2026-10-11 Joe cut the plan to the Mac. The earlier design also gave Story Sync `/v1/fs/*` routes for a browser folder editor; that half is an open question in [Web 025](../later/story-web-025-story-web.md#open-plain-folders-in-the-browser) and its design is in this file's git history.
 
 > **Executor instructions**: Give the Mac app a plain disk editor for folders that are not placed Overstory trees. No update machine, no change log, no recovery: read, write with a revision check, list, watch. Keep it visibly separate from tree synchronization in code and docs. Refuse to open a path inside a placed tree; route it to the tree session instead. Story Sync gains no route.
 >

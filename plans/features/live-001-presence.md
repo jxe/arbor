@@ -1,5 +1,7 @@
 # Live 001: see who else is here
 
+**Timing:** Soon.
+
 **Why and when:** Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which page each person is on, and where their cursor is when two people share a page. It must be light. Nothing is sent about cursors unless someone else is on the same page, and an idle reader costs a keepalive. No timing yet. The plan starts with the spec, because presence is the first live data a host relays that is not part of a tree.
 
 > **Executor instructions**: Do the phases in order and stop after each for Joe's hands-on check. Each phase lists the spec and doc text that becomes true with it; change that text in the same phase. Phase 2 changes a host route, so it also runs `bun run test:protocol`. Pushing `main` deploys overstoryd. Never test against `arb.nxhx.org`.

@@ -12,7 +12,7 @@ with simple edits in the view. What is left here is the full editor, row ownersh
 that show a collection kept elsewhere. Joe moved it to soon on 2026-10-25, without the ports
 of excellences and supplies-remake, which are
 [Schema language 008](../later/schema-language-008-port-excellences-and-supplies.md) in later.
-Its first customer is the [People directory](people-001-groups-sharing-and-go-to.md) (Joe,
+Its first customer is the [People directory](../features/people-001-groups-sharing-and-go-to.md) (Joe,
 2026-10-24): People is presented and edited with these views rather than hand-built screens,
 so the editor gets proven on something Joe uses daily.
 
@@ -31,7 +31,7 @@ site ports) is 008.
   but for loose ends), whose row queue every edit here goes through.
 - **Order:** 3's leftovers, 4 and 7 for the directory (People 001 phase 2), then 5, which 008
   needs.
-- **Unblocks:** [People 001](people-001-groups-sharing-and-go-to.md) phase 2;
+- **Unblocks:** [People 001](../features/people-001-groups-sharing-and-go-to.md) phase 2;
   [Schema language 008](../later/schema-language-008-port-excellences-and-supplies.md).
 
 ## Joe's decisions

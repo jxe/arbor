@@ -1,5 +1,7 @@
 # Editor 002: dictate several items in one recording
 
+**Timing:** When needed: it waits on a trigger, not a date.
+
 **Why and when:** Joe dictates day plans on the iPhone with pinch recording, and one
 recording makes one block, so a list of time rows and tasks takes a pinch per line. On
 2026-10-24 he chose spoken breaks: saying "next item" ends the current item and starts a

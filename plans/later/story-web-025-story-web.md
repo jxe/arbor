@@ -1,6 +1,6 @@
 # Web 025: Story for the web: one browser editor for `story open` and overstoryd
 
-**Why and when:** for sharing with others: people without the Mac or iPhone app need a way to read and edit a tree. After the Native 022 soak closeout; Joe wants [Filesystem 024](filesystem-024-open-plain-folders-on-the-mac.md) first, though nothing here depends on it.
+**Why and when:** for sharing with others: people without the Mac or iPhone app need a way to read and edit a tree. After the Native 022 soak closeout; Joe wants [Filesystem 024](../features/filesystem-024-open-plain-folders-on-the-mac.md) first, though nothing here depends on it.
 
 > **Executor instructions**: Build Story for the web as one browser bundle that is the TypeScript twin of the native app: the same working tree, change log and update machine as the Mac app ([the update machine](../../docs/implementing-sync-services/update-machine.md)), the same information architecture and vocabulary, served by two hosts. The **local host** is Story Sync on loopback, opened by `story open`. The **overstoryd host** is a host serving the bundle at a tree's canonical URL for a browser that holds a paired device credential. Nobody edits through the daemon; the browser publishes to overstoryd itself. Port surfaces, not chrome: no menu bar, sheets, gestures, audio or camera. Clean breaks over shims. Nothing live (Railway, `~/.story`, the iPhone) flips without Joe's go-ahead.
 >
@@ -110,7 +110,7 @@ The native shortcut map ports except where the browser owns the key. Reassignmen
 
 ### Open: plain folders in the browser
 
-Until Native 022, `story open` on a folder that was not a tree edited it through the daemon. [Filesystem 024](filesystem-024-open-plain-folders-on-the-mac.md) once planned to bring that back with `/v1/fs/*` routes on Story Sync (list, read, write with an etag, move, delete, events) and an `FsSession` in this bundle; Joe cut it to the Mac on 2026-10-11 and left the browser half as a question here. It is not part of B1 to B3.
+Until Native 022, `story open` on a folder that was not a tree edited it through the daemon. [Filesystem 024](../features/filesystem-024-open-plain-folders-on-the-mac.md) once planned to bring that back with `/v1/fs/*` routes on Story Sync (list, read, write with an etag, move, delete, events) and an `FsSession` in this bundle; Joe cut it to the Mac on 2026-10-11 and left the browser half as a question here. It is not part of B1 to B3.
 
 Those routes break the add-on rule above, and they would let any caller of the loopback port read and write files under `$HOME`, which [Security 011](../../status.md#plans-closed-out--2026-10-20) has not yet closed. So decide, after B1 and after Security 011:
 

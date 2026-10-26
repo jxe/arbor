@@ -1,5 +1,7 @@
 # Security 012: Get back into an account with the admin's help
 
+**Timing:** Later.
+
 **Why and when:** Joe wants a person who has lost their Mac, or every device, to get back into their account without knowing what a pairing code or an operator is. On 2026-10-11 he decided the host's administrator stays involved, as the spec has it, and that the thing to maximize is how easy it is for both people. Today the administrator must run a command on the server and pass a code by hand. Do this before people depend on Story enough to lose a Mac.
 
 Formerly "Rejoin an account with the profile key". That plan asked whether the profile key alone may enrol a device; the answer is no (below), and its sketch of a signed enrolment is in this file's git history.

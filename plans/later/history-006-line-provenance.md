@@ -14,7 +14,7 @@ route, full actor backfill) is in git history.
 - **Risk:** HIGH. It adds durable identity metadata, a schema migration, a
   public protocol change, and a read route over private history.
 - **State:** PLANNED
-- **Depends on:** [overstoryd 007](history-007-document-history-routes-and-restore.md). Its
+- **Depends on:** [overstoryd 007](../features/history-007-document-history-routes-and-restore.md). Its
   history reader, key resolution and retention bound are what this plan walks.
   Execute after it.
 

@@ -1,5 +1,7 @@
 # Sharing 002: Invite from the command line, through a client library
 
+**Timing:** Later.
+
 **Why and when:** setting up the intro video on 2026-10-11, Joe needed an invitation for `~chungus` and the only way to make one was the Mac app's People sheet. He wants `story invite`, and he wants it to be the first command built the way the other clients work: the command talks to the host itself through a client library, and Story Sync is not in the path. "Echoing everything through story sync just adds complexity. What we want is just a client lib." No date; before the next person is invited from a machine without the Mac app.
 
 > **Executor instructions**: Develop and test against a disposable overstoryd. The first invitation made on arb.nxhx.org with the new command, and its cancellation, wait for Joe's go-ahead. No host route or response shape changes, so `bun run test:protocol` is not needed unless that turns out false.
@@ -68,4 +70,4 @@ Not part of this plan; recorded here so step 6 can lift it out.
 
 - [Release 004](../../status.md#plans-closed-out--2026-10-20): the video's `~chungus` invitation is made in the app.
 - [Sharing 001](sharing-001-join-on-iphone-first.md): the other end of an invitation, on the iPhone.
-- [Story Web 025](story-web-025-story-web.md): the browser publishes to the host itself with a session, the same direction as this plan.
+- [Story Web 025](../later/story-web-025-story-web.md): the browser publishes to the host itself with a session, the same direction as this plan.

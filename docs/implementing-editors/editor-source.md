@@ -114,7 +114,7 @@ not committed when the process stopped.
 ## 5. Sessions without a change log
 
 In-memory providers and the Mac's plain-folder editor of
-[Filesystem 024](../../plans/later/filesystem-024-open-plain-folders-on-the-mac.md)
+[Filesystem 024](../../plans/features/filesystem-024-open-plain-folders-on-the-mac.md)
 accept a guarded write instead of a change. A stale revision is an append
 failure like any other: the edit stays in the editor and is reported. The
 editor never merges locally and never treats equal bytes as acknowledgement.

@@ -1,5 +1,7 @@
 # overstoryd 007: Document history routes, restore, and the History view
 
+**Timing:** Later.
+
 **Why and when:** parked. Seeing and restoring earlier versions of a page; it also decides how long document versions are kept, which is most of what overstoryd retains.
 
 Historical identifier: **Smaller project 007**, formerly "Surface accepted document
@@ -13,7 +15,7 @@ what remains.
 - **Risk:** HIGH — an authenticated overstoryd route that enumerates deleted
   source, and a visible restore action whose meaning changes
 - **State:** PLANNED. Refreshed 2026-09-24 after migration 016 and the working-tree redesign.
-- **Depends on:** nothing. Execute before [overstoryd 006](history-006-line-provenance.md),
+- **Depends on:** nothing. Execute before [overstoryd 006](../later/history-006-line-provenance.md),
   which reuses the same index.
 
 ## Target result

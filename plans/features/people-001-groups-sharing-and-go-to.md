@@ -1,5 +1,7 @@
 # People 001: form groups, share with people, and go to any tree
 
+**Timing:** Soon.
+
 **Why and when:** Joe asked on 2026-10-20 for People to remember the people and trees he has
 come across, not only what connected hosts list. Its main jobs are finding someone and forming
 groups to share with: family, different groups at work. That means knowing whether a group
@@ -27,9 +29,9 @@ Formerly "a directory you own, Go to…, and links by tree ID".
   2–4 and the Go to… slice.
 - **Order** (Joe, 2026-10-24): the directory first, because it is People's point; Go to… and
   tree-ID links are a side slice for any time.
-- **Gated on:** phase 2 on [Schema language 002](schema-language-002-collection-editor.md)'s
+- **Gated on:** phase 2 on [Schema language 002](../soon/schema-language-002-collection-editor.md)'s
   milestones 3, 4 and 7 (editing by hand in simple ways comes earlier, with
-  [Schema language 007](schema-language-007-edit-rows-in-story.md) part 2). The Go to… slice
+  [Schema language 007](../soon/schema-language-007-edit-rows-in-story.md) part 2). The Go to… slice
   and phase 1's loose ends on nothing.
 - **Built on 002** (Joe, 2026-10-24): People is the directory's collection shown with 002's
   database views, and the directory is 002's first customer. Only Go to… and the share sheet
@@ -224,7 +226,7 @@ descriptor)`). `openRemoteLocator` splits into resolving a path to a descriptor 
   app closed and running.
 - **iPhone.** `.onOpenURL` with the same pending open; `locateTree` places a `.host` result
   with `place(tree:from:configurationTree:)`, so it opens only trees on hosts where the phone
-  has an account. An invitation URL is [Sharing 001](../later/sharing-001-join-on-iphone-first.md)'s;
+  has an account. An invitation URL is [Sharing 001](sharing-001-join-on-iphone-first.md)'s;
   whichever lands first adds the handler and the other adds its case. Open Location takes a
   locator.
 - **The command line.** `/v1/resolve` and `story open` stop reading `tr_` as a DNS name and

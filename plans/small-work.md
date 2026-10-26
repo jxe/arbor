@@ -65,7 +65,7 @@ Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-peop
 
 Formerly overstoryd 017; the first live run is recorded in
 [status](../status.md#known-gaps). A bound on `document_versions`, which holds most retained
-bytes, is part of [overstoryd 007](later/history-007-document-history-routes-and-restore.md).
+bytes, is part of [overstoryd 007](features/history-007-document-history-routes-and-restore.md).
 
 - [ ] Schedule the `railway ssh` collection command
   ([deployment](../packages/overstoryd/deploy/README.md#collecting-unreferenced-objects))
@@ -159,7 +159,7 @@ A live second overstoryd is Joe's decision.
 - [ ] Once a live placement host exists, try by hand the iPhone opening a tree there
   (Place a Tree lists the account's other hosts). The iPhone pairs only with an HTTPS host.
 - Making a folder into a tree from the Mac app after setup, onto any host, is
-  [Filesystem 024](later/filesystem-024-open-plain-folders-on-the-mac.md).
+  [Filesystem 024](features/filesystem-024-open-plain-folders-on-the-mac.md).
 
 ## Observation and soak closeout
 
