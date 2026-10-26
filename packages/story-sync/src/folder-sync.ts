@@ -645,8 +645,8 @@ export class FolderSync implements AcceptedTree {
       const load = async (hash: ObjectHash) => await this.host.objectBytes(hash) ?? client.object(this.tree, hash);
       const lazy = await this.host.scan(null, undefined, { root: current.tree.root as ObjectHash, load });
       if (lazy.root !== await withoutPlatformMetadata(current.tree.root as ObjectHash, load)) {
-        const root = decodeProtocolDirectory(await lazy.objects.get(lazy.root)!.bytes());
-        if (root.entries.length) {
+        // A mount the host lists is a boundary entry in the scan, not local content.
+        if (await holdsLocalContent(lazy.root, async (hash) => await lazy.objects.get(hash)!.bytes())) {
           throw new ProtocolError("conflict", "A new placement contains local content but has no accepted-update base", 409, {
             tree: this.tree, path: "/", details: { kind: "workspace-revision" },
           });
@@ -890,4 +890,14 @@ export class FolderSync implements AcceptedTree {
     await watch?.done;
     await this.scanning?.catch(() => {});
   }
+}
+
+/** Whether a scanned directory holds a file anywhere beneath it; nested tree boundaries don't count. */
+async function holdsLocalContent(directory: ObjectHash, bytes: (hash: ObjectHash) => Promise<Uint8Array>): Promise<boolean> {
+  const { entries } = decodeProtocolDirectory(await bytes(directory));
+  for (const entry of entries) {
+    if (entry.file !== undefined) return true;
+    if (entry.directory !== undefined && await holdsLocalContent(entry.directory, bytes)) return true;
+  }
+  return false;
 }

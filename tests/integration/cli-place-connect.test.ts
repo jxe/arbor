@@ -120,6 +120,13 @@ describe("story place onto a placement host", () => {
     expect(account).toMatchObject({ profileTree, homeHost: home.url, device: { id: deviceID } });
   });
 
+  test("places the community root, which mounts the profile, into an empty folder", async () => {
+    const folder = join(sandbox, "community");
+    await mkdir(folder, { recursive: true });
+    expect(await story(["place", `${home.url}/`, folder])).toContain(folder);
+    expect(await readdir(folder)).toContain("_index.md");
+  });
+
   test("story account and story me accounts place are gone", async () => {
     await expect(story(["account"])).rejects.toThrow();
     await expect(story(["me", "accounts", "place", placement.url])).rejects.toThrow();
