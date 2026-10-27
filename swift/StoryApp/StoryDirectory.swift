@@ -99,8 +99,8 @@ private extension JSONDecoder {
 struct StoryProfileDocument: Equatable {
     enum Kind: String, Equatable { case person, group }
 
-    /// One `members` entry in authored order: a structured `profile:` entry
-    /// or a legacy scalar locator.
+    /// One structured `members` entry, in authored order. A bare locator line
+    /// is not a member, as on the host.
     struct Member: Equatable, Identifiable {
         let profile: String
         let handle: String?
@@ -424,21 +424,18 @@ struct StoryProfileDocument: Equatable {
                 var stop = offset + 1 < starts.count ? starts[offset + 1] : end
                 while stop > start + 1, lines[stop - 1].trimmingCharacters(in: .whitespaces).isEmpty { stop -= 1 }
                 var fields: [String: String] = [:]
-                var scalar: String?
                 for index in start..<stop {
                     var field = lines[index].trimmingCharacters(in: .whitespaces)
                     if index == start { field = String(field.dropFirst()).trimmingCharacters(in: .whitespaces) }
                     guard !field.isEmpty else { continue }
-                    // A `key: value` field; a scalar locator's `overstory:` has no space after it.
+                    // A `key: value` field; a bare locator's `overstory:` has no space after it.
                     if let colon = field.firstIndex(of: ":"),
                        field[field.startIndex..<colon].allSatisfy({ $0.isLetter }),
                        field.index(after: colon) == field.endIndex || field[field.index(after: colon)] == " " {
                         fields[String(field[..<colon])] = StoryProfileDocument.decodeScalar(String(field[field.index(after: colon)...]))
-                    } else if index == start {
-                        scalar = StoryProfileDocument.decodeScalar(field)
                     }
                 }
-                guard let profile = fields["profile"] ?? scalar ?? fields["inviteDigest"].map({ "invite:\($0)" }),
+                guard let profile = fields["profile"] ?? fields["inviteDigest"].map({ "invite:\($0)" }),
                       fields["inviteDigest"] == nil || fields["handle"] != nil else { return nil }
                 return (start..<stop, Member(profile: profile, handle: fields["handle"]))
             }

@@ -62,30 +62,26 @@ export function emptyControl(): UpdateControl { return { schema: 5, settled: [] 
 
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === "string" && item.length > 0);
 
-/** Decode a control record. A newer schema, or earlier unpublished work in a form this client no longer runs, is refused. */
+/** Decode a control record. Schemas 4 and 5 read; any other is refused. */
 export function decodeControl(value: unknown, file = "update-control.json"): UpdateControl {
   if (!value || typeof value !== "object") throw new UpdateStateError(`${file} is not a control record`);
   const record = value as Record<string, unknown>;
   const schema = record.schema;
   if (typeof schema !== "number" || !Number.isInteger(schema)) throw new UpdateStateError(`${file} has no schema`);
-  if (schema > 5) throw new UpdateStateError(`${file} schema ${schema} is newer than this client`);
-  if (schema < 4) {
-    const earlier = record.head != null || record.nextBase != null || (record.attempt != null && record.sourceAttemptChange == null);
-    if (earlier) throw new UpdateStateError(`${file} holds unpublished work from an earlier client. Finish publishing it with that version, then update.`);
-  }
+  if (schema < 4 || schema > 5) throw new UpdateStateError(`${file} schema ${schema} is not one this client reads`);
   const control: UpdateControl = { schema: 5, settled: [] };
   if (record.attempt != null) control.attempt = decodeAttempt(record.attempt, file);
-  const tip = schema < 4 ? record.sourceAttemptChange : record.attemptTip;
+  const tip = record.attemptTip;
   if (tip != null) {
     if (typeof tip !== "string" || !tip) throw new UpdateStateError(`${file} has an invalid attempt tip`);
     control.attemptTip = tip;
   }
-  if (schema >= 4 && record.held != null) {
+  if (record.held != null) {
     const held = record.held as Record<string, unknown>;
     if (held.reason !== "rejected" && held.reason !== "unsupported") throw new UpdateStateError(`${file} has an invalid held reason`);
     control.held = { reason: held.reason, ...(typeof held.detail === "string" ? { detail: held.detail } : {}) };
   }
-  const settled = schema < 4 ? record.sourceAcceptedChanges : record.settled;
+  const settled = record.settled;
   if (settled != null) {
     if (!strings(settled)) throw new UpdateStateError(`${file} has invalid settled changes`);
     control.settled = [...settled];

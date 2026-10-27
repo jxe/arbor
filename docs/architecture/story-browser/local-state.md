@@ -157,7 +157,7 @@ serves the destination's hidden candidate from other records. A fully settled
 journal of any schema retires without decoding. The TypeScript publisher records settlements in
 `sync/source-settlements.json`, written atomically only after the host has
 durably installed the request. The Mac's conflict review keeps
-`sync/conflict-review.json` (schema 3, reading 1 and 2) with exact drafts and
+`sync/conflict-review.json` (schema 3) with exact drafts and
 pinned decision and alternative evidence; a submitted resolution is a change
 in the change log, and the journal names the draft it came from.
 
@@ -168,9 +168,7 @@ member of a batch while any member is still needed. A late disjoint source branc
 can have a continuation publication with different surrounding roots, so its
 original candidate is not a valid basis for the server's reconciliation payload.
 Schema 4 reads with
-no mappings. A schema-3 control that still
-holds a snapshot head, a next base, or an attempt outside the change log is
-refused without being rewritten; a clean one converts.
+no mappings; any other schema is refused.
 
 Local Trash is absent from protocol snapshots. Structural records retain
 private Trash nodes and their file objects so deletion survives another action

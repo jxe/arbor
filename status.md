@@ -23,6 +23,26 @@ rather than the project's placeholder "0.1.0 (1)"; a release reads "Version 0.1.
 `swift/StoryApp/Credits.html` stays in the repo and out of the app bundle, so About Story
 shows no acknowledgements (Joe, 2026-10-26).
 
+## Legacy cleanup, second pass — 2026-10-27
+
+Implemented after read-only checks on the host and Joe's Mac; installed with the next push
+and Story build.
+
+- **Host:** no current root holds `.DS_Store` or `._*` entries, so Story Sync no longer
+  strips platform metadata from accepted roots. `/data/merge-cache` holds only
+  `records-v2.sqlite`, so the sweep of pre-database tree directories is gone.
+- **Identity:** Joe's data home keeps its key in the current slot, so the profile store no
+  longer adopts `self.key`, `self-*` keychain slots or registry-matched keys.
+- **Sync records:** update control reads only schemas 4 and 5, and the conflict-review
+  journal only schema 3. The restart step that released "http-error" holds from older
+  clients is gone. The two schema-2/3 leftovers on Joe's Mac, in folders of trees no
+  longer placed, went to the Trash.
+- **Groups:** the Mac no longer counts a bare `- overstory://…` line as a member, matching
+  the host since schema 26.
+- **Kept, by choice:** unencrypted identity backups (written when no passphrase is given)
+  and the `StoryPath` alternate icon name. "canopy" is renamed in code; the directory seed
+  keeps it until the seed next changes. `tools/list-stray-keychain-records.ts` is deleted.
+
 ## Legacy cleanup — 2026-10-26
 
 Implemented; deployed with the next push of main, and on the Mac and iPhone with the next

@@ -21,7 +21,6 @@ public enum UpdateError: Error, Equatable, Sendable {
     case unsupportedControlSchema(Int)
     /// Durable state from an earlier client still holds unpublished work in a
     /// form this client no longer runs. Nothing is decoded away or rewritten.
-    case earlierPendingWork(String)
 }
 
 extension UpdateError: LocalizedError {
@@ -34,8 +33,7 @@ extension UpdateError: LocalizedError {
         case .returnedRequestDigestMismatch: "The host answered a different synchronization request."
         case .closed: "This synchronization session is closed."
         case .requestEmpty: "An update request must carry at least one element."
-        case let .unsupportedControlSchema(schema): "Update control schema \(schema) is newer than this client."
-        case let .earlierPendingWork(file): "\(file) holds unpublished work from an earlier version of Story. Open this tree with that version to finish publishing it, then update."
+        case let .unsupportedControlSchema(schema): "Update control schema \(schema) is not one this client reads."
         }
     }
 }
@@ -152,30 +150,17 @@ struct UpdateControl: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case schema, attempt, attemptTip, held, settled, acceptedConflicted, publications
-        // Schema 3.
-        case sourceAttemptChange, sourceAcceptedChanges, head, nextBase
     }
 
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         schema = try values.decode(Int.self, forKey: .schema)
-        guard schema <= Self.currentSchema else { throw UpdateError.unsupportedControlSchema(schema) }
+        guard (4...Self.currentSchema).contains(schema) else { throw UpdateError.unsupportedControlSchema(schema) }
         attempt = try values.decodeIfPresent(UpdateAttempt.self, forKey: .attempt)
         acceptedConflicted = try values.decodeIfPresent(Bool.self, forKey: .acceptedConflicted)
-        if schema < 4 {
-            // A snapshot head, a next base, or an attempt outside the change log
-            // is unpublished work this client cannot run: refuse, rewrite nothing.
-            let tip = try values.decodeIfPresent(String.self, forKey: .sourceAttemptChange)
-            if values.contains(.head) && (try? values.decodeNil(forKey: .head)) == false { throw UpdateError.earlierPendingWork("update-control.json") }
-            if values.contains(.nextBase) && (try? values.decodeNil(forKey: .nextBase)) == false { throw UpdateError.earlierPendingWork("update-control.json") }
-            if attempt != nil, tip == nil { throw UpdateError.earlierPendingWork("update-control.json") }
-            attemptTip = tip
-            settled = try values.decodeIfPresent([String].self, forKey: .sourceAcceptedChanges) ?? []
-        } else {
-            attemptTip = try values.decodeIfPresent(String.self, forKey: .attemptTip)
-            held = try values.decodeIfPresent(HeldRecord.self, forKey: .held)
-            settled = try values.decodeIfPresent([String].self, forKey: .settled) ?? []
-        }
+        attemptTip = try values.decodeIfPresent(String.self, forKey: .attemptTip)
+        held = try values.decodeIfPresent(HeldRecord.self, forKey: .held)
+        settled = try values.decodeIfPresent([String].self, forKey: .settled) ?? []
         publications = try values.decodeIfPresent([ChangePublication].self, forKey: .publications) ?? []
         schema = Self.currentSchema
     }

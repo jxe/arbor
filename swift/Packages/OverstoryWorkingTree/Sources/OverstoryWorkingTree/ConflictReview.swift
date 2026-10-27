@@ -256,8 +256,8 @@ public enum ConflictReviewError: LocalizedError {
 }
 
 /// Drafts, and the fingerprint of the draft each submitted resolution change
-/// carries. Schema 3 publishes resolutions through the change log; an earlier
-/// journal with its own pending attempt is refused rather than rewritten.
+/// carries. Resolutions publish through the change log; a journal of another
+/// schema is refused.
 struct ConflictReviewJournal: Codable {
     var schema = 3
     var drafts: [ConflictReviewDraft] = []
@@ -268,18 +268,14 @@ struct ConflictReviewJournal: Codable {
         self.submitted = submitted
     }
 
-    private enum CodingKeys: String, CodingKey { case schema, drafts, submitted, attempt }
+    private enum CodingKeys: String, CodingKey { case schema, drafts, submitted }
 
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         schema = try values.decode(Int.self, forKey: .schema)
-        guard (1...3).contains(schema) else { throw ConflictReviewError.unavailable }
-        if values.contains(.attempt), (try? values.decodeNil(forKey: .attempt)) == false {
-            throw UpdateError.earlierPendingWork("conflict-review.json")
-        }
+        guard schema == 3 else { throw ConflictReviewError.unavailable }
         drafts = try values.decodeIfPresent([ConflictReviewDraft].self, forKey: .drafts) ?? []
         submitted = try values.decodeIfPresent([String: String].self, forKey: .submitted) ?? [:]
-        schema = 3
     }
 
     func encode(to encoder: any Encoder) throws {
