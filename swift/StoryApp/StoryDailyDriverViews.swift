@@ -45,6 +45,7 @@ struct StoryWindowCommands {
     var showKeyboardShortcuts: () -> Void
     var movePage: () -> Void
     var renamePage: () -> Void
+    var renamePageToMatchTitle: () -> Void
     var movePageToTrash: () -> Void
     var restorePage: () -> Void
     var canGoBack: Bool
@@ -58,6 +59,7 @@ struct StoryWindowCommands {
     var canCopyPageLink: Bool
     var canMovePage: Bool
     var canRenamePage: Bool
+    var canRenamePageToMatchTitle: Bool
     var canMovePageToTrash: Bool
     var canRestorePage: Bool
 }

@@ -154,6 +154,7 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         menu.addItem(window("Jump to Page…", "p") { $0.focusSidebarSearch() })
         menu.addItem(.separator())
         menu.addItem(window("Rename Page…", when: \.canRenamePage) { $0.renamePage() })
+        menu.addItem(window("Rename Page to Match Title", when: \.canRenamePageToMatchTitle) { $0.renamePageToMatchTitle() })
         menu.addItem(window("Move Page…", "p", [.command, .option], when: \.canMovePage) { $0.movePage() })
         menu.addItem(window("Trash Page…", when: \.canMovePageToTrash) { $0.movePageToTrash() })
         menu.addItem(window("Restore Page", when: \.canRestorePage) { $0.restorePage() })

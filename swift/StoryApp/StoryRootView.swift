@@ -2658,6 +2658,7 @@ struct StoryRootView: View {
             showKeyboardShortcuts: { presentedSheet = .keyboardShortcuts },
             movePage: { Task { _ = await model.editorHost?.moveCurrentDocument() } },
             renamePage: beginPageRename,
+            renamePageToMatchTitle: { Task { await model.renameCurrentPageToMatchTitle() } },
             movePageToTrash: { trashConfirmationPresented = true },
             restorePage: {
                 Task { await model.perform(.restore(reference: model.currentReference)) }
@@ -2675,6 +2676,7 @@ struct StoryRootView: View {
             canCopyPageLink: pageLink != nil,
             canMovePage: currentPageIsMovable && model.binding != nil,
             canRenamePage: canRenameCurrentPage,
+            canRenamePageToMatchTitle: canRenameCurrentPage && model.pageNameDiffersFromTitle,
             canMovePageToTrash: currentPageIsMovable,
             canRestorePage: model.node?.isWritable == true && currentPageIsInTrash
         )

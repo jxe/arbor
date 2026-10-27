@@ -2360,6 +2360,7 @@ struct StorySidebarRetentions {
 final class StoryAppModel {
     // Stored under the app's earlier name; renaming the key would forget saved names.
     private static let manuallyNamedPagesDefaultsKey = "Canopy.manuallyNamedPages"
+    private static let dismissedTitleRenamesDefaultsKey = "Story.dismissedTitleRenames"
 
     private struct PagePresentationKey: Hashable {
         let tabID: UUID
@@ -2377,6 +2378,8 @@ final class StoryAppModel {
     struct TitleRenameProposal: Identifiable, Equatable {
         var reference: WorkspaceReference
         var proposedName: String
+        /// The page title the proposal was made for.
+        var title: String
         var id: String { "\(reference.identity)|\(proposedName)" }
     }
 
@@ -2428,7 +2431,11 @@ final class StoryAppModel {
     private var sidebarRetentions = StorySidebarRetentions()
     @ObservationIgnored private var retentionTask: Task<Void, Never>?
     @ObservationIgnored private weak var retentionWorkspace: StoryEditorWorkspace?
-    private var dismissedTitleRenameProposals = Set<String>()
+    /// The title each page's rename suggestion was dismissed at, by page key,
+    /// so Not Now holds across windows and launches until the title changes.
+    private var dismissedTitleRenames = UserDefaults.standard.dictionary(
+        forKey: dismissedTitleRenamesDefaultsKey
+    ) as? [String: String] ?? [:]
     /// The last profile parsed, so a home page's body does not re-parse its
     /// Markdown on every render.
     @ObservationIgnored private var parsedProfile: (source: String, document: StoryProfileDocument?)?
@@ -3170,35 +3177,71 @@ final class StoryAppModel {
     }
 
     func evaluateTitleRenameProposal() async {
-        guard let binding, let node, node.isWritable, !isShowingDraft,
-              binding.reference.path != "/",
-              !manuallyNamedPageKeys.contains(manualPageNameKey(binding.reference)),
-              binding.lastError == nil else {
+        guard let binding, !manuallyNamedPageKeys.contains(manualPageNameKey(binding.reference)),
+              let proposal = await titleRenameCandidate() else {
             titleRenameProposal = nil
             return
         }
-        let title = binding.acceptedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let currentName = binding.reference.path.split(separator: "/").last.map(String.init) ?? ""
-        guard !title.isEmpty, !WorkspaceTitleSlug.matches(name: currentName, title: title) else {
-            titleRenameProposal = nil
-            return
+        let key = manualPageNameKey(proposal.reference)
+        if let dismissedTitle = dismissedTitleRenames[key] {
+            guard dismissedTitle != proposal.title else {
+                titleRenameProposal = nil
+                return
+            }
+            forgetTitleRenameDismissal(key)
         }
-        let parent = binding.reference.parent ?? WorkspaceReference(tree: binding.reference.tree, path: "/")
-        let proposed = await availableName(for: title, in: parent, excluding: binding.reference.identity)
-        let proposal = TitleRenameProposal(reference: binding.reference, proposedName: proposed)
-        guard !dismissedTitleRenameProposals.contains(proposal.id) else { return }
         titleRenameProposal = proposal
     }
 
+    /// The open page's file name no longer matches its title, so Rename Page
+    /// to Match Title has something to do.
+    var pageNameDiffersFromTitle: Bool {
+        guard let binding, let node, node.isWritable, !isShowingDraft,
+              binding.reference.path != "/" else { return false }
+        let title = binding.acceptedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentName = binding.reference.path.split(separator: "/").last.map(String.init) ?? ""
+        return !title.isEmpty && !WorkspaceTitleSlug.matches(name: currentName, title: title)
+    }
+
+    private func titleRenameCandidate() async -> TitleRenameProposal? {
+        guard pageNameDiffersFromTitle, let binding, binding.lastError == nil else { return nil }
+        let title = binding.acceptedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parent = binding.reference.parent ?? WorkspaceReference(tree: binding.reference.tree, path: "/")
+        let proposed = await availableName(for: title, in: parent, excluding: binding.reference.identity)
+        return TitleRenameProposal(reference: binding.reference, proposedName: proposed, title: title)
+    }
+
+    /// Not Now: hide the suggestion for this page until its title changes.
     func dismissTitleRenameProposal() {
-        if let proposal = titleRenameProposal { dismissedTitleRenameProposals.insert(proposal.id) }
+        if let proposal = titleRenameProposal {
+            dismissedTitleRenames[manualPageNameKey(proposal.reference)] = proposal.title
+            UserDefaults.standard.set(dismissedTitleRenames, forKey: Self.dismissedTitleRenamesDefaultsKey)
+        }
         titleRenameProposal = nil
+    }
+
+    private func forgetTitleRenameDismissal(_ key: String) {
+        guard dismissedTitleRenames.removeValue(forKey: key) != nil else { return }
+        UserDefaults.standard.set(dismissedTitleRenames, forKey: Self.dismissedTitleRenamesDefaultsKey)
+    }
+
+    /// Page > Rename Page to Match Title: rename now, whether or not the
+    /// suggestion was dismissed or the page was named by hand.
+    func renameCurrentPageToMatchTitle() async {
+        guard let proposal = await titleRenameCandidate() else { return }
+        let key = manualPageNameKey(proposal.reference)
+        if manuallyNamedPageKeys.remove(key) != nil {
+            UserDefaults.standard.set(manuallyNamedPageKeys.sorted(), forKey: Self.manuallyNamedPagesDefaultsKey)
+        }
+        titleRenameProposal = proposal
+        await acceptTitleRenameProposal()
     }
 
     func acceptTitleRenameProposal() async {
         guard let proposal = titleRenameProposal, let binding,
               binding.reference.identity == proposal.reference.identity else { return }
-        dismissTitleRenameProposal()
+        titleRenameProposal = nil
+        forgetTitleRenameDismissal(manualPageNameKey(proposal.reference))
         await binding.flush()
         guard binding.lastError == nil else { return }
         do {
