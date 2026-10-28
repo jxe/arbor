@@ -10,31 +10,12 @@ It was an item in [candidates](../candidates.md).
 
 - **Effort:** L.
 - **Risk:** HIGH. It changes spec 02's round trip and how merge and access see front matter.
-- **State:** TypeScript built on branch `claude/project-thread-t4gi1b` (2026-10-28), not on
-  main and not deployed; Swift not started; no tree converted. Built: steps 1 and 2, the
-  TypeScript side of steps 3 and 4 (host, merge engine and sidecar, Story Sync, `@ovst/fs`, the
-  CLI), and step 5's gate: `OVERSTORYD_PAGES` (`1`, or a list of tree IDs) makes a host accept
-  page entries in those trees, mark their descriptors `pages`, advertise `pages-v1` in health and
-  check conversions; a writer's Story Sync then converts each such tree it places. The Swift side
-  of steps 3 and 4 is written (2026-10-28) but not yet built. Next: the Swift side of steps 3 and 4, tested on Joe's Mac, then a walk through the
-  migration with Joe before any host turns the flag on.
-
-### Migration steps (to walk through with Joe)
-
-1. **Build and test Swift** on Joe's Mac (`swift test` in each package, then the app build).
-2. **Merge to main and release** (Mac, iPhone, npm). Pushing main redeploys overstoryd with the
-   flag off: it reads pages and refuses them, so nothing changes yet. Every device and host that
-   syncs a tree must run this release before that tree converts, because an older client can't
-   read a page entry: Joe's Mac and iPhone, the CLI, and any host that holds a placement of it.
-3. **Back up the host** (the data volume), so a bad conversion can be rolled back.
-4. **Hand check one tree:** set `OVERSTORYD_PAGES=<that tree's ID>`. Joe's Story Sync converts it
-   on its next sync; the update changes no page, and the folder on disk stays byte for byte.
-   Then check Story on the Mac and iPhone: open, edit body and front matter, a concurrent edit,
-   and a property conflict.
-5. **Convert the rest:** set `OVERSTORYD_PAGES=1`. Each tree converts once, when a writer's
-   Story Sync next syncs it.
-6. **Step 6 cleanup** follows: provenance on page bodies, and dropping the code that writes
-   `.md` file entries once every tree has converted.
+- **State:** steps 1 to 5 built in both stacks and merged to main (2026-10-28), Swift tested on
+  Joe's Mac. No tree converted: hosts take pages only where `OVERSTORYD_PAGES` says (`1`, or a
+  list of tree IDs), which makes those trees' descriptors say `pages`, advertises `pages-v1`
+  and checks conversions; a writer's Story Sync then converts each such tree it places. Next,
+  per Joe: release, back up the host, convert one tree only his devices sync and check it by
+  hand, then wait for Oliver's Story to update before converting the rest (with a new backup).
 
 ### Decided while building (2026-10-28)
 

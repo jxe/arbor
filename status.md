@@ -12,6 +12,16 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Pages as logical nodes built — 2026-10-28
+
+Filesystem 026 steps 1 to 5 are **implemented** in both stacks and merged to main: Markdown
+files sync as page objects (id, ordered properties, exact body), property edits merge field by
+field, and conflict review offers property choices. Swift passed every package test and the Mac and
+iOS builds on Joe's Mac. No tree is converted: a host takes page entries only for the trees
+`OVERSTORYD_PAGES` names ("1" for all), and Story Sync converts a tree only when its descriptor
+says `pages: true`. Next: release, back up the host, hand-check one tree, then convert the rest
+once every writer runs the new Story.
+
 ## Plans and small work trimmed — 2026-10-28
 
 Joe reviewed the plans in soon, the ideas and small work, and closed out these:
