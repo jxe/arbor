@@ -257,6 +257,8 @@ final class StoryConflictReviewModel {
             return message == nil ? .loading : .unavailable(alternative.summary)
         }
         guard let text = String(data: data, encoding: .utf8) else { return .binary(data.count) }
+        // A property choice's empty text is the property left out.
+        if decision.kind == "property", text.isEmpty { return .removed }
         // A range reduced to its separating whitespace removed the content.
         if decision.sourceRange != nil, text.allSatisfy(\.isWhitespace) { return .removed }
         if text.isEmpty { return .emptyFile }

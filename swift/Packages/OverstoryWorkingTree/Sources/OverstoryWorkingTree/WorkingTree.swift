@@ -391,7 +391,32 @@ public actor WorkingTree {
                 return WorkingTreeNode(path: node.path, kind: .boundary, boundaryTree: tree.rawValue)
             }
         }
-        return WorkingTreeState(tree: state.tree, nodes: nodes)
+        return WorkingTreeState(tree: state.tree, nodes: replacement.pages ? keepingPageSpellings(nodes) : nodes,
+                                pages: replacement.pages ? true : nil)
+    }
+
+    /// A page reads back from many files: where this replica's source already
+    /// reads as the page a replacement brings, keep its spelling, so front
+    /// matter's quoting and comments stay put (directory format §3).
+    private func keepingPageSpellings(_ nodes: [WorkingTreeNode]) -> [WorkingTreeNode] {
+        let previous = Dictionary(state.nodes.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        func kept(_ next: String?, _ old: String?) -> String? {
+            guard let next, let old, next != old, let page = ProtocolPage.parse(Data(next.utf8)),
+                  page.isHeld(by: Data(old.utf8)) else { return next }
+            return old
+        }
+        return nodes.map { node in
+            guard let old = previous[node.path], old.kind == node.kind else { return node }
+            var node = node
+            node.source = kept(node.source, old.source)
+            node.shadowedSiblingMarkdownSource = kept(node.shadowedSiblingMarkdownSource, old.shadowedSiblingMarkdownSource)
+            if node.kind == .file, ProtocolPage.isPageName(WorkingTreeSemantics.name(of: node.path)),
+               case let .inline(bytes)? = node.ref, case let .inline(oldBytes)? = old.ref,
+               bytes != oldBytes, let page = ProtocolPage.parse(bytes), page.isHeld(by: oldBytes) {
+                node.ref = old.ref
+            }
+            return node
+        }
     }
 
     func deleteRebuildableIndexes() throws {

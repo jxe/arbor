@@ -30,6 +30,7 @@ extension LocalChange {
             }
             for entry in entries {
                 if let file = entry.file { try visit(prior[entry.name]?.file, file, directory: false) }
+                else if let page = entry.page { try visit(prior[entry.name]?.page, page, directory: false) }
                 else if let child = entry.directory { try visit(prior[entry.name]?.directory, child, directory: true) }
             }
         }

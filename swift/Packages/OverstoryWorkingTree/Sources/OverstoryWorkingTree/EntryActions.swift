@@ -32,7 +32,7 @@ public struct EntryActions: Codable, Equatable, Sendable {
             var entries = original
             if remaining.count == 1 {
                 guard !entries.contains(where: { $0.name == name }),
-                      entries.contains(where: { $0.name == name + ".md" && $0.file != nil }) else {
+                      entries.contains(where: { $0.name == name + ".md" && ($0.file != nil || $0.page != nil) }) else {
                     throw ProtocolValidationError.invalidValue("Promotion requires an existing Markdown leaf")
                 }
                 parentHash = hash
@@ -131,7 +131,7 @@ public struct EntryActions: Codable, Equatable, Sendable {
             operations.append(try ProtocolSourceOperation(["key":.string("remove-\(index)"),"kind":.string("removeEntry"),"source":.object(["material":.object(["kind":.string("basis"),"path":.string(path),"object":.string(hash)])])]))
             current.root = try remove(current.root,parts[...])
         }
-        let result = try ProtocolGraph.reachable(from: current.root, in: objects) { _, kind in if kind != .file { throw invalid() } }
+        let result = try ProtocolGraph.reachable(from: current.root, in: objects) { _, kind in if kind != .file && kind != .page { throw invalid() } }
         return (result, operations)
     }
 }

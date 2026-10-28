@@ -22,6 +22,19 @@ enum ConflictReviewCompiler {
             let bytes = try ProtocolObjectCodec.encode(object), hash = ProtocolObjectCodec.hash(bytes)
             objects[hash] = bytes; return hash
         }
+        // Markdown is a page entry once the base holds pages (directory format §3).
+        let pages = ProtocolObjectGraph.holdsPages(base.root, in: (try? ProtocolObjectGraph.validate(base)) ?? [:])
+        func markdown(_ bytes: Data) throws -> ProtocolDirectoryEntry {
+            if pages, let page = ProtocolPage.parse(bytes) { return .init(name: "", page: try store(.page(page))) }
+            return .init(name: "", file: try store(.file(bytes)))
+        }
+        /// The source text a content object holds: a file's bytes, or a page's
+        /// body, which is what a page's source ranges address (spec 10 §4.1).
+        func source(_ hash: String) -> (bytes: Data, page: ProtocolPage?)? {
+            guard let bytes = objects[hash] else { return nil }
+            if let page = try? ProtocolPage.decode(bytes) { return (page.body, page) }
+            return (bytes, nil)
+        }
         func parts(_ path: String) throws -> [String] {
             let parts = path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
             guard path.hasPrefix("/"), path != "/", parts.allSatisfy(ProtocolGraph.isPathComponent) else {
@@ -69,7 +82,9 @@ enum ConflictReviewCompiler {
         let onlyRanges = draft.decisions.allSatisfy { $0.sourceRange != nil }
         // Files a whole-file choice in this group assigns; a source choice
         // inside one is decided by that file's chosen version.
-        let wholeFiles = Set(draft.decisions.filter { $0.sourceRange == nil }.compactMap(\.path))
+        let wholeFiles = Set(draft.decisions.filter { $0.sourceRange == nil && $0.kind != "property" }.compactMap(\.path))
+        // Property choices, by page path: each sets one property of the page as it stands.
+        var propertyEdits: [String: [(decision: ConflictReviewDecision, name: String, value: PageValue?)]] = [:]
         for decision in draft.decisions {
             guard let selection = draft.selection(for: decision.id),
                   let alternative = decision.alternatives.first(where: { $0.id == selection.alternative }),
@@ -80,11 +95,17 @@ enum ConflictReviewCompiler {
                 }
                 continue
             }
+            if decision.kind == "property" {
+                guard let name = decision.property, let json = alternative.value.value, selection.source == nil, selection.remove != true,
+                      selection.destination == nil || selection.destination == old else { throw ConflictReviewError.unsupported }
+                propertyEdits[old, default: []].append((decision, name, json == .null ? nil : try PageValue(json: json)))
+                continue
+            }
             if let range = decision.sourceRange {
-                let currentFile = try entry(old, in: base.root)?.file
+                let currentFile = try entry(old, in: base.root)?.hash
                 guard let projected = decision.affected[0].material.object,
                       (!onlyRanges || currentFile == projected),
-                      let bytes = objects[projected], range.upperBound <= bytes.count,
+                      let bytes = source(projected)?.bytes, range.upperBound <= bytes.count,
                       String(data: bytes.prefix(range.lowerBound), encoding: .utf8) != nil,
                       String(data: bytes.suffix(bytes.count - range.upperBound), encoding: .utf8) != nil else {
                     throw ConflictReviewProposalError("The source range no longer matches its pinned file.")
@@ -93,7 +114,7 @@ enum ConflictReviewCompiler {
                 if selection.remove == true { replacement = Data() }
                 else if let source = selection.source { replacement = Data(source.utf8) }
                 else if let text = alternative.value.text { replacement = Data(text.utf8) }
-                else if let file = alternative.value.file, let data = objects[file] { replacement = data }
+                else if let file = alternative.value.file ?? alternative.value.page, let data = source(file)?.bytes { replacement = data }
                 else { throw ConflictReviewError.unsupported }
                 guard let text = String(data: replacement, encoding: .utf8) else { throw ConflictReviewError.unsupported }
                 rangeEdits[old, default: []].append(.init(decision: decision, range: range, replacement: replacement))
@@ -117,11 +138,12 @@ enum ConflictReviewCompiler {
             var value: ProtocolDirectoryEntry?
             if selection.remove == true { value = nil }
             else if let source = selection.source {
-                guard alternative.value.file != nil || alternative.value.text != nil else {
+                guard alternative.value.file != nil || alternative.value.page != nil || alternative.value.text != nil else {
                     throw ConflictReviewProposalError("Compose text only for a file alternative.")
                 }
-                value = .init(name: "", file: try store(.file(Data(source.utf8))))
+                value = try markdown(Data(source.utf8))
             } else if let file = alternative.value.file { value = .init(name: "", file: file) }
+            else if let page = alternative.value.page { value = .init(name: "", page: page) }
             else if let directory = alternative.value.directory { value = .init(name: "", directory: directory) }
             else if let tree = alternative.value.tree { value = .init(name: "", tree: tree) }
             else if alternative.value.absent != true { throw ConflictReviewError.unsupported }
@@ -134,20 +156,31 @@ enum ConflictReviewCompiler {
                 throw ConflictReviewProposalError("Overlapping source choices must be reviewed through their enclosing structural decision.")
             }
             guard !assignments.contains(where: { $0.old == path }),
-                  let first = edits.first, let file = first.decision.affected[0].material.object, var bytes = objects[file],
+                  let first = edits.first, let file = first.decision.affected[0].material.object, let held = source(file),
                   edits.allSatisfy({ $0.decision.affected[0].material.object == file }) else { throw ConflictReviewError.unsupported }
             let selections = edits.compactMap { draft.selection(for: $0.decision.id) }
             let destinations = Set(selections.compactMap(\.destination))
             guard destinations.count <= 1 else { throw ConflictReviewProposalError("Source choices in one file need the same destination.") }
             let destination = destinations.first ?? path
             if onlyRanges && destination != path { throw ConflictReviewProposalError("A source-range choice cannot move its whole file. Resolve the source, then move the page.") }
+            var bytes = held.bytes
             for edit in edits.reversed() { bytes.replaceSubrange(edit.range, with: edit.replacement) }
             let removesFile = !onlyRanges && selections.allSatisfy { $0.remove == true }
             if !onlyRanges && selections.contains(where: { $0.remove == true }) && !removesFile {
                 throw ConflictReviewProposalError("Choose one consistent disposition for the source choices in this file.")
             }
-            assignments.append(.init(decision: first.decision, old: path, destination: destination,
-                value: removesFile ? nil : .init(name: "", file: try store(.file(bytes)))))
+            var value: ProtocolDirectoryEntry?
+            if removesFile { value = nil }
+            else if var page = held.page { page.body = bytes; value = .init(name: "", page: try store(.page(page))) }
+            else { value = .init(name: "", file: try store(.file(bytes))) }
+            assignments.append(.init(decision: first.decision, old: path, destination: destination, value: value))
+        }
+        for path in propertyEdits.keys.sorted() {
+            let edits = propertyEdits[path]!
+            guard !assignments.contains(where: { $0.old == path }), let hash = try entry(path, in: base.root)?.page,
+                  let bytes = objects[hash], var page = try? ProtocolPage.decode(bytes) else { throw ConflictReviewError.unsupported }
+            for edit in edits { page = page.setting(edit.name, to: edit.value) }
+            assignments.append(.init(decision: edits[0].decision, old: path, destination: path, value: .init(name: "", page: try store(.page(page)))))
         }
         // Linked choices that give one entry the same value agree; keep one.
         var agreed: [Assignment] = []
@@ -164,7 +197,7 @@ enum ConflictReviewCompiler {
         }
         if let whole = assignments.first(where: { $0.old == "/" }), let directory = whole.value?.directory { root = directory }
         for path in rangeEdits.keys {
-            if let chosen = try entry(path, in: root), chosen.file != rangeEdits[path]?.first?.decision.affected[0].material.object {
+            if let chosen = try entry(path, in: root), chosen.hash != rangeEdits[path]?.first?.decision.affected[0].material.object {
                 throw ConflictReviewProposalError("The selected parent changes the source around \(path). Review that enclosing source as a whole entry.")
             }
         }
@@ -183,7 +216,7 @@ enum ConflictReviewCompiler {
             if let directory = assignment.value?.directory {
                 for path in rangeEdits.keys where path.hasPrefix(assignment.old + "/") {
                     let relative = String(path.dropFirst(assignment.old.count))
-                    if let chosen = try entry(relative, in: directory), chosen.file != rangeEdits[path]?.first?.decision.affected[0].material.object {
+                    if let chosen = try entry(relative, in: directory), chosen.hash != rangeEdits[path]?.first?.decision.affected[0].material.object {
                         throw ConflictReviewProposalError("The selected directory changes the source around \(path). Review that enclosing source as a whole entry.")
                     }
                 }
@@ -208,7 +241,7 @@ enum ConflictReviewCompiler {
         // Build a recursively inspectable exact effects list, preserving directory metadata.
         var changes: [ConflictReviewChange] = []
         func compare(_ before: ProtocolDirectoryEntry?, _ after: ProtocolDirectoryEntry?, path: String) throws {
-            if before?.file == after?.file && before?.directory == after?.directory && before?.tree == after?.tree { return }
+            if before?.file == after?.file && before?.page == after?.page && before?.directory == after?.directory && before?.tree == after?.tree { return }
             changes.append(.init(path: path, before: before, after: after,
                 beforeMetadata: try before?.directory.flatMap { try entries($0).1 },
                 afterMetadata: try after?.directory.flatMap { try entries($0).1 }))

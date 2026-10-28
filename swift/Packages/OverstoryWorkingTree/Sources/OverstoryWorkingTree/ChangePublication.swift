@@ -221,13 +221,14 @@ extension LocalChange {
             }
             return (entries, source)
         }
-        func file(_ root: String, _ path: String) throws -> String {
+        /// The content entry at `path`: a file or a page.
+        func file(_ root: String, _ path: String) throws -> ProtocolDirectoryEntry {
             let parts = path.dropFirst().split(separator: "/").map(String.init)
             var hash = root
             for (index, part) in parts.enumerated() {
                 let entries = try directory(hash).0
                 guard let entry = entries.first(where: { $0.name == part }) else { throw ProtocolValidationError.invalidValue("Missing publication branch file") }
-                if index == parts.count - 1, let file = entry.file { return file }
+                if index == parts.count - 1, entry.file != nil || entry.page != nil { return entry }
                 guard let child = entry.directory else { throw ProtocolValidationError.invalidValue("Publication branch requires existing files") }
                 hash = child
             }
@@ -250,7 +251,7 @@ extension LocalChange {
                         let (entries, source) = try directory(hash)
                         let changed = try entries.map { entry -> ProtocolDirectoryEntry in
                             guard entry.name == parts[depth] else { return entry }
-                            if depth == parts.count - 1 { return .init(name: entry.name, file: replacement.after) }
+                            if depth == parts.count - 1 { var after = replacement.after; after.name = entry.name; return after }
                             guard let child = entry.directory else { throw ProtocolValidationError.invalidValue("Publication branch crosses file") }
                             return .init(name: entry.name, directory: try replace(child, depth + 1))
                         }

@@ -76,26 +76,43 @@ public struct ProtocolLogicalRow: Equatable, Sendable {
     }
 }
 
-/// What an object is, which its referrer says: an entry's file or directory,
-/// or a collection's table or rows chunk.
-public enum ProtocolObjectKind: String, Codable, Sendable { case file, directory, table, rows }
+/// What an object is, which its referrer says: an entry's file, page or
+/// directory, or a collection's table or rows chunk.
+public enum ProtocolObjectKind: String, Codable, Sendable {
+    case file, page, directory, table, rows
+    /// Content reaches nothing: a file's bytes, a page, a rows chunk.
+    public var isContent: Bool { self == .file || self == .page || self == .rows }
+}
 
-/// An entry's object is only ever a file or a directory.
+/// An entry's object is only ever a file, a page or a directory.
 public typealias ProtocolEntryKind = ProtocolObjectKind
 
 public struct ProtocolDirectoryEntry: Hashable, Codable, Sendable {
     public var name: String
     public var file: String?
+    /// A Markdown page held as logical state (directory format §3).
+    public var page: String?
     public var directory: String?
     public var tree: String?
-    public var hash: String? { file ?? directory }
-    public var kind: ProtocolEntryKind? { file != nil ? .file : directory != nil ? .directory : nil }
+    public var hash: String? { file ?? page ?? directory }
+    public var kind: ProtocolEntryKind? { file != nil ? .file : page != nil ? .page : directory != nil ? .directory : nil }
 
-    public init(name: String, file: String? = nil, directory: String? = nil, tree: String? = nil) {
+    public init(name: String, file: String? = nil, directory: String? = nil, tree: String? = nil, page: String? = nil) {
         self.name = name
         self.file = file
+        self.page = page
         self.directory = directory
         self.tree = tree
+    }
+
+    /// The entry for Markdown `bytes` named `name`: in a tree that holds pages
+    /// (`pages`), the page they read as, else a file, as directory format §3
+    /// reads them. `store` keeps an object's bytes and returns its hash.
+    public static func markdown(name: String, bytes: Data, pages: Bool, store: (Data) throws -> String) rethrows -> ProtocolDirectoryEntry {
+        if pages, ProtocolPage.isPageName(name), let page = ProtocolPage.parse(bytes), let encoded = try? page.encoded() {
+            return ProtocolDirectoryEntry(name: name, page: try store(encoded))
+        }
+        return ProtocolDirectoryEntry(name: name, file: try store(bytes))
     }
 }
 
@@ -103,6 +120,7 @@ public struct ProtocolDirectoryEntry: Hashable, Codable, Sendable {
 /// directory entries, never payload sniffing, supply the interpretation.
 public enum ProtocolObject: Hashable, Sendable {
     case file(Data)
+    case page(ProtocolPage)
     case directory([ProtocolDirectoryEntry], collection: ProtocolCollectionReference? = nil)
     case table(ProtocolTable)
     /// A `rows` chunk, checked for shape; its rows stay encoded.
@@ -115,6 +133,8 @@ public enum ProtocolObjectCodec {
         switch object {
         case let .file(bytes):
             return bytes
+        case let .page(page):
+            return try page.encoded()
         case let .directory(entries, collection):
             return directoryBytes(entries, collection: collection)
         case let .table(table):
@@ -134,6 +154,7 @@ public enum ProtocolObjectCodec {
                 .map([
                     ("name", .text(entry.name)),
                     entry.file.map { ("file", .text($0)) }
+                        ?? entry.page.map { ("page", .text($0)) }
                         ?? entry.directory.map { ("directory", .text($0)) }
                         ?? ("tree", .text(entry.tree!))
                 ])
@@ -144,11 +165,11 @@ public enum ProtocolObjectCodec {
     }
 
     /// The objects an object of `kind` reaches directly: a directory's entries
-    /// and then its collection's tables, a table's rows chunks. Files and rows
-    /// reach nothing. Every walk of the object graph follows these edges.
+    /// and then its collection's tables, a table's rows chunks. Files, pages
+    /// and rows reach nothing. Every walk of the object graph follows these edges.
     public static func references(_ bytes: Data, kind: ProtocolObjectKind) throws -> [(hash: String, kind: ProtocolObjectKind)] {
         switch kind {
-        case .file, .rows:
+        case .file, .page, .rows:
             return []
         case .directory, .table:
             return try decode(bytes, kind: kind).references
@@ -158,6 +179,7 @@ public enum ProtocolObjectCodec {
     public static func decode(_ bytes: Data, kind: ProtocolObjectKind) throws -> ProtocolObject {
         switch kind {
         case .file: return .file(bytes)
+        case .page: return .page(try ProtocolPage.decode(bytes))
         case .table: return .table(try decodeTable(bytes))
         case .rows: try checkRows(bytes); return .rows(bytes)
         case .directory: break
@@ -182,12 +204,13 @@ public enum ProtocolObjectCodec {
                 let item = Dictionary(uniqueKeysWithValues: fields)
                 guard case let .text(name)? = item["name"] else { throw ProtocolValidationError.invalidCBOR("Directory entry name is missing") }
                 let file = item["file"].flatMap { if case let .text(value) = $0 { value } else { nil } }
+                let page = item["page"].flatMap { if case let .text(value) = $0 { value } else { nil } }
                 let directory = item["directory"].flatMap { if case let .text(value) = $0 { value } else { nil } }
                 let tree = item["tree"].flatMap { if case let .text(value) = $0 { value } else { nil } }
-                guard item.count == 2, [file != nil, directory != nil, tree != nil].filter({ $0 }).count == 1 else {
+                guard item.count == 2, [file != nil, page != nil, directory != nil, tree != nil].filter({ $0 }).count == 1 else {
                     throw ProtocolValidationError.invalidCBOR("Directory entry target is invalid")
                 }
-                return ProtocolDirectoryEntry(name: name, file: file, directory: directory, tree: tree)
+                return ProtocolDirectoryEntry(name: name, file: file, directory: directory, tree: tree, page: page)
             }
             let collection = try values["collection"].map(decodeCollection)
             object = .directory(decoded, collection: collection)
@@ -355,7 +378,7 @@ public enum ProtocolObjectCodec {
                 throw ProtocolValidationError.invalidValue("Directory entries are not sorted by UTF-8 bytes")
             }
             previous = utf8
-            guard [entry.file != nil, entry.directory != nil, entry.tree != nil].filter({ $0 }).count == 1 else {
+            guard [entry.file != nil, entry.page != nil, entry.directory != nil, entry.tree != nil].filter({ $0 }).count == 1 else {
                 throw ProtocolValidationError.invalidValue("Directory entry must have exactly one target")
             }
             if let hash = entry.hash { try validateObjectHash(hash) }
@@ -384,7 +407,7 @@ public extension ProtocolObject {
     /// The objects this one reaches directly, as `ProtocolObjectCodec.references` gives them.
     var references: [(hash: String, kind: ProtocolObjectKind)] {
         switch self {
-        case .file, .rows:
+        case .file, .page, .rows:
             return []
         case let .directory(entries, collection):
             var references: [(hash: String, kind: ProtocolObjectKind)] = []
@@ -461,7 +484,7 @@ public enum ProtocolObjectGraph {
     ///
     /// - `complete`: every hash reachable from the root has an object.
     /// - `sparseFiles`: the root must be a present directory; a reachable hash
-    ///   with no object is allowed and is taken to be a file whose bytes are
+    ///   with no object is allowed and is taken to be a file or page whose bytes are
     ///   resolvable elsewhere; an object that is not reachable is still rejected,
     ///   as is a cycle. Used for daemon bootstraps and locally sparsified bundles.
     public enum ValidationMode: Sendable, Equatable {
@@ -497,7 +520,7 @@ public enum ProtocolObjectGraph {
             if visiting.contains(hash) { throw ProtocolValidationError.cyclicGraph(hash) }
             if visited.contains(hash) { return }
             guard let bytes = bytesByHash[hash] else {
-                if mode == .sparseFiles && kind == .file { visited.insert(hash); return }
+                if mode == .sparseFiles && (kind == .file || kind == .page) { visited.insert(hash); return }
                 throw ProtocolValidationError.incompleteGraph(hash)
             }
             let object = try ProtocolObjectCodec.decode(bytes, kind: kind)
@@ -512,6 +535,21 @@ public enum ProtocolObjectGraph {
             throw ProtocolValidationError.unreachableObject(unreachable)
         }
         return objects
+    }
+}
+
+public extension ProtocolObjectGraph {
+    /// Whether any directory reachable from `root` holds a page entry: a
+    /// placement reads Markdown as pages once the root it builds on does
+    /// (directory format §3). Directories missing from `objects` hold none.
+    static func holdsPages(_ root: String, in objects: [String: ProtocolObject]) -> Bool {
+        var seen = Set<String>()
+        func visit(_ hash: String) -> Bool {
+            guard seen.insert(hash).inserted, case let .directory(entries, _)? = objects[hash] else { return false }
+            if entries.contains(where: { $0.page != nil }) { return true }
+            return entries.contains { entry in entry.directory.map(visit) ?? false }
+        }
+        return visit(root)
     }
 }
 

@@ -134,6 +134,7 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
         case "replaceEntry":
             try keys(v, ["key", "kind", "source", "value"]); try reference(v["source"], entry: true); let value = try object(v["value"])
             if value["file"] != nil { try keys(value, ["file"]); try hash(value["file"]) }
+            else if value["page"] != nil { try keys(value, ["page"]); try hash(value["page"]) }
             else if value["directory"] != nil { try keys(value, ["directory"]); try hash(value["directory"]) }
             else { try reference(.object(value), entry: true) }
         case "addEntry":
@@ -141,7 +142,16 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
             let d = try object(v["destination"]); try keys(d, ["parent", "name"]); try reference(d["parent"], entry: true); try component(d["name"])
             let value = try object(v["value"])
             if value["file"] != nil { try keys(value, ["file"]); try hash(value["file"]) }
+            else if value["page"] != nil { try keys(value, ["page"]); try hash(value["page"]) }
             else { try keys(value, ["directory"]); try hash(value["directory"]) }
+        case let kind? where ["set", "connect", "disconnect", "move"].contains(kind) && v["page"] != nil:
+            // A page target (spec 10 §4.1): any property but `id`, values in the page JSON spelling.
+            let fields: [String: [String]] = ["set": ["field", "before", "value"], "connect": ["field", "member"],
+                "disconnect": ["field", "member"], "move": ["field", "member", "after"]]
+            try keys(v, ["key", "kind", "page"] + fields[kind]!); try reference(v["page"], entry: true)
+            let field = try text(v["field"], 4096); try check(!field.isEmpty && field != "id" && !field.contains("\0"))
+            for value in [v["before"], v["value"], v["member"], v["after"]] { if let value { try json(value) } }
+            if kind == "move", v["after"] != .null { try check(v["after"] != v["member"]) }
         case "rowCreate", "rowDelete", "set", "connect", "disconnect", "move":
             let fields: [String: [String]] = ["rowCreate": ["values"], "rowDelete": [], "set": ["field", "before", "value"],
                 "connect": ["field", "member"], "disconnect": ["field", "member"], "move": ["field", "member", "after"]]

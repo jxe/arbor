@@ -217,6 +217,8 @@ enum StoryVisitSnapshot {
                     if entry.name.hasSuffix(".md") || entry.name.hasSuffix(".mdx") {
                         keep.insert(child)
                     }
+                case .page?:
+                    keep.insert(child)
                 case .table?, .rows?, nil:
                     continue
                 }

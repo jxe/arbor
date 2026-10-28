@@ -35,6 +35,9 @@ public struct EntryTransfer: Codable, Equatable, Sendable {
             if let old = a.file, let file = b.file {
                 if old != file { changes[path.joined(separator:"/")] = file }; return
             }
+            if let old = a.page, let page = b.page {
+                if old != page { changes[path.joined(separator:"/")] = page }; return
+            }
             guard let x = a.directory,let y = b.directory,let xb = before[x],let yb = after[y],
                   case let .directory(xs,xd) = try ProtocolObjectCodec.decode(xb,kind:.directory),
                   case let .directory(ys,yd) = try ProtocolObjectCodec.decode(yb,kind:.directory), xd == yd,
@@ -102,7 +105,18 @@ public struct EntryTransfer: Codable, Equatable, Sendable {
                 guard let directoryHash = selected.directory, let next = try directory(directoryHash).0.first(where: { $0.name == part }) else { throw invalid() }
                 selected = next
             }
-            guard let hash = selected.file, let old = objects[hash], let new = objects[rewrite.value], let oldText = String(data: old, encoding: .utf8), let text = String(data: new, encoding: .utf8) else { throw invalid() }
+            // A page's edit addresses its body; one that changes its properties has no edit to say it.
+            func readable(_ bytes: Data, page: Bool) throws -> (text: String, page: ProtocolPage?) {
+                guard page else { guard let text = String(data: bytes, encoding: .utf8) else { throw invalid() }; return (text, nil) }
+                let decoded = try ProtocolPage.decode(bytes)
+                guard let text = String(data: decoded.body, encoding: .utf8) else { throw invalid() }
+                return (text, decoded)
+            }
+            let isPage = selected.page != nil
+            guard let hash = selected.file ?? selected.page, let oldBytes = objects[hash], let newBytes = objects[rewrite.value] else { throw invalid() }
+            let (oldText, oldPage) = try readable(oldBytes, page: isPage), (text, newPage) = try readable(newBytes, page: isPage)
+            guard oldPage?.id == newPage?.id, oldPage?.properties == newPage?.properties else { throw invalid() }
+            let old = Data(oldText.utf8)
             var start = 0, end = 0
             let a = Array(oldText.unicodeScalars), b = Array(text.unicodeScalars)
             while start < min(a.count,b.count), a[start] == b[start] { start += 1 }
@@ -115,10 +129,12 @@ public struct EntryTransfer: Codable, Equatable, Sendable {
             operations.append(try ProtocolSourceOperation(["key":.string("copy-edit-\(index)"),"kind":.string("editSource"),"source":.object(source),"text":.string(replacement)]))
             let filePath = target + relative
             root = try change(root,Array(filePath.dropLast())) { entries in
-                if let i = entries.firstIndex(where: { $0.name == filePath.last }) { entries[i].file = rewrite.value }
+                if let i = entries.firstIndex(where: { $0.name == filePath.last }) {
+                    if isPage { entries[i].page = rewrite.value } else { entries[i].file = rewrite.value }
+                }
             }
         }
-        let result = try ProtocolGraph.reachable(from: root, in: objects) { _, kind in if kind != .file { throw invalid() } }
+        let result = try ProtocolGraph.reachable(from: root, in: objects) { _, kind in if kind != .file && kind != .page { throw invalid() } }
         return (result, operations)
     }
 }

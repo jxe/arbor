@@ -100,6 +100,11 @@ enum AcceptedReadValidation {
                 try name(row["model"]); let key=try string(row["key"]); try check(!key.isEmpty && key.utf8.count<=4096)
                 if row["field"] != .null { try name(row["field"]) }
             }
+            // A property choice names its page's property the same way.
+            try check((d["property"] != nil)==(d["kind"] == .string("property")))
+            if d["kind"] == .string("property") {
+                let property=try string(d["property"]); try check(!property.isEmpty && property != "id" && !property.contains("\0"))
+            }
             let alternatives=try array(d["alternatives"]); try check(alternatives.count>=2); var names=Set<String>()
             for raw in alternatives {
                 let a=try object(raw); try required(a,["id","revision","value","contributions"]); try id(a["id"]); try id(a["revision"])
@@ -107,14 +112,14 @@ enum AcceptedReadValidation {
                 let value=try object(a["value"]); try check(value.count==1); let kind=value.keys.first!
                 switch kind {
                 case "text": _=try string(value["text"])
-                case "file","directory": try hash(value[kind])
+                case "file","page","directory": try hash(value[kind])
                 case "tree": try token(value["tree"])
                 case "absent": try check(value["absent"] == .bool(true))
-                case "value": try check(d["kind"] == .string("field"))
+                case "value": try check(d["kind"] == .string("field") || d["kind"] == .string("property"))
                 default: try check(false)
                 }
                 if let placement=a["placement"] {
-                    try check(["file","directory","tree"].contains(kind)); let p=try object(placement); try required(p,["parent","name"]); try reference(p["parent"],entry:true)
+                    try check(["file","page","directory","tree"].contains(kind)); let p=try object(placement); try required(p,["parent","name"]); try reference(p["parent"],entry:true)
                     try reference(.object(["material":.object(["kind":.string("basis"),"path":.string("/"),"object":v["root"]!]),"within":.array([p["name"]!])]))
                 }
             }

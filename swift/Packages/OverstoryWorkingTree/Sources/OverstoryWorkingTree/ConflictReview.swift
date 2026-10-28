@@ -35,6 +35,9 @@ public struct ConflictReviewAlternative: Codable, Equatable, Identifiable, Senda
         public let directory: String?
         public let tree: String?
         public let absent: Bool?
+        public var page: String? = nil
+        /// A property choice's value in the page JSON spelling, `.null` for absent.
+        public var value: ProtocolSemanticValue? = nil
     }
     public struct Placement: Codable, Equatable, Sendable {
         public let parent: ConflictReviewMaterial
@@ -51,6 +54,10 @@ public struct ConflictReviewAlternative: Codable, Equatable, Identifiable, Senda
         .init(id: "current", revision: root, value: .init(text: nil, file: nil, directory: root, tree: nil, absent: nil), placement: nil)
     }
     public var summary: String {
+        if let json = value.value {
+            guard json != .null, let page = try? PageValue(json: json) else { return "No value" }
+            return ProtocolPage.valueText(page).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if value.absent == true { return "Deleted" }
         if value.directory != nil { return "Directory version" }
         if value.tree != nil { return "Linked tree" }
@@ -66,6 +73,8 @@ public struct ConflictReviewDecision: Codable, Equatable, Identifiable, Sendable
     public let alternatives: [ConflictReviewAlternative]
     public let dependencies: [String]
     public let actions: [String]
+    /// A property choice's property of the page `affected` names.
+    public var property: String? = nil
     public var path: String? {
         alternatives.first(where: { $0.id == selected })?.placement?.path
             ?? alternatives.compactMap { $0.placement?.path }.first
@@ -81,6 +90,7 @@ public struct ConflictReviewDecision: Codable, Equatable, Identifiable, Sendable
         return name
     }
     public var summary: String {
+        if kind == "property", let property { return "Two values for \(property)" }
         if alternatives.contains(where: { $0.value.absent == true }) { return "Deleted in one version, kept in another" }
         if Set(alternatives.compactMap { $0.placement?.path }).count > 1 { return "Moved to different places" }
         if sourceRange != nil { return "Edited in two places" }
@@ -96,6 +106,7 @@ public struct ConflictReviewDecision: Codable, Equatable, Identifiable, Sendable
     }
     /// What resolving this decision replaces, in the person's terms.
     public var scope: String {
+        if kind == "property", let property { return "\(property) of \(title)" }
         if sourceRange != nil { return "Part of \(title)" }
         if path == "/" { return "The whole tree" }
         if alternatives.contains(where: { $0.value.directory != nil }) { return "The folder \(title)" }
@@ -104,11 +115,11 @@ public struct ConflictReviewDecision: Codable, Equatable, Identifiable, Sendable
     /// Whether this decision can be resolved without other declarations.
     /// Group compilation separately checks every structural and material obligation.
     public var supportsIndependentResolution: Bool {
-        if sourceRange != nil { return dependencies.isEmpty && actions.contains("resolveConflict") }
+        if sourceRange != nil || kind == "property" { return dependencies.isEmpty && actions.contains("resolveConflict") }
         return dependencies.isEmpty && actions.contains("resolveConflict") &&
         affected.allSatisfy { $0.range == nil } &&
         (kind == "entry" && Set(alternatives.compactMap { $0.placement?.path }).count == 1 &&
-         alternatives.allSatisfy { $0.value.file != nil || $0.value.absent == true })
+         alternatives.allSatisfy { $0.value.file != nil || $0.value.page != nil || $0.value.absent == true })
     }
 }
 
@@ -311,4 +322,31 @@ public struct ConflictReviewEntryDifference: Sendable, Identifiable {
     public let other: ProtocolDirectoryEntry?
     public let content: Data?
     public let otherContent: Data?
+}
+
+extension ConflictReviewAlternative.Value {
+    private enum CodingKeys: String, CodingKey { case text, file, directory, tree, absent, page, value }
+
+    // A property choice's absent value is JSON null, which must survive a round trip.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = try c.decodeIfPresent(String.self, forKey: .text)
+        file = try c.decodeIfPresent(String.self, forKey: .file)
+        directory = try c.decodeIfPresent(String.self, forKey: .directory)
+        tree = try c.decodeIfPresent(String.self, forKey: .tree)
+        absent = try c.decodeIfPresent(Bool.self, forKey: .absent)
+        page = try c.decodeIfPresent(String.self, forKey: .page)
+        value = c.contains(.value) ? try c.decode(ProtocolSemanticValue.self, forKey: .value) : nil
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(text, forKey: .text)
+        try c.encodeIfPresent(file, forKey: .file)
+        try c.encodeIfPresent(directory, forKey: .directory)
+        try c.encodeIfPresent(tree, forKey: .tree)
+        try c.encodeIfPresent(absent, forKey: .absent)
+        try c.encodeIfPresent(page, forKey: .page)
+        if let value { try c.encode(value, forKey: .value) }
+    }
 }

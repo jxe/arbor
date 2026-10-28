@@ -134,8 +134,20 @@ public struct LocalChange: Codable, Equatable, Sendable {
         // Directories along the path, by depth: their basis hash and the hash the final generation produced.
         var baseDirectories: [Int: String] = [:], resultDirectories: [Int: String] = [:]
         var file: String?, basisFile: String?
+        // Markdown is a page entry once the basis holds pages (directory format §3).
+        let pages = ProtocolObjectGraph.holdsPages(graph.root, in: decoded)
+        func markdown(_ name: String, _ source: String) throws -> ProtocolDirectoryEntry {
+            if pages, ProtocolPage.isPageName(name), let page = ProtocolPage.parse(Data(source.utf8)) {
+                return ProtocolDirectoryEntry(name: name, page: try store(.page(page)))
+            }
+            return ProtocolDirectoryEntry(name: name, file: try store(.file(Data(source.utf8))))
+        }
+        // When the edited entry is a page, its operations address the body,
+        // which starts this many bytes into the source (spec 10 §4.1); nil
+        // for a file. An edit the page's operations can't say goes as a snapshot.
+        var bodyStart: Int?, basisIsPage = false, snapshotOnly = false
         // A directory's first body, added by this generation: where and what.
-        var addedBody: (parentPath: String, parent: String, file: String)?
+        var addedBody: (parentPath: String, parent: String, file: ProtocolDirectoryEntry)?
         func replace(_ hash: String, _ depth: Int, from previous: String, to source: String, first: Bool) throws -> String {
             guard case let .directory(originalEntries, descriptor)? = decoded[hash] else { throw Self.invalid("Source path is not in basis") }
             var entries = originalEntries
@@ -144,18 +156,29 @@ public struct LocalChange: Codable, Equatable, Sendable {
             // with a fabricated empty-file identity.
             if depth == parts.count - 1, parts[depth] == "_index.md",
                !entries.contains(where: { $0.name == parts[depth] }), previous.isEmpty {
-                let body = try store(.file(Data(source.utf8)))
+                let body = try markdown(parts[depth], source)
                 addedBody = (depth == 0 ? "/" : "/" + parts[..<depth].joined(separator: "/"), hash, body)
-                entries.append(ProtocolDirectoryEntry(name: parts[depth], file: body))
+                entries.append(body)
                 entries.sort { Array($0.name.utf8).lexicographicallyPrecedes(Array($1.name.utf8)) }
                 return try store(.directory(entries, collection: descriptor))
             }
             guard let index = entries.firstIndex(where: { $0.name == parts[depth] }) else { throw Self.invalid("Source path is not in basis") }
             if depth == parts.count - 1 {
-                guard let current = entries[index].file, case let .file(value)? = decoded[current],
-                      value == Data(previous.utf8) else { throw Self.invalid("Source bytes do not match basis") }
-                file = current
-                entries[index].file = try store(.file(Data(source.utf8)))
+                if let current = entries[index].page {
+                    guard case let .page(page)? = decoded[current], page.isHeld(by: Data(previous.utf8)) else {
+                        throw Self.invalid("Source bytes do not match basis")
+                    }
+                    file = current
+                    bodyStart = previous.utf8.count - ProtocolPage.splitFrontmatter(previous).body.utf8.count
+                    let next = ProtocolPage.parse(Data(source.utf8))
+                    if next?.id != page.id || next?.properties != page.properties { snapshotOnly = true }
+                } else {
+                    guard let current = entries[index].file, case let .file(value)? = decoded[current],
+                          value == Data(previous.utf8) else { throw Self.invalid("Source bytes do not match basis") }
+                    file = current
+                    bodyStart = nil
+                }
+                entries[index] = try markdown(parts[depth], source)
             } else {
                 guard let directory = entries[index].directory else { throw Self.invalid("Source path crosses a file or tree boundary") }
                 entries[index].directory = try replace(directory, depth + 1, from: previous, to: source, first: first)
@@ -177,6 +200,11 @@ public struct LocalChange: Codable, Equatable, Sendable {
             for (index, part) in parts.enumerated() {
                 guard case let .directory(entries, _)? = decoded[hash], let entry = entries.first(where: { $0.name == part }) else { throw Self.invalid("Copy source missing from basis") }
                 if index == parts.count - 1 {
+                    // A copy out of a page goes as a snapshot.
+                    if let value = entry.page, case let .page(page)? = decoded[value], page.isHeld(by: Data(document.source.utf8)) {
+                        snapshotOnly = true
+                        return .object(["kind":.string("basis"),"path":.string(document.path),"object":.string(value)])
+                    }
                     guard let value = entry.file, case let .file(bytes)? = decoded[value], bytes == Data(document.source.utf8) else { throw Self.invalid("Copy source changed or crosses a tree boundary") }
                     return .object(["kind":.string("basis"),"path":.string(document.path),"object":.string(value)])
                 }
@@ -192,14 +220,25 @@ public struct LocalChange: Codable, Equatable, Sendable {
         for (frame, generation) in generations.enumerated() {
             file = nil; addedBody = nil
             let root = try replace(previousRoot, 0, from: previousSource, to: generation.source, first: frame == 0)
-            if frame == 0 { basisFile = file }
+            if frame == 0 { basisFile = file; basisIsPage = bodyStart != nil }
+            // A page's operations address its body: shift every range, and
+            // leave a range into the front matter, a copy or lineage to a snapshot.
+            func shifted(_ range: Range<Int>) -> Range<Int> {
+                guard let start = bodyStart else { return range }
+                guard range.lowerBound >= start else { snapshotOnly = true; return range }
+                return (range.lowerBound - start)..<(range.upperBound - start)
+            }
+            if bodyStart != nil, generation.patch.edits.contains(where: { !($0.lineage ?? []).isEmpty || !($0.copies ?? []).isEmpty }) {
+                snapshotOnly = true
+            }
             sources[root] = generation.source
             let basisSource = Array(previousSource.utf8)
             // Moves precede the frame's edits, which address basis bytes
             // wherever the moves put them (`WorkspaceSourceArrangement`).
             let moves = try (file == nil ? [] : generation.patch.moves ?? []).enumerated().map { index, move -> ProtocolSourceOperation in
                 func ref(_ range: Range<Int>) -> ProtocolSemanticValue {
-                    .object(["material": .object(["kind": .string("basis"), "path": .string(sourcePath), "object": .string(file!)]),
+                    let range = shifted(range)
+                    return .object(["material": .object(["kind": .string("basis"), "path": .string(sourcePath), "object": .string(file!)]),
                              "range": .array([.integer(range.lowerBound), .integer(range.upperBound)])])
                 }
                 return try ProtocolSourceOperation(["key": .string("move-\(frame)-\(index)"), "kind": .string("moveSource"),
@@ -219,10 +258,11 @@ public struct LocalChange: Codable, Equatable, Sendable {
                         "source":.object(["material":try copyMaterial(copies[0], file: file),"range":.array([.integer(copies[0].source.lowerBound),.integer(copies[0].source.upperBound)])]),
                         "at":.object(["material":material,"range":.array([.integer(edit.utf8Range.lowerBound),.integer(edit.utf8Range.lowerBound)])]),"side":.string("before")])]
                 }
+                let range = shifted(edit.utf8Range)
                 var fields: [String: ProtocolSemanticValue] = [
                     "key": .string(key), "kind": .string("editSource"),
                     "source": .object(["material": .object(["kind": .string("basis"), "path": .string(sourcePath), "object": .string(file)]),
-                                       "range": .array([.integer(edit.utf8Range.lowerBound), .integer(edit.utf8Range.upperBound)])]),
+                                       "range": .array([.integer(range.lowerBound), .integer(range.upperBound)])]),
                     "text": .string(edit.replacement)
                 ]
                 if let lineage = edit.lineage {
@@ -252,7 +292,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
                         "parent": .object(["material": .object(["kind": .string("basis"), "path": .string(added.parentPath), "object": .string(added.parent)])]),
                         "name": .string("_index.md"),
                     ]),
-                    "value": .object(["file": .string(added.file)]),
+                    "value": .object(added.file.page.map { ["page": .string($0)] } ?? ["file": .string(added.file.file!)]),
                 ])]
             }
             // A generation without operations cannot be a frame; the whole
@@ -271,6 +311,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
             if compacted.allSatisfy({ frame in Self.reproduces(frame, sourcePath: sourcePath, sources: sources) }) { frames = compacted }
         }
         if frames.count > Self.traceFrameLimit || frames.reduce(0, { $0 + $1.operations.count }) > Self.traceOperationLimit { evidence = false }
+        if snapshotOnly { evidence = false }
         let known = Set(graph.objects.map(\.hash))
         var update = ProtocolCandidateUpdate(candidate: root, change: change,
                                          trace: evidence && !frames.isEmpty ? frames : nil,
@@ -282,7 +323,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
         // after the final publication boundaries are known.
         if case .accepted = basis {
             var deltas: [ProtocolObjectDelta] = []
-            if let file = basisFile,
+            if let file = basisFile, !basisIsPage,
                let resultHash = (try? ProtocolObjectCodec.encode(.file(Data(intent.source.utf8)))).map(ProtocolObjectCodec.hash),
                let result = update.objects.first(where: { $0.hash == resultHash }),
                let delta = intent.patch.moves == nil
@@ -983,7 +1024,7 @@ extension LocalChange {
         return before == after
     }
 
-    /// The file object at an absolute `path` in `snapshot`, when there is one.
+    /// The file or page object at an absolute `path` in `snapshot`, when there is one.
     static func file(at path: String, in snapshot: ProtocolSnapshot) throws -> String? {
         let objects = Dictionary(snapshot.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
         var hash = snapshot.root
@@ -991,7 +1032,7 @@ extension LocalChange {
         for (index, part) in parts.enumerated() {
             guard let bytes = objects[hash], case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: .directory),
                   let entry = entries.first(where: { $0.name == part }) else { return nil }
-            if index == parts.count - 1 { return entry.file }
+            if index == parts.count - 1 { return entry.file ?? entry.page }
             guard let directory = entry.directory else { return nil }
             hash = directory
         }

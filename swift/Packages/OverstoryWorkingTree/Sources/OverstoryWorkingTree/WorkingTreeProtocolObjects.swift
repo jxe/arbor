@@ -25,6 +25,12 @@ enum WorkingTreeProtocolCodec {
             return hash
         }
 
+        /// Markdown is a page entry once the tree holds pages (directory format §3).
+        let pages = state.pages == true
+        func markdown(_ name: String, _ bytes: Data) -> ProtocolDirectoryEntry {
+            ProtocolDirectoryEntry.markdown(name: name, bytes: bytes, pages: pages, store: store)
+        }
+
         func reference(_ ref: ContentRef?) -> String {
             switch ref {
             case let .inline(bytes)?: return store(bytes)
@@ -51,7 +57,7 @@ enum WorkingTreeProtocolCodec {
             }
             var entries: [ProtocolDirectoryEntry] = []
             if let source = node.source, node.directoryBodyPlacement != .siblingMarkdown {
-                entries.append(ProtocolDirectoryEntry(name: "_index.md", file: store(Data(source.utf8))))
+                entries.append(markdown("_index.md", Data(source.utf8)))
             }
             let children = (childrenByParent[path] ?? [])
                 .sorted { WorkingTreeSemantics.compareUTF8(WorkingTreeSemantics.name(of: $0.path), WorkingTreeSemantics.name(of: $1.path)) }
@@ -61,14 +67,18 @@ enum WorkingTreeProtocolCodec {
                 case .directory:
                     entries.append(ProtocolDirectoryEntry(name: name, directory: try buildDirectory(at: child.path)))
                     if child.directoryBodyPlacement == .siblingMarkdown, let source = child.source {
-                        entries.append(ProtocolDirectoryEntry(name: name + ".md", file: store(Data(source.utf8))))
+                        entries.append(markdown(name + ".md", Data(source.utf8)))
                     } else if let shadowed = child.shadowedSiblingMarkdownSource {
-                        entries.append(ProtocolDirectoryEntry(name: name + ".md", file: store(Data(shadowed.utf8))))
+                        entries.append(markdown(name + ".md", Data(shadowed.utf8)))
                     }
                 case .markdown:
-                    entries.append(ProtocolDirectoryEntry(name: name + ".md", file: store(Data((child.source ?? "").utf8))))
+                    entries.append(markdown(name + ".md", Data((child.source ?? "").utf8)))
                 case .file:
-                    entries.append(ProtocolDirectoryEntry(name: name, file: reference(child.ref)))
+                    if case let .inline(bytes)? = child.ref, ProtocolPage.isPageName(name) {
+                        entries.append(markdown(name, bytes))
+                    } else {
+                        entries.append(ProtocolDirectoryEntry(name: name, file: reference(child.ref)))
+                    }
                 case .boundary:
                     guard let tree = child.boundaryTree, !tree.isEmpty else {
                         throw WorkingTreeError.corruptState("Nested tree boundary is empty")

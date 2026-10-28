@@ -25,11 +25,14 @@ public enum SnapshotBridge {
             parent == "/" ? "/\(name)" : "\(parent)/\(name)"
         }
 
+        /// A file's bytes, or the file a page is written as from nothing; the
+        /// working tree keeps a local spelling that reads as the same page.
         func fileBytes(_ hash: String) throws -> Data {
-            guard case let .file(bytes)? = objects[hash] else {
-                throw ProtocolValidationError.incompleteGraph(hash)
+            switch objects[hash] {
+            case let .file(bytes)?: return bytes
+            case let .page(page)?: return page.canonicalFile
+            default: throw ProtocolValidationError.incompleteGraph(hash)
             }
-            return bytes
         }
 
         func snapshotBytes(_ hash: String) throws -> Data {
@@ -63,7 +66,8 @@ public enum SnapshotBridge {
                 return entry.name
             })
             let siblingBodies = Dictionary(grouping: entries.compactMap { entry -> (stem: String, name: String)? in
-                guard let hash = entry.hash, case .file? = objects[hash] else { return nil }
+                guard let hash = entry.hash, let object = objects[hash] else { return nil }
+                switch object { case .file, .page: break; default: return nil }
                 for suffix in [".md", ".mdx"] where entry.name.hasSuffix(suffix) {
                     return (String(entry.name.dropLast(suffix.count)), entry.name)
                 }
@@ -107,7 +111,7 @@ public enum SnapshotBridge {
                 }
                 guard let object = objects[childHash] else {
                     guard sparse else { throw ProtocolValidationError.incompleteGraph(childHash) }
-                    guard !entry.name.hasSuffix(".md") else {
+                    guard !entry.name.hasSuffix(".md"), entry.page == nil else {
                         throw ProtocolValidationError.incompleteGraph("Markdown \(destination) is not in the sparse snapshot")
                     }
                     try appendNode(WorkingTreeSystemNode(
@@ -132,7 +136,8 @@ public enum SnapshotBridge {
                         siblingSource = nil
                     }
                     try visitDirectory(childHash, path: destination, siblingMarkdownSource: siblingSource)
-                case let .file(bytes):
+                case .file, .page:
+                    let bytes = try fileBytes(childHash)
                     if entry.name.hasSuffix(".md") {
                         let logicalName = String(entry.name.dropLast(3))
                         if directoryNames.contains(logicalName) { continue }
@@ -153,7 +158,8 @@ public enum SnapshotBridge {
         }
 
         try visitDirectory(snapshot.root, path: "/")
-        return WorkingTreeSystemReplacement(root: snapshot.root, update: update, cursor: cursor, nodes: nodes, acceptedAt: acceptedAt)
+        return WorkingTreeSystemReplacement(root: snapshot.root, update: update, cursor: cursor, nodes: nodes, acceptedAt: acceptedAt,
+                                            pages: ProtocolObjectGraph.holdsPages(snapshot.root, in: objects))
     }
 
     public static func inferredMediaType(for name: String) -> String? {

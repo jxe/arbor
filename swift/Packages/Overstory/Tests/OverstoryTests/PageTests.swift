@@ -75,4 +75,26 @@ struct PageTests {
         #expect(ProtocolPage.numberText(-0.25) == "-0.25")
         #expect(ProtocolPage.numberText(123.456) == "123.456")
     }
+
+    @Test("A directory names a page entry, and Markdown is a page once a tree holds one")
+    func pageEntries() throws {
+        let page = ProtocolPage(id: "p1", properties: [.init("title", .string("A"))], body: Data("Body\n".utf8))
+        let bytes = try ProtocolObjectCodec.encode(.page(page)), hash = ProtocolObjectCodec.hash(bytes)
+        #expect(try ProtocolObjectCodec.decode(bytes, kind: .page) == .page(page))
+        let directory = try ProtocolObjectCodec.encode(.directory([.init(name: "a.md", page: hash)]))
+        guard case let .directory(entries, _) = try ProtocolObjectCodec.decode(directory, kind: .directory) else { Issue.record("Not a directory"); return }
+        #expect(entries == [.init(name: "a.md", page: hash)])
+        #expect(entries[0].kind == .page && entries[0].hash == hash)
+        let snapshot = ProtocolSnapshot(root: ProtocolObjectCodec.hash(directory),
+                                        objects: [bytes, directory].map { .init(hash: ProtocolObjectCodec.hash($0), bytes: $0) })
+        #expect(ProtocolObjectGraph.holdsPages(snapshot.root, in: try ProtocolObjectGraph.validate(snapshot)))
+
+        var stored: [String: Data] = [:]
+        func store(_ data: Data) -> String { let hash = ProtocolObjectCodec.hash(data); stored[hash] = data; return hash }
+        let file = Data("---\nid: p1\ntitle: 'A'\n---\nBody\n".utf8)
+        #expect(ProtocolDirectoryEntry.markdown(name: "a.md", bytes: file, pages: true, store: store) == .init(name: "a.md", page: hash))
+        #expect(ProtocolDirectoryEntry.markdown(name: "a.md", bytes: file, pages: false, store: store).file != nil)
+        #expect(ProtocolDirectoryEntry.markdown(name: "a.md", bytes: Data("---\ntitle: [\n---\n".utf8), pages: true, store: store).file != nil)
+        #expect(ProtocolDirectoryEntry.markdown(name: "a.txt", bytes: file, pages: true, store: store).file != nil)
+    }
 }

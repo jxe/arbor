@@ -90,7 +90,7 @@ public enum ProtocolTransitionReplay {
             if visiting.contains(hash) { throw ProtocolValidationError.cyclicGraph(hash) }
             if visited.contains(hash) { return }
             guard let bytes = bytesByHash[hash] else {
-                if mode == .sparseFiles && kind == .file { visited.insert(hash); return }
+                if mode == .sparseFiles && (kind == .file || kind == .page) { visited.insert(hash); return }
                 throw ProtocolValidationError.incompleteGraph(hash)
             }
             let object = try ProtocolObjectCodec.decode(bytes, kind: kind)

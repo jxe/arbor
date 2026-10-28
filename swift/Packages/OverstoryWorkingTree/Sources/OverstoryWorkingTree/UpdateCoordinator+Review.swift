@@ -79,9 +79,14 @@ extension UpdateCoordinator {
 
     public func reviewContent(_ alternative: ConflictReviewAlternative) async throws -> Data? {
         if let text = alternative.value.text { return Data(text.utf8) }
-        guard let hash = alternative.value.file else { return nil }
+        if let json = alternative.value.value {
+            return Data((json == .null ? "" : ProtocolPage.valueText(try PageValue(json: json))).utf8)
+        }
+        guard let hash = alternative.value.file ?? alternative.value.page else { return nil }
         let bytes = try await transport.object(tree: workingTree.treeID().rawValue, hash: hash)
         guard ProtocolObjectCodec.hash(bytes) == hash else { throw UpdateError.returnedSnapshotMismatch }
+        // A page shows as the file it is written as.
+        if alternative.value.page != nil { return try ProtocolPage.decode(bytes).canonicalFile }
         return bytes
     }
 
@@ -133,8 +138,14 @@ extension UpdateCoordinator {
                         result.append(.init(path: child, entry: entry, other: other, content: nil, otherContent: nil))
                     }
                 } else {
-                    let content: Data? = if name.hasSuffix(".md"), let hash = entry?.file { try await load(hash) } else { nil }
-                    let otherContent: Data? = if name.hasSuffix(".md"), let hash = other?.file { try await load(hash) } else { nil }
+                    // A page shows as the file it is written as.
+                    func markdown(_ entry: ProtocolDirectoryEntry?) async throws -> Data? {
+                        guard name.hasSuffix(".md"), let entry else { return nil }
+                        if let hash = entry.file { return try await load(hash) }
+                        if let hash = entry.page { return try ProtocolPage.decode(await load(hash)).canonicalFile }
+                        return nil
+                    }
+                    let content = try await markdown(entry), otherContent = try await markdown(other)
                     result.append(.init(path: child, entry: entry, other: other, content: content, otherContent: otherContent))
                 }
             }
@@ -203,6 +214,7 @@ extension UpdateCoordinator {
             }
             var pending: [(hash: String, kind: ProtocolObjectKind)] = []
             if let file = alternative.value.file { pending.append((file, .file)) }
+            if let page = alternative.value.page { pending.append((page, .page)) }
             if let directory = alternative.value.directory { pending.append((directory, .directory)) }
             var visited = Set<String>()
             while let (hash, kind) = pending.popLast() {

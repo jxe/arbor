@@ -539,3 +539,71 @@ extension ProtocolPage {
         return canonicalFile
     }
 }
+
+// MARK: - JSON and property edits
+
+public extension PageValue {
+    /// A page value in its JSON spelling (spec 10 §4.1): `{"$date": text}`,
+    /// `{"$dateTime": text}`, and `{"$map": map}` around a map whose one key
+    /// is `$date`, `$dateTime` or `$map`, so each value has one spelling.
+    init(json: ProtocolSemanticValue) throws {
+        switch json {
+        case .null: self = .null
+        case let .bool(flag): self = .bool(flag)
+        case let .integer(number): self = .number(Double(number))
+        case let .number(number): self = .number(number)
+        case let .string(text): self = .string(text)
+        case let .array(items): self = .array(try items.map(PageValue.init(json:)))
+        case let .object(fields):
+            if fields.count == 1, let (key, value) = fields.first, Self.escapedKeys.contains(key) {
+                switch (key, value) {
+                case let ("$date", .string(text)) where ProtocolPage.validCanonicalDate(text): self = .date(text); return
+                case let ("$dateTime", .string(text)) where ProtocolPage.validCanonicalDateTime(text): self = .dateTime(text); return
+                case let ("$map", .object(inner)) where inner.count == 1 && Self.escapedKeys.contains(inner.keys.first!):
+                    self = .map(try inner.mapValues(PageValue.init(json:))); return
+                default: throw ProtocolValidationError.invalidValue("Invalid page value")
+                }
+            }
+            self = .map(try fields.mapValues(PageValue.init(json:)))
+        }
+    }
+
+    var json: ProtocolSemanticValue {
+        switch self {
+        case .null: .null
+        case let .bool(flag): .bool(flag)
+        case let .integer(number): .integer(number)
+        case let .float(number): .number(number)
+        case let .string(text): .string(text)
+        case let .date(text): .object(["$date": .string(text)])
+        case let .dateTime(text): .object(["$dateTime": .string(text)])
+        case let .array(items): .array(items.map(\.json))
+        case let .map(entries):
+            let fields = entries.mapValues(\.json)
+            if fields.count == 1, let key = fields.keys.first, Self.escapedKeys.contains(key) { .object(["$map": .object(fields)]) }
+            else { .object(fields) }
+        }
+    }
+
+    private static let escapedKeys: Set<String> = ["$date", "$dateTime", "$map"]
+}
+
+public extension ProtocolPage {
+    /// This page with `name` set to `value`, or removed when `value` is nil:
+    /// an existing property keeps its place, a new one goes at the end.
+    func setting(_ name: String, to value: PageValue?) -> ProtocolPage {
+        var next = self
+        if let index = next.properties.firstIndex(where: { $0.name == name }) {
+            if let value { next.properties[index].value = value } else { next.properties.remove(at: index) }
+        } else if let value {
+            next.properties.append(Property(name, value))
+        }
+        return next
+    }
+
+    /// A value as frontmatter writes it, for showing a choice: a scalar on
+    /// its own, a list or map as its block lines.
+    static func valueText(_ value: PageValue) -> String {
+        scalarText(value) ?? blockLines(value, indent: "")
+    }
+}
