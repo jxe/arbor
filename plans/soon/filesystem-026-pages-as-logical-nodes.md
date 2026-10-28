@@ -38,12 +38,16 @@ It was an item in [candidates](../candidates.md).
    may keep a page in any logically matching format. What every party must share is the one
    canonical encoding that roots are hashed over, since clients state roots and the host
    checks them.
+7. **Property types are YAML's** (Joe): the YAML 1.2 core schema (strings, numbers,
+   booleans, null, lists and maps) plus timestamps, encoded canonically. Pin 1.2 so `yes`
+   and `no` stay strings, and give dates one canonical encoding, since parsers differ on
+   them. Both stacks already parse YAML (`yaml` 2.9.1 in TS, Yams in Swift). USL types map
+   onto them: Text, Int, Number, Bool, Date and lists of them; a nested map has no USL field
+   type, so it stays an untyped property.
+8. **Existing pages switch** in one ordinary accepted update per tree that re-encodes every
+   page; history keeps the old bytes (Joe).
 
-## Still open
+## Next
 
-- **Property types without a schema** (Joe: think about it). Options: JSON-compatible
-  values only (dates as strings), with anything else kept as text; or YAML's own types,
-  dates included, in the canonical encoding.
-- **When existing pages switch to the canonical page encoding.** One ordinary accepted
-  update per tree that re-encodes every page (history keeps the old bytes), or each page on
-  its first edit, which leaves readers handling both forms for good.
+Write the spec changes (01 and 02: the page object, its canonical encoding, the placement's
+written form) as a proposal for Joe, then split the work into steps.
