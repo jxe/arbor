@@ -17,7 +17,7 @@ import {
   type RowMember,
   type RowOperation,
 } from "@ovst/protocol";
-import type { LogicalModel } from "@ovst/usl";
+import type { LogicalModel, LogicalTables } from "@ovst/usl";
 import { loadDirectoryCollection } from "./directory-collection.ts";
 import { replayCollectionRows } from "./row-replay.ts";
 
@@ -62,21 +62,17 @@ function fieldEdits(model: LogicalModel, before: LogicalRow, after: LogicalRow, 
   return true;
 }
 
-/** Row operations for one collection directory whose rows changed, or null when only operations on its rows can't explain the change. */
-async function collectionEdits(path: string, object: ObjectHash, before: ProtocolDirectory, after: ProtocolDirectory, read: Read): Promise<RowOperation[] | null> {
-  if (stableJSONString(before.entries) !== stableJSONString(after.entries)) return null;
-  if (before.collection!.modelFingerprint !== after.collection!.modelFingerprint) return null;
-  let left, right;
-  try {
-    [left, right] = [await loadDirectoryCollection(before, read), await loadDirectoryCollection(after, read)];
-  } catch {
-    return null;
-  }
-  const collection: Collection = { material: { kind: "basis", path, object } };
+/**
+ * The row operations that turn one collection's logical tables into another's,
+ * or null when operations on its rows can't: a row whose `created` changed, or
+ * a changed row whose `modified` didn't. Each operation is stamped with its
+ * row's new `modified` (a created row's, `created`). Keys are left empty.
+ */
+export function rowOperationsBetween(models: readonly LogicalModel[], before: LogicalTables, after: LogicalTables, collection: Collection): RowOperation[] | null {
   const operations: RowOperation[] = [];
-  for (const model of left!.schema.models) {
-    const rowsBefore = new Map((left!.tables[model.name] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow]));
-    const rowsAfter = new Map((right!.tables[model.name] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow]));
+  for (const model of models) {
+    const rowsBefore = new Map((before[model.name] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow]));
+    const rowsAfter = new Map((after[model.name] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow]));
     for (const [row, value] of rowsAfter) {
       const prior = rowsBefore.get(row);
       const op = (fields: Record<string, unknown>) => operations.push({ key: "", collection, model: model.name, row, ...fields } as RowOperation);
@@ -90,6 +86,19 @@ async function collectionEdits(path: string, object: ObjectHash, before: Protoco
       if (!rowsAfter.has(row)) operations.push({ key: "", kind: "rowDelete", collection, model: model.name, row });
   }
   return operations;
+}
+
+/** Row operations for one collection directory whose rows changed, or null when only operations on its rows can't explain the change. */
+async function collectionEdits(path: string, object: ObjectHash, before: ProtocolDirectory, after: ProtocolDirectory, read: Read): Promise<RowOperation[] | null> {
+  if (stableJSONString(before.entries) !== stableJSONString(after.entries)) return null;
+  if (before.collection!.modelFingerprint !== after.collection!.modelFingerprint) return null;
+  let left, right;
+  try {
+    [left, right] = [await loadDirectoryCollection(before, read), await loadDirectoryCollection(after, read)];
+  } catch {
+    return null;
+  }
+  return rowOperationsBetween(left!.schema.models, left!.tables, right!.tables, { material: { kind: "basis", path, object } });
 }
 
 /** Property operations for one page whose properties alone changed, or null

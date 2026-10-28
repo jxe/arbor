@@ -5,8 +5,8 @@
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@ovst/apps-runtime": "workspace:*",
     "@ovst/collection-schema": "workspace:*",
+    "@ovst/exec-protocol": "workspace:*",
     "@ovst/merge-protocol": "workspace:*",
     "@ovst/object-store": "workspace:*",
     "@ovst/protocol": "workspace:*",

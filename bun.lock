@@ -9,10 +9,12 @@
         "@ovst/cli": "workspace:*",
         "@ovst/client": "workspace:*",
         "@ovst/collection-schema": "workspace:*",
+        "@ovst/exec-protocol": "workspace:*",
         "@ovst/fs": "workspace:*",
         "@ovst/merge-protocol": "workspace:*",
         "@ovst/object-store": "workspace:*",
         "@ovst/overstoryd": "workspace:*",
+        "@ovst/overstoryd-exec": "workspace:*",
         "@ovst/overstoryd-merge": "workspace:*",
         "@ovst/protocol": "workspace:*",
         "@ovst/story-sync": "workspace:*",
@@ -79,6 +81,14 @@
         "csv-parse": "6.1.0",
       },
     },
+    "packages/exec-protocol": {
+      "name": "@ovst/exec-protocol",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ovst/protocol": "workspace:*",
+        "zod": "4.3.6",
+      },
+    },
     "packages/fs": {
       "name": "@ovst/fs",
       "version": "0.1.0",
@@ -106,13 +116,24 @@
       "name": "@ovst/overstoryd",
       "version": "0.1.0",
       "dependencies": {
-        "@ovst/apps-runtime": "workspace:*",
         "@ovst/collection-schema": "workspace:*",
+        "@ovst/exec-protocol": "workspace:*",
         "@ovst/merge-protocol": "workspace:*",
         "@ovst/object-store": "workspace:*",
         "@ovst/protocol": "workspace:*",
         "@ovst/usl": "workspace:*",
         "yaml": "2.9.1",
+      },
+    },
+    "packages/overstoryd-exec": {
+      "name": "@ovst/overstoryd-exec",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ovst/apps-runtime": "workspace:*",
+        "@ovst/collection-schema": "workspace:*",
+        "@ovst/exec-protocol": "workspace:*",
+        "@ovst/protocol": "workspace:*",
+        "@ovst/usl": "workspace:*",
       },
     },
     "packages/overstoryd-merge": {
@@ -337,6 +358,8 @@
 
     "@ovst/example-supplies": ["@ovst/example-supplies@workspace:examples/supplies"],
 
+    "@ovst/exec-protocol": ["@ovst/exec-protocol@workspace:packages/exec-protocol"],
+
     "@ovst/fs": ["@ovst/fs@workspace:packages/fs"],
 
     "@ovst/merge-protocol": ["@ovst/merge-protocol@workspace:packages/merge-protocol"],
@@ -344,6 +367,8 @@
     "@ovst/object-store": ["@ovst/object-store@workspace:packages/object-store"],
 
     "@ovst/overstoryd": ["@ovst/overstoryd@workspace:packages/overstoryd"],
+
+    "@ovst/overstoryd-exec": ["@ovst/overstoryd-exec@workspace:packages/overstoryd-exec"],
 
     "@ovst/overstoryd-merge": ["@ovst/overstoryd-merge@workspace:packages/overstoryd-merge"],
 

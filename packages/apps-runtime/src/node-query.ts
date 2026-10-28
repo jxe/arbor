@@ -180,7 +180,7 @@ export class NodeLiveQueryBroker {
   bind(_handle: QueryHandle<unknown, unknown>): void {}
 
   stream(mounts: readonly MountedQuery[], context: LiveQueryContext): ReadableStream<QueryStreamEvent> {
-    const adapter: LiveQueryAdapter<NodeQueryExecution<unknown>, NodeQuerySensitivity, WorkspaceEvent> = {
+    const adapter: LiveQueryAdapter<NodeQueryExecution<unknown>, NodeQuerySensitivity, WorkspaceEvent, MountedQuery> = {
       currentCursor: () => this.observations.currentCursor(),
       subscribe: (listener) => this.observations.subscribe(listener),
       execute: (mount) => this.engine.execute(mount.handle, { input: mount.input, user: context.user }),

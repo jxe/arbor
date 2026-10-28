@@ -56,6 +56,35 @@ Joe reviewed the plans in soon, the ideas and small work, and closed out these:
   became [spec extensions](plans/spec-extensions/README.md). Ideas and small work were renamed
   [candidates](plans/candidates.md) and [chores](plans/chores.md).
 
+## Queries and mutations run in a sidecar — 2026-10-28
+
+Implemented; not deployed (the deployed host passes no `collections`, so its query and
+mutate routes still answer `unsupported-operation`). [Apps 005](plans/soon/apps-005-source-resolution-and-sidecar.md)
+step 4, the boundary Joe settled the same day ([the execution sidecar](docs/architecture/overstoryd/execution-sidecar.md)).
+
+- **overstoryd runs no authored code.** `@ovst/apps-runtime` left its dependency closure.
+  `HostCollections` still builds, catches up and evicts the SQLite materializations and holds
+  the clients' query streams, but asks `@ovst/overstoryd-exec`, a separate process speaking
+  `@ovst/exec-protocol` on stdin and stdout, for every query value and mutation.
+- **The sidecar commits mutations itself.** It trials the handler in a rolled-back transaction
+  on overstoryd's file, submits the row operations to `POST /updates` as a derived candidate
+  with an execution token issued for that one question (the caller's own authority), and keeps
+  the receipts in `<dataRoot>/exec`. Execution tokens may now submit row operations, not only
+  snapshots; their effects are still checked path by path against the token's grants.
+- **Streams re-ask.** The live-query state machine moved from apps-runtime to
+  `@ovst/protocol` (`liveQueryStream`), shared by the runtime's brokers and overstoryd. A
+  stream re-asks when a catch-up changes its collection or a profile tree it read changes;
+  people's cards reach a query through a `need` answer rather than a callback.
+- **The files stay overstoryd's.** After each mutation overstoryd checks `pragma data_version`
+  and rebuilds a file another connection wrote to.
+
+Tests: `tests/integration/host-collections.test.ts` runs every query and mutation through a
+real sidecar process, including a sidecar killed between the host accepting a mutation and
+the sidecar recording it (the retry is answered from the host's receipt, accepted once), a
+sidecar killed under an open stream (updates still land; the stream picks up a new sidecar),
+and a tampered file (caught and rebuilt). `tests/unit/execution-sidecar-boundary.test.ts`
+proves overstoryd's closure has no evaluator, compiler, React or QuickJS.
+
 ## Rows on the host: eviction and a collection-scoped guard — 2026-10-28
 
 Implemented; deployed with the push. The leftovers of Schema language 005

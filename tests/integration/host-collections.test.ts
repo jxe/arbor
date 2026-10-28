@@ -7,7 +7,7 @@
 
 import { installAccountHome } from "../helpers/account-home.ts";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { Database } from "bun:sqlite";
@@ -18,17 +18,7 @@ import { CollectionProjections } from "@ovst/story-sync/state";
 import { serveHost, type HostCollectionsOptions } from "@ovst/overstoryd";
 import { materializeTree, resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, HostAccountStore, type MutationCallRequest, type ObjectHash, type QueryStreamRequest } from "@ovst/protocol";
-import { node, query, type MutationHandle, type QueryHandle } from "overstory/data";
 import { deviceClient, deviceSession, testAccount, testDevice } from "../helpers/devices.ts";
-
-mock.module("overstory/react", () => ({
-  Markdown: () => null,
-  skipQuery: Symbol("skip-query"),
-  useMutationAction: () => [{}, () => undefined, false],
-  useNavigate: () => () => undefined,
-  useQuery: () => [],
-  useUser: () => null,
-}));
 
 const token = "host-collections-owner";
 const SUPPLIES = join(import.meta.dir, "../../examples/supplies");
@@ -51,14 +41,8 @@ beforeAll(async () => {
   await Promise.all([state, join(folder, "supplies")].map((path) => mkdir(path, { recursive: true })));
   await writeFile(join(folder, "supplies", "schema.usl"), await readFile(join(SUPPLIES, "data", "schema.usl")));
   await copyFile(join(SUPPLIES, "data", "_store.sqlite3"), join(folder, "supplies", "_store.sqlite3"));
-  const named = query.one(node("./data/List").children, (list: any) => ({
-    where: list.id.eq(LIST),
-    select: list.pick("id", "name", "openToEdits"),
-  })) as QueryHandle<unknown, unknown>;
-  const myLists = await import(join(SUPPLIES, "MyLists.tsx"));
   apps = {
-    queries: [{ ref: listName, handle: named, collection: "/supplies", authoredRoot: "./data" }],
-    mutations: [{ ref: createList, handle: myLists.createList as MutationHandle<unknown, unknown>, collection: "/supplies", authoredRoot: "./data" }],
+    handles: join(import.meta.dir, "../fixtures/execution-sidecar/supplies-handles.ts"),
     now: () => new Date(Date.UTC(2026, 9, 24, 12, 0, 0)),
   };
   host = await serve();
@@ -78,7 +62,6 @@ afterAll(async () => {
   host.server.stop(true);
   await host.overstoryd[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });
-  mock.restore();
 });
 
 const materialized = () => join(dataRoot, "materialized", tree, encodeURIComponent("/supplies"), "_store.sqlite3");
@@ -221,33 +204,34 @@ describe.serial("rows on the host", () => {
     expect(rows(join(other, "supplies", "_store.sqlite3"))).toEqual(rows(join(folder, "supplies", "_store.sqlite3")));
   }, 30_000);
 
-  test("a retry after the host stopped between accepting a mutation and writing its receipt is answered from the accepted update", async () => {
+  test("a retry after the sidecar stopped between the host accepting a mutation and the sidecar writing its receipt is answered from the host's receipt", async () => {
     process.env.STORY_HOME = state;
     const before = host.overstoryd.acceptedUpdates(tree).length;
-    // The receipt is lost: reading the cursor for it fails once, after the update was accepted.
-    const submit = host.overstoryd.submitUpdate.bind(host.overstoryd), observed = host.overstoryd.observedThrough.bind(host.overstoryd);
-    let accepted = false, lost = false;
-    host.overstoryd.submitUpdate = async (id, request, caller) => { const response = await submit(id, request, caller); accepted = true; return response; };
-    host.overstoryd.observedThrough = (id) => {
-      if (accepted && !lost) { lost = true; throw new Error("Stopped before the receipt"); }
-      return observed(id);
+    // The sidecar is stopped after the host accepted its update and before it hears so.
+    const submit = host.overstoryd.submitUpdate.bind(host.overstoryd);
+    let stopped = false;
+    host.overstoryd.submitUpdate = async (id, request, caller) => {
+      const response = await submit(id, request, caller);
+      if (!stopped) { stopped = true; await host.collections!.sidecar.kill(); }
+      return response;
     };
     try {
-      expect((await mutate({ name: "Made before a stop", visibility: "Private" }, "lost-receipt")).status).not.toBe(200);
-      expect(lost).toBe(true);
+      const lost = await mutate({ name: "Made before a stop", visibility: "Private" }, "lost-receipt");
+      expect(lost.status).toBe(503);
+      expect(lost.body.retryable).toBe(true);
+      expect(stopped).toBe(true);
       expect(host.overstoryd.acceptedUpdates(tree).length).toBe(before + 1);
-      accepted = false;
+      // A new sidecar resubmits the same request, which the host answers from its receipt.
       const retry = await mutate({ name: "Made before a stop", visibility: "Private" }, "lost-receipt");
       expect(retry.status).toBe(200);
-      expect(accepted).toBe(false);
       expect(host.overstoryd.acceptedUpdates(tree).length).toBe(before + 1);
       const id = retry.body.result.id as string;
       expect(rows(materialized(), `select name from List where id = '${id}'`)).toEqual([{ name: "Made before a stop" }]);
       expect((await mutate({ name: "Made before a stop", visibility: "Private" }, "lost-receipt")).body).toEqual(retry.body);
     } finally {
       host.overstoryd.submitUpdate = submit;
-      host.overstoryd.observedThrough = observed;
     }
+    expect(host.collections!.foreignWrites).toBe(0);
   }, 30_000);
 
   test("a mutation whose tree moves under it with its collection unchanged is resubmitted without running again", async () => {
@@ -271,25 +255,26 @@ describe.serial("rows on the host", () => {
         const noteHash = hashObject(note);
         const next = encodeProtocolDirectory({ ...root, entries: [...root.entries.filter((entry) => entry.name !== "note.md"), { name: "note.md", file: noteHash }].sort((x, y) => x.name < y.name ? -1 : 1) });
         const nextHash = hashObject(next);
-        const other = await submit(id, { base: head.tree.update, updates: [{ change: `note-${Date.now()}`, candidate: nextHash, trace: null, resolves: [], deltas: [],
-          objects: [{ hash: noteHash, bytes: note }, { hash: nextHash, bytes: next }] }] } as any, caller);
+        // The device's own update, not the sidecar's: outside its execution authority.
+        const other = await host.overstoryd.execution.run(undefined, () => submit(id, { base: head.tree.update, updates: [{ change: `note-${Date.now()}`, candidate: nextHash, trace: null, resolves: [], deltas: [],
+          objects: [{ hash: noteHash, bytes: note }, { hash: nextHash, bytes: next }] }] } as any, caller));
         expect(other.status).toBe(201);
       }
       return submit(id, request, caller);
     };
-    // Count the handler's runs.
-    const open = [...((host.collections as any).open as Map<string, any>).values()][0];
-    const trial = open.mutations.trial.bind(open.mutations);
-    let runs = 0;
-    open.mutations.trial = (...args: unknown[]) => { runs++; return trial(...args); };
+    // Count the questions: running the handler again would take another.
+    const sidecar = host.collections!.sidecar;
+    const ask = sidecar.ask.bind(sidecar);
+    let asked = 0;
+    sidecar.ask = (question, signal) => { if (question.kind === "mutation") asked++; return ask(question, signal); };
     try {
       const made = await mutate({ name: "Made beside a note", visibility: "Private" }, "beside-a-note");
       expect(made.body).toEqual(expect.objectContaining({ mutationID: "beside-a-note" }));
     } finally {
       host.overstoryd.submitUpdate = submit;
-      open.mutations.trial = trial;
+      sidecar.ask = ask;
     }
-    expect(runs).toBe(1);
+    expect(asked).toBe(1);
     const mutations = submitted.filter((request) => request.updates[0]?.change.startsWith("mutation-"));
     // The first was refused on its guard; the second carries the same change on the note's head.
     expect(mutations).toHaveLength(2);
@@ -297,6 +282,46 @@ describe.serial("rows on the host", () => {
     expect(mutations[1].base).not.toBe(mutations[0].base);
     expect(mutations[1].updates[0].trace[0].operations).toEqual(mutations[0].updates[0].trace[0].operations);
     expect(host.overstoryd.acceptedUpdates(tree).length).toBe(before + 2);
+  }, 30_000);
+
+  test("a stopped sidecar fails only queries and mutations, and the next question starts a new one that picks up open streams", async () => {
+    process.env.STORY_HOME = state;
+    const controller = new AbortController();
+    const daemon = await StorySyncDaemon.openControl({ autoSync: false });
+    try {
+      const stream = await openQuery(host.url, controller);
+      expect((await nextResult(stream)).value).toEqual({ id: LIST, name: "Neighbors", openToEdits: true });
+      await host.collections!.sidecar.kill();
+      // Reads, watches and updates don't need it: a device's edit is accepted.
+      const mine = new Database(join(folder, "supplies", "_store.sqlite3"));
+      mine.query("update List set name = 'Neighbors again' where id = ?").run(LIST);
+      mine.close();
+      await daemon.synchronizeNow();
+      // The stream asks again, which starts a new sidecar.
+      expect((await nextResult(stream)).value).toEqual({ id: LIST, name: "Neighbors again", openToEdits: true });
+      const back = new Database(join(folder, "supplies", "_store.sqlite3"));
+      back.query("update List set name = 'Neighbors' where id = ?").run(LIST);
+      back.close();
+      await daemon.synchronizeNow();
+      expect((await nextResult(stream)).value).toEqual({ id: LIST, name: "Neighbors", openToEdits: true });
+    } finally {
+      controller.abort();
+      await daemon[Symbol.asyncDispose]();
+    }
+  }, 30_000);
+
+  test("a write to a materialization by anyone but overstoryd is caught after a mutation, and the file rebuilt from accepted rows", async () => {
+    const held = sortedDump(materialized());
+    const tampering = new Database(materialized());
+    tampering.query("update List set name = 'Tampered' where id = ?").run(LIST);
+    tampering.close();
+    const made = await mutate({ name: "Made after tampering", visibility: "Private" }, "after-tampering");
+    expect(made.status).toBe(200);
+    expect(host.collections!.foreignWrites).toBe(1);
+    expect(rows(materialized(), `select name from List where id = '${LIST}'`)).toEqual([{ name: "Neighbors" }]);
+    const id = made.body.result.id as string;
+    expect(rows(materialized(), `select name from List where id = '${id}'`)).toEqual([{ name: "Made after tampering" }]);
+    expect(Object.keys(sortedDump(materialized()))).toEqual(Object.keys(held));
   }, 30_000);
 
   test("an idle materialization over the disk budget is evicted and rebuilt on its next use", async () => {

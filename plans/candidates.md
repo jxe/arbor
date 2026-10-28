@@ -22,6 +22,11 @@ When one is decided, write a plan (or add it to [chores](chores.md)) and delete 
 - **Ignored paths in the Mac app's publish view.** Mark which paths the ignore rules keep
   out and which ignored paths are still tracked.
 
+- **Cascading deletes in USL.** Joe, 2026-10-28: add cascade (and maybe set-null) to
+  USL at some point. Today only the SQLite layout cascades, for rows owned through a
+  model's `ends` (`packages/usl/src/layout.ts`); host row replay checks references and
+  refuses a dangling one, so whoever writes the operations spells out the cascade.
+
 ## Reliability
 
 - **Explicit web-editor unload drain** (with Web 025). `beforeunload`/`pagehide` has no

@@ -189,7 +189,7 @@ export class LiveQueryBroker implements AsyncDisposable {
       }
       return value;
     };
-    const adapter: LiveQueryAdapter<QueryExecution<unknown>, QuerySensitivity, Invalidation> = {
+    const adapter: LiveQueryAdapter<QueryExecution<unknown>, QuerySensitivity, Invalidation, MountedQuery> = {
       currentCursor: () => broker.currentCursor(),
       subscribe(listener) {
         broker.listeners.add(listener);

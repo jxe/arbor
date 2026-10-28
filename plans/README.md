@@ -157,6 +157,11 @@ Later, for testing Overstory as a web framework: one compiler and typechecker fo
 executable documents everywhere, which the Supplies site needs. After the queries and
 mutations work.
 
+**[Performance 007: keep collections in SQLite on the host](later/performance-007-sqlite-collection-storage.md).**
+Joe, 2026-10-28: overstoryd should work with a collection's SQLite file instead of keeping
+the equivalent table objects, producing canonical objects on demand. The history model
+for SQLite collections (less, none, or kept another way) comes first. After Apps 005.
+
 **[Apps 001: the Supplies executable site](later/apps-001-supplies-executable-site.md).**
 Later, the web-framework test itself: the Supplies site running locally and on overstoryd,
 then deployed to a third-party host such as Vercel. After Apps 003, 005 and 006.

@@ -353,6 +353,15 @@ interface UpdatePolicy {
   }>;
 }
 
+/**
+ * What code may submit (Apps 005): a snapshot, or row operations and nothing
+ * else, with no resolutions. Either way its effects are the paths that differ
+ * between the head and the accepted root, each checked against its grants.
+ */
+function executionForm(update: { resolves: readonly unknown[]; trace: ReadonlyArray<{ operations: ReadonlyArray<{ kind: string }> }> | null }): boolean {
+  return update.resolves.length === 0 && (update.trace === null || update.trace.every((frame) => frame.operations.every(isRowOperation)));
+}
+
 export class HostDaemon implements AsyncDisposable {
   private readonly wireSchemas = new CollectionSchemaCache();
   /** Recently validated graphs by root, which a later candidate's validation starts from. */
@@ -1847,7 +1856,8 @@ export class HostDaemon implements AsyncDisposable {
     const { account, linkDigest, authentication } = caller;
     validateUpdateRequestIntent(sent);
     let request = sent as UpdateRequest;
-    if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.trace !== null || u.resolves.length))) throw new PermissionDeniedError("Execution update form is not allowed");
+    if (this.execution.current && (request.base === null || request.updates.length !== 1 || !request.updates.every(executionForm)))
+      throw new PermissionDeniedError("Execution update form is not allowed");
     const retainedTree = this.get(treeID);
     // Preflight the whole batch: unsupported semantics must never accept a prefix.
     for (const [index, update] of request.updates.entries()) {
@@ -2107,7 +2117,7 @@ export class HostDaemon implements AsyncDisposable {
     const execution = this.execution.current;
     if (execution) {
       if (this.currentUpdate(treeID)?.conflicted) throw new PermissionDeniedError("Execution updates of conflicted trees are not allowed until alternative scope validation is available");
-      if (!request.ifCurrent || request.trace !== null || request.resolves.length) throw new PermissionDeniedError("Execution update form is not allowed");
+      if (!request.ifCurrent || !executionForm(request)) throw new PermissionDeniedError("Execution update form is not allowed");
       const effects = await resourceEffects(baseRoot, request.candidate, hash => this.objects.load(hash, proposed));
       if (!this.execution.covered(execution) || effects.some(e => !this.execution.granted(treeID, e.path, e.operation, execution))) throw new PermissionDeniedError("Execution effects are not allowed");
     }
@@ -2387,7 +2397,7 @@ export class HostDaemon implements AsyncDisposable {
     let effects: ResourceEffect[] = [];
     const checkEffects = async (before: string, after: string, objects: ReadonlyMap<ObjectHash, Uint8Array>) => {
       if (!execution) return;
-      if (request.resolves.length || request.trace !== null) throw new PermissionDeniedError("Scoped execution operations/resolutions are not allowed until effect validation is available");
+      if (!executionForm(request)) throw new PermissionDeniedError("Scoped execution operations/resolutions are not allowed until effect validation is available");
       effects = await resourceEffects(before, after, hash => this.objects.load(hash, objects));
       if (effects.length && (!this.execution.covered(execution) || effects.some(e => !this.execution.granted(tree.id, e.path, e.operation, execution)))) throw new PermissionDeniedError("Execution effects are not allowed");
     };

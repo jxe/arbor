@@ -17,32 +17,39 @@ authorized by it.
 
 - **Rows on the host.** `HostCollections` (`packages/overstoryd/src/collections.ts`)
   keeps a disposable SQLite materialization per collection, caught up after every
-  accepted update. Named queries run on it through apps-runtime's `SQLiteQueryEngine`
-  and `LiveQueryBroker`; a mutation runs in `SQLiteStoreBroker.trialAsync`, rolls back,
-  and is submitted as one guarded update of row operations with a durable receipt in
-  `<dataRoot>/mutation-receipts.sqlite3`. Tests: `tests/integration/host-collections.test.ts`.
-- **Handles are registered in code.** `serveHost({ collections: { queries, mutations } })`
-  takes handle objects matched by module, export and version, for any tree. Nothing
+  accepted update. The sidecar runs named queries on it through apps-runtime's
+  `SQLiteQueryEngine`; a mutation runs in `SQLiteStoreBroker.trialAsync`, rolls back,
+  and is submitted by the sidecar as one guarded update of row operations, with a durable
+  receipt in `<dataRoot>/exec`. Tests: `tests/integration/host-collections.test.ts`.
+- **Handles are registered in code.** The sidecar's `--handles` module
+  (`serveHost({ collections: { handles } })`) lists handle objects matched by module, export
+  and version, for any tree. Nothing
   reads a handle's source from a tree, and no activation names which code may run.
 - **The caller's own authority.** The query route needs the caller to read the tree;
   the mutate route needs write access and submits the update as the caller. Execution
   tokens, `app` rules and lending (Apps 004, deployed on schema 13) are not used.
 - **Not in production.** `packages/overstoryd/src/cli.ts` passes no `collections`, so
   the deployed host answers both routes with `unsupported-operation`.
-- **In process.** overstoryd now depends on `@ovst/apps-runtime` and loads the query
-  engine, against the boundary in the
-  [execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md) document.
+- **In a sidecar.** Since 2026-10-28 (step 4) queries and mutations run in
+  `@ovst/overstoryd-exec`, a separate process, behind
+  [the execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md) boundary.
 
 ## Joe's decision (2026-10-28): the sidecar first
 
 The original plan required a separate sidecar process so that no evaluator, compiler or
 authored JavaScript loads in overstoryd; Schema language 005 put the evaluator in process for
-handles the operator registers. Joe chose to extract `HostCollections`' execution behind the
-bridge before adding authority: step 4 comes first, then steps 1 to 3 on the sidecar. Slower
+handles the operator registers. Joe chose to extract `HostCollections`' execution into the
+sidecar before adding authority: step 4 comes first, then steps 1 to 3 on the sidecar. Slower
 to the lending test, with a clean boundary from the start.
 
-Either way the materializations, receipts and update submission can stay in
-overstoryd: they are accepted-state bookkeeping, not authored code.
+The boundary was settled with Joe the same day and is written up in
+[the execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md). overstoryd
+keeps the SQLite materializations, issues tokens and holds client query streams. The
+sidecar runs the code, reads the materializations, uses the standard API with a token that
+lasts for one question, and commits a mutation itself as a guarded, row-only update with
+its own receipts. A mutation's trial still runs in a rolled-back transaction on the
+materialization, and overstoryd watches `pragma data_version` to catch a sidecar that
+commits to it.
 
 ## 1. Activation and execution authority
 
@@ -120,33 +127,18 @@ each behave as above.
 **Verify:** `bun run test:affected`, `bun run test:protocol`, and one hand check with
 Joe on a disposable host: an activated Supplies query and mutation, then revocation.
 
-## 4. The execution sidecar (first, Joe 2026-10-28)
+## 4. The execution sidecar (first, Joe 2026-10-28) — done
 
-Move query planning, evaluation and mutation execution behind an authenticated local
-HTTP bridge, as the [execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md)
-document describes, and remove `@ovst/apps-runtime` from overstoryd's dependency
-closure. The earlier version of this plan (git history before 2026-10-24) has the
-detailed steps; in short:
+Built on 2026-10-28 ([status](../../status.md#queries-and-mutations-run-in-a-sidecar--2026-10-28)):
+[the execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md) describes
+it, `@ovst/overstoryd-exec` runs the code, and overstoryd no longer depends on
+`@ovst/apps-runtime`. Steps 1 to 3 now build on it:
 
-- **Contract.** Paired request and error fixtures in `tests/fixtures/execution-sidecar/`;
-  loopback or Unix-socket transport with private credentials, version handshake,
-  readiness and supervision; bounded bodies, concurrency, queues, deadlines and
-  buffers; host-issued context, client context headers stripped, response headers
-  allowlisted; disconnect cancels; a committed mutation is never promised rolled back,
-  and an unknown response is recovered by exact retry and receipt.
-- **Extraction.** Run the step 1 to 3 machinery behind the bridge; the sidecar reads
-  through ordinary current-tree, object, watch and update APIs with the execution
-  token. Streams publish whole replacement values and reconnect statelessly.
-  `tests/unit/execution-sidecar-boundary.test.ts` proves the overstoryd closure has
-  no evaluator, compiler, React or QuickJS, including through barrels and dynamic
-  imports.
-- **Failure independence.** Kill the sidecar before and during streams and after a
-  mutation commits; overstoryd's reads, watches, updates and merges keep working, and
-  a restart reconnects with a fresh snapshot and replays a persisted receipt. Reuse
-  the same bridge beside Story Sync on disposable roots.
-
-**Verify:** `tests/integration/execution-sidecar.test.ts` with real processes, plus
-the step 1 and 2 cases rerun through the bridge.
+- Step 1 issues each question's token from the activation, with its lenders, instead of
+  the caller's own authority (`HostCollections.mutate`).
+- Step 2 replaces the sidecar's `--handles` module with handles read from trees; the
+  handshake and questions already name handles by module, export and version.
+- Step 3 decides how the deployed image starts the sidecar (`collections.command`).
 
 ## Completion
 

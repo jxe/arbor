@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID } from "@ovst/protocol";
 import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { AccountChallenge, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
-import { treeMutationResponse, treeQueryResponse } from "@ovst/apps-runtime/host";
+import { treeMutationResponse, treeQueryResponse } from "./exec-routes.ts";
 import { HostCollections, type HostCollectionsOptions } from "./collections.ts";
 import {
   HostDaemon,
@@ -364,7 +364,7 @@ export async function serveHost(options: {
   hostname?: string;
   queryRuntime?: QueryStreamRuntime;
   mutationRuntime?: MutationCallRuntime;
-  /** Serve registered named queries and mutations from the host's collection materializations, unless a runtime above is given. */
+  /** Serve named queries and mutations through the execution sidecar, from the host's collection materializations, unless a runtime above is given. */
   collections?: HostCollectionsOptions;
   /** Session and placement device-key lifetimes; tests shorten them. */
   lifetimes?: Omit<HostDaemonOptions, "servedOverHTTP" | "pages">;
@@ -1136,5 +1136,7 @@ export async function serveHost(options: {
     publicOrigin = `${publicOrigin.slice(0, publicOrigin.lastIndexOf(":"))}:${server.port}`;
   }
   if (dynamicLoopbackOrigin) overstoryd.setCommunityHost(new URL(publicOrigin).host, true);
+  // The execution sidecar calls the standard API here, on loopback.
+  collections?.listen(`http://127.0.0.1:${server.port}`);
   return { overstoryd, server, url: publicOrigin, collections };
 }

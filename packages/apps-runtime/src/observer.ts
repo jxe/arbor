@@ -131,13 +131,20 @@ export class SQLiteStoreBroker implements AsyncDisposable {
   private pendingAsyncWrites = 0;
   private externalInvalidationPending = false;
 
-  constructor(readonly databasePath: string, readonly schema: StoreSchema, options: { watchExternal?: boolean } = {}) {
+  /**
+   * `trialOnly` opens a store that someone else keeps, only for
+   * {@link trialAsync}: nothing is ever written to its file, so its cursor
+   * and receipt tables are temporary, and a busy file is waited for.
+   */
+  constructor(readonly databasePath: string, readonly schema: StoreSchema, options: { watchExternal?: boolean; trialOnly?: boolean } = {}) {
     this.database = new Database(databasePath, { create: false, strict: true });
     this.probe = new Database(databasePath, { readonly: true, strict: true });
     this.database.exec("pragma foreign_keys = on");
-    this.database.exec("create table if not exists __arbor_runtime_state (key text primary key, value integer not null)");
+    const own = options.trialOnly ? "temp " : "";
+    if (options.trialOnly) this.database.exec("pragma busy_timeout = 10000");
+    this.database.exec(`create ${own}table if not exists __arbor_runtime_state (key text primary key, value integer not null)`);
     this.database.query("insert or ignore into __arbor_runtime_state(key, value) values ('store_cursor', 0)").run();
-    this.database.exec("create table if not exists __arbor_mutation_receipts (scope text not null, subject text not null, mutation_id text not null, request_digest text not null, handle_json text not null, input_json text not null, mutation_now text not null, observed_through text not null, result_json text not null, primary key(scope, subject, mutation_id))");
+    this.database.exec(`create ${own}table if not exists __arbor_mutation_receipts (scope text not null, subject text not null, mutation_id text not null, request_digest text not null, handle_json text not null, input_json text not null, mutation_now text not null, observed_through text not null, result_json text not null, primary key(scope, subject, mutation_id))`);
     this.database.exec("create temp table __arbor_changes (sequence integer primary key autoincrement, collection text not null, operation text not null, before_json text, after_json text)");
     for (const relation of Object.values(schema.relations).filter((value) => value.source === "sqlite")) {
       const table = identifier(relation.name);
@@ -149,7 +156,7 @@ export class SQLiteStoreBroker implements AsyncDisposable {
     this.sequence = Number((this.database.query("select value from __arbor_runtime_state where key = 'store_cursor'").get() as { value: number }).value);
     this.schemaVersion = pragmaNumber(this.database, "schema_version");
     this.externalVersion = pragmaNumber(this.probe, "data_version");
-    if (options.watchExternal !== false) {
+    if (options.watchExternal !== false && !options.trialOnly) {
       const filename = basename(databasePath);
       this.watcher = watch(dirname(databasePath), (_event, changed) => {
         if (changed && !String(changed).startsWith(filename)) return;

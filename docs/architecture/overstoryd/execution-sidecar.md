@@ -1,73 +1,166 @@
-# overstoryd execution sidecar boundary
+# Writing the execution sidecar
 
-This is the target reference implementation boundary, not a claim of deployed
-support. [Apps 005](../../../plans/soon/apps-005-source-resolution-and-sidecar.md) owns its
-implementation. Portable contracts live in [locator resolution](../../overstory-spec/03-locators.md#4-resolution-rules),
-[execution authority](../../overstory-spec/05-access-control.md#21-execution-tokens), and
-[executable documents](../../overstory-spec/07-executable-documents.md#8-host-and-server-boundaries).
+The execution sidecar runs authored queries and mutations for overstoryd, the way the
+[merge sidecar](writing-a-sidecar.md) decides merges: overstoryd asks it one kind of
+question at a time, and everything else it touches is something that already exists.
+That means the collection materializations overstoryd keeps, and the ordinary Overstory
+API. This page is the whole boundary, decided with Joe on 2026-10-28 and built in
+[Apps 005](../../../plans/soon/apps-005-source-resolution-and-sidecar.md) step 4. The
+types are in [`@ovst/exec-protocol`](../../../packages/exec-protocol/src/index.ts); the
+sidecar is [`@ovst/overstoryd-exec`](../../../packages/overstoryd-exec/src/sidecar.ts). It
+is not deployed: the deployed host passes no `collections`. Portable contracts are in
+[executable documents](../../overstory-spec/07-executable-documents.md#8-host-and-server-boundaries)
+and [execution tokens](../../overstory-spec/05-access-control.md#21-execution-tokens).
 
-## HTTP forwarding
+## Who owns what
 
-The public host resolves canonical locations and caller identity, then forwards
-HTTP execution traffic with trusted source TreeID, logical path, original method,
-search parameters, body, and an opaque execution context. It strips untrusted
-context headers. The runtime returns status, safe headers, and a streaming body;
-public credentials and privileged response headers cannot be smuggled across the
-bridge. Cancellation, backpressure, bounded requests, and disconnects propagate.
-Source-only sharing never enables execution; activation explicitly binds reviewed
-code, its lenders, providers, and resource limits.
+**overstoryd** owns identity, activations and execution authority, and issues execution
+tokens. It keeps the collection materializations: it builds each one, catches it up
+after every accepted update and evicts idle ones. It holds the client's query stream and
+decides when to re-ask. It never loads an evaluator, compiler, query engine or authored
+JavaScript, and `@ovst/apps-runtime` is outside its dependency closure.
 
-The bridge supports documents, assets, actions, and query streams without exposing
-compiler internals to overstoryd. Runtime failures do not disable ordinary tree reads,
-watches, updates, or merge execution. Processes, sockets, token formats, deployment
-configuration, and health protocols belong to reference implementation documentation.
+**The sidecar** owns the code: query planning and evaluation, dependency tracking, input
+validation and mutation handlers. It commits a mutation itself, as an ordinary guarded
+update through the standard API, and keeps the mutation receipts.
 
-The runtime owns compilation, React, query planning/evaluation, dependency tracking,
-input validation, mutation execution and workflow coordination. overstoryd owns identity,
-resource policy, logical resolution, immutable tree reads, accepted watches, and
-guarded updates. Backing providers own snapshots, committed observation, and atomic
-physical effects with retry evidence. Queries choose providers from bindings;
-overstoryd need not execute query plans. Optimized provider pushdown must preserve
-portable semantics and finite execution bounds.
+Nothing else is shared. There is no HTTP forwarding, no sidecar-only endpoint on
+overstoryd and no shared credential. For a mutation, the sidecar is a client of the
+standard API with an execution token that lasts for one question; a query needs no
+API at all.
 
-The trusted host issues execution tokens over its authenticated runtime channel.
-The sidecar uses `Authorization: Bearer <execution-token>` for overstoryd current-tree
-reads, object reads, watches and updates. Public headers cannot select the caller,
-a lender or the `app` identity. Token issuance/encoding, local transport, process
-supervision and health checks are implementation details to settle in Apps 005.
+## What the sidecar touches
 
-## Provider enforcement and local reuse
+- `--materialized`: overstoryd's materialization directory, one
+  `<tree>/<path>/_store.sqlite3` per collection in its schema's database layout. Each
+  file's `__arbor_materialized` table names the accepted update it reflects. Queries
+  open it read-only. A mutation runs in a transaction on it that always rolls back.
+- `--state`: the sidecar's own durable directory (`<dataRoot>/exec`), holding the
+  receipts. It is backed up with the host's data.
+- The standard Overstory API at `--host` (the host's loopback address), with the
+  question's execution token: `POST /updates` to submit a mutation's update, the tree
+  descriptor and objects to check where a moved head left the collection.
 
-Ordinary reads available to the caller remain usable through code without an `app`
-rule. Code runs as its caller; anything more is a tree's own `app` rule or a grant
-lent by a named profile's `apps.yaml`, each matched against the actual caller and
-executable ([access control §1.1](../../overstory-spec/05-access-control.md#11-execution-authority)). Private SQLite access is mediated by the trusted runtime provider;
-no general raw connection is exposed to authored JavaScript. Cross-tree JavaScript
-isolation may be strengthened later, but the initial host trusts the sidecar and
-must document that process isolation alone is not a hostile-code sandbox.
+Before Apps 005 step 2, the code is the operator's: the sidecar starts with
+`--handles <module>`, a module exporting `queries` and `mutations` as
+`{ ref, handle, collection, authoredRoot }`, named in
+`serveHost({ collections: { handles } })`. After step 2, a question names the code by
+tree, path, export, version and pinned root, and the sidecar loads it from objects.
 
-The same binding and provider interfaces support local execution beside Story Sync.
-Cross-server discovery/delegation/routing remain separate work; a remote locator
-must fail explicitly when the host cannot establish the required authority.
+## The questions
+
+The sidecar's first line is its handshake: the protocol version and each query and
+mutation it can run, with the collection path it reads and the `node()` path its code
+names that collection by. After that, one JSON object per line on stdin, with answers
+on stdout. Each question has an `id`, and answers may come back out of order, matched
+by `id`. overstoryd caps how many questions are in flight and sends `{"cancel": id}`
+when a client goes away.
+
+```ts
+interface ExecCollection {
+  authored: string;   // the node() path the code names, such as "./data"
+  tree: string;
+  path: string;       // the collection's path in its tree
+  file: string;       // its materialization, relative to --materialized
+  update: string;     // the accepted update the file must reflect
+  directory: string;  // the collection directory object at that update
+}
+
+interface ExecQueryQuestion {
+  id: string; kind: "query";
+  query: { module: string; export: string; version: string };
+  input?: unknown;
+  viewer: { profile: string } | null;
+  collections: ExecCollection[];
+  profiles?: Record<string, ExecProfile | null>;  // what a `need` asked for
+  knownOutputHash?: Hash;
+}
+type ExecQueryAnswer =
+  | { id; outputHash: Hash; value: unknown; reads: ExecReads }
+  | { id; unchanged: true; reads: ExecReads }
+  | { id; need: { profiles: string[] } }
+  | { id; stale: true }
+  | { id; refusal: { code; message; retryable } }
+  | { id; error: { message; code?: "limit" | "unavailable" } };
+
+interface ExecMutationQuestion {
+  id: string; kind: "mutation";
+  tree: string;
+  mutation: { module: string; export: string; version: string };
+  mutationID: string;
+  input?: unknown;
+  viewer: { profile: string } | null;
+  collections: ExecCollection[];
+  token: string;      // an execution token for this question only
+  now: string;        // the logical time when the sidecar has no receipt yet
+}
+type ExecMutationAnswer =
+  | { id; receipt: MutationResultReceipt }
+  | { id; stale: true }
+  | { id; refusal: { code; message; retryable } }
+  | { id; error: { message; code?: "limit" | "unavailable" } };
+```
+
+- **Reading the right state.** The sidecar compares the file's recorded update with
+  `update` before and after it reads. If the file has moved on, it answers `stale`, and
+  overstoryd asks again with the newer update.
+- **People.** A query that reads profile cards it wasn't given answers `need` with
+  their IDs. overstoryd asks again with the cards (null for an ID that is no profile
+  here), so a query never calls out.
+- **Live queries.** `reads` names the collections and profiles the result depended on.
+  When a catch-up changes one of those collections, or a profile tree it read changes,
+  overstoryd re-asks with `knownOutputHash` and pushes a whole replacement value, or
+  nothing. There is one question in flight per stream, and the latest state wins. A
+  rebuilt file ends its streams with `reload`.
+- **Mutations.** The sidecar looks up its receipt by tree, subject and `mutationID` and
+  answers an exact retry from it. Otherwise it validates the input, runs the handler in
+  the rolled-back transaction, and turns the captured row changes into row operations
+  (spec 10 §4.1). It submits them to `POST /updates` with the token as a derived
+  candidate. The change identity comes from the request digest, and the update is
+  guarded by `ifCurrent` on `update`. If the head moved without changing the collection
+  directory, the same operations go again on the new head; otherwise it answers
+  `stale`. It writes the request as pending before submitting and the receipt once the
+  host accepts. After a stop between the two, the retry resubmits the pending request,
+  which the host answers from its own receipt without accepting it twice.
+- **Refusals and errors** follow the merge sidecar: a refusal is the caller's answer
+  (HTTP 400 with its code). An error, a dead sidecar or a missed deadline is a retryable
+  503. overstoryd restarts a sidecar that exits, overruns its deadline or writes a line
+  that isn't a well-formed answer, and fails every question in flight.
+
+## What execution tokens may submit
+
+A token's update is one guarded update, a snapshot or row operations only, with no
+resolutions. Either way its effects are the paths that differ between the head and the
+accepted root, each checked against the token's grants. Until Apps 005 step 1, a
+question's token carries the caller's own authority for the tree, as the routes check
+today.
+
+## Keeping the files overstoryd's
+
+After each mutation overstoryd reads `pragma data_version` on its own connection to the
+file. If another connection committed to it, overstoryd logs the fault and rebuilds the
+file from accepted state. The trial opens its store in a trial-only mode
+(`SQLiteStoreBroker`'s `trialOnly`), so even its bookkeeping tables are temporary.
+
+## Failure independence
+
+The sidecar can only fail the query and mutate routes. Reads, watches, updates and
+merges never touch it. Killing it mid-mutation either loses the computation or leaves a
+submitted change whose retry the host recognizes. The next question starts a new
+sidecar, and open streams pick it up when they next ask
+(`tests/integration/host-collections.test.ts`).
 
 ## Provider bindings
 
-Locators resolve client-side by the spec's resolution rules against the pinned
-defining-module root; a host-backed source's `(root, update, observedThrough)`
-and access summary come from the ordinary current-tree read under the execution
-token. Nothing else is asked of overstoryd. A provider-backed source (SQLite,
-Postgres) is mapped to a connection by private host configuration, never by an
-authored filename, DSN or credential, and is published to the runtime as an
-opaque backing descriptor plus schema fingerprint.
+A handle's `node()` sources bind to collections in its tree, as overstoryd names them in
+`collections`. Never to a caller-supplied filename, DSN or the current directory, and no
+paths or private schemas escape in answers. Code version, binding version and data
+observation are independent: a schema or binding change invalidates a compiled plan, and
+a row change only reruns it. External providers (Postgres, an operator's own SQLite) are
+not part of this boundary yet. Adding one gives the sidecar I/O of its own and needs its
+own decision.
 
-A binding version identifies the resolved resource, its backing identity and its
-schema contract; it excludes ordinary row/content updates. Code version, binding
-version and data observation cursor are independent. Changing a resource target
-requires fresh grant coverage; an incompatible schema or provider change
-invalidates the compiled plan. Running mutations retain their original concrete
-bindings. Tree watches invalidate dependent overstoryd bindings; provider
-configuration publishes schema changes, and the host cannot infer changes inside
-an unmanaged database. Reconnect and cursor expiry trigger fresh resolution and
-authorization; stale cached metadata never becomes authority. There is no
-same-name fallback, and an unsupported or remote source fails explicitly.
-Bindings convey metadata, not access: every provider use rechecks authority.
+## Not here
+
+Serving documents, assets and actions (Apps 001 and 003), external providers, and running
+the sidecar on another machine are later additions, each decided separately.
