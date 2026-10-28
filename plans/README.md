@@ -165,6 +165,11 @@ a freshness policy so unrelated updates don't force a renewed review, explanatio
 and deletions, combination previews, and bulk and offline resolution. Joe made the ideas item
 a plan on 2026-10-28; take each when a real review needs it.
 
+**[Filesystem 026: pages as logical nodes, written to disk by each placement](later/filesystem-026-pages-as-logical-nodes.md).**
+The tree would hold a page's properties and content, and each placement would write its
+front matter; formatting stops traveling between devices, which Joe accepted on 2026-10-28.
+Front-matter edits become property effects in merge and access.
+
 **[Release 003: the iPhone app on the App Store](later/release-003-app-store.md).** After friends
 are using the TestFlight build. A sketch of what review requires: account deletion, report
 and block, and policy pages. The sample pages are the reviewer's way in.

@@ -9,22 +9,8 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
 
 - **Persistent-host administration.** Permanent domains, graceful restart,
   replacement-host restore and verification, keeping migration scripts procedural.
-
-## Architecture
-
-- **Pages as logical nodes with placement-owned representation.** The split
-  that logical collections make (spec 06 §7) (the tree holds the logical
-  form, and each placement chooses how to write it to disk) could apply to
-  pages too:
-  - The logical page is its properties plus its content, and the body bytes
-    stay exact.
-  - Only the front matter's formatting (key order, quoting, comments) would
-    stop traveling between devices.
-  - Spec 02's byte-exact front-matter round trip would become per placement.
-
-  It would remove the representation-versus-model special cases in merge
-  and access (front-matter edits become property effects). Joe, 2026-10-15:
-  "probably a good idea eventually".
+  Joe, 2026-10-28: running a host may stay hard for now, even once people run their own
+  placement hosts.
 
 ## Small features
 
@@ -91,14 +77,8 @@ Measure before promoting any of these.
 
 ## Open questions
 
-1. **Shared-tree recovery and endpoint movement.** How can a stable TreeID refresh endpoint
-   hints durably and verifiably without a central registry?
-2. **Determinism.** How should query and agent-tool runtimes isolate clock, randomness, I/O
-   and runtime upgrades from results claimed to be deterministic?
-3. **Compiler correctness.** How should handle extraction, validator generation, realm
+1. **Compiler correctness.** How should handle extraction, validator generation, realm
    separation and access inference be verified as security boundaries?
-4. **Consent precision.** How should interfaces explain prefix declarations broader than
-   what a particular run reads or writes?
-5. **Cross-server executable data.** How should query discovery, delegated authorization
+2. **Cross-server executable data.** How should query discovery, delegated authorization
    and server-to-server routing let a document use remote data without treating network
    reachability as authority? ([Apps 009](later/apps-009-cross-host-delegation.md) is a sketch.)

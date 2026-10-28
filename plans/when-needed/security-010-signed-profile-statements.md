@@ -98,7 +98,11 @@ root's children move under the profile tree and it is retired.
 
 **Decide (2):** design the cross-host tree transfer here, or separately first.
 
-## Open question
+## Open questions
+
+**A tree's endpoints after a move** (moved from ideas, 2026-10-28). A stable TreeID finds its
+current hosts through the profile's signed statements, which list them; no central registry.
+Whether an old host forwards is up to the overstoryd implementation (Joe, 2026-10-28).
 
 **Identity and recovery without the operator** (moved from ideas, 2026-10-28). How should
 device replacement, profile recovery and claim disputes prove control, by the profile key or

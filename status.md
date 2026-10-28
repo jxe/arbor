@@ -36,6 +36,11 @@ Joe reviewed the plans in soon, the ideas and small work, and closed out these:
   and schema evolution became [Schema language 009](plans/features/schema-language-009-schema-changes-keep-the-data.md);
   claimed-member removal moved to People 001's forks and identity recovery to Security 010;
   the operator-free recovery item and the merge-semantics question were dropped.
+  Then, from Joe's answers: pages as logical nodes became
+  [Filesystem 026](plans/later/filesystem-026-pages-as-logical-nodes.md); endpoint movement
+  went to Security 010; determinism was answered in spec 07 §4 (queries get no clock,
+  randomness or I/O); consent shows declared prefixes, as spec 07 §6 already says; host
+  administration stays an idea (it may stay hard for now).
 
 ## Rows on the host: eviction and a collection-scoped guard — 2026-10-28
 

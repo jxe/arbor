@@ -85,7 +85,9 @@ The tokens this section introduces, and what each survives:
 
 A query is a deterministic function of `(resolved node snapshots,
 validated input, trusted user context)`. Its only data door is a finite,
-declarative selection over the scoped logical node model. Authored sources use
+declarative selection over the scoped logical node model. The runtime gives a
+query no clock, randomness, network or file access, so nothing else can reach
+its result; a mutation's time and generated IDs come from its runner (§5). Authored sources use
 `node(path)` everywhere. The initial portable node-set source is `.children`,
 with the same meaning for expanded directories, Markdown records, collection files,
 SQLite tables, and later external or replicated providers. Every result retains
