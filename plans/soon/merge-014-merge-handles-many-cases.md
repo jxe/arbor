@@ -1,6 +1,6 @@
 # overstoryd 014: Handle more merge cases
 
-**Why and when:** prose already merges well. Take an item from this menu when a real edit reaches review that should have merged.
+**Why and when:** prose already merges well. Take an item from this menu when a real edit reaches review that should have merged. Joe moved it from when-needed to soon on 2026-10-28.
 
 Formerly "Merge moved and copied text beyond paragraphs", split from overstoryd
 009 (merge rule selection, since deleted; see git history) on 2026-09-22. (Plan

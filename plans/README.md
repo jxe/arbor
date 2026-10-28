@@ -94,24 +94,55 @@ every view intent as row operations, simple edits in the view, then the structur
 (groups, chips, bullets, drag, inline Markdown). The editing half of the split Joe made on
 2026-10-28.
 
+**[Schema language 010: row ownership](soon/schema-language-010-row-ownership.md).**
+Rows only their authors edit, as access policy (`who: {property: authors}`, one
+`unless`/`when` predicate), with device updates authorized by effect. Formerly 002's
+milestone 5; Joe moved it to soon on 2026-10-28.
+
+**[Apps 005: source resolution, execution authority and the sidecar](soon/apps-005-source-resolution-and-sidecar.md).**
+Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
+lending models against real code. Schema language 005 runs them inside overstoryd as their
+caller, from handles registered in code; this plan makes them run as an activated app under
+an execution token, from code read out of a tree, and then moves execution into a sidecar.
+One fork for Joe: whether the sidecar comes first or waits.
+
+**[Performance 004: a provenance index kept at acceptance](soon/performance-004-provenance-index.md).**
+Joe chose this on 2026-10-21 instead of Performance 003 (fast catch-up from an older basis,
+after the iPhone needed several minutes of history replay on 2026-10-09). Every acceptance
+records which change inserted each run of each file's bytes, so the merge engine reads
+states instead of replaying history, and line provenance becomes a lookup. It starts with a
+spike on the iPhone's catch-up proving the engine can evaluate from the index.
+
+**[Clients 002: more identity-preserving coalescing](soon/merge-002-identity-preserving-coalescing.md).**
+Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
+with enough identity for overstoryd to merge concurrent work correctly. After the
+idle-based publication baseline, extend simplification beyond repeated moves of
+one unchanged span. Implement each case in the Swift and TypeScript clients,
+using shared examples and the host merge engine to prove the result.
+
+**[Filesystem 026: pages as logical nodes, written to disk by each placement](soon/filesystem-026-pages-as-logical-nodes.md).**
+The tree would hold a page's properties and content, and each placement would write its
+front matter; formatting stops traveling between devices, which Joe accepted on 2026-10-28,
+when he put it in soon.
+Front-matter edits become property effects in merge and access.
+
+**[overstoryd 015: explain automatic resolutions and clear reconciled choices](soon/merge-015-resolve-reconciled-choices.md).**
+Joe encountered a whole-tree conflict after moving blocks into a new page. Later
+accepted edits already produced the intended contents, but the conflict remained
+and its cards showed only older alternatives. overstoryd should clear choices it can
+prove reconciled, and Story should explain the current result and make explicit
+resolution easy. Joe moved it to soon on 2026-10-28.
+
+**[overstoryd 014: the merge handles many cases](soon/merge-014-merge-handles-many-cases.md).**
+Prose already merges well; a menu of cases that still go to review. Joe moved it to soon on
+2026-10-28.
+
 ## Later
 
 **[Schema language 008: port excellences and supplies-remake to Story](later/schema-language-008-port-excellences-and-supplies.md).**
 Joe wants the excellences document and supplies-remake to run natively in Story instead of on
 Supabase. Split out of Schema language 002 on 2026-10-25; it needs 007's editor and 010's
 ownership.
-
-**[Schema language 010: row ownership](later/schema-language-010-row-ownership.md).**
-Rows only their authors edit, as access policy (`who: {property: authors}`, one
-`unless`/`when` predicate), with device updates authorized by effect. Formerly 002's
-milestone 5; moved to later beside 008, its only customer, on 2026-10-28.
-
-**[Apps 005: source resolution, execution authority and the sidecar](later/apps-005-source-resolution-and-sidecar.md).**
-Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
-lending models against real code. Schema language 005 runs them inside overstoryd as their
-caller, from handles registered in code; this plan makes them run as an activated app under
-an execution token, from code read out of a tree, and then moves execution into a sidecar.
-One fork for Joe: whether the sidecar comes first or waits.
 
 **[Apps 006: durable query and mutation authoring](later/apps-006-durable-authoring.md).**
 Part of the same push, after Apps 005: the authoring API that declares author and user
@@ -149,30 +180,11 @@ When Joe shares by link, alongside Web 025: an access link must not leak its sec
 URLs, history or logs. Nothing is in production yet, so until then the spec carries the
 requirement.
 
-**[Performance 004: a provenance index kept at acceptance](later/performance-004-provenance-index.md).**
-Joe chose this on 2026-10-21 instead of Performance 003 (fast catch-up from an older basis,
-after the iPhone needed several minutes of history replay on 2026-10-09). Every acceptance
-records which change inserted each run of each file's bytes, so the merge engine reads
-states instead of replaying history, and line provenance becomes a lookup. It starts with a
-spike on the iPhone's catch-up proving the engine can evaluate from the index.
-
-**[Clients 002: more identity-preserving coalescing](later/merge-002-identity-preserving-coalescing.md).**
-Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
-with enough identity for overstoryd to merge concurrent work correctly. After the
-idle-based publication baseline, extend simplification beyond repeated moves of
-one unchanged span. Implement each case in the Swift and TypeScript clients,
-using shared examples and the host merge engine to prove the result.
-
 **[overstoryd 016: richer choice review](later/merge-016-choice-review-extensions.md).**
 Things a real choice review may need: safe binary previews, long sources, visible whitespace,
 a freshness policy so unrelated updates don't force a renewed review, explanations of moves
 and deletions, combination previews, and bulk and offline resolution. Joe made the ideas item
 a plan on 2026-10-28; take each when a real review needs it.
-
-**[Filesystem 026: pages as logical nodes, written to disk by each placement](later/filesystem-026-pages-as-logical-nodes.md).**
-The tree would hold a page's properties and content, and each placement would write its
-front matter; formatting stops traveling between devices, which Joe accepted on 2026-10-28.
-Front-matter edits become property effects in merge and access.
 
 **[Release 003: the iPhone app on the App Store](later/release-003-app-store.md).** After friends
 are using the TestFlight build. A sketch of what review requires: account deletion, report
@@ -189,18 +201,6 @@ the design shows Postgres backings, SQLite projections and moving a collection b
 representations are possible.
 
 ## When needed
-
-**[overstoryd 015: explain automatic resolutions and clear reconciled choices](when-needed/merge-015-resolve-reconciled-choices.md).**
-Joe encountered a whole-tree conflict after moving blocks into a new page. Later
-accepted edits already produced the intended contents, but the conflict remained
-and its cards showed only older alternatives. overstoryd should clear choices it can
-prove reconciled, and Story should explain the current result and make explicit
-resolution easy. Joe moved it to when-needed on 2026-10-25: take it when a stale whole-tree conflict
-like that one shows up again.
-
-**[overstoryd 014: the merge handles many cases](when-needed/merge-014-merge-handles-many-cases.md).**
-Prose already merges well. Take an item from its menu when a real edit reaches review that
-should have merged.
 
 **[Native 008: copies with changes and compound undo](when-needed/merge-008-copies-with-changes-and-compound-undo.md).**
 When merges bite: a real concurrent edit reviews or loses a copy, paste or undo that should
@@ -220,10 +220,10 @@ proofs and release boundaries differ, and they share examples rather than duplic
 ### Merge improvements
 
 Editor intent, client publication, host merging and conflict review. [Native 008](when-needed/merge-008-copies-with-changes-and-compound-undo.md)
-supplies truthful command evidence; [Clients 002](later/merge-002-identity-preserving-coalescing.md)
+supplies truthful command evidence; [Clients 002](soon/merge-002-identity-preserving-coalescing.md)
 can simplify that evidence after it exists, and must not invent missing copy or move identity;
-[overstoryd 014](when-needed/merge-014-merge-handles-many-cases.md) must support an emitted
-operation form before a client that emits it is installed; [overstoryd 015](when-needed/merge-015-resolve-reconciled-choices.md)
+[overstoryd 014](soon/merge-014-merge-handles-many-cases.md) must support an emitted
+operation form before a client that emits it is installed; [overstoryd 015](soon/merge-015-resolve-reconciled-choices.md)
 gives every automatic outcome its explanation, which 014's "merge with a note" candidates wait
 for. The numbers are identifiers, not an execution order. History and provenance support
 explanation but do not improve merge decisions; [overstoryd 016](later/merge-016-choice-review-extensions.md)
@@ -244,7 +244,7 @@ merge work.
 
 Latency, transfer size and storage overhead: take a plan when its stated problem occurs, and
 measure both the benefit and the cost to correctness, recovery and offline use.
-[Performance 004](later/performance-004-provenance-index.md) and
+[Performance 004](soon/performance-004-provenance-index.md) and
 [Native 006](when-needed/performance-006-sparse-ios-placement.md) are the plans; the shared
 merge cache and object packing are live, and packing's leftovers are done. Client
 coalescing also reduces wire traffic but stays with merge work. [Performance candidates](candidates.md#speed)

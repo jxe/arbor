@@ -4,7 +4,7 @@
 
 > **Execution-model revision (2026-09-18):** Resource policy is the deployed
 > [access-control grammar](../../docs/overstory-spec/05-access-control.md), source resolution and runtime extraction
-> by [Apps 005](apps-005-source-resolution-and-sidecar.md), and replacement authoring /
+> by [Apps 005](../soon/apps-005-source-resolution-and-sidecar.md), and replacement authoring /
 > durable workflows by [Apps 006](apps-006-durable-authoring.md). These supersede inherited
 > named-permission, single-domain-only and unchanged-syntax instructions below.
 > Preserve Supplies behavior while intentionally adapting its source to the new API.

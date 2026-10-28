@@ -1,6 +1,6 @@
 # Performance 004: a provenance index kept at acceptance
 
-**Why and when:** Joe chose this on 2026-10-21 instead of Performance 003. After the
+**Why and when:** Joe chose this on 2026-10-21 instead of Performance 003, and moved it to soon on 2026-10-28. After the
 iPhone's catch-up on 2026-10-09 took about five minutes to rebuild some 4,200 entries,
 Performance 003 set out to make replay cheaper and rarer (more checkpoints, less
 work per entry). This plan removes most replay. overstoryd already works out

@@ -1,6 +1,6 @@
 # Apps 005: Source resolution, execution authority and the sidecar
 
-**Why and when:** Joe wants queries and mutations running on hosts fairly soon, to test the permissions and lending models against real code. Schema language 005 (2026-10-24) got them running; this plan makes them run as an app, under the authority an activation grants, from code resolved out of a tree, and then decides where that code runs.
+**Why and when:** Joe wants queries and mutations running on hosts fairly soon, to test the permissions and lending models against real code; he moved it to soon on 2026-10-28. Schema language 005 (2026-10-24) got them running; this plan makes them run as an app, under the authority an activation grants, from code resolved out of a tree, and then decides where that code runs.
 
 ## Status
 

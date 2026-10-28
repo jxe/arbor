@@ -1,7 +1,7 @@
 # Access control
 *Part of the [Overstory spec](README.md): resource policy, execution authority, authentication, and authorization of reads, updates, and observations.*
 
-*Owns: `who` / `app` / `allow` rules, administrators and lending. References: [tree configurations](04-accounts-and-devices.md), [executable documents](07-executable-documents.md), and [locator resolution](03-locators.md#4-resolution-rules). This is the target contract; the deployed subset is in [status](../../status.md), and provider enforcement is [Apps 005](../../plans/later/apps-005-source-resolution-and-sidecar.md).*
+*Owns: `who` / `app` / `allow` rules, administrators and lending. References: [tree configurations](04-accounts-and-devices.md), [executable documents](07-executable-documents.md), and [locator resolution](03-locators.md#4-resolution-rules). This is the target contract; the deployed subset is in [status](../../status.md), and provider enforcement is [Apps 005](../../plans/soon/apps-005-source-resolution-and-sidecar.md).*
 
 ## 1. Subjects and rules
 

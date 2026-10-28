@@ -109,7 +109,7 @@ no Story Sync proxy: editors call overstoryd directly.
 
 ## Algorithm
 
-[Performance 004](performance-004-provenance-index.md) keeps a provenance index (each
+[Performance 004](../soon/performance-004-provenance-index.md) keeps a provenance index (each
 file's pieces, naming the change that inserted them) at every acceptance. Once it
 exists, replace this section with a lookup in that index; the line matching below is
 the fallback for documents and versions from before it.

@@ -13,7 +13,7 @@ a command that touched two pages, the Native editor should send overstoryd a rec
 you did, not only the resulting text. That record is what lets overstoryd combine your action
 with another device's edits; final text alone cannot tell a copy from matching text typed
 independently. This plan covers capture in the editor and its Quagmire bridge. Merge
-policy is [overstoryd 014](merge-014-merge-handles-many-cases.md)'s.
+policy is [overstoryd 014](../soon/merge-014-merge-handles-many-cases.md)'s.
 
 The change log, source publication, moves (`source-moves.json`) and Move to Document as
 one change already exist. Do not rebuild them.

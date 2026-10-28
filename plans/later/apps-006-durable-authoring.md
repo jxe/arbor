@@ -5,7 +5,7 @@
 ## Status and ownership
 
 **PLANNED · after Apps
-[005](apps-005-source-resolution-and-sidecar.md); coordinates [003](apps-003-development-compiler-and-editor-tooling.md).**
+[005](../soon/apps-005-source-resolution-and-sidecar.md); coordinates [003](apps-003-development-compiler-and-editor-tooling.md).**
 Replace unused query/mutation authoring as needed. Own final authoring signatures,
 workflow progress/receipt encoding and implementation in the sidecar, not another
 overstoryd execution engine. Portable semantics live in [executable documents](../../docs/overstory-spec/07-executable-documents.md)

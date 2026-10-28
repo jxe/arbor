@@ -4,10 +4,9 @@
 new page. Later accepted edits already produced the intended contents, but the
 conflict remained and its cards showed only older alternatives. overstoryd should
 clear choices it can prove reconciled, and Story should explain the current result
-and make explicit resolution easy. Joe moved it to when-needed on 2026-10-25: take it when a
-stale whole-tree conflict like that one shows up again. Its first step is the
+and make explicit resolution easy. Joe moved it to when-needed on 2026-10-25, and back to soon on 2026-10-28. Its first step is the
 foundation every automatic outcome needs, moved here from
-[overstoryd 014](../when-needed/merge-014-merge-handles-many-cases.md) on 2026-10-11.
+[overstoryd 014](../soon/merge-014-merge-handles-many-cases.md) on 2026-10-11.
 
 Formerly "Resolve choices that later work has reconciled".
 
@@ -36,7 +35,7 @@ this to smaller scopes and coupled groups only after their obligations are check
 ### 0. Give automatic outcomes a portable explanation
 
 Steps 2 and 3 record why the host resolved something and show it in clients. That
-needs three things first, which [overstoryd 014](../when-needed/merge-014-merge-handles-many-cases.md)'s
+needs three things first, which [overstoryd 014](../soon/merge-014-merge-handles-many-cases.md)'s
 candidates reuse:
 
 - **The three outcomes in the spec.** Add 014's three constraints (lose nothing,
