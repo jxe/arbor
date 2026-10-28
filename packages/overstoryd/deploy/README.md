@@ -208,8 +208,8 @@ afterwards; milliseconds) and progress on stderr. Without
 On Railway, from the linked repository directory:
 
 ```sh
-railway ssh --service overstoryd-arb-nxhx-org -- bun run packages/overstoryd/src/collect-objects.ts /data | tee collect-dry.json
-railway ssh --service overstoryd-arb-nxhx-org -- bun run packages/overstoryd/src/collect-objects.ts /data --delete | tee collect.json
+railway ssh --service canopy-arb-nxhx-org -- bun run packages/overstoryd/src/collect-objects.ts /data | tee collect-dry.json
+railway ssh --service canopy-arb-nxhx-org -- bun run packages/overstoryd/src/collect-objects.ts /data --delete | tee collect.json
 ```
 
 Keep the default `--grace-hours 24` against a serving host: an acceptance in

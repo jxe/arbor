@@ -63,7 +63,7 @@ fifteen minutes; the rehearsal is where the time should go.
    the migration:
 
    ```sh
-   railway volume files --volume overstoryd-arb-nxhx-org-volume download /backups/<name>/volume.tar .backups/railway/<YYYYMMDDTHHMMSSZ>/volume.tar --overwrite
+   railway volume files --volume canopy-arb-nxhx-org-volume download /backups/<name>/volume.tar .backups/railway/<YYYYMMDDTHHMMSSZ>/volume.tar --overwrite
    ```
 
    Check the sha256 against the one printed on the volume.
