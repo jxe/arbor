@@ -29,12 +29,13 @@ Formerly "a directory you own, Go to…, and links by tree ID".
   2–4 and the Go to… slice.
 - **Order** (Joe, 2026-10-24): the directory first, because it is People's point; Go to… and
   tree-ID links are a side slice for any time.
-- **Gated on:** phase 2 on [Schema language 002](../soon/schema-language-002-present-collections-for-people.md)
-  (how the directory is shown) and [Schema language 007](../soon/schema-language-007-edit-collections-in-story.md)'s
-  structured editor (editing by hand in simple ways comes earlier, with 007 step 7). The Go to… slice
+- **Gated on:** phase 2 on [Schema language 007](../soon/schema-language-007-edit-collections-in-story.md)'s
+  structured editor (editing by hand in simple ways comes earlier, with 007 step 7) and, for
+  dragging people into groups, the [groups that are other trees](../spec-extensions/groups-that-are-other-trees.md)
+  spec extension. How the directory is shown is done (Schema language 002, closed 2026-10-28). The Go to… slice
   and phase 1's loose ends on nothing.
-- **Built on 002** (Joe, 2026-10-24): People is the directory's collection shown with 002's
-  database views, and the directory is 002's first customer. Only Go to… and the share sheet
+- **Built on collection views** (Joe, 2026-10-24): People is the directory's collection shown
+  with USL views (Schema language 006 and 002), not hand-built screens. Only Go to… and the share sheet
   are hand-built.
 - **Includes Links 001** (following a link that names a tree by its ID), folded in on
   2026-10-24 (the Go to… slice and phase 4). Its earlier text is in git history at `7b29f1b`
@@ -96,23 +97,24 @@ and `visits` updated in place instead of a Visit row per page.
 
 **Group membership is not copied.** Groups stay group profile trees on hosts, because
 sharing needs them there. The People arrangement groups contacts by the groups they are in,
-read from those trees; moving a row under a heading edits that group tree's `members`, through
-002 milestone 2's groups that are other trees.
+read from those trees; moving a row under a heading edits that group tree's `members`, through the
+[groups that are other trees](../spec-extensions/groups-that-are-other-trees.md) extension.
 
 **What arrives on its own.** A contact row is added when there is a real tie: an invite either
 way, a share either way, a group in common, or opening their profile or tree. A link that only
 appears in a page you read doesn't count until you follow it. Host communities stay live,
 collapsed sections and are not copied.
 
-## Phase 2: People as a database view (after 002 and 007's editor)
+## Phase 2: People as a database view (after 007's editor)
 
-People is the directory's People collection presented with Schema language 002's views and
-edited with 007's structured editor, not hand-built screens (Joe, 2026-10-24). What the directory asks
+People is the directory's People collection presented with USL views and edited with 007's
+structured editor, not hand-built screens (Joe, 2026-10-24). What the directory asks
 of those plans is listed in each of them.
 
-- The arrangement lives in the directory's schema as `~views`: By group, Recent, By host, with
-  You first. Group headings are group profile trees (002 milestone 2's groups that are other
-  trees); host communities are read-only groups the host supplies, collapsed.
+- The arrangement lives in the directory's schema as `~views`: By group, Everyone and Recent
+  (built). Host communities already show as groups through their `Community` ties (Joe,
+  2026-10-28: no separate By host). Group headings that edit the group trees wait for the
+  [groups that are other trees](../spec-extensions/groups-that-are-other-trees.md) extension.
 - Forming groups is the editor's own drag: under a heading to add, out to move, Option-drag
   (Mac) to copy, a row action to remove; "+" after the headings and "Group these…" for a
   selection. Locked headings for groups you can't edit; unsynced changes dimmed.

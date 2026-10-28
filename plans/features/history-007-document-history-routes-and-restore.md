@@ -63,7 +63,7 @@ tool and never appears as History.
    edits already survive in the change log and publish on reconnect.
 2. **Retention bound.** `document_versions` holds most of what the object
    collector keeps (106 MB of 116 MB on 2026-09-24, nearly all versions of one
-   60 KB `_index.md`; see [small work](../small-work.md#schedule-the-object-collector)). Choose
+   60 KB `_index.md`; see [chores](../chores.md#schedule-the-object-collector)). Choose
    the bound History promises, for example every version for N days and then
    one a day, and prune rows to it so the collector reclaims the bodies.
 

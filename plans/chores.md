@@ -1,10 +1,11 @@
-# Small work and verification
+# Chores
 
-Decided tasks too small for a plan of their own, and the hand checks, schedules and soak
-gates left by finished work: anything here can just be done. What isn't decided yet, whether
-or how, is in [ideas](ideas.md); procedures live in the docs beside the code they test. Nothing here authorizes installing, restarting Joe's apps,
-changing live data or deleting backups. When an item is done, record its revision, date
-and evidence in [status](../status.md) and delete it here.
+Decided work too small for a plan: hand checks, schedules and soak gates left by finished
+work, and small tasks. Anything here can just be done, with no design left. Anything not yet
+decided is a [candidate](candidates.md); procedures live in the docs beside the code they test.
+Nothing here authorizes installing, restarting Joe's apps, changing live data or deleting
+backups. When an item is done, record its revision, date and evidence in
+[status](../status.md) and delete it here.
 
 ## Hand checks
 

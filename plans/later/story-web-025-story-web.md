@@ -12,7 +12,7 @@
 
 - **Effort**: XL, split into three projects with a soak between each
 - **Risk**: MEDIUM (B1), MEDIUM (B2: new overstoryd surface and browser credential), LOW (B3)
-- **Depends on**: historical Native 022 (implemented and live); Native 022 soak closeout in [small work](../small-work.md)
+- **Depends on**: historical Native 022 (implemented and live); Native 022 soak closeout in [chores](../chores.md)
 - **Supersedes**: Web 023 (completed plan, deleted; see git history) (its library and endpoint-removal steps are folded into B1 and B2 below), Web 008 (completed plan, deleted; see git history) (its parity targets are restated per surface in [surfaces.md](story-web-surfaces.md)), and the shell items of Web 005 (completed plan, deleted; see git history) (its remaining editor-depth items become the B3 backlog at the end of this plan). Moved to `_done/web/` on 2026-09-19.
 - **Written at**: 2026-09-19, native reference `swift/StoryApp` and `swift/Packages/StoryEditor` at HEAD
 
@@ -138,7 +138,7 @@ Each project ends with the listed gates, a `status.md` entry and a soak on Joe's
 **Phase 4 — editor pane, minimum.** Surface [4](story-web-surfaces.md#4-editor-pane) items marked B1: BlockNote document bound to a TypeScript `EditorSource` (the twin of StoryKit's, following [editor sources](../../docs/implementing-editors/editor-source.md): each generation appended to the change log through `prepareSourceChange`, serialized, with no admission machine or recovery store) through `EditorHost.persistCommit`, document footer (backlinks, sync chip), block menu with Turn Into tiles, @mention, autotransforms, inline marks, images to `Assets`, undo, find in page, New Document/Folder, Trash/Restore with confirmations, title-rename proposal, orphan-trash prompt, Source and Properties, History/Recover. Generations append to the change log: real transactions capture original source and basis; do not infer move/copy from final text; support only operation forms the browser captures and the server executes.
 *Verify*: `bun run build`, `bun run test:e2e` restored with disposable overstoryd: edit in the browser and see the folder update within a second; edit on disk and see the page update; close the tab mid-edit and reopen to see the browser's own head replay once; leave a daemon request pending or conflicted and the browser still publishes; a second tab opens read-only.
 
-**Phase 5 — docs and release.** `docs/implementing-editors/design.md` (the browser is a working-tree client; BlockNote sentence updated; shortcut table), `docs/implementing-sync-services/story-sync-api.md` (§3b unchanged, removed routes, §6 static hosting), `docs/architecture/README.md`, `status.md`. Install on Joe's Mac; two-week soak recorded in [small work](../small-work.md).
+**Phase 5 — docs and release.** `docs/implementing-editors/design.md` (the browser is a working-tree client; BlockNote sentence updated; shortcut table), `docs/implementing-sync-services/story-sync-api.md` (§3b unchanged, removed routes, §6 static hosting), `docs/architecture/README.md`, `status.md`. Install on Joe's Mac; two-week soak recorded in [chores](../chores.md).
 
 ### B2 — the overstoryd host and the account surfaces
 

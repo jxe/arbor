@@ -8,8 +8,9 @@ is named by its topic and number, such as `features/live-001-presence.md`. When 
 changes, move the file (or, in `features/`, change its timing line) and its paragraph here.
 
 Each plan starts with why and when Joe wants it; the same paragraph is below. Decided small
-tasks, hand checks and soaks are in [small work](small-work.md); anything not yet decided,
-candidates and open questions, is in [ideas](ideas.md). Current behavior is in
+tasks, hand checks and soaks are [chores](chores.md); undecided work is in
+[candidates](candidates.md); proposed additions to the spec are
+[spec extensions](spec-extensions/README.md), one file each. Current behavior is in
 [status](../status.md). Plans carry no priorities. Delete a plan once done, after recording
 its evidence in status.
 
@@ -29,7 +30,7 @@ part of a tree.
 groups to share with easy: see whether a group exists, drag people into it, invite whoever is
 missing. Phase 1, the directory tree kept by code, is done (2026-10-25,
 [status](../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)). Left:
-forming groups with 002's editor, a share sheet, and a Go to… field that finds visited trees and
+forming groups with 007's editor, a share sheet, and a Go to… field that finds visited trees and
 pages by title, with `overstory://tr_…` links found by asking the directory, then the account
 hosts (a side slice for any time). Moved to soon on 2026-10-25.
 
@@ -92,12 +93,6 @@ while offline, and the host derives the result (spec 10 §2.2). Left: the queue'
 every view intent as row operations, simple edits in the view, then the structured editor
 (groups, chips, bullets, drag, inline Markdown). The editing half of the split Joe made on
 2026-10-28.
-
-**[Schema language 002: show collections the way People needs](soon/schema-language-002-present-collections-for-people.md).**
-The presenting half: the directory's arrangements (groupings from a menu, host-supplied
-groups, "Unassigned"), people in cells, styling a schema can't set yet, and pages that show a
-collection kept elsewhere, including groups that are other trees. With 007's editor it is
-People 001 phase 2.
 
 ## Later
 
@@ -234,7 +229,7 @@ for. The numbers are identifiers, not an execution order. History and provenance
 explanation but do not improve merge decisions; [overstoryd 016](later/merge-016-choice-review-extensions.md)
 extends the choice review; Web 025 owns rebuilding the web reviewer;
 merge replay cost is Performance 004, including merge and replay cost for large collections
-(its step 6). The [testing candidates](ideas.md#testing) in ideas
+(its step 6). The [testing candidates](candidates.md#testing)
 include editor alignment and round-trip characterization.
 
 ### History and revisions
@@ -252,5 +247,5 @@ measure both the benefit and the cost to correctness, recovery and offline use.
 [Performance 004](later/performance-004-provenance-index.md) and
 [Native 006](when-needed/performance-006-sparse-ios-placement.md) are the plans; the shared
 merge cache and object packing are live, and packing's leftovers are done. Client
-coalescing also reduces wire traffic but stays with merge work. [Performance ideas](ideas.md#speed)
+coalescing also reduces wire traffic but stays with merge work. [Performance candidates](candidates.md#speed)
 collects measured leads that are not yet plans.

@@ -4,7 +4,7 @@
 writes it ([spec 06](../../docs/overstory-spec/06-child-backings.md)): the tree holds rows,
 and each placement chooses its files. Joe, 2026-10-15: doing the same for pages is "probably a
 good idea eventually"; on 2026-10-28 he accepted the cost below and made it a plan in later.
-It was an item in [ideas](../ideas.md).
+It was an item in [candidates](../candidates.md).
 
 ## Status
 

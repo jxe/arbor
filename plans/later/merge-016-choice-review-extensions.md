@@ -2,7 +2,7 @@
 
 **Why and when:** Story's choice review (`swift/StoryApp/StoryConflictReview.swift`) lacks
 several things a real review may need. These were a "product design needed" item in
-[ideas](../ideas.md); Joe made them a plan in later on 2026-10-28. Take each when a real review
+[candidates](../candidates.md); Joe made them a plan in later on 2026-10-28. Take each when a real review
 needs it.
 
 ## Status

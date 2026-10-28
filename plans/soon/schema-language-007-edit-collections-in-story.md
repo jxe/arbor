@@ -6,10 +6,8 @@ language 006 showed a collection read-only
 ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)), editing goes in soon.
 This plan is the whole editing side: the write path (done but for loose ends), every view
 intent as row operations, simple edits in 006's view, and then the structured editor.
-Showing collections the way People needs is
-[Schema language 002](schema-language-002-present-collections-for-people.md); the two plans
-were split by editing and presenting on 2026-10-28, when this plan took 002's former
-milestones 3a, the inverse of 3, and 4.
+Schema language 002, which presented collections the way People needs, closed on
+2026-10-28; this plan took its former milestones 3a, the inverse of 3, and 4.
 
 > **Executor instructions**: Do the steps in order. Swift is written in the cloud and built and
 > tested on Joe's Mac (Remote Control). Bring any change the code needs back to the spec in the
@@ -23,8 +21,8 @@ milestones 3a, the inverse of 3, and 4.
   which writes all its rows through it
   ([status](../../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)). Try
   edits on the games sandbox tree, which holds supplies-remake's live data.
-- **Unblocks:** [People 001](../features/people-001-groups-sharing-and-go-to.md) phase 2 (with
-  002); [Schema language 008](../later/schema-language-008-port-excellences-and-supplies.md).
+- **Unblocks:** [People 001](../features/people-001-groups-sharing-and-go-to.md) phase 2;
+  [Schema language 008](../later/schema-language-008-port-excellences-and-supplies.md).
 
 ## Joe's decisions (2026-10-25)
 
@@ -250,8 +248,8 @@ an unknown selection) rather than fixing the byte-range shape.
 
 ## Not in this plan
 
-- Showing collections: arrangements, people cells and pages that present collections kept
-  elsewhere are [Schema language 002](schema-language-002-present-collections-for-people.md).
+- Pages that present collections kept elsewhere, and groups that are other trees: both are
+  [spec extensions](../spec-extensions/README.md).
 - Row ownership is [Schema language 010](../later/schema-language-010-row-ownership.md).
 - A replica on the device that encodes tables, and any SQLite there (Joe, 2026-10-25). Large
   collections are [Performance 004](../later/performance-004-provenance-index.md)'s concern.

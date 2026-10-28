@@ -31,7 +31,7 @@ Joe reviewed the plans in soon, the ideas and small work, and closed out these:
 - **Moved out of small work:** pending invitations in the People list (People 001's member
   sheet is gone; invitation claims are its loose end), the placement-host iPhone check (it
   waits on a second live host), and `story untrack` and ignored paths in the publish view
-  (now in [ideas](plans/ideas.md#small-features)).
+  (now in [candidates](plans/candidates.md#small-features)).
 - **Ideas:** choice review extensions became [overstoryd 016](plans/later/merge-016-choice-review-extensions.md)
   and schema evolution became [Schema language 009](plans/features/schema-language-009-schema-changes-keep-the-data.md);
   claimed-member removal moved to People 001's forks and identity recovery to Security 010;
@@ -46,9 +46,15 @@ Joe reviewed the plans in soon, the ideas and small work, and closed out these:
   [CLI 004](plans/features/cli-004-agents-in-placed-folders.md), and the manual recipes moved
   to the [update machine](docs/implementing-sync-services/update-machine.md#checking-by-hand)
   and Apps 005. Schema language 007 is now all of editing collections (its write path, every
-  view intent, simple edits and the structured editor), 002 is presenting them for People
-  (arrangements, people cells, pages showing other collections), and 002's ownership milestone
+  view intent, simple edits and the structured editor), and 002's ownership milestone
   is [Schema language 010](plans/later/schema-language-010-row-ownership.md) in later.
+- **Schema language 002 closed.** Chips and groups now say when they are people
+  (`person: true`, both stacks and `presented-views.json`), so Story no longer guesses from a
+  TreeID prefix. Joe dropped schema-set styling (bullet tint, Markdown as a note) and a
+  host-supplied "By host" grouping (communities already show as groups through their
+  `Community` ties). Pages that present other collections and groups that are other trees
+  became [spec extensions](plans/spec-extensions/README.md). Ideas and small work were renamed
+  [candidates](plans/candidates.md) and [chores](plans/chores.md).
 
 ## Rows on the host: eviction and a collection-scoped guard — 2026-10-28
 
@@ -155,7 +161,7 @@ Implemented; the Swift change is installed when Joe next builds Story.
 
 Implemented; deployed when main is pushed. Plan overstoryd 001's follow-ups are done and the
 plan is deleted; the streaming experiment harness and the unmeasured backup and burst numbers
-moved to [ideas](plans/ideas.md#speed).
+moved to [candidates](plans/candidates.md#speed).
 
 - **Pack files are checked against their names.** `Packs.verify` hashes every indexed pack and
   compares its size; reads still check only the objects they decode. Pack maintenance runs it
@@ -1160,7 +1166,7 @@ measurements before broadening the implementation.
 
 ## Known gaps
 
-- **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the retired editor recovery store's directory is left on disk unpruned. An object collector runs by hand over `railway ssh`: `packages/overstoryd/src/collect-objects.ts` deletes objects outside the [retention definition](docs/architecture/overstoryd/README.md#retention-and-object-collection) the integrity audit also verifies, after a grace period, safely beside a serving overstoryd. Rehearsed 2026-09-24 on the 13:13Z live backup after migration 018 (`--delete --grace-hours 0`): 82,725 objects / 247 MB scanned, 2,760 / 116 MB live, 79,965 / 132 MB deleted, 12 s; the objects directory went from 479 MB to 118 MB on disk; `/.overstory/integrity` passed, tree refs matched migration 018's report, and the sidecar replayed every entry the same as on an uncollected copy. `document_versions` alone keeps 2,683 bodies / 106 MB (mostly versions of one 60 KB `_index.md`), so retained document history, not dead objects, is now the growth. First live run 2026-09-24 at build `14b8189c` (backup `.backups/railway/20260924T142722Z/`, sha256 `c10fd5a3…`; default 24-hour grace): 82,741 objects scanned, 2,776 / 116 MB live, 3,438 / 5 MB younger than the grace, 76,527 / 127 MB deleted in 11 s, none absent; `objects/` went from 490 MB to 144 MB on disk; `/.overstory/integrity` passed and a round-trip edit was accepted afterwards. Its schedule and a document-version retention decision are [small work](plans/small-work.md#schedule-the-object-collector); packing has been [live since 2026-10-09](#object-packing-deployed--2026-10-09).
+- **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the retired editor recovery store's directory is left on disk unpruned. An object collector runs by hand over `railway ssh`: `packages/overstoryd/src/collect-objects.ts` deletes objects outside the [retention definition](docs/architecture/overstoryd/README.md#retention-and-object-collection) the integrity audit also verifies, after a grace period, safely beside a serving overstoryd. Rehearsed 2026-09-24 on the 13:13Z live backup after migration 018 (`--delete --grace-hours 0`): 82,725 objects / 247 MB scanned, 2,760 / 116 MB live, 79,965 / 132 MB deleted, 12 s; the objects directory went from 479 MB to 118 MB on disk; `/.overstory/integrity` passed, tree refs matched migration 018's report, and the sidecar replayed every entry the same as on an uncollected copy. `document_versions` alone keeps 2,683 bodies / 106 MB (mostly versions of one 60 KB `_index.md`), so retained document history, not dead objects, is now the growth. First live run 2026-09-24 at build `14b8189c` (backup `.backups/railway/20260924T142722Z/`, sha256 `c10fd5a3…`; default 24-hour grace): 82,741 objects scanned, 2,776 / 116 MB live, 3,438 / 5 MB younger than the grace, 76,527 / 127 MB deleted in 11 s, none absent; `objects/` went from 490 MB to 144 MB on disk; `/.overstory/integrity` passed and a round-trip edit was accepted afterwards. Its schedule and a document-version retention decision are [chores](plans/chores.md#schedule-the-object-collector); packing has been [live since 2026-10-09](#object-packing-deployed--2026-10-09).
 - **Every accepted-state change requires review.** The host requires exact accepted-state guards, so a client must review the latest evidence even when projected bytes are equal or the update is unrelated.
 - **Range translation across a merged predecessor** is future work; the host relates an authored predecessor to its accepted projection through a validated or exactly replayed prefix only.
 - **Cross-account rehome** (`story mv` between accounts on different hosts) fails before mutation until a resource-policy transfer contract is reviewed. It worked only for legacy-grammar accounts, and that grammar is gone. After overstoryd 005 a profile has one home host, so `story mv` refuses any move to another host; placing trees on other hosts is [Security 007](#trees-on-other-hosts--2026-09-28).
@@ -1169,14 +1175,15 @@ measurements before broadening the implementation.
 - **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. Retained accepted history starts at migration 016's cut (each tree's head then); document versions and entry dates from before the cut are kept. The log entries of overstoryd 016 hold that history as a hash chain, which a listing can walk. [overstoryd 007](plans/features/history-007-document-history-routes-and-restore.md) owns it.
 - **Compatibility cutoff.** Account configurations are gone (schema 22): clients read only tree configurations, and the readers of the old `account.yaml` / `trees.yaml` remain only in migration 022's `legacy.ts`, deleted with its directory after 2026-10-10. Workspace registries require complete object records and keep path-derived `rt_` root IDs as valid identities (106 on the Mac at the 2026-09-21 cutoff). From the schema-26 cutover, scalar group members are ignored, not read.
 - **Moves made outside Story are not link-healed.** A Rename or Move in the Story app heals links to the page and to everything under it, plus the moved pages' own relative links. A page moved with Finder, `git mv`, an editor or an agent keeps working through its stable key, but readable paths that name it stay stale. Filesystem 025 would have had Story Sync heal those; Joe dropped it on 2026-09-25 as not needed.
-- **Mixed row and text traces.** A change whose trace has row-operation frames and text frames (spec 10 §4.1 allows them as separate frames) is refused by the merge sidecar as unsupported (`rowTrace` in `packages/overstoryd-merge/src/sidecar.ts`). No client sends one; support it before one does. Schema language 002's editor, if it edits a row and a page in one change, is the likely first.
+- **Mixed row and text traces.** A change whose trace has row-operation frames and text frames (spec 10 §4.1 allows them as separate frames) is refused by the merge sidecar as unsupported (`rowTrace` in `packages/overstoryd-merge/src/sidecar.ts`). No client sends one; support it before one does. Schema language 007's structured editor, if it edits a row and a page in one change, is the likely first.
 - **Production recovery, dispute handling, and high availability** are not productized; the deployment guide documents backup, restore, and coordinated upgrades only.
 
 ## Where work is tracked
 
 - [Plans](plans/README.md), every remaining plan with why and when.
-- [Small work](plans/small-work.md), small tasks and outstanding installation, deployment, hands-on and soak checks.
-- [Ideas and open questions](plans/ideas.md).
+- [Chores](plans/chores.md): decided small tasks, hand checks and soaks.
+- [Candidates](plans/candidates.md): undecided work.
+- [Spec extensions](plans/spec-extensions/README.md): proposed additions to the spec.
 
 ## overstoryd cleanup review — 2026-09-28
 
@@ -1584,7 +1591,7 @@ the preview test depend on Apple-only modules and have not compiled
 50,000-file scan with the policy took about 10% longer in that container
 (8.5 s against 9.4 s, noisy); one decision costs about 5 µs. Not done: marking
 ignored paths in the Mac app's "what it would publish" view, and an
-`story untrack` command ([ideas](plans/ideas.md#small-features)).
+`story untrack` command ([candidates](plans/candidates.md#small-features)).
 
 ## Declined folder paths (Filesystem 011) — 2026-09-25
 
@@ -1931,7 +1938,7 @@ history). Its follow-ups: held folders in the Mac app
 (dropped 2026-10-26), the browser client
 ([Web 025](plans/later/story-web-025-story-web.md)), a Hetzner sync lab run
 (dropped 2026-10-28), and History on
-working trees ([open questions](plans/ideas.md#open-questions)).
+working trees ([overstoryd 007](plans/features/history-007-document-history-routes-and-restore.md)).
 **Runner.** `@ovst/working-tree`
 holds `reduceUpdate`, `LocalChange` preparation, entry transfer, the
 `UpdateControl` codec (Swift's schema 4) and `UpdateCoordinator`, a port of the
@@ -2003,7 +2010,7 @@ together with the merge boundary below (overstoryd 016 steps 1 to 7 and the docu
   deadline (checked between entries) still ends in that answer. Starting replay at every 64th entry instead was tried
   and rejected: the stale-edit acceptance test showed an imported start drops the current
   side's attribution for any merge whose base precedes it. The replay cost itself, a
-  per-file cache, is a [candidate](plans/ideas.md#speed).
+  per-file cache, is a [candidate](plans/candidates.md#speed).
 - Not deployed with it: the iPhone app (no wire change was required).
 
 - **Log entries.** Every acceptance path (client updates, tree creation, pairing,

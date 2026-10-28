@@ -7,7 +7,7 @@ about, and consumers (Story, Story Sync's projections, sites reading through cra
 still expect the older shape. Today nothing carries rows across a schema change. The People
 directory shows the cost: until it has migrations, a seed bump replaces Joe's directory and
 empties it ([People 001](people-001-groups-sharing-and-go-to.md), phase 1's loose ends). This
-was open question 6 in [ideas](../ideas.md); Joe made it a feature in later on 2026-10-28.
+was open question 6 in [candidates](../candidates.md); Joe made it a feature in later on 2026-10-28.
 
 ## Status
 

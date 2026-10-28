@@ -1,10 +1,10 @@
-# Ideas and open questions
+# Candidates
 
-Everything not yet decided, whether or how: candidates without a plan, and open design
-questions. Nothing here is committed work; decided small tasks are in
-[small work](small-work.md). Before promoting a candidate, check current source and tests:
-an old audit finding does not prove a current gap. When one becomes real work, write a plan (or add it to
-[small work](small-work.md)) and delete it here.
+Work nobody has decided on yet, whether or how: features, fixes and measurements that might
+be worth doing. Nothing here is committed. Decided small tasks are [chores](chores.md); proposed
+additions to the spec are [spec extensions](spec-extensions/README.md). Before promoting a
+candidate, check current source and tests: an old audit finding does not prove a current gap.
+When one is decided, write a plan (or add it to [chores](chores.md)) and delete it here.
 
 ## Product design needed
 
@@ -75,11 +75,3 @@ Measure before promoting any of these.
 - **Provider scalar normalization** and **bounded-placement conformance** belong to the
   Postgres plans and [Apps 010](later/apps-010-native-offline-collection-file-projection.md)
   (formerly Native 003) when they start.
-
-## Open questions
-
-1. **Compiler correctness.** How should handle extraction, validator generation, realm
-   separation and access inference be verified as security boundaries?
-2. **Cross-server executable data.** How should query discovery, delegated authorization
-   and server-to-server routing let a document use remote data without treating network
-   reachability as authority? ([Apps 009](later/apps-009-cross-host-delegation.md) is a sketch.)
