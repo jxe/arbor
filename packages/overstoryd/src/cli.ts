@@ -219,6 +219,7 @@ export async function serveCommunity(args: string[]): Promise<void> {
       port: requestedPort,
       hostname: hostnameOption(args),
       rateLimits: process.env.OVERSTORYD_RATE_LIMITS === "1",
+      pages: process.env.OVERSTORYD_PAGES === "1",
       trustedProxyHops: trustedProxyHops(),
       storyDownloads: storyDownloads(),
     });

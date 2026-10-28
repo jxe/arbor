@@ -421,6 +421,18 @@ export class ProtocolClient {
     return response.json();
   }
 
+  /** What the host advertises in `/.overstory/health`, such as `pages-v1`; none when it says nothing or can't be reached. */
+  async features(): Promise<string[]> {
+    try {
+      const response = await this.request("/.overstory/health");
+      if (!response.ok) return [];
+      const value = await response.json() as { features?: unknown };
+      return Array.isArray(value.features) ? value.features.filter((feature): feature is string => typeof feature === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+
   async list(): Promise<RemoteSnapshot<RemoteTreeDescriptor[]>> {
     const response = await this.checked(await this.request("/.overstory/trees", { headers: this.headers() }));
     return response.json();

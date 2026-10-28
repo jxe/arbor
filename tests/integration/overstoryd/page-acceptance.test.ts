@@ -19,14 +19,9 @@ function directory(value: ProtocolDirectory) {
 }
 const pageObject = (properties: PageProperty[], body: string) =>
   put(encodeProtocolPage({ type: "page", id: "p1", properties, body: encoder.encode(body) }));
+const source = "---\nid: p1\ntitle: A\nstatus: draft\n---\nOne\nTwo\n";
 const pageHash = (at: string) => decodeProtocolDirectory(objects.get(at)!).entries.find((e) => e.name === "note.md")!.page!;
 const pageAt = (at: string) => decodeProtocolPage(objects.get(pageHash(at))!);
-/** `root` with note.md replaced by `page`. */
-function withPage(at: string, page: string) {
-  const value = decodeProtocolDirectory(objects.get(at)!);
-  value.entries = value.entries.map((e) => e.name === "note.md" ? { name: "note.md", page } : e);
-  return directory(value);
-}
 async function remember(acceptedRoot: string) {
   for (const [hash, bytes] of (await client.snapshot(tree, acceptedRoot)).objects) objects.set(hash, bytes);
 }
@@ -40,34 +35,54 @@ async function propertyChange(basisRoot: string, field: string, before: unknown,
 async function submit(update: CandidateUpdate, basis = base) {
   return (await client.submitUpdates(tree, { base: basis, updates: [update] })).results[0]!.update;
 }
+const snapshotUpdate = (candidate: string): CandidateUpdate => ({ change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [], objects: payload() });
 
-beforeEach(async () => {
+/** A host with `note.md` as a Markdown file, before conversion. */
+async function start(pages: boolean) {
+  await stop();
   dir = await mkdtemp(`${tmpdir()}/story-page-accept-`);
   running = await serveHost({ dataRoot: dir, accounts: [testAccount("owner", token, { communityWriter: true })],
-    publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
+    publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0, pages });
   client = await deviceClient(running.url, token);
   tree = (await client.account()).account.community.id;
   const descriptor = await client.descriptor(tree), initial = await client.snapshot(tree, descriptor.tree.root);
   objects = new Map(initial.objects);
   const value = decodeProtocolDirectory(objects.get(initial.root)!);
-  value.entries.push({ name: "note.md", page: pageObject([["title", "A"], ["status", "draft"]], "One\nTwo\n") });
-  root = directory(value);
-  base = (await submit({ change: crypto.randomUUID(), candidate: root, trace: null, resolves: [], deltas: [], objects: payload() }, descriptor.tree.update)).id;
+  value.entries.push({ name: "note.md", file: put(encoder.encode(source)) });
+  const fileRoot = directory(value);
+  return { fileRoot, update: (await submit(snapshotUpdate(fileRoot), descriptor.tree.update)).id };
+}
+/** `at` with note.md as `page`, whichever kind it was. */
+function convert(at: string, page: string) {
+  const value = decodeProtocolDirectory(objects.get(at)!);
+  value.entries = value.entries.map((e) => e.name === "note.md" ? { name: "note.md", page } : e);
+  return directory(value);
+}
+
+beforeEach(async () => {
+  const before = await start(true);
+  root = convert(before.fileRoot, pageObject([["title", "A"], ["status", "draft"]], "One\nTwo\n"));
+  const converted = await submit(snapshotUpdate(root), before.update);
+  expect(converted.root).toBe(root);
+  base = converted.id;
 });
-afterEach(async () => {
+async function stop() {
+  if (!running) return;
   try { await expectReplayableHistory(dir, tree); }
   finally {
     running.server.stop(true); await running.overstoryd[Symbol.asyncDispose]();
     await rm(dir, { recursive: true, force: true });
+    running = undefined!;
   }
-});
+}
+afterEach(stop);
 
 test("a property change and a concurrent body edit both land", async () => {
   const first = await submit(await propertyChange(root, "status", "draft", "done"));
   expect(first.conflicted).toBe(false);
   // A snapshot that edits the body, authored on the same basis.
   const page = pageAt(root);
-  const edited = withPage(root, put(encodeProtocolPage({ ...page, body: encoder.encode("One\nTwo\nThree\n") })));
+  const edited = convert(root, put(encodeProtocolPage({ ...page, body: encoder.encode("One\nTwo\nThree\n") })));
   const second = await submit({ change: crypto.randomUUID(), candidate: edited, trace: null, resolves: [], deltas: [], objects: payload() });
   expect(second.conflicted).toBe(false);
   await remember(second.root);
@@ -93,4 +108,18 @@ test("one property set twice is a property choice, which a property operation re
   await remember(resolved.root);
   expect(pageAt(resolved.root).properties).toEqual([["title", "A"], ["status", "theirs"]]);
   await running.overstoryd.verifyIntegrity();
+});
+
+test("the host advertises pages-v1, and refuses a conversion that changes a page", async () => {
+  expect(await (await fetch(`${running.url}/.overstory/health`)).json()).toEqual({ status: "ok", features: ["pages-v1"] });
+  const { fileRoot, update } = await start(true);
+  const changed = convert(fileRoot, pageObject([["title", "B"], ["status", "draft"]], "One\nTwo\n"));
+  await expect(submit(snapshotUpdate(changed), update)).rejects.toThrow(/reads as/);
+});
+
+test("a host without pages-v1 refuses page entries", async () => {
+  const { fileRoot, update } = await start(false);
+  expect(await (await fetch(`${running.url}/.overstory/health`)).json()).toEqual({ status: "ok" });
+  const converted = convert(fileRoot, pageObject([["title", "A"], ["status", "draft"]], "One\nTwo\n"));
+  await expect(submit(snapshotUpdate(converted), update)).rejects.toThrow(/pages-v1/);
 });

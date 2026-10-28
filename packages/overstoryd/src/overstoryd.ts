@@ -7,6 +7,7 @@ import { LocatorPins } from "./locator-pins.ts";
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
+import { checkPageConversion } from "./page-conversion.ts";
 import { MergeHistory } from "./updates/merge-history.ts";
 import { Recent } from "./recent.ts";
 import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
@@ -144,6 +145,8 @@ export interface HostDaemonOptions {
   remoteGroupLifetimeMs?: number;
   remoteGroupRefetchMs?: number;
   remoteGroupStaleMs?: number;
+  /** Accept page entries and conversions to them, and advertise `pages-v1` (spec 02 §3). */
+  pages?: boolean;
 }
 
 export interface HostBootstrap {
@@ -381,6 +384,10 @@ export class HostDaemon implements AsyncDisposable {
   /** Background object packing (overstoryd 001). */
   readonly packing: PackMaintenance;
   private disposed = false;
+  /** Whether this host serves `pages-v1`. */
+  readonly pages: boolean = false;
+  /** Which directories hold pages, kept across updates for the conversion check. */
+  private readonly pageDirectories = new Map<ObjectHash, boolean>();
 
   private constructor(
     readonly dataRoot: string,
@@ -2091,6 +2098,7 @@ export class HostDaemon implements AsyncDisposable {
       ? this.treeConfigPolicy(tree, request, baseRoot, caller, proposed)
       : this.ordinaryPolicy(tree, request, caller);
     const { subject } = policy;
+    await checkPageConversion(baseRoot, request.candidate, hash => this.objects.load(hash, proposed), this.pageDirectories, this.pages);
     const execution = this.execution.current;
     if (execution) {
       if (this.currentUpdate(treeID)?.conflicted) throw new PermissionDeniedError("Execution updates of conflicted trees are not allowed until alternative scope validation is available");

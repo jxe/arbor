@@ -535,7 +535,8 @@ export class StorySyncDaemon implements AsyncDisposable {
       setSyncState: (state) => this.trees.setSyncState(tree, state),
       setDeclined: (declined) => this.trees.setDeclined(tree, declined),
       withWorkspaceIO: (run) => this.withWorkspaceIO(workspace, run),
-      scan: (tracked, also, basis) => this.scanWorkspace(workspace, this.listings.get(accountKey) ?? [], tracked, also, basis),
+      scan: (tracked, also, basis) => this.scanWorkspace(workspace, this.listings.get(accountKey) ?? [], tracked, also, basis,
+        this.hostFeatures.get(accountKey)?.includes("pages-v1") === true && this.trees.placementFor(tree)?.access === "write"),
       root: workspace.root,
       excludedMounts: () => this.trees.excludedMountsWithin(workspace.root),
       refreshListing: async () => {
@@ -581,29 +582,39 @@ export class StorySyncDaemon implements AsyncDisposable {
 
   /** Which directories hold a page, by hash, across every folder's scans. */
   private readonly pageDirectories = new Map<ObjectHash, boolean>();
+  /** What each account's host advertises, read once per sync pass. */
+  private readonly hostFeatures = new Map<string, string[]>();
 
   /**
    * Walk a folder into a lazy graph; index hits read no file bytes until a
    * change needs them. An ignored path is left out unless `tracked` holds it,
-   * or when `also` leaves it out.
+   * or when `also` leaves it out. Markdown reads as pages once the root the
+   * folder builds on holds one. `convert` (a writer, on a host with
+   * `pages-v1`) also reads a folder that holds exactly its tracked root as
+   * pages: that scan is the tree's one conversion, an ordinary snapshot the
+   * host checks changes no page (spec 02 §3). A folder with local edits
+   * publishes them first and converts on a later scan.
    */
-  private async scanWorkspace(workspace: Workspace, remoteTrees: readonly RemoteTreeDescriptor[], tracked: TrackedRoot | null, also?: SkipPath, collectionBasis?: TrackedRoot) {
+  private async scanWorkspace(workspace: Workspace, remoteTrees: readonly RemoteTreeDescriptor[], tracked: TrackedRoot | null, also?: SkipPath, collectionBasis?: TrackedRoot, convert = false) {
     const exclusions = this.trees.excludedMountsWithin(workspace.root);
     const policy = await loadIgnorePolicy(workspace.root, { excludedRoots: exclusions });
     const skip = membershipSkip(policy, tracked ? trackedEntries(tracked.root, tracked.load) : null);
-    // Markdown reads as pages once the root the folder builds on holds one.
     const basis = tracked ?? collectionBasis;
-    const pages = basis ? await treeHoldsPages(basis.root, basis.load, this.pageDirectories) : false;
-    workspace.objects.setPageMode(pages);
-    return snapshotDirectory(
-      workspace.root,
-      this.canonicalBoundariesFor(workspace, remoteTrees),
-      exclusions,
-      (directory, names) => workspace.describeProtocolCollection(directory, names, collectionBasis),
-      workspace.objectIndex(),
-      also ? async (path, isDirectory) => await skip(path, isDirectory) || await also(path, isDirectory) : skip,
-      pages,
-    );
+    const scan = (pages: boolean) => {
+      workspace.objects.setPageMode(pages);
+      return snapshotDirectory(
+        workspace.root,
+        this.canonicalBoundariesFor(workspace, remoteTrees),
+        exclusions,
+        (directory, names) => workspace.describeProtocolCollection(directory, names, collectionBasis),
+        workspace.objectIndex(),
+        also ? async (path, isDirectory) => await skip(path, isDirectory) || await also(path, isDirectory) : skip,
+        pages,
+      );
+    };
+    if (basis && await treeHoldsPages(basis.root, basis.load, this.pageDirectories)) return scan(true);
+    const legacy = await scan(false);
+    return convert && tracked && legacy.root === tracked.root ? scan(true) : legacy;
   }
 
   private async syncAll(throwErrors = false, configurationTree?: string): Promise<void> {
@@ -639,6 +650,7 @@ export class StorySyncDaemon implements AsyncDisposable {
             const accountKey = accountKeyOf(placement);
             let listed = remoteTreesByAccount.get(accountKey);
             if (!listed) {
+              this.hostFeatures.set(accountKey, await client.features());
               listed = client.list().then((value) => value.snapshot);
               remoteTreesByAccount.set(accountKey, listed);
             }

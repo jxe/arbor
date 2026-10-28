@@ -366,7 +366,9 @@ export async function serveHost(options: {
   /** Serve registered named queries and mutations from the host's collection materializations, unless a runtime above is given. */
   collections?: HostCollectionsOptions;
   /** Session and placement device-key lifetimes; tests shorten them. */
-  lifetimes?: Omit<HostDaemonOptions, "servedOverHTTP">;
+  lifetimes?: Omit<HostDaemonOptions, "servedOverHTTP" | "pages">;
+  /** Accept page entries and conversions to them, and advertise `pages-v1` in health (spec 02 §3). */
+  pages?: boolean;
   /**
    * Bound unauthenticated session challenges and pairing claims per caller.
    * Off unless asked for: with one person's devices behind each host, a
@@ -392,7 +394,7 @@ export async function serveHost(options: {
     name: options.community?.name ?? "Overstory Community",
     accounts: bootstrapAccounts,
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
-  }, options.mergeTool, { ...options.lifetimes, servedOverHTTP: new URL(publicOrigin).protocol === "http:" });
+  }, options.mergeTool, { ...options.lifetimes, servedOverHTTP: new URL(publicOrigin).protocol === "http:", pages: options.pages ?? false });
   if (!dynamicLoopbackOrigin) overstoryd.setCommunityHost(new URL(publicOrigin).host);
   // Named queries and mutations over the host's collection materializations.
   const collections = options.collections ? overstoryd.disposeWith(new HostCollections(overstoryd, resolve(options.dataRoot), options.collections)) : null;
@@ -508,7 +510,7 @@ export async function serveHost(options: {
         if (request.method === "GET" && url.pathname === "/.overstory/health") {
           try {
             overstoryd.verifyDatabase();
-            return json({ status: "ok" });
+            return json({ status: "ok", ...(overstoryd.pages ? { features: ["pages-v1"] } : {}) });
           } catch (error) {
             console.error("overstoryd database check failed", error);
             return protocolError("internal-error", "Host database check failed", 503, true);
