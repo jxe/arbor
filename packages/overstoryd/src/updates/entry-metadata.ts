@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { treeReader, walkTreeDiff, type LoadObject, type ObjectHash, type TreeReader } from "@ovst/protocol";
+import { protocolContentBytes, treeReader, walkTreeDiff, type LoadObject, type ObjectHash, type TreeReader } from "@ovst/protocol";
 
 /**
  * Descriptive metadata of a tree's file entries, kept beside the hashes and
@@ -58,11 +58,13 @@ export async function entryChanges(
   const changes: EntryChanges = { set: [], removed: [] };
   await walkTreeDiff(before, after, reader, {
     entry: async ({ path, before: old, after: next }) => {
-      if (old?.file && old.file === next?.file) return false;
-      if (old?.file) changes.removed.push(path);
-      if (next?.file) {
-        const change: EntryChange = { path, hash: next.file };
-        if (path.endsWith(".md")) change.document = { key: documentKey(path, decoder.decode(await reader.bytes(next.file))) };
+      // A page is its file's entry here, its key read from the file it reads as.
+      const was = old?.file ?? old?.page, now = next?.file ?? next?.page;
+      if (was && was === now) return false;
+      if (was) changes.removed.push(path);
+      if (next && now) {
+        const change: EntryChange = { path, hash: now };
+        if (path.endsWith(".md")) change.document = { key: documentKey(path, decoder.decode(next.page ? protocolContentBytes("page", await reader.bytes(now)) : await reader.bytes(now))) };
         changes.set.push(change);
       }
       // An added or removed directory contributes every file beneath it.

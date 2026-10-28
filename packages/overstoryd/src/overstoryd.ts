@@ -12,7 +12,7 @@ import { Recent } from "./recent.ts";
 import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { retainedObjects } from "./retention.ts";
-import { checkPlainTrace, deriveTrace, isRowOperation, isStatedUpdate, TreeReader, UnsupportedDerivation, type DecisionPage, type DerivableUpdateRequest } from "@ovst/protocol";
+import { checkPlainTrace, deriveTrace, encodeProtocolPage, isRowOperation, loadProtocolContent, parsePage, protocolContentObject, isStatedUpdate, TreeReader, UnsupportedDerivation, type DecisionPage, type ProtocolDirectory, type DerivableUpdateRequest } from "@ovst/protocol";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -1617,24 +1617,40 @@ export class HostDaemon implements AsyncDisposable {
     return { account: this.account(input.profileTree)!, configuration: this.get(input.configurationTree)! };
   }
 
+  /** Rewrite the root `_index.md` of `directory` as Markdown source, leaving
+   * every other byte as written; null when `edit` declines. A page stays a
+   * page: it is edited as the file it reads as and read back, and a result
+   * whose frontmatter no longer parses is refused. */
+  private async editRootDocument(directory: ProtocolDirectory, edit: (source: string) => string | null): Promise<{ root: ObjectHash; generated: Map<ObjectHash, Uint8Array> } | null> {
+    const index = directory.entries.findIndex((entry) => entry.name === "_index.md" && protocolContentObject(entry));
+    if (index < 0) throw new ServerFaultError("Community profile has no root document");
+    const entry = directory.entries[index]!;
+    const source = new TextDecoder().decode(await loadProtocolContent(entry, (hash) => this.objects.load(hash)));
+    const edited = edit(source);
+    if (edited === null) return null;
+    let bytes: Uint8Array = new TextEncoder().encode(edited);
+    if (entry.page) {
+      const page = parsePage(bytes);
+      if (!page) throw new Error("The edited root document's frontmatter does not parse");
+      bytes = encodeProtocolPage(page);
+    }
+    const object = hashObject(bytes);
+    const nextDirectory = encodeProtocolDirectory({
+      ...directory,
+      entries: directory.entries.map((item, i) => i !== index ? item : entry.page ? { name: item.name, page: object } : { name: item.name, file: object }),
+    });
+    const root = hashObject(nextDirectory);
+    return { root, generated: new Map<ObjectHash, Uint8Array>([[object, bytes], [root, nextDirectory]]) };
+  }
+
   /** Replace the pending invitation entry with the claimed member, leaving every other byte of the authored Markdown as written (`claimInvitationEntry`). */
   private async prepareInvitationClaim(handle: string, digest: string, code: string | undefined, profileTree: string) {
     if (!code || inviteCodeDigest(code) !== digest) throw new Error("Invitation code is invalid");
     const community = this.community();
     const directory = decodeProtocolDirectory(await this.objects.load(community.ref));
-    const index = directory.entries.findIndex((entry) => entry.name === "_index.md" && entry.file);
-    if (index < 0) throw new ServerFaultError("Community profile has no root document");
-    const source = new TextDecoder().decode(await this.objects.load(directory.entries[index]!.file!));
-    const claimed = claimInvitationEntry(source, handle, digest, `overstory://${profileTree}/`);
-    if (claimed === null) throw new Error("Invitation entry changed; ask the administrator to renew it");
-    const bytes = new TextEncoder().encode(claimed);
-    const file = hashObject(bytes);
-    const nextDirectory = encodeProtocolDirectory({
-      ...directory,
-      entries: directory.entries.map((entry, i) => i === index ? { name: entry.name, file } : entry),
-    });
-    const root = hashObject(nextDirectory);
-    const generated = new Map<ObjectHash, Uint8Array>([[file, bytes], [root, nextDirectory]]);
+    const edited = await this.editRootDocument(directory, (source) => claimInvitationEntry(source, handle, digest, `overstory://${profileTree}/`));
+    if (edited === null) throw new Error("Invitation entry changed; ask the administrator to renew it");
+    const { root, generated } = edited;
     await this.validateGraph(root, generated, community.ref);
     return this.prepareParentAdvance({ parent: community, nextRoot: root, generated });
   }
@@ -1682,19 +1698,9 @@ export class HostDaemon implements AsyncDisposable {
     if (issued.consumedAt !== null) throw new Error("Account challenge was already consumed");
     const community = this.community();
     const directory = decodeProtocolDirectory(await this.objects.load(community.ref));
-    const index = directory.entries.findIndex((entry) => entry.name === "_index.md" && entry.file);
-    if (index < 0) throw new ServerFaultError("Community profile has no root document");
-    const source = new TextDecoder().decode(await this.objects.load(directory.entries[index]!.file!));
-    const placed = claimInvitationEntry(source, reservation.handle, reservation.inviteDigest, input.profile);
-    if (placed === null) throw new Error("Invitation entry changed; ask the administrator to renew it");
-    const bytes = new TextEncoder().encode(placed);
-    const file = hashObject(bytes);
-    const nextDirectory = encodeProtocolDirectory({
-      ...directory,
-      entries: directory.entries.map((entry, i) => i === index ? { name: entry.name, file } : entry),
-    });
-    const root = hashObject(nextDirectory);
-    const generated = new Map<ObjectHash, Uint8Array>([[file, bytes], [root, nextDirectory]]);
+    const edited = await this.editRootDocument(directory, (source) => claimInvitationEntry(source, reservation.handle, reservation.inviteDigest!, input.profile));
+    if (edited === null) throw new Error("Invitation entry changed; ask the administrator to renew it");
+    const { root, generated } = edited;
     await this.validateGraph(root, generated, community.ref);
     // Resolving the locator (and reading its device keys) happens here, before the transaction.
     const prepared = await this.prepareParentAdvance({ parent: community, nextRoot: root, generated });

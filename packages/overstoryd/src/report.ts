@@ -163,11 +163,12 @@ async function rootSize(objects: ObjectStore, root: ObjectHash, sizes: Map<Objec
       const nested = await rootSize(objects, entry.directory, sizes);
       total.files += nested.files;
       total.bytes += nested.bytes;
-    } else if (entry.file !== undefined) {
-      let file = sizes.get(entry.file);
+    } else if ((entry.file ?? entry.page) !== undefined) {
+      const content = (entry.file ?? entry.page)!;
+      let file = sizes.get(content);
       if (!file) {
-        file = { files: 1, bytes: (await objects.find(entry.file))?.byteLength ?? 0 };
-        sizes.set(entry.file, file);
+        file = { files: 1, bytes: (await objects.find(content))?.byteLength ?? 0 };
+        sizes.set(content, file);
       }
       total.files += 1;
       total.bytes += file.bytes;

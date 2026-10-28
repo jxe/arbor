@@ -1,4 +1,4 @@
-import { decodeProtocolDirectory, parseMarkdown, type ObjectHash } from "@ovst/protocol";
+import { decodeProtocolDirectory, loadProtocolContent, parseMarkdown, protocolContentObject, type ObjectHash } from "@ovst/protocol";
 import { otherHost, refusedByHost } from "./other-host.ts";
 import { profileLocatorTree, structuredMembers } from "./profile.ts";
 
@@ -50,9 +50,9 @@ export const fetchRemoteGroupMembers: RemoteGroupLoader = async (homeHost, group
   const load = (hash: ObjectHash): Promise<Uint8Array> => host.object(group, hash).catch((error: unknown) => { throw transient(error); });
   const directory = decodeProtocolDirectory(await load(root as ObjectHash));
   if (directory.type !== "directory") return NOBODY;
-  const index = directory.entries.find((entry) => entry.name === "_index.md")?.file;
-  if (!index) return NOBODY;
-  const { frontmatter } = parseMarkdown(new TextDecoder().decode(await load(index)));
+  const index = directory.entries.find((entry) => entry.name === "_index.md");
+  if (!protocolContentObject(index)) return NOBODY;
+  const { frontmatter } = parseMarkdown(new TextDecoder().decode(await loadProtocolContent(index!, load)));
   if (frontmatter.type !== "group") return NOBODY;
   return new Set(structuredMembers(frontmatter.members).flatMap((member) => {
     const profile = profileLocatorTree(member.profile);

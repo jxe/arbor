@@ -263,13 +263,14 @@ export class MergeHistory {
           const decision = (await this.decisions(owner)).find((d) => d.inspection.id === material.conflict);
           const index = decision?.inspection.alternatives.findIndex((a) => a.id === material.alternative) ?? -1;
           const value = decision?.inspection.alternatives[index]?.value;
-          if (!decision || !value || (!("file" in value) && !("directory" in value)))
+          if (!decision || !value || (!("file" in value) && !("page" in value) && !("directory" in value)))
             throw new Error("Alternative material is unavailable");
           const binding: AlternativeBinding = {
             ref: { material },
             decision: decision.key,
             alternative: index,
-            value: "file" in value ? { object: value.file, kind: "file" } : { object: value.directory, kind: "directory" },
+            value: "file" in value ? { object: value.file, kind: "file" }
+              : "page" in value ? { object: value.page, kind: "page" } : { object: value.directory, kind: "directory" },
           };
           if (!bindings.some((b) => stableJSONString(b.ref) === stableJSONString(binding.ref))) bindings.push(binding);
         }

@@ -108,7 +108,7 @@ export async function rewriteBoundaries(
       }
       if (deeper.length) {
         if (index >= 0 && entries[index]!.tree) throw new Error(`Canonical boundary crosses another tree: ${name}`);
-        if (index >= 0 && entries[index]!.file) throw new Error(`Canonical boundary crosses a file: ${name}`);
+        if (index >= 0 && (entries[index]!.file || entries[index]!.page)) throw new Error(`Canonical boundary crosses a file: ${name}`);
         let childHash = index >= 0 ? entries[index]!.directory : undefined;
         if (!childHash) {
           const empty = encodeProtocolDirectory({ type: "directory", entries: [] });

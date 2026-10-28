@@ -222,7 +222,7 @@ export class PackMaintenance {
       for (const entry of directory.entries) {
         const child = `${at}/${entry.name}`;
         if (entry.directory) pending.push([entry.directory, child]);
-        else if (entry.file && !local.has(entry.file)) { local.add(entry.file); visit(entry.file, child, "file"); }
+        else if ((entry.file ?? entry.page) && !local.has((entry.file ?? entry.page)!)) { const content = (entry.file ?? entry.page)!; local.add(content); visit(content, child, "file"); }
       }
       // A collection's tables and row chunks sit at its folder's path.
       for (const { table } of directory.collection?.tables ?? []) {

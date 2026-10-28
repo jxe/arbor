@@ -1055,7 +1055,7 @@ export async function serveHost(options: {
                 const nested = overstoryd.get(entry.tree);
                 if (!nested || !overstoryd.canRead(account, nested, link)) return null;
               }
-              const markdown = entry.file !== undefined && entry.name.endsWith(".md");
+              const markdown = (entry.file ?? entry.page) !== undefined && entry.name.endsWith(".md");
               const publicName = markdown ? entry.name.slice(0, -3) : entry.name;
               return {
                 name: publicName,

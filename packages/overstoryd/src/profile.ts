@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { parseMarkdown, parseProfileLocator, plainMarkdownTitle, decodeProtocolDirectory, type ObjectHash } from "@ovst/protocol";
+import { parseMarkdown, parseProfileLocator, plainMarkdownTitle, decodeProtocolDirectory, loadProtocolContent, protocolContentObject, type ObjectHash } from "@ovst/protocol";
 import type { EntryChanges } from "./updates/entry-metadata.ts";
 
 const HANDLE_SOURCE = "[a-z0-9][a-z0-9-]{0,62}";
@@ -99,7 +99,7 @@ export interface RootProfileRead {
 export async function rootIndexHash(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<ObjectHash | null> {
   const directory = decodeProtocolDirectory(await load(root));
   if (directory.type !== "directory") return null;
-  return directory.entries.find((entry) => entry.name === "_index.md")?.file ?? null;
+  return protocolContentObject(directory.entries.find((entry) => entry.name === "_index.md")) ?? null;
 }
 
 /** A root's frontmatter `members`, keeping only well-formed structured
@@ -130,8 +130,9 @@ export async function readRootProfile(root: ObjectHash, load: (hash: ObjectHash)
   const directory = decodeProtocolDirectory(await load(root));
   if (directory.type !== "directory") return none;
   const index = directory.entries.find((entry) => entry.name === "_index.md");
-  if (!index?.file) return none;
-  const file = await load(index.file);
+  const indexHash = protocolContentObject(index);
+  if (!index || !indexHash) return none;
+  const file = await loadProtocolContent(index, load);
   const document = parseMarkdown(new TextDecoder().decode(file));
   const { frontmatter } = document;
   const type = frontmatter.type === "person" || frontmatter.type === "group" ? frontmatter.type : null;
@@ -169,7 +170,7 @@ export async function readRootProfile(root: ObjectHash, load: (hash: ObjectHash)
       ...(description !== undefined ? { description } : {}),
       ...(avatar ? { avatar } : {}),
     },
-    indexHash: index.file,
+    indexHash,
     avatarPath: avatarPath ?? null,
   };
 }

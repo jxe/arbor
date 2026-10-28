@@ -4,6 +4,8 @@ import {
   markdownStableKey,
   parseMarkdown,
   decodeProtocolDirectory,
+  loadProtocolContent,
+  protocolContentObject,
   hashObject,
   resolveProtocolLogicalNode,
   type JSONValue,
@@ -134,11 +136,11 @@ export class ProtocolProjection {
     };
     const directoryNode = async (directory: ProtocolDirectory, objectName: string, sibling?: ProtocolDirectoryEntry): Promise<Extract<ResolvedProtocolLogicalNode, { kind: "directory" }>> => {
       const index = directory.entries.find((entry) => entry.name === "_index.md");
-      if (index && !index.file) throw new Error("Directory _index.md body must be a file");
-      if (sibling && !sibling.file) throw new Error("Sibling Markdown body must be a file");
+      if (index && !protocolContentObject(index)) throw new Error("Directory _index.md body must be a file or page");
+      if (sibling && !protocolContentObject(sibling)) throw new Error("Sibling Markdown body must be a file or page");
       const node = { kind: "directory" as const, directory, objectName };
-      if (index?.file) return { ...node, body: await load(index.file), bodyOrigin: "index", shadowedBody: !!sibling?.file };
-      if (sibling?.file) return { ...node, body: await load(sibling.file), bodyOrigin: "sibling", shadowedBody: false };
+      if (index) return { ...node, body: await loadProtocolContent(index, load), bodyOrigin: "index", shadowedBody: !!sibling };
+      if (sibling) return { ...node, body: await loadProtocolContent(sibling, load), bodyOrigin: "sibling", shadowedBody: false };
       return { ...node, shadowedBody: false };
     };
     const root = await directoryNode(decodeProtocolDirectory(await load(this.options.root)), "");
@@ -148,10 +150,10 @@ export class ProtocolProjection {
     while (pending.length) {
       const { path, directory } = pending.shift()!;
       const directories = new Set(directory.entries
-        .filter((entry) => !entry.tree && (entry.file ?? entry.directory) && entry.name !== "_index.md" && !isMarkdownName(entry.name))
+        .filter((entry) => !entry.tree && (entry.file ?? entry.page ?? entry.directory) && entry.name !== "_index.md" && !isMarkdownName(entry.name))
         .map((entry) => entry.name));
       for (const entry of directory.entries) {
-        if (entry.tree || !(entry.file ?? entry.directory) || entry.name === "_index.md") continue;
+        if (entry.tree || !(entry.file ?? entry.page ?? entry.directory) || entry.name === "_index.md") continue;
         const name = isMarkdownName(entry.name) ? entry.name.slice(0, -3) : entry.name;
         if (isMarkdownName(entry.name) && directories.has(name)) continue;
         const childPath = canonicalNodePath(`${path === "/" ? "" : path}/${name}`);
@@ -168,9 +170,9 @@ export class ProtocolProjection {
           pending.push({ path: childPath, directory: node.directory });
           continue;
         }
-        const file = exact?.file ? exact : sibling?.file ? sibling : undefined;
-        if (!file?.file || !isMarkdownName(file.name)) continue;
-        const node: ResolvedProtocolLogicalNode = { kind: "file", bytes: await load(file.file), objectName: file.name, shadowedBody: false };
+        const file = protocolContentObject(exact) ? exact : protocolContentObject(sibling) ? sibling : undefined;
+        if (!file || !isMarkdownName(file.name)) continue;
+        const node: ResolvedProtocolLogicalNode = { kind: "file", bytes: await loadProtocolContent(file, load), objectName: file.name, shadowedBody: false };
         if (protocolNodeStableKey(node) === stableKey) return { kind: "node", path: childPath, node };
       }
     }

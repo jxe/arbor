@@ -178,7 +178,9 @@ async function loadVerified(hash: ObjectHash, load: (hash: ObjectHash) => Promis
 }
 
 /** A file or page entry's bytes as a file: a page reads as its canonical file. */
-async function loadContent(entry: ProtocolDirectoryEntry, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<Uint8Array> {
+/** A file or page entry's file bytes, its object checked against its hash: a
+ * page reads as its canonical file (`protocolContentBytes`). */
+export async function loadProtocolContent(entry: ProtocolDirectoryEntry, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<Uint8Array> {
   if (entry.page) return protocolContentBytes("page", await loadVerified(entry.page, load));
   return loadVerified(entry.file!, load);
 }
@@ -188,8 +190,8 @@ async function directoryBody(directory: ProtocolDirectory, sibling: ProtocolDire
   const content = (entry: ProtocolDirectoryEntry | undefined) => !!protocolContentObject(entry);
   if (index && !content(index)) throw new Error("Directory _index.md body must be a file or page");
   if (sibling && !content(sibling)) throw new Error("Sibling Markdown body must be a file or page");
-  if (index) return { body: await loadContent(index, load), bodyOrigin: "index", shadowedBody: !!sibling };
-  if (sibling) return { body: await loadContent(sibling, load), bodyOrigin: "sibling", shadowedBody: false };
+  if (index) return { body: await loadProtocolContent(index, load), bodyOrigin: "index", shadowedBody: !!sibling };
+  if (sibling) return { body: await loadProtocolContent(sibling, load), bodyOrigin: "sibling", shadowedBody: false };
   return { shadowedBody: false };
 }
 
@@ -207,9 +209,9 @@ export async function resolveProtocolLogicalNode(root: ObjectHash, path: string,
       directory = decodeProtocolDirectory(await loadVerified(exact.directory, load));
       if (last) return { kind: "directory", directory, objectName: exact.name, ...await directoryBody(directory, sibling, load) };
     } else if (exact && protocolContentObject(exact)) {
-      return last ? { kind: "file", bytes: await loadContent(exact, load), objectName: exact.name, shadowedBody: false } : null;
+      return last ? { kind: "file", bytes: await loadProtocolContent(exact, load), objectName: exact.name, shadowedBody: false } : null;
     } else {
-      return last && sibling && protocolContentObject(sibling) ? { kind: "file", bytes: await loadContent(sibling, load), objectName: sibling.name, shadowedBody: false } : null;
+      return last && sibling && protocolContentObject(sibling) ? { kind: "file", bytes: await loadProtocolContent(sibling, load), objectName: sibling.name, shadowedBody: false } : null;
     }
   }
   return null;
