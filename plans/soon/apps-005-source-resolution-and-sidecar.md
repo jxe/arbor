@@ -33,20 +33,13 @@ authorized by it.
   engine, against the boundary in the
   [execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md) document.
 
-## Fork for Joe
+## Joe's decision (2026-10-28): the sidecar first
 
-**Where authored code runs.** The original plan required a separate sidecar process so
-that no evaluator, compiler or authored JavaScript loads in overstoryd. 005 put the
-evaluator in process for handles the operator registers. Options:
-
-1. **In process for now (recommended).** Steps 1 to 3 build activation, authority and
-   source resolution on `HostCollections` as it is. Step 4 (the sidecar) is taken when
-   code from trees other than the operator's runs, or when compilation (Apps 003)
-   arrives, since that is when a crash or a slow handler in authored code could take
-   ordinary reads, watches and merges down with it.
-2. **Sidecar first.** Extract `HostCollections`' execution behind the bridge before
-   adding authority, as the earlier plan had it. Slower to the lending test, cleaner
-   boundary from the start.
+The original plan required a separate sidecar process so that no evaluator, compiler or
+authored JavaScript loads in overstoryd; Schema language 005 put the evaluator in process for
+handles the operator registers. Joe chose to extract `HostCollections`' execution behind the
+bridge before adding authority: step 4 comes first, then steps 1 to 3 on the sidecar. Slower
+to the lending test, with a clean boundary from the start.
 
 Either way the materializations, receipts and update submission can stay in
 overstoryd: they are accepted-state bookkeeping, not authored code.
@@ -115,7 +108,7 @@ each behave as above.
 - `cli.ts` reads activations and passes `collections`; with none, the routes keep
   answering `unsupported-operation` and nothing else changes.
 - Packaging: the deployed image carries apps-runtime only when apps are enabled, or
-  always if Joe picks option 1 above; record which.
+  always (the sidecar comes first); record which.
 - Document configuration, limits (body size, concurrent executions, deadlines, stream
   buffers), shutdown and rollback in the deployment guide. Ordinary readiness must not
   depend on any app.
@@ -127,7 +120,7 @@ each behave as above.
 **Verify:** `bun run test:affected`, `bun run test:protocol`, and one hand check with
 Joe on a disposable host: an activated Supplies query and mutation, then revocation.
 
-## 4. The execution sidecar (when option 1's trigger arrives, or first under option 2)
+## 4. The execution sidecar (first, Joe 2026-10-28)
 
 Move query planning, evaluation and mutation execution behind an authenticated local
 HTTP bridge, as the [execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md)
@@ -160,8 +153,7 @@ the step 1 and 2 cases rerun through the bridge.
 Run `bun run typecheck`, `bun run test`, `bun run test:protocol`, `bun run build`,
 `bun run test:performance`, `bun run check:links` and `git diff --check`. Record
 implemented and deployed evidence separately in `status.md` and the architecture docs,
-repair incoming links, and delete this plan. If step 4 is deferred under option 1,
-move it to its own plan first.
+repair incoming links, and delete this plan.
 
 Not here: browser document hosting, SSR and hydration (Apps 001 and 003); durable
 authoring and workflow semantics (Apps 006); approvals on placement hosts (Apps 008);

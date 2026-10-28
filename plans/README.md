@@ -104,7 +104,7 @@ Joe wants queries and mutations running on hosts fairly soon, to test the permis
 lending models against real code. Schema language 005 runs them inside overstoryd as their
 caller, from handles registered in code; this plan makes them run as an activated app under
 an execution token, from code read out of a tree, and then moves execution into a sidecar.
-One fork for Joe: whether the sidecar comes first or waits.
+The sidecar comes first (Joe, 2026-10-28).
 
 **[Performance 004: a provenance index kept at acceptance](soon/performance-004-provenance-index.md).**
 Joe chose this on 2026-10-21 instead of Performance 003 (fast catch-up from an older basis,
