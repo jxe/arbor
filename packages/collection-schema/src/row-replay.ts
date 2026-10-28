@@ -86,28 +86,28 @@ function applyRowOperation(model: LogicalModel, rows: Rows, operation: RowOperat
   if (!current) invalid("row is absent");
   const field = fieldOf(model, operation.field);
   const row: LogicalRow = { ...current, fields: { ...current.fields }, modified: at };
-  if (operation.kind === "rowSet") {
+  if (operation.kind === "set") {
     if (!same(row.fields[field.name], operation.before)) invalid(`${field.name} does not have the value seen`);
-    if (same(operation.before, operation.value)) invalid("rowSet changes nothing");
+    if (same(operation.before, operation.value)) invalid("set changes nothing");
     setField(row, field, operation.value);
   } else {
     if (field.arity !== "many") invalid(`${field.name} is not many-valued`);
     const list = (row.fields[field.name] ?? []) as JSONValue[];
     const index = list.findIndex((item) => same(item, operation.member));
-    if (operation.kind === "rowConnect") {
+    if (operation.kind === "connect") {
       if (index >= 0) invalid("member is already present");
       setField(row, field, [...list, operation.member]);
     } else {
       if (index < 0) invalid("member is absent");
       const rest = list.filter((_, i) => i !== index);
-      if (operation.kind === "rowDisconnect") setField(row, field, rest);
-      else if (operation.kind === "rowMove") {
+      if (operation.kind === "disconnect") setField(row, field, rest);
+      else if (operation.kind === "move") {
         if (!field.ordered) invalid(`${field.name} is a set, so its members don't move`);
         const anchor = operation.after;
         const after = anchor === null ? -1 : rest.findIndex((item) => same(item, anchor));
         if (anchor !== null && after < 0) invalid("anchor member is absent");
         rest.splice(after + 1, 0, list[index]!);
-        if (rest.every((item, i) => same(item, list[i]))) invalid("rowMove changes nothing");
+        if (rest.every((item, i) => same(item, list[i]))) invalid("move changes nothing");
         setField(row, field, rest);
       }
     }

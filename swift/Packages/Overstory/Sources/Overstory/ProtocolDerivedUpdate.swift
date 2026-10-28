@@ -83,17 +83,17 @@ extension ProtocolSourceOperation {
         try row(key, "rowDelete", target, at: nil, [:])
     }
     /// `before` is the value the author saw; `.null` means absent, and a `.null` value removes it.
-    public static func rowSet(key: String, _ target: ProtocolRowTarget, field: String, before: ProtocolSemanticValue, value: ProtocolSemanticValue, at: Date? = nil) throws -> Self {
-        try row(key, "rowSet", target, at: at, ["field": .string(field), "before": before, "value": value])
+    public static func set(key: String, _ target: ProtocolRowTarget, field: String, before: ProtocolSemanticValue, value: ProtocolSemanticValue, at: Date? = nil) throws -> Self {
+        try row(key, "set", target, at: at, ["field": .string(field), "before": before, "value": value])
     }
-    public static func rowConnect(key: String, _ target: ProtocolRowTarget, field: String, member: ProtocolSemanticValue, at: Date? = nil) throws -> Self {
-        try row(key, "rowConnect", target, at: at, ["field": .string(field), "member": member])
+    public static func connect(key: String, _ target: ProtocolRowTarget, field: String, member: ProtocolSemanticValue, at: Date? = nil) throws -> Self {
+        try row(key, "connect", target, at: at, ["field": .string(field), "member": member])
     }
-    public static func rowDisconnect(key: String, _ target: ProtocolRowTarget, field: String, member: ProtocolSemanticValue, at: Date? = nil) throws -> Self {
-        try row(key, "rowDisconnect", target, at: at, ["field": .string(field), "member": member])
+    public static func disconnect(key: String, _ target: ProtocolRowTarget, field: String, member: ProtocolSemanticValue, at: Date? = nil) throws -> Self {
+        try row(key, "disconnect", target, at: at, ["field": .string(field), "member": member])
     }
     /// `after` is the member it follows, or `.null` for the first place.
-    public static func rowMove(key: String, _ target: ProtocolRowTarget, field: String, member: ProtocolSemanticValue, after: ProtocolSemanticValue, at: Date? = nil) throws -> Self {
-        try row(key, "rowMove", target, at: at, ["field": .string(field), "member": member, "after": after])
+    public static func move(key: String, _ target: ProtocolRowTarget, field: String, member: ProtocolSemanticValue, after: ProtocolSemanticValue, at: Date? = nil) throws -> Self {
+        try row(key, "move", target, at: at, ["field": .string(field), "member": member, "after": after])
     }
 }

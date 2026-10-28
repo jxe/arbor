@@ -39,18 +39,18 @@ function fieldEdits(model: LogicalModel, before: LogicalRow, after: LogicalRow, 
       const [from, to] = lists as [RowMember[], RowMember[]];
       const target = new Set(to.map(json)), source = new Set(from.map(json));
       const working = from.filter((m) => target.has(json(m)));
-      for (const member of from) if (!target.has(json(member))) op({ kind: "rowDisconnect", field: field.name, member });
-      for (const member of to) if (!source.has(json(member))) { op({ kind: "rowConnect", field: field.name, member }); working.push(member); }
+      for (const member of from) if (!target.has(json(member))) op({ kind: "disconnect", field: field.name, member });
+      for (const member of to) if (!source.has(json(member))) { op({ kind: "connect", field: field.name, member }); working.push(member); }
       if (!field.ordered) continue;
       for (const [index, member] of to.entries()) {
         if (json(working[index]) === json(member)) continue;
-        op({ kind: "rowMove", field: field.name, member, after: index ? to[index - 1]! : null });
+        op({ kind: "move", field: field.name, member, after: index ? to[index - 1]! : null });
         working.splice(working.findIndex((m) => json(m) === json(member)), 1);
         working.splice(index, 0, member);
       }
       continue;
     }
-    op({ kind: "rowSet", field: field.name, before: b ?? null, value: a ?? null });
+    op({ kind: "set", field: field.name, before: b ?? null, value: a ?? null });
   }
   return true;
 }

@@ -34,11 +34,11 @@ export const ROW_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
 export type RowOperation = { key: string } & RowTarget & (
   | { kind: "rowCreate"; values: Record<string, JSONValue> }
   | { kind: "rowDelete" }
-  | { kind: "rowSet"; field: string; before: JSONValue; value: JSONValue }
-  | { kind: "rowConnect" | "rowDisconnect"; field: string; member: RowMember }
-  | { kind: "rowMove"; field: string; member: RowMember; after: RowMember | null }
+  | { kind: "set"; field: string; before: JSONValue; value: JSONValue }
+  | { kind: "connect" | "disconnect"; field: string; member: RowMember }
+  | { kind: "move"; field: string; member: RowMember; after: RowMember | null }
 );
-export const ROW_OPERATION_KINDS = ["rowCreate", "rowDelete", "rowSet", "rowConnect", "rowDisconnect", "rowMove"] as const;
+export const ROW_OPERATION_KINDS = ["rowCreate", "rowDelete", "set", "connect", "disconnect", "move"] as const;
 export function isRowOperation(operation: { kind: string }): operation is RowOperation {
   return (ROW_OPERATION_KINDS as readonly string[]).includes(operation.kind);
 }
@@ -152,17 +152,17 @@ function operation(raw: unknown): AuthoredOperation {
       else { keys(value, ["directory"]); hash(value.directory); }
       break;
     }
-    case "rowCreate": case "rowDelete": case "rowSet": case "rowConnect": case "rowDisconnect": case "rowMove": {
-      const fields = { rowCreate: ["values"], rowDelete: [], rowSet: ["field", "before", "value"], rowConnect: ["field", "member"],
-        rowDisconnect: ["field", "member"], rowMove: ["field", "member", "after"] }[v.kind as RowOperation["kind"]];
+    case "rowCreate": case "rowDelete": case "set": case "connect": case "disconnect": case "move": {
+      const fields = { rowCreate: ["values"], rowDelete: [], set: ["field", "before", "value"], connect: ["field", "member"],
+        disconnect: ["field", "member"], move: ["field", "member", "after"] }[v.kind as RowOperation["kind"]];
       keys(v, ["key", "kind", "collection", "model", "row", ...fields], v.kind === "rowDelete" ? [] : ["at"]); reference(v.collection, true); name(v.model);
       if (Object.hasOwn(v, "at")) require(typeof v.at === "string" && ROW_TIME.test(v.at) && Number.isFinite(Date.parse(v.at)));
       text(v.row, 4096); require(parseCanonicalStableKey(v.row) !== null);
       if (Object.hasOwn(v, "field")) name(v.field);
       if (v.kind === "rowCreate") { json(v.values); obj(v.values); Object.keys(v.values).forEach(name); }
-      if (v.kind === "rowSet") { json(v.before); json(v.value); }
+      if (v.kind === "set") { json(v.before); json(v.value); }
       if (Object.hasOwn(v, "member")) member(v.member);
-      if (v.kind === "rowMove" && v.after !== null) { member(v.after); require(JSON.stringify(v.after) !== JSON.stringify(v.member)); }
+      if (v.kind === "move" && v.after !== null) { member(v.after); require(JSON.stringify(v.after) !== JSON.stringify(v.member)); }
       break;
     }
     default: require(false);

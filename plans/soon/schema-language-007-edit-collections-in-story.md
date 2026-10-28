@@ -55,8 +55,8 @@ Settled with Joe on 2026-10-15 (the editor):
 
 ## What exists
 
-- **Wire:** row operations are authored operations (`rowCreate`, `rowDelete`, `rowSet`,
-  `rowConnect`, `rowDisconnect`, `rowMove`; `packages/protocol/src/updates/authored-contract.ts`),
+- **Wire:** row operations are authored operations (`rowCreate`, `rowDelete`, `set`,
+  `connect`, `disconnect`, `move`; `packages/protocol/src/updates/authored-contract.ts`),
   with vectors in `protocol-authored-updates.json`. Today they travel in stated frames whose
   `after` the host checks by replay (`packages/collection-schema/src/row-replay.ts`,
   `executeRowOperations` in `packages/protocol/src/updates/source-trace.ts`), and it merges by

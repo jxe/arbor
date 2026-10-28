@@ -20,10 +20,10 @@ function rowOps(tree: CollectionTree) {
   const collection = { material: { kind: "basis" as const, path: "/items", object: tree.collection } };
   const target = (id: string, opKey: string) => ({ key: opKey, collection, model: "Item", row: key(id), at: AT });
   return {
-    set: (id: string, field: string, before: unknown, value: unknown, k = "set") => ({ ...target(id, k), kind: "rowSet", field, before, value }) as RowOperation,
-    connect: (id: string, field: string, member: string, k = "connect") => ({ ...target(id, k), kind: "rowConnect", field, member }) as RowOperation,
-    disconnect: (id: string, field: string, member: string, k = "disconnect") => ({ ...target(id, k), kind: "rowDisconnect", field, member }) as RowOperation,
-    move: (id: string, field: string, member: string, after: string | null, k = "move") => ({ ...target(id, k), kind: "rowMove", field, member, after }) as RowOperation,
+    set: (id: string, field: string, before: unknown, value: unknown, k = "set") => ({ ...target(id, k), kind: "set", field, before, value }) as RowOperation,
+    connect: (id: string, field: string, member: string, k = "connect") => ({ ...target(id, k), kind: "connect", field, member }) as RowOperation,
+    disconnect: (id: string, field: string, member: string, k = "disconnect") => ({ ...target(id, k), kind: "disconnect", field, member }) as RowOperation,
+    move: (id: string, field: string, member: string, after: string | null, k = "move") => ({ ...target(id, k), kind: "move", field, member, after }) as RowOperation,
     create: (id: string, values: Record<string, unknown>, k = "create") => ({ ...target(id, k), kind: "rowCreate", values: { id, ...values } }) as RowOperation,
     remove: (id: string, k = "delete") => ({ ...target(id, k), kind: "rowDelete" }) as RowOperation,
   };
@@ -45,23 +45,23 @@ describe("row operation grammar", () => {
     for (const operation of [
       { ...base, kind: "rowCreate", values: { id: "a", title: "A" } },
       { ...base, kind: "rowDelete" },
-      { ...base, kind: "rowSet", field: "title", before: "A", value: null },
-      { ...base, kind: "rowConnect", field: "tags", member: "x" },
-      { ...base, kind: "rowDisconnect", field: "tags", member: 3 },
-      { ...base, kind: "rowMove", field: "tags", member: "x", after: null },
-      { ...base, kind: "rowMove", field: "tags", member: "x", after: "y" },
+      { ...base, kind: "set", field: "title", before: "A", value: null },
+      { ...base, kind: "connect", field: "tags", member: "x" },
+      { ...base, kind: "disconnect", field: "tags", member: 3 },
+      { ...base, kind: "move", field: "tags", member: "x", after: null },
+      { ...base, kind: "move", field: "tags", member: "x", after: "y" },
     ]) expect(() => decodeAuthoredCandidateIntent(candidate(operation))).not.toThrow();
   });
 
   test("rejects malformed row operations", () => {
     for (const operation of [
-      { ...base, kind: "rowSet", field: "title", value: "B" },
-      { ...base, kind: "rowSet", field: "title", before: "A", value: "B", extra: 1 },
+      { ...base, kind: "set", field: "title", value: "B" },
+      { ...base, kind: "set", field: "title", before: "A", value: "B", extra: 1 },
       { ...base, row: "a", kind: "rowDelete" },
       { ...base, model: "Item.x", kind: "rowDelete" },
-      { ...base, kind: "rowConnect", field: "tags", member: { id: "x" } },
-      { ...base, kind: "rowConnect", field: "tags", member: null },
-      { ...base, kind: "rowMove", field: "tags", member: "x", after: "x" },
+      { ...base, kind: "connect", field: "tags", member: { id: "x" } },
+      { ...base, kind: "connect", field: "tags", member: null },
+      { ...base, kind: "move", field: "tags", member: "x", after: "x" },
       { ...base, kind: "rowCreate", values: [] },
       { ...base, collection: { ...collection, range: [0, 1] }, kind: "rowDelete" },
     ]) expect(() => decodeAuthoredCandidateIntent(candidate(operation))).toThrow();
@@ -155,9 +155,9 @@ describe("derived row operations", () => {
     ] }, new Map(before.objects));
     const operations = await deriveRowOperations(before.root, after.root, async (hash) => after.objects.get(hash)!);
     expect(operations).toEqual([
-      expect.objectContaining({ kind: "rowSet", field: "title", before: "A", value: "Alpha", at: AT }),
+      expect.objectContaining({ kind: "set", field: "title", before: "A", value: "Alpha", at: AT }),
       expect.objectContaining({ kind: "rowCreate", values: { id: "b", title: "B" }, at: AT }),
-      expect.objectContaining({ kind: "rowConnect", field: "tags", member: "w", at: AT }),
+      expect.objectContaining({ kind: "connect", field: "tags", member: "w", at: AT }),
     ]);
   });
 

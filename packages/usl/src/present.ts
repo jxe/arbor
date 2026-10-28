@@ -139,9 +139,9 @@ export interface PresentOptions {
 export type RowEdit = { table: string; row: string } & (
   | { kind: "rowCreate"; values: Record<string, Json>; at?: string }
   | { kind: "rowDelete" }
-  | { kind: "rowSet"; field: string; before: Json; value: Json; at?: string }
-  | { kind: "rowConnect" | "rowDisconnect"; field: string; member: Scalar; at?: string }
-  | { kind: "rowMove"; field: string; member: Scalar; after: Scalar | null; at?: string }
+  | { kind: "set"; field: string; before: Json; value: Json; at?: string }
+  | { kind: "connect" | "disconnect"; field: string; member: Scalar; at?: string }
+  | { kind: "move"; field: string; member: Scalar; after: Scalar | null; at?: string }
 );
 
 /** What a person does to a presented view. Rows and groups are named as the presentation names them. */
@@ -1052,7 +1052,7 @@ export function applyRowEdits(schema: CheckResult, rows: RowsByTable, edits: rea
     if (table.primaryKey.includes(edit.field)) fail("a key field is never set");
     if (SYSTEM.includes(edit.field)) fail(`${edit.field} is set only by an operation's time`);
     const row: Row = { ...list[index]! };
-    if (edit.kind === "rowSet") {
+    if (edit.kind === "set") {
       if (!same(row[edit.field], edit.before)) fail(`${edit.field} doesn't have the value seen`);
       if (same(edit.before, edit.value)) fail("it changes nothing");
       if (edit.value === null) delete row[edit.field];
@@ -1066,13 +1066,13 @@ export function applyRowEdits(schema: CheckResult, rows: RowsByTable, edits: rea
         if (next.length) row[edit.field] = next;
         else delete row[edit.field];
       };
-      if (edit.kind === "rowConnect") {
+      if (edit.kind === "connect") {
         if (at >= 0) fail("the member is already present");
         set([...members, edit.member]);
       } else {
         if (at < 0) fail("the member is absent");
         const rest = members.filter((_, i) => i !== at);
-        if (edit.kind !== "rowMove") set(rest);
+        if (edit.kind !== "move") set(rest);
         else {
           const anchor = edit.after;
           const after = anchor === null ? -1 : rest.findIndex((m) => same(m, anchor));
@@ -1151,24 +1151,24 @@ export function viewEdits(schema: CheckResult, rows: RowsByTable, options: Prese
       case "value":
       case "array":
         if (access.kind === "value" && !access.many) {
-          emit({ kind: "rowSet", table: opTable, row: key, field: access.column, before: (row[access.column] ?? null) as Json, value: member, ...at });
-        } else emit({ kind: "rowConnect", table: opTable, row: key, field: access.column, member, ...at });
+          emit({ kind: "set", table: opTable, row: key, field: access.column, before: (row[access.column] ?? null) as Json, value: member, ...at });
+        } else emit({ kind: "connect", table: opTable, row: key, field: access.column, member, ...at });
         return;
       case "column": {
         if (access.key) throw new ViewError(`\`${field.name}\` is part of the row's key`);
-        emit({ kind: "rowSet", table: opTable, row: key, field: access.column, before: (row[access.column] ?? null) as Json, value: member, ...at });
+        emit({ kind: "set", table: opTable, row: key, field: access.column, before: (row[access.column] ?? null) as Json, value: member, ...at });
         if (access.position) {
           const peers = collection.rowsOf(table).filter((r) => same(r[access.column], member) && rowKey(table, r) !== key);
           const value = positionAt(peers, access.position, (r) => collection.memberOf(model.name, r), anchor);
           const current = lineRow(key)[access.position] ?? null;
-          if (!same(current, value)) emit({ kind: "rowSet", table: opTable, row: key, field: access.position, before: current as Json, value, ...at });
+          if (!same(current, value)) emit({ kind: "set", table: opTable, row: key, field: access.position, before: current as Json, value, ...at });
         }
         return;
       }
       case "otherArray": {
         const owner = collection.rowByMember(access.target, member);
         if (!owner) throw new ViewError(`No row of \`${access.target}\` is ${JSON.stringify(member)}`);
-        emit({ kind: "rowConnect", table: collection.opName(access.table), row: rowKey(access.table, owner)!, field: access.column, member: collection.memberOf(model.name, row), ...at });
+        emit({ kind: "connect", table: collection.opName(access.table), row: rowKey(access.table, owner)!, field: access.column, member: collection.memberOf(model.name, row), ...at });
         return;
       }
       case "otherColumn": {
@@ -1177,12 +1177,12 @@ export function viewEdits(schema: CheckResult, rows: RowsByTable, options: Prese
         const otherKey = rowKey(access.table, other)!;
         const name = collection.opName(access.table);
         const mine = collection.memberOf(model.name, row);
-        emit({ kind: "rowSet", table: name, row: otherKey, field: access.column, before: (other[access.column] ?? null) as Json, value: mine, ...at });
+        emit({ kind: "set", table: name, row: otherKey, field: access.column, before: (other[access.column] ?? null) as Json, value: mine, ...at });
         if (access.position) {
           const peers = collection.rowsOf(access.table).filter((r) => same(r[access.column], mine) && rowKey(access.table, r) !== otherKey);
           const value = positionAt(peers, access.position, () => null, undefined);
           const current = collection.findRow(access.table, otherKey)![access.position] ?? null;
-          if (!same(current, value)) emit({ kind: "rowSet", table: name, row: otherKey, field: access.position, before: current as Json, value, ...at });
+          if (!same(current, value)) emit({ kind: "set", table: name, row: otherKey, field: access.position, before: current as Json, value, ...at });
         }
         return;
       }
@@ -1211,28 +1211,28 @@ export function viewEdits(schema: CheckResult, rows: RowsByTable, options: Prese
       case "value":
       case "array":
         if (access.kind === "value" && !access.many) {
-          emit({ kind: "rowSet", table: opTable, row: key, field: access.column, before: row[access.column] as Json, value: null, ...at });
-        } else emit({ kind: "rowDisconnect", table: opTable, row: key, field: access.column, member, ...at });
+          emit({ kind: "set", table: opTable, row: key, field: access.column, before: row[access.column] as Json, value: null, ...at });
+        } else emit({ kind: "disconnect", table: opTable, row: key, field: access.column, member, ...at });
         return;
       case "column":
-        emit({ kind: "rowSet", table: opTable, row: key, field: access.column, before: row[access.column] as Json, value: null, ...at });
+        emit({ kind: "set", table: opTable, row: key, field: access.column, before: row[access.column] as Json, value: null, ...at });
         if (access.position && lineRow(key)[access.position] !== undefined) {
-          emit({ kind: "rowSet", table: opTable, row: key, field: access.position, before: lineRow(key)[access.position] as Json, value: null, ...at });
+          emit({ kind: "set", table: opTable, row: key, field: access.position, before: lineRow(key)[access.position] as Json, value: null, ...at });
         }
         return;
       case "otherArray": {
         const owner = collection.rowByMember(access.target, member)!;
-        emit({ kind: "rowDisconnect", table: collection.opName(access.table), row: rowKey(access.table, owner)!, field: access.column, member: collection.memberOf(model.name, row), ...at });
+        emit({ kind: "disconnect", table: collection.opName(access.table), row: rowKey(access.table, owner)!, field: access.column, member: collection.memberOf(model.name, row), ...at });
         return;
       }
       case "otherColumn": {
         const other = collection.rowByMember(access.target, member)!;
         const otherKey = rowKey(access.table, other)!;
         const name = collection.opName(access.table);
-        emit({ kind: "rowSet", table: name, row: otherKey, field: access.column, before: other[access.column] as Json, value: null, ...at });
+        emit({ kind: "set", table: name, row: otherKey, field: access.column, before: other[access.column] as Json, value: null, ...at });
         const after = collection.findRow(access.table, otherKey)!;
         if (access.position && after[access.position] !== undefined) {
-          emit({ kind: "rowSet", table: name, row: otherKey, field: access.position, before: after[access.position] as Json, value: null, ...at });
+          emit({ kind: "set", table: name, row: otherKey, field: access.position, before: after[access.position] as Json, value: null, ...at });
         }
         return;
       }
@@ -1261,7 +1261,7 @@ export function viewEdits(schema: CheckResult, rows: RowsByTable, options: Prese
       const index = anchor === null ? 0 : rest.findIndex((m) => same(m, anchor)) + 1;
       if (anchor !== null && index === 0) throw new ViewError(`${after} isn't in the group ${target.id}`);
       if (list.findIndex((m) => same(m, member)) === index) return;
-      emit({ kind: "rowMove", table: collection.opName(access.table), row: rowKey(access.table, owner)!, field: access.column, member, after: anchor, ...at });
+      emit({ kind: "move", table: collection.opName(access.table), row: rowKey(access.table, owner)!, field: access.column, member, after: anchor, ...at });
       return;
     }
     // Positions: a number between the neighbours'.
@@ -1284,7 +1284,7 @@ export function viewEdits(schema: CheckResult, rows: RowsByTable, options: Prese
     if (anchor !== null && index === 0) throw new ViewError(`${after} isn't in the group ${target.id}`);
     if (sorted.indexOf(self) === index) return;
     const value = positionAt(rest, position, keyOf, anchor);
-    emit({ kind: "rowSet", table: collection.opName(holder), row: rowKey(holder, self)!, field: position, before: (self[position] ?? null) as Json, value, ...at });
+    emit({ kind: "set", table: collection.opName(holder), row: rowKey(holder, self)!, field: position, before: (self[position] ?? null) as Json, value, ...at });
   };
 
   /** cranberries' `apply` for a delete: the row goes, and so does every reference to it. */
@@ -1310,18 +1310,18 @@ export function viewEdits(schema: CheckResult, rows: RowsByTable, options: Prese
           if (other === table && rKey === key) continue;
           if (column.array) {
             if (Array.isArray(r[column.name]) && (r[column.name] as unknown[]).some((m) => same(m, member))) {
-              emit({ kind: "rowDisconnect", table: name, row: rKey, field: column.name, member, ...at });
+              emit({ kind: "disconnect", table: name, row: rKey, field: column.name, member, ...at });
             }
           } else if (same(r[column.name], member)) {
             if (other.primaryKey.includes(column.name)) emit({ kind: "rowDelete", table: name, row: rKey });
             else if (column.nullable) {
-              emit({ kind: "rowSet", table: name, row: rKey, field: column.name, before: member, value: null, ...at });
+              emit({ kind: "set", table: name, row: rKey, field: column.name, before: member, value: null, ...at });
               // Its place in the deleted row's list goes too.
               const holder = collection.models.get(other.stores)!;
               const access = collection.access(holder, holder.fields.find((f) => f.name === stored.name)!);
               const position = access.kind === "column" ? access.position : undefined;
               const placed = position === undefined ? undefined : collection.findRow(other, rKey)![position];
-              if (position !== undefined && placed !== undefined) emit({ kind: "rowSet", table: name, row: rKey, field: position, before: placed as Json, value: null, ...at });
+              if (position !== undefined && placed !== undefined) emit({ kind: "set", table: name, row: rKey, field: position, before: placed as Json, value: null, ...at });
             } else throw new ViewError(`${name} ${rKey} needs the row ${key} in \`${column.name}\``);
           }
         }
@@ -1339,7 +1339,7 @@ export function viewEdits(schema: CheckResult, rows: RowsByTable, options: Prese
         if (!checkFieldValue(schema, model.name, field.name, intent.value)) throw new ViewError(`${JSON.stringify(intent.value)} doesn't fit \`${field.name}\``);
         const value = Array.isArray(intent.value) && intent.value.length === 0 ? null : intent.value;
         if (!same(row[access.column] ?? null, value)) {
-          emit({ kind: "rowSet", table: opTable, row: intent.row, field: access.column, before: (row[access.column] ?? null) as Json, value, ...at });
+          emit({ kind: "set", table: opTable, row: intent.row, field: access.column, before: (row[access.column] ?? null) as Json, value, ...at });
         }
         break;
       }
@@ -1422,7 +1422,7 @@ export function viewEdits(schema: CheckResult, rows: RowsByTable, options: Prese
       if (!nameField) throw new ViewError(`\`${g.table.stores}\` has no name to edit`);
       const row = collection.findRow(g.table, g.row)!;
       if (!same(row[nameField] ?? null, intent.value)) {
-        emit({ kind: "rowSet", table: collection.opName(g.table), row: g.row, field: nameField, before: (row[nameField] ?? null) as Json, value: intent.value, ...at });
+        emit({ kind: "set", table: collection.opName(g.table), row: g.row, field: nameField, before: (row[nameField] ?? null) as Json, value: intent.value, ...at });
       }
       break;
     }

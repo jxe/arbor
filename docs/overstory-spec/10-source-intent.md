@@ -178,8 +178,8 @@ authority validates those before acceptance.
 
 A row's fields and a page's properties are the same thing in the data model, a
 node's properties, and they are edited the same way: by property, never by the
-bytes of a projection or of frontmatter. Every property operation has a
-`target`:
+bytes of a projection or of frontmatter. Every property operation names its
+node with the fields of one of these targets:
 
 ```ts
 type PropertyTarget =

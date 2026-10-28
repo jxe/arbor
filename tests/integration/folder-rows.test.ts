@@ -74,7 +74,7 @@ async function remoteSet(row: string, field: string, before: unknown, value: unk
   const current = await owner.descriptor(tree), snapshot = await owner.snapshot(tree, current.tree.root);
   const objects = new Map(snapshot.objects);
   const items = decodeProtocolDirectory(objects.get(snapshot.root)!).entries.find((e) => e.name === path)!.directory!;
-  const operations = [{ key: "set", kind: "rowSet", collection: { material: { kind: "basis", path: `/${path}`, object: items } },
+  const operations = [{ key: "set", kind: "set", collection: { material: { kind: "basis", path: `/${path}`, object: items } },
     model, row: JSON.stringify([["id", row]]), field, before, value, at: new Date().toISOString() } as SourceOperation];
   const result = await executeRowOperations(snapshot.root, operations, async (hash) => objects.get(hash)!, replayCollectionRows);
   await owner.submitUpdates(tree, { base: current.tree.update, updates: [{ change: crypto.randomUUID(), candidate: result.root,
@@ -91,14 +91,14 @@ test("a folder's row edit publishes row operations, and merges with a concurrent
       await writeFile(join(folder, "items", "_store.jsonl"), '{"id":"a","title":"Alpha"}\n{"id":"b","title":"B"}\n');
       await daemon.synchronizeNow();
       const trace = requests.flatMap((request) => request.updates).at(-1)!.trace;
-      expect(trace?.[0]?.operations).toEqual([expect.objectContaining({ kind: "rowSet", field: "title", before: "A", value: "Alpha" })]);
+      expect(trace?.[0]?.operations).toEqual([expect.objectContaining({ kind: "set", field: "title", before: "A", value: "Alpha" })]);
     });
     await remoteSet("a", "done", null, true);
     await recording(async (requests) => {
       await writeFile(join(folder, "items", "_store.jsonl"), '{"id":"a","title":"Alpha!"}\n{"id":"b","title":"B"}\n');
       await daemon.synchronizeNow();
       await daemon.synchronizeNow();
-      expect(requests.flatMap((request) => request.updates).some((update) => update.trace?.[0]?.operations.some((op) => op.kind === "rowSet" && op.value === "Alpha!"))).toBe(true);
+      expect(requests.flatMap((request) => request.updates).some((update) => update.trace?.[0]?.operations.some((op) => op.kind === "set" && op.value === "Alpha!"))).toBe(true);
     });
     expect(await readFile(join(folder, "items", "_store.jsonl"), "utf8")).toBe('{"id":"a","title":"Alpha!","done":true}\n{"id":"b","title":"B"}\n');
     expect(await daemon.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
@@ -117,7 +117,7 @@ test("a folder with a file per table syncs its rows as operations on each table"
       const trace = requests.flatMap((request) => request.updates).at(-1)!.trace;
       expect(trace?.[0]?.operations).toEqual([
         expect.objectContaining({ kind: "rowCreate", model: "Game", row: JSON.stringify([["id", "g2"]]) }),
-        expect.objectContaining({ kind: "rowConnect", model: "List", row: JSON.stringify([["id", "l1"]]), field: "games", member: "g2" }),
+        expect.objectContaining({ kind: "connect", model: "List", row: JSON.stringify([["id", "l1"]]), field: "games", member: "g2" }),
       ]);
     });
     await remoteSet("l1", "name", "Favorites", "Best", "games", "List");
@@ -148,7 +148,7 @@ test("a folder's SQLite database syncs as rows: another program's edit publishes
       await daemon.synchronizeNow();
       const trace = requests.flatMap((request) => request.updates).at(-1)!.trace;
       expect(trace?.[0]?.operations).toEqual([
-        expect.objectContaining({ kind: "rowSet", model: "List", field: "name", before: "Community care", value: "Mutual aid" }),
+        expect.objectContaining({ kind: "set", model: "List", field: "name", before: "Community care", value: "Mutual aid" }),
       ]);
     });
     await remoteSet(LIST, "openToEdits", true, false, "supplies", "List");
@@ -198,7 +198,7 @@ test("the supplies database edited on two devices: both edits land, and both cop
     const edited = await scanOther();
     for (const [hash, bytes] of edited.objects) objects.set(hash, bytes);
     const operations = await deriveRowOperations(basis.tree.root as ObjectHash, edited.root, (hash) => load(hash));
-    expect(operations).toEqual([expect.objectContaining({ kind: "rowSet", model: "List", field: "openToEdits", value: true })]);
+    expect(operations).toEqual([expect.objectContaining({ kind: "set", model: "List", field: "openToEdits", value: true })]);
     await owner.submitUpdates(tree, { base: basis.tree.update, updates: [{ change: crypto.randomUUID(), candidate: edited.root,
       trace: [{ before: basis.tree.root, after: edited.root, operations: operations!.map((op, i) => ({ ...op, key: `op${i}` })) }],
       resolves: [], deltas: [], objects: [...edited.objects].map(([hash, bytes]) => ({ hash, bytes })) }] });

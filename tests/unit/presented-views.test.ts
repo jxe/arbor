@@ -115,7 +115,7 @@ describe("presented views", () => {
       '["By list","\\"l1\\"","[[\\"id\\",\\"g1\\"]]"]',
     ]);
     const edits = viewEdits(games, rows, { view: 2 }, { kind: "set", row: '[["id","g1"]]', field: "name", value: "Wingspan 2" });
-    expect(edits).toEqual([{ kind: "rowSet", table: "Game", row: '[["id","g1"]]', field: "name", before: "Wingspan", value: "Wingspan 2" }]);
+    expect(edits).toEqual([{ kind: "set", table: "Game", row: '[["id","g1"]]', field: "name", before: "Wingspan", value: "Wingspan 2" }]);
   });
 
   test("a model without ~views has a plain view and one per reference", () => {
@@ -147,12 +147,12 @@ describe("presented views", () => {
   });
 
   test("applying row operations refuses what doesn't apply", () => {
-    const set = (before: string): RowEdit => ({ kind: "rowSet", table: "Game", row: '[["id","g1"]]', field: "name", before, value: "X" });
+    const set = (before: string): RowEdit => ({ kind: "set", table: "Game", row: '[["id","g1"]]', field: "name", before, value: "X" });
     expect(() => applyRowEdits(games, rows, [set("Not it")])).toThrow(ViewError);
-    expect(() => applyRowEdits(games, rows, [{ kind: "rowConnect", table: "Game", row: '[["id","g1"]]', field: "authors", member: "tr_ada" }])).toThrow(ViewError);
+    expect(() => applyRowEdits(games, rows, [{ kind: "connect", table: "Game", row: '[["id","g1"]]', field: "authors", member: "tr_ada" }])).toThrow(ViewError);
     expect(() => applyRowEdits(games, rows, [{ kind: "rowDelete", table: "Game", row: '[["id","g9"]]' }])).toThrow(ViewError);
-    expect(() => applyRowEdits(games, rows, [{ kind: "rowSet", table: "Game", row: '[["id","g1"]]', field: "modified", before: "2026-10-01T09:00:00Z", value: "x" }])).toThrow(ViewError);
-    expect(() => applyRowEdits(games, rows, [{ kind: "rowMove", table: "List", row: '[["id","l1"]]', field: "games", member: "g2", after: null }])).toThrow(ViewError);
+    expect(() => applyRowEdits(games, rows, [{ kind: "set", table: "Game", row: '[["id","g1"]]', field: "modified", before: "2026-10-01T09:00:00Z", value: "x" }])).toThrow(ViewError);
+    expect(() => applyRowEdits(games, rows, [{ kind: "move", table: "List", row: '[["id","l1"]]', field: "games", member: "g2", after: null }])).toThrow(ViewError);
     // Applying never changes its input.
     expect(rows.Game![0]!.name).toBe("Wingspan");
   });

@@ -142,9 +142,9 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
             let value = try object(v["value"])
             if value["file"] != nil { try keys(value, ["file"]); try hash(value["file"]) }
             else { try keys(value, ["directory"]); try hash(value["directory"]) }
-        case "rowCreate", "rowDelete", "rowSet", "rowConnect", "rowDisconnect", "rowMove":
-            let fields: [String: [String]] = ["rowCreate": ["values"], "rowDelete": [], "rowSet": ["field", "before", "value"],
-                "rowConnect": ["field", "member"], "rowDisconnect": ["field", "member"], "rowMove": ["field", "member", "after"]]
+        case "rowCreate", "rowDelete", "set", "connect", "disconnect", "move":
+            let fields: [String: [String]] = ["rowCreate": ["values"], "rowDelete": [], "set": ["field", "before", "value"],
+                "connect": ["field", "member"], "disconnect": ["field", "member"], "move": ["field", "member", "after"]]
             let kind = v["kind"]!.text!
             try keys(v, ["key", "kind", "collection", "model", "row"] + fields[kind]!, kind == "rowDelete" ? [] : ["at"])
             if let at = v["at"] {
@@ -155,9 +155,9 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
             try check(canonicalStableKey(try text(v["row"], 4096)))
             if v["field"] != nil { try name(v["field"]) }
             if kind == "rowCreate" { let values = try object(v["values"]); try json(v["values"]); for k in values.keys { try name(.string(k)) } }
-            if kind == "rowSet" { try json(v["before"]); try json(v["value"]) }
+            if kind == "set" { try json(v["before"]); try json(v["value"]) }
             if v["member"] != nil { try member(v["member"]) }
-            if kind == "rowMove", v["after"] != .null { try member(v["after"]); try check(v["after"] != v["member"]) }
+            if kind == "move", v["after"] != .null { try member(v["after"]); try check(v["after"] != v["member"]) }
         default: try check(false)
         }
         return v["key"]!.text!

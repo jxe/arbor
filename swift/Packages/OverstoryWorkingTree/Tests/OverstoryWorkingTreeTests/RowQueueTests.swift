@@ -108,7 +108,7 @@ struct RowQueueTests {
             let frame = try #require(element["trace"]?.items?.first?.fields)
             #expect(frame["before"] == nil && frame["after"] == nil)
             let operation = try #require(frame["operations"]?.items?.first?.fields)
-            #expect(operation["kind"] == .string("rowSet") && operation["model"] == .string("Game") && operation["row"] == .string(Self.chess))
+            #expect(operation["kind"] == .string("set") && operation["model"] == .string("Game") && operation["row"] == .string(Self.chess))
             #expect(operation["collection"]?.fields?["material"]?.fields?["object"] == .string(games))
             #expect(operation["collection"]?.fields?["material"]?.fields?["path"] == .string("/games"))
 

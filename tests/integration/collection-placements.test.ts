@@ -69,7 +69,7 @@ describe("one tree, placed with different projections", () => {
     const edited = await sqlite.scan();
     const objects = new Map([...tree.objects, ...edited.objects]);
     const operations = await deriveRowOperations(tree.root, edited.root, async (hash) => objects.get(hash)!);
-    expect(operations).toEqual([expect.objectContaining({ kind: "rowSet", model: "Game", field: "name", before: "Go", value: "Weiqi", at: "2026-10-24T12:00:00.000Z" })]);
+    expect(operations).toEqual([expect.objectContaining({ kind: "set", model: "Game", field: "name", before: "Go", value: "Weiqi", at: "2026-10-24T12:00:00.000Z" })]);
 
     // The JSONL placement takes the accepted tree, changing one line.
     const before = await readFile(join(jsonl.items, "Game.jsonl"), "utf8");
@@ -150,7 +150,7 @@ describe("a SQLite placement's change log", () => {
     const scanned = await placed.scan();
     const objects = new Map([...accepted.objects, ...scanned.objects]);
     expect(await deriveRowOperations(accepted.root, scanned.root, async (hash) => objects.get(hash)!))
-      .toEqual([expect.objectContaining({ kind: "rowSet", model: "Game", field: "name", before: "Baduk", value: "Weiqi" })]);
+      .toEqual([expect.objectContaining({ kind: "set", model: "Game", field: "name", before: "Baduk", value: "Weiqi" })]);
   });
 
   test("a database whose log lost a trigger is read whole, and gets its log back", async () => {
@@ -200,7 +200,7 @@ describe("a CSV placement", () => {
     const edited = await csv.scan();
     const objects = new Map([...tree.objects, ...edited.objects]);
     expect(await deriveRowOperations(tree.root, edited.root, async (hash) => objects.get(hash)!))
-      .toEqual([expect.objectContaining({ kind: "rowSet", model: "Item", field: "title", before: "Apples", value: "Green apples" })]);
+      .toEqual([expect.objectContaining({ kind: "set", model: "Item", field: "title", before: "Apples", value: "Green apples" })]);
   });
 });
 

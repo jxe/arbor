@@ -4773,7 +4773,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Game",
           "row": "[[\"id\",\"g3\"]]",
           "field": "name",
@@ -4848,7 +4848,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Game",
           "row": "[[\"id\",\"g2\"]]",
           "field": "description",
@@ -4922,7 +4922,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Game",
           "row": "[[\"id\",\"g3\"]]",
           "field": "status",
@@ -5021,7 +5021,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Game",
           "row": "[[\"id\",\"g1\"]]",
           "field": "tags",
@@ -5098,7 +5098,7 @@
       },
       "operations": [
         {
-          "kind": "rowConnect",
+          "kind": "connect",
           "table": "Game",
           "row": "[[\"id\",\"g3\"]]",
           "field": "authors",
@@ -5173,7 +5173,7 @@
       },
       "operations": [
         {
-          "kind": "rowDisconnect",
+          "kind": "disconnect",
           "table": "Game",
           "row": "[[\"id\",\"g2\"]]",
           "field": "authors",
@@ -5245,7 +5245,7 @@
       },
       "operations": [
         {
-          "kind": "rowConnect",
+          "kind": "connect",
           "table": "List",
           "row": "[[\"id\",\"l2\"]]",
           "field": "games",
@@ -5322,14 +5322,14 @@
       },
       "operations": [
         {
-          "kind": "rowDisconnect",
+          "kind": "disconnect",
           "table": "Game",
           "row": "[[\"id\",\"g2\"]]",
           "field": "authors",
           "member": "tr_ada"
         },
         {
-          "kind": "rowConnect",
+          "kind": "connect",
           "table": "Game",
           "row": "[[\"id\",\"g2\"]]",
           "field": "authors",
@@ -5587,14 +5587,14 @@
           }
         },
         {
-          "kind": "rowConnect",
+          "kind": "connect",
           "table": "List",
           "row": "[[\"id\",\"l1\"]]",
           "field": "games",
           "member": "g4"
         },
         {
-          "kind": "rowMove",
+          "kind": "move",
           "table": "List",
           "row": "[[\"id\",\"l1\"]]",
           "field": "games",
@@ -5754,7 +5754,7 @@
       },
       "operations": [
         {
-          "kind": "rowDisconnect",
+          "kind": "disconnect",
           "table": "Game",
           "row": "[[\"id\",\"g2\"]]",
           "field": "authors",
@@ -5825,7 +5825,7 @@
       },
       "operations": [
         {
-          "kind": "rowDisconnect",
+          "kind": "disconnect",
           "table": "List",
           "row": "[[\"id\",\"l1\"]]",
           "field": "games",
@@ -6023,14 +6023,14 @@
       },
       "operations": [
         {
-          "kind": "rowDisconnect",
+          "kind": "disconnect",
           "table": "List",
           "row": "[[\"id\",\"l1\"]]",
           "field": "games",
           "member": "g1"
         },
         {
-          "kind": "rowDisconnect",
+          "kind": "disconnect",
           "table": "List",
           "row": "[[\"id\",\"l2\"]]",
           "field": "games",
@@ -6089,7 +6089,7 @@
       },
       "operations": [
         {
-          "kind": "rowMove",
+          "kind": "move",
           "table": "List",
           "row": "[[\"id\",\"l1\"]]",
           "field": "games",
@@ -6227,21 +6227,21 @@
       },
       "operations": [
         {
-          "kind": "rowDisconnect",
+          "kind": "disconnect",
           "table": "List",
           "row": "[[\"id\",\"l1\"]]",
           "field": "games",
           "member": "g2"
         },
         {
-          "kind": "rowConnect",
+          "kind": "connect",
           "table": "List",
           "row": "[[\"id\",\"l2\"]]",
           "field": "games",
           "member": "g2"
         },
         {
-          "kind": "rowMove",
+          "kind": "move",
           "table": "List",
           "row": "[[\"id\",\"l2\"]]",
           "field": "games",
@@ -6314,7 +6314,7 @@
       },
       "operations": [
         {
-          "kind": "rowConnect",
+          "kind": "connect",
           "table": "Game",
           "row": "[[\"id\",\"g3\"]]",
           "field": "authors",
@@ -6389,7 +6389,7 @@
       },
       "operations": [
         {
-          "kind": "rowDisconnect",
+          "kind": "disconnect",
           "table": "Game",
           "row": "[[\"id\",\"g2\"]]",
           "field": "authors",
@@ -6460,7 +6460,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "List",
           "row": "[[\"id\",\"l2\"]]",
           "field": "name",
@@ -6774,7 +6774,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Excellence",
           "row": "[[\"id\",\"e3\"]]",
           "field": "assessment",
@@ -7038,7 +7038,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Project",
           "row": "[[\"id\",\"pr2\"]]",
           "field": "name",
@@ -7116,7 +7116,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Task",
           "row": "[[\"id\",\"t1\"]]",
           "field": "tasks_position",
@@ -7186,7 +7186,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Task",
           "row": "[[\"id\",\"t2\"]]",
           "field": "project",
@@ -7194,7 +7194,7 @@
           "value": "pj2"
         },
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Task",
           "row": "[[\"id\",\"t2\"]]",
           "field": "tasks_position",
@@ -7263,7 +7263,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Task",
           "row": "[[\"id\",\"t3\"]]",
           "field": "project",
@@ -7271,7 +7271,7 @@
           "value": null
         },
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Task",
           "row": "[[\"id\",\"t3\"]]",
           "field": "tasks_position",
@@ -7494,7 +7494,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Task",
           "row": "[[\"id\",\"t4\"]]",
           "field": "points",
@@ -7576,7 +7576,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Task",
           "row": "[[\"id\",\"t4\"]]",
           "field": "owner",
@@ -7645,7 +7645,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Task",
           "row": "[[\"id\",\"t1\"]]",
           "field": "owner",
@@ -7769,7 +7769,7 @@
       },
       "operations": [
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Task",
           "row": "[[\"id\",\"t1\"]]",
           "field": "project",
@@ -7777,7 +7777,7 @@
           "value": null
         },
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Task",
           "row": "[[\"id\",\"t1\"]]",
           "field": "tasks_position",
@@ -7785,7 +7785,7 @@
           "value": null
         },
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Task",
           "row": "[[\"id\",\"t2\"]]",
           "field": "project",
@@ -7793,7 +7793,7 @@
           "value": null
         },
         {
-          "kind": "rowSet",
+          "kind": "set",
           "table": "Task",
           "row": "[[\"id\",\"t2\"]]",
           "field": "tasks_position",
@@ -7859,14 +7859,14 @@
       },
       "operations": [
         {
-          "kind": "rowDisconnect",
+          "kind": "disconnect",
           "table": "List",
           "row": "[[\"id\",\"l1\"]]",
           "field": "games",
           "member": "g2"
         },
         {
-          "kind": "rowConnect",
+          "kind": "connect",
           "table": "List",
           "row": "[[\"id\",\"l2\"]]",
           "field": "games",

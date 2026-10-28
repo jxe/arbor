@@ -265,10 +265,10 @@ public enum RowEdit: Sendable, Equatable {
         switch self {
         case .create(_, _, let values, let at): return object("rowCreate", ["values": .object(values)], at)
         case .delete: return object("rowDelete", [:], nil)
-        case .set(_, _, let field, let before, let value, let at): return object("rowSet", ["field": .string(field), "before": before, "value": value], at)
-        case .connect(_, _, let field, let member, let at): return object("rowConnect", ["field": .string(field), "member": member], at)
-        case .disconnect(_, _, let field, let member, let at): return object("rowDisconnect", ["field": .string(field), "member": member], at)
-        case .move(_, _, let field, let member, let after, let at): return object("rowMove", ["field": .string(field), "member": member, "after": after ?? .null], at)
+        case .set(_, _, let field, let before, let value, let at): return object("set", ["field": .string(field), "before": before, "value": value], at)
+        case .connect(_, _, let field, let member, let at): return object("connect", ["field": .string(field), "member": member], at)
+        case .disconnect(_, _, let field, let member, let at): return object("disconnect", ["field": .string(field), "member": member], at)
+        case .move(_, _, let field, let member, let after, let at): return object("move", ["field": .string(field), "member": member, "after": after ?? .null], at)
         }
     }
 
@@ -290,10 +290,10 @@ public enum RowEdit: Sendable, Equatable {
             guard case let .object(values) = try value("values") else { throw ViewError(message: "rowCreate values aren't an object") }
             self = .create(table: table, row: row, values: values, at: at)
         case "rowDelete": self = .delete(table: table, row: row)
-        case "rowSet": self = .set(table: table, row: row, field: try field(), before: try value("before"), value: try value("value"), at: at)
-        case "rowConnect": self = .connect(table: table, row: row, field: try field(), member: try value("member"), at: at)
-        case "rowDisconnect": self = .disconnect(table: table, row: row, field: try field(), member: try value("member"), at: at)
-        case "rowMove":
+        case "set": self = .set(table: table, row: row, field: try field(), before: try value("before"), value: try value("value"), at: at)
+        case "connect": self = .connect(table: table, row: row, field: try field(), member: try value("member"), at: at)
+        case "disconnect": self = .disconnect(table: table, row: row, field: try field(), member: try value("member"), at: at)
+        case "move":
             let after = try value("after")
             self = .move(table: table, row: row, field: try field(), member: try value("member"), after: after.isNull ? nil : after, at: at)
         default: throw ViewError(message: "unknown row edit \(kind)")

@@ -3740,7 +3740,7 @@
                   },
                   {
                     "key": "set",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -3757,7 +3757,7 @@
                   },
                   {
                     "key": "clear",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -3773,7 +3773,7 @@
                   },
                   {
                     "key": "connect",
-                    "kind": "rowConnect",
+                    "kind": "connect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -3788,7 +3788,7 @@
                   },
                   {
                     "key": "disconnect",
-                    "kind": "rowDisconnect",
+                    "kind": "disconnect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -3803,7 +3803,7 @@
                   },
                   {
                     "key": "move",
-                    "kind": "rowMove",
+                    "kind": "move",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -3839,8 +3839,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:4a9f53bb99ed1d3a0efefa0cdeff0104f463aade107ad0381facd82052eb04a2",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZW1vZGVsZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZWNsZWFyY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRmcm93U2V0ZWZpZWxkZnJhdGluZ2Vtb2RlbGRHYW1lZXZhbHVl9mZiZWZvcmUEamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWdjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRqcm93Q29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlqZGlzY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kbXJvd0Rpc2Nvbm5lY3RlZmllbGRlbGlzdHNlbW9kZWxkR2FtZWZtZW1iZXJibDJqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZG1vdmVjcm93bVtbImlkIiwiZzEiXV1ka2luZGdyb3dNb3ZlZWFmdGVy9mVmaWVsZGVzdGVwc2Vtb2RlbGRHYW1lZm1lbWJlcgNqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqVja2V5ZmRlbGV0ZWNyb3dtW1siaWQiLCJnMyJdXWRraW5kaXJvd0RlbGV0ZWVtb2RlbGRHYW1lamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPY="
+          "digest": "sha256:c6c305905b11420adc8a91ab65212079ad722467e78e4f1936846c9d932f2434",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZW1vZGVsZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGNzZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZWNsZWFyY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRjc2V0ZWZpZWxkZnJhdGluZ2Vtb2RlbGRHYW1lZXZhbHVl9mZiZWZvcmUEamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWdjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRnY29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlqZGlzY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kamRpc2Nvbm5lY3RlZmllbGRlbGlzdHNlbW9kZWxkR2FtZWZtZW1iZXJibDJqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZG1vdmVjcm93bVtbImlkIiwiZzEiXV1ka2luZGRtb3ZlZWFmdGVy9mVmaWVsZGVzdGVwc2Vtb2RlbGRHYW1lZm1lbWJlcgNqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqVja2V5ZmRlbGV0ZWNyb3dtW1siaWQiLCJnMyJdXWRraW5kaXJvd0RlbGV0ZWVtb2RlbGRHYW1lamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPY="
         }
       ]
     },
@@ -3860,7 +3860,7 @@
                 "operations": [
                   {
                     "key": "set",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -3971,7 +3971,7 @@
                 "operations": [
                   {
                     "key": "connect",
-                    "kind": "rowConnect",
+                    "kind": "connect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4010,7 +4010,7 @@
                 "operations": [
                   {
                     "key": "move",
-                    "kind": "rowMove",
+                    "kind": "move",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4048,7 +4048,7 @@
                 "operations": [
                   {
                     "key": "set",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4173,7 +4173,7 @@
                   },
                   {
                     "key": "set",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4190,7 +4190,7 @@
                   },
                   {
                     "key": "clear",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4206,7 +4206,7 @@
                   },
                   {
                     "key": "connect",
-                    "kind": "rowConnect",
+                    "kind": "connect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4221,7 +4221,7 @@
                   },
                   {
                     "key": "disconnect",
-                    "kind": "rowDisconnect",
+                    "kind": "disconnect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4236,7 +4236,7 @@
                   },
                   {
                     "key": "move",
-                    "kind": "rowMove",
+                    "kind": "move",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4272,8 +4272,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:15f46696cad869ff84bffaf9889937513c8ae983ac2fa04c85cd03ae0cc0a86b",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGham9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZW1vZGVsZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZWNsZWFyY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRmcm93U2V0ZWZpZWxkZnJhdGluZ2Vtb2RlbGRHYW1lZXZhbHVl9mZiZWZvcmUEamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWdjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRqcm93Q29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlqZGlzY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kbXJvd0Rpc2Nvbm5lY3RlZmllbGRlbGlzdHNlbW9kZWxkR2FtZWZtZW1iZXJibDJqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZG1vdmVjcm93bVtbImlkIiwiZzEiXV1ka2luZGdyb3dNb3ZlZWFmdGVy9mVmaWVsZGVzdGVwc2Vtb2RlbGRHYW1lZm1lbWJlcgNqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqVja2V5ZmRlbGV0ZWNyb3dtW1siaWQiLCJnMyJdXWRraW5kaXJvd0RlbGV0ZWVtb2RlbGRHYW1lamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGX2aWlmQ3VycmVudPY="
+          "digest": "sha256:9002c68f9a4c35daadcb94aac99f58043772b2d4062de3964bc98d9e0742992c",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGham9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZW1vZGVsZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGNzZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZWNsZWFyY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRjc2V0ZWZpZWxkZnJhdGluZ2Vtb2RlbGRHYW1lZXZhbHVl9mZiZWZvcmUEamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWdjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRnY29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlqZGlzY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kamRpc2Nvbm5lY3RlZmllbGRlbGlzdHNlbW9kZWxkR2FtZWZtZW1iZXJibDJqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZG1vdmVjcm93bVtbImlkIiwiZzEiXV1ka2luZGRtb3ZlZWFmdGVy9mVmaWVsZGVzdGVwc2Vtb2RlbGRHYW1lZm1lbWJlcgNqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqVja2V5ZmRlbGV0ZWNyb3dtW1siaWQiLCJnMyJdXWRraW5kaXJvd0RlbGV0ZWVtb2RlbGRHYW1lamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGX2aWlmQ3VycmVudPY="
         }
       ]
     },
@@ -4378,7 +4378,7 @@
                   },
                   {
                     "key": "set",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4395,7 +4395,7 @@
                   },
                   {
                     "key": "clear",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4411,7 +4411,7 @@
                   },
                   {
                     "key": "connect",
-                    "kind": "rowConnect",
+                    "kind": "connect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4426,7 +4426,7 @@
                   },
                   {
                     "key": "disconnect",
-                    "kind": "rowDisconnect",
+                    "kind": "disconnect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4441,7 +4441,7 @@
                   },
                   {
                     "key": "move",
-                    "kind": "rowMove",
+                    "kind": "move",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4477,8 +4477,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:f5ad0167e85357d7e30cdc8806fe2a974752b9162e152bba6478382ddceccf28",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGiZmJlZm9yZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBqb3BlcmF0aW9uc4emY2tleWZjcmVhdGVjcm93bVtbImlkIiwiZzIiXV1ka2luZGlyb3dDcmVhdGVlbW9kZWxkR2FtZWZ2YWx1ZXOiYmlkYmcyZXRpdGxlYkdvamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKpYmF0eBgyMDI2LTEwLTE1VDA5OjM4OjI1LjEyM1pja2V5Y3NldGNyb3dtW1siaWQiLCJnMSJdXWRraW5kZnJvd1NldGVmaWVsZGV0aXRsZWVtb2RlbGRHYW1lZXZhbHVlaENoZXNzOTYwZmJlZm9yZWVDaGVzc2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqGNrZXllY2xlYXJjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRmcmF0aW5nZW1vZGVsZEdhbWVldmFsdWX2ZmJlZm9yZQRqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqdja2V5Z2Nvbm5lY3Rjcm93bVtbImlkIiwiZzEiXV1ka2luZGpyb3dDb25uZWN0ZWZpZWxkZWxpc3RzZW1vZGVsZEdhbWVmbWVtYmVyYmwxamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWpkaXNjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRtcm93RGlzY29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMmpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqGNrZXlkbW92ZWNyb3dtW1siaWQiLCJnMSJdXWRraW5kZ3Jvd01vdmVlYWZ0ZXL2ZWZpZWxkZXN0ZXBzZW1vZGVsZEdhbWVmbWVtYmVyA2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIypWNrZXlmZGVsZXRlY3Jvd21bWyJpZCIsImczIl1dZGtpbmRpcm93RGVsZXRlZW1vZGVsZEdhbWVqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMmZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOAaWNhbmRpZGF0ZfZpaWZDdXJyZW509g=="
+          "digest": "sha256:a0d935ea0e5dbb15b3181c7530aea7c549a84a1e040de67612ef52b176b56f94",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGiZmJlZm9yZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBqb3BlcmF0aW9uc4emY2tleWZjcmVhdGVjcm93bVtbImlkIiwiZzIiXV1ka2luZGlyb3dDcmVhdGVlbW9kZWxkR2FtZWZ2YWx1ZXOiYmlkYmcyZXRpdGxlYkdvamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKpYmF0eBgyMDI2LTEwLTE1VDA5OjM4OjI1LjEyM1pja2V5Y3NldGNyb3dtW1siaWQiLCJnMSJdXWRraW5kY3NldGVmaWVsZGV0aXRsZWVtb2RlbGRHYW1lZXZhbHVlaENoZXNzOTYwZmJlZm9yZWVDaGVzc2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqGNrZXllY2xlYXJjcm93bVtbImlkIiwiZzEiXV1ka2luZGNzZXRlZmllbGRmcmF0aW5nZW1vZGVsZEdhbWVldmFsdWX2ZmJlZm9yZQRqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqdja2V5Z2Nvbm5lY3Rjcm93bVtbImlkIiwiZzEiXV1ka2luZGdjb25uZWN0ZWZpZWxkZWxpc3RzZW1vZGVsZEdhbWVmbWVtYmVyYmwxamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWpkaXNjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRqZGlzY29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMmpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqGNrZXlkbW92ZWNyb3dtW1siaWQiLCJnMSJdXWRraW5kZG1vdmVlYWZ0ZXL2ZWZpZWxkZXN0ZXBzZW1vZGVsZEdhbWVmbWVtYmVyA2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIypWNrZXlmZGVsZXRlY3Jvd21bWyJpZCIsImczIl1dZGtpbmRpcm93RGVsZXRlZW1vZGVsZEdhbWVqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMmZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOAaWNhbmRpZGF0ZfZpaWZDdXJyZW509g=="
         }
       ]
     },
@@ -4583,7 +4583,7 @@
                   },
                   {
                     "key": "set",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4600,7 +4600,7 @@
                   },
                   {
                     "key": "clear",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4616,7 +4616,7 @@
                   },
                   {
                     "key": "connect",
-                    "kind": "rowConnect",
+                    "kind": "connect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4631,7 +4631,7 @@
                   },
                   {
                     "key": "disconnect",
-                    "kind": "rowDisconnect",
+                    "kind": "disconnect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4646,7 +4646,7 @@
                   },
                   {
                     "key": "move",
-                    "kind": "rowMove",
+                    "kind": "move",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4686,7 +4686,7 @@
                 "operations": [
                   {
                     "key": "set",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4710,12 +4710,12 @@
       },
       "identities": [
         {
-          "digest": "sha256:15f46696cad869ff84bffaf9889937513c8ae983ac2fa04c85cd03ae0cc0a86b",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGham9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZW1vZGVsZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZWNsZWFyY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRmcm93U2V0ZWZpZWxkZnJhdGluZ2Vtb2RlbGRHYW1lZXZhbHVl9mZiZWZvcmUEamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWdjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRqcm93Q29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlqZGlzY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kbXJvd0Rpc2Nvbm5lY3RlZmllbGRlbGlzdHNlbW9kZWxkR2FtZWZtZW1iZXJibDJqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZG1vdmVjcm93bVtbImlkIiwiZzEiXV1ka2luZGdyb3dNb3ZlZWFmdGVy9mVmaWVsZGVzdGVwc2Vtb2RlbGRHYW1lZm1lbWJlcgNqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqVja2V5ZmRlbGV0ZWNyb3dtW1siaWQiLCJnMyJdXWRraW5kaXJvd0RlbGV0ZWVtb2RlbGRHYW1lamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGX2aWlmQ3VycmVudPY="
+          "digest": "sha256:9002c68f9a4c35daadcb94aac99f58043772b2d4062de3964bc98d9e0742992c",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGham9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZW1vZGVsZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGNzZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZWNsZWFyY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRjc2V0ZWZpZWxkZnJhdGluZ2Vtb2RlbGRHYW1lZXZhbHVl9mZiZWZvcmUEamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWdjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRnY29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlqZGlzY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kamRpc2Nvbm5lY3RlZmllbGRlbGlzdHNlbW9kZWxkR2FtZWZtZW1iZXJibDJqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZG1vdmVjcm93bVtbImlkIiwiZzEiXV1ka2luZGRtb3ZlZWFmdGVy9mVmaWVsZGVzdGVwc2Vtb2RlbGRHYW1lZm1lbWJlcgNqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqVja2V5ZmRlbGV0ZWNyb3dtW1siaWQiLCJnMyJdXWRraW5kaXJvd0RlbGV0ZWVtb2RlbGRHYW1lamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGX2aWlmQ3VycmVudPY="
         },
         {
-          "digest": "sha256:d4c406153a851142c99356022704d47b02bc1c99dc9c224baab255608a2114b2",
-          "canonicalCBORBase64": "qGRiYXNlomljYW5kaWRhdGX2bXJlcXVlc3REaWdlc3R4R3NoYTI1NjoxNWY0NjY5NmNhZDg2OWZmODRiZmZhZjk4ODk5Mzc1MTNjOGFlOTgzYWMyZmEwNGM4NWNkMDNhZTBjYzBhODZiZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGham9wZXJhdGlvbnOBqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMmZjaGFuZ2VqY2hhbmdlLXR3b2Zkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOAaWNhbmRpZGF0ZfZpaWZDdXJyZW509g=="
+          "digest": "sha256:d50087835350c56a9503d087041c51e44493c073bf180ee36d5de13a71c2cd9e",
+          "canonicalCBORBase64": "qGRiYXNlomljYW5kaWRhdGX2bXJlcXVlc3REaWdlc3R4R3NoYTI1Njo5MDAyYzY4ZjlhNGMzNWRhYWRjYjk0YWFjOTlmNTgwNDM3NzJiMmQ0MDYyZGUzOTY0YmM5OGQ5ZTA3NDI5OTJjZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGham9wZXJhdGlvbnOBqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGNzZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMmZjaGFuZ2VqY2hhbmdlLXR3b2Zkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOAaWNhbmRpZGF0ZfZpaWZDdXJyZW509g=="
         }
       ]
     },
@@ -4750,7 +4750,7 @@
                   },
                   {
                     "key": "set",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4767,7 +4767,7 @@
                   },
                   {
                     "key": "clear",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4783,7 +4783,7 @@
                   },
                   {
                     "key": "connect",
-                    "kind": "rowConnect",
+                    "kind": "connect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4798,7 +4798,7 @@
                   },
                   {
                     "key": "disconnect",
-                    "kind": "rowDisconnect",
+                    "kind": "disconnect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4813,7 +4813,7 @@
                   },
                   {
                     "key": "move",
-                    "kind": "rowMove",
+                    "kind": "move",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4855,7 +4855,7 @@
                 "operations": [
                   {
                     "key": "set",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4879,12 +4879,12 @@
       },
       "identities": [
         {
-          "digest": "sha256:15f46696cad869ff84bffaf9889937513c8ae983ac2fa04c85cd03ae0cc0a86b",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGham9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZW1vZGVsZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZWNsZWFyY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRmcm93U2V0ZWZpZWxkZnJhdGluZ2Vtb2RlbGRHYW1lZXZhbHVl9mZiZWZvcmUEamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWdjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRqcm93Q29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlqZGlzY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kbXJvd0Rpc2Nvbm5lY3RlZmllbGRlbGlzdHNlbW9kZWxkR2FtZWZtZW1iZXJibDJqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZG1vdmVjcm93bVtbImlkIiwiZzEiXV1ka2luZGdyb3dNb3ZlZWFmdGVy9mVmaWVsZGVzdGVwc2Vtb2RlbGRHYW1lZm1lbWJlcgNqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqVja2V5ZmRlbGV0ZWNyb3dtW1siaWQiLCJnMyJdXWRraW5kaXJvd0RlbGV0ZWVtb2RlbGRHYW1lamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGX2aWlmQ3VycmVudPY="
+          "digest": "sha256:9002c68f9a4c35daadcb94aac99f58043772b2d4062de3964bc98d9e0742992c",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGham9wZXJhdGlvbnOHpmNrZXlmY3JlYXRlY3Jvd21bWyJpZCIsImcyIl1dZGtpbmRpcm93Q3JlYXRlZW1vZGVsZEdhbWVmdmFsdWVzomJpZGJnMmV0aXRsZWJHb2pjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGNzZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZWNsZWFyY3Jvd21bWyJpZCIsImcxIl1dZGtpbmRjc2V0ZWZpZWxkZnJhdGluZ2Vtb2RlbGRHYW1lZXZhbHVl9mZiZWZvcmUEamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjKnY2tleWdjb25uZWN0Y3Jvd21bWyJpZCIsImcxIl1dZGtpbmRnY29ubmVjdGVmaWVsZGVsaXN0c2Vtb2RlbGRHYW1lZm1lbWJlcmJsMWpjb2xsZWN0aW9uoWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoZi9nYW1lc2ZvYmplY3R4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyp2NrZXlqZGlzY29ubmVjdGNyb3dtW1siaWQiLCJnMSJdXWRraW5kamRpc2Nvbm5lY3RlZmllbGRlbGlzdHNlbW9kZWxkR2FtZWZtZW1iZXJibDJqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqhja2V5ZG1vdmVjcm93bVtbImlkIiwiZzEiXV1ka2luZGRtb3ZlZWFmdGVy9mVmaWVsZGVzdGVwc2Vtb2RlbGRHYW1lZm1lbWJlcgNqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMqVja2V5ZmRlbGV0ZWNyb3dtW1siaWQiLCJnMyJdXWRraW5kaXJvd0RlbGV0ZWVtb2RlbGRHYW1lamNvbGxlY3Rpb26haG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2dhbWVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGX2aWlmQ3VycmVudPY="
         },
         {
-          "digest": "sha256:bea02ef3d0fba52c9ebcf59059ae0281b12363102bd8f942df3c901550778d57",
-          "canonicalCBORBase64": "qGRiYXNlomljYW5kaWRhdGX2bXJlcXVlc3REaWdlc3R4R3NoYTI1NjoxNWY0NjY5NmNhZDg2OWZmODRiZmZhZjk4ODk5Mzc1MTNjOGFlOTgzYWMyZmEwNGM4NWNkMDNhZTBjYzBhODZiZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMmZiZWZvcmV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExam9wZXJhdGlvbnOBqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGZyb3dTZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMmZjaGFuZ2VqY2hhbmdlLXR3b2Zkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOAaWNhbmRpZGF0ZXhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJpaWZDdXJyZW509g=="
+          "digest": "sha256:0d0bcb116d2979250dfecef7a5909648897d3ce10ef464b633cf3e0fe8da2c0d",
+          "canonicalCBORBase64": "qGRiYXNlomljYW5kaWRhdGX2bXJlcXVlc3REaWdlc3R4R3NoYTI1Njo5MDAyYzY4ZjlhNGMzNWRhYWRjYjk0YWFjOTlmNTgwNDM3NzJiMmQ0MDYyZGUzOTY0YmM5OGQ5ZTA3NDI5OTJjZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMmZiZWZvcmV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExam9wZXJhdGlvbnOBqWJhdHgYMjAyNi0xMC0xNVQwOTozODoyNS4xMjNaY2tleWNzZXRjcm93bVtbImlkIiwiZzEiXV1ka2luZGNzZXRlZmllbGRldGl0bGVlbW9kZWxkR2FtZWV2YWx1ZWhDaGVzczk2MGZiZWZvcmVlQ2hlc3NqY29sbGVjdGlvbqFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZ2FtZXNmb2JqZWN0eEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMmZjaGFuZ2VqY2hhbmdlLXR3b2Zkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOAaWNhbmRpZGF0ZXhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJpaWZDdXJyZW509g=="
         }
       ]
     },
@@ -4958,7 +4958,7 @@
                   },
                   {
                     "key": "set",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4975,7 +4975,7 @@
                   },
                   {
                     "key": "clear",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -4991,7 +4991,7 @@
                   },
                   {
                     "key": "connect",
-                    "kind": "rowConnect",
+                    "kind": "connect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -5006,7 +5006,7 @@
                   },
                   {
                     "key": "disconnect",
-                    "kind": "rowDisconnect",
+                    "kind": "disconnect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -5021,7 +5021,7 @@
                   },
                   {
                     "key": "move",
-                    "kind": "rowMove",
+                    "kind": "move",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -5088,7 +5088,7 @@
                   },
                   {
                     "key": "set",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -5105,7 +5105,7 @@
                   },
                   {
                     "key": "clear",
-                    "kind": "rowSet",
+                    "kind": "set",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -5121,7 +5121,7 @@
                   },
                   {
                     "key": "connect",
-                    "kind": "rowConnect",
+                    "kind": "connect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -5136,7 +5136,7 @@
                   },
                   {
                     "key": "disconnect",
-                    "kind": "rowDisconnect",
+                    "kind": "disconnect",
                     "collection": {
                       "material": {
                         "kind": "basis",
@@ -5151,7 +5151,7 @@
                   },
                   {
                     "key": "move",
-                    "kind": "rowMove",
+                    "kind": "move",
                     "collection": {
                       "material": {
                         "kind": "basis",

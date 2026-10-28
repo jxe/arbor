@@ -57,12 +57,12 @@ struct DerivedUpdateTests {
     func rowBuilders() throws {
         let target = ProtocolRowTarget(path: "/games", object: "sha256:" + String(repeating: "2", count: 64), model: "Game", row: #"[["id","g1"]]"#)
         let at = Date(timeIntervalSince1970: 1_761_380_000.5)
-        let set = try ProtocolSourceOperation.rowSet(key: "set", target, field: "title", before: .string("Chess"), value: .string("Chess960"), at: at)
+        let set = try ProtocolSourceOperation.set(key: "set", target, field: "title", before: .string("Chess"), value: .string("Chess960"), at: at)
         #expect(set.fields["at"]?.text == "2025-10-25T08:13:20.500Z")
         _ = try ProtocolSourceOperation.rowCreate(key: "create", target, values: ["id": .string("g2"), "title": .string("Go")])
         _ = try ProtocolSourceOperation.rowDelete(key: "delete", target)
-        _ = try ProtocolSourceOperation.rowConnect(key: "connect", target, field: "lists", member: .string("l1"))
-        _ = try ProtocolSourceOperation.rowMove(key: "move", target, field: "lists", member: .string("l1"), after: .null)
-        #expect(throws: (any Error).self) { try ProtocolSourceOperation.rowSet(key: "bad key!", target, field: "title", before: .null, value: .null) }
+        _ = try ProtocolSourceOperation.connect(key: "connect", target, field: "lists", member: .string("l1"))
+        _ = try ProtocolSourceOperation.move(key: "move", target, field: "lists", member: .string("l1"), after: .null)
+        #expect(throws: (any Error).self) { try ProtocolSourceOperation.set(key: "bad key!", target, field: "title", before: .null, value: .null) }
     }
 }

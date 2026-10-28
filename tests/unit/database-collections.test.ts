@@ -75,7 +75,7 @@ describe("a folder's SQLite database", () => {
     const after = await snapshot(directory, collections);
     const objects = new Map([...before.objects, ...after.objects]);
     const operations = await deriveRowOperations(before.root, after.root, async (hash) => objects.get(hash)!);
-    expect(operations).toEqual([expect.objectContaining({ kind: "rowSet", model: "List", row: key(LIST), field: "name", before: "Community care", value: "Mutual aid" })]);
+    expect(operations).toEqual([expect.objectContaining({ kind: "set", model: "List", row: key(LIST), field: "name", before: "Community care", value: "Mutual aid" })]);
   });
 
   test("accepted rows are written into an existing database, and concurrent edits to different fields merge", async () => {
@@ -84,8 +84,8 @@ describe("a folder's SQLite database", () => {
     const base = await snapshot(directory, collections);
     const load = async (hash: ObjectHash) => base.objects.get(hash)!;
     const collection = { material: { kind: "basis" as const, path: "/", object: base.root } };
-    const ours: RowOperation[] = [{ key: "a", kind: "rowSet", collection, model: "List", row: key(LIST), field: "name", before: "Community care", value: "Ours", at: "2026-10-24T10:00:00.000Z" }];
-    const theirs: RowOperation[] = [{ key: "b", kind: "rowSet", collection, model: "List", row: key(LIST), field: "openToEdits", before: true, value: false, at: "2026-10-24T10:01:00.000Z" }];
+    const ours: RowOperation[] = [{ key: "a", kind: "set", collection, model: "List", row: key(LIST), field: "name", before: "Community care", value: "Ours", at: "2026-10-24T10:00:00.000Z" }];
+    const theirs: RowOperation[] = [{ key: "b", kind: "set", collection, model: "List", row: key(LIST), field: "openToEdits", before: true, value: false, at: "2026-10-24T10:01:00.000Z" }];
     const candidate = await executeRowOperations(base.root, ours, load, replayCollectionRows);
     const current = await executeRowOperations(base.root, theirs, load, replayCollectionRows);
     const objects = new Map([...base.objects, ...candidate.generated, ...current.generated]);
