@@ -10,9 +10,28 @@ It was an item in [candidates](../candidates.md).
 
 - **Effort:** L.
 - **Risk:** HIGH. It changes spec 02's round trip and how merge and access see front matter.
-- **State:** spec written (2026-10-28), nothing built. The spec leads the code: until step 1
-  lands, both stacks and the vectors still name the row operations `rowSet`, `rowConnect`,
-  `rowDisconnect` and `rowMove`, and until step 3 every `.md` is still a file entry.
+- **State:** TypeScript built on branch `claude/project-thread-t4gi1b` (2026-10-28), not on
+  main and not deployed; Swift not started; no tree converted. Built: steps 1 and 2, the
+  TypeScript side of steps 3 and 4 (host, merge engine and sidecar, Story Sync, `@ovst/fs`, the
+  CLI), and step 5's gate: `OVERSTORYD_PAGES=1` makes a host accept page entries, advertise
+  `pages-v1` in health and check conversions, and a writer's Story Sync then converts each tree
+  it places. Next: the Swift side of steps 3 and 4, tested on Joe's Mac, then a walk through the
+  migration with Joe before any host turns the flag on.
+
+### Decided while building (2026-10-28)
+
+- **Conversion is an ordinary snapshot.** Story Sync reads the folder as pages while it holds
+  exactly the tracked root and the host advertises `pages-v1`; local edits go first. There is no
+  conversion command.
+- **A Markdown file's model hash is that of the page it reads as,** so a file replaced by that
+  page is no change to merge: a conversion meets concurrent edits cleanly, and an edit from a
+  writer that hasn't converted lands as a page once current holds one.
+- **Page mode is decided by the basis:** a placement reads Markdown as pages once the root it
+  builds on holds a page entry.
+- **Page values in JSON** are spelled `{"$date": …}` and `{"$dateTime": …}`, with `{"$map": …}`
+  for a map that would read as one (spec 10 §4.1).
+- Known simplifications: page lists merge member by member as ordered lists; a copy out of a
+  page's body goes as a snapshot; page body provenance waits for step 6.
 
 ## The idea
 

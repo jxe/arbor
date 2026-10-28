@@ -325,7 +325,10 @@ GET /.well-known/overstory[/{path}]
 ```
 
 `health` is a cheap readiness check that answers `{"status":"ok"}` while the
-server's own database is consistent; poll it freely. `integrity` audits every
+server's own database is consistent; poll it freely. It may add `features`, the
+optional protocol features the host serves, such as `"pages-v1"`
+([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity));
+a host that lists none serves none. `integrity` audits every
 object reachable from retained history and can take minutes on a large server;
 concurrent requests share one audit, and it is for operators, not polling.
 

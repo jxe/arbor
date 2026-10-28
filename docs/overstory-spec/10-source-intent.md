@@ -205,6 +205,13 @@ one.
 | `disconnect` | `field, member` | Remove `member`, which MUST be present. |
 | `move` | `field, member, after` | Place `member` directly after the member `after`, or first when `after` is `null`, in an `ordered` field or a page list. Both are present and the order changes. |
 
+Values are JSON. A row's follow its field types. A page's are YAML 1.2 core
+values plus timestamps ([tree operations](01-tree-operations.md#pages)), which
+JSON spells `{"$date": "2026-10-28"}` for a date and
+`{"$dateTime": "2026-10-28T09:00:00Z"}` for a UTC date-time. A map whose
+only key is `$date`, `$dateTime` or `$map` is wrapped as `{"$map": map}`, so
+each value has one spelling.
+
 A page is created and removed by `addEntry` and `removeEntry`, and its body is
 edited by `editSource`, `moveSource` and `copySource` addressed to the page,
 whose text is its body.
