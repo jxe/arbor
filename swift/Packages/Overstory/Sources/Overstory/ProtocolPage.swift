@@ -340,13 +340,13 @@ extension ProtocolPage {
         guard budget >= 0, depth <= 64 else { throw Unreadable() }
         switch node {
         case let .scalar(scalar):
-            return try scalarValue(scalar, tag: node.tag.name)
+            return try scalarValue(scalar, tag: node.tagName)
         case let .sequence(sequence):
             return .array(try sequence.map { try pageValue($0, budget: &budget, depth: depth + 1) })
         case let .mapping(mapping):
             var map: [String: PageValue] = [:]
             for (key, value) in mapping {
-                guard case let .scalar(scalar) = key, key.tag.name == .str else { throw Unreadable() }
+                guard case let .scalar(scalar) = key, key.tagName == .str else { throw Unreadable() }
                 guard map[scalar.string] == nil else { throw Unreadable() }
                 map[scalar.string] = try pageValue(value, budget: &budget, depth: depth + 1)
             }
@@ -361,7 +361,7 @@ extension ProtocolPage {
         let composed: Node?
         do { composed = try Yams.compose(yaml: yaml, resolver) } catch { return nil }
         guard let root = composed else { return (nil, []) }
-        if case .scalar = root, root.tag.name == .null { return (nil, []) }
+        if case .scalar = root, root.tagName == .null { return (nil, []) }
         guard case let .mapping(mapping) = root else { return nil }
         var budget = 100_000
         var id: String?
@@ -369,12 +369,12 @@ extension ProtocolPage {
         var names = Set<String>()
         do {
             for (key, value) in mapping {
-                guard case let .scalar(keyScalar) = key, key.tag.name == .str, !keyScalar.string.isEmpty else { return nil }
+                guard case let .scalar(keyScalar) = key, key.tagName == .str, !keyScalar.string.isEmpty else { return nil }
                 let name = keyScalar.string
                 guard names.insert(name).inserted else { return nil }
                 if name == "id" {
                     // An id is the key's text: `id: 123456` is the id "123456".
-                    guard case let .scalar(scalar) = value, value.tag.name != .null, !scalar.string.isEmpty else { return nil }
+                    guard case let .scalar(scalar) = value, value.tagName != .null, !scalar.string.isEmpty else { return nil }
                     id = scalar.string
                     continue
                 }
@@ -579,9 +579,9 @@ public extension PageValue {
         case let .dateTime(text): .object(["$dateTime": .string(text)])
         case let .array(items): .array(items.map(\.json))
         case let .map(entries):
-            let fields = entries.mapValues(\.json)
-            if fields.count == 1, let key = fields.keys.first, Self.escapedKeys.contains(key) { .object(["$map": .object(fields)]) }
-            else { .object(fields) }
+            entries.count == 1 && Self.escapedKeys.contains(entries.keys.first!)
+                ? .object(["$map": .object(entries.mapValues(\.json))])
+                : .object(entries.mapValues(\.json))
         }
     }
 
@@ -606,4 +606,9 @@ public extension ProtocolPage {
     static func valueText(_ value: PageValue) -> String {
         scalarText(value) ?? blockLines(value, indent: "")
     }
+}
+
+private extension Node {
+    /// The resolved tag's name (Yams keeps `Tag.name` internal).
+    var tagName: Tag.Name { Tag.Name(rawValue: tag.rawValue) }
 }

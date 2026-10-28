@@ -86,6 +86,10 @@ struct ProtocolObjectTests {
                     from: JSONSerialization.data(withJSONObject: model["rows"] as! [Any])
                 )
                 #expect(try ProtocolObjectCodec.decodeRows(bytes) == expected.map(\.row))
+            case .page:
+                // Pages stay encoded: the vector's bytes must decode as a page.
+                let base64 = try #require(vector["bytesBase64"] as? String)
+                object = .page(try ProtocolPage.decode(try #require(Data(base64Encoded: base64))))
             case .directory:
                 let entries = try #require(model["entries"] as? [[String: Any]])
                 let collection = (model["collection"] as? [String: Any]).map { value in

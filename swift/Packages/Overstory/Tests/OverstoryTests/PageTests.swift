@@ -61,7 +61,8 @@ struct PageTests {
     @Test("Invalid page objects are rejected")
     func invalidObjects() throws {
         for item in try #require(Self.vectors()["invalidObjects"] as? [[String: Any]]) {
-            let bytes = try #require(Data(base64Encoded: try #require(item["object"] as? String)))
+            let base64 = try #require(item["object"] as? String)
+            let bytes = try #require(Data(base64Encoded: base64))
             #expect(throws: (any Error).self, "\(item["name"] ?? "case")") { try ProtocolPage.decode(bytes) }
         }
     }
