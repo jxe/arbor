@@ -1,12 +1,14 @@
 import { compareUTF8, compareUTF8Bytes, decodeCBOR, decodeCollectionReference, decodeProtocolTable, encodeCanonicalCBOR, sha256, type CollectionReference } from "./index.ts";
+import { canonicalPageFile, decodeProtocolPage, type ProtocolPage } from "./pages.ts";
 
 export type ObjectHash = string;
 
-export type ProtocolEntryKind = "file" | "directory";
+export type ProtocolEntryKind = "file" | "page" | "directory";
 export type ProtocolDirectoryEntry =
-  | { name: string; file: ObjectHash; directory?: never; tree?: never }
-  | { name: string; directory: ObjectHash; file?: never; tree?: never }
-  | { name: string; tree: string; file?: never; directory?: never };
+  | { name: string; file: ObjectHash; page?: never; directory?: never; tree?: never }
+  | { name: string; page: ObjectHash; file?: never; directory?: never; tree?: never }
+  | { name: string; directory: ObjectHash; file?: never; page?: never; tree?: never }
+  | { name: string; tree: string; file?: never; page?: never; directory?: never };
 
 export interface ProtocolDirectory {
   type: "directory";
@@ -17,11 +19,36 @@ export interface ProtocolDirectory {
 
 export function protocolEntryObject(entry: ProtocolDirectoryEntry): { kind: ProtocolEntryKind; hash: ObjectHash } | undefined {
   if (entry.file !== undefined) return { kind: "file", hash: entry.file };
+  if (entry.page !== undefined) return { kind: "page", hash: entry.page };
   if (entry.directory !== undefined) return { kind: "directory", hash: entry.directory };
   return undefined;
 }
 
-/** What an object is, which its referrer says: an entry's file or directory, or a collection's table or rows chunk. */
+/** A file or page entry's object: what a reader of content, rather than of folders, follows. */
+export function protocolContentObject(entry: ProtocolDirectoryEntry | undefined): ObjectHash | undefined {
+  return entry?.file ?? entry?.page;
+}
+
+/** Whether objects of this kind are leaves: content that reaches no other object. */
+export function isProtocolContentKind(kind: ProtocolObjectKind): kind is "file" | "page" {
+  return kind === "file" || kind === "page";
+}
+
+/**
+ * The file bytes a content object reads as: a file's own bytes, or the
+ * canonical file a page is written as (spec 02 §3). For readers that render
+ * or parse Markdown; editing a page goes through its properties and body.
+ */
+export function protocolContentBytes(kind: "file" | "page", bytes: Uint8Array): Uint8Array {
+  return kind === "page" ? canonicalPageFile(decodeProtocolPage(bytes)) : bytes;
+}
+
+/** The page an object of `kind` holds, or undefined for a file. */
+export function protocolPageOf(kind: "file" | "page", bytes: Uint8Array): ProtocolPage | undefined {
+  return kind === "page" ? decodeProtocolPage(bytes) : undefined;
+}
+
+/** What an object is, which its referrer says: an entry's file, page or directory, or a collection's table or rows chunk. */
 export type ProtocolObjectKind = ProtocolEntryKind | "table" | "rows";
 
 /** The objects one directory reaches directly: its entries' objects, then its collection's tables. */
@@ -34,11 +61,13 @@ export function protocolDirectoryReferences(directory: ProtocolDirectory): Array
 /**
  * The objects an object of `kind` reaches directly: a directory's entries and
  * tables, a table's rows chunks. Files and rows reach nothing. Every walk of
- * the object graph follows these edges.
+ * the object graph follows these edges. A page is a leaf, but it is checked
+ * to be a canonical page object here, as a directory or table is.
  */
 export function protocolObjectReferences(kind: ProtocolObjectKind, bytes: Uint8Array): Array<{ kind: ProtocolObjectKind; hash: ObjectHash }> {
   if (kind === "directory") return protocolDirectoryReferences(decodeProtocolDirectory(bytes));
   if (kind === "table") return decodeProtocolTable(bytes).chunks.map(({ chunk }) => ({ kind: "rows" as const, hash: chunk }));
+  if (kind === "page") decodeProtocolPage(bytes);
   return [];
 }
 
@@ -105,11 +134,11 @@ export function decodeProtocolDirectory(bytes: Uint8Array): ProtocolDirectory {
         || item.name === "."
         || item.name === ".."
         || /[\\/\0]/.test(item.name)
-        || (typeof item.file !== "string" && typeof item.directory !== "string" && typeof item.tree !== "string")
-        || [item.file, item.directory, item.tree].filter((target) => target !== undefined).length !== 1
+        || (typeof item.file !== "string" && typeof item.page !== "string" && typeof item.directory !== "string" && typeof item.tree !== "string")
+        || [item.file, item.page, item.directory, item.tree].filter((target) => target !== undefined).length !== 1
         || itemKeys.length !== 2
       ) throw new Error("Invalid directory entry");
-      for (const hash of [item.file, item.directory]) {
+      for (const hash of [item.file, item.page, item.directory]) {
         if (hash !== undefined && (typeof hash !== "string" || !/^sha256:[a-f0-9]{64}$/.test(hash))) throw new Error("Invalid directory entry hash");
       }
       if (typeof item.tree === "string" && item.tree.length === 0) throw new Error("Invalid directory entry tree");
@@ -123,6 +152,7 @@ export function decodeProtocolDirectory(bytes: Uint8Array): ProtocolDirectory {
       return {
         name: item.name,
         ...(typeof item.file === "string" ? { file: item.file } : {}),
+        ...(typeof item.page === "string" ? { page: item.page } : {}),
         ...(typeof item.directory === "string" ? { directory: item.directory } : {}),
         ...(typeof item.tree === "string" ? { tree: item.tree } : {}),
       } as ProtocolDirectoryEntry;
@@ -147,12 +177,19 @@ async function loadVerified(hash: ObjectHash, load: (hash: ObjectHash) => Promis
   return bytes;
 }
 
+/** A file or page entry's bytes as a file: a page reads as its canonical file. */
+async function loadContent(entry: ProtocolDirectoryEntry, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<Uint8Array> {
+  if (entry.page) return protocolContentBytes("page", await loadVerified(entry.page, load));
+  return loadVerified(entry.file!, load);
+}
+
 async function directoryBody(directory: ProtocolDirectory, sibling: ProtocolDirectoryEntry | undefined, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<Pick<ResolvedProtocolLogicalNode, "body" | "bodyOrigin" | "shadowedBody">> {
   const index = directory.entries.find((entry) => entry.name === "_index.md");
-  if (index && !index.file) throw new Error("Directory _index.md body must be a file");
-  if (sibling && !sibling.file) throw new Error("Sibling Markdown body must be a file");
-  if (index?.file) return { body: await loadVerified(index.file, load), bodyOrigin: "index", shadowedBody: !!sibling?.file };
-  if (sibling?.file) return { body: await loadVerified(sibling.file, load), bodyOrigin: "sibling", shadowedBody: false };
+  const content = (entry: ProtocolDirectoryEntry | undefined) => !!protocolContentObject(entry);
+  if (index && !content(index)) throw new Error("Directory _index.md body must be a file or page");
+  if (sibling && !content(sibling)) throw new Error("Sibling Markdown body must be a file or page");
+  if (index) return { body: await loadContent(index, load), bodyOrigin: "index", shadowedBody: !!sibling };
+  if (sibling) return { body: await loadContent(sibling, load), bodyOrigin: "sibling", shadowedBody: false };
   return { shadowedBody: false };
 }
 
@@ -169,10 +206,10 @@ export async function resolveProtocolLogicalNode(root: ObjectHash, path: string,
     if (exact?.directory) {
       directory = decodeProtocolDirectory(await loadVerified(exact.directory, load));
       if (last) return { kind: "directory", directory, objectName: exact.name, ...await directoryBody(directory, sibling, load) };
-    } else if (exact?.file) {
-      return last ? { kind: "file", bytes: await loadVerified(exact.file, load), objectName: exact.name, shadowedBody: false } : null;
+    } else if (exact && protocolContentObject(exact)) {
+      return last ? { kind: "file", bytes: await loadContent(exact, load), objectName: exact.name, shadowedBody: false } : null;
     } else {
-      return last && sibling?.file ? { kind: "file", bytes: await loadVerified(sibling.file, load), objectName: sibling.name, shadowedBody: false } : null;
+      return last && sibling && protocolContentObject(sibling) ? { kind: "file", bytes: await loadContent(sibling, load), objectName: sibling.name, shadowedBody: false } : null;
     }
   }
   return null;

@@ -328,7 +328,7 @@ public enum ProtocolObjectCodec {
             var object: [String: ProtocolReadValue] = [:]
             for (name, item) in entries { object[name] = try readValue(item, depth: depth + 1) }
             return .object(object)
-        case .bytes: throw ProtocolValidationError.invalidCBOR("A row value must be a JSON value")
+        case .bytes, .tagged: throw ProtocolValidationError.invalidCBOR("A row value must be a JSON value")
         }
     }
 

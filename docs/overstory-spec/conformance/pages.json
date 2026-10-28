@@ -1,0 +1,607 @@
+{
+  "description": "Pages (spec 01 §1.1.2 and directory format §3): how a .md or .mdx file reads as a page object, the canonical CBOR object and hash, the canonical file a page is written as from nothing, and minimal writes against an existing file. Reads and invalid objects bind every implementation; writes bind placements that keep files, such as Story Sync. A timestamp is {\"$date\": text} or {\"$dateTime\": text}. A read whose page is null stays a file entry. Recompute expectations with tests/support/regenerate-page-vectors.ts.",
+  "reads": [
+    {
+      "name": "no frontmatter",
+      "file": "# Atlas\n\nA page with no properties.\n",
+      "page": {
+        "properties": [],
+        "body": "# Atlas\n\nA page with no properties.\n"
+      },
+      "object": "o2Rib2R5WCQjIEF0bGFzCgpBIHBhZ2Ugd2l0aCBubyBwcm9wZXJ0aWVzLgpkdHlwZWRwYWdlanByb3BlcnRpZXOA",
+      "hash": "sha256:be25fe1c721331be56998ffdd7ad9129b20b495db172d0ad43a8cb9d906463d8",
+      "canonical": "# Atlas\n\nA page with no properties.\n"
+    },
+    {
+      "name": "id and title",
+      "file": "---\nid: a1b2c3\ntitle: Atlas\n---\n\n# Atlas\n",
+      "page": {
+        "id": "a1b2c3",
+        "properties": [
+          [
+            "title",
+            "Atlas"
+          ]
+        ],
+        "body": "\n# Atlas\n"
+      },
+      "object": "pGJpZGZhMWIyYzNkYm9keUkKIyBBdGxhcwpkdHlwZWRwYWdlanByb3BlcnRpZXOBgmV0aXRsZWVBdGxhcw==",
+      "hash": "sha256:564ab751a088f6da67e6c6be17677311f5a70d13deebdd0186c61f7b3fcc46e1",
+      "canonical": "---\nid: a1b2c3\ntitle: Atlas\n---\n\n# Atlas\n"
+    },
+    {
+      "name": "key order travels",
+      "file": "---\nzeta: 1\nalpha: 2\n---\nBody\n",
+      "page": {
+        "properties": [
+          [
+            "zeta",
+            1
+          ],
+          [
+            "alpha",
+            2
+          ]
+        ],
+        "body": "Body\n"
+      },
+      "object": "o2Rib2R5RUJvZHkKZHR5cGVkcGFnZWpwcm9wZXJ0aWVzgoJkemV0YQGCZWFscGhhAg==",
+      "hash": "sha256:a25a5e4385aa3b39d29af27f4abf424e45a1ed9ccff0b1450e590a066d54b273",
+      "canonical": "---\nzeta: 1\nalpha: 2\n---\nBody\n"
+    },
+    {
+      "name": "numeric id is its text",
+      "file": "---\nid: 123456\n---\nx",
+      "page": {
+        "id": "123456",
+        "properties": [],
+        "body": "x"
+      },
+      "object": "pGJpZGYxMjM0NTZkYm9keUF4ZHR5cGVkcGFnZWpwcm9wZXJ0aWVzgA==",
+      "hash": "sha256:ca949fb3b55d33c5cdddedc044f449c945a445b40ae7834740fa92bd47034a67",
+      "canonical": "---\nid: \"123456\"\n---\nx"
+    },
+    {
+      "name": "date id is its text",
+      "file": "---\nid: 2026-10-28\n---\n",
+      "page": {
+        "id": "2026-10-28",
+        "properties": [],
+        "body": ""
+      },
+      "object": "pGJpZGoyMDI2LTEwLTI4ZGJvZHlAZHR5cGVkcGFnZWpwcm9wZXJ0aWVzgA==",
+      "hash": "sha256:fdb565c97cb4902a8c8b58b23508f7d01e5325e1c7f7341b3f8484f2cd0db1b9",
+      "canonical": "---\nid: \"2026-10-28\"\n---\n"
+    },
+    {
+      "name": "yaml 1.2 keeps yes a string",
+      "file": "---\nanswer: yes\noff: off\nflag: true\nnone: ~\nempty:\n---\n",
+      "page": {
+        "properties": [
+          [
+            "answer",
+            "yes"
+          ],
+          [
+            "off",
+            "off"
+          ],
+          [
+            "flag",
+            true
+          ],
+          [
+            "none",
+            null
+          ],
+          [
+            "empty",
+            null
+          ]
+        ],
+        "body": ""
+      },
+      "object": "o2Rib2R5QGR0eXBlZHBhZ2VqcHJvcGVydGllc4WCZmFuc3dlcmN5ZXOCY29mZmNvZmaCZGZsYWf1gmRub25l9oJlZW1wdHn2",
+      "hash": "sha256:90206d4e3357b53bda8f59ee23dbb25fa006224dc49d34c00ea155c1aa2a05e4",
+      "canonical": "---\nanswer: yes\noff: off\nflag: true\nnone: null\nempty: null\n---\n"
+    },
+    {
+      "name": "numbers",
+      "file": "---\nint: 42\nneg: -7\nfloat: 1.5\nwhole: 2.0\nhex: 0x1F\noctal: 0o17\nexp: 1e3\nsmall: 0.000001\n---\n",
+      "page": {
+        "properties": [
+          [
+            "int",
+            42
+          ],
+          [
+            "neg",
+            -7
+          ],
+          [
+            "float",
+            1.5
+          ],
+          [
+            "whole",
+            2
+          ],
+          [
+            "hex",
+            31
+          ],
+          [
+            "octal",
+            15
+          ],
+          [
+            "exp",
+            1000
+          ],
+          [
+            "small",
+            0.000001
+          ]
+        ],
+        "body": ""
+      },
+      "object": "o2Rib2R5QGR0eXBlZHBhZ2VqcHJvcGVydGllc4iCY2ludBgqgmNuZWcmgmVmbG9hdPs/+AAAAAAAAIJld2hvbGUCgmNoZXgYH4Jlb2N0YWwPgmNleHAZA+iCZXNtYWxs+z6wxvegte2N",
+      "hash": "sha256:1a9e23c786f302cabcdabf489fc116ee8abfe39ecf7e5279a51ef16ac7db77dd",
+      "canonical": "---\nint: 42\nneg: -7\nfloat: 1.5\nwhole: 2\nhex: 31\noctal: 15\nexp: 1000\nsmall: 0.000001\n---\n"
+    },
+    {
+      "name": "dates and times",
+      "file": "---\ndate: 2026-10-28\nutc: 2026-10-28T09:38:25.123Z\nzoned: 2026-10-28 09:38:25.120 +02:00\nnozone: 2026-10-28T09:38:25\nnotadate: 2026-02-30\nquoted: \"2026-10-28\"\n---\n",
+      "page": {
+        "properties": [
+          [
+            "date",
+            {
+              "$date": "2026-10-28"
+            }
+          ],
+          [
+            "utc",
+            {
+              "$dateTime": "2026-10-28T09:38:25.123Z"
+            }
+          ],
+          [
+            "zoned",
+            {
+              "$dateTime": "2026-10-28T07:38:25.12Z"
+            }
+          ],
+          [
+            "nozone",
+            {
+              "$dateTime": "2026-10-28T09:38:25Z"
+            }
+          ],
+          [
+            "notadate",
+            "2026-02-30"
+          ],
+          [
+            "quoted",
+            "2026-10-28"
+          ]
+        ],
+        "body": ""
+      },
+      "object": "o2Rib2R5QGR0eXBlZHBhZ2VqcHJvcGVydGllc4aCZGRhdGXZA+xqMjAyNi0xMC0yOIJjdXRjwHgYMjAyNi0xMC0yOFQwOTozODoyNS4xMjNagmV6b25lZMB3MjAyNi0xMC0yOFQwNzozODoyNS4xMlqCZm5vem9uZcB0MjAyNi0xMC0yOFQwOTozODoyNVqCaG5vdGFkYXRlajIwMjYtMDItMzCCZnF1b3RlZGoyMDI2LTEwLTI4",
+      "hash": "sha256:3455adebcfaf242ae0856ee89b11f546f9769db585f158b77f56333576f75d8b",
+      "canonical": "---\ndate: 2026-10-28\nutc: 2026-10-28T09:38:25.123Z\nzoned: 2026-10-28T07:38:25.12Z\nnozone: 2026-10-28T09:38:25Z\nnotadate: \"2026-02-30\"\nquoted: \"2026-10-28\"\n---\n"
+    },
+    {
+      "name": "times across a day and an early year",
+      "file": "---\nlate: 2026-12-31T23:30:00-01:00\nearly: 0050-01-01T00:00:00+01:00\n---\n",
+      "page": {
+        "properties": [
+          [
+            "late",
+            {
+              "$dateTime": "2027-01-01T00:30:00Z"
+            }
+          ],
+          [
+            "early",
+            {
+              "$dateTime": "0049-12-31T23:00:00Z"
+            }
+          ]
+        ],
+        "body": ""
+      },
+      "object": "o2Rib2R5QGR0eXBlZHBhZ2VqcHJvcGVydGllc4KCZGxhdGXAdDIwMjctMDEtMDFUMDA6MzA6MDBagmVlYXJsecB0MDA0OS0xMi0zMVQyMzowMDowMFo=",
+      "hash": "sha256:42ce377d8d2ce69a83c14616525da6d61db4424098d15f785f400fc8c01c7e9d",
+      "canonical": "---\nlate: 2027-01-01T00:30:00Z\nearly: 0049-12-31T23:00:00Z\n---\n"
+    },
+    {
+      "name": "lists and maps",
+      "file": "---\ntags:\n  - travel\n  - maps\nflow: [a, b]\nnested:\n  b: 1\n  a: [x, y]\nauthors:\n  - name: Ada\n    url: https://example.com\n  - name: Joe\nnone: []\nnothing: {}\n---\nBody\n",
+      "page": {
+        "properties": [
+          [
+            "tags",
+            [
+              "travel",
+              "maps"
+            ]
+          ],
+          [
+            "flow",
+            [
+              "a",
+              "b"
+            ]
+          ],
+          [
+            "nested",
+            {
+              "b": 1,
+              "a": [
+                "x",
+                "y"
+              ]
+            }
+          ],
+          [
+            "authors",
+            [
+              {
+                "name": "Ada",
+                "url": "https://example.com"
+              },
+              {
+                "name": "Joe"
+              }
+            ]
+          ],
+          [
+            "none",
+            []
+          ],
+          [
+            "nothing",
+            {}
+          ]
+        ],
+        "body": "Body\n"
+      },
+      "object": "o2Rib2R5RUJvZHkKZHR5cGVkcGFnZWpwcm9wZXJ0aWVzhoJkdGFnc4JmdHJhdmVsZG1hcHOCZGZsb3eCYWFhYoJmbmVzdGVkomFhgmF4YXlhYgGCZ2F1dGhvcnOComN1cmxzaHR0cHM6Ly9leGFtcGxlLmNvbWRuYW1lY0FkYaFkbmFtZWNKb2WCZG5vbmWAgmdub3RoaW5noA==",
+      "hash": "sha256:6294953b9683ca8f4cf4de23b2bd851ea121fee9da0159ed01a33776c3016e54",
+      "canonical": "---\ntags:\n  - travel\n  - maps\nflow:\n  - a\n  - b\nnested:\n  a:\n    - x\n    - y\n  b: 1\nauthors:\n  - name: Ada\n    url: https://example.com\n  - name: Joe\nnone: []\nnothing: {}\n---\nBody\n"
+    },
+    {
+      "name": "strings that need quotes",
+      "file": "---\ncolon: \"a: b\"\nhash: \"a #b\"\nlead: \" padded\"\nnumber: \"12\"\nbool: \"true\"\nnil: \"null\"\nnewline: \"line\\nbreak\"\nquote: \"say \\\"hi\\\"\"\ndash: \"-x\"\nunicode: café ✓\n---\n",
+      "page": {
+        "properties": [
+          [
+            "colon",
+            "a: b"
+          ],
+          [
+            "hash",
+            "a #b"
+          ],
+          [
+            "lead",
+            " padded"
+          ],
+          [
+            "number",
+            "12"
+          ],
+          [
+            "bool",
+            "true"
+          ],
+          [
+            "nil",
+            "null"
+          ],
+          [
+            "newline",
+            "line\nbreak"
+          ],
+          [
+            "quote",
+            "say \"hi\""
+          ],
+          [
+            "dash",
+            "-x"
+          ],
+          [
+            "unicode",
+            "café ✓"
+          ]
+        ],
+        "body": ""
+      },
+      "object": "o2Rib2R5QGR0eXBlZHBhZ2VqcHJvcGVydGllc4qCZWNvbG9uZGE6IGKCZGhhc2hkYSAjYoJkbGVhZGcgcGFkZGVkgmZudW1iZXJiMTKCZGJvb2xkdHJ1ZYJjbmlsZG51bGyCZ25ld2xpbmVqbGluZQpicmVha4JlcXVvdGVoc2F5ICJoaSKCZGRhc2hiLXiCZ3VuaWNvZGVpY2Fmw6kg4pyT",
+      "hash": "sha256:6b546bf698809aae61d1ed549d6bd1c338e45e3c1461988233010a9bc4445eb5",
+      "canonical": "---\ncolon: \"a: b\"\nhash: \"a #b\"\nlead: \" padded\"\nnumber: \"12\"\nbool: \"true\"\nnil: \"null\"\nnewline: \"line\\nbreak\"\nquote: say \"hi\"\ndash: \"-x\"\nunicode: café ✓\n---\n"
+    },
+    {
+      "name": "comments and aliases do not travel",
+      "file": "---\n# a comment\nbase: &b value\ncopy: *b # trailing\n---\nBody\n",
+      "page": {
+        "properties": [
+          [
+            "base",
+            "value"
+          ],
+          [
+            "copy",
+            "value"
+          ]
+        ],
+        "body": "Body\n"
+      },
+      "object": "o2Rib2R5RUJvZHkKZHR5cGVkcGFnZWpwcm9wZXJ0aWVzgoJkYmFzZWV2YWx1ZYJkY29weWV2YWx1ZQ==",
+      "hash": "sha256:8efbd8e5561ba197655d40e1d31f5feb171d7fd16339d8df7dc03dfafca74b88",
+      "canonical": "---\nbase: value\ncopy: value\n---\nBody\n"
+    },
+    {
+      "name": "crlf frontmatter",
+      "file": "---\r\ntitle: Atlas\r\n---\r\nBody\r\n",
+      "page": {
+        "properties": [
+          [
+            "title",
+            "Atlas"
+          ]
+        ],
+        "body": "Body\r\n"
+      },
+      "object": "o2Rib2R5RkJvZHkNCmR0eXBlZHBhZ2VqcHJvcGVydGllc4GCZXRpdGxlZUF0bGFz",
+      "hash": "sha256:714b51c09ace888fd887152c33e1ca63eb558c44b6e05adeacf011a3abe2e2ab",
+      "canonical": "---\ntitle: Atlas\n---\nBody\r\n"
+    },
+    {
+      "name": "unclosed frontmatter is body",
+      "file": "---\ntitle: Atlas\nno closing line\n",
+      "page": {
+        "properties": [],
+        "body": "---\ntitle: Atlas\nno closing line\n"
+      },
+      "object": "o2Rib2R5WCEtLS0KdGl0bGU6IEF0bGFzCm5vIGNsb3NpbmcgbGluZQpkdHlwZWRwYWdlanByb3BlcnRpZXOA",
+      "hash": "sha256:bcb2b16e161baa820dbfb244797c8ae41b9b9c8eede18a23df5cdcf4456994cb",
+      "canonical": "---\ntitle: Atlas\nno closing line\n"
+    },
+    {
+      "name": "empty frontmatter",
+      "file": "---\n---\nBody\n",
+      "page": {
+        "properties": [],
+        "body": "Body\n"
+      },
+      "object": "o2Rib2R5RUJvZHkKZHR5cGVkcGFnZWpwcm9wZXJ0aWVzgA==",
+      "hash": "sha256:2fc868cae05986076a4e411e5eb93fc3c969452b23496d4d198e95ce9e544d44",
+      "canonical": "Body\n"
+    },
+    {
+      "name": "frontmatter that is not a map",
+      "file": "---\n- a\n- b\n---\n",
+      "page": null
+    },
+    {
+      "name": "invalid yaml",
+      "file": "---\ntitle: [unclosed\n---\n",
+      "page": null
+    },
+    {
+      "name": "duplicate keys",
+      "file": "---\na: 1\na: 2\n---\n",
+      "page": null
+    },
+    {
+      "name": "non-string key",
+      "file": "---\n1: one\n---\n",
+      "page": null
+    },
+    {
+      "name": "null key",
+      "file": "---\nnull: x\n---\n",
+      "page": null
+    },
+    {
+      "name": "infinity",
+      "file": "---\nx: .inf\n---\n",
+      "page": null
+    },
+    {
+      "name": "list id",
+      "file": "---\nid: [a]\n---\n",
+      "page": null
+    }
+  ],
+  "writes": [
+    {
+      "name": "from nothing",
+      "page": {
+        "id": "a1b2c3",
+        "properties": [
+          [
+            "title",
+            "Atlas"
+          ],
+          [
+            "tags",
+            [
+              "a",
+              "b"
+            ]
+          ],
+          [
+            "date",
+            {
+              "$date": "2026-10-28"
+            }
+          ]
+        ],
+        "body": "# Atlas\n"
+      },
+      "existing": null,
+      "expected": "---\nid: a1b2c3\ntitle: Atlas\ntags:\n  - a\n  - b\ndate: 2026-10-28\n---\n# Atlas\n"
+    },
+    {
+      "name": "unchanged file kept as written",
+      "page": {
+        "properties": [
+          [
+            "title",
+            "Atlas"
+          ]
+        ],
+        "body": "Body\n"
+      },
+      "existing": "---\ntitle:    'Atlas'   # mine\n---\nBody\n",
+      "expected": "---\ntitle:    'Atlas'   # mine\n---\nBody\n"
+    },
+    {
+      "name": "changed key spliced, comments kept",
+      "page": {
+        "id": "abc",
+        "properties": [
+          [
+            "title",
+            "New: title"
+          ],
+          [
+            "tags",
+            [
+              "a"
+            ]
+          ],
+          [
+            "added",
+            [
+              "q"
+            ]
+          ]
+        ],
+        "body": "Body\n"
+      },
+      "existing": "---\nid: abc\n# keep me\ntitle:   Atlas   # c\ntags:\n  - a\nold: 1\n---\nBody\n",
+      "expected": "---\nid: abc\n# keep me\ntitle: \"New: title\"\ntags:\n  - a\nadded:\n  - q\n---\nBody\n"
+    },
+    {
+      "name": "body change only",
+      "page": {
+        "properties": [
+          [
+            "title",
+            "Atlas"
+          ]
+        ],
+        "body": "New body\n"
+      },
+      "existing": "---\ntitle: 'Atlas'\n---\nOld body\n",
+      "expected": "---\ntitle: 'Atlas'\n---\nNew body\n"
+    },
+    {
+      "name": "reordered keys write canonically",
+      "page": {
+        "properties": [
+          [
+            "b",
+            2
+          ],
+          [
+            "a",
+            1
+          ]
+        ],
+        "body": ""
+      },
+      "existing": "---\na: 1\nb: 2\n---\n",
+      "expected": "---\nb: 2\na: 1\n---\n"
+    },
+    {
+      "name": "properties added to a file without frontmatter",
+      "page": {
+        "properties": [
+          [
+            "title",
+            "Atlas"
+          ]
+        ],
+        "body": "Body\n"
+      },
+      "existing": "Body\n",
+      "expected": "---\ntitle: Atlas\n---\nBody\n"
+    },
+    {
+      "name": "crlf kept when splicing",
+      "page": {
+        "properties": [
+          [
+            "title",
+            "Map"
+          ],
+          [
+            "x",
+            1
+          ]
+        ],
+        "body": "Body\r\n"
+      },
+      "existing": "---\r\ntitle: Atlas\r\nx: 1\r\n---\r\nBody\r\n",
+      "expected": "---\r\ntitle: Map\r\nx: 1\r\n---\r\nBody\r\n"
+    }
+  ],
+  "invalidObjects": [
+    {
+      "name": "id among the properties",
+      "object": "o2Rib2R5RUJvZHkKZHR5cGVkcGFnZWpwcm9wZXJ0aWVzgYJiaWRheA=="
+    },
+    {
+      "name": "duplicate property",
+      "object": "o2Rib2R5RUJvZHkKZHR5cGVkcGFnZWpwcm9wZXJ0aWVzgoJhYQGCYWEC"
+    },
+    {
+      "name": "empty id",
+      "object": "pGJpZGBkYm9keUVCb2R5CmR0eXBlZHBhZ2VqcHJvcGVydGllc4A="
+    },
+    {
+      "name": "missing body",
+      "object": "omR0eXBlZHBhZ2VqcHJvcGVydGllc4A="
+    },
+    {
+      "name": "unknown member",
+      "object": "pGRib2R5RUJvZHkKZHR5cGVkcGFnZWVleHRyYQFqcHJvcGVydGllc4A="
+    },
+    {
+      "name": "wrong type",
+      "object": "o2Rib2R5RUJvZHkKZHR5cGVkZmlsZWpwcm9wZXJ0aWVzgA=="
+    },
+    {
+      "name": "body is not UTF-8",
+      "object": "o2Rib2R5Qf9kdHlwZWRwYWdlanByb3BlcnRpZXOA"
+    },
+    {
+      "name": "tag 1 is not a page timestamp",
+      "object": "o2Rib2R5RUJvZHkKZHR5cGVkcGFnZWpwcm9wZXJ0aWVzgYJhdMEA"
+    },
+    {
+      "name": "date that is not a day",
+      "object": "o2Rib2R5RUJvZHkKZHR5cGVkcGFnZWpwcm9wZXJ0aWVzgYJhZNkD7GoyMDI2LTAyLTMw"
+    },
+    {
+      "name": "date-time with an offset",
+      "object": "o2Rib2R5RUJvZHkKZHR5cGVkcGFnZWpwcm9wZXJ0aWVzgYJhZMB4GTIwMjYtMTAtMjhUMDk6Mzg6MjUrMDI6MDA="
+    },
+    {
+      "name": "date-time with a trailing zero",
+      "object": "o2Rib2R5RUJvZHkKZHR5cGVkcGFnZWpwcm9wZXJ0aWVzgYJhZMB3MjAyNi0xMC0yOFQwOTozODoyNS4xMFo="
+    },
+    {
+      "name": "integral float",
+      "object": "o2Rib2R5RUJvZHkKZHR5cGVkcGFnZWpwcm9wZXJ0aWVzgYJhbvtAAAAAAAAAAA=="
+    }
+  ]
+}

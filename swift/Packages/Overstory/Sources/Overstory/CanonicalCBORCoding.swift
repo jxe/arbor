@@ -367,6 +367,7 @@ final class CBORValueDecoder: Decoder {
         case .text: "text"
         case .array: "array"
         case .map: "map"
+        case .tagged: "tagged value"
         }
     }
 

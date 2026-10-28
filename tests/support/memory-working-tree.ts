@@ -1,4 +1,4 @@
-import { decodeTreeSnapshotJSON, decodeProtocolDirectory, protocolEntryObject, type TreeSnapshot } from "@ovst/protocol";
+import { decodeTreeSnapshotJSON, decodeProtocolDirectory, protocolEntryObject, type ProtocolEntryKind, type TreeSnapshot } from "@ovst/protocol";
 import { prepareSourceChange, type AcceptedBase, type AcceptedSource, type AcceptedTree, type LocalChange,
   type UpdateCoordinator } from "@ovst/working-tree";
 import type { ChangeLog } from "@ovst/working-tree/node";
@@ -26,7 +26,7 @@ export class MemoryWorkingTree implements AcceptedTree {
 
   async install(base: AcceptedBase, source: AcceptedSource): Promise<void> {
     if (base.root === this.base?.root) { this.base = { ...base }; return; }
-    const pending: Array<{ hash: string; kind: "file" | "directory" }> = [{ hash: base.root, kind: "directory" }];
+    const pending: Array<{ hash: string; kind: ProtocolEntryKind }> = [{ hash: base.root, kind: "directory" }];
     const fetched = new Map<string, Uint8Array>();
     for (let next = pending.pop(); next; next = pending.pop()) {
       if (fetched.has(next.hash)) continue;
@@ -47,7 +47,7 @@ export class MemoryWorkingTree implements AcceptedTree {
   graph(): TreeSnapshot {
     if (!this.base) throw new Error("Not placed");
     const objects = new Map<string, Uint8Array>();
-    const pending: Array<{ hash: string; kind: "file" | "directory" }> = [{ hash: this.base.root, kind: "directory" }];
+    const pending: Array<{ hash: string; kind: ProtocolEntryKind }> = [{ hash: this.base.root, kind: "directory" }];
     for (let next = pending.pop(); next; next = pending.pop()) {
       const bytes = this.objects.get(next.hash);
       if (!bytes) throw new Error(`Missing ${next.hash}`);

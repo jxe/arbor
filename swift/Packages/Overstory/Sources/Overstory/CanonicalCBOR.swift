@@ -3,7 +3,9 @@ import Foundation
 /// Story's canonical CBOR subset: null, booleans, integers, other finite
 /// numbers as 64-bit floats, UTF-8 text, byte strings, arrays, and text-keyed
 /// maps with byte-ordered keys and minimal lengths. `negative(n)` encodes the
-/// integer `-1 - n`, mirroring CBOR major type 1.
+/// integer `-1 - n`, mirroring CBOR major type 1. `tagged` is outside the
+/// subset: only a page object's timestamps use it (tags 1004 and 0, spec 01
+/// §4.1), and a decode accepts it only for the tags its caller names.
 indirect enum CanonicalCBORValue: Equatable {
     case null
     case bool(Bool)
@@ -14,6 +16,7 @@ indirect enum CanonicalCBORValue: Equatable {
     case text(String)
     case array([CanonicalCBORValue])
     case map([(String, CanonicalCBORValue)])
+    case tagged(Int, CanonicalCBORValue)
 
     /// Convenience for any Swift integer, choosing the CBOR major type by sign.
     static func integer(_ value: Int) -> CanonicalCBORValue {
@@ -32,6 +35,7 @@ indirect enum CanonicalCBORValue: Equatable {
         case let (.array(a), .array(b)): a == b
         case let (.map(a), .map(b)):
             a.count == b.count && zip(a, b).allSatisfy { $0.0 == $1.0 && $0.1 == $1.1 }
+        case let (.tagged(a, x), .tagged(b, y)): a == b && x == y
         default: false
         }
     }
@@ -59,11 +63,13 @@ enum CanonicalCBOR {
                     $0.append($1.key)
                     $0.append(encode($1.value))
                 }
+        case let .tagged(tag, value):
+            head(major: 6, value: tag) + encode(value)
         }
     }
 
-    static func decode(_ data: Data) throws -> CanonicalCBORValue {
-        var decoder = Decoder(data: data)
+    static func decode(_ data: Data, tags: Set<Int> = []) throws -> CanonicalCBORValue {
+        var decoder = Decoder(data: data, tags: tags)
         let value = try decoder.decode(depth: 0)
         guard decoder.offset == data.count else { throw ProtocolValidationError.invalidCBOR("Trailing bytes") }
         guard encode(value) == data else { throw ProtocolValidationError.invalidCBOR("Encoding is not canonical") }
@@ -97,6 +103,7 @@ enum CanonicalCBOR {
 
     private struct Decoder {
         let data: Data
+        let tags: Set<Int>
         var offset = 0
 
         mutating func decode(depth: Int) throws -> CanonicalCBORValue {
@@ -121,7 +128,7 @@ enum CanonicalCBOR {
             }
             let major = first >> 5
             let additional = first & 31
-            guard major <= 5 else {
+            guard major <= 6 else {
                 throw ProtocolValidationError.invalidCBOR("Unsupported CBOR major type")
             }
             let length = try readLength(additional)
@@ -162,6 +169,9 @@ enum CanonicalCBOR {
                     values.append((key, try decode(depth: depth + 1)))
                 }
                 return .map(values)
+            case 6:
+                guard tags.contains(length) else { throw ProtocolValidationError.invalidCBOR("CBOR tag is not allowed here") }
+                return .tagged(length, try decode(depth: depth + 1))
             default:
                 throw ProtocolValidationError.invalidCBOR("Unsupported CBOR value")
             }

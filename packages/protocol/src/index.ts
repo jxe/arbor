@@ -19,6 +19,7 @@ export * from "./model/protocol-error.ts";
 export * from "./model/resource-policy.ts";
 
 export * from "./objects.ts";
+export * from "./pages.ts";
 export * from "./snapshots.ts";
 export * from "./updates/types.ts";
 export * from "./updates/intent.ts";

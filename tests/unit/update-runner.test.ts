@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyTransitionPayload, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, updateRequestDigests, protocolEntryObject,
   ProtocolTransportError, ProtocolUnsupportedOperation, ProtocolUpdateConflict, type AcceptedUpdate, type CurrentTree, type TreeSnapshot,
-  decodeUpdateRequestJSON, decodeTreeSnapshotJSON, type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON, encodeTreeSnapshotJSON, encodeCandidateUpdateJSON } from "@ovst/protocol";
+  decodeUpdateRequestJSON, decodeTreeSnapshotJSON, type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON, encodeTreeSnapshotJSON, encodeCandidateUpdateJSON, type ProtocolEntryKind } from "@ovst/protocol";
 import { prepareSourceChange, type LocalChange, UpdateCoordinator, type UpdateTransport } from "@ovst/working-tree";
 import { publication } from "../../packages/working-tree/src/publication.ts";
 import { attemptRequest, type UpdateAttempt } from "../../packages/working-tree/src/control.ts";
@@ -86,7 +86,7 @@ class VectorHost implements UpdateTransport {
   }
 
   private reachable(root: string): void {
-    const pending = [{ hash: root, kind: "directory" as "file" | "directory" }];
+    const pending = [{ hash: root, kind: "directory" as ProtocolEntryKind }];
     for (let next = pending.pop(); next; next = pending.pop()) {
       const bytes = this.objects.get(next.hash);
       if (!bytes) throw new Error(`Candidate object ${next.hash} is missing`);

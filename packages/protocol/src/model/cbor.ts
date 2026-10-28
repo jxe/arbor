@@ -3,6 +3,21 @@ import type { Hash } from "./identifiers.ts";
 
 const encoder = new TextEncoder();
 
+/**
+ * A tagged CBOR value. The canonical subset forbids tags except where a
+ * contract allows them: a page object's timestamps use tags 1004 and 0
+ * (spec 01 §4.1). Decoding returns one only when the caller allows its tag.
+ */
+export class CBORTag {
+  constructor(readonly tag: number, readonly value: unknown) {}
+}
+
+/** What a decode accepts beyond the canonical subset. */
+export interface CBORDecodeOptions {
+  /** Tags the caller's contract allows; any other tag is invalid. */
+  tags?: readonly number[];
+}
+
 function head(major: number, value: number): number[] {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error(`Invalid CBOR length: ${value}`);
   if (value < 24) return [(major << 5) | value];
@@ -40,6 +55,7 @@ function parts(value: unknown): Uint8Array[] {
   if (value === false) return [Uint8Array.of(0xf4)];
   if (value === true) return [Uint8Array.of(0xf5)];
   if (value instanceof Uint8Array) return [Uint8Array.from(head(2, value.length)), value];
+  if (value instanceof CBORTag) return [Uint8Array.from(head(6, value.tag)), ...parts(value.value)];
   if (typeof value === "string") {
     const bytes = encoder.encode(value);
     return [Uint8Array.from(head(3, bytes.length)), bytes];
@@ -104,7 +120,7 @@ function readLength(bytes: Uint8Array, offset: number, additional: number): { va
   return { value, offset: offset + size };
 }
 
-function decodeAt(bytes: Uint8Array, start: number, depth = 0): { value: unknown; offset: number } {
+function decodeAt(bytes: Uint8Array, start: number, depth = 0, options: CBORDecodeOptions = {}): { value: unknown; offset: number } {
   if (depth > 64) throw new Error("CBOR nesting too deep");
   if (start >= bytes.length) throw new Error("Unexpected end of CBOR");
   const first = bytes[start]!;
@@ -135,7 +151,7 @@ function decodeAt(bytes: Uint8Array, start: number, depth = 0): { value: unknown
     const result: unknown[] = [];
     let offset = length.offset;
     for (let index = 0; index < length.value; index += 1) {
-      const item = decodeAt(bytes, offset, depth + 1);
+      const item = decodeAt(bytes, offset, depth + 1, options);
       result.push(item.value);
       offset = item.offset;
     }
@@ -147,9 +163,9 @@ function decodeAt(bytes: Uint8Array, start: number, depth = 0): { value: unknown
     let previousKey: Uint8Array | undefined;
     for (let index = 0; index < length.value; index += 1) {
       const keyStart = offset;
-      const key = decodeAt(bytes, offset, depth + 1);
+      const key = decodeAt(bytes, offset, depth + 1, options);
       const encodedKey = bytes.slice(keyStart, key.offset);
-      const item = decodeAt(bytes, key.offset, depth + 1);
+      const item = decodeAt(bytes, key.offset, depth + 1, options);
       if (typeof key.value !== "string") throw new Error("Overstory CBOR map keys must be strings");
       if (key.value in result) throw new Error("Duplicate CBOR map key");
       if (previousKey && compareBytes(previousKey, encodedKey) >= 0) throw new Error("Non-canonical CBOR map key order");
@@ -159,11 +175,16 @@ function decodeAt(bytes: Uint8Array, start: number, depth = 0): { value: unknown
     }
     return { value: result, offset };
   }
+  if (major === 6) {
+    if (!options.tags?.includes(length.value)) throw new Error(`CBOR tag ${length.value} is not allowed here`);
+    const item = decodeAt(bytes, length.offset, depth + 1, options);
+    return { value: new CBORTag(length.value, item.value), offset: item.offset };
+  }
   throw new Error(`Unsupported CBOR major type ${major}`);
 }
 
-export function decodeCBOR(bytes: Uint8Array): unknown {
-  const decoded = decodeAt(bytes, 0);
+export function decodeCBOR(bytes: Uint8Array, options: CBORDecodeOptions = {}): unknown {
+  const decoded = decodeAt(bytes, 0, 0, options);
   if (decoded.offset !== bytes.length) throw new Error("Trailing CBOR bytes");
   return decoded.value;
 }
@@ -173,8 +194,8 @@ export function decodeCBOR(bytes: Uint8Array): unknown {
  * byte-identical, so a non-minimal head, an integral float, or unsorted keys
  * fail rather than normalize. Request and response bodies use this.
  */
-export function decodeCanonicalCBOR(bytes: Uint8Array): unknown {
-  const value = decodeCBOR(bytes);
+export function decodeCanonicalCBOR(bytes: Uint8Array, options: CBORDecodeOptions = {}): unknown {
+  const value = decodeCBOR(bytes, options);
   const encoded = encodeCanonicalCBOR(value);
   if (encoded.length !== bytes.length || encoded.some((byte, index) => byte !== bytes[index])) {
     throw new Error("CBOR is not canonical");

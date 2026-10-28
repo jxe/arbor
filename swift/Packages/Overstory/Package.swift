@@ -10,8 +10,12 @@ let package = Package(
     products: [
         .library(name: "Overstory", targets: ["Overstory"])
     ],
+    dependencies: [
+        // Pages read their frontmatter as YAML 1.2 (spec 02 §3).
+        .package(url: "https://github.com/jpsim/Yams.git", from: "6.2.2")
+    ],
     targets: [
-        .target(name: "Overstory"),
+        .target(name: "Overstory", dependencies: ["Yams"]),
         .testTarget(name: "OverstoryTests", dependencies: ["Overstory"])
     ],
     swiftLanguageModes: [.v6]
