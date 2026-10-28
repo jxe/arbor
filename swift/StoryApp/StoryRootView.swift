@@ -923,6 +923,7 @@ private struct MacToolbarSearchFieldFocus: NSViewRepresentable {
         private var observation: NSKeyValueObservation?
         private var fieldIsFocused = false
         private var requestRevision = 0
+        private var lastRequest: Bool?
         private var keyMonitor: Any?
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -978,7 +979,13 @@ private struct MacToolbarSearchFieldFocus: NSViewRepresentable {
             return nil
         }
 
+        /// Acts only when `isFocused` changes. The field's focus is reported a
+        /// tick late, and in the sidebar SwiftUI redraws the controls as the
+        /// field takes focus: acting on that redraw's stale `false` would
+        /// resign the field the click or Cmd-P just focused.
         func request(_ focused: Bool) {
+            guard focused != lastRequest else { return }
+            lastRequest = focused
             requestRevision += 1
             let revision = requestRevision
             guard focused != fieldIsFocused else { return }
