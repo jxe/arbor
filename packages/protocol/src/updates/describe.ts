@@ -1,4 +1,4 @@
-import type { ObjectHash, ProtocolDirectory, ProtocolDirectoryEntry } from "../objects.ts";
+import { protocolContentBytes, type ObjectHash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "../objects.ts";
 import { applyObjectDelta } from "./apply.ts";
 import { TreeReader, walkTreeDiff } from "./tree-diff.ts";
 import type { ObjectDeltaInstruction, TransitionPayload } from "./types.ts";
@@ -59,7 +59,7 @@ function directoryLines(before: ProtocolDirectory | undefined, after: ProtocolDi
   for (const entry of after.entries) {
     const prior = old.get(entry.name);
     if (!prior) out.push(`  + ${entryLabel(entry)}`);
-    else if (prior.file !== entry.file || prior.directory !== entry.directory || prior.tree !== entry.tree) {
+    else if (prior.file !== entry.file || prior.page !== entry.page || prior.directory !== entry.directory || prior.tree !== entry.tree) {
       out.push(`  ~ ${entryLabel(entry)}${!!prior.directory !== !!entry.directory || !!prior.tree !== !!entry.tree ? ` (was ${entryLabel(prior)})` : ""}`);
     }
   }
@@ -111,10 +111,15 @@ export async function describeTransitionPayload(input: {
       out.push("", `directory ${path} (${form(item, prior?.hash)})`, ...directoryLines(prior?.directory, next.directory));
     },
     entry: ({ path, before: prior, after: next }) => {
-      const item = next?.file ? sent.get(next.file) : undefined;
-      if (next?.file && item && !described.has(next.file)) {
+      const content = next?.file ?? next?.page;
+      const item = content ? sent.get(content) : undefined;
+      if (next?.page && item && !described.has(next.page)) {
+        // A page's object is CBOR; it reads as the file it is written as.
+        described.add(next.page);
+        out.push("", `page ${path} (${form(item, prior?.file ?? prior?.page ?? prior?.directory)})`, ...lines("+", loose.decode(protocolContentBytes("page", item.bytes))));
+      } else if (next?.file && item && !described.has(next.file)) {
         described.add(next.file);
-        out.push("", `file ${path} (${form(item, prior?.file ?? prior?.directory)})`);
+        out.push("", `file ${path} (${form(item, prior?.file ?? prior?.page ?? prior?.directory)})`);
         const base = item.delta && utf8(item.delta.bytes), text = utf8(item.bytes);
         if (item.delta) out.push(...(base !== undefined && text !== undefined
           ? deltaLines(item.delta.bytes, item.delta.instructions)

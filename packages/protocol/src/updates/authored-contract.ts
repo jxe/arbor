@@ -16,8 +16,8 @@ export type AuthoredOperation = { key: string } & (
   | { kind: "moveSource" | "copySource"; source: MaterialRef; at: MaterialRef; side: "before" | "after" }
   | { kind: "moveEntry" | "copyEntry"; source: MaterialRef; destination: EntryDestination }
   | { kind: "removeEntry"; source: MaterialRef }
-  | { kind: "replaceEntry"; source: MaterialRef; value: { file: string } | { directory: string } | MaterialRef }
-  | { kind: "addEntry"; destination: EntryDestination; value: { file: string } | { directory: string } }
+  | { kind: "replaceEntry"; source: MaterialRef; value: { file: string } | { page: string } | { directory: string } | MaterialRef }
+  | { kind: "addEntry"; destination: EntryDestination; value: { file: string } | { page: string } | { directory: string } }
   | RowOperation
 );
 /** A scalar a many-valued field holds: a connected row's key value or a listed value. */
@@ -140,6 +140,7 @@ function operation(raw: unknown): AuthoredOperation {
     case "replaceEntry": {
       keys(v, ["key", "kind", "source", "value"]); reference(v.source, true); const value = obj(v.value);
       if (Object.hasOwn(value, "file")) { keys(value, ["file"]); hash(value.file); }
+      else if (Object.hasOwn(value, "page")) { keys(value, ["page"]); hash(value.page); }
       else if (Object.hasOwn(value, "directory")) { keys(value, ["directory"]); hash(value.directory); }
       else { reference(value, true); }
       break;
@@ -149,6 +150,7 @@ function operation(raw: unknown): AuthoredOperation {
       const d = obj(v.destination); keys(d, ["parent", "name"]); reference(d.parent, true); component(d.name);
       const value = obj(v.value);
       if (Object.hasOwn(value, "file")) { keys(value, ["file"]); hash(value.file); }
+      else if (Object.hasOwn(value, "page")) { keys(value, ["page"]); hash(value.page); }
       else { keys(value, ["directory"]); hash(value.directory); }
       break;
     }

@@ -1,6 +1,7 @@
 import { access, link, mkdir, open, readFile, unlink, utimes } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  isProtocolContentKind,
   applyObjectDelta,
   hashObject,
   protocolObjectReferences,
@@ -166,7 +167,7 @@ export class ObjectStore {
         // Nested trees have their own authority boundary, so they are no edge.
         for (const edge of protocolObjectReferences(kind, bytes)) {
           if (edge.hash === target) return true;
-          if (edge.kind !== "file") pending.push(edge);
+          if (!isProtocolContentKind(edge.kind)) pending.push(edge);
         }
       }
     }

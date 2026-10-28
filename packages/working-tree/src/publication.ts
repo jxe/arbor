@@ -154,11 +154,12 @@ export function branchPublications(group: ChangePublication, shared: number, bra
   const objects = new Map([...members as LocalChange[], ...branch].flatMap(record =>
     [record.graph, record.candidate].flatMap(graph => [...decodeTreeSnapshotJSON(graph).objects])));
   const directory = (hash: string) => decodeProtocolDirectory(objects.get(hash)!);
+  // A crossed file or page, by its object; the entry keeps its kind.
   function file(root: string, path: string): string {
     const parts = path.slice(1).split("/"); let hash = root;
     for (const [i, part] of parts.entries()) {
       const entry = directory(hash).entries.find(entry => entry.name === part);
-      if (i === parts.length - 1 && entry?.file !== undefined) return entry.file;
+      if (i === parts.length - 1 && (entry?.file ?? entry?.page) !== undefined) return (entry!.file ?? entry!.page)!;
       if (!entry?.directory) throw new UpdateValidationError("Publication branch requires existing files");
       hash = entry.directory;
     }
@@ -180,7 +181,7 @@ export function branchPublications(group: ChangePublication, shared: number, bra
         function replace(hash: string, depth: number): string {
           const value = directory(hash);
           value.entries = value.entries.map(entry => entry.name !== parts[depth] ? entry : depth === parts.length - 1
-            ? {name: entry.name, file: replacement.after} : {name: entry.name, directory: replace(entry.directory!, depth + 1)});
+            ? (entry.page !== undefined ? {name: entry.name, page: replacement.after} : {name: entry.name, file: replacement.after}) : {name: entry.name, directory: replace(entry.directory!, depth + 1)});
           const bytes = encodeProtocolDirectory(value), next = hashObject(bytes);
           objects.set(next, bytes); supplied.set(next, {hash: next, bytes: encodeBase64(bytes)});
           return next;
@@ -223,7 +224,8 @@ export function compactTransport(update: CandidateUpdateJSON, basis: LocalChange
     const entries = decodeProtocolDirectory(after.get(next)!).entries;
     const prior = new Map(old && before.has(old) ? decodeProtocolDirectory(before.get(old)!).entries.map(entry => [entry.name, entry]) : []);
     for (const entry of entries) {
-      if (entry.file) visit(prior.get(entry.name)?.file, entry.file, false);
+      const content = entry.file ?? entry.page;
+      if (content) { const old = prior.get(entry.name); visit(old?.file ?? old?.page, content, false); }
       else if (entry.directory) visit(prior.get(entry.name)?.directory, entry.directory, true);
     }
   }

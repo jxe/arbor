@@ -2,7 +2,9 @@ import { cloneState, copy, loadState, lookup, own, retainState, same, shareState
 import { isRowOperation, stableJSONString } from "@ovst/protocol";
 import {
   decodeProtocolDirectory,
+  decodeProtocolPage,
   encodeProtocolDirectory,
+  encodeProtocolPage,
   hashObject,
   type MaterialRef,
   type SourceOperation,
@@ -51,6 +53,8 @@ const encoder = new TextEncoder(),
 const clone = copy;
 /** A mutable copy of a node, edited freely until `setNode` places it. */
 const detached = (node: Readonly<Node>): Node => copy(node) as Node;
+/** Whether a node holds text: a file's bytes, or a page's body (spec 01, Pages). */
+const textual = (kind: Node["kind"] | undefined): boolean => kind === "file" || kind === "page";
 /** Canonical JSON bytes, as every object the engine generates is encoded. */
 const encodeJSON = (value: unknown): Uint8Array => encoder.encode(stableJSONString(value));
 /** Whether `id` is an active node reached from `view.root` through active parents. */
@@ -286,9 +290,31 @@ class Engine {
     }
     return new Uint8Array(Buffer.concat(chunks));
   }
+  /** A page's body as one piece of its own object, named by `origin`. The
+   * body is kept as an object of the engine's, as inserted text is. */
+  private async bodyPieces(origin: string, page: string): Promise<Piece[]> {
+    let body: Uint8Array;
+    try { body = decodeProtocolPage(await this.read(page)).body; }
+    catch { return fail("Page object is invalid"); }
+    if (!body.length) return [];
+    const object = this.put(body);
+    return [{ origin, start: 0, object, offset: 0, length: body.length }];
+  }
+  /** The object bytes a text node's pieces stand for: a file's bytes, or its
+   * page with that body and the page's own properties. */
+  async content(node: Readonly<Node>, pieces: Piece[]): Promise<Uint8Array> {
+    const bytes = await this.bytes(pieces);
+    if (node.kind !== "page") return bytes;
+    return encodeProtocolPage({ ...decodeProtocolPage(await this.read(node.object)), body: bytes });
+  }
   /** A file node's pieces; a node of `view` that has none gets them. */
   async text(view: View, node: Readonly<Node>): Promise<Piece[]> {
-    if (node.kind !== "file") return fail("Source target is not a file");
+    if (!textual(node.kind)) return fail("Source target is not a file");
+    if (!node.pieces && node.kind === "page") {
+      const pieces = await this.bodyPieces(node.id, node.object);
+      if (Object.isFrozen(node)) return pieces;
+      this.assign(view, node, "pieces", pieces);
+    }
     if (!node.pieces) {
       const b = await this.read(node.object);
       try {
@@ -388,6 +414,7 @@ class Engine {
     const node: Node = { id, parent, name, kind, object, active: true };
     this.setNode(view, id, node);
     count.nodes++;
+    if (kind === "page") this.assign(view, node, "pieces", await this.bodyPieces(id, object));
     if (kind === "file") {
       const size = this.knownLengths?.get(object) ?? (await this.read(object)).length;
       this.assign(view, node, "pieces", size
@@ -400,8 +427,8 @@ class Engine {
       for (const entry of directory.entries) {
         await this.importNode(
           view,
-          (entry.file ?? entry.directory ?? entry.tree)!,
-          entry.file ? "file" : entry.directory ? "directory" : "tree",
+          (entry.file ?? entry.page ?? entry.directory ?? entry.tree)!,
+          entry.file ? "file" : entry.page ? "page" : entry.directory ? "directory" : "tree",
           `${id}/${encodeURIComponent(entry.name)}`,
           id,
           entry.name,
@@ -459,7 +486,7 @@ class Engine {
     for (const [id, node] of nodes) {
       if (
         id !== node.id ||
-        !["file", "directory", "tree"].includes(node.kind) ||
+        !["file", "page", "directory", "tree"].includes(node.kind) ||
         typeof node.active !== "boolean" ||
         typeof node.name !== "string" ||
         (node.parent !== null && !state.nodes[node.parent])
@@ -587,12 +614,12 @@ class Engine {
     visiting.add(root);
     try {
       let projected: Projected;
-      if (node.kind === "file") {
+      if (textual(node.kind)) {
         const material = this.projection;
         const previous = material?.previous?.get(node.id);
         const object = previous && same(previous.node, node)
           ? previous.object
-          : node.pieces ? this.put(await this.bytes(node.pieces))
+          : node.pieces ? this.put(await this.content(node, node.pieces))
           : (await this.read(node.object), node.object);
         material?.next.set(node.id, {node, object});
         projected = {object, height: 0};
@@ -611,6 +638,8 @@ class Engine {
           entries.push(
             child.kind === "file"
               ? { name: child.name, file: object }
+              : child.kind === "page"
+              ? { name: child.name, page: object }
               : child.kind === "directory"
               ? { name: child.name, directory: object }
               : { name: child.name, tree: object }
@@ -1048,7 +1077,7 @@ class Engine {
           (n) =>
             n.active &&
             realm(n.id) === realm(source.node) &&
-            n.kind === "file" &&
+            textual(n.kind) &&
             n.pieces?.some((p) => source.selected.some((q) => intersect(p, q)))
         );
         if (matches.length === 1) node = matches[0];
@@ -1141,7 +1170,7 @@ class Engine {
             (n) =>
               n.active &&
               realm(n.id) === realm(target.node) &&
-              n.kind === "file" &&
+              textual(n.kind) &&
               n.pieces?.some((p) => target.selected.some((q) => intersect(p, q)))
           );
           if (holders.length === 1) destination = holders[0];
@@ -1226,8 +1255,8 @@ class Engine {
       if (operation.destination.parent.range || target.pieces)
         return fail("Invalid entry destination");
       const value = operation.value,
-        kind = "file" in value ? "file" : "directory";
-      await this.importNode(state, "file" in value ? value.file : value.directory, kind, key, null, operation.destination.name);
+        kind = "file" in value ? "file" : "page" in value ? "page" : "directory";
+      await this.importNode(state, "file" in value ? value.file : "page" in value ? value.page : value.directory, kind, key, null, operation.destination.name);
       this.placement(state, key, target.node, operation.destination.name);
       // The exact-basis path records effects only for nodes it names.
       if (validatedBasisObject)
@@ -1309,14 +1338,15 @@ class Engine {
           const index = this.childIndex(state);
           for (const child of this.children(state, node.id, index))
             this.remove(state, child.id, undefined, index);
-          const object = "file" in value ? value.file : value.directory;
+          const object = "file" in value ? value.file : "page" in value ? value.page : value.directory;
           this.edit(state, node, (node) => {
-            node.kind = "file" in value ? "file" : "directory";
+            node.kind = "file" in value ? "file" : "page" in value ? "page" : "directory";
             node.object = object;
             delete node.pieces;
             delete node.directory;
           });
           const replacementBytes = await this.read(object);
+          if (node.kind === "page") this.assign(state, node, "pieces", await this.bodyPieces(key, object));
           if (node.kind === "file")
             this.assign(state, node, "pieces", replacementBytes.length
               ? [
@@ -1998,7 +2028,7 @@ class Engine {
         ) {
           if (
             !visibleAfter?.active ||
-            visibleAfter.kind !== "file" ||
+            !textual(visibleAfter.kind) ||
             !visibleAfter.pieces
           ) {
             wrapped.add(decision.key);
@@ -2294,7 +2324,7 @@ class Engine {
             const b = base.nodes[id]!,
               next = attempt.nodes[id];
             if (
-              b.kind !== "file" ||
+              !textual(b.kind) ||
               !next?.active ||
               same(b.pieces, next.pieces)
             )
@@ -2411,7 +2441,7 @@ class Engine {
               .map((n) => [
                 this.path(view, n.id),
                 n.kind,
-                n.kind === "file"
+                textual(n.kind)
                   ? n.pieces
                   : n.kind === "tree"
                   ? n.object
@@ -2550,7 +2580,7 @@ class Engine {
         if (existenceConflict) {
           // A file deleted on one side and changed on the other is a choice
           // about that file alone; everything else still merges.
-          if (b.kind === "file" && b.active) await existenceChoice(id, [remote, incoming]);
+          if (textual(b.kind) && b.active) await existenceChoice(id, [remote, incoming]);
           else affected.push(id);
           continue;
         }
@@ -3114,7 +3144,7 @@ class Engine {
       this.checkBudget();
       if (depth > 256) return fail("Directory depth budget exceeded");
       const node = state.nodes[id] ?? fail("Missing validated node");
-      if (node.kind === "file") { material.set(id, {node, object: hash}); return; }
+      if (textual(node.kind)) { material.set(id, {node, object: hash}); return; }
       if (node.kind === "tree") return;
       const directory = directoryOf(hash, await this.read(hash));
       const entries = new Map(directory.entries.map(e => [e.name, e]));
@@ -3122,6 +3152,7 @@ class Engine {
       for (const child of children) {
         const entry = entries.get(child.name);
         const target = entry && (child.kind === "file" && "file" in entry ? entry.file
+          : child.kind === "page" && "page" in entry ? entry.page
           : child.kind === "directory" && "directory" in entry ? entry.directory
           : child.kind === "tree" && "tree" in entry ? entry.tree : undefined);
         if (!target) return fail("Validated basis directory mismatch");
@@ -3161,7 +3192,7 @@ class Engine {
       for (const entry of complete ? directory.entries : []) {
         const child = named.get(entry.name), projected = child && known(child);
         if (projected && child.kind !== "directory") kept.set(child.id, projected);
-        const target = child?.kind === "file" ? entry.file : child?.kind === "directory" ? entry.directory : entry.tree;
+        const target = child?.kind === "file" ? entry.file : child?.kind === "page" ? entry.page : child?.kind === "directory" ? entry.directory : entry.tree;
         if (!projected || projected.object !== target) complete = false;
         else height = Math.max(height, projected.height + 1);
       }
@@ -3351,10 +3382,10 @@ export async function checkpointIntent(
   // folders below.
   const projectPrevious = engine.projector(previous, previousChildren);
   for (const node of Object.values(previous.nodes))
-    if (node.active && node.kind === "file") {
+    if (node.active && textual(node.kind)) {
       const object = await projectPrevious(node.id);
       oldObjects.set(node.id, object);
-      if (node.pieces) engine.knownLengths.set(object, length(node.pieces));
+      if (node.pieces && node.kind === "file") engine.knownLengths.set(object, length(node.pieces));
     }
   const fresh = await engine.initial(request.projection);
   engine.knownLengths = undefined;
@@ -3376,27 +3407,28 @@ export async function checkpointIntent(
     }
     return names.get(name);
   };
-  const rebind = (
+  const rebind = async (
     id: string,
     parent: string | null,
     oldID?: string
-  ): string => {
+  ): Promise<string> => {
     const value = fresh.nodes[id]!,
       old = oldID ? previous.nodes[oldID] : undefined;
     const next =
       old?.kind === value.kind ? old.id : `snapshot:${request.change}:${local(id)}`;
+    // A page whose properties alone changed keeps its body's pieces.
+    const kept = textual(old?.kind) && old!.kind === value.kind && (oldObjects.get(old!.id) === value.object ||
+      (value.kind === "page" && Buffer.from(await engine.bytes(old!.pieces ?? [])).equals(await engine.bytes(value.pieces ?? []))));
     engine.setNode(state, next, {
       ...clone(value),
       id: next,
       parent,
-      ...(old?.kind === "file" && oldObjects.get(old.id) === value.object
-        ? { pieces: clone(old.pieces) }
-        : {}),
+      ...(kept ? { pieces: clone(old!.pieces) } : {}),
     });
     if (
-      value.kind === "file" &&
+      textual(value.kind) &&
       state.nodes[next]!.pieces &&
-      (!old || oldObjects.get(old.id) !== value.object)
+      !kept
     )
       engine.assign(state, state.nodes[next]!, "pieces", state.nodes[next]!.pieces!.map((p) => ({
         ...p,
@@ -3404,19 +3436,19 @@ export async function checkpointIntent(
       })));
     for (const child of engine.children(fresh, id, freshChildren)) {
       const prior = old ? priorChild(old.id, child.name) : undefined;
-      rebind(child.id, next, prior?.id);
+      await rebind(child.id, next, prior?.id);
     }
     return next;
   };
   for (const node of Object.values(state.nodes))
     if (engine.realm(previous, node.id) === previous.root) engine.assign(state, node, "active", false);
-  state.root = rebind(fresh.root, null, previous.root);
+  state.root = await rebind(fresh.root, null, previous.root);
   const changedNodes = Object.values(state.nodes)
     .filter(
       (node) =>
         node.active &&
         engine.realm(state, node.id) === state.root &&
-        (node.kind === "file"
+        (textual(node.kind)
           ? oldObjects.get(node.id) !== node.object
           : !previous.nodes[node.id]?.active)
     )
@@ -3651,7 +3683,7 @@ export async function checkpointIntent(
       if (contexts.some((context) => !find(context))) {
         // Deleted in one alternative: a choice about this file's existence.
         const present = contexts.map(find);
-        if (present.some((node) => node && (node.kind !== "file" || !node.pieces)))
+        if (present.some((node) => node && (!textual(node.kind) || !node.pieces)))
           return fail("Checkpoint existence alternative is not a file");
         const kept = present.find((node) => node)!;
         let target = find(state);

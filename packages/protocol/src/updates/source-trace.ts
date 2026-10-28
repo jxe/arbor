@@ -1,4 +1,5 @@
 import { compareProtocolNames, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "../objects.ts";
+import { decodeProtocolPage, encodeProtocolPage, type ProtocolPage } from "../pages.ts";
 import { isRowOperation, type AuthoredOperation, type MaterialRef, type RowOperation } from "./authored-contract.ts";
 import { arrangeSources, UnsupportedSourceMove, type SourceReplacement } from "./source-moves.ts";
 
@@ -12,7 +13,8 @@ export interface SourceEditEvidence {
   lineage: Array<{ source: { object: ObjectHash; range: [number, number] }; range: [number, number] }>;
 }
 export class UnsupportedSourceEdit extends Error {}
-interface Selection { path: string; object: ObjectHash; bytes: Uint8Array; range: [number, number] }
+/** A selected file's bytes, or a selected page's body (spec 01, Pages). */
+interface Selection { path: string; object: ObjectHash; bytes: Uint8Array; range: [number, number]; page?: ProtocolPage }
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 function invalid(message: string): never { throw new Error(`Invalid source edit: ${message}`); }
@@ -51,7 +53,7 @@ export async function executeExactSourceEdits(
     const baseParts = components(ref.material.path);
     const within = ref.within ?? [];
     if (within.length) components("/" + within.join("/"));
-    let object = baseRoot, kind: "file" | "directory" = "directory";
+    let object = baseRoot, kind: "file" | "page" | "directory" = "directory";
     const parts = [...baseParts, ...within];
     for (let index = 0; index <= parts.length; index++) {
       if (index === baseParts.length && object !== ref.material.object) invalid("basis object does not match path");
@@ -60,14 +62,15 @@ export async function executeExactSourceEdits(
       const entry = decodeProtocolDirectory(await read(object)).entries.find(e => e.name === parts[index]);
       if (!entry) invalid("path absent from basis");
       if (entry.tree) invalid("selection crosses tree boundary");
-      object = (entry.file ?? entry.directory)!;
-      kind = entry.file ? "file" : "directory";
+      object = (entry.file ?? entry.page ?? entry.directory)!;
+      kind = entry.file ? "file" : entry.page ? "page" : "directory";
     }
-    if (kind !== "file") invalid("source selection is not a file");
-    const bytes = await read(object);
+    if (kind === "directory") invalid("source selection is not a file");
+    const page = kind === "page" ? decodeProtocolPage(await read(object)) : undefined;
+    const bytes = page?.body ?? await read(object);
     const range: [number, number] = ref.range ?? [0, bytes.length];
     boundaries(bytes, range);
-    return { path: "/" + parts.join("/"), object, bytes, range };
+    return { path: "/" + parts.join("/"), object, bytes, range, page };
   }
   const groups = new Map<string, Array<{ selected: Selection; text: Uint8Array; index: number }>>();
   const evidence: SourceEditEvidence[] = [];
@@ -109,11 +112,12 @@ export async function executeExactSourceEdits(
     groups.set(selected.path, group);
     evidence.push({ operation: edit.key, path: selected.path, source: { object: selected.object, range: selected.range }, text: edit.text, lineage });
   }
-  const files = new Map<string, Uint8Array>();
+  const files = new Map<string, Uint8Array>(), pages = new Map<string, ProtocolPage>();
   for (const selection of [...moves.flatMap(m => [m.source, m.anchor]), ...[...groups.values()].flat().map(e => e.selected)]) {
     const known = files.get(selection.path);
     if (known && known !== selection.bytes && !Buffer.from(known).equals(Buffer.from(selection.bytes))) invalid("one path names two basis objects");
     files.set(selection.path, selection.bytes);
+    if (selection.page) pages.set(selection.path, selection.page);
   }
   const replacements: SourceReplacement[] = [];
   for (const [path, edits] of groups) {
@@ -134,7 +138,10 @@ export async function executeExactSourceEdits(
   }
   const generated = new Map<ObjectHash, Uint8Array>();
   const replacementObjects = new Map<string, ObjectHash>();
-  for (const [path, bytes] of arranged) {
+  for (const [path, arrangedBytes] of arranged) {
+    // An edited page keeps its properties; only its body is source text.
+    const page = pages.get(path);
+    const bytes = page ? encodeProtocolPage({ ...page, body: arrangedBytes }) : arrangedBytes;
     const hash = hashObject(bytes);
     generated.set(hash, bytes); replacementObjects.set(path, hash);
   }
@@ -144,9 +151,9 @@ export async function executeExactSourceEdits(
     for (const entry of directory.entries) {
       const child = path + "/" + entry.name;
       if (![...replacementObjects.keys()].some(p => p === child || p.startsWith(child + "/"))) continue;
-      const next = entry.file ? replacementObjects.get(child)! : entry.directory ? await rebuild(entry.directory, child) : undefined;
-      if (next && next !== (entry.file ?? entry.directory)) {
-        if (entry.file) entry.file = next; else entry.directory = next;
+      const next = entry.file || entry.page ? replacementObjects.get(child)! : entry.directory ? await rebuild(entry.directory, child) : undefined;
+      if (next && next !== (entry.file ?? entry.page ?? entry.directory)) {
+        if (entry.file) entry.file = next; else if (entry.page) entry.page = next; else entry.directory = next;
         changed = true;
       }
     }

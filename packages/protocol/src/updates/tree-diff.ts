@@ -72,10 +72,10 @@ export interface TreeDiffVisitor {
   entry(pair: EntryPair): boolean | void | Promise<boolean | void>;
 }
 
-/** A wire entry is its name and exactly one of `file`, `directory`, `tree`
+/** A wire entry is its name and exactly one of `file`, `page`, `directory`, `tree`
  * (`decodeProtocolDirectory` admits no other key), so those fields decide equality. */
 function sameEntry(a: ProtocolDirectoryEntry | undefined, b: ProtocolDirectoryEntry | undefined): boolean {
-  return a === b || (!!a && !!b && a.name === b.name && a.file === b.file && a.directory === b.directory && a.tree === b.tree);
+  return a === b || (!!a && !!b && a.name === b.name && a.file === b.file && a.page === b.page && a.directory === b.directory && a.tree === b.tree);
 }
 
 /**

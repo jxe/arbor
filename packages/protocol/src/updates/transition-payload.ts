@@ -84,7 +84,8 @@ export async function transitionPayload(
       if (fresh) await collection(before?.hash, after.hash);
     },
     entry: async ({ before: prior, after: entry }) => {
-      if (entry?.file) await provide(prior?.file ?? prior?.directory, entry.file);
+      const content = entry?.file ?? entry?.page;
+      if (content) await provide(prior?.file ?? prior?.page ?? prior?.directory, content);
       // A directory already provided at another path, or already known, is
       // not walked again; removed entries need nothing.
       return !!entry?.directory && !provided.has(entry.directory);

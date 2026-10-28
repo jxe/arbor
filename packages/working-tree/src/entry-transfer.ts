@@ -1,4 +1,4 @@
-import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, protocolObjectReferences, verifyTreeSnapshotGraph, type ProtocolObjectKind, type TreeSnapshot, type SourceOperation } from "@ovst/protocol";
+import { decodeProtocolDirectory, decodeProtocolPage, encodeProtocolDirectory, hashObject, isProtocolContentKind, protocolEntryObject, protocolObjectReferences, verifyTreeSnapshotGraph, type ProtocolObjectKind, type TreeSnapshot, type SourceOperation } from "@ovst/protocol";
 
 /** Exact editor-declared relocation. This constructs a candidate; it does not infer
  * moves from snapshots or reconcile concurrent trees. */
@@ -33,12 +33,14 @@ export function prepareEntryTransfer(graph: TreeSnapshot, input: EntryTransfer, 
   let root=graph.root;
   if(input.kind==="moveEntry")root=change(root,source.slice(0,-1),d=>{d.entries=d.entries.filter(e=>e.name!==source.at(-1));});
   root=change(root,parent,d=>{d.entries.push({...entry,name:input.name});});
-  const operations:SourceOperation[]=[{key:"entry-transfer",kind:input.kind,source:{material:{kind:"basis",path:input.source,object:(entry.file??entry.directory)!}},destination:{parent:{material:{kind:"basis",path:input.parent,object:destination}},name:input.name}}];
+  const operations:SourceOperation[]=[{key:"entry-transfer",kind:input.kind,source:{material:{kind:"basis",path:input.source,object:protocolEntryObject(entry)!.hash}},destination:{parent:{material:{kind:"basis",path:input.parent,object:destination}},name:input.name}}];
   for(const [index,[relative,hash]] of Object.entries(input.rewrites ?? {}).sort(([a],[b])=>a<b?-1:a>b?1:0).entries()) {
     const parts=relative ? components("/"+relative) : [];
-    let oldHash=(entry.file??entry.directory)!;
-    for(const name of parts){const e=directory(oldHash).entries.find(e=>e.name===name);if(!e?.file && !e?.directory)throw Error("Missing copied material");oldHash=(e.file??e.directory)!;}
-    const old=objects.get(oldHash),bytes=objects.get(hash);
+    let {hash:oldHash,kind:oldKind}=protocolEntryObject(entry)!;
+    for(const name of parts){const e=directory(oldHash).entries.find(e=>e.name===name),object=e&&protocolEntryObject(e);if(!object)throw Error("Missing copied material");({hash:oldHash,kind:oldKind}=object);}
+    // A page's text is its body; a rewrite of a copied page is another page.
+    const body=(bytes:Uint8Array|undefined)=>bytes&&oldKind==="page"?decodeProtocolPage(bytes).body:bytes;
+    const old=body(objects.get(oldHash)),bytes=body(objects.get(hash));
     if(!old||!bytes||!context.change)throw Error("Missing copy rewrite context");
     const decoder=new TextDecoder("utf-8",{fatal:true,ignoreBOM:true});
     const a=[...decoder.decode(old)],b=[...decoder.decode(bytes)];let start=0,end=0;
@@ -47,9 +49,9 @@ export function prepareEntryTransfer(graph: TreeSnapshot, input: EntryTransfer, 
     const lower=Buffer.byteLength(a.slice(0,start).join("")),upper=old.length-Buffer.byteLength(a.slice(a.length-end).join(""));
     operations.push({key:`copy-edit-${index}`,kind:"editSource",source:{material:{kind:"operation",change:context.change,operation:"entry-transfer"},...(parts.length?{within:parts}:{}),range:[lower,upper]},text:b.slice(start,b.length-end).join("")});
     const target=[...parent,input.name,...parts];
-    root=change(root,target.slice(0,-1),d=>{const e=d.entries.find(e=>e.name===target.at(-1));if(!e?.file)throw Error("Copy rewrite is not a file");e.file=hash;});
+    root=change(root,target.slice(0,-1),d=>{const e=d.entries.find(e=>e.name===target.at(-1));if(oldKind==="page"&&e?.page)e.page=hash;else if(oldKind==="file"&&e?.file)e.file=hash;else throw Error("Copy rewrite is not a file");});
   }
-  const reachable=new Set<string>();function visit(hash:string,dir:boolean){if(reachable.has(hash))return;reachable.add(hash);if(dir)for(const e of directory(hash).entries){if(e.file)visit(e.file,false);else if(e.directory)visit(e.directory,true);}}
+  const reachable=new Set<string>();function visit(hash:string,dir:boolean){if(reachable.has(hash))return;reachable.add(hash);if(dir)for(const e of directory(hash).entries){const object=protocolEntryObject(e);if(object)visit(object.hash,object.kind==="directory");}}
   visit(root,true);
   return {candidate:{root,objects:new Map([...objects].filter(([hash])=>reachable.has(hash)))},operations};
 }
@@ -93,14 +95,15 @@ export function prepareEntryActions(graph: TreeSnapshot, actions: EntryActions, 
     for(const [i,part] of parts.entries()) {
       const bytes=graph.objects.get(hash);if(!bytes)throw Error("Missing basis directory");
       const entry=decodeProtocolDirectory(bytes).entries.find(e=>e.name===part);
-      if(!entry || !(entry.file??entry.directory) || (i<parts.length-1&&!entry.directory))throw Error("Invalid removal source");
-      hash=(entry.file??entry.directory)!;
+      const object=entry&&protocolEntryObject(entry);
+      if(!object || (i<parts.length-1&&!entry!.directory))throw Error("Invalid removal source");
+      hash=object.hash;
     }
     operations.push({key:`remove-${index}`,kind:"removeEntry",source:{material:{kind:"basis",path,object:hash}}});
     root=remove(root,parts);
   }
   const reachable=new Set<string>();
-  function visit(hash:string,kind:ProtocolObjectKind){if(reachable.has(hash))return;reachable.add(hash);if(kind!=="file")for(const e of protocolObjectReferences(kind,objects.get(hash)!))visit(e.hash,e.kind);}
+  function visit(hash:string,kind:ProtocolObjectKind){if(reachable.has(hash))return;reachable.add(hash);if(!isProtocolContentKind(kind))for(const e of protocolObjectReferences(kind,objects.get(hash)!))visit(e.hash,e.kind);}
   visit(root,"directory");
   return {candidate:{root,objects:new Map([...objects].filter(([hash])=>reachable.has(hash)))},operations};
 }

@@ -12,13 +12,15 @@ export interface StateLink { id: string; root: string }
 export interface Contribution { change: string; operation: string | null }
 export interface InspectedAlternative {
   id: string; revision: string;
-  value: { text: string } | { file: string } | { directory: string } | { tree: string } | { absent: true } | { value: JSONValue };
+  value: { text: string } | { file: string } | { page: string } | { directory: string } | { tree: string } | { absent: true } | { value: JSONValue };
   placement?: EntryDestination; contributions: Contribution[];
 }
 export interface InspectedDecision {
   id: string; kind: string; affected: MaterialRef[]; selected: string;
   /** A field choice's row field (`field: null` is the row's existence). */
   row?: { model: string; key: string; field: string | null };
+  /** A property choice's property of the page `affected` names. */
+  property?: string;
   alternatives: InspectedAlternative[]; dependencies: string[]; actions: string[];
 }
 export interface DecisionPage {
@@ -72,6 +74,9 @@ export function decodeDecisionPage(raw: unknown, context?: {tree:string;state:st
     ids(d.dependencies); check(!d.dependencies.includes(d.id)); ids(d.actions);
     // A field choice, and only one, names its row field (spec 01 §1.2.3).
     check(Object.hasOwn(d,"row")===(d.kind==="field"));
+    // A property choice names its page's property the same way.
+    check(Object.hasOwn(d,"property")===(d.kind==="property"));
+    if(d.kind==="property") { str(d.property); check(d.property.length>0 && d.property!=="id" && !/[\0]/.test(d.property)); }
     if(d.kind==="field") {
       const row=obj(d.row); check(Object.keys(row).length===3); required(row,["model","key","field"]);
       const name=(x:unknown)=>check(typeof x==="string" && /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(x));
@@ -86,14 +91,15 @@ export function decodeDecisionPage(raw: unknown, context?: {tree:string;state:st
       switch(ks[0]) {
         case "text": str(value.text); break;
         case "file": hash(value.file); break;
+        case "page": hash(value.page); break;
         case "directory": hash(value.directory); break;
         case "tree": token(value.tree); break;
         case "absent": check(value.absent===true); break;
-        case "value": check(d.kind==="field"); break;
+        case "value": check(d.kind==="field" || d.kind==="property"); break;
         default: check(false);
       }
       if(Object.hasOwn(a,"placement")) {
-        check(["file","directory","tree"].includes(ks[0]!)); const p=obj(a.placement); required(p,["parent","name"]);
+        check(["file","page","directory","tree"].includes(ks[0]!)); const p=obj(a.placement); required(p,["parent","name"]);
         decodeMaterialRef(p.parent,true);
         // Reuse the path-component grammar of material selectors.
         decodeMaterialRef({material:{kind:"basis",path:"/",object:v.root},within:[p.name]});

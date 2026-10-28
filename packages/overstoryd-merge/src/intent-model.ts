@@ -85,7 +85,7 @@ export interface Node {
   id: string;
   parent: string | null;
   name: string;
-  kind: "file" | "directory" | "tree";
+  kind: "file" | "page" | "directory" | "tree";
   object: string;
   deletions?: string[];
   pieces?: Piece[];

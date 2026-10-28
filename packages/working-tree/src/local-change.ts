@@ -1,6 +1,6 @@
 import {prepareEntryActions, prepareEntryTransfer, type EntryActions, type EntryTransfer} from "./entry-transfer.ts";
 import { applySourceChange, applySourceEdits, canonicalCBORHash, composeSourceEdits, type PlainSourceEdit, type SourceEdit, type SourceMove } from "@ovst/protocol";
-import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeProtocolDirectory, protocolObjectReferences, type ProtocolObjectKind,
+import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeProtocolDirectory, decodeProtocolPage, encodeProtocolPage, isProtocolContentKind, parsePage, samePage, protocolObjectReferences, type ProtocolObjectKind,
   encodeProtocolDirectory, hashObject, decodeCandidateUpdateJSON, encodeCandidateUpdateJSON,
   type TreeSnapshot, type TreeSnapshotJSON, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
 
@@ -92,6 +92,9 @@ function validEdits(edits: unknown, decoder: TextDecoder): edits is SourceEdit[]
   return Array.isArray(edits) && edits.every(e => validText(e.replacement, decoder) && (e.expected === undefined || validText(e.expected, decoder)));
 }
 
+/** A copy out of a page, which a source change states by snapshot. */
+class PageCopy extends Error {}
+
 /** Builds only the exact authored candidate, never a merge with the current
  * tree. A multi-generation intent yields one frame per generation, each from
  * the root the previous generation produced, with operation keys
@@ -135,7 +138,7 @@ export function prepareSourceChange(input: {
   if (!sourcePath.startsWith("/") || parts.some(p => !p || p === "." || p === ".." || /[\\\0]/.test(p) || p.normalize("NFC") !== p)) throw new Error("Invalid source path");
   verifyTreeSnapshotGraph(graph, "sparse-files");
   const objects = new Map(graph.objects);
-  let file = "";
+  let file = "", bodyStart = 0;
   // A directory's first body, added by this generation: where and what.
   type AddedBody = {parentPath: string; parent: string; file: string};
   let addedBody: AddedBody | undefined;
@@ -152,7 +155,23 @@ export function prepareSourceChange(input: {
       const next = encodeProtocolDirectory(directory), root = hashObject(next); objects.set(root, next); return root;
     }
     if (!entry) throw new Error("Source path is not in basis");
-    if (depth === parts.length - 1) {
+    if (depth === parts.length - 1 && entry.page) {
+      // A page's source is the file it reads as; edits of its body are
+      // stated over the body, and any other change is a snapshot.
+      const basis = objects.get(entry.page), before = parsePage(encoder.encode(previous));
+      if (!basis || !before || !samePage(before, decodeProtocolPage(basis))) throw new Error("Source bytes do not match basis");
+      const after = parsePage(encoder.encode(source)), index = directory.entries.indexOf(entry);
+      if (!after) {
+        // Frontmatter that no longer parses leaves a file (directory format §3).
+        const produced = encoder.encode(source), hash = hashObject(produced);
+        objects.set(hash, produced); directory.entries[index] = { name: entry.name, file: hash };
+      } else {
+        const produced = encodeProtocolPage(after), hash = hashObject(produced);
+        objects.set(hash, produced);
+        if (samePage({ ...after, body: before.body }, before)) { file = entry.page; bodyStart = encoder.encode(previous).length - before.body.length; }
+        directory.entries[index] = { name: entry.name, page: hash };
+      }
+    } else if (depth === parts.length - 1) {
       if (!entry.file || !objects.has(entry.file) || !bytesEqual(objects.get(entry.file)!, encoder.encode(previous))) throw new Error("Source bytes do not match basis");
       file = entry.file;
       const produced = encoder.encode(source);
@@ -174,6 +193,7 @@ export function prepareSourceChange(input: {
     for (const [index, part] of parts.entries()) {
       const entry = decodeProtocolDirectory(graph.objects.get(hash)!).entries.find(e => e.name === part);
       if (index === parts.length - 1) {
+        if (entry?.page) throw new PageCopy();
         if (!entry?.file || !graph.objects.has(entry.file) || decoder.decode(graph.objects.get(entry.file)!) !== source) throw Error("Copy source changed or crosses a tree boundary");
         return {kind: "basis", path, object: entry.file};
       }
@@ -186,25 +206,31 @@ export function prepareSourceChange(input: {
   const sources = new Map<string, string>([[graph.root, intent.basis.source]]);
   let previousRoot = graph.root, previousSource = intent.basis.source;
   for (const [frame, generation] of generations.entries()) {
-    file = ""; addedBody = undefined;
+    file = ""; bodyStart = 0; addedBody = undefined;
     const root = replace(previousRoot, 0, previousSource, generation.source);
+    // A page's body starts after its frontmatter; edits there are stated over
+    // the body, and an edit of the frontmatter or a copy is a snapshot.
+    if (file && bodyStart && (generation.edits.some(e => e.offset < bodyStart || e.lineage?.length || e.copies?.length) ||
+        generation.moves?.some(m => m.source[0] < bodyStart || m.anchor[0] < bodyStart))) file = "";
+    const shift = (range: [number, number]): [number, number] => [range[0] - bodyStart, range[1] - bodyStart];
     sources.set(root, generation.source);
     const sourceBytes = encoder.encode(previousSource);
     // Moves precede the frame's edits, which address basis bytes wherever the
     // moves put them (`arrangeSources`).
     const moves: SourceOperation[] = file ? (generation.moves ?? []).map((move, i) => ({
       key: `move-${frame}-${i}`, kind: "moveSource" as const,
-      source: { material: { kind: "basis" as const, path: sourcePath, object: file }, range: move.source },
-      at: { material: { kind: "basis" as const, path: sourcePath, object: file }, range: move.anchor }, side: move.side,
+      source: { material: { kind: "basis" as const, path: sourcePath, object: file }, range: shift(move.source) },
+      at: { material: { kind: "basis" as const, path: sourcePath, object: file }, range: shift(move.anchor) }, side: move.side,
     })) : [];
-    let operations: SourceOperation[] = [...moves, ...operationEdits(generation.edits).flatMap((edit, i) => {
+    let operations: SourceOperation[] = [];
+    try { operations = [...moves, ...operationEdits(generation.edits).flatMap((edit, i) => {
       for (const offset of [edit.offset, edit.offset + edit.length]) if (offset < sourceBytes.length && (sourceBytes[offset]! & 0xc0) === 0x80) throw new Error("Source range splits a UTF-8 scalar");
       if (!file) return [];
       const key = `edit-${frame}-${i}`;
       if(edit.length===0 && edit.copies?.length===1 && edit.copies[0]!.replacement[0]===0 && edit.copies[0]!.replacement[1]===encoder.encode(edit.replacement).length) {
         return [{key:`copy-${frame}-${i}-0`,kind:"copySource",source:{material:copyMaterial(edit.copies[0]!, file),range:edit.copies[0]!.source},at:{material:{kind:"basis",path:sourcePath,object:file},range:[edit.offset,edit.offset]},side:"before"} as SourceOperation];
       }
-      const operation:SourceOperation = { kind: "editSource", key, source: { material: { kind: "basis", path: sourcePath, object: file }, range: [edit.offset, edit.offset + edit.length] }, text: edit.replacement, ...(edit.lineage ? {lineage: edit.lineage.map(part => ({source: {material: {kind: "basis" as const, path: sourcePath, object: file}, range: part.source}, range: part.replacement}))} : {}) };
+      const operation:SourceOperation = { kind: "editSource", key, source: { material: { kind: "basis", path: sourcePath, object: file }, range: shift([edit.offset, edit.offset + edit.length]) }, text: edit.replacement, ...(edit.lineage ? {lineage: edit.lineage.map(part => ({source: {material: {kind: "basis" as const, path: sourcePath, object: file}, range: part.source}, range: part.replacement}))} : {}) };
       const result:SourceOperation[]=[operation];
       for(const [j,copy] of (edit.copies??[]).entries()) {
         const target={material:{kind:"operation" as const,change,operation:key},range:copy.replacement};
@@ -212,7 +238,10 @@ export function prepareSourceChange(input: {
         result.push({key:`copy-placeholder-${frame}-${i}-${j}`,kind:"editSource",source:target,text:""});
       }
       return result;
-    })];
+    })]; } catch (error) {
+      // A copy out of a page is stated by a snapshot until copies address bodies.
+      if (!(error instanceof PageCopy)) throw error;
+    }
     // Assigned inside replace(), so read it through its declared type.
     const added = addedBody as AddedBody | undefined;
     if (!file && added)
@@ -227,7 +256,7 @@ export function prepareSourceChange(input: {
   function visit(hash: string, kind: ProtocolObjectKind) {
     if (reachable.has(hash)) return;
     reachable.add(hash);
-    if (kind !== "file") for (const child of protocolObjectReferences(kind, objects.get(hash)!)) visit(child.hash, child.kind);
+    if (!isProtocolContentKind(kind)) for (const child of protocolObjectReferences(kind, objects.get(hash)!)) visit(child.hash, child.kind);
   }
   visit(root, "directory");
   const candidate = verifyTreeSnapshotGraph({ root, objects: new Map([...objects].filter(([hash]) => reachable.has(hash))) }, "sparse-files");
@@ -353,8 +382,8 @@ function creationOperations(paths: string[], graph: TreeSnapshot, candidate: Tre
     if (!path.startsWith("/") || !name) throw Error("Invalid page creation path");
     const parent = walk(graph, parts);
     const added = decodeProtocolDirectory(candidate.objects.get(walk(candidate, parts))!).entries.find(e => e.name === name);
-    const value = added?.file ? {file: added.file} : added?.directory ? {directory: added.directory} : undefined;
-    if (!value) throw Error("Page creation entry is not a file or directory");
+    const value = added?.file ? {file: added.file} : added?.page ? {page: added.page} : added?.directory ? {directory: added.directory} : undefined;
+    if (!value) throw Error("Page creation entry is not a file, page or directory");
     return {key: `add-${index}`, kind: "addEntry", destination: {parent: {material: {kind: "basis", path: parts.length ? "/" + parts.join("/") : "/", object: parent}}, name}, value};
   });
 }
