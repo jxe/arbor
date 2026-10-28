@@ -162,6 +162,7 @@ type RemoteTreeDescriptor = {
     endpoint: string;
     parentTree: TreeID | null;
   } | null;
+  pages?: true;
 };
 
 type EventCursor = string;
@@ -169,6 +170,8 @@ type Hash = `sha256:${string}`;
 ```
 
 The descriptor's `access` summarizes the caller's effective whole-tree access.
+`pages` says the tree accepts page entries and the update that converts its
+Markdown to them ([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity)).
 A caller who cannot read the tree gets no descriptor: the read is `404`.
 Scoped or executable-constrained authority is evaluated by
 [access control](05-access-control.md), not encoded as named mutation permissions.

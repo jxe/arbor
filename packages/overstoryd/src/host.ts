@@ -143,7 +143,7 @@ function overstoryLocator(origin: string, tree: HostTree): string | null {
 }
 
 /** A tree's descriptor at `head`, one of its accepted updates. */
-function descriptor(origin: string, tree: HostTree, access: ReadWriteAccess, head: Pick<AcceptedUpdate, "id" | "root" | "conflicted">): RemoteTreeDescriptor {
+function descriptor(origin: string, tree: HostTree, access: ReadWriteAccess, head: Pick<AcceptedUpdate, "id" | "root" | "conflicted">, pages = false): RemoteTreeDescriptor {
   return {
     id: tree.id,
     kind: tree.kind,
@@ -152,6 +152,7 @@ function descriptor(origin: string, tree: HostTree, access: ReadWriteAccess, hea
     root: head.root as RemoteTreeDescriptor["root"],
     update: head.id,
     conflicted: head.conflicted,
+    ...(pages ? { pages: true as const } : {}),
   };
 }
 
@@ -163,7 +164,7 @@ function descriptorWithUpdate(
 ): RemoteTreeDescriptor {
   const update = overstoryd.currentUpdate(tree.id);
   if (!update) throw new ServerFaultError(`Tree has no accepted update: ${tree.id}`);
-  return descriptor(origin, tree, access, update);
+  return descriptor(origin, tree, access, update, overstoryd.acceptsPages(tree.id));
 }
 
 /**
@@ -367,8 +368,12 @@ export async function serveHost(options: {
   collections?: HostCollectionsOptions;
   /** Session and placement device-key lifetimes; tests shorten them. */
   lifetimes?: Omit<HostDaemonOptions, "servedOverHTTP" | "pages">;
-  /** Accept page entries and conversions to them, and advertise `pages-v1` in health (spec 02 §3). */
-  pages?: boolean;
+  /**
+   * Accept page entries and conversions to them (spec 02 §3), in every tree
+   * or in the trees listed: health advertises `pages-v1`, and those trees'
+   * descriptors say `pages`, which is when a writer's Story Sync converts.
+   */
+  pages?: boolean | readonly string[];
   /**
    * Bound unauthenticated session challenges and pairing claims per caller.
    * Off unless asked for: with one person's devices behind each host, a
@@ -510,7 +515,8 @@ export async function serveHost(options: {
         if (request.method === "GET" && url.pathname === "/.overstory/health") {
           try {
             overstoryd.verifyDatabase();
-            return json({ status: "ok", ...(overstoryd.pages ? { features: ["pages-v1"] } : {}) });
+            const pages = overstoryd.pages === true || (Array.isArray(overstoryd.pages) && overstoryd.pages.length > 0);
+            return json({ status: "ok", ...(pages ? { features: ["pages-v1"] } : {}) });
           } catch (error) {
             console.error("overstoryd database check failed", error);
             return protocolError("internal-error", "Host database check failed", 503, true);

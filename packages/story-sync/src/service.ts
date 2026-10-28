@@ -535,8 +535,11 @@ export class StorySyncDaemon implements AsyncDisposable {
       setSyncState: (state) => this.trees.setSyncState(tree, state),
       setDeclined: (declined) => this.trees.setDeclined(tree, declined),
       withWorkspaceIO: (run) => this.withWorkspaceIO(workspace, run),
-      scan: (tracked, also, basis) => this.scanWorkspace(workspace, this.listings.get(accountKey) ?? [], tracked, also, basis,
-        this.hostFeatures.get(accountKey)?.includes("pages-v1") === true && this.trees.placementFor(tree)?.access === "write"),
+      scan: (tracked, also, basis) => {
+        const listed = this.listings.get(accountKey) ?? [];
+        const remote = listed.find((candidate) => candidate.id === tree);
+        return this.scanWorkspace(workspace, listed, tracked, also, basis, remote?.pages === true && remote.access === "write");
+      },
       root: workspace.root,
       excludedMounts: () => this.trees.excludedMountsWithin(workspace.root),
       refreshListing: async () => {
@@ -582,15 +585,13 @@ export class StorySyncDaemon implements AsyncDisposable {
 
   /** Which directories hold a page, by hash, across every folder's scans. */
   private readonly pageDirectories = new Map<ObjectHash, boolean>();
-  /** What each account's host advertises, read once per sync pass. */
-  private readonly hostFeatures = new Map<string, string[]>();
 
   /**
    * Walk a folder into a lazy graph; index hits read no file bytes until a
    * change needs them. An ignored path is left out unless `tracked` holds it,
    * or when `also` leaves it out. Markdown reads as pages once the root the
-   * folder builds on holds one. `convert` (a writer, on a host with
-   * `pages-v1`) also reads a folder that holds exactly its tracked root as
+   * folder builds on holds one. `convert` (a writer, where the host's
+   * descriptor says the tree takes pages) also reads a folder that holds exactly its tracked root as
    * pages: that scan is the tree's one conversion, an ordinary snapshot the
    * host checks changes no page (spec 02 §3). A folder with local edits
    * publishes them first and converts on a later scan.
@@ -650,7 +651,6 @@ export class StorySyncDaemon implements AsyncDisposable {
             const accountKey = accountKeyOf(placement);
             let listed = remoteTreesByAccount.get(accountKey);
             if (!listed) {
-              this.hostFeatures.set(accountKey, await client.features());
               listed = client.list().then((value) => value.snapshot);
               remoteTreesByAccount.set(accountKey, listed);
             }

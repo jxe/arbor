@@ -140,6 +140,8 @@ export interface RemoteTreeDescriptor extends TreeDescriptor {
   /** The bytes hash of the current accepted tree state: the wire root. */
   root: Hash;
   update: string;
+  /** The tree accepts page entries and a conversion to them (directory format §3). */
+  pages?: true;
 }
 
 /**

@@ -145,8 +145,8 @@ export interface HostDaemonOptions {
   remoteGroupLifetimeMs?: number;
   remoteGroupRefetchMs?: number;
   remoteGroupStaleMs?: number;
-  /** Accept page entries and conversions to them, and advertise `pages-v1` (spec 02 §3). */
-  pages?: boolean;
+  /** Accept page entries and conversions to them (spec 02 §3): in every tree, or in the trees listed. */
+  pages?: boolean | readonly string[];
 }
 
 export interface HostBootstrap {
@@ -384,8 +384,8 @@ export class HostDaemon implements AsyncDisposable {
   /** Background object packing (overstoryd 001). */
   readonly packing: PackMaintenance;
   private disposed = false;
-  /** Whether this host serves `pages-v1`. */
-  readonly pages: boolean = false;
+  /** Where this host serves `pages-v1`: every tree, or the trees listed. */
+  readonly pages: boolean | readonly string[] = false;
   /** Which directories hold pages, kept across updates for the conversion check. */
   private readonly pageDirectories = new Map<ObjectHash, boolean>();
 
@@ -2080,6 +2080,11 @@ export class HostDaemon implements AsyncDisposable {
     return true;
   }
 
+  /** Whether `tree` accepts page entries and a conversion to them. */
+  acceptsPages(tree: string): boolean {
+    return this.pages === true || (Array.isArray(this.pages) && this.pages.includes(tree));
+  }
+
   private async submitCandidateLocked(
     treeID: string,
     baseRoot: ObjectHash,
@@ -2098,7 +2103,7 @@ export class HostDaemon implements AsyncDisposable {
       ? this.treeConfigPolicy(tree, request, baseRoot, caller, proposed)
       : this.ordinaryPolicy(tree, request, caller);
     const { subject } = policy;
-    await checkPageConversion(baseRoot, request.candidate, hash => this.objects.load(hash, proposed), this.pageDirectories, this.pages);
+    await checkPageConversion(baseRoot, request.candidate, hash => this.objects.load(hash, proposed), this.pageDirectories, this.acceptsPages(treeID));
     const execution = this.execution.current;
     if (execution) {
       if (this.currentUpdate(treeID)?.conflicted) throw new PermissionDeniedError("Execution updates of conflicted trees are not allowed until alternative scope validation is available");

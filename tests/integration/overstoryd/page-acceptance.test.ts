@@ -38,7 +38,7 @@ async function submit(update: CandidateUpdate, basis = base) {
 const snapshotUpdate = (candidate: string): CandidateUpdate => ({ change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [], objects: payload() });
 
 /** A host with `note.md` as a Markdown file, before conversion. */
-async function start(pages: boolean) {
+async function start(pages: boolean | string[]) {
   await stop();
   dir = await mkdtemp(`${tmpdir()}/story-page-accept-`);
   running = await serveHost({ dataRoot: dir, accounts: [testAccount("owner", token, { communityWriter: true })],
@@ -122,4 +122,19 @@ test("a host without pages-v1 refuses page entries", async () => {
   expect(await (await fetch(`${running.url}/.overstory/health`)).json()).toEqual({ status: "ok" });
   const converted = convert(fileRoot, pageObject([["title", "A"], ["status", "draft"]], "One\nTwo\n"));
   await expect(submit(snapshotUpdate(converted), update)).rejects.toThrow(/pages-v1/);
+});
+
+test("a host can take pages in the trees it lists only, and says so in their descriptors", async () => {
+  const { fileRoot, update } = await start(["tr_another"]);
+  expect((await client.descriptor(tree)).tree.pages).toBeUndefined();
+  const converted = convert(fileRoot, pageObject([["title", "A"], ["status", "draft"]], "One\nTwo\n"));
+  await expect(submit(snapshotUpdate(converted), update)).rejects.toThrow(/pages-v1/);
+  // The same host restarted with this tree listed.
+  running.server.stop(true); await running.overstoryd[Symbol.asyncDispose]();
+  running = await serveHost({ dataRoot: dir, accounts: [testAccount("owner", token, { communityWriter: true })],
+    publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0, pages: [tree] });
+  client = await deviceClient(running.url, token);
+  expect((await client.descriptor(tree)).tree.pages).toBe(true);
+  const accepted = await submit(snapshotUpdate(converted), update);
+  expect(accepted.root).toBe(converted);
 });

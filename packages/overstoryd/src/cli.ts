@@ -97,6 +97,14 @@ export function serveMaintenance(port: number, hostname: string): ReturnType<typ
 }
 
 /** `OVERSTORYD_TRUSTED_PROXY_HOPS`: how many reverse proxies in front of the listener append to `X-Forwarded-For`; zero when unset. */
+/** `OVERSTORYD_PAGES`: `1` for every tree, or tree IDs separated by commas. */
+function pagesOption(value: string | undefined): boolean | string[] {
+  const trimmed = value?.trim();
+  if (!trimmed) return false;
+  if (trimmed === "1") return true;
+  return trimmed.split(",").map((tree) => tree.trim()).filter(Boolean);
+}
+
 function trustedProxyHops(): number {
   const value = process.env.OVERSTORYD_TRUSTED_PROXY_HOPS?.trim();
   if (!value) return 0;
@@ -219,7 +227,7 @@ export async function serveCommunity(args: string[]): Promise<void> {
       port: requestedPort,
       hostname: hostnameOption(args),
       rateLimits: process.env.OVERSTORYD_RATE_LIMITS === "1",
-      pages: process.env.OVERSTORYD_PAGES === "1",
+      pages: pagesOption(process.env.OVERSTORYD_PAGES),
       trustedProxyHops: trustedProxyHops(),
       storyDownloads: storyDownloads(),
     });

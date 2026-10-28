@@ -109,9 +109,10 @@ A tree written before page entries existed holds its Markdown as `file`
 entries. A writer converts it with one ordinary update that replaces each such
 entry by a `page` entry of the same name, made by parsing the file. An update
 whose basis holds no `page` entry and whose candidate holds one is a
-conversion. A host accepts page entries only when it advertises `pages-v1`
-([locators §5](03-locators.md#5-finding-trees)), and accepts a conversion only
-when each page replaces a Markdown file that reads as it, so the page's model
+conversion. A host accepts page entries only in a tree whose
+[descriptor](01-tree-operations.md#111-reading-the-current-tree) says `pages`, and
+then advertises `pages-v1` ([locators §5](03-locators.md#5-finding-trees)). It
+accepts a conversion only when each page replaces a Markdown file that reads as it, so the page's model
 hash equals the file's and converting changes no page. History keeps the old
 bytes. Since a Markdown file's model hash is that of the page it reads as, a
 conversion meeting concurrent edits merges like any update, and a later edit
@@ -119,8 +120,8 @@ from a writer that has not converted lands as a page.
 
 A placement reads its Markdown as pages once the root it builds on holds a
 `page` entry, and as files before that. A writer converts by reading its
-folder as pages while the folder holds exactly that root and the host
-advertises `pages-v1`; local edits are published first.
+folder as pages while the folder holds exactly that root and the tree's
+descriptor says `pages`; local edits are published first.
 
 A materialized Markdown document may carry an opaque durable `id`. This
 projection historically calls its value a `PageID`; in the common data model it
