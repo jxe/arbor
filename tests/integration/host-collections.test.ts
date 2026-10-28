@@ -17,7 +17,7 @@ import { StorySyncDaemon } from "@ovst/story-sync";
 import { CollectionProjections } from "@ovst/story-sync/state";
 import { serveHost, type HostCollectionsOptions } from "@ovst/overstoryd";
 import { materializeTree, resolveSnapshot, snapshotDirectory } from "@ovst/fs";
-import { HostAccountStore, type MutationCallRequest, type ObjectHash, type QueryStreamRequest } from "@ovst/protocol";
+import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, HostAccountStore, type MutationCallRequest, type ObjectHash, type QueryStreamRequest } from "@ovst/protocol";
 import { node, query, type MutationHandle, type QueryHandle } from "overstory/data";
 import { deviceClient, deviceSession, testAccount, testDevice } from "../helpers/devices.ts";
 
@@ -95,6 +95,11 @@ function dump(path: string): Record<string, unknown[]> {
     const tables = (database.query("select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '\\_\\_arbor%' escape '\\' order by name").all() as Array<{ name: string }>).map((row) => row.name);
     return Object.fromEntries(tables.map((name) => [name, database.query(`select * from "${name}" order by rowid`).all()]));
   } finally { database.close(); }
+}
+
+/** {@link dump}, with each table's rows in key order rather than insertion order. */
+function sortedDump(path: string): Record<string, unknown[]> {
+  return Object.fromEntries(Object.entries(dump(path)).map(([name, rows]) => [name, rows.map((row) => JSON.stringify(row)).sort()]));
 }
 
 /** The events of an open query stream, as they arrive. */
@@ -243,6 +248,84 @@ describe.serial("rows on the host", () => {
       host.overstoryd.submitUpdate = submit;
       host.overstoryd.observedThrough = observed;
     }
+  }, 30_000);
+
+  test("a mutation whose tree moves under it with its collection unchanged is resubmitted without running again", async () => {
+    process.env.STORY_HOME = state;
+    const before = host.overstoryd.acceptedUpdates(tree).length;
+    const submitted: any[] = [];
+    const submit = host.overstoryd.submitUpdate.bind(host.overstoryd);
+    let raced = false;
+    host.overstoryd.submitUpdate = async (id, request, caller) => {
+      submitted.push(request);
+      if (!raced && request.updates[0]?.change.startsWith("mutation-")) {
+        // Another device's edit outside the collection lands first.
+        raced = true;
+        const owner = await deviceClient(host.url, token);
+        const head = await owner.descriptor(tree);
+        const snapshot = await owner.snapshot(tree, head.tree.root);
+        const objects = new Map(snapshot.objects);
+        const rootBytes = objects.get(snapshot.root as ObjectHash)!;
+        const root = decodeProtocolDirectory(rootBytes);
+        const note = new TextEncoder().encode("elsewhere\n");
+        const noteHash = hashObject(note);
+        const next = encodeProtocolDirectory({ ...root, entries: [...root.entries.filter((entry) => entry.name !== "note.md"), { name: "note.md", file: noteHash }].sort((x, y) => x.name < y.name ? -1 : 1) });
+        const nextHash = hashObject(next);
+        const other = await submit(id, { base: head.tree.update, updates: [{ change: `note-${Date.now()}`, candidate: nextHash, trace: null, resolves: [], deltas: [],
+          objects: [{ hash: noteHash, bytes: note }, { hash: nextHash, bytes: next }] }] } as any, caller);
+        expect(other.status).toBe(201);
+      }
+      return submit(id, request, caller);
+    };
+    // Count the handler's runs.
+    const open = [...((host.collections as any).open as Map<string, any>).values()][0];
+    const trial = open.mutations.trial.bind(open.mutations);
+    let runs = 0;
+    open.mutations.trial = (...args: unknown[]) => { runs++; return trial(...args); };
+    try {
+      const made = await mutate({ name: "Made beside a note", visibility: "Private" }, "beside-a-note");
+      expect(made.body).toEqual(expect.objectContaining({ mutationID: "beside-a-note" }));
+    } finally {
+      host.overstoryd.submitUpdate = submit;
+      open.mutations.trial = trial;
+    }
+    expect(runs).toBe(1);
+    const mutations = submitted.filter((request) => request.updates[0]?.change.startsWith("mutation-"));
+    // The first was refused on its guard; the second carries the same change on the note's head.
+    expect(mutations).toHaveLength(2);
+    expect(mutations[1].updates[0].change).toBe(mutations[0].updates[0].change);
+    expect(mutations[1].base).not.toBe(mutations[0].base);
+    expect(mutations[1].updates[0].trace[0].operations).toEqual(mutations[0].updates[0].trace[0].operations);
+    expect(host.overstoryd.acceptedUpdates(tree).length).toBe(before + 2);
+  }, 30_000);
+
+  test("an idle materialization over the disk budget is evicted and rebuilt on its next use", async () => {
+    const collections = host.collections!;
+    const held = sortedDump(materialized());
+    const options = (collections as any).options as HostCollectionsOptions;
+    options.materializedBytes = 0;
+    options.materializedIdleMs = 0;
+    try {
+      // An open stream keeps it.
+      const controller = new AbortController();
+      const stream = await openQuery(host.url, controller);
+      await nextResult(stream);
+      await collections.evictIdle();
+      expect(existsSync(materialized())).toBe(true);
+      controller.abort();
+      await Bun.sleep(50);
+      await collections.evictIdle();
+      expect(existsSync(materialized())).toBe(false);
+    } finally {
+      delete options.materializedBytes;
+      delete options.materializedIdleMs;
+    }
+    const controller = new AbortController();
+    try {
+      const stream = await openQuery(host.url, controller);
+      expect((await nextResult(stream)).value).toEqual({ id: LIST, name: "Neighbors", openToEdits: true });
+    } finally { controller.abort(); }
+    expect(sortedDump(materialized())).toEqual(held);
   }, 30_000);
 
   test("dropping the host's materialization and restarting rebuilds it to the same rows", async () => {

@@ -96,16 +96,6 @@ drag, inline Markdown), row ownership as access policy, and pages that show a co
 elsewhere. Its first customer is the People directory. Moved to soon on 2026-10-25, without the
 site ports, which are Schema language 008 in later.
 
-### Cleanups
-
-What a finished project left behind: old readers to delete, notes to write. Each is small and
-named `cleanup-` and the plan it came from. Smaller leftovers still are in
-[small work](small-work.md).
-
-**[Schema language 005: gaps left in collections that sync](soon/cleanup-schema-language-005-collection-gaps.md).**
-Mixed row and text frames are refused, host materializations are never evicted, and a
-mutation's guard is the whole tree. None blocks People 001.
-
 ## Later
 
 **[Schema language 008: port excellences and supplies-remake to Story](later/schema-language-008-port-excellences-and-supplies.md).**
@@ -247,6 +237,6 @@ Latency, transfer size and storage overhead: take a plan when its stated problem
 measure both the benefit and the cost to correctness, recovery and offline use.
 [Performance 004](later/performance-004-provenance-index.md) and
 [Native 006](when-needed/performance-006-sparse-ios-placement.md) are the plans; the shared
-merge cache and object packing are live, with packing's leftovers in the cleanups above. Client
+merge cache and object packing are live, and packing's leftovers are done. Client
 coalescing also reduces wire traffic but stays with merge work. [Performance ideas](ideas.md#speed)
 collects measured leads that are not yet plans.

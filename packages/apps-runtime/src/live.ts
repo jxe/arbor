@@ -171,6 +171,9 @@ export class LiveQueryBroker implements AsyncDisposable {
 
   currentCursor(): string { return `query:${this.sequence}`; }
 
+  /** How many query streams are open on this broker. */
+  get listening(): number { return this.listeners.size; }
+
   reload(reason: "source-changed" | "access-changed"): void {
     this.publish({ cursor: this.nextCursor(), kind: "reload", reason });
   }

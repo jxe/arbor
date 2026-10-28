@@ -7,7 +7,7 @@
 
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   decodeProtocolDirectory,
@@ -64,8 +64,14 @@ type Read = (hash: ObjectHash) => Promise<Uint8Array>;
 const DATABASE = "_store.sqlite3";
 /** The materialization's own record, which the query engine's introspection ignores (`__arbor_*`). */
 const META = "__arbor_materialized";
-/** How many times a mutation recomputes when the tree moves under it. */
+/** How many times a mutation recomputes when its collection changes under it. */
 const MUTATION_ATTEMPTS = 3;
+/** How many times a mutation's changes are resubmitted, unchanged, on a newer head that left its collection as it was. */
+const MUTATION_REBASES = 16;
+/** The disk the host's materializations may use before idle ones are evicted. */
+const MATERIALIZED_BYTES = 1 << 30;
+/** How long a materialization must go unused before it may be evicted. */
+const MATERIALIZED_IDLE_MS = 15 * 60_000;
 
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 
@@ -167,6 +173,9 @@ export class MaterializedCollection implements AsyncDisposable {
   /** The accepted update the file reflects. */
   get applied(): AcceptedUpdate { return this.current.update; }
 
+  /** Counts the catch-ups that changed the collection's rows or names, so a reader can tell whether what it read still holds. */
+  revision = 0;
+
   /** The bindings of a `node()` root authored as `authoredRoot` to this collection and each of its tables. */
   sources(authoredRoot: string): ResolvedStorySource[] {
     const schemaFingerprint = this.engine.schema.fingerprint;
@@ -226,6 +235,7 @@ export class MaterializedCollection implements AsyncDisposable {
       }
       writeMeta(database, next);
     });
+    if (collection !== this.current.collection) this.revision++;
     this.current = next;
     return true;
   }
@@ -313,6 +323,10 @@ export interface HostCollectionsOptions {
   profiles?: ProfileResolver;
   /** A mutation's logical time; tests fix it. */
   now?: () => Date;
+  /** The disk budget for materializations (default 1 GiB); over it, idle ones are evicted, least recently used first. */
+  materializedBytes?: number;
+  /** How long a materialization goes unused before it counts as idle (default 15 minutes). */
+  materializedIdleMs?: number;
 }
 
 /** The context the host's mutate route gives a mutation: the caller the update is submitted as. */
@@ -335,6 +349,8 @@ export class HostCollections implements AsyncDisposable {
   private readonly stopAccepted: () => void;
   private readonly queries = new Map<string, HostQueryEntry>();
   private readonly mutationEntries = new Map<string, HostMutationEntry>();
+  private readonly used = new Map<string, number>();
+  private readonly sweeper: ReturnType<typeof setInterval>;
 
   constructor(readonly daemon: HostDaemon, readonly dataRoot: string, private readonly options: HostCollectionsOptions = {}) {
     for (const entry of options.queries ?? []) this.queries.set(refKey(entry.ref), entry);
@@ -349,10 +365,15 @@ export class HostCollections implements AsyncDisposable {
     this.stopAccepted = daemon.subscribeAccepted((update) => {
       for (const collection of this.open.values()) {
         if (collection.tree !== update.tree) continue;
-        void this.current(collection.tree, collection.path).catch((error) => console.error("overstoryd collection catch-up failed", error));
+        void this.current(collection.tree, collection.path, false).catch((error) => console.error("overstoryd collection catch-up failed", error));
       }
     });
+    this.sweeper = setInterval(() => void this.evictIdle().catch((error) => console.error("overstoryd collection eviction failed", error)),
+      Math.max(60_000, this.idleMs / 3));
+    this.sweeper.unref?.();
   }
+
+  private get idleMs(): number { return this.options.materializedIdleMs ?? MATERIALIZED_IDLE_MS; }
 
   private readonly read: Read = (hash) => this.daemon.object(hash);
 
@@ -368,9 +389,10 @@ export class HostCollections implements AsyncDisposable {
     return next.finally(() => { if (this.turns.get(key) === next) this.turns.delete(key); });
   }
 
-  /** The collection at `path` in `tree`, caught up to the tree's accepted head. */
-  current(tree: string, path: string): Promise<MaterializedCollection> {
+  /** The collection at `path` in `tree`, caught up to the tree's accepted head. A catch-up after an accepted update doesn't count as use. */
+  current(tree: string, path: string, use = true): Promise<MaterializedCollection> {
     const key = `${tree}\0${path}`;
+    if (use) this.used.set(key, Date.now());
     return this.turn(key, async () => {
       const head = this.daemon.currentUpdate(tree);
       if (!head) throw new MutationCallError({ code: "not-found", message: "The tree has no accepted state", retryable: false });
@@ -382,8 +404,50 @@ export class HostCollections implements AsyncDisposable {
       }
       const opened = await this.materialize(tree, path, head);
       this.open.set(key, opened);
+      void this.evictIdle().catch((error) => console.error("overstoryd collection eviction failed", error));
       return opened;
     });
+  }
+
+  /**
+   * Keep the materializations within their disk budget: while over it, delete
+   * idle ones, least recently used first. A materialization is idle when no
+   * query stream is open on it, nothing is running against it, and it hasn't
+   * been used for the idle time; a file left from before a restart is idle
+   * from its last change. An evicted one is rebuilt on its next use.
+   */
+  async evictIdle(): Promise<void> {
+    const root = join(this.dataRoot, "materialized");
+    const found: Array<{ key: string; directory: string; bytes: number; used: number }> = [];
+    for (const tree of await readdir(root).catch(() => [] as string[])) {
+      for (const name of await readdir(join(root, tree)).catch(() => [] as string[])) {
+        const directory = join(root, tree, name), key = `${tree}\0${decodeURIComponent(name)}`;
+        let bytes = 0, changed = 0;
+        for (const file of await readdir(directory).catch(() => [] as string[])) {
+          const info = await stat(join(directory, file)).catch(() => null);
+          if (info) { bytes += info.size; changed = Math.max(changed, info.mtimeMs); }
+        }
+        found.push({ key, directory, bytes, used: this.used.get(key) ?? changed });
+      }
+    }
+    let total = found.reduce((sum, entry) => sum + entry.bytes, 0);
+    const budget = this.options.materializedBytes ?? MATERIALIZED_BYTES;
+    const idleBefore = Date.now() - this.idleMs;
+    for (const entry of found.filter((candidate) => candidate.used <= idleBefore).sort((a, b) => a.used - b.used)) {
+      if (total <= budget) return;
+      if (this.turns.has(entry.key) || (this.open.get(entry.key)?.live.listening ?? 0) > 0) continue;
+      const evicted = await this.turn(entry.key, async () => {
+        // Used or opened to a stream while waiting for the turn.
+        if ((this.used.get(entry.key) ?? entry.used) > entry.used || (this.open.get(entry.key)?.live.listening ?? 0) > 0) return false;
+        const open = this.open.get(entry.key);
+        this.open.delete(entry.key);
+        if (open) await open[Symbol.asyncDispose]();
+        await rm(entry.directory, { recursive: true, force: true });
+        this.used.delete(entry.key);
+        return true;
+      });
+      if (evicted) total -= entry.bytes;
+    }
   }
 
   /** Open the file left from before when it can catch up, or build it from the accepted rows at `head`. */
@@ -513,36 +577,58 @@ export class HostCollections implements AsyncDisposable {
           return this.settleReceipt(tree, subject, request.mutationID, prepared.requestDigest, landed, JSON.parse(pending.result_json));
         }
       }
+      const revision = collection.revision;
       const trial = await collection.mutations.trial(entry.handle, call, prepared);
-      if (collection.applied.id !== base.id) continue;
+      // A catch-up during the trial that changed the rows: what the handler read may not be base's.
+      if (collection.revision !== revision) continue;
       let accepted: string | null = null;
       if (trial.changes.length) {
-        const candidate = await collection.candidate(base, trial.changes, trial.mutationNow, this.read);
-        const read: Read = async (hash) => candidate.objects.get(hash) ?? this.read(hash);
-        const operations = await deriveRowOperations(base.root, candidate.root, read);
-        if (!operations) throw new MutationCallError({ code: "internal-error", message: "The mutation's changes can't be stated as row operations", retryable: false });
-        this.receipts.query("insert or replace into pending_receipts (tree, subject, mutation_id, request_digest, change, result_json) values (?, ?, ?, ?, ?, ?)")
-          .run(tree, subject, request.mutationID, prepared.requestDigest, change, JSON.stringify(trial.result ?? null));
-        const response = await this.daemon.submitUpdate(tree, {
-          base: base.id,
-          updates: [{
-            change,
-            candidate: candidate.root,
-            ifCurrent: base.id,
-            trace: [{ before: base.root, after: candidate.root, operations }],
-            resolves: [],
-            deltas: [],
-            objects: [...candidate.objects].map(([hash, bytes]) => ({ hash, bytes })),
-          }],
-        }, context.caller);
-        if (response.status === 409) continue;
-        if (!("results" in response.result)) throw new MutationCallError({ code: "conflict", message: response.result.message, retryable: true });
-        accepted = response.result.results.at(-1)!.update.id;
+        // The guard is the collection the handler read (07 §5): an update that
+        // left the collection's directory as it was moves the head, and the same
+        // changes are resubmitted on the new head without running the handler again.
+        let on = base;
+        let rebases = 0;
+        while (accepted === null && rebases++ <= MUTATION_REBASES) {
+          const latest = this.daemon.currentUpdate(tree);
+          if (latest && latest.id !== on.id) {
+            if (!await this.unchangedAt(entry.collection, on, latest)) break;
+            on = latest;
+          }
+          const candidate = await collection.candidate(on, trial.changes, trial.mutationNow, this.read);
+          const read: Read = async (hash) => candidate.objects.get(hash) ?? this.read(hash);
+          const operations = await deriveRowOperations(on.root, candidate.root, read);
+          if (!operations) throw new MutationCallError({ code: "internal-error", message: "The mutation's changes can't be stated as row operations", retryable: false });
+          this.receipts.query("insert or replace into pending_receipts (tree, subject, mutation_id, request_digest, change, result_json) values (?, ?, ?, ?, ?, ?)")
+            .run(tree, subject, request.mutationID, prepared.requestDigest, change, JSON.stringify(trial.result ?? null));
+          const response = await this.daemon.submitUpdate(tree, {
+            base: on.id,
+            updates: [{
+              change,
+              candidate: candidate.root,
+              ifCurrent: on.id,
+              trace: [{ before: on.root, after: candidate.root, operations }],
+              resolves: [],
+              deltas: [],
+              objects: [...candidate.objects].map(([hash, bytes]) => ({ hash, bytes })),
+            }],
+          }, context.caller);
+          if (response.status === 409) continue;
+          if (!("results" in response.result)) throw new MutationCallError({ code: "conflict", message: response.result.message, retryable: true });
+          accepted = response.result.results.at(-1)!.update.id;
+        }
+        if (accepted === null) continue;
         await this.current(tree, entry.collection);
       }
       return this.settleReceipt(tree, subject, request.mutationID, prepared.requestDigest, accepted, trial.result);
     }
     throw new MutationCallError({ code: "conflict", message: "The tree kept changing while the mutation ran", retryable: true });
+  }
+
+  /** Whether the collection directory at `path` is the same object at `later` as at `earlier`: same schema, rows and entries. */
+  private async unchangedAt(path: string, earlier: AcceptedUpdate, later: AcceptedUpdate): Promise<boolean> {
+    const [from, to] = await Promise.all([locate(this.read, earlier.root, path), locate(this.read, later.root, path)]);
+    const [a, b] = [from?.at(-1)?.directory, to?.at(-1)?.directory];
+    return !!a && !!b && stableJSONString(a) === stableJSONString(b);
   }
 
   /** Record a mutation's receipt in place of its pending result, and return it. */
@@ -557,6 +643,7 @@ export class HostCollections implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
+    clearInterval(this.sweeper);
     this.stopAccepted();
     await Promise.allSettled([...this.turns.values()]);
     for (const collection of this.open.values()) await collection[Symbol.asyncDispose]();

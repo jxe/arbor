@@ -37,6 +37,31 @@ Joe reviewed the plans in soon, the ideas and small work, and closed out these:
   claimed-member removal moved to People 001's forks and identity recovery to Security 010;
   the operator-free recovery item and the merge-semantics question were dropped.
 
+## Rows on the host: eviction and a collection-scoped guard — 2026-10-28
+
+Implemented; deployed with the push. The leftovers of Schema language 005
+([collections that sync](#collections-that-sync--2026-10-24)) are closed, and the cleanup plan is deleted.
+
+- **Materializations are evicted.** `HostCollections` keeps its SQLite materializations under
+  a disk budget (1 GiB by default, `materializedBytes`): while over it, it deletes idle ones
+  (no open query stream, nothing running, unused for 15 minutes), least recently used first,
+  including files left from before a restart. It checks after each build and every five
+  minutes; an evicted collection is rebuilt on its next use.
+- **A mutation's guard is its collection.** A mutation is still submitted with `ifCurrent` on
+  the head it read, but when the head moves with the collection's directory unchanged (an
+  edit elsewhere in the tree), overstoryd resubmits the same row changes on the new head
+  instead of running the handler again (07 §5's "guarded by all relevant same-domain
+  dependencies"; no wire change). It reruns only when the collection changed, up to three times.
+- **Mixed row and text traces** stay refused, now a [known gap](#known-gaps).
+- **Query details kept as they are:** a query stream reads one collection; a query's
+  `observedThrough` is the live broker's cursor, not the materialization's applied update;
+  catch-up runs just after a commit, serialized per collection, with readers catching up
+  first. Change them when a query needs it.
+
+Tests: `tests/integration/host-collections.test.ts` (a mutation beside an unrelated edit runs
+its handler once and lands on the edit's head; an idle materialization over budget is
+evicted, kept while a stream is open, and rebuilt to the same rows).
+
 ## Story's version in About — 2026-10-26
 
 Implemented; shows in the next build. A build that isn't a release (the release scripts set
@@ -254,7 +279,7 @@ benchmarks were compared with main: a one-row edit in a 10,000-row
 collection is about 35% slower, because a changed collection is re-encoded
 whole ([Performance 004](plans/later/performance-004-provenance-index.md)
 step 6). Leftovers: publishing USL 0.3.0 and moving the sites ([done](#plans-and-small-work-trimmed--2026-10-28))
-and [the gaps each milestone left](plans/soon/cleanup-schema-language-005-collection-gaps.md).
+and the gaps each milestone left ([closed 2026-10-28](#rows-on-the-host-eviction-and-a-collection-scoped-guard--2026-10-28)).
 The USL examples moved to [`packages/usl/examples`](packages/usl/examples).
 
 ## Schema language layers — 2026-10-24
@@ -1131,6 +1156,7 @@ measurements before broadening the implementation.
 - **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. Retained accepted history starts at migration 016's cut (each tree's head then); document versions and entry dates from before the cut are kept. The log entries of overstoryd 016 hold that history as a hash chain, which a listing can walk. [overstoryd 007](plans/features/history-007-document-history-routes-and-restore.md) owns it.
 - **Compatibility cutoff.** Account configurations are gone (schema 22): clients read only tree configurations, and the readers of the old `account.yaml` / `trees.yaml` remain only in migration 022's `legacy.ts`, deleted with its directory after 2026-10-10. Workspace registries require complete object records and keep path-derived `rt_` root IDs as valid identities (106 on the Mac at the 2026-09-21 cutoff). From the schema-26 cutover, scalar group members are ignored, not read.
 - **Moves made outside Story are not link-healed.** A Rename or Move in the Story app heals links to the page and to everything under it, plus the moved pages' own relative links. A page moved with Finder, `git mv`, an editor or an agent keeps working through its stable key, but readable paths that name it stay stale. Filesystem 025 would have had Story Sync heal those; Joe dropped it on 2026-09-25 as not needed.
+- **Mixed row and text traces.** A change whose trace has row-operation frames and text frames (spec 10 §4.1 allows them as separate frames) is refused by the merge sidecar as unsupported (`rowTrace` in `packages/overstoryd-merge/src/sidecar.ts`). No client sends one; support it before one does. Schema language 002's editor, if it edits a row and a page in one change, is the likely first.
 - **Production recovery, dispute handling, and high availability** are not productized; the deployment guide documents backup, restore, and coordinated upgrades only.
 
 ## Where work is tracked

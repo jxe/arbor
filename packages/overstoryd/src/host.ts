@@ -1128,5 +1128,5 @@ export async function serveHost(options: {
     publicOrigin = `${publicOrigin.slice(0, publicOrigin.lastIndexOf(":"))}:${server.port}`;
   }
   if (dynamicLoopbackOrigin) overstoryd.setCommunityHost(new URL(publicOrigin).host, true);
-  return { overstoryd, server, url: publicOrigin };
+  return { overstoryd, server, url: publicOrigin, collections };
 }

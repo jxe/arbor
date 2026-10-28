@@ -163,6 +163,6 @@ move it to its own plan first.
 
 Not here: browser document hosting, SSR and hydration (Apps 001 and 003); durable
 authoring and workflow semantics (Apps 006); approvals on placement hosts (Apps 008);
-cross-host delegation (Apps 009); the scoped mutation guard (the
-[collection gaps](../soon/cleanup-schema-language-005-collection-gaps.md) cleanup).
+cross-host delegation (Apps 009). The mutation guard is scoped to the collection
+([status](../../status.md#rows-on-the-host-eviction-and-a-collection-scoped-guard--2026-10-28)).
 Never widen authority to get a fixture passing.
