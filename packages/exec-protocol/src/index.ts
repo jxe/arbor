@@ -39,17 +39,6 @@ export interface ExecCollection {
   directory: string;
 }
 
-/** A person's profile card fields, and the profile tree's root they came from. */
-export interface ExecProfile {
-  id: string;
-  name: string;
-  handle: string;
-  portrait: string | null;
-  bio: string | null;
-  tree: string;
-  ref: string;
-}
-
 export interface ExecQueryQuestion {
   id: string;
   kind: "query";
@@ -57,8 +46,8 @@ export interface ExecQueryQuestion {
   input?: unknown;
   viewer: { profile: string } | null;
   collections: ExecCollection[];
-  /** Profiles a previous `need` asked for; null for an ID that is no profile here. */
-  profiles?: Record<string, ExecProfile | null>;
+  /** An execution token for the standard API, for reading the profiles a query reaches; good while the stream that asked is open. */
+  token: string;
   knownOutputHash?: Hash;
 }
 
@@ -103,7 +92,6 @@ export interface ExecReads {
 export type ExecQueryAnswer =
   | { id: string; outputHash: Hash; value: unknown; reads: ExecReads }
   | { id: string; unchanged: true; reads: ExecReads }
-  | { id: string; need: { profiles: string[] } }
   | { id: string; stale: true }
   | { id: string; refusal: ExecPublicError }
   | { id: string; error: { message: string; code?: "limit" | "unavailable" } };
@@ -133,7 +121,6 @@ const id = z.string().min(1);
 const answer = z.union([
   z.object({ id, outputHash: hash, value: z.unknown(), reads }).strict(),
   z.object({ id, unchanged: z.literal(true), reads }).strict(),
-  z.object({ id, need: z.object({ profiles: z.array(z.string()).min(1).max(1000) }).strict() }).strict(),
   z.object({ id, stale: z.literal(true) }).strict(),
   z.object({ id, refusal: publicError }).strict(),
   z.object({ id, error: z.object({ message: z.string(), code: z.enum(["limit", "unavailable"]).optional() }).strict() }).strict(),

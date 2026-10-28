@@ -26,8 +26,8 @@ update through the standard API, and keeps the mutation receipts.
 
 Nothing else is shared. There is no HTTP forwarding, no sidecar-only endpoint on
 overstoryd and no shared credential. For a mutation, the sidecar is a client of the
-standard API with an execution token that lasts for one question; a query needs no
-API at all.
+standard API with an execution token that lasts for one question. A query reads
+the profiles it reaches the same way, with a token that lasts as long as its stream.
 
 ## What the sidecar touches
 
@@ -39,7 +39,8 @@ API at all.
   receipts. It is backed up with the host's data.
 - The standard Overstory API at `--host` (the host's loopback address), with the
   question's execution token: `POST /updates` to submit a mutation's update, the tree
-  descriptor and objects to check where a moved head left the collection.
+  descriptor and objects to check where a moved head left the collection, and profile
+  trees' descriptors and objects for the people a query reaches.
 
 Before Apps 005 step 2, the code is the operator's: the sidecar starts with
 `--handles <module>`, a module exporting `queries` and `mutations` as
@@ -72,13 +73,12 @@ interface ExecQueryQuestion {
   input?: unknown;
   viewer: { profile: string } | null;
   collections: ExecCollection[];
-  profiles?: Record<string, ExecProfile | null>;  // what a `need` asked for
+  token: string;      // reads profiles; lasts while the stream that asked is open
   knownOutputHash?: Hash;
 }
 type ExecQueryAnswer =
   | { id; outputHash: Hash; value: unknown; reads: ExecReads }
   | { id; unchanged: true; reads: ExecReads }
-  | { id; need: { profiles: string[] } }
   | { id; stale: true }
   | { id; refusal: { code; message; retryable } }
   | { id; error: { message; code?: "limit" | "unavailable" } };
@@ -104,9 +104,11 @@ type ExecMutationAnswer =
 - **Reading the right state.** The sidecar compares the file's recorded update with
   `update` before and after it reads. If the file has moved on, it answers `stale`, and
   overstoryd asks again with the newer update.
-- **People.** A query that reads profile cards it wasn't given answers `need` with
-  their IDs. overstoryd asks again with the cards (null for an ID that is no profile
-  here), so a query never calls out.
+- **People.** A query that reaches a person reads their profile tree through the
+  standard API with the question's token: the descriptor names the root, and the root's
+  `_index.md` declares the card (`readRootProfile` in `@ovst/protocol`). A tree the token
+  cannot read, or one that declares no profile type, is no person. Objects are kept by hash,
+  so a re-asked question reads only the descriptor again.
 - **Live queries.** `reads` names the collections and profiles the result depended on.
   When a catch-up changes one of those collections, or a profile tree it read changes,
   overstoryd re-asks with `knownOutputHash` and pushes a whole replacement value, or
@@ -127,13 +129,20 @@ type ExecMutationAnswer =
   503. overstoryd restarts a sidecar that exits, overruns its deadline or writes a line
   that isn't a well-formed answer, and fails every question in flight.
 
-## What execution tokens may submit
+## What execution tokens may read and submit
 
 A token's update is one guarded update, a snapshot or row operations only, with no
 resolutions. Either way its effects are the paths that differ between the head and the
 accepted root, each checked against the token's grants. Until Apps 005 step 1, a
-question's token carries the caller's own authority for the tree, as the routes check
+mutation's token carries the caller's own authority for the tree, as the routes check
 today.
+
+A query stream's token has one grant, over any tree (`ANY_TREE` in
+`execution-authority.ts`): it reads whatever the caller could read, checked at each read
+at the tree it reads, because a query can't know whose profiles it will reach until it
+runs. Such a grant reads only, covers whole trees, and is never lent. overstoryd issues
+it when the stream first asks, issues another only when it has lapsed (ten minutes), and
+revokes it when the stream ends.
 
 ## Keeping the files overstoryd's
 

@@ -18,6 +18,14 @@ import {
 export interface ExecutionGrant extends ResourceCapability {
   lender: string | null;
 }
+
+/**
+ * The tree of a grant that reads any tree: each read is checked as a grant
+ * without a lender at the tree it reads, when it reads. It lets code read
+ * trees nobody could list when its token was issued, such as the profiles a
+ * query reaches, and is never lent and never writes.
+ */
+export const ANY_TREE = "*";
 export interface ExecutionContext {
   code: string;
   version: string;
@@ -69,6 +77,7 @@ export class ExecutionAuthority {
     return (
       this.valid(context) &&
       context.grants.every((g) =>
+        g.tree === ANY_TREE ||
         g.allow.every((op) => this.permits(context, g, g.within, op))
       )
     );
@@ -98,6 +107,13 @@ export class ExecutionAuthority {
     };
     for (const grant of copy.grants) {
       resourcePath(grant.within);
+      if (grant.tree === ANY_TREE) {
+        if (!isTreeID(copy.code) || grant.lender !== null || grant.within !== "/" || grant.allow.length !== 1 || grant.allow[0] !== "read")
+          throw new Error("A grant over any tree reads only, with no lender");
+        Object.freeze(grant.allow);
+        Object.freeze(grant);
+        continue;
+      }
       if (!isTreeID(copy.code) || !isTreeID(grant.tree) || grant.allow.some((op) => !ACCESS_OPERATIONS.includes(op)))
         throw new Error("Invalid execution grant");
       if (grant.lender !== null && !isTreeID(grant.lender))
@@ -150,7 +166,9 @@ export class ExecutionAuthority {
    * every path within it (rules match by scope containment; the ordinary
    * read/write decisions are whole-tree), as a `write` grant's holds for every
    * operation it implies (`write` permits whatever `read` or any other
-   * operation does). So only the grants themselves remain to be matched.
+   * operation does). So only the grants themselves remain to be matched,
+   * except a grant over any tree, whose permission is asked here at the tree
+   * it reads.
    */
   granted(
     tree: string,
@@ -160,9 +178,11 @@ export class ExecutionAuthority {
   ): boolean {
     return context.grants.some(
       (g) =>
-        g.tree === tree &&
-        scopeContains(g.within, path) &&
-        operationAllowed(g.allow, operation)
+        g.tree === ANY_TREE
+          ? operation === "read" && this.permits(context, { ...g, tree }, path, operation)
+          : g.tree === tree &&
+            scopeContains(g.within, path) &&
+            operationAllowed(g.allow, operation)
     );
   }
   canSubmit(tree: string): boolean {

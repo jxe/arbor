@@ -28,6 +28,7 @@ let host: Awaited<ReturnType<typeof serveHost>>;
 let apps: HostCollectionsOptions;
 const document = (id: string) => ({ tree: id, path: "/List", version: "doc-v1" });
 const listName = { module: "/queries.ts", export: "listName", version: "sha256:listName" };
+const listOwner = { module: "/queries.ts", export: "listOwner", version: "sha256:listOwner" };
 const createList = { module: "/MyLists.tsx", export: "createList", version: "sha256:createList" };
 
 const serve = () => serveHost({ dataRoot, accounts: [testAccount("owner", token, { communityWriter: true })],
@@ -115,9 +116,9 @@ async function nextResult(stream: AsyncGenerator<{ event: string; data: any }>):
   }
 }
 
-async function openQuery(origin: string, controller: AbortController) {
+async function openQuery(origin: string, controller: AbortController, handle = listName, input?: unknown) {
   const session = await deviceSession(origin, token);
-  const request: QueryStreamRequest = { document: document(tree), queries: [{ id: "list", handle: { tree, ...listName } }] };
+  const request: QueryStreamRequest = { document: document(tree), queries: [{ id: "list", handle: { tree, ...handle }, ...(input ? { input } : {}) }] };
   const response = await fetch(`${origin}/.overstory/trees/${tree}/queries`, {
     method: "QUERY",
     headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
@@ -202,6 +203,41 @@ describe.serial("rows on the host", () => {
       (directory, object, read) => projections.write(directory, object, read));
     expect(rows(join(other, "supplies", "_store.sqlite3"), sql)).toEqual([created]);
     expect(rows(join(other, "supplies", "_store.sqlite3"))).toEqual(rows(join(folder, "supplies", "_store.sqlite3")));
+  }, 30_000);
+
+  test("a query reads its people's profile cards through the API with its stream's token, and sees a profile edit", async () => {
+    process.env.STORY_HOME = state;
+    const tokens = () => (host.overstoryd.execution as unknown as { tokens: Map<string, unknown> }).tokens.size;
+    const before = tokens();
+    const made = await mutate({ name: "Whose list", visibility: "Private" }, "owned-list");
+    expect(made.status).toBe(200);
+    const id = made.body.result.id as string;
+    const owner = await deviceClient(host.url, token);
+    const profile = (await owner.account()).account.profileTree!;
+    const controller = new AbortController();
+    try {
+      const stream = await openQuery(host.url, controller, listOwner, { id });
+      expect((await nextResult(stream)).value).toEqual({ id, owner: { id: profile, name: "owner", handle: "owner" } });
+      // One token for the stream, however many questions it asks.
+      expect(tokens()).toBe(before + 1);
+
+      // The owner names themselves; the stream's result follows.
+      const current = await owner.descriptor(profile);
+      const snapshot = await owner.snapshot(profile, current.tree.root);
+      const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
+      const index = root.entries.find((entry) => entry.name === "_index.md")!;
+      const text = new TextDecoder().decode(snapshot.objects.get(index.file!)!);
+      const named = new TextEncoder().encode(text.replace(/^displayName: .*$/m, "displayName: Olive Owner"));
+      const file = hashObject(named);
+      const directory = encodeProtocolDirectory({ ...root, entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file } : entry) });
+      await owner.submitUpdate(profile, current.tree.update, { root: hashObject(directory), objects: new Map([...snapshot.objects, [file, named], [hashObject(directory), directory]]) } as never);
+      expect((await nextResult(stream)).value).toEqual({ id, owner: { id: profile, name: "Olive Owner", handle: "owner" } });
+    } finally {
+      controller.abort();
+    }
+    // Revoked when the stream ends.
+    for (let wait = 0; wait < 50 && tokens() > before; wait++) await Bun.sleep(20);
+    expect(tokens()).toBe(before);
   }, 30_000);
 
   test("a retry after the sidecar stopped between the host accepting a mutation and the sidecar writing its receipt is answered from the host's receipt", async () => {

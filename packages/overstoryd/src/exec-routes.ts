@@ -15,14 +15,21 @@ function failed(error: unknown, fallback: string, tree: string): Response {
   return Response.json({ error: "invalid-request", message: error instanceof Error ? error.message : fallback, retryable: false, tree }, { status: 400, headers });
 }
 
-export async function treeQueryResponse(runtime: QueryStreamRuntime, request: Request, tree: string, user: { profile: string } | null): Promise<Response> {
+export async function treeQueryResponse(
+  runtime: QueryStreamRuntime,
+  request: Request,
+  tree: string,
+  user: { profile: string } | null,
+  /** More of the stream's context, for a runtime that uses it (the host passes its caller). */
+  context: Record<string, unknown> = {},
+): Promise<Response> {
   try {
     const input = await request.json() as QueryStreamRequest;
     if (input.document.tree !== tree || input.queries.some((query) => query.handle.tree !== tree)) {
       throw new Error("The route tree must own the document and every query handle");
     }
     const encoder = new TextEncoder();
-    const events: ReadableStream<QueryStreamEvent> = await runtime.stream(input, { signal: request.signal, user });
+    const events: ReadableStream<QueryStreamEvent> = await runtime.stream(input, { ...context, signal: request.signal, user });
     return new Response(events.pipeThrough(new TransformStream<QueryStreamEvent, Uint8Array>({
       transform(event, controller) {
         const { type, ...data } = event;

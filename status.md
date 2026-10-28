@@ -83,8 +83,13 @@ step 4, the boundary Joe settled the same day ([the execution sidecar](docs/arch
   snapshots; their effects are still checked path by path against the token's grants.
 - **Streams re-ask.** The live-query state machine moved from apps-runtime to
   `@ovst/protocol` (`liveQueryStream`), shared by the runtime's brokers and overstoryd. A
-  stream re-asks when a catch-up changes its collection or a profile tree it read changes;
-  people's cards reach a query through a `need` answer rather than a callback.
+  stream re-asks when a catch-up changes its collection or a profile tree it read changes.
+- **Queries read people through the API (Joe, 2026-10-28).** Each query stream gets one
+  execution token, revoked when the stream ends, whose only grant reads any tree as the
+  caller could (`ANY_TREE`; never lent, never writes). The sidecar reads a person's card from
+  their profile tree's descriptor and root `_index.md`, parsed by `readRootProfile`, which
+  moved to `@ovst/protocol`. This replaced an earlier `need` answer, where overstoryd handed
+  the sidecar the cards.
 - **The files stay overstoryd's.** After each mutation overstoryd checks `pragma data_version`
   and rebuilds a file another connection wrote to.
 

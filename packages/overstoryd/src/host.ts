@@ -490,6 +490,7 @@ export async function serveHost(options: {
             request,
             treeID,
             account ? { profile: account.id } : null,
+            { caller: { account, ...(link ? { linkDigest: link } : {}), ...(authentication ? { authentication } : {}) } },
           );
         }
         const mutateRoute = /^\/\.overstory\/trees\/([^/]+)\/mutate$/.exec(url.pathname);

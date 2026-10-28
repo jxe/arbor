@@ -15,6 +15,7 @@ export * from "./model/identifiers.ts";
 export * from "./model/protocol.ts";
 export * from "./model/sse.ts";
 export * from "./model/live-query-stream.ts";
+export * from "./profile-facts.ts";
 export * from "./model/utf8.ts";
 export * from "./model/protocol-error.ts";
 export * from "./model/resource-policy.ts";

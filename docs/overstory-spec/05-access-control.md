@@ -212,6 +212,12 @@ each granted capability with its lender. It can refer
 to authenticated claims or host-private records; its encoding and issuance transport
 are implementation details, not authored data or a durable query-session protocol.
 
+A grant names one tree, except a read grant over any tree, which a host may issue
+when code cannot know in advance which trees it will read (the profiles a query
+reaches, for example). Each read under it is checked at the tree read, as the
+caller's own access with no lender. It never writes, never covers part of a tree,
+and is never lent.
+
 The runtime authenticates host calls with:
 
 ```http

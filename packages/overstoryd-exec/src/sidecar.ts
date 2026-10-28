@@ -3,8 +3,9 @@
 // clients' streams. A query reads a materialization and answers a value. A
 // mutation runs in a transaction on one that always rolls back, and its row
 // changes are committed as a guarded, row-only update through the standard
-// API, with the receipt kept here. Nothing here is overstoryd's: its files are
-// only read, and its API is used like any client's.
+// API, with the receipt kept here. People's profile cards are read through the
+// same API. Nothing here is overstoryd's: its files are only read, and its API
+// is used like any client's.
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Database } from "bun:sqlite";
@@ -12,11 +13,13 @@ import { stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   decodeProtocolDirectory,
+  HANDLE_PATH,
   logicalRowKey,
   outputHash,
   ProtocolClient,
   ProtocolHTTPError,
   ProtocolUpdateConflict,
+  readRootProfile,
   sha256,
   stableJSONString,
   stableKeyFromProperties,
@@ -47,7 +50,6 @@ import {
   type ExecHandleRef,
   type ExecMutationAnswer,
   type ExecMutationQuestion,
-  type ExecProfile,
   type ExecQueryAnswer,
   type ExecQueryQuestion,
   type ExecQuestion,
@@ -85,8 +87,11 @@ const META = "__arbor_materialized";
 const refKey = (ref: ExecHandleRef) => `${ref.module}\0${ref.export}\0${ref.version}`;
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 
-/** A query asked for profiles it wasn't given: the question is answered with `need`. */
-class NeedProfiles extends Error {}
+/** How many profile objects are kept: they are named by hash, so a kept one never goes stale. */
+const PROFILE_OBJECTS = 2048;
+
+/** The host's API failed while a query read a profile: the question can be asked again. */
+class ProfileReadFailure extends Error {}
 
 /** The update a materialization reflects, or null when it has no record. */
 function reflected(path: string): string | null {
@@ -133,8 +138,10 @@ export class ExecSidecar implements AsyncDisposable {
   private readonly opened = new Map<string, Opened>();
   private readonly turns = new Map<string, Promise<unknown>>();
   private readonly receipts: Database;
-  /** The profiles the current question carries, for the engines' shared resolver. */
-  private readonly asked = new AsyncLocalStorage<{ profiles: Record<string, ExecProfile | null>; missing: Set<string> }>();
+  /** The current question's API client, for the engines' shared profile resolver. */
+  private readonly asked = new AsyncLocalStorage<ProtocolClient>();
+  /** Profile roots' directory and `_index.md` objects, by hash. */
+  private readonly profileObjects = new Map<string, Uint8Array>();
 
   constructor(private readonly options: ExecSidecarOptions) {
     for (const entry of options.queries ?? []) this.queries.set(refKey(entry.ref), entry);
@@ -161,24 +168,54 @@ export class ExecSidecar implements AsyncDisposable {
     }
   }
 
-  /** People's card fields from the question, recording any it lacks. */
+  /**
+   * People's card fields, read through the standard API with the question's
+   * token: each profile tree's descriptor names its root, and the root's
+   * `_index.md` declares the card. A tree the token cannot read, or one that
+   * declares no profile type, is no person here.
+   */
   private readonly profiles: ProfileResolver = {
     resolve: async (ids, fields) => {
-      const asked = this.asked.getStore();
-      if (!asked) throw new Error("Profiles were read outside a question");
+      const client = this.asked.getStore();
+      if (!client) throw new Error("Profiles were read outside a question");
       const rows: Record<string, unknown>[] = [], dependencies: Array<{ profile: string; tree: string; ref: string }> = [];
       for (const id of ids) {
-        if (!Object.hasOwn(asked.profiles, id)) { asked.missing.add(id); continue; }
-        const card = asked.profiles[id];
+        const card = await this.profileCard(client, id);
         if (!card) continue;
-        const person: Record<string, unknown> = { ...card };
-        rows.push(Object.fromEntries(fields.map((field) => [field, person[field] ?? null])));
-        dependencies.push({ profile: card.id, tree: card.tree, ref: card.ref });
+        rows.push(Object.fromEntries(fields.map((field) => [field, card.person[field] ?? null])));
+        dependencies.push({ profile: id, tree: id, ref: card.root });
       }
-      if (asked.missing.size) throw new NeedProfiles();
       return { rows, dependencies };
     },
   };
+
+  private async profileCard(client: ProtocolClient, id: string): Promise<{ person: Record<string, unknown>; root: string } | null> {
+    let current;
+    try {
+      current = await client.descriptor(id);
+    } catch (error) {
+      if (error instanceof ProtocolHTTPError && (error.status === 404 || error.status === 403 || error.status === 400)) return null;
+      throw new ProfileReadFailure(error instanceof Error ? error.message : String(error));
+    }
+    const { root } = current.tree;
+    const load = async (hash: ObjectHash): Promise<Uint8Array> => {
+      const kept = this.profileObjects.get(hash);
+      if (kept) return kept;
+      let bytes;
+      try {
+        bytes = await client.object(id as never, hash);
+      } catch (error) {
+        throw new ProfileReadFailure(error instanceof Error ? error.message : String(error));
+      }
+      if (this.profileObjects.size >= PROFILE_OBJECTS) this.profileObjects.delete(this.profileObjects.keys().next().value!);
+      this.profileObjects.set(hash, bytes);
+      return bytes;
+    };
+    const { facts } = await readRootProfile(root, load, { avatar: false });
+    if (!facts.type) return null;
+    const handle = (current.tree.canonical && HANDLE_PATH.exec(current.tree.canonical.path)?.[1]) ?? id;
+    return { person: { id, name: facts.displayName ?? handle, handle, portrait: null, bio: facts.description ?? null }, root };
+  }
 
   /** The materialization a question names, opened for its current file and schema. */
   private async open(collection: ExecCollection): Promise<Opened> {
@@ -227,12 +264,12 @@ export class ExecSidecar implements AsyncDisposable {
     const source = this.sources(opened, collection, entry.authoredRoot).find((candidate) => candidate.authoredPath === entry.handle.source.path);
     if (!source) return { id, refusal: { code: "invalid-request", message: "The query's node() source is not in its collection", retryable: false } };
     opened.engine.bind(entry.handle, source);
-    const asked = { profiles: question.profiles ?? {}, missing: new Set<string>() };
+    const client = new ProtocolClient(this.options.origin, question.token, { timeoutMs: 30_000 });
     let execution;
     try {
-      execution = await this.asked.run(asked, () => opened.engine.execute(entry.handle, { input: question.input, user: question.viewer }));
+      execution = await this.asked.run(client, () => opened.engine.execute(entry.handle, { input: question.input, user: question.viewer }));
     } catch (error) {
-      if (asked.missing.size) return { id, need: { profiles: [...asked.missing].sort() } };
+      if (error instanceof ProfileReadFailure) return { id, error: { message: "A profile could not be read", code: "unavailable" } };
       return { id, refusal: safeQueryError(error) };
     }
     // Caught up while the query ran: what it read may not be the update named.

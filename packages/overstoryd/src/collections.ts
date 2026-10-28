@@ -36,8 +36,9 @@ import {
   type LogicalSchema,
 } from "@ovst/collection-schema";
 import { layoutOf, rowsFromLogical, setupSql, type Table } from "@ovst/usl";
-import type { ExecCollection, ExecHandle, ExecProfile, ExecPublicError, ExecReads } from "@ovst/exec-protocol";
+import type { ExecCollection, ExecHandle, ExecPublicError, ExecReads } from "@ovst/exec-protocol";
 import { ExecProcess, ExecUnavailableError } from "./exec-process.ts";
+import { ANY_TREE } from "./execution-authority.ts";
 import type { HostDaemon, UpdateCaller } from "./overstoryd.ts";
 
 type Row = Record<string, JSONValue>;
@@ -48,6 +49,8 @@ const DATABASE = "_store.sqlite3";
 const META = "__arbor_materialized";
 /** How many times a question is asked again when its collection changes under it. */
 const ATTEMPTS = 5;
+/** How long a query stream's token lasts before the stream is issued another. */
+const QUERY_TOKEN_MS = 10 * 60_000;
 /** The disk the host's materializations may use before idle ones are evicted. */
 const MATERIALIZED_BYTES = 1 << 30;
 /** How long a materialization must go unused before it may be evicted. */
@@ -244,6 +247,13 @@ export interface HostCollectionsOptions {
 
 /** The context the host's mutate route gives a mutation: the caller the update is submitted as. */
 export interface HostMutationContext {
+  user: { profile: string } | null;
+  caller?: UpdateCaller;
+}
+
+/** The context the host's query route gives a stream: the caller whose access its token reads with. */
+export interface HostQueryContext {
+  signal: AbortSignal;
   user: { profile: string } | null;
   caller?: UpdateCaller;
 }
@@ -467,24 +477,13 @@ export class HostCollections implements AsyncDisposable {
     return MaterializedCollection.open(tree, path, directory, applied);
   }
 
-  /** People's card fields as the host's profile cards describe them; null for an ID that is no profile here. */
-  private profileCards(ids: readonly string[]): Record<string, ExecProfile | null> {
-    return Object.fromEntries(ids.map((id) => {
-      if (!this.daemon.get(id)) return [id, null];
-      const card = this.daemon.profileCard(id);
-      const handle = this.daemon.handleForProfile(id) ?? id;
-      return [id, { id, name: card.displayName ?? handle, handle, portrait: null, bio: card.description ?? null, tree: id, ref: this.daemon.currentUpdate(id)?.root ?? "" }];
-    }));
-  }
-
   /** The handle the sidecar runs under this name, from its handshake. */
   private async handle(kind: "queries" | "mutations", ref: { module: string; export: string; version: string }): Promise<ExecHandle | undefined> {
     return (await this.sidecar.handles())[kind].find((candidate) => refKey(candidate) === refKey(ref));
   }
 
   /** One query's current value, asked of the sidecar against the caught-up file. */
-  private async evaluate(tree: string, entry: ExecHandle, mount: { input?: unknown }, user: { profile: string } | null, known: Hash | undefined, signal: AbortSignal): Promise<Evaluation | { unchanged: Hash; reads: ExecReads }> {
-    let profiles: Record<string, ExecProfile | null> = {};
+  private async evaluate(tree: string, entry: ExecHandle, mount: { input?: unknown }, user: { profile: string } | null, token: () => string, known: Hash | undefined, signal: AbortSignal): Promise<Evaluation | { unchanged: Hash; reads: ExecReads }> {
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
       const collection = await this.current(tree, entry.collection);
       const answer = await this.sidecar.ask({
@@ -493,14 +492,10 @@ export class HostCollections implements AsyncDisposable {
         input: mount.input,
         viewer: user,
         collections: [collection.question(entry.authored, this.dataRoot)],
-        ...(Object.keys(profiles).length ? { profiles } : {}),
+        token: token(),
         ...(known ? { knownOutputHash: known } : {}),
       }, signal);
       if ("stale" in answer) continue;
-      if ("need" in answer) {
-        profiles = { ...profiles, ...this.profileCards(answer.need.profiles) };
-        continue;
-      }
       if ("refusal" in answer) throw new ExecRefusal(answer.refusal);
       if ("error" in answer) throw new ExecUnavailableError(answer.error.message);
       if ("unchanged" in answer) return { unchanged: known!, reads: answer.reads };
@@ -532,7 +527,31 @@ export class HostCollections implements AsyncDisposable {
         // The last value the sidecar sent for each mount, so an unchanged answer has one.
         const last = new Map<string, Evaluation>();
         const evaluating = new AbortController();
-        context.signal.addEventListener("abort", () => evaluating.abort(), { once: true });
+        // One token for the stream's questions, so the sidecar can read the
+        // profiles its queries reach with the caller's access; revoked when
+        // the stream ends, and issued again only when it has lapsed.
+        const caller = (context as HostQueryContext).caller;
+        const authentication = caller?.authentication;
+        let token: string | undefined;
+        const streamToken = (): string => {
+          if (token && this.daemon.execution.resolve(token)) return token;
+          if (token) this.daemon.execution.revoke(token);
+          token = this.daemon.execution.issue({
+            code: tree,
+            version: "query",
+            caller: caller?.account?.id ?? null,
+            ...(caller?.linkDigest ? { linkDigest: caller.linkDigest } : {}),
+            subject: `query:${caller?.account?.id ?? "anonymous"}`,
+            expiresAt: Date.now() + QUERY_TOKEN_MS,
+            grants: [{ tree: ANY_TREE, within: "/", allow: ["read"], lender: null }],
+            active: () => !authentication || this.daemon.authenticationIsActive(authentication),
+          });
+          return token;
+        };
+        context.signal.addEventListener("abort", () => {
+          evaluating.abort();
+          if (token) this.daemon.execution.revoke(token);
+        }, { once: true });
         type Mount = typeof mounts[number];
         return liveQueryStream<Evaluation, ExecReads, Change, Mount>(mounts, context, {
           currentCursor: () => `query:${this.sequence}`,
@@ -548,7 +567,7 @@ export class HostCollections implements AsyncDisposable {
           initialSensitivity: () => ({ collections: [{ tree, path }], profiles: [] }),
           execute: async (mount) => {
             const known = last.get(mount.id)?.outputHash ?? mount.knownOutputHash;
-            const answer = await this.evaluate(tree, mount.entry, mount, context.user, known, evaluating.signal);
+            const answer = await this.evaluate(tree, mount.entry, mount, context.user, streamToken, known, evaluating.signal);
             if ("unchanged" in answer) {
               const held = last.get(mount.id);
               return { outputHash: answer.unchanged, value: held?.outputHash === answer.unchanged ? held.value : undefined, reads: answer.reads };
