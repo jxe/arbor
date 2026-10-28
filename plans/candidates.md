@@ -28,8 +28,6 @@ When one is decided, write a plan (or add it to [chores](chores.md)) and delete 
   bounded drain or visible pending state.
 - **Commit native control text before flush** (reverify). If Quagmire can hold text
   outside `StoryDocumentBinding` at background, navigation or close, commit then flush.
-- **Per-key frontmatter conflicts** (reverify). Preserve independent key changes, detect
-  same-key conflicts and deletions.
 - **Provider-specific materialization controls.** Only when one backing can report a
   reliable snapshot, progress, cancellation and failure boundary.
 

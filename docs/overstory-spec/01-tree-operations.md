@@ -70,7 +70,10 @@ In Overstory, records, tables, files, and documents are all ways to read nodes:
 | Executable document or agent | content that has been granted reviewed execution capabilities |
 
 A Markdown page with frontmatter is therefore both a document and a record. A
-folder of such pages can be read as both a directory and a database table.
+folder of such pages can be read as both a directory and a database table. The
+tree holds such a page as a [page object](#pages): its properties and its exact
+content, with no frontmatter bytes. Each placement writes the frontmatter in its
+own spelling.
 
 For representing typed collections, a child set may declare a schema shared by its members. A node whose children share such a schema can be read as a collection. The schema defines member property and content shapes, stable identity, logical naming, relationships, ordering, and constraints.
 
@@ -98,7 +101,9 @@ hash.
 A model hash identifies normalized node state: properties, content, and child
 set, including the child schema and the model hashes of its members. Two
 representations can therefore have different authored bytes and Overstory roots but
-the same model hash. Model hashes prove that decoding different
+the same model hash. A page is the exception that makes the two meet: a page
+object holds only modeled state, so its object hash is its model hash, and two
+placements that spell a page's frontmatter differently hold the same root. Model hashes prove that decoding different
 representations produced equivalent logical state; they do not turn two trees
 with different `TreeID`s into the same tree.
 
@@ -204,7 +209,7 @@ type SnapshotBundle = {
 The response uses `application/cbor` and is the canonical CBOR encoding of
 exactly that map. Each member of `objects` is a CBOR byte string containing the
 exact bytes of one object (raw file bytes, or a canonical CBOR directory,
-table or rows object). Members are ordered
+page, table or rows object). Members are ordered
 lexicographically by the SHA-256 hash derived from those bytes; hashes are not
 repeated in the body.
 
@@ -213,7 +218,7 @@ body. As the top directory object's hash, it transitively commits to every
 reachable object. A client hashes every supplied byte string, rejects duplicate
 hashes, requires the requested root to be a present canonical directory,
 and walks its graph using the kind on each reference. A referenced directory,
-table or rows object must decode canonically; file bytes are never decoded. A
+page, table or rows object must decode canonically; file bytes are never decoded. A
 hash referenced as two kinds in the same graph is invalid. It rejects missing reachable objects and
 unreachable extras, stopping at nested-tree boundaries. The definite-length
 `objects` array supplies the object count; the snapshot carries no tree,
@@ -247,8 +252,8 @@ access. Removing content from the current tree is therefore not erasure from
 retained accepted snapshots or caches.
 
 A file object is its exact file bytes, with no CBOR wrapper. Its object hash
-is `sha256(fileBytes)`. Only directory, table and rows objects are encoded as
-canonical CBOR.
+is `sha256(fileBytes)`. Only directory, page, table and rows objects are
+encoded as canonical CBOR.
 Kind comes from the referencing directory entry; receivers MUST NOT sniff or
 decode file bytes to infer kind. A file may contain bytes that are also a
 valid directory encoding without being interpreted as a directory.
@@ -257,6 +262,7 @@ valid directory encoding without being interpreted as a directory.
 type ProtocolDirectoryEntry =
   | { name: Name; file: Hash }
   | { name: Name; directory: Hash }
+  | { name: Name; page: Hash }
   | { name: Name; tree: TreeID };
 
 type ProtocolDirectory = {
@@ -289,6 +295,13 @@ type LogicalRow = {
   created: string;
   modified: string;
 };
+
+type ProtocolPage = {
+  type: "page";
+  id?: string;                                // the page's stable key
+  properties: [Name, PageValue][];            // in the order they were added
+  body: Uint8Array;                           // exact bytes after the frontmatter
+};
 ```
 
 In a directory object `collection` has exactly these three fields, with
@@ -301,6 +314,37 @@ the nested tree has its own roots, history, and access. `collection`, when
 present, holds the rows of the directory's logical collection; its table and
 rows objects are reached through it, and its validation rules are defined by
 [child backings §2.1](06-child-backings.md#21-what-the-tree-holds).
+
+##### Pages
+
+A `page` entry holds a Markdown page, `.md` or `.mdx`, as logical state
+([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity)
+says which files are pages). The entry keeps the file's name, such as
+`atlas.md` or `_index.md`, so paths, links and locators are the same as for a
+file; only the kind differs.
+
+- `id`, when present, is the page's stable key
+  ([locators §2](03-locators.md#2-stable-keys-revisions-and-fragments)). It is
+  kept across rename and move and is never changed by a property update. It is
+  not a member of `properties`.
+- `properties` is an array of pairs, not a map, because the order in which keys
+  were added is logical state that every placement writes. Names are unique
+  and none is `id`.
+- `body` is everything after the frontmatter's closing `---` line, byte for
+  byte. A page without frontmatter has no properties, and its whole file is its
+  body.
+- An object has exactly the members shown; `id` is a nonempty string when
+  present.
+
+A `PageValue` is a YAML 1.2 core-schema value: `null`, a boolean, a number, a
+string, an array or a map with text keys, or a timestamp. Numbers follow §4.1,
+so `1` and `1.0` are one value. A map's keys are in canonical CBOR order, so
+only the order of top-level properties travels. A timestamp is the one place
+CBOR tags are allowed (§4.1): RFC 8943 tag 1004 around a `YYYY-MM-DD` date
+string, and tag 0 around an RFC 3339 date-time in UTC. A date therefore stays
+distinct from the string `"2026-10-28"`. YAML features with no value
+(anchors, aliases, comments and explicit tags other than timestamps) are not
+part of a page.
 
 An `ObjectEnvelope` is JSON transport packaging for the same canonical object
 bytes when another operation, such as an update request, carries objects inside
@@ -635,9 +679,10 @@ type Decision = {
   affected: Ref[];
   selected: string;
   row?: { model: Name; key: string; field: Name | null };
+  property?: Name;
   alternatives: Array<{
     id: string; revision: string;
-    value: { text: string } | { file: Hash } | { directory: Hash }
+    value: { text: string } | { file: Hash } | { directory: Hash } | { page: Hash }
          | { tree: TreeID } | { absent: true } | { value: JSONValue };
     placement?: EntryDestination;
     contributions: Array<{ change: string; operation: string | null }>;
@@ -695,12 +740,18 @@ kinds or actions may be displayed as unavailable, but cannot authorize invented
 mutation behavior. Core read fields may be extended without changing their meaning.
 
 A `field` decision is a choice about one field of one row of a logical
-collection ([source intent §7.1](10-source-intent.md#71-collection-rows)).
+collection ([source intent §7.1](10-source-intent.md#71-properties)).
 `affected` names the collection's folder, and `row` names the model, the row's
 canonical stable key and the field; `field: null` is a choice about whether
 the row exists. Each alternative's `value` is that field's value, or the whole
 row, with `null` for absent. A client resolves it by writing the chosen value
 with row operations and declaring the resolution.
+
+A `property` decision is the same choice about one property of a page.
+`affected` names the page entry, `property` names the property, and each
+alternative's `value` is that property's value, with `null` for absent. A
+client resolves it with a property operation on the page
+([source intent §4.1](10-source-intent.md#41-property-operations)).
 
 Entry-valued alternatives are read through the ordinary
 [object route](#121-reading-an-object-at-a-time) by the hashes the decision page
@@ -1204,12 +1255,13 @@ The permitted CBOR subset is: `null`; booleans; integers in the safe 53-bit
 range as CBOR integers with minimal-length heads; every other finite number as
 a 64-bit float; UTF-8 text; byte strings; arrays; and maps whose keys are text,
 unique, and ordered by the bytes of their encoded form. Non-finite numbers,
-indefinite lengths, tags, and non-text keys are invalid.
+indefinite lengths, tags, and non-text keys are invalid, except that a page
+object's timestamps use tags 1004 and 0 ([pages](#pages)).
 
 For an Overstory object, the envelope is constructed as follows:
 
 ```text
-objectBytes = fileBytes OR canonicalCBOR(directory)
+objectBytes = fileBytes OR canonicalCBOR(directory | page | table | rows)
 envelope = {
   hash: sha256(objectBytes),
   bytes: paddedBase64(objectBytes)

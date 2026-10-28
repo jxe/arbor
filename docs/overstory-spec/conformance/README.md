@@ -50,7 +50,7 @@ pairings.
 `presented-views.json` binds presented views (plan schema-language/002
 milestone 3): a schema, data-file rows and people's names presented by one
 view, and each view intent with the row operations
-([source intent §4.1](../10-source-intent.md#41-row-operations)) and rows it
+([source intent §4.1](../10-source-intent.md#41-property-operations)) and rows it
 leads to. `@ovst/usl` (`presentView`, `viewEdits`) and StoryKit
 (`PresentedView`) run it; `tests/support/regenerate-presented-views.ts`
 recomputes its expectations from the TypeScript reference.

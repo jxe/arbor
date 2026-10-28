@@ -114,8 +114,8 @@ type OperationRef = { change: string; operation: string };
 
 ## 4. Operations
 
-The target host supports every operation below and the row operations of
-§4.1. Each has required `key` and
+The target host supports every operation below and the property operations
+of §4.1. Each has required `key` and
 `kind` fields. All listed fields are required except `lineage`. References may
 select projected material or alternatives; the reference determines the target,
 so there is no separate `editAlternative` operation.
@@ -128,15 +128,15 @@ so there is no separate `editAlternative` operation.
 | `moveEntry` | `source: Ref, destination: EntryDestination` | Move the same entry/subtree. Result is the relocated entry with retained descendant identities. |
 | `copyEntry` | `source: Ref, destination: EntryDestination` | Create a distinct entry/subtree derived from observed material. Result is the new subtree. |
 | `removeEntry` | `source: Ref` | Remove the observed entry; concurrent modifications remain evidence to reconcile. No material result. |
-| `replaceEntry` | `source: Ref, value: { file: Hash } \| { directory: Hash } \| Ref` | Replace the selected entry's content/subtree while retaining its outer entry identity. Result is the replaced entry. |
-| `addEntry` | `destination: EntryDestination, value: { file: Hash } \| { directory: Hash }` | Create a new entry/subtree under an existing directory; the name MUST be free after the preceding operations. Result is the new entry, whose identity is the operation. |
+| `replaceEntry` | `source: Ref, value: { file: Hash } \| { page: Hash } \| { directory: Hash } \| Ref` | Replace the selected entry's content/subtree while retaining its outer entry identity. Result is the replaced entry. |
+| `addEntry` | `destination: EntryDestination, value: { file: Hash } \| { page: Hash } \| { directory: Hash }` | Create a new entry/subtree under an existing directory; the name MUST be free after the preceding operations. Result is the new entry, whose identity is the operation. |
 
 Undo is not an operation. An editor publishes an undo as the ordinary operations
 that restore the earlier text against the generation being undone, which a frame
 already expresses exactly.
 
 `replaceEntry` supports whole-file/binary and subtree replacement without a text
-payload. A `file` or `directory` value identifies the explicit entry kind and its object supplied
+payload. A `file`, `page` or `directory` value identifies the explicit entry kind and its object supplied
 or reachable under the transport rules. Kind is never inferred from payload bytes.
 Such a value asserts new content, not historical
 lineage. A material value takes the exact content and descendant provenance of a
@@ -147,7 +147,7 @@ in force. `replaceEntry` requires an existing entry in its authored basis.
 
 `addEntry` creates what `replaceEntry` cannot: an entry at an absent name. Its
 `destination.parent` is an entry reference (never ranged) to a live directory, and
-its value is a supplied `file` or `directory` object, never material; adding
+its value is a supplied `file`, `page` or `directory` object, never material; adding
 existing material is `copyEntry`. The value asserts new content with no lineage.
 Two additions of one name in concurrent branches are reconciled like two moves
 into that name: they leave an explicit choice, even when the added bytes match,
@@ -174,39 +174,56 @@ request/object limits. Grammar validation does not establish source reachability
 UTF-8 boundaries in stored objects, candidate correspondence or authorization; the
 authority validates those before acceptance.
 
-### 4.1 Row operations
+### 4.1 Property operations
 
-A [logical collection](06-child-backings.md#2-logical-collections) is edited
-by row, never by the bytes of a projection. Every row operation also has
-`collection: Ref` (an entry reference, never ranged, to the collection's
-folder), `model` (one of its models with data rows) and `row` (the row's
-canonical stable key JSON, such as `[["id","g1"]]`). `field` names one
-declared field of the row; a key field, `created` and `modified` are never
+A row's fields and a page's properties are the same thing in the data model, a
+node's properties, and they are edited the same way: by property, never by the
+bytes of a projection or of frontmatter. Every property operation has a
+`target`:
+
+```ts
+type PropertyTarget =
+  | { collection: Ref; model: Name; row: string }   // a row
+  | { page: Ref };                                   // a page entry
+```
+
+A row target names the collection's folder (an entry reference, never
+ranged), one of its models with data rows, and the row's canonical stable key
+JSON, such as `[["id","g1"]]`; a row has no entry of its own
+([logical collections](06-child-backings.md#2-logical-collections)). A page
+target is an entry reference, never ranged, to a `page` entry. `field` names
+one property: a declared field of the row, or any property name of the page.
+A row's key fields, `created` and `modified`, and a page's `id`, are never
 one.
 
 | `kind` | Fields | Authored meaning |
 | --- | --- | --- |
-| `rowCreate` | `values` | Create the row with these fields. `values` holds the row's key, which MUST equal `row`, and the row MUST be absent. |
-| `rowDelete` | | Delete the row, and every pair of a plain n:m connection that names it. |
-| `rowSet` | `field, before, value` | Set one single-valued field. `before` is the value the author saw and MUST equal the field on the basis; `null` means absent, and a `null` value removes the value. The two differ. |
-| `rowConnect` | `field, member` | Add `member` to a many-valued field: a connection pair or a value-array element. It MUST be absent. In an `ordered` field it goes at the end. |
-| `rowDisconnect` | `field, member` | Remove `member`, which MUST be present. |
-| `rowMove` | `field, member, after` | Place `member` directly after the member `after`, or first when `after` is `null`, in an `ordered` field. Both are present and the order changes. |
+| `rowCreate` | `values` | Create the row with these fields. `values` holds the row's key, which MUST equal `row`, and the row MUST be absent. Row targets only. |
+| `rowDelete` | | Delete the row, and every pair of a plain n:m connection that names it. Row targets only. |
+| `set` | `field, before, value` | Set one single value. `before` is the value the author saw and MUST equal the property on the basis; `null` means absent, and a `null` value removes the property. The two differ. On a page, a new property goes at the end of the order and an existing one keeps its place. |
+| `connect` | `field, member` | Add `member` to a many-valued property: a connection pair, a value-array element, or an element of a page's list property. It MUST be absent. In an `ordered` field, and in any page list, it goes at the end. |
+| `disconnect` | `field, member` | Remove `member`, which MUST be present. |
+| `move` | `field, member, after` | Place `member` directly after the member `after`, or first when `after` is `null`, in an `ordered` field or a page list. Both are present and the order changes. |
 
-A plain n:m connection is one set of pairs, so `rowConnect` and
-`rowDisconnect` on either end's field change the same pair, and two
-operations naming one pair from its two ends are the same fact. `rowMove`
-names the `ordered` end.
+A page is created and removed by `addEntry` and `removeEntry`, and its body is
+edited by `editSource`, `moveSource` and `copySource` addressed to the page,
+whose text is its body.
 
-Every row operation but `rowDelete` has `at`, when the edit was made, as an
-RFC 3339 date-time in UTC with millisecond precision. Replay writes it to the
+A plain n:m connection is one set of pairs, so `connect` and `disconnect` on
+either end's field change the same pair, and two operations naming one pair
+from its two ends are the same fact. `move` names the `ordered` end.
+
+Every property operation but `rowDelete` has `at`, when the edit was made, as
+an RFC 3339 date-time in UTC with millisecond precision. Replay writes it to a
 row's `modified`, and on `rowCreate` to `created` too; nothing else sets them.
-An authority rejects an `at` more than five minutes ahead of its own clock.
+A page has no such times. An authority rejects an `at` more than five minutes
+ahead of its own clock.
 
-A row operation names a row by identity, so concurrent changes to one row
-merge field by field (§7.1). It has no material result to reference.
+A property operation names its node by identity, so concurrent changes to one
+row or page merge property by property (§7.1). It has no material result to
+reference.
 
-The host replays row operations on their frame's basis, deriving the
+The host replays property operations on their frame's basis, deriving the
 resulting tree or checking a stated one (§2.2).
 
 ## 5. Acceptance and explicit resolution
@@ -335,17 +352,19 @@ Required resolution evidence must remain available for the advertised retention
 period; changing a rule must not rewrite it. The storage and retrieval mechanism
 for this evidence is an implementation choice.
 
-### 7.1 Collection rows
+### 7.1 Properties
 
 `collection-fields-v1` merges two changes to one logical collection by row
-identity, then field by field, whether they arrive as row operations or as
-row differences from a snapshot. A row only one side changed takes that side.
-For a row both sides changed:
+identity, then field by field, and `page-properties-v1` merges two changes to
+one page property by property. Both take changes as property operations or as
+differences from a snapshot's basis, and both use the rules below. A row or
+page only one side changed takes that side. For one both sides changed:
 
 - A single value conflicts only when the two set different values.
 - A many-valued field merges per member: removals and additions from both
   sides apply. An addition to an `ordered` field follows the member it
-  follows on its own side.
+  follows on its own side. A page's list property merges as an `ordered`
+  field.
 - An `ordered` field merges as a sequence. If only one side moved members,
   its order holds; when both moved the same member, the later move by `at`
   wins, with a merge note.
@@ -354,9 +373,15 @@ For a row both sides changed:
   else.
 - Times never conflict: `created` keeps current's value and `modified` takes
   the later one.
+- A page property both sides added lands in current's order, followed by the
+  candidate's additions in their order.
 
-A conflict keeps current's value in the accepted rows and becomes a `field`
-decision about that row field ([tree operations §1.2.3](01-tree-operations.md#123-reading-conflicts)),
-with current's value and the candidate's as alternatives. Every other field of
-the row still merges. The merged rows are validated against the schema; a
-result the schema rejects is a conflict on the collection's folder.
+A page's body merges as text, as any Markdown source does, independently of
+its properties.
+
+A conflict keeps current's value in the accepted state. On a row it becomes a
+`field` decision about that row field, and on a page a `property` decision
+about that property ([tree operations §1.2.3](01-tree-operations.md#123-reading-conflicts)),
+with current's value and the candidate's as alternatives. Every other property
+still merges. The merged rows are validated against the schema; a result the
+schema rejects is a conflict on the collection's folder.

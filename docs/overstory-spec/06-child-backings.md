@@ -54,9 +54,9 @@ Reformatting a projected file, or moving a collection from CSV to SQLite at
 one placement, changes nothing in the tree: no update, no history, no hash
 ([data-model equality](01-tree-operations.md#representation-and-model-equality)).
 Updates change collections by row operations
-([source intent §4.1](10-source-intent.md#41-row-operations)); the host
+([source intent §4.1](10-source-intent.md#41-property-operations)); the host
 replays them on the accepted rows, merges by row identity and field
-([source intent §7.1](10-source-intent.md#71-collection-rows)), validates the
+([source intent §7.1](10-source-intent.md#71-properties)), validates the
 complete schema and constraints, and computes the accepted logical hash itself.
 
 An external store such as Postgres ([§4](#4-postgres-and-placement-projections))
@@ -233,7 +233,7 @@ A row's §2.2 form is a map with `key`, `fields`, `created` and `modified`:
   absent, never `null` or empty.
 - **`created`** and **`modified`** are RFC 3339 date-times in UTC with
   millisecond precision. They are stamped from accepted operations' `at`, and
-  never set directly ([source intent §4.1](10-source-intent.md#41-row-operations)).
+  never set directly ([source intent §4.1](10-source-intent.md#41-property-operations)).
 
 Values have one canonical form per type, so no projection's conventions
 reach the tree: `Text` and `Markdown` are UTF-8 strings, `Int` is a CBOR
@@ -265,7 +265,7 @@ update (a `null` trace) that changes a collection is accepted only from a
 caller allowed to `write` the collection's path, and its effects are the row
 differences from its basis. The host validates all keys, references and
 constraints, merges concurrent changes by
-`collection-fields-v1` ([source intent §7.1](10-source-intent.md#71-collection-rows)),
+`collection-fields-v1` ([source intent §7.1](10-source-intent.md#71-properties)),
 encodes the accepted tables, and never trusts a client-supplied fingerprint
 or hash.
 

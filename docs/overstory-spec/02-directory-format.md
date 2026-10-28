@@ -15,10 +15,15 @@ guarantees it advertises.
 
 The directory projection preserves exact authored source in addition to modeled
 state, so its writes match on [bytes hashes](01-tree-operations.md#representation-and-model-equality):
-file bytes and frontmatter spelling/order/comments change the bytes hash even
-when the model hash is unchanged.
+file bytes change the bytes hash even when the model hash is unchanged.
 
-A logical collection is the exception. Its rows are logical state in the
+Pages and logical collections are the exceptions. A Markdown page is a
+[page object](01-tree-operations.md#pages) in the tree: its properties, its
+`id` and its exact body bytes. Its frontmatter is this placement's spelling of
+those properties (§3), so spelling, quoting and comments stay on the placement
+that wrote them, while the body is byte-exact everywhere.
+
+For a logical collection, the rows are logical state in the
 tree, and the files a placement writes for them (`_store.csv`, `<Table>.jsonl`,
 Markdown row files, `_store.sqlite3`) are that placement's own
 [projection](06-child-backings.md#24-projections), outside this byte-exact
@@ -69,26 +74,51 @@ resolves a stale `x.md` spelling to the node `x`.
 
 ## 3. Properties, Markdown content, and identity
 
-Markdown frontmatter is the Markdown provider's authored serialization of node
-properties; the remainder is the node's Markdown content. The property API and
-the Markdown editor therefore address one value rather than parallel record and
-document state. A property mutation rewrites frontmatter through the same exact-
-source concurrency boundary as a body mutation.
+Markdown frontmatter is this projection's spelling of a page's properties; the
+remainder is the page's body. The property API and the Markdown editor
+therefore address one page rather than parallel record and document state.
 
-A [property write](01-tree-operations.md#22-reconciliation-and-exact-state-preconditions) preserves
-the Markdown body exactly. Providers may expose the property and content
-capabilities separately even when both match values currently name the same
-Markdown source bytes. In that shared-byte representation, a successful
-frontmatter-only write changes both capabilities' bytes hashes even though the
-logical Markdown body is byte-for-byte unchanged.
+Every `.md` and `.mdx` file is a page, held as a `page` entry: `_index.md`,
+sibling bodies and every other Markdown file in the projection. An `.mdx`
+page's body is its executable source, and compilation reads its properties
+from the page. A file whose frontmatter doesn't parse as YAML 1.2 stays a
+`file` entry with its exact bytes, and the placement reports
+`unparsed-front-matter`; it becomes a page when a person fixes it. Markdown
+row files of a collection are rows, not pages
+([child backings §2.4.1](06-child-backings.md#241-file-projections)).
+
+A placement reads and writes pages as it does collection files
+([child backings §2.4](06-child-backings.md#24-projections)):
+
+- **Tolerant read.** Any valid edit to the file, by any program, becomes
+  property and body changes against the page last written there.
+- **Minimal write.** Writing an accepted page changes only what changed. A
+  property change from elsewhere is spliced into the frontmatter already on
+  disk, keeping its quoting, comments and key spelling where it can.
+- **Canonical form,** for a page written from nothing: `---`, then `id:` if
+  present, then the properties in stored order as YAML 1.2 block style, then
+  `---` and the body. A page with no `id` and no properties has no frontmatter
+  block.
+- **Normalizing is not changing.** A file whose frontmatter reads back to the
+  page on disk is left as it is, and is no change to the tree.
+
+A [property write](01-tree-operations.md#22-reconciliation-and-exact-state-preconditions) leaves
+the body unchanged, and a body edit leaves the properties unchanged.
+
+A tree written before page entries existed holds its Markdown as `file`
+entries. A writer converts it with one ordinary update that replaces each such
+entry by a `page` entry of the same name, made by parsing the file. The host
+accepts the conversion only when each page's model hash equals that of the
+file it replaces, so converting changes no page. History keeps the old bytes.
 
 A materialized Markdown document may carry an opaque durable `id`. This
 projection historically calls its value a `PageID`; in the common data model it
 is simply the stable key selected by the tree's identity declaration, encoded
 and addressed as [locators](03-locators.md#2-stable-keys-revisions-and-fragments)
-specify. `id`
-remains visible as an ordinary property, but it cannot be changed through an
-ordinary property update and remains stable across rename and move.
+specify. The page object holds it apart from the properties. A placement
+writes it as the first frontmatter key, `id:`, so it still reads as a
+property, but it cannot be changed through an ordinary property update and
+remains stable across rename and move.
 Six-character lowercase values are a legacy convention, not the grammar:
 conforming implementations accept opaque
 non-empty values supported by the protocol.
@@ -102,12 +132,11 @@ title: Atlas
 # Atlas
 ```
 
-Authored Markdown is the canonical exact source for this projection. A client
-may parse it into properties and an interactive content model, but an untouched
-document must round-trip byte-for-byte. Frontmatter ordering, quoting, comments,
-and whitespace are projection concerns even when the modeled properties are
-semantically unchanged. Editor block IDs and caches are neither modeled nor
-authored source.
+A page's body is exact source: an untouched body round-trips byte-for-byte
+through every placement. Frontmatter ordering, quoting, comments and whitespace
+are this placement's concern; the order in which properties were added travels,
+the rest does not. Editor block IDs and caches are neither modeled nor authored
+source.
 
 ## 4. Complete documents for nodes with children
 

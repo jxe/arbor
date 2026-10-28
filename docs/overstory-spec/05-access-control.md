@@ -80,7 +80,11 @@ but not administration, resource delegation, external effects, or raw
 backing credentials. `create-child` permits adding a previously absent child
 and its new content beneath an allowed parent, not overwriting an existing child.
 `update-content` and `update-properties` affect only their respective fields;
-`delete` removes an allowed node. Moves require authority for removal and
+`delete` removes an allowed node. On a page, a property operation
+([source intent §4.1](10-source-intent.md#41-property-operations)) is
+`update-properties` of that page, a body edit is `update-content`, and a
+snapshot that changes a page is judged by its property and body differences,
+so a frontmatter-only change never needs `update-content`. Moves require authority for removal and
 creation and all consequential effects. No narrow operation implies read.
 Providers reject operations they cannot enforce exactly; they never silently
 promote a narrow operation to whole-store write.
