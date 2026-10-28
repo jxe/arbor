@@ -51,6 +51,8 @@
     "@ovst/overstoryd": "workspace:*",
     "@ovst/overstoryd-merge": "workspace:*",
     "@ovst/merge-protocol": "workspace:*",
+    "@ovst/exec-protocol": "workspace:*",
+    "@ovst/overstoryd-exec": "workspace:*",
     "@ovst/tree-merge": "workspace:*",
     "@ovst/apps-runtime": "workspace:*",
     "@ovst/collection-schema": "workspace:*",

@@ -1,0 +1,17 @@
+{
+  "name": "@ovst/overstoryd-exec",
+  "version": "0.1.0",
+  "description": "overstoryd's execution sidecar: runs named queries and mutations against the host's collection materializations, and commits mutations through the standard API.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./cli": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@ovst/apps-runtime": "workspace:*",
+    "@ovst/collection-schema": "workspace:*",
+    "@ovst/exec-protocol": "workspace:*",
+    "@ovst/protocol": "workspace:*",
+    "@ovst/usl": "workspace:*"
+  }
+}

@@ -1,9 +1,11 @@
 // The host's own projection of its trees' collections (Schema language 005
 // milestone 6): one SQLite file per collection, in its schema's database
-// layout, derived from accepted state. Named queries read it; named mutations
-// compute against it and submit what they change as an ordinary update. The
-// files are a cache: never backed up, retained or audited. Deleting one only
-// means the next use rebuilds it, and nothing in it changes what a root means.
+// layout, derived from accepted state. Its execution sidecar (Apps 005 step 4)
+// runs named queries on the files and mutations in rolled-back transactions on
+// them; overstoryd keeps the files, holds the clients' query streams and asks
+// the sidecar again when a file changes. The files are a cache: never backed
+// up, retained or audited. Deleting one only means the next use rebuilds it,
+// and nothing in it changes what a root means.
 
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
@@ -11,51 +13,31 @@ import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   decodeProtocolDirectory,
-  encodeProtocolDirectory,
-  hashObject,
-  logicalRowKey,
-  sha256,
+  liveQueryStream,
   stableJSONString,
   stableKeyFromProperties,
   type AcceptedUpdate,
+  type Hash,
   type JSONValue,
-  type LogicalRow,
   type MutationCallRequest,
   type MutationCallRuntime,
-  type MutationHandleRef,
   type MutationResultReceipt,
   type ObjectHash,
   type ProtocolDirectory,
-  type QueryHandleRef,
   type QueryStreamEvent,
   type QueryStreamRequest,
   type QueryStreamRuntime,
 } from "@ovst/protocol";
 import {
-  deriveRowOperations,
-  encodeCollection,
   loadDirectoryCollection,
   sharedCollectionSchemaCache,
-  sqliteRow,
   toSQLite,
   type CollectionSchema,
   type LogicalSchema,
 } from "@ovst/collection-schema";
-import { layoutOf, logicalFromRows, rowsFromLogical, setupSql, type LogicalTables, type RowsByTable, type Table } from "@ovst/usl";
-import {
-  LiveQueryBroker,
-  MutationCallError,
-  SQLiteMutationBroker,
-  SQLiteQueryEngine,
-  SQLiteStoreBroker,
-  type MountedQuery,
-  type MutationHandle,
-  type OverstoryUser,
-  type ProfileResolver,
-  type QueryHandle,
-  type ResolvedStorySource,
-  type SQLiteRowChange,
-} from "@ovst/apps-runtime";
+import { layoutOf, rowsFromLogical, setupSql, type Table } from "@ovst/usl";
+import type { ExecCollection, ExecHandle, ExecProfile, ExecPublicError, ExecReads } from "@ovst/exec-protocol";
+import { ExecProcess, ExecUnavailableError } from "./exec-process.ts";
 import type { HostDaemon, UpdateCaller } from "./overstoryd.ts";
 
 type Row = Record<string, JSONValue>;
@@ -64,10 +46,8 @@ type Read = (hash: ObjectHash) => Promise<Uint8Array>;
 const DATABASE = "_store.sqlite3";
 /** The materialization's own record, which the query engine's introspection ignores (`__arbor_*`). */
 const META = "__arbor_materialized";
-/** How many times a mutation recomputes when its collection changes under it. */
-const MUTATION_ATTEMPTS = 3;
-/** How many times a mutation's changes are resubmitted, unchanged, on a newer head that left its collection as it was. */
-const MUTATION_REBASES = 16;
+/** How many times a question is asked again when its collection changes under it. */
+const ATTEMPTS = 5;
 /** The disk the host's materializations may use before idle ones are evicted. */
 const MATERIALIZED_BYTES = 1 << 30;
 /** How long a materialization must go unused before it may be evicted. */
@@ -75,74 +55,44 @@ const MATERIALIZED_IDLE_MS = 15 * 60_000;
 
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 
-/** The directories from `root` to the one at `path`, each with the entry name that leads on. */
-async function locate(read: Read, root: ObjectHash, path: string): Promise<Array<{ directory: ProtocolDirectory; name?: string }> | null> {
+/** The directories from `root` to the one at `path`, each with the entry name that leads on, and the last one's hash. */
+async function locate(read: Read, root: ObjectHash, path: string): Promise<{ spine: Array<{ directory: ProtocolDirectory; name?: string }>; hash: ObjectHash } | null> {
   const names = path.split("/").filter(Boolean);
   const spine: Array<{ directory: ProtocolDirectory; name?: string }> = [{ directory: decodeProtocolDirectory(await read(root)) }];
+  let hash = root;
   for (const name of names) {
     const entry = spine.at(-1)!.directory.entries.find((candidate) => candidate.name === name);
     if (!entry?.directory) return null;
     spine.at(-1)!.name = name;
-    spine.push({ directory: decodeProtocolDirectory(await read(entry.directory)) });
+    hash = entry.directory as ObjectHash;
+    spine.push({ directory: decodeProtocolDirectory(await read(hash)) });
   }
-  return spine;
-}
-
-/** A root whose directory at the end of `spine` is `directory`, with every object it adds. */
-function replaceAt(spine: ReadonlyArray<{ directory: ProtocolDirectory; name?: string }>, directory: ProtocolDirectory): { root: ObjectHash; objects: Map<ObjectHash, Uint8Array> } {
-  const objects = new Map<ObjectHash, Uint8Array>();
-  const put = (value: ProtocolDirectory) => {
-    const bytes = encodeProtocolDirectory(value);
-    const hash = hashObject(bytes);
-    objects.set(hash, bytes);
-    return hash;
-  };
-  let hash = put(directory);
-  for (let index = spine.length - 2; index >= 0; index--) {
-    const { directory: parent, name } = spine[index]!;
-    hash = put({ ...parent, entries: parent.entries.map((entry) => entry.name === name ? { name: entry.name, directory: hash } : entry) });
-  }
-  return { root: hash, objects };
+  return { spine, hash };
 }
 
 const schemaEntry = (directory: ProtocolDirectory) => directory.entries.find((entry) => entry.name === "schema.usl")?.file;
 
-/**
- * Times for rows a mutation produced: an unchanged row keeps its times, a
- * changed one keeps `created` and is modified at the mutation's time, and a
- * new one is created then. Row times come from operations (spec 10 §4.1),
- * never from what a handler wrote.
- */
-function stamp(after: LogicalTables, before: LogicalTables, now: string): LogicalTables {
-  const out: LogicalTables = {};
-  for (const [model, rows] of Object.entries(after)) {
-    const prior = new Map((before[model] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow]));
-    out[model] = rows.map((row) => {
-      const was = prior.get(logicalRowKey(row));
-      if (!was) return { ...row, created: now, modified: now };
-      if (stableJSONString(was.fields) === stableJSONString(row.fields)) return { ...row, created: was.created, modified: was.modified };
-      return { ...row, created: was.created, modified: now };
-    });
-  }
-  return out;
-}
-
 /** The rows of the database layout by table and stable key. */
-function keyed(schemas: readonly CollectionSchema[], rows: RowsByTable): Map<string, Map<string, Row>> {
+function keyed(schemas: readonly CollectionSchema[], rows: Record<string, Row[]>): Map<string, Map<string, Row>> {
   return new Map(schemas.map((schema) => [schema.model, new Map((rows[schema.model] ?? [])
     .map((row) => Object.fromEntries(Object.entries(row).filter(([, value]) => value !== undefined && value !== null)) as Row)
     .map((row) => [stableKeyFromProperties(schema.primaryKey, row)!, row]))]));
 }
 
-/** Where a materialization stands: the accepted update it reflects, its schema file and its collection reference. */
+/** Where a materialization stands: the accepted update it reflects, its schema file, its collection reference and directory. */
 interface Applied {
   update: AcceptedUpdate;
   schema: ObjectHash;
   collection: string;
+  directory: ObjectHash;
 }
 
-/** One collection's materialization: its file, the query engine and live broker over it, and its mutation runner. */
+/** One collection's materialization: its file and overstoryd's own connection to it. */
 export class MaterializedCollection implements AsyncDisposable {
+  /** Counts the catch-ups that changed the collection's rows or names, so a reader can tell whether what it read still holds. */
+  revision = 0;
+  private dataVersion: number;
+
   private constructor(
     readonly tree: string,
     readonly path: string,
@@ -150,63 +100,71 @@ export class MaterializedCollection implements AsyncDisposable {
     readonly logical: LogicalSchema,
     readonly layout: Table[],
     readonly schemas: readonly CollectionSchema[],
-    readonly engine: SQLiteQueryEngine,
-    readonly store: SQLiteStoreBroker,
-    readonly live: LiveQueryBroker,
-    readonly mutations: SQLiteMutationBroker,
+    private readonly database: Database,
     private current: Applied,
-  ) {}
+  ) {
+    this.dataVersion = this.version();
+  }
 
-  static async open(tree: string, path: string, directory: string, applied: Applied, profiles: ProfileResolver, now?: () => Date): Promise<MaterializedCollection> {
+  static async open(tree: string, path: string, directory: string, applied: Applied): Promise<MaterializedCollection> {
     const schemaBytes = await Bun.file(join(directory, "schema.usl")).bytes();
     const logical = sharedCollectionSchemaCache.compileLogical(schemaBytes);
     const layout = layoutOf(logical.result, { store: "database" });
     const schemas = sharedCollectionSchemaCache.compileTables(schemaBytes, "database").tables;
     const databasePath = join(directory, DATABASE);
-    const engine = await SQLiteQueryEngine.open({ directory, databasePath, schemaPath: join(directory, "schema.usl"), tree, path }, profiles);
-    const store = new SQLiteStoreBroker(databasePath, engine.schema, { watchExternal: false });
-    const live = new LiveQueryBroker(engine, store);
-    const mutations = new SQLiteMutationBroker(engine.schema, store, { tree, path }, now ? { now } : {});
-    return new MaterializedCollection(tree, path, databasePath, logical, layout, schemas, engine, store, live, mutations, applied);
+    const database = new Database(databasePath, { create: false, strict: true });
+    database.exec("pragma journal_mode = wal");
+    database.exec("pragma busy_timeout = 10000");
+    database.exec("pragma foreign_keys = on");
+    return new MaterializedCollection(tree, path, databasePath, logical, layout, schemas, database, applied);
   }
 
   /** The accepted update the file reflects. */
   get applied(): AcceptedUpdate { return this.current.update; }
 
-  /** Counts the catch-ups that changed the collection's rows or names, so a reader can tell whether what it read still holds. */
-  revision = 0;
+  /** The collection as a question names it to the sidecar. */
+  question(authored: string, dataRoot: string): ExecCollection {
+    return {
+      authored,
+      tree: this.tree,
+      path: this.path,
+      file: this.databasePath.slice(join(dataRoot, "materialized").length + 1),
+      update: this.current.update.id,
+      directory: this.current.directory,
+    };
+  }
 
-  /** The bindings of a `node()` root authored as `authoredRoot` to this collection and each of its tables. */
-  sources(authoredRoot: string): ResolvedStorySource[] {
-    const schemaFingerprint = this.engine.schema.fingerprint;
-    const prefix = this.path === "/" ? "" : this.path;
-    return [
-      { authoredPath: authoredRoot, tree: this.tree, path: this.path, schemaFingerprint },
-      ...Object.values(this.engine.schema.relations).filter((relation) => relation.source === "sqlite").map((relation) => ({
-        authoredPath: `${authoredRoot}/${relation.name}`, tree: this.tree, path: `${prefix}/${relation.name}`, schemaFingerprint,
-      })),
-    ];
+  private version(): number {
+    return (this.database.query("pragma data_version").get() as { data_version: number }).data_version;
+  }
+
+  /** Whether another connection committed to the file since overstoryd last looked: only overstoryd may. */
+  touchedByAnother(): boolean {
+    const now = this.version();
+    const touched = now !== this.dataVersion;
+    this.dataVersion = now;
+    return touched;
   }
 
   /**
    * Bring the file to `head`: unchanged collections only advance the record;
    * changed ones are diffed row by row and applied with it in one
-   * transaction, so live queries see the changed rows. False when the file
-   * can't follow (a new schema, or the collection gone) and must be rebuilt.
+   * transaction. False when the file can't follow (a new schema, or the
+   * collection gone) and must be rebuilt.
    */
   async catchUp(head: AcceptedUpdate, read: Read, retained: (id: string) => AcceptedUpdate | null): Promise<boolean> {
     if (head.id === this.current.update.id) return true;
-    const spine = await locate(read, head.root, this.path);
-    const directory = spine?.at(-1)?.directory;
-    if (!directory?.collection || schemaEntry(directory) !== this.current.schema) return false;
+    const located = await locate(read, head.root, this.path);
+    const directory = located?.spine.at(-1)?.directory;
+    if (!located || !directory?.collection || schemaEntry(directory) !== this.current.schema) return false;
     const collection = stableJSONString(directory.collection);
     const writes: Array<{ schema: CollectionSchema; remove: Row[]; insert: Row[]; update: Row[] }> = [];
     if (collection !== this.current.collection) {
       const was = retained(this.current.update.id);
       const before = was && await locate(read, was.root, this.path);
       if (!before) return false;
-      const rows = async (at: ProtocolDirectory) => keyed(this.schemas, rowsFromLogical(this.logical.result, this.layout, (await loadDirectoryCollection(at, read))!.tables));
-      const [from, to] = [await rows(before.at(-1)!.directory), await rows(directory)];
+      const rows = async (at: ProtocolDirectory) => keyed(this.schemas, rowsFromLogical(this.logical.result, this.layout, (await loadDirectoryCollection(at, read))!.tables) as Record<string, Row[]>);
+      const [from, to] = [await rows(before.spine.at(-1)!.directory), await rows(directory)];
       for (const schema of this.schemas) {
         const left = from.get(schema.model)!, right = to.get(schema.model)!;
         const write = { schema, remove: [] as Row[], insert: [] as Row[], update: [] as Row[] };
@@ -219,59 +177,29 @@ export class MaterializedCollection implements AsyncDisposable {
         if (write.remove.length || write.insert.length || write.update.length) writes.push(write);
       }
     }
-    const next: Applied = { update: head, schema: this.current.schema, collection };
-    await this.store.transactionAsync((database) => {
-      database.exec("pragma defer_foreign_keys = on");
+    const next: Applied = { update: head, schema: this.current.schema, collection, directory: located.hash };
+    this.database.transaction(() => {
+      this.database.exec("pragma defer_foreign_keys = on");
       for (const { schema, remove, insert, update } of writes) {
         const where = schema.primaryKey.map((column) => `${quote(column)} = ?`).join(" and ");
         const key = (row: Row) => schema.primaryKey.map((column) => toSQLite(row[column]));
         const values = (row: Row) => schema.columns.map((column) => toSQLite(row[column]));
-        const removing = database.prepare(`delete from ${quote(schema.model)} where ${where}`);
-        const inserting = database.prepare(`insert into ${quote(schema.model)} (${schema.columns.map(quote).join(", ")}) values (${schema.columns.map(() => "?").join(", ")})`);
-        const updating = database.prepare(`update ${quote(schema.model)} set ${schema.columns.map((column) => `${quote(column)} = ?`).join(", ")} where ${where}`);
-        for (const row of remove) removing.run(...key(row));
-        for (const row of insert) inserting.run(...values(row));
-        for (const row of update) updating.run(...values(row), ...key(row));
+        const removing = this.database.prepare(`delete from ${quote(schema.model)} where ${where}`);
+        const inserting = this.database.prepare(`insert into ${quote(schema.model)} (${schema.columns.map(quote).join(", ")}) values (${schema.columns.map(() => "?").join(", ")})`);
+        const updating = this.database.prepare(`update ${quote(schema.model)} set ${schema.columns.map((column) => `${quote(column)} = ?`).join(", ")} where ${where}`);
+        for (const row of remove) removing.run(...key(row) as never[]);
+        for (const row of insert) inserting.run(...values(row) as never[]);
+        for (const row of update) updating.run(...values(row) as never[], ...key(row) as never[]);
       }
-      writeMeta(database, next);
-    });
+      writeMeta(this.database, next);
+    })();
     if (collection !== this.current.collection) this.revision++;
     this.current = next;
     return true;
   }
 
-  /**
-   * The root a mutation's row changes make from `base`: the collection's rows
-   * there with the changes applied, timed at `now`, in a new collection
-   * reference, and the objects it adds.
-   */
-  async candidate(base: AcceptedUpdate, changes: readonly SQLiteRowChange[], now: string, read: Read): Promise<{ root: ObjectHash; objects: Map<ObjectHash, Uint8Array> }> {
-    const spine = (await locate(read, base.root, this.path))!;
-    const directory = spine.at(-1)!.directory;
-    const collection = (await loadDirectoryCollection(directory, read))!;
-    const rows = keyed(this.schemas, rowsFromLogical(this.logical.result, this.layout, collection.tables));
-    for (const change of changes) {
-      const schema = this.schemas.find((candidate) => candidate.model === change.collection);
-      if (!schema) continue;
-      const byKey = rows.get(schema.model)!;
-      const before = change.before && sqliteRow(schema, change.before);
-      const after = change.after && sqliteRow(schema, change.after);
-      if (before) byKey.delete(stableKeyFromProperties(schema.primaryKey, before)!);
-      if (after) byKey.set(stableKeyFromProperties(schema.primaryKey, after)!, after);
-    }
-    const changed: RowsByTable = Object.fromEntries([...rows].map(([model, byKey]) => [model, [...byKey.values()]]));
-    const tables = stamp(logicalFromRows(this.logical.result, this.layout, changed, { now }), collection.tables, now);
-    const encoded = encodeCollection(this.logical, tables);
-    const replaced = replaceAt(spine, { ...directory, collection: encoded.reference });
-    for (const [hash, bytes] of encoded.objects) replaced.objects.set(hash as ObjectHash, bytes);
-    return replaced;
-  }
-
   async [Symbol.asyncDispose](): Promise<void> {
-    this.live.reload("source-changed");
-    await this.live[Symbol.asyncDispose]();
-    await this.store[Symbol.asyncDispose]();
-    await this.engine[Symbol.asyncDispose]();
+    this.database.close();
   }
 }
 
@@ -280,16 +208,17 @@ function writeMeta(database: Database, applied: Applied): void {
   set.run("update", applied.update.id);
   set.run("schema", applied.schema);
   set.run("collection", applied.collection);
+  set.run("directory", applied.directory);
 }
 
-function readMeta(path: string): { update: string; schema: string; collection: string } | null {
+function readMeta(path: string): { update: string; schema: string; collection: string; directory: string } | null {
   if (!existsSync(path)) return null;
   try {
     const database = new Database(path, { readonly: true });
     try {
       const rows = database.query(`select key, value from ${META}`).all() as Array<{ key: string; value: string }>;
       const meta = Object.fromEntries(rows.map((row) => [row.key, row.value]));
-      return meta.update && meta.schema && meta.collection ? meta as { update: string; schema: string; collection: string } : null;
+      return meta.update && meta.schema && meta.collection && meta.directory ? meta as { update: string; schema: string; collection: string; directory: string } : null;
     } finally {
       database.close();
     }
@@ -298,31 +227,15 @@ function readMeta(path: string): { update: string; schema: string; collection: s
   }
 }
 
-/** A query registered with the host: its handle, the collection it reads, and how its module names that collection. */
-export interface HostQueryEntry {
-  /** The handle's module, export and version; it serves every tree's request for them. */
-  ref: Omit<QueryHandleRef, "tree">;
-  handle: QueryHandle<unknown, unknown>;
-  /** The collection directory's path in the handle's tree. */
-  collection: string;
-  /** The `node()` path the handle's module names the collection by, such as `./data`. */
-  authoredRoot: string;
-}
-
-export interface HostMutationEntry {
-  ref: Omit<MutationHandleRef, "tree">;
-  handle: MutationHandle<unknown, unknown>;
-  collection: string;
-  authoredRoot: string;
-}
-
 export interface HostCollectionsOptions {
-  queries?: readonly HostQueryEntry[];
-  mutations?: readonly HostMutationEntry[];
-  /** Profile fields for queries that read people; by default the host's profile cards. */
-  profiles?: ProfileResolver;
+  /** The module the execution sidecar loads its handles from, until handles are read from trees (Apps 005 step 2). */
+  handles: string;
+  /** How to start the sidecar; by default `bun` running `@ovst/overstoryd-exec`. The host adds its arguments. */
+  command?: readonly string[];
   /** A mutation's logical time; tests fix it. */
   now?: () => Date;
+  /** How long one question may take before the sidecar is restarted (default 30 s). */
+  deadlineMs?: number;
   /** The disk budget for materializations (default 1 GiB); over it, idle ones are evicted, least recently used first. */
   materializedBytes?: number;
   /** How long a materialization goes unused before it counts as idle (default 15 minutes). */
@@ -331,38 +244,58 @@ export interface HostCollectionsOptions {
 
 /** The context the host's mutate route gives a mutation: the caller the update is submitted as. */
 export interface HostMutationContext {
-  user: OverstoryUser | null;
+  user: { profile: string } | null;
   caller?: UpdateCaller;
 }
 
-const refKey = (ref: Omit<QueryHandleRef, "tree">) => `${ref.module}\0${ref.export}\0${ref.version}`;
+/** The sidecar refused a question: an error the caller may see. */
+export class ExecRefusal extends Error {
+  constructor(readonly value: ExecPublicError) {
+    super(value.message);
+    this.name = "ExecRefusal";
+  }
+}
+
+/** What overstoryd tells the streams it holds: a collection's rows changed, a tree a profile card comes from changed, or a file was rebuilt. */
+type Change =
+  | { kind: "collection"; tree: string; path: string }
+  | { kind: "profile"; tree: string }
+  | { kind: "reload"; tree: string; path: string };
+
+/** One evaluation a stream holds: the value, its hash, and what it read. */
+interface Evaluation {
+  outputHash: Hash;
+  value: unknown;
+  reads: ExecReads;
+}
+
+const refKey = (ref: { module: string; export: string; version: string }) => `${ref.module}\0${ref.export}\0${ref.version}`;
 
 /**
- * The host's collection materializations, at `<dataRoot>/materialized/<tree>/<path>/`.
- * Each is built on first use, caught up after every accepted update to its
- * tree, and caught up again before a mutation computes against it.
+ * The host's collection materializations, at `<dataRoot>/materialized/<tree>/<path>/`,
+ * and the execution sidecar that runs queries and mutations on them. Each is
+ * built on first use, caught up after every accepted update to its tree, and
+ * caught up again before a question names it.
  */
 export class HostCollections implements AsyncDisposable {
   private readonly open = new Map<string, MaterializedCollection>();
   private readonly turns = new Map<string, Promise<unknown>>();
-  private readonly receipts: Database;
   private readonly stopAccepted: () => void;
-  private readonly queries = new Map<string, HostQueryEntry>();
-  private readonly mutationEntries = new Map<string, HostMutationEntry>();
   private readonly used = new Map<string, number>();
   private readonly sweeper: ReturnType<typeof setInterval>;
+  /** The streams open on each materialization, as listeners for its changes. */
+  private readonly listeners = new Map<string, Set<(change: Change) => void>>();
+  private sequence = 0;
+  private origin?: string;
+  readonly sidecar: ExecProcess;
+  /** How many times a file was found written by another connection after a mutation; each one was rebuilt. */
+  foreignWrites = 0;
 
-  constructor(readonly daemon: HostDaemon, readonly dataRoot: string, private readonly options: HostCollectionsOptions = {}) {
-    for (const entry of options.queries ?? []) this.queries.set(refKey(entry.ref), entry);
-    for (const entry of options.mutations ?? []) this.mutationEntries.set(refKey(entry.ref), entry);
-    // Receipts are durable, unlike the materializations: a retry after the
-    // response was lost returns the original result.
-    this.receipts = new Database(join(dataRoot, "mutation-receipts.sqlite3"), { create: true, strict: true });
-    this.receipts.exec("pragma journal_mode = wal");
-    this.receipts.exec("create table if not exists receipts (tree text not null, subject text not null, mutation_id text not null, request_digest text not null, update_id text, observed_through text not null, result_json text not null, primary key (tree, subject, mutation_id))");
-    // A mutation's result, written before its update is submitted, so a retry after a stop between acceptance and receipt is answered.
-    this.receipts.exec("create table if not exists pending_receipts (tree text not null, subject text not null, mutation_id text not null, request_digest text not null, change text not null, result_json text not null, primary key (tree, subject, mutation_id))");
+  constructor(readonly daemon: HostDaemon, readonly dataRoot: string, private readonly options: HostCollectionsOptions) {
+    const command = options.command ?? [process.execPath, Bun.resolveSync("@ovst/overstoryd-exec/cli", import.meta.dir)];
+    this.sidecar = new ExecProcess(() => this.command(command), { deadlineMs: options.deadlineMs ?? 30_000 });
     this.stopAccepted = daemon.subscribeAccepted((update) => {
+      this.publishAll({ kind: "profile", tree: update.tree });
       for (const collection of this.open.values()) {
         if (collection.tree !== update.tree) continue;
         void this.current(collection.tree, collection.path, false).catch((error) => console.error("overstoryd collection catch-up failed", error));
@@ -371,6 +304,16 @@ export class HostCollections implements AsyncDisposable {
     this.sweeper = setInterval(() => void this.evictIdle().catch((error) => console.error("overstoryd collection eviction failed", error)),
       Math.max(60_000, this.idleMs / 3));
     this.sweeper.unref?.();
+  }
+
+  /** The host's own address, for the sidecar's standard API calls; set as the host starts listening. */
+  listen(origin: string): void {
+    this.origin = origin;
+  }
+
+  private command(base: readonly string[]): string[] {
+    if (!this.origin) throw new ExecUnavailableError("The host is not listening yet");
+    return [...base, "--handles", this.options.handles, "--materialized", join(this.dataRoot, "materialized"), "--state", join(this.dataRoot, "exec"), "--host", this.origin];
   }
 
   private get idleMs(): number { return this.options.materializedIdleMs ?? MATERIALIZED_IDLE_MS; }
@@ -389,23 +332,54 @@ export class HostCollections implements AsyncDisposable {
     return next.finally(() => { if (this.turns.get(key) === next) this.turns.delete(key); });
   }
 
+  private publish(key: string, change: Change): void {
+    this.sequence++;
+    for (const listener of [...this.listeners.get(key) ?? []]) listener(change);
+  }
+
+  private publishAll(change: Change): void {
+    if (![...this.listeners.values()].some((set) => set.size)) return;
+    this.sequence++;
+    for (const set of this.listeners.values()) for (const listener of [...set]) listener(change);
+  }
+
   /** The collection at `path` in `tree`, caught up to the tree's accepted head. A catch-up after an accepted update doesn't count as use. */
   current(tree: string, path: string, use = true): Promise<MaterializedCollection> {
     const key = `${tree}\0${path}`;
     if (use) this.used.set(key, Date.now());
     return this.turn(key, async () => {
       const head = this.daemon.currentUpdate(tree);
-      if (!head) throw new MutationCallError({ code: "not-found", message: "The tree has no accepted state", retryable: false });
+      if (!head) throw new ExecRefusal({ code: "not-found", message: "The tree has no accepted state", retryable: false });
       const existing = this.open.get(key);
-      if (existing && await existing.catchUp(head, this.read, (id) => this.daemon.update(id))) return existing;
       if (existing) {
+        const revision = existing.revision;
+        if (await existing.catchUp(head, this.read, (id) => this.daemon.update(id))) {
+          if (existing.revision !== revision) this.publish(key, { kind: "collection", tree, path });
+          return existing;
+        }
         this.open.delete(key);
         await existing[Symbol.asyncDispose]();
+        this.publish(key, { kind: "reload", tree, path });
       }
       const opened = await this.materialize(tree, path, head);
       this.open.set(key, opened);
       void this.evictIdle().catch((error) => console.error("overstoryd collection eviction failed", error));
       return opened;
+    });
+  }
+
+  /** After the sidecar used a file: if it wrote to it, which only overstoryd may, rebuild it. */
+  private async verify(collection: MaterializedCollection): Promise<void> {
+    if (!collection.touchedByAnother()) return;
+    this.foreignWrites++;
+    console.error("overstoryd: a materialization was written by another connection, which only overstoryd may do; rebuilding it");
+    const key = `${collection.tree}\0${collection.path}`;
+    await this.turn(key, async () => {
+      if (this.open.get(key) !== collection) return;
+      this.open.delete(key);
+      await collection[Symbol.asyncDispose]();
+      await rm(this.directoryOf(collection.tree, collection.path), { recursive: true, force: true });
+      this.publish(key, { kind: "reload", tree: collection.tree, path: collection.path });
     });
   }
 
@@ -433,12 +407,13 @@ export class HostCollections implements AsyncDisposable {
     let total = found.reduce((sum, entry) => sum + entry.bytes, 0);
     const budget = this.options.materializedBytes ?? MATERIALIZED_BYTES;
     const idleBefore = Date.now() - this.idleMs;
+    const listening = (key: string) => this.listeners.get(key)?.size ?? 0;
     for (const entry of found.filter((candidate) => candidate.used <= idleBefore).sort((a, b) => a.used - b.used)) {
       if (total <= budget) return;
-      if (this.turns.has(entry.key) || (this.open.get(entry.key)?.live.listening ?? 0) > 0) continue;
+      if (this.turns.has(entry.key) || listening(entry.key) > 0) continue;
       const evicted = await this.turn(entry.key, async () => {
         // Used or opened to a stream while waiting for the turn.
-        if ((this.used.get(entry.key) ?? entry.used) > entry.used || (this.open.get(entry.key)?.live.listening ?? 0) > 0) return false;
+        if ((this.used.get(entry.key) ?? entry.used) > entry.used || listening(entry.key) > 0) return false;
         const open = this.open.get(entry.key);
         this.open.delete(entry.key);
         if (open) await open[Symbol.asyncDispose]();
@@ -453,15 +428,15 @@ export class HostCollections implements AsyncDisposable {
   /** Open the file left from before when it can catch up, or build it from the accepted rows at `head`. */
   private async materialize(tree: string, path: string, head: AcceptedUpdate): Promise<MaterializedCollection> {
     const directory = this.directoryOf(tree, path);
-    const spine = await locate(this.read, head.root, path);
-    const located = spine?.at(-1)?.directory;
-    const schema = located && schemaEntry(located);
-    if (!located?.collection || !schema) throw new MutationCallError({ code: "not-found", message: `${path} is not a collection`, retryable: false });
-    const profiles = this.options.profiles ?? this.profileCards();
+    const located = await locate(this.read, head.root, path);
+    const at = located?.spine.at(-1)?.directory;
+    const schema = at && schemaEntry(at);
+    if (!located || !at?.collection || !schema) throw new ExecRefusal({ code: "not-found", message: `${path} is not a collection`, retryable: false });
     const meta = readMeta(join(directory, DATABASE));
     const left = meta?.schema === schema ? this.daemon.update(meta.update) : null;
     if (meta && left && left.tree === tree) {
-      const reopened = await MaterializedCollection.open(tree, path, directory, { update: left, schema, collection: meta.collection }, profiles, this.options.now);
+      const reopened = await MaterializedCollection.open(tree, path, directory,
+        { update: left, schema, collection: meta.collection, directory: meta.directory as ObjectHash });
       if (await reopened.catchUp(head, this.read, (id) => this.daemon.update(id))) return reopened;
       await reopened[Symbol.asyncDispose]();
     }
@@ -472,62 +447,125 @@ export class HostCollections implements AsyncDisposable {
     const logical = sharedCollectionSchemaCache.compileLogical(schemaBytes);
     const layout = layoutOf(logical.result, { store: "database" });
     const schemas = sharedCollectionSchemaCache.compileTables(schemaBytes, "database").tables;
-    const rows = keyed(schemas, rowsFromLogical(logical.result, layout, (await loadDirectoryCollection(located, this.read))!.tables));
-    const applied: Applied = { update: head, schema, collection: stableJSONString(located.collection) };
+    const rows = keyed(schemas, rowsFromLogical(logical.result, layout, (await loadDirectoryCollection(at, this.read))!.tables) as Record<string, Row[]>);
+    const applied: Applied = { update: head, schema, collection: stableJSONString(at.collection), directory: located.hash };
     const database = new Database(join(directory, DATABASE), { create: true, strict: true });
     try {
+      database.exec("pragma journal_mode = wal");
       database.exec(setupSql(layout, "sqlite"));
       database.exec(`create table ${META} (key text primary key, value text not null)`);
       database.transaction(() => {
         for (const schema of schemas) {
           const insert = database.prepare(`insert into ${quote(schema.model)} (${schema.columns.map(quote).join(", ")}) values (${schema.columns.map(() => "?").join(", ")})`);
-          for (const row of rows.get(schema.model)!.values()) insert.run(...schema.columns.map((column) => toSQLite(row[column])));
+          for (const row of rows.get(schema.model)!.values()) insert.run(...schema.columns.map((column) => toSQLite(row[column])) as never[]);
         }
         writeMeta(database, applied);
       })();
     } finally {
       database.close();
     }
-    return MaterializedCollection.open(tree, path, directory, applied, profiles, this.options.now);
+    return MaterializedCollection.open(tree, path, directory, applied);
   }
 
-  /** People as the host's profile cards describe them. */
-  private profileCards(): ProfileResolver {
-    return {
-      resolve: async (ids, fields) => {
-        const rows = ids.filter((id) => this.daemon.get(id)).map((id) => {
-          const card = this.daemon.profileCard(id);
-          const handle = this.daemon.handleForProfile(id) ?? id;
-          const person: Record<string, unknown> = { id, name: card.displayName ?? handle, handle, portrait: null, bio: card.description ?? null };
-          return Object.fromEntries(fields.map((field) => [field, person[field] ?? null]));
-        });
-        return { rows, dependencies: rows.map((row) => ({ profile: String(row.id ?? ""), tree: String(row.id ?? ""), ref: this.daemon.currentUpdate(String(row.id ?? ""))?.root ?? "" })) };
-      },
-    };
+  /** People's card fields as the host's profile cards describe them; null for an ID that is no profile here. */
+  private profileCards(ids: readonly string[]): Record<string, ExecProfile | null> {
+    return Object.fromEntries(ids.map((id) => {
+      if (!this.daemon.get(id)) return [id, null];
+      const card = this.daemon.profileCard(id);
+      const handle = this.daemon.handleForProfile(id) ?? id;
+      return [id, { id, name: card.displayName ?? handle, handle, portrait: null, bio: card.description ?? null, tree: id, ref: this.daemon.currentUpdate(id)?.root ?? "" }];
+    }));
   }
 
-  /** The query runtime the host's `/queries` route serves. */
+  /** The handle the sidecar runs under this name, from its handshake. */
+  private async handle(kind: "queries" | "mutations", ref: { module: string; export: string; version: string }): Promise<ExecHandle | undefined> {
+    return (await this.sidecar.handles())[kind].find((candidate) => refKey(candidate) === refKey(ref));
+  }
+
+  /** One query's current value, asked of the sidecar against the caught-up file. */
+  private async evaluate(tree: string, entry: ExecHandle, mount: { input?: unknown }, user: { profile: string } | null, known: Hash | undefined, signal: AbortSignal): Promise<Evaluation | { unchanged: Hash; reads: ExecReads }> {
+    let profiles: Record<string, ExecProfile | null> = {};
+    for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+      const collection = await this.current(tree, entry.collection);
+      const answer = await this.sidecar.ask({
+        kind: "query",
+        query: { module: entry.module, export: entry.export, version: entry.version },
+        input: mount.input,
+        viewer: user,
+        collections: [collection.question(entry.authored, this.dataRoot)],
+        ...(Object.keys(profiles).length ? { profiles } : {}),
+        ...(known ? { knownOutputHash: known } : {}),
+      }, signal);
+      if ("stale" in answer) continue;
+      if ("need" in answer) {
+        profiles = { ...profiles, ...this.profileCards(answer.need.profiles) };
+        continue;
+      }
+      if ("refusal" in answer) throw new ExecRefusal(answer.refusal);
+      if ("error" in answer) throw new ExecUnavailableError(answer.error.message);
+      if ("unchanged" in answer) return { unchanged: known!, reads: answer.reads };
+      if ("outputHash" in answer) return { outputHash: answer.outputHash, value: answer.value, reads: answer.reads };
+      throw new ExecUnavailableError("The execution sidecar answered a query with a receipt");
+    }
+    throw new ExecUnavailableError("The collection kept changing while the query ran");
+  }
+
+  /** The query runtime the host's `/queries` route serves: overstoryd holds the stream and asks the sidecar again when what a result read changes. */
   queryRuntime(): QueryStreamRuntime {
     return {
       stream: async (request: QueryStreamRequest, context): Promise<ReadableStream<QueryStreamEvent>> => {
-        const entries = request.queries.map((mount) => {
-          const entry = this.queries.get(refKey(mount.handle));
-          if (!entry) throw new Error("A mounted query handle or version is not active");
-          return { mount, entry };
-        });
-        const collections = new Set(entries.map(({ entry }) => entry.collection));
-        if (collections.size !== 1) throw new Error("A query stream reads one collection");
-        const collection = await this.current(request.document.tree, [...collections][0]!);
+        const tree = request.document.tree;
+        if (!Array.isArray(request.queries)) throw new Error("queries must be an array");
         const ids = new Set<string>();
-        const mounts = entries.map(({ mount, entry }): MountedQuery => {
+        const mounts = await Promise.all(request.queries.map(async (mount) => {
           if (!mount.id || ids.has(mount.id)) throw new Error("Mounted query ids must be non-empty and unique");
           ids.add(mount.id);
-          const source = collection.sources(entry.authoredRoot).find((candidate) => candidate.authoredPath === entry.handle.source.path);
-          if (!source) throw new Error("The query's node() source is not in its collection");
-          collection.live.bind(entry.handle, source);
-          return { id: mount.id, tree: mount.handle.tree, handle: entry.handle, input: mount.input, knownOutputHash: mount.knownOutputHash };
+          const entry = await this.handle("queries", mount.handle);
+          if (!entry) throw new Error("A mounted query handle or version is not active");
+          return { id: mount.id, input: mount.input, ...(mount.knownOutputHash ? { knownOutputHash: mount.knownOutputHash } : {}), entry };
+        }));
+        const paths = new Set(mounts.map((mount) => mount.entry.collection));
+        if (paths.size !== 1) throw new Error("A query stream reads one collection");
+        const path = [...paths][0]!;
+        await this.current(tree, path);
+        const key = `${tree}\0${path}`;
+        // The last value the sidecar sent for each mount, so an unchanged answer has one.
+        const last = new Map<string, Evaluation>();
+        const evaluating = new AbortController();
+        context.signal.addEventListener("abort", () => evaluating.abort(), { once: true });
+        type Mount = typeof mounts[number];
+        return liveQueryStream<Evaluation, ExecReads, Change, Mount>(mounts, context, {
+          currentCursor: () => `query:${this.sequence}`,
+          subscribe: (listener) => {
+            const set = this.listeners.get(key) ?? new Set();
+            set.add(listener);
+            this.listeners.set(key, set);
+            return () => {
+              set.delete(listener);
+              if (!set.size && this.listeners.get(key) === set) this.listeners.delete(key);
+            };
+          },
+          initialSensitivity: () => ({ collections: [{ tree, path }], profiles: [] }),
+          execute: async (mount) => {
+            const known = last.get(mount.id)?.outputHash ?? mount.knownOutputHash;
+            const answer = await this.evaluate(tree, mount.entry, mount, context.user, known, evaluating.signal);
+            if ("unchanged" in answer) {
+              const held = last.get(mount.id);
+              return { outputHash: answer.unchanged, value: held?.outputHash === answer.unchanged ? held.value : undefined, reads: answer.reads };
+            }
+            last.set(mount.id, answer);
+            return answer;
+          },
+          sensitivity: (_mount, execution) => execution.reads,
+          relevant: (change, _mount, reads) => change.kind === "reload"
+            || (change.kind === "collection" && (reads?.collections ?? [{ tree, path }]).some((read) => read.tree === change.tree && read.path === change.path))
+            || (change.kind === "profile" && (reads?.profiles ?? []).some((read) => read.tree === change.tree)),
+          result: (execution) => execution.value,
+          outputHash: (execution) => execution.outputHash,
+          safeError: (error) => error instanceof ExecRefusal ? error.value
+            : { code: "unavailable", message: "The query could not be evaluated now", retryable: true },
+          reload: (change) => change.kind === "reload" ? "source-changed" : undefined,
         });
-        return collection.live.stream(mounts, context);
       },
     };
   }
@@ -538,116 +576,66 @@ export class HostCollections implements AsyncDisposable {
   }
 
   /**
-   * Run a named mutation (07 §5): compute against the materialization at the
-   * tree's head U, roll back, and submit the row changes as one update whose
-   * change identity comes from the request digest, guarded on U with
-   * `ifCurrent`. A tree that moved meanwhile catches up and reruns. The
-   * receipt names the accepted update, and an exact retry returns it.
+   * Run a named mutation (07 §5) in the sidecar, against the materialization
+   * caught up to the tree's head, with an execution token carrying the
+   * caller's own authority for this one question. The sidecar submits the
+   * update and keeps the receipt; a collection that moved under it is asked
+   * again.
    */
   async mutate(request: MutationCallRequest, context: HostMutationContext): Promise<MutationResultReceipt> {
-    const entry = this.mutationEntries.get(refKey(request.handle));
-    if (!entry) throw new MutationCallError({ code: "not-found", message: "The mutation handle or version is not active", retryable: false });
-    if (!context.caller) throw new MutationCallError({ code: "permission-denied", message: "A mutation needs a caller who can write the tree", retryable: false });
+    const entry = await this.handle("mutations", request.handle);
+    if (!entry) throw new ExecRefusal({ code: "not-found", message: "The mutation handle or version is not active", retryable: false });
+    const account = context.caller?.account;
+    if (!account) throw new ExecRefusal({ code: "permission-denied", message: "A mutation needs a caller who can write the tree", retryable: false });
     const tree = request.handle.tree;
-    const subject = context.user?.profile ?? "anonymous";
-    for (let attempt = 0; attempt < MUTATION_ATTEMPTS; attempt++) {
+    const authentication = context.caller?.authentication;
+    for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
       const collection = await this.current(tree, entry.collection);
-      const base = collection.applied;
-      const call = { scope: tree, handle: request.handle, mutationID: request.mutationID, input: request.input, user: context.user, sources: collection.sources(entry.authoredRoot) };
-      const prepared = await collection.mutations.prepare(entry.handle, call);
-      const stored = this.receipts.query("select request_digest, update_id, observed_through, result_json from receipts where tree = ? and subject = ? and mutation_id = ?")
-        .get(tree, subject, request.mutationID) as { request_digest: string; observed_through: string; result_json: string } | null;
-      if (stored) {
-        if (stored.request_digest !== prepared.requestDigest) {
-          throw new MutationCallError({ code: "conflict", message: "The mutation identity was already used for different intent", retryable: false });
-        }
-        return { mutationID: request.mutationID, requestDigest: prepared.requestDigest, observedThrough: stored.observed_through, result: JSON.parse(stored.result_json) };
+      const deadline = this.options.deadlineMs ?? 30_000;
+      const token = this.daemon.execution.issue({
+        code: tree,
+        version: request.handle.version,
+        caller: account.id,
+        ...(context.caller?.linkDigest ? { linkDigest: context.caller.linkDigest } : {}),
+        subject: `account:${account.id}`,
+        expiresAt: Date.now() + deadline + 5_000,
+        grants: [{ tree, within: "/", allow: ["read", "write"], lender: null }],
+        active: () => !authentication || this.daemon.authenticationIsActive(authentication),
+      });
+      let answer;
+      try {
+        answer = await this.sidecar.ask({
+          kind: "mutation",
+          tree,
+          mutation: { module: request.handle.module, export: request.handle.export, version: request.handle.version },
+          mutationID: request.mutationID,
+          input: request.input,
+          viewer: context.user,
+          collections: [collection.question(entry.authored, this.dataRoot)],
+          token,
+          now: (this.options.now?.() ?? new Date()).toISOString(),
+        });
+      } finally {
+        this.daemon.execution.revoke(token);
+        await this.verify(collection);
       }
-      const change = `mutation-${sha256(`${tree}\0${subject}\0${request.mutationID}\0${prepared.requestDigest}`).slice(0, 32)}`;
-      const pending = this.receipts.query("select request_digest, result_json from pending_receipts where tree = ? and subject = ? and mutation_id = ?")
-        .get(tree, subject, request.mutationID) as { request_digest: string; result_json: string } | null;
-      if (pending) {
-        if (pending.request_digest !== prepared.requestDigest) {
-          throw new MutationCallError({ code: "conflict", message: "The mutation identity was already used for different intent", retryable: false });
-        }
-        // The host stopped after submitting: the update that carries the change answers the retry.
-        const landed = this.daemon.acceptedChange(tree, change);
-        if (landed) {
-          await this.current(tree, entry.collection);
-          return this.settleReceipt(tree, subject, request.mutationID, prepared.requestDigest, landed, JSON.parse(pending.result_json));
-        }
-      }
-      const revision = collection.revision;
-      const trial = await collection.mutations.trial(entry.handle, call, prepared);
-      // A catch-up during the trial that changed the rows: what the handler read may not be base's.
-      if (collection.revision !== revision) continue;
-      let accepted: string | null = null;
-      if (trial.changes.length) {
-        // The guard is the collection the handler read (07 §5): an update that
-        // left the collection's directory as it was moves the head, and the same
-        // changes are resubmitted on the new head without running the handler again.
-        let on = base;
-        let rebases = 0;
-        while (accepted === null && rebases++ <= MUTATION_REBASES) {
-          const latest = this.daemon.currentUpdate(tree);
-          if (latest && latest.id !== on.id) {
-            if (!await this.unchangedAt(entry.collection, on, latest)) break;
-            on = latest;
-          }
-          const candidate = await collection.candidate(on, trial.changes, trial.mutationNow, this.read);
-          const read: Read = async (hash) => candidate.objects.get(hash) ?? this.read(hash);
-          const operations = await deriveRowOperations(on.root, candidate.root, read);
-          if (!operations) throw new MutationCallError({ code: "internal-error", message: "The mutation's changes can't be stated as row operations", retryable: false });
-          this.receipts.query("insert or replace into pending_receipts (tree, subject, mutation_id, request_digest, change, result_json) values (?, ?, ?, ?, ?, ?)")
-            .run(tree, subject, request.mutationID, prepared.requestDigest, change, JSON.stringify(trial.result ?? null));
-          const response = await this.daemon.submitUpdate(tree, {
-            base: on.id,
-            updates: [{
-              change,
-              candidate: candidate.root,
-              ifCurrent: on.id,
-              trace: [{ before: on.root, after: candidate.root, operations }],
-              resolves: [],
-              deltas: [],
-              objects: [...candidate.objects].map(([hash, bytes]) => ({ hash, bytes })),
-            }],
-          }, context.caller);
-          if (response.status === 409) continue;
-          if (!("results" in response.result)) throw new MutationCallError({ code: "conflict", message: response.result.message, retryable: true });
-          accepted = response.result.results.at(-1)!.update.id;
-        }
-        if (accepted === null) continue;
-        await this.current(tree, entry.collection);
-      }
-      return this.settleReceipt(tree, subject, request.mutationID, prepared.requestDigest, accepted, trial.result);
+      if ("stale" in answer) continue;
+      if ("refusal" in answer) throw new ExecRefusal(answer.refusal);
+      if ("error" in answer) throw new ExecUnavailableError(answer.error.message);
+      if (!("receipt" in answer)) throw new ExecUnavailableError("The execution sidecar answered a mutation with a query result");
+      // Reads after the receipt see the accepted rows.
+      await this.current(tree, entry.collection);
+      return answer.receipt;
     }
-    throw new MutationCallError({ code: "conflict", message: "The tree kept changing while the mutation ran", retryable: true });
-  }
-
-  /** Whether the collection directory at `path` is the same object at `later` as at `earlier`: same schema, rows and entries. */
-  private async unchangedAt(path: string, earlier: AcceptedUpdate, later: AcceptedUpdate): Promise<boolean> {
-    const [from, to] = await Promise.all([locate(this.read, earlier.root, path), locate(this.read, later.root, path)]);
-    const [a, b] = [from?.at(-1)?.directory, to?.at(-1)?.directory];
-    return !!a && !!b && stableJSONString(a) === stableJSONString(b);
-  }
-
-  /** Record a mutation's receipt in place of its pending result, and return it. */
-  private settleReceipt(tree: string, subject: string, mutationID: string, requestDigest: MutationResultReceipt["requestDigest"], update: string | null, result: unknown): MutationResultReceipt {
-    const receipt: MutationResultReceipt = { mutationID, requestDigest, observedThrough: this.daemon.observedThrough(tree), result };
-    this.receipts.transaction(() => {
-      this.receipts.query("insert into receipts (tree, subject, mutation_id, request_digest, update_id, observed_through, result_json) values (?, ?, ?, ?, ?, ?, ?)")
-        .run(tree, subject, mutationID, requestDigest, update, receipt.observedThrough, JSON.stringify(result ?? null));
-      this.receipts.query("delete from pending_receipts where tree = ? and subject = ? and mutation_id = ?").run(tree, subject, mutationID);
-    })();
-    return receipt;
+    throw new ExecUnavailableError("The tree kept changing while the mutation ran");
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
     clearInterval(this.sweeper);
     this.stopAccepted();
+    await this.sidecar[Symbol.asyncDispose]();
     await Promise.allSettled([...this.turns.values()]);
     for (const collection of this.open.values()) await collection[Symbol.asyncDispose]();
     this.open.clear();
-    this.receipts.close();
   }
 }
