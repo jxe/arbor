@@ -1,5 +1,5 @@
 import { cloneState, copy, loadState, lookup, own, retainState, same, shareState, since, union, viewState, type RetainedState, type RetainedStates } from "./retained-state.ts";
-import { isRowOperation, stableJSONString } from "@ovst/protocol";
+import { isPropertyOperation, stableJSONString } from "@ovst/protocol";
 import {
   decodeProtocolDirectory,
   decodeProtocolPage,
@@ -1060,9 +1060,9 @@ class Engine {
       before: Record<string, Node> = validatedBasisObject ? Object.create(null) : clone(state.nodes);
     if (Object.hasOwn(state.effects, key))
       return fail("Operation identity reused");
-    // Row operations are evaluated by the row merge, never by this engine.
-    if (isRowOperation(operation))
-      throw new MergeRefusal("unsupported", "Row operations are not evaluated here");
+    // Property operations are evaluated by the property merges, never by this engine.
+    if (isPropertyOperation(operation))
+      throw new MergeRefusal("unsupported", "Property operations are not evaluated here");
     let result: Material | undefined;
     if (
       operation.kind === "editSource" ||
@@ -3497,8 +3497,8 @@ export async function checkpointIntent(
   const continuations: Array<{ decision: IntentDecision; apply: () => Promise<void> }> = [];
   for (const decision of state.decisions) {
     if (decision.context) continue;
-    // A field choice stays open, about its values, until it is resolved.
-    if (decision.kind === "field") continue;
+    // A field or property choice stays open, about its values, until it is resolved.
+    if (decision.kind === "field" || decision.kind === "property") continue;
     if (decision.placement) {
       const node = state.nodes[decision.placement.node];
       if (node?.active && node.pieces) {
@@ -3616,20 +3616,21 @@ export async function checkpointIntent(
   };
   for (const input of request.decisions) {
     if (stateKeys.has(input.key)) continue;
-    if (input.field && input.path) {
-      // A field choice: alternatives are value objects, outside the node graph.
+    if ((input.field || input.property) && input.path) {
+      // A field or property choice: alternatives are value objects, outside
+      // the node graph.
       const context = (await previousRecord()).state;
       for (const a of input.alternatives) await objects.read(a.object);
       addDecision({
         key: input.key,
-        kind: "field",
+        kind: input.property ? "property" : "field",
         affected: [],
         selected: input.selected,
         alternatives: input.alternatives.map((a) => ({ state: context, object: a.object, contributions: a.contributions })),
         dependencies: input.dependencies ?? [],
-        reason: "Retained field choice",
+        reason: input.property ? "Retained property choice" : "Retained field choice",
         subject: { material: { kind: "basis", path: "/" + input.path.join("/"), object: request.projection } },
-        row: input.field,
+        ...(input.property ? { property: input.property } : { row: input.field }),
       });
       continue;
     }

@@ -36,7 +36,7 @@ function list(value: JSONValue | undefined): JSONValue[] | null {
 const relative = (order: JSONValue[], keep: Set<string>) => order.map(json).filter((m) => keep.has(m));
 
 /** Merge a many-valued field member by member; null on an order conflict. */
-function mergeMembers(base: JSONValue[], candidate: JSONValue[], current: JSONValue[], ordered: boolean): JSONValue[] | null {
+export function mergeMembers(base: JSONValue[], candidate: JSONValue[], current: JSONValue[], ordered: boolean): JSONValue[] | null {
   const b = new Set(base.map(json)), c = new Set(candidate.map(json)), u = new Set(current.map(json));
   const value = new Map([...base, ...candidate, ...current].map((m) => [json(m), m]));
   const removed = new Set([...b].filter((m) => !c.has(m) || !u.has(m)));

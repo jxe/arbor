@@ -1,5 +1,9 @@
 import {
+  encodeCanonicalCBOR,
   type ObjectHash,
+  type PageProperty,
+  type PageValue,
+  type ProtocolPage,
   type UpdateConflict,
 } from "@ovst/protocol";
 import { logicalRowKey, type LogicalRow, type ProtocolDirectory } from "@ovst/protocol";
@@ -7,6 +11,7 @@ import {
   encodeDirectoryCollection,
   loadDirectoryCollection,
   mergeCollectionRows,
+  mergeMembers,
   ProtocolCollectionError,
   type RowFieldConflict,
 } from "@ovst/collection-schema";
@@ -292,4 +297,82 @@ export async function collectionFieldsV1(
     if (error instanceof ProtocolCollectionError) return keep(error.kind === "schema" ? "collection-schema-conflict" : "collection-constraint-conflict");
     throw error;
   }
+}
+
+/** A page property both sides set differently: `current` is kept, and null is absent. */
+export interface PagePropertyConflict {
+  /** The page entry. */
+  path: string;
+  property: string;
+  current: PageValue | null;
+  candidate: PageValue | null;
+}
+
+const sameValue = (left: PageValue | undefined, right: PageValue | undefined) =>
+  left === undefined || right === undefined ? left === right : Buffer.from(encodeCanonicalCBOR(left)).equals(Buffer.from(encodeCanonicalCBOR(right)));
+
+/**
+ * `page-properties-v1` (spec 10 §7.1): merge two changes to one page, its
+ * properties one by one and its body by lines. `base` is null for a page
+ * both sides added. A property both sides set differently keeps current's
+ * value and is reported for a decision; a list both changed merges member by
+ * member as an `ordered` field. A changed `id` both sides set differently,
+ * and a body whose edits overlap, conflict as the page does.
+ */
+export function pagePropertiesV1(
+  path: string,
+  base: ProtocolPage | null,
+  candidate: ProtocolPage,
+  current: ProtocolPage,
+  context: Pick<RuleContext, "conflicts">,
+): { page: ProtocolPage; approximate: number; properties: PagePropertyConflict[] } {
+  const properties: PagePropertyConflict[] = [];
+  const before = new Map((base?.properties ?? []).map(([name, value]) => [name, value]));
+  const theirs = new Map(candidate.properties.map(([name, value]) => [name, value]));
+  const ours = new Map(current.properties.map(([name, value]) => [name, value]));
+  const merged = new Map<string, PageValue | undefined>();
+  for (const name of new Set([...before.keys(), ...theirs.keys(), ...ours.keys()])) {
+    const b = before.get(name), c = theirs.get(name), u = ours.get(name);
+    if (sameValue(c, b) || sameValue(c, u)) merged.set(name, u);
+    else if (sameValue(u, b)) merged.set(name, c);
+    else if (Array.isArray(c) && Array.isArray(u) && (b === undefined || Array.isArray(b))) {
+      const members = mergeMembers((b ?? []) as never, c as never, u as never, true) as PageValue[] | null;
+      if (members) merged.set(name, members);
+      else { merged.set(name, u); properties.push({ path, property: name, current: u, candidate: c }); }
+    } else {
+      merged.set(name, u);
+      properties.push({ path, property: name, current: u ?? null, candidate: c ?? null });
+    }
+  }
+  // Current's order, then the candidate's additions in their order.
+  const order = [...current.properties.map(([name]) => name), ...candidate.properties.map(([name]) => name).filter((name) => !ours.has(name))];
+  const result: PageProperty[] = order.flatMap((name) => {
+    const value = merged.get(name);
+    return value === undefined ? [] : [[name, value] as PageProperty];
+  });
+  let id = current.id;
+  if (candidate.id !== base?.id) {
+    if (current.id === base?.id) id = candidate.id;
+    else if (current.id !== candidate.id) context.conflicts.push({ path, reason: "frontmatter-conflict" });
+  }
+  // The body merges as text, as any Markdown source does.
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const texts = [base?.body ?? new Uint8Array(), candidate.body, current.body];
+  let body = current.body, approximate = 0;
+  if (Buffer.from(texts[1]!).equals(Buffer.from(texts[0]!))) body = current.body;
+  else if (Buffer.from(texts[2]!).equals(Buffer.from(texts[0]!)) || Buffer.from(texts[1]!).equals(Buffer.from(texts[2]!))) body = candidate.body;
+  else {
+    const lines = texts.some((bytes) => bytes.length > MAX_LINE_MERGE_BYTES) ? null
+      : mergeLines(...texts.map((bytes) => splitLines(decoder.decode(bytes))) as [string[], string[], string[]]);
+    if (!lines) {
+      context.conflicts.push({ path, reason: "node-conflict" });
+      body = candidate.body;
+    } else {
+      const source = lines.lines.join("");
+      if (!balancedFences(source)) context.conflicts.push({ path, reason: "invalid-markdown-fence" });
+      body = new TextEncoder().encode(source);
+      approximate = lines.approximate;
+    }
+  }
+  return { page: { type: "page", ...(id !== undefined ? { id } : {}), properties: result, body }, approximate, properties };
 }

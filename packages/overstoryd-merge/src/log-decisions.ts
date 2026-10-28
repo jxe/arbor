@@ -39,6 +39,11 @@ export async function logDecisions(
         alternatives: d.alternatives.map((a) => ({ object: a.object, contributions: contributions(a.contributions) })) });
       continue;
     }
+    if (d.kind === "property" && d.property && d.subject?.material.kind === "basis") {
+      out.push({ ...base, path: names(d.subject.material.path), property: d.property,
+        alternatives: d.alternatives.map((a) => ({ object: a.object, contributions: contributions(a.contributions) })) });
+      continue;
+    }
     const subjectPath = d.subject?.material.kind === "basis" ? d.subject.material.path : undefined;
     const placed = d.placement ? nodeOf(d.placement.node) : undefined;
     const folder = d.kind === "directory" && subjectPath !== undefined && subjectPath !== "/";
@@ -48,7 +53,9 @@ export async function logDecisions(
       const alternatives = [];
       for (const a of d.alternatives) {
         const value = d.kind === "existence" && a.node === undefined ? null
-          : folder ? { name: logical.at(-1)!, directory: a.object } : { name: logical.at(-1)!, file: a.object };
+          : folder ? { name: logical.at(-1)!, directory: a.object }
+          : a.node !== undefined && nodeOf(a.node)?.kind === "page" ? { name: logical.at(-1)!, page: a.object }
+          : { name: logical.at(-1)!, file: a.object };
         const object = await withEntry(io, root, logical, value);
         if (!object) throw new Error("Decision entry has no parent in the accepted root");
         alternatives.push({ object, contributions: contributions(a.contributions) });
@@ -68,7 +75,7 @@ export async function logDecisions(
       const path = names(subjectPath);
       const shown = await entryAt(io, root, path);
       const at = d.subject.material.kind === "basis" ? d.subject.material.object : undefined;
-      out.push({ ...base, path, range: d.subject.range, ...(at && shown?.file !== at ? { at } : {}), alternatives: fragments });
+      out.push({ ...base, path, range: d.subject.range, ...(at && (shown?.file ?? shown?.page) !== at ? { at } : {}), alternatives: fragments });
       continue;
     }
     out.push({ ...base, alternatives: fragments });

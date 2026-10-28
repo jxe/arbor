@@ -39,7 +39,7 @@ export const LOG_ENTRY_FORMAT = "overstory-log-entry-v1";
 export interface RowFieldScope { model: string; key: string; field: string | null }
 /** Whether a decision's alternatives are single objects (a range's bytes or a
  * field's value) rather than whole roots. */
-export const rawAlternatives = (d: Pick<LogDecision, "range" | "field">): boolean => !!(d.range || d.field);
+export const rawAlternatives = (d: Pick<LogDecision, "range" | "field" | "property">): boolean => !!(d.range || d.field || d.property);
 export interface LogDecision {
   key: string;
   path?: string[];
@@ -49,6 +49,9 @@ export interface LogDecision {
    * `field: null`, about the row's existence). Its alternatives are values:
    * each object holds the stable JSON of one, `null` for absent. */
   field?: RowFieldScope;
+  /** A choice about one property of the page at `path`; its alternatives
+   * are values, as a field choice's are. */
+  property?: string;
   dependencies: string[];
   selected: number;
   alternatives: Array<{ object: ObjectHash; contributions: Contribution[] }>;
@@ -60,6 +63,7 @@ const logDecisionSchema = z
     range: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).optional(),
     at: hash.optional(),
     field: z.object({ model: modelName, key: z.string().min(1).max(4096), field: modelName.nullable() }).strict().optional(),
+    property: z.string().min(1).max(4096).refine((p) => p !== "id" && !p.includes("\0")).optional(),
     dependencies: z.array(token),
     selected: z.number().int().nonnegative(),
     alternatives: z.array(z.object({ object: hash, contributions: z.array(contribution) }).strict()).min(2),
@@ -72,6 +76,7 @@ const logDecisionSchema = z
     if (d.at && !d.range) context.addIssue({ code: "custom", message: "Only a range choice names a file object" });
     if (d.path && !d.path.length && !d.field) context.addIssue({ code: "custom", message: "Only a field choice is about the root" });
     if (d.field && (!d.path || d.range)) context.addIssue({ code: "custom", message: "A field choice names its collection and no range" });
+    if (d.property && (!d.path?.length || d.range || d.field)) context.addIssue({ code: "custom", message: "A property choice names its page and no range" });
     if (d.dependencies.includes(d.key)) context.addIssue({ code: "custom", message: "A decision cannot depend on itself" });
   });
 const logDecisions = z.array(logDecisionSchema).superRefine((decisions, context) => {
@@ -156,14 +161,14 @@ export interface AlternativeBinding {
   ref: MaterialRef;
   decision: string;
   alternative: number;
-  value: { object: ObjectHash; kind: "file" | "directory" };
+  value: { object: ObjectHash; kind: "file" | "page" | "directory" };
 }
 const binding = z
   .object({
     ref: z.unknown(),
     decision: token,
     alternative: z.number().int().nonnegative(),
-    value: z.object({ object: hash, kind: z.enum(["file", "directory"]) }).strict(),
+    value: z.object({ object: hash, kind: z.enum(["file", "page", "directory"]) }).strict(),
   })
   .strict();
 

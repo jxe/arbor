@@ -202,6 +202,111 @@ export function pagePropertyRecord(page: ProtocolPage): Record<string, PageValue
   return Object.fromEntries([...(page.id !== undefined ? [["id", page.id] as const] : []), ...page.properties]);
 }
 
+/** A page value as JSON, where property operations and decisions carry it (spec 10 §4.1). */
+export type PageValueJSON = null | boolean | number | string | PageValueJSON[] | { [name: string]: PageValueJSON };
+
+const ESCAPED_KEYS = new Set(["$date", "$dateTime", "$map"]);
+
+/**
+ * A page value in JSON: a date is `{"$date": text}` and a date-time
+ * `{"$dateTime": text}`, and a map whose one key is `$date`, `$dateTime` or
+ * `$map` is wrapped as `{"$map": map}`, so every value has one spelling.
+ */
+export function pageValueJSON(value: PageValue): PageValueJSON {
+  if (value instanceof CBORTag) return value.tag === 1004 ? { $date: value.value as string } : { $dateTime: value.value as string };
+  if (Array.isArray(value)) return value.map(pageValueJSON);
+  if (value && typeof value === "object") {
+    const map = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, pageValueJSON(item)]));
+    const keys = Object.keys(map);
+    return keys.length === 1 && ESCAPED_KEYS.has(keys[0]!) ? { $map: map } : map;
+  }
+  return value;
+}
+
+/** The page value a JSON spelling stands for; throws on one that is no page value. */
+export function pageValueFromJSON(value: unknown): PageValue {
+  if (Array.isArray(value)) return value.map(pageValueFromJSON);
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>, keys = Object.keys(record);
+    if (keys.length === 1 && (keys[0] === "$date" || keys[0] === "$dateTime")) {
+      const text = record[keys[0]];
+      const stamp = typeof text === "string" ? pageTimestamp(text) : null;
+      if (!stamp || (keys[0] === "$date") !== (stamp.tag === 1004) || stamp.value !== text) throw new Error("Invalid page timestamp");
+      return stamp;
+    }
+    if (keys.length === 1 && keys[0] === "$map") {
+      const inner = record.$map;
+      if (!inner || typeof inner !== "object" || Array.isArray(inner)) throw new Error("Invalid page map");
+      const innerKeys = Object.keys(inner);
+      if (innerKeys.length !== 1 || !ESCAPED_KEYS.has(innerKeys[0]!)) throw new Error("Invalid page map");
+      return Object.fromEntries(Object.entries(inner).map(([key, item]) => [key, pageValueFromJSON(item)]));
+    }
+    return Object.fromEntries(keys.map((key) => [key, pageValueFromJSON(record[key])]));
+  }
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  throw new Error("Invalid page value");
+}
+
+/** One property operation on a page, as `applyPageOperations` takes it. */
+export type PagePropertyEdit =
+  | { kind: "set"; field: string; before: PageValueJSON; value: PageValueJSON }
+  | { kind: "connect" | "disconnect"; field: string; member: PageValueJSON }
+  | { kind: "move"; field: string; member: PageValueJSON; after: PageValueJSON | null };
+
+/**
+ * Apply property operations to a page, in order (spec 10 §4.1): `set`
+ * checks `before` against the property (`null` is absent) and writes `value`,
+ * a new property going last and `null` removing it; `connect`, `disconnect`
+ * and `move` edit a list property, an absent one reading as empty. Throws on
+ * an operation that does not apply. The body is unchanged.
+ */
+export function applyPageOperations(page: ProtocolPage, operations: readonly PagePropertyEdit[]): ProtocolPage {
+  const fail = (message: string): never => { throw new Error(`Invalid page operation: ${message}`); };
+  const properties = page.properties.map(([name, value]) => [name, value] as PageProperty);
+  const same = (left: PageValue | undefined, right: PageValue | undefined) => left === undefined || right === undefined
+    ? left === right : Buffer.from(encodeCanonicalCBOR(left)).equals(Buffer.from(encodeCanonicalCBOR(right)));
+  for (const operation of operations) {
+    if (!operation.field || operation.field === "id") fail("a page's id is no property");
+    const index = properties.findIndex(([name]) => name === operation.field);
+    const current = index >= 0 ? properties[index]![1] : undefined;
+    if (operation.kind === "set") {
+      const before = operation.before === null ? undefined : pageValueFromJSON(operation.before);
+      const value = operation.value === null ? undefined : pageValueFromJSON(operation.value);
+      if (!same(before, current)) fail("before does not match the page");
+      if (same(before, value)) fail("set changes nothing");
+      if (value === undefined) properties.splice(index, 1);
+      else if (index >= 0) properties[index]![1] = value;
+      else properties.push([operation.field, value]);
+      continue;
+    }
+    if (current !== undefined && !Array.isArray(current)) fail("property is not a list");
+    const list = [...((current ?? []) as PageValue[])];
+    const at = (member: PageValueJSON) => { const value = pageValueFromJSON(member); return list.findIndex((item) => same(item, value)); };
+    if (operation.kind === "connect") {
+      if (at(operation.member) >= 0) fail("member is already present");
+      list.push(pageValueFromJSON(operation.member));
+    } else if (operation.kind === "disconnect") {
+      const position = at(operation.member);
+      if (position < 0) fail("member is absent");
+      list.splice(position, 1);
+    } else if (operation.kind === "move") {
+      const position = at(operation.member);
+      if (position < 0) fail("member is absent");
+      const [moved] = list.splice(position, 1);
+      const after = operation.after === null ? -1 : at(operation.after);
+      if (operation.after !== null && after < 0) fail("after is absent");
+      list.splice(after + 1, 0, moved!);
+      if (position === after + 1) fail("move changes nothing");
+    }
+    if (index >= 0) properties[index]![1] = list;
+    else properties.push([operation.field, list]);
+  }
+  const result: ProtocolPage = { ...page, properties };
+  checkPage(result);
+  return result;
+}
+
 // MARK: Reading a file
 
 /** A file's frontmatter: the source lines between an opening `---` line and the next `---` line. */

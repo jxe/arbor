@@ -1,6 +1,6 @@
 import { compareProtocolNames, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "../objects.ts";
-import { decodeProtocolPage, encodeProtocolPage, type ProtocolPage } from "../pages.ts";
-import { isRowOperation, type AuthoredOperation, type MaterialRef, type RowOperation } from "./authored-contract.ts";
+import { applyPageOperations, decodeProtocolPage, encodeProtocolPage, type ProtocolPage } from "../pages.ts";
+import { isPageOperation, isPropertyOperation, type AuthoredOperation, type MaterialRef, type PageOperation, type RowOperation } from "./authored-contract.ts";
 import { arrangeSources, UnsupportedSourceMove, type SourceReplacement } from "./source-moves.ts";
 
 type Edit = Extract<AuthoredOperation, { kind: "editSource" }>;
@@ -172,7 +172,7 @@ export async function validateSourceEditCandidate(
   load: (hash: ObjectHash) => Promise<Uint8Array>,
   rows?: CollectionRowReplay,
 ): Promise<{ root: ObjectHash; generated: Map<ObjectHash, Uint8Array>; evidence: SourceEditEvidence[] }> {
-  const result = operations.some(isRowOperation)
+  const result = operations.some(isPropertyOperation)
     ? { ...await executeRowOperations(baseRoot, operations, load, rows), evidence: [] }
     : await executeExactSourceEdits(baseRoot, operations, load);
   if (result.root !== candidate) invalid("operations do not explain candidate");
@@ -306,12 +306,13 @@ async function executePlainFrame(
 ): Promise<ObjectHash | { reason: string }> {
   const { keys, touched, generated } = into;
   if (!operations.length) return { reason: "frame carries no operations" };
-  if (operations.some(isRowOperation)) {
+  if (operations.some(isPropertyOperation)) {
     for (const operation of operations) {
       if (keys.has(operation.key)) return { reason: "duplicate operation key" };
       keys.add(operation.key);
     }
-    if (!rows) return { reason: "row operations need a collection replay" };
+    if (!rows && operations.some((operation) => isPropertyOperation(operation) && !isPageOperation(operation)))
+      return { reason: "row operations need a collection replay" };
     const result = await executeRowOperations(before, operations, read, rows);
     for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
     for (const path of result.touched) touched.add(path);
@@ -378,28 +379,31 @@ export type CollectionRowReplay = (
   read: (hash: ObjectHash) => Promise<Uint8Array>,
 ) => Promise<{ directory: ObjectHash; generated: Map<ObjectHash, Uint8Array> }>;
 
-/** Execute a frame of row operations against `baseRoot`. Each operation names
- * a basis collection directory; operations on one collection run in order,
- * and each changed collection is re-derived by `replay`. A frame that carries
- * row operations carries nothing else. */
+/** Execute a frame of property operations against `baseRoot`. Each operation
+ * names a basis collection directory or a basis page entry; operations on one
+ * target run in order. Each changed collection is re-derived by `replay`, and
+ * each changed page is the basis page with its operations applied. A frame
+ * that carries property operations carries nothing else. */
 export async function executeRowOperations(
   baseRoot: ObjectHash,
   operations: readonly AuthoredOperation[],
   load: (hash: ObjectHash) => Promise<Uint8Array>,
   replay?: CollectionRowReplay,
 ): Promise<{ root: ObjectHash; generated: Map<ObjectHash, Uint8Array>; touched: string[] }> {
-  if (!replay) throw new UnsupportedSourceEdit("Row operations need a collection replay");
   const generated = new Map<ObjectHash, Uint8Array>();
   const read = async (hash: ObjectHash) => generated.get(hash) ?? await load(hash);
-  const groups = new Map<string, { object: ObjectHash; parts: string[]; operations: RowOperation[] }>();
+  type Group = { object: ObjectHash; parts: string[] } & ({ page: false; operations: RowOperation[] } | { page: true; operations: PageOperation[] });
+  const groups = new Map<string, Group>();
   const keys = new Set<string>();
   for (const operation of operations) {
-    if (!isRowOperation(operation)) invalid("a frame with row operations carries only row operations");
+    if (!isPropertyOperation(operation)) invalid("a frame with property operations carries only property operations");
     if (keys.has(operation.key)) invalid("duplicate operation key");
     keys.add(operation.key);
-    const ref = operation.collection;
-    if (ref.material.kind !== "basis") throw new UnsupportedSourceEdit("Row operations name basis collections");
-    if (ref.range) invalid("a collection reference is never ranged");
+    const page = isPageOperation(operation);
+    if (!page && !replay) throw new UnsupportedSourceEdit("Row operations need a collection replay");
+    const ref = page ? operation.page : (operation as RowOperation).collection;
+    if (ref.material.kind !== "basis") throw new UnsupportedSourceEdit("Property operations name basis entries");
+    if (ref.range) invalid("a property target is never ranged");
     const base = components(ref.material.path), within = ref.within ?? [];
     if (within.length) components("/" + within.join("/"));
     const parts = [...base, ...within], path = "/" + parts.join("/");
@@ -410,23 +414,65 @@ export async function executeRowOperations(
         if (depth === base.length && object !== ref.material.object) invalid("basis object does not match path");
         if (depth === parts.length) break;
         const entry = decodeProtocolDirectory(await read(object)).entries.find((e) => e.name === parts[depth]);
-        if (!entry?.directory) invalid("collection is not a basis directory");
-        object = entry.directory;
+        const last = depth === parts.length - 1;
+        if (page && last) {
+          if (!entry?.page) invalid("page target is not a basis page");
+          object = entry.page;
+        } else {
+          if (!entry?.directory) invalid(page ? "page target crosses a file or tree boundary" : "collection is not a basis directory");
+          object = entry.directory;
+        }
       }
-      groups.set(path, group = { object, parts, operations: [] });
-    } else if (base.length === parts.length && group.object !== ref.material.object) invalid("one path names two basis objects");
-    group.operations.push(operation);
+      if (page && !parts.length) invalid("page target is not a basis page");
+      groups.set(path, group = page ? { object, parts, page, operations: [] } : { object, parts, page, operations: [] });
+    } else if (group.page !== page) invalid("one path names a page and a collection");
+    else if (base.length === parts.length && group.object !== ref.material.object) invalid("one path names two basis objects");
+    (group.operations as unknown[]).push(operation);
   }
   let root = baseRoot;
   for (const group of groups.values()) {
-    const result = await replay(group.object, group.operations, read);
+    if (group.page) {
+      const page = applyPageOperations(decodeProtocolPage(await read(group.object)), group.operations);
+      const bytes = encodeProtocolPage(page), hash = hashObject(bytes);
+      generated.set(hash, bytes);
+      root = await setPageAt(root, group.parts, hash, read, generated);
+      continue;
+    }
+    const result = await replay!(group.object, group.operations, read);
     for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
     root = await setDirectoryAt(root, group.parts, result.directory, read, generated);
   }
   return { root, generated, touched: [...groups.keys()] };
 }
 
-/** Replace the directory at `path` below `root`, which must exist. */
+/** Replace the page entry at `path` below `root` with the page `page`. */
+async function setPageAt(
+  root: ObjectHash,
+  path: readonly string[],
+  page: ObjectHash,
+  read: (hash: ObjectHash) => Promise<Uint8Array>,
+  generated: Map<ObjectHash, Uint8Array>,
+): Promise<ObjectHash> {
+  const parent = decodeProtocolDirectory(await read(root));
+  const [name, ...rest] = path as [string, ...string[]];
+  const prior = parent.entries.find((e) => e.name === name);
+  let next: ProtocolDirectoryEntry;
+  if (!rest.length) {
+    if (!prior?.page) invalid("page target is not a page");
+    if (prior.page === page) return root;
+    next = { name, page };
+  } else {
+    if (!prior?.directory) invalid("page target crosses a file or tree boundary");
+    const directory = await setPageAt(prior.directory, rest, page, read, generated);
+    if (directory === prior.directory) return root;
+    next = { name, directory };
+  }
+  parent.entries = parent.entries.map((e) => e.name === name ? next : e);
+  const bytes = encodeProtocolDirectory(parent), hash = hashObject(bytes);
+  generated.set(hash, bytes);
+  return hash;
+}
+
 async function setDirectoryAt(
   root: ObjectHash,
   path: readonly string[],

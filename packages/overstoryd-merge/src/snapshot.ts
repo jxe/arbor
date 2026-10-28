@@ -59,7 +59,7 @@ export async function snapshotDecisions(
     for (;;) {
       if (path === "/") return whole;
       const [mine, theirs] = await Promise.all([current.root, candidate].map((root) => entryAt(io, root, namesOf(path))));
-      const file = (entry: ProtocolDirectoryEntry | null | undefined) => !entry || !!entry.file;
+      const file = (entry: ProtocolDirectoryEntry | null | undefined) => !entry || !!entry.file || !!entry.page;
       if ((mine || theirs) && file(mine) && file(theirs)) break;
       if (mine?.directory && theirs?.directory) break;
       path = parentOf(path);

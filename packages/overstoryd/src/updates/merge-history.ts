@@ -5,6 +5,7 @@ import {
   encodeProtocolDirectory,
   hashObject,
   type ProtocolDirectoryEntry,
+  isPageOperation,
   isRowOperation,
   stableJSONString,
   type AcceptedUpdate,
@@ -32,6 +33,7 @@ export interface OpenDecision {
 function operationReferences(op: SourceOperation): MaterialRef[] {
   if (op.kind === "addEntry") return [op.destination.parent];
   if (isRowOperation(op)) return [op.collection];
+  if (isPageOperation(op)) return [op.page];
   const refs = [op.source];
   if (op.kind === "editSource") refs.push(...(op.lineage ?? []).map((l) => l.source));
   if (op.kind === "moveSource" || op.kind === "copySource") refs.push(op.at);
@@ -174,8 +176,21 @@ export class MergeHistory {
         alternatives: d.alternatives.map((_, i) => alternative(i, { value: values[i]! })),
       };
     }
+    if (d.property) {
+      const page = (await this.at(entry.root, d.path))?.page;
+      if (!page) throw new Error("Property choice page is absent");
+      const values = await Promise.all(d.alternatives.map(async (a) =>
+        JSON.parse(new TextDecoder().decode(await this.objects.load(a.object))) as JSONValue));
+      return {
+        ...common, kind: "property", property: d.property,
+        affected: [{ material: { kind: "basis", path, object: page } }],
+        alternatives: d.alternatives.map((_, i) => alternative(i, { value: values[i]! })),
+      };
+    }
     if (d.range) {
-      const file = d.at ?? (await this.at(entry.root, d.path))?.file;
+      // A range of a page is a range of its body.
+      const found = await this.at(entry.root, d.path);
+      const file = d.at ?? found?.file ?? found?.page;
       if (!file) throw new Error("Source choice file is absent");
       return {
         ...common, kind: "content",
@@ -189,6 +204,7 @@ export class MergeHistory {
     for (const [index, a] of d.alternatives.entries()) {
       const value = await this.at(a.object, d.path);
       alternatives.push(value?.file ? { ...alternative(index, { file: value.file }), placement: { parent, name } }
+        : value?.page ? { ...alternative(index, { page: value.page }), placement: { parent, name } }
         : value?.directory ? { ...alternative(index, { directory: value.directory }), placement: { parent, name } }
         : alternative(index, { absent: true }));
     }

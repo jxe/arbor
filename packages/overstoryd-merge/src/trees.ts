@@ -54,9 +54,10 @@ export async function withEntry(
   return io.put(encodeProtocolDirectory(value));
 }
 
-/** The value an entry holds: a file or a directory, or null (absent or a nested tree). */
-export function entryValue(entry: ProtocolDirectoryEntry | null | undefined): { file: string } | { directory: string } | null {
+/** The value an entry holds: a file, a page or a directory, or null (absent or a nested tree). */
+export function entryValue(entry: ProtocolDirectoryEntry | null | undefined): { file: string } | { page: string } | { directory: string } | null {
   if (entry?.file) return { file: entry.file };
+  if (entry?.page) return { page: entry.page };
   if (entry?.directory) return { directory: entry.directory };
   return null;
 }
@@ -68,7 +69,7 @@ export async function changedEntryPaths(io: TreeIO, before: string, after: strin
   const paths: string[] = [];
   const metadata = ({ entries: _entries, ...rest }: ProtocolDirectory) => JSON.stringify(rest);
   const value = (entry?: ProtocolDirectoryEntry) =>
-    entry?.file ? `file:${entry.file}` : entry?.directory ? `directory:${entry.directory}` : entry?.tree ? `tree:${entry.tree}` : "absent";
+    entry?.file ? `file:${entry.file}` : entry?.page ? `page:${entry.page}` : entry?.directory ? `directory:${entry.directory}` : entry?.tree ? `tree:${entry.tree}` : "absent";
   const walk = async (left: string, right: string, path: string): Promise<void> => {
     if (left === right) return;
     const [a, b] = await Promise.all([directory(io, left), directory(io, right)]);

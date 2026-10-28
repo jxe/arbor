@@ -32,8 +32,8 @@ export * from "./updates/describe.ts";
 export * from "./updates/source-trace.ts";
 export * from "./updates/source-moves.ts";
 export * from "./transport.ts";
-export type { AuthoredOperation as SourceOperation, AuthoredFrame as SourceTraceFrame, DerivableFrame, DerivableUpdateIntent, Material, MaterialRef, EntryDestination, ResolutionDeclaration, RowOperation, RowMember } from "./updates/authored-contract.ts";
-export { decodeAuthoredCandidateIntent, decodeMaterialRef, isRowOperation, isStatedUpdate, ROW_OPERATION_KINDS, ROW_TIME } from "./updates/authored-contract.ts";
+export type { AuthoredOperation as SourceOperation, AuthoredFrame as SourceTraceFrame, DerivableFrame, DerivableUpdateIntent, Material, MaterialRef, EntryDestination, ResolutionDeclaration, RowOperation, RowMember, PageOperation, PropertyOperation } from "./updates/authored-contract.ts";
+export { decodeAuthoredCandidateIntent, decodeMaterialRef, isPageOperation, isPropertyOperation, isRowOperation, isStatedUpdate, ROW_OPERATION_KINDS, ROW_TIME } from "./updates/authored-contract.ts";
 export type { DecisionPage, InspectedDecision, InspectedAlternative } from "./updates/accepted-contract.ts";
 
 export * from "./documents/markdown.ts";

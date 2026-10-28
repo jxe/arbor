@@ -4,6 +4,7 @@
 import { updateRequestIdentities } from "./intent.ts";
 import type { JSONValue } from "../model/node-model.ts";
 import { parseCanonicalStableKey } from "../model/node-key.ts";
+import { pageValueFromJSON, type PageValueJSON } from "../pages.ts";
 export type Material =
   | { kind: "basis"; path: string; object: string }
   | { kind: "operation"; change: string; operation: string }
@@ -19,6 +20,7 @@ export type AuthoredOperation = { key: string } & (
   | { kind: "replaceEntry"; source: MaterialRef; value: { file: string } | { page: string } | { directory: string } | MaterialRef }
   | { kind: "addEntry"; destination: EntryDestination; value: { file: string } | { page: string } | { directory: string } }
   | RowOperation
+  | PageOperation
 );
 /** A scalar a many-valued field holds: a connected row's key value or a listed value. */
 export type RowMember = string | number | boolean;
@@ -38,9 +40,28 @@ export type RowOperation = { key: string } & RowTarget & (
   | { kind: "connect" | "disconnect"; field: string; member: RowMember }
   | { kind: "move"; field: string; member: RowMember; after: RowMember | null }
 );
+/** Property operations on a page (spec 10 §4.1): `page` is an entry
+ * reference, never ranged, to a page entry; `field` names any property but
+ * `id`. Values are page values in their JSON spelling (`pageValueJSON`). */
+export type PageOperation = { key: string; page: MaterialRef } & (
+  | { kind: "set"; field: string; before: PageValueJSON; value: PageValueJSON }
+  | { kind: "connect" | "disconnect"; field: string; member: PageValueJSON }
+  | { kind: "move"; field: string; member: PageValueJSON; after: PageValueJSON | null }
+);
+/** A row or page property operation. */
+export type PropertyOperation = RowOperation | PageOperation;
 export const ROW_OPERATION_KINDS = ["rowCreate", "rowDelete", "set", "connect", "disconnect", "move"] as const;
-export function isRowOperation(operation: { kind: string }): operation is RowOperation {
+/** Whether `operation` is a property operation, on a row or on a page. */
+export function isPropertyOperation(operation: { kind: string }): operation is PropertyOperation {
   return (ROW_OPERATION_KINDS as readonly string[]).includes(operation.kind);
+}
+/** Whether `operation` is a property operation on a row of a collection. */
+export function isRowOperation(operation: { kind: string }): operation is RowOperation {
+  return isPropertyOperation(operation) && !Object.hasOwn(operation, "page");
+}
+/** Whether `operation` is a property operation on a page. */
+export function isPageOperation(operation: { kind: string }): operation is PageOperation {
+  return isPropertyOperation(operation) && Object.hasOwn(operation, "page");
 }
 /** One tree-root to tree-root step of a change's authored evidence. Basis
  * references inside a frame name objects in that frame's basis tree (the
@@ -154,7 +175,15 @@ function operation(raw: unknown): AuthoredOperation {
       else { keys(value, ["directory"]); hash(value.directory); }
       break;
     }
-    case "rowCreate": case "rowDelete": case "set": case "connect": case "disconnect": case "move": {
+    case "set": case "connect": case "disconnect": case "move": if (Object.hasOwn(v, "page")) {
+      const fields = { set: ["field", "before", "value"], connect: ["field", "member"], disconnect: ["field", "member"], move: ["field", "member", "after"] }[v.kind as PageOperation["kind"]];
+      keys(v, ["key", "kind", "page", ...fields]); reference(v.page, true);
+      text(v.field, 4096); require(v.field.length && v.field !== "id" && !v.field.includes("\0"));
+      for (const value of [v.before, v.value, v.member, v.after]) if (value !== undefined) { json(value); pageValueFromJSON(value); }
+      if (v.kind === "move" && v.after !== null) require(JSON.stringify(v.after) !== JSON.stringify(v.member));
+      break;
+    } // falls through to a row target
+    case "rowCreate": case "rowDelete": {
       const fields = { rowCreate: ["values"], rowDelete: [], set: ["field", "before", "value"], connect: ["field", "member"],
         disconnect: ["field", "member"], move: ["field", "member", "after"] }[v.kind as RowOperation["kind"]];
       keys(v, ["key", "kind", "collection", "model", "row", ...fields], v.kind === "rowDelete" ? [] : ["at"]); reference(v.collection, true); name(v.model);

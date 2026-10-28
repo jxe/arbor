@@ -1,19 +1,25 @@
 import {
   decodeProtocolDirectory,
+  decodeProtocolPage,
   encodeProtocolDirectory,
+  encodeProtocolPage,
   hashObject,
+  isPageName,
+  parsePage,
+  type ProtocolPage,
   type ObjectHash,
   type UpdateConflict,
   type ProtocolDirectory,
   type ProtocolDirectoryEntry,
 } from "@ovst/protocol";
-import { collectionFieldsV1, frontmatter, markdownAdditiveV1, type CollectionFieldConflict, type RuleContext } from "./merge-rules.ts";
+import { collectionFieldsV1, frontmatter, markdownAdditiveV1, pagePropertiesV1, type CollectionFieldConflict, type PagePropertyConflict, type RuleContext } from "./merge-rules.ts";
 import { ModelHashes } from "./model-hash.ts";
 
 /** Rule evidence a snapshot tree merge reports beside its result. */
 export type MergeSummary =
   | { version: "markdown-additive-v1"; approximatePlacements: number }
-  | { version: "collection-fields-v1"; mergedRows: number };
+  | { version: "collection-fields-v1"; mergedRows: number }
+  | { version: "page-properties-v1"; mergedPages: number; approximatePlacements: number };
 
 export interface MergeResult {
   root: ObjectHash;
@@ -26,6 +32,9 @@ export interface MergeResult {
   /** Collection fields both sides set differently: each keeps current's
    * value and is left for a decision, not reported as a conflict. */
   fields?: CollectionFieldConflict[];
+  /** Page properties both sides set differently, kept and left for a
+   * decision as collection fields are. */
+  properties?: PagePropertyConflict[];
 }
 
 type Load = (hash: ObjectHash) => Promise<Uint8Array>;
@@ -33,6 +42,7 @@ type Load = (hash: ObjectHash) => Promise<Uint8Array>;
 function entryEqual(left: ProtocolDirectoryEntry | undefined, right: ProtocolDirectoryEntry | undefined): boolean {
   return left?.name === right?.name
     && left?.file === right?.file
+    && left?.page === right?.page
     && left?.directory === right?.directory
     && left?.tree === right?.tree;
 }
@@ -49,9 +59,10 @@ function conflictReason(
 ): UpdateConflict["reason"] {
   const present = [before, local, accepted].filter((entry): entry is ProtocolDirectoryEntry => entry !== undefined);
   if (present.some((entry) => entry.tree)) return "nested-boundary-conflict";
-  const kinds = new Set(present.map((entry) => entry.file ? "file" : entry.directory ? "directory" : "none"));
+  // A page is a file that was converted: the same kind of node.
+  const kinds = new Set(present.map((entry) => entry.file || entry.page ? "file" : entry.directory ? "directory" : "none"));
   if (kinds.size > 1) return "path-kind-conflict";
-  if (local?.file && accepted?.file && !local.name.endsWith(".md")) return "binary-conflict";
+  if (local?.file && accepted?.file && !isPageName(local.name)) return "binary-conflict";
   return "node-conflict";
 }
 
@@ -92,7 +103,25 @@ export async function mergeProtocolTrees(
   let mergedRows = 0;
   let sawMarkdownRule = false;
   let sawCollectionRule = false;
+  let mergedPages = 0;
   const fields: CollectionFieldConflict[] = [];
+  const properties: PagePropertyConflict[] = [];
+
+  /** An entry's page: a page entry's own, or the page a Markdown file
+   * reads as; null for anything else, or a file whose frontmatter does not
+   * parse. */
+  const pageOf = async (entry: ProtocolDirectoryEntry | undefined): Promise<ProtocolPage | null> => {
+    if (entry?.page) return decodeProtocolPage(await loadAny(entry.page));
+    if (entry?.file && isPageName(entry.name)) return parsePage(await loadAny(entry.file));
+    return null;
+  };
+  /** Once current holds a page at a name, a merge keeps it a page: a
+   * candidate's Markdown file there is written as the page it reads as. */
+  const asPage = async (entry: ProtocolDirectoryEntry | undefined, accepted: ProtocolDirectoryEntry | undefined) => {
+    if (!entry?.file || !accepted?.page || !isPageName(entry.name)) return entry;
+    const page = await pageOf(entry);
+    return page ? { name: entry.name, page: context.store(encodeProtocolPage(page)) } : entry;
+  };
 
   const directoryObject = async (entry: ProtocolDirectoryEntry | undefined): Promise<ProtocolDirectory | null> => {
     return entry?.directory ? decodeProtocolDirectory(await loadAny(entry.directory)) : null;
@@ -105,7 +134,19 @@ export async function mergeProtocolTrees(
     local: ProtocolDirectoryEntry,
     accepted: ProtocolDirectoryEntry,
   ): Promise<ProtocolDirectoryEntry | undefined> => {
-    if (local.file && accepted.file && local.name.endsWith(".md") && (!before || before.file)) {
+    // Pages, or Markdown files where any side is already a page, merge
+    // property by property.
+    if ([before, local, accepted].some((entry) => entry?.page) && isPageName(local.name)) {
+      const [b, c, u] = await Promise.all([pageOf(before), pageOf(local), pageOf(accepted)]);
+      if (c && u && (b || !before)) {
+        const merged = pagePropertiesV1(path, b, c, u, context);
+        mergedPages++;
+        approximatePlacements += merged.approximate;
+        properties.push(...merged.properties);
+        return { name: local.name, page: context.store(encodeProtocolPage(merged.page)) };
+      }
+    }
+    if (local.file && accepted.file && isPageName(local.name) && (!before || before.file)) {
       const baseHash = before?.file ?? context.store(new Uint8Array());
       const merged = await markdownAdditiveV1(path, baseHash, local.file, accepted.file, context);
       sawMarkdownRule = true;
@@ -117,11 +158,14 @@ export async function mergeProtocolTrees(
 
   /** A page's frontmatter id by file object: the three sides mostly share their pages, so each is parsed once. */
   const pageIDs = new Map<ObjectHash, Promise<string | undefined>>();
-  const pageID = (file: ObjectHash): Promise<string | undefined> => {
+  const pageID = (file: ObjectHash, page = false): Promise<string | undefined> => {
     let id = pageIDs.get(file);
     if (!id) {
       id = (async () => {
         const value = await context.file(file);
+        if (page) {
+          try { return decodeProtocolPage(value).id; } catch { return undefined; }
+        }
         let source: string;
         try {
           source = new TextDecoder("utf-8", { fatal: true }).decode(value);
@@ -140,8 +184,8 @@ export async function mergeProtocolTrees(
     const unique = new Map<string, ProtocolDirectoryEntry>();
     const duplicates = new Set<string>();
     for (const entry of directory.values()) {
-      if (!entry.file || !entry.name.endsWith(".md")) continue;
-      const id = await pageID(entry.file);
+      if (!(entry.file || entry.page) || !isPageName(entry.name)) continue;
+      const id = await pageID((entry.file ?? entry.page)!, !!entry.page);
       if (!id) continue;
       if (unique.has(id)) {
         unique.delete(id);
@@ -168,7 +212,7 @@ export async function mergeProtocolTrees(
       return { name, directory: await mergeDirectory(path, baseChildren, localChildren, acceptedChildren) };
     }
     const [baseModel, currentModel] = await Promise.all([hashes.entry(before), hashes.entry(accepted)]);
-    if (baseModel === currentModel) return local ?? null;
+    if (baseModel === currentModel) return (await asPage(local, accepted)) ?? null;
     if (local && accepted) {
       const resolved = await applyRule(path, before, local, accepted);
       if (resolved) return resolved;
@@ -266,6 +310,7 @@ export async function mergeProtocolTrees(
   const root = await mergeDirectory("/", await rootDirectory(base), await rootDirectory(candidate), await rootDirectory(current));
   const summary: MergeSummary | undefined = sawCollectionRule
     ? { version: "collection-fields-v1", mergedRows }
+    : mergedPages ? { version: "page-properties-v1", mergedPages, approximatePlacements }
     : sawMarkdownRule ? { version: "markdown-additive-v1", approximatePlacements } : undefined;
-  return { root, objects: generated, conflicts, ...(unresolvedDirectories.size ? { unresolvedDirectories: [...unresolvedDirectories] } : {}), ...(summary ? { summary } : {}), ...(fields.length ? { fields } : {}) };
+  return { root, objects: generated, conflicts, ...(unresolvedDirectories.size ? { unresolvedDirectories: [...unresolvedDirectories] } : {}), ...(summary ? { summary } : {}), ...(fields.length ? { fields } : {}), ...(properties.length ? { properties } : {}) };
 }
