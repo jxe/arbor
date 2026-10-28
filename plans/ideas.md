@@ -7,19 +7,11 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
 
 ## Product design needed
 
-- **Claimed-member removal, restoration and access-history recovery.** Confirmation,
-  revocation, historical visibility and restoration without a parallel group database.
-- **Claim disputes and recovery without the operator.** Operator recovery exists
-  (`overstoryd recover`), and [Security 012](features/security-012-get-back-in-with-the-admins-help.md)
-  makes it an administrator's action in Story; recovery by the profile key or DNS across hosts keeps the same
-  Profile TreeID with auditable proof of control ([Security 010](when-needed/security-010-signed-profile-statements.md)).
 - **Persistent-host administration.** Permanent domains, graceful restart,
   replacement-host restore and verification, keeping migration scripts procedural.
-- **Choice review extensions**, when a real review needs one: safe binary previews,
-  richer directory browsing, long-source comparison beyond 4,000 lines, visible
-  whitespace and line-ending differences, a freshness policy so unrelated accepted updates
-  need not force renewed review, explanations of verified moves and deletions, rule-provided combination previews, bulk and
-  offline resolution.
+
+## Architecture
+
 - **Pages as logical nodes with placement-owned representation.** The split
   that logical collections make (spec 06 §7) (the tree holds the logical
   form, and each placement chooses how to write it to disk) could apply to
@@ -33,6 +25,15 @@ does not prove a current gap. When one becomes real work, write a plan (or add i
   It would remove the representation-versus-model special cases in merge
   and access (front-matter edits become property effects). Joe, 2026-10-15:
   "probably a good idea eventually".
+
+## Small features
+
+- **`story untrack`.** Ignore rules never untrack an already-published path; today the
+  recipe is move out, sync the deletion, move back. One command could publish the deletion
+  and leave the bytes. The bytes stay in accepted history, so a leaked secret still needs
+  rotating.
+- **Ignored paths in the Mac app's publish view.** Mark which paths the ignore rules keep
+  out and which ignored paths are still tracked.
 
 ## Reliability
 
@@ -92,22 +93,12 @@ Measure before promoting any of these.
 
 1. **Shared-tree recovery and endpoint movement.** How can a stable TreeID refresh endpoint
    hints durably and verifiably without a central registry?
-2. **Identity and recovery UX.** How should device replacement, profile recovery and
-   disputes prove control without turning Story Sync into a multi-user account service?
-3. **Merge semantics.** What logical conflict semantics should structured collections and
-   whole-database SQLite revisions use beyond text's three-way merge?
-4. **Determinism.** How should query and agent-tool runtimes isolate clock, randomness, I/O
+2. **Determinism.** How should query and agent-tool runtimes isolate clock, randomness, I/O
    and runtime upgrades from results claimed to be deterministic?
-5. **Compiler correctness.** How should handle extraction, validator generation, realm
+3. **Compiler correctness.** How should handle extraction, validator generation, realm
    separation and access inference be verified as security boundaries?
-6. **Schema evolution.** How do mounted consumers keep working on older shapes while a tree
-   or external database changes schema?
-   USL meant migrations between relation forms to be small edits to one declaration:
-   change the storage, widen or narrow an arity (`Episode.series` to many), promote a
-   value array to a model and a connection, or grow an `enum` into a `seed` model. None
-   is built; Joe deferred a migration diff on 2026-10-14.
-7. **Consent precision.** How should interfaces explain prefix declarations broader than
+4. **Consent precision.** How should interfaces explain prefix declarations broader than
    what a particular run reads or writes?
-8. **Cross-server executable data.** How should query discovery, delegated authorization
+5. **Cross-server executable data.** How should query discovery, delegated authorization
    and server-to-server routing let a document use remote data without treating network
    reachability as authority? ([Apps 009](later/apps-009-cross-host-delegation.md) is a sketch.)

@@ -98,6 +98,14 @@ root's children move under the profile tree and it is retired.
 
 **Decide (2):** design the cross-host tree transfer here, or separately first.
 
+## Open question
+
+**Identity and recovery without the operator** (moved from ideas, 2026-10-28). How should
+device replacement, profile recovery and claim disputes prove control, by the profile key or
+DNS across hosts and keeping the same Profile TreeID with auditable proof, without turning
+Story Sync into a multi-user account service? Recovery by the host's administrator is
+[Security 012](../features/security-012-get-back-in-with-the-admins-help.md).
+
 ## Work
 
 - When it is taken up: settle the decisions, write the statement format and

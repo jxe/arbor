@@ -10,9 +10,9 @@ numbers are separate from migration numbers: this is not migration 014.)
 
 - **State:** IDEAS AND CANDIDATES. The first round (Markdown list, table and
   link transfers, same-anchor ordering, keyed JSON/YAML moves, TS/JS function
-  moves) is deployed and not yet tried by hand; see [status](../../status.md), the
-  [transfer rules](../../docs/architecture/overstoryd/merge-tool.md#transfers) and
-  the [hand checks](../small-work.md#server-refinements).
+  moves) is deployed, and Joe retired its hand checks on 2026-10-28; see
+  [status](../../status.md) and the
+  [transfer rules](../../docs/architecture/overstoryd/merge-tool.md#transfers).
   Everything below is a menu. Take an item when a real edit has asked for it.
 
 ## What a good merge does
@@ -209,7 +209,7 @@ merge with a note) or **review**.
 33. **Suggested resolutions.** Where a review has a likely combination (items 2,
     9 and 25), offer it as an alternative marked as a suggestion, so a review is
     one click. See the "rule-provided combination previews" candidate in the
-    [ideas](../ideas.md#product-design-needed).
+    [overstoryd 016](../later/merge-016-choice-review-extensions.md).
 34. **Why it merged.** On request, show "merged: your move and Alex's edit" from
     the recorded evidence.
 
@@ -218,6 +218,4 @@ merge with a note) or **review**.
 Per candidate: tests in both arrival orders giving one result, a case that must
 still go to review, a replay check, the rule's revision bumped, the
 [format support contract](../../docs/architecture/overstoryd/merge-tool.md#format-support-contract)
-updated, and the change on main (which deploys it) with its hand check listed in
-[small work](../small-work.md#server-refinements)
-before any client relies on it.
+updated, and the change on main (which deploys it) before any client relies on it.

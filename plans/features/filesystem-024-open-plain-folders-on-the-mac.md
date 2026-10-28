@@ -41,7 +41,7 @@ The editor writes through the provider directly. `openLocalFolder(url)` with a p
 2. Open Folder and Open Location; the share panel's "Make This an Overstory Tree" for the opened folder, onto the home host and onto a placement destination.
 3. Docs: `docs/implementing-editors/design.md` (opening a folder that is not a tree; making it one), the pointer in `editor-source.md` §5, and `status.md`.
 4. By hand, with Joe: open a plain folder, edit, see the file change on disk; edit the file outside the app and see the page update; open a path inside a placed tree and land in the tree session; make the folder a tree and see it sync.
-5. **Close out.** Record the evidence in `status.md`, remove the "remaining gap" notes that point here ([Release 001](../../status.md#plans-closed-out--2026-10-20), [small work](../small-work.md#placement-hosts)), and delete this plan.
+5. **Close out.** Record the evidence in `status.md`, remove the "remaining gap" notes that point here ([Release 001](../../status.md#plans-closed-out--2026-10-20)), and delete this plan.
 
 Gate: `bun run test:affected` and `swift/scripts/test-story-app.sh`.
 

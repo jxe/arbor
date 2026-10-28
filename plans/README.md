@@ -33,6 +33,11 @@ forming groups with 002's editor, a share sheet, and a Go to… field that finds
 pages by title, with `overstory://tr_…` links found by asking the directory, then the account
 hosts (a side slice for any time). Moved to soon on 2026-10-25.
 
+**[Schema language 009: change a collection's schema and keep its rows](features/schema-language-009-schema-changes-keep-the-data.md).**
+*Later.* Nothing carries rows across a schema change yet, so a seed bump empties the People
+directory. USL meant migrations between relation forms to be small edits to one declaration.
+From the ideas' open questions, 2026-10-28.
+
 **[Filesystem 024: open plain folders on the Mac](features/filesystem-024-open-plain-folders-on-the-mac.md).**
 *Later.* Opening an ordinary folder in the Mac app, and making it into a tree from there, went away
 with the daemon's editor path; after setup a new tree needs `story place`. Joe wants this
@@ -96,11 +101,6 @@ site ports, which are Schema language 008 in later.
 What a finished project left behind: old readers to delete, notes to write. Each is small and
 named `cleanup-` and the plan it came from. Smaller leftovers still are in
 [small work](small-work.md).
-
-**[Schema language 005: publish USL 0.3.0 and move the sites](soon/cleanup-schema-language-005-publish-usl-and-move-the-sites.md).**
-Collections that sync landed on 2026-10-24 ([status](../status.md#collections-that-sync--2026-10-24)).
-`@ovst/usl` 0.3.0 is unpublished, and cranberries, excellences and supplies-remake still use the
-0.2.0 syntax. Joe deferred both that day; take it when a site is next worked on.
 
 **[Schema language 005: gaps left in collections that sync](soon/cleanup-schema-language-005-collection-gaps.md).**
 Mixed row and text frames are refused, host materializations are never evicted, and a
@@ -169,6 +169,12 @@ idle-based publication baseline, extend simplification beyond repeated moves of
 one unchanged span. Implement each case in the Swift and TypeScript clients,
 using shared examples and the host merge engine to prove the result.
 
+**[overstoryd 016: richer choice review](later/merge-016-choice-review-extensions.md).**
+Things a real choice review may need: safe binary previews, long sources, visible whitespace,
+a freshness policy so unrelated updates don't force a renewed review, explanations of moves
+and deletions, combination previews, and bulk and offline resolution. Joe made the ideas item
+a plan on 2026-10-28; take each when a real review needs it.
+
 **[Release 003: the iPhone app on the App Store](later/release-003-app-store.md).** After friends
 are using the TestFlight build. A sketch of what review requires: account deletion, report
 and block, and policy pages. The sample pages are the reviewer's way in.
@@ -221,8 +227,8 @@ can simplify that evidence after it exists, and must not invent missing copy or 
 operation form before a client that emits it is installed; [overstoryd 015](when-needed/merge-015-resolve-reconciled-choices.md)
 gives every automatic outcome its explanation, which 014's "merge with a note" candidates wait
 for. The numbers are identifiers, not an execution order. History and provenance support
-explanation but do not improve merge decisions; [server refinements](small-work.md#server-refinements)
-tracks hand checks of merge rules already deployed; Web 025 owns rebuilding the web reviewer;
+explanation but do not improve merge decisions; [overstoryd 016](later/merge-016-choice-review-extensions.md)
+extends the choice review; Web 025 owns rebuilding the web reviewer;
 merge replay cost is Performance 004, including merge and replay cost for large collections
 (its step 6). The [testing candidates](ideas.md#testing) in ideas
 include editor alignment and round-trip characterization.

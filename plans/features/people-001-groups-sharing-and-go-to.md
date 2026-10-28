@@ -87,7 +87,8 @@ and `visits` updated in place instead of a Visit row per page.
   a profile linked by hand), rewrite that contact's `contact:<key>` values to the profile id
   in the collections Story can write, as row operations, the same way group membership
   follows them. `Contact` rows (placeholders by hand) come with 007 part 2.
-- **A migration path** for the directory's schema, so a seed bump stops emptying it.
+- **A migration path** for the directory's schema, so a seed bump stops emptying it
+  ([Schema language 009](schema-language-009-schema-changes-keep-the-data.md)).
 - **Proof still owed:** a games author entered as a placeholder shows by name, and by their
   profile once they join.
 
@@ -251,6 +252,10 @@ two hosts, stop and bring it to Joe.
    group.
 5. **Go to… metadata.** Pages are in. Anything else beyond the list in the Go to… slice, such as front
    matter tags or type?
+6. **Removing a member who has claimed.** How removal is confirmed and revoked, what the
+   removed person still sees of past access, how a removal is undone, and how access history
+   is recovered, all without a group database beside the group trees. Moved from ideas
+   (2026-10-28).
 
 ## Not in scope
 

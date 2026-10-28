@@ -12,6 +12,31 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Plans and small work trimmed — 2026-10-28
+
+Joe reviewed the plans in soon, the ideas and small work, and closed out these:
+
+- **USL 0.3.0 and the sites (Schema language 005 cleanup).** Joe published `@ovst/usl`
+  0.3.0 on 2026-10-27. cranberries reads the layered syntax from v0.5.0 (`886f5a7`; owners are
+  an option, `@@editableBy` is gone), supplies-remake moved to it and is live, and excellences
+  moved on 2026-10-28 (`aeba916`, merged in `7ff1ac3`), live at
+  excellences.meaningalignment.org. The cleanup plan is deleted.
+- **Hand checks retired (Joe).** Native 011's Mac and iPhone checks (pairing, onboarding, the
+  account services, `hosted-smoke.ts`): daily use has covered them. The server-refinement
+  matrix for the deployed merge transfers (overstoryd 014): their tests in both arrival orders
+  stand instead.
+- **Soaks recorded as done from daily use:** Native 022's working-tree soak, Story Sync 001's
+  raw-byte protocol and Clients 001's one update machine on Mac, iPhone and the daemon. The
+  Hetzner sync lab run is dropped.
+- **Moved out of small work:** pending invitations in the People list (People 001's member
+  sheet is gone; invitation claims are its loose end), the placement-host iPhone check (it
+  waits on a second live host), and `story untrack` and ignored paths in the publish view
+  (now in [ideas](plans/ideas.md#small-features)).
+- **Ideas:** choice review extensions became [overstoryd 016](plans/later/merge-016-choice-review-extensions.md)
+  and schema evolution became [Schema language 009](plans/features/schema-language-009-schema-changes-keep-the-data.md);
+  claimed-member removal moved to People 001's forks and identity recovery to Security 010;
+  the operator-free recovery item and the merge-semantics question were dropped.
+
 ## Story's version in About — 2026-10-26
 
 Implemented; shows in the next build. A build that isn't a release (the release scripts set
@@ -228,7 +253,7 @@ Before landing, the Swift tests passed on Joe's Mac and the performance
 benchmarks were compared with main: a one-row edit in a 10,000-row
 collection is about 35% slower, because a changed collection is re-encoded
 whole ([Performance 004](plans/later/performance-004-provenance-index.md)
-step 6). Leftovers: [publishing USL 0.3.0 and moving the sites](plans/soon/cleanup-schema-language-005-publish-usl-and-move-the-sites.md)
+step 6). Leftovers: publishing USL 0.3.0 and moving the sites ([done](#plans-and-small-work-trimmed--2026-10-28))
 and [the gaps each milestone left](plans/soon/cleanup-schema-language-005-collection-gaps.md).
 The USL examples moved to [`packages/usl/examples`](packages/usl/examples).
 
@@ -1045,7 +1070,7 @@ measurements before broadening the implementation.
 | Historical catch-up (Performance 003): lazy history working maps avoid full-history copies/scans on exact-basis edits; successful old-basis recovery retains that basis with its head; deterministic complexity and fresh-process replay benchmarks | deployed (on main); measured locally only, 2026-10-09; broader cold-replay targets remain | [evidence](#historical-catch-up-improvements--2026-10-09), [replaced by Performance 004](plans/later/performance-004-provenance-index.md) |
 | Object packing (overstoryd 001): `ObjectStore` reads, presence checks and freshens fall back from loose files to immutable packs under `objects/packs/` indexed in their own SQLite file (zstd frames of about 1 MiB holding one document's versions in order, an object that large alone; every read hash-checked); overstoryd's `PackMaintenance` packs loose objects older than an hour outside every current tree after acceptances cross a threshold, at startup and when idle, and removes loose files only after reading each packed object back; the collector drops dead packed rows under the same retention and grace rules and rewrites half-empty packs. On a copy of live data (2026-10-09: 22,370 objects, 380 MB raw, 431 MB loose) document frames of 1 MiB took 21.8 MB with 0.58 ms p95 cold single reads; per-version deltas took 40–50 MB | deployed 2026-10-09 at `3514eaf4`, always on; `pack-maintenance.ts` runs one pass by hand | [evidence](#object-packing-deployed--2026-10-09), [checks](#pack-checks-and-notes--2026-10-26) |
 | Merge sidecar cleanup: the reference sidecar keeps each engine state decoded in memory, as frozen, interned values in persistent maps that share whatever an edit did not touch, identified by a digest of its content (the chunked state encodings and lazy history loading are gone); engine decisions convert straight to log decisions; the snapshot tree merge is its own package, `@ovst/tree-merge`, which Story Sync tree recovery now declares. Log entries and the question and answer are unchanged | deployed (on main) | [merge sidecar](docs/architecture/overstoryd/merge-tool.md#retained-state) |
-| Transfer merge extensions (overstoryd 014): identity-verified moves and copies of Markdown bullet-list items, pipe-table body rows and text with relative, fragment or reference links (with a proven binding); same-anchor pairs kept in contribution order; keyed JSON/YAML member moves and copies and top-level TS/JS function declaration moves within one file, each with its commutation proof in `format-rules.ts`, tested in both arrival orders with a failing-proof case (`tests/unit/overstoryd-merge/transfer-extensions.test.ts`). Server-side only; no wire or schema change | deployed (on main), not tried by hand; hand checks in [small work](plans/small-work.md#server-refinements) | [transfers](docs/architecture/overstoryd/merge-tool.md#transfers) |
+| Transfer merge extensions (overstoryd 014): identity-verified moves and copies of Markdown bullet-list items, pipe-table body rows and text with relative, fragment or reference links (with a proven binding); same-anchor pairs kept in contribution order; keyed JSON/YAML member moves and copies and top-level TS/JS function declaration moves within one file, each with its commutation proof in `format-rules.ts`, tested in both arrival orders with a failing-proof case (`tests/unit/overstoryd-merge/transfer-extensions.test.ts`). Server-side only; no wire or schema change | deployed (on main), hand checks retired ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)) | [transfers](docs/architecture/overstoryd/merge-tool.md#transfers) |
 | Moves on the fast paths (Native 008): overstoryd accepts a head trace whose frames are basis `moveSource` operations and then `editSource` operations without the sidecar, executing them with `arrangeSources` in `@ovst/protocol`; the sidecar's exact-basis path also takes basis moves and ordered lineage. Tested against eager and full evaluation, with a peer edit in both arrival orders (`tests/unit/overstoryd-merge/source-moves.test.ts`, `tests/integration/overstoryd/source-acceptance.test.ts`). No wire or schema change | deployed (on main) | [fast-forward](docs/architecture/overstoryd/merge-tool.md#fast-forward) |
 | Accepted whole-entry and source-range conflicts: competing edits retained as alternatives with attribution, root decisions, guarded partial resolution, authorized historical inspection (schema 10 and 11) | deployed | [reference implementation](docs/architecture/protocol/README.md#conflict-inspection) |
 | Resource policy and execution authority: shared `who` / `via` / `allow` / `within` grammar, governed policy index, host-private execution tokens, guarded scoped snapshot effects, revocation stream, restrictive-intersection conflict acceptance, Story consent review (schema 13) | deployed, installed | [access control](docs/overstory-spec/05-access-control.md), [reference implementation](docs/architecture/protocol/README.md#resource-policy) |
@@ -1077,9 +1102,9 @@ measurements before broadening the implementation.
 | Area | State | Remaining | Owning plan |
 |---|---|---|---|
 | Story editing and review | implemented, not installed | Copies with changes, paste and inline provenance, compound undo, and interactive acceptance of the implemented review UI | [Native 008](plans/when-needed/merge-008-copies-with-changes-and-compound-undo.md), release gate retired 2026-10-26 |
-| Markdown source-transfer policy | deployed, not hand-verified | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order. Also deployed: list items, table rows and contextual links, same-anchor ordering, keyed JSON/YAML members and TS/JS function declaration moves ([transfers](docs/architecture/overstoryd/merge-tool.md#transfers)); their hand checks are in [small work](plans/small-work.md#server-refinements). Swift/Python declaration moves, structured moves between files, cross-document fragment and reference links and richer list hosts still require review | [overstoryd 014](plans/when-needed/merge-014-merge-handles-many-cases.md) |
+| Markdown source-transfer policy | deployed | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order. Also deployed: list items, table rows and contextual links, same-anchor ordering, keyed JSON/YAML members and TS/JS function declaration moves ([transfers](docs/architecture/overstoryd/merge-tool.md#transfers)); their hand checks were retired ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)). Swift/Python declaration moves, structured moves between files, cross-document fragment and reference links and richer list hosts still require review | [overstoryd 014](plans/when-needed/merge-014-merge-handles-many-cases.md) |
 | Resource policy providers | deployed | Provider-specific enforcement, source resolution, activation consent, the execution sidecar, observation and soak | [Apps 005](plans/later/apps-005-source-resolution-and-sidecar.md), [small work](plans/small-work.md#manual-recipes) |
-| Working-tree client transition | installed | The explicit soak closeout | [small work](plans/small-work.md#observation-and-soak-closeout) |
+| Working-tree client transition | installed | None: the soaks were recorded from daily use ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)) | |
 | Story for the web | not mounted | The browser editor is out of the build until it is rebuilt as a working-tree client over the same machines as the Mac app | [Web 025](plans/later/story-web-025-story-web.md) |
 | Executable documents | core only | MDX/TSX compilation, generated typing, editor integration, React presentation, activation, Story presentation, overstoryd hosting | [Apps 001, 003, 005 and 006](plans/README.md) |
 | Group management | host deployed (on main); apps not installed | Check on the live host: overstoryd group membership by Profile TreeID (it matched by handle, so handle-less group members gained nothing) and top-level `/~name` trees for administrators; install the Mac New Group, Members sheet, and People/Share entry points; iOS group creation; claimed-member restoration | [design](docs/implementing-editors/design.md#profile-control-and-claim) |
@@ -1520,7 +1545,7 @@ the preview test depend on Apple-only modules and have not compiled
 50,000-file scan with the policy took about 10% longer in that container
 (8.5 s against 9.4 s, noisy); one decision costs about 5 µs. Not done: marking
 ignored paths in the Mac app's "what it would publish" view, and an
-`story untrack` command ([small work](plans/small-work.md#smaller-candidates)).
+`story untrack` command ([ideas](plans/ideas.md#small-features)).
 
 ## Declined folder paths (Filesystem 011) — 2026-09-25
 
@@ -1553,8 +1578,8 @@ published and a remote update written while a path is declined, then resent; a
 path released when the folder is put back); `bun run test`. overstoryd's child-tree
 boundary rejection (`ReservedBoundaryConflictError`) answers 409 `conflict`
 without update details; since 2026-09-27 both clients treat that as a refusal
-and hold it rather than retrying (`tests/unit/transport-errors.test.ts`). The hands-on gate is in
-[small work](plans/small-work.md#observation-and-soak-closeout).
+and hold it rather than retrying (`tests/unit/transport-errors.test.ts`). The hands-on gate was recorded from daily use
+([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)).
 
 ## Story Sync write path removed — 2026-09-25
 
@@ -1751,8 +1776,8 @@ places it).
 Verified on Linux: `bun run typecheck`, `bun run check:links` and
 `git diff --check` pass. Not verified: every Swift change is uncompiled, and
 `swift/Story.xcodeproj` was hand-edited for the two new files and must be
-regenerated with xcodegen on a Mac. The plan is deleted; its Mac gates are in
-[small work](plans/small-work.md#native-011-hand-checks).
+regenerated with xcodegen on a Mac. The plan is deleted; its Mac gates were covered by daily use
+([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)).
 
 ## Native 011 daemon-client folds — 2026-09-24
 
@@ -1795,7 +1820,7 @@ Swift toolchain or `xcodebuild`.
 Not verified: every Swift edit is uncompiled. `swift/Story.xcodeproj` was
 edited by hand to match `project.yml` and must be regenerated with xcodegen on
 a Mac; `StoryEditor/Package.resolved` was left unchanged. The remaining Mac
-gates are in [small work](plans/small-work.md#native-011-hand-checks).
+gates were covered by daily use ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)).
 
 ## Declarative collection schemas — 2026-09-24
 
@@ -1866,7 +1891,7 @@ is on Joe's own list. Clients 001 closed the same day; its plan is deleted (git
 history). Its follow-ups: held folders in the Mac app
 (dropped 2026-10-26), the browser client
 ([Web 025](plans/later/story-web-025-story-web.md)), a Hetzner sync lab run
-([small work](plans/small-work.md)), and History on
+(dropped 2026-10-28), and History on
 working trees ([open questions](plans/ideas.md#open-questions)).
 **Runner.** `@ovst/working-tree`
 holds `reduceUpdate`, `LocalChange` preparation, entry transfer, the

@@ -44,7 +44,7 @@ from retaining already-authored undo requests.
   discard captured operations. Preserve local work and show a problem if it cannot be stated.
 - overstoryd must execute every emitted form before a client that emits it is installed.
   For in-page moves and Move to Document it does: the fast-path acceptance is deployed
-  ([small work](../small-work.md#server-refinements)).
+  ([status](../../status.md#implemented)).
 
 Browser integration belongs to [Web 025](../later/story-web-025-story-web.md).
 
