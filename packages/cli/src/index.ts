@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
+import { agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, treeHoldsPages, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { constants as osConstants } from "node:os";
@@ -1232,7 +1232,9 @@ async function cloudPlacementsReady(
     // Roots only; the folder's ignored, untracked content is not part of its tree.
     const skip = membershipSkip(await loadIgnorePolicy(target.path),
       trackedEntries(remote.root as ObjectHash, (hash) => wire.object(target.treeID, hash)));
-    const localSnapshot = await snapshotDirectory(target.path, new Map(), [], undefined, undefined, skip);
+    const load = (hash: ObjectHash) => wire.object(target.treeID, hash);
+    const localSnapshot = await snapshotDirectory(target.path, new Map(), [], undefined, undefined, skip,
+      await treeHoldsPages(remote.root as ObjectHash, load));
     if (localSnapshot.root !== remote.root) return { ready: false, reason: `${target.relativePath} differs from the host` };
   }
   return { ready: true };

@@ -3,8 +3,8 @@ import type { BigIntStats } from "node:fs";
 
 /**
  * The per-workspace object index: `objects` maps every absolute path the
- * snapshot walk encodes to the hash of its wire object, for files and
- * directories alike. The index is an optimization, never authority: a file
+ * snapshot walk encodes to the hash of its wire object, for files, pages
+ * (a Markdown file's page object) and directories alike. The index is an optimization, never authority: a file
  * row counts only while the complete stat tuple (size, mtime, ctime, inode,
  * device) still matches, directory rows carry no validity tuple and are
  * trusted only by callers that verify the re-encoded object's hash
@@ -13,6 +13,8 @@ import type { BigIntStats } from "node:fs";
  * hash is verified before it leaves the daemon. A stale row can therefore
  * delay a push but never produce a wrong object.
  */
+type ObjectKind = "file" | "page" | "directory";
+
 export class ObjectIndex {
   private database: Database;
   constructor(databasePath: string) {
@@ -30,14 +32,14 @@ export class ObjectIndex {
     return row ?? undefined;
   }
 
-  rememberObject(absolute: string, kind: "file" | "directory", info: BigIntStats | undefined, hash: string): void {
+  rememberObject(absolute: string, kind: ObjectKind, info: BigIntStats | undefined, hash: string): void {
     if (kind === "directory" || !info) {
-      this.rememberDirectory(absolute, hash);
+      if (kind === "directory") this.rememberDirectory(absolute, hash);
       return;
     }
     this.database.prepare(
-      "INSERT INTO objects(path, kind, size, mtime_ns, ctime_ns, ino, dev, hash) VALUES (?, 'file', ?, ?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET kind=excluded.kind,size=excluded.size,mtime_ns=excluded.mtime_ns,ctime_ns=excluded.ctime_ns,ino=excluded.ino,dev=excluded.dev,hash=excluded.hash",
-    ).run(absolute, info.size, info.mtimeNs, info.ctimeNs, info.ino, info.dev, hash);
+      "INSERT INTO objects(path, kind, size, mtime_ns, ctime_ns, ino, dev, hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET kind=excluded.kind,size=excluded.size,mtime_ns=excluded.mtime_ns,ctime_ns=excluded.ctime_ns,ino=excluded.ino,dev=excluded.dev,hash=excluded.hash",
+    ).run(absolute, kind, info.size, info.mtimeNs, info.ctimeNs, info.ino, info.dev, hash);
   }
 
   rememberDirectory(absolute: string, hash: string): void {
@@ -58,18 +60,18 @@ export class ObjectIndex {
   }
 
   /** The stored hash for a path regardless of validity; used by revalidation. */
-  storedObjectHash(absolute: string): { kind: "file" | "directory"; hash: string } | undefined {
-    const row = this.database.query("SELECT kind, hash FROM objects WHERE path = ?").get(absolute) as { kind: "file" | "directory"; hash: string } | null;
+  storedObjectHash(absolute: string): { kind: ObjectKind; hash: string } | undefined {
+    const row = this.database.query("SELECT kind, hash FROM objects WHERE path = ?").get(absolute) as { kind: ObjectKind; hash: string } | null;
     return row ?? undefined;
   }
 
   /** Every stored path of one kind; revalidation drops rows whose files vanished. */
-  storedObjectPaths(kind: "file" | "directory"): string[] {
+  storedObjectPaths(kind: ObjectKind): string[] {
     return (this.database.query("SELECT path FROM objects WHERE kind = ?").all(kind) as Array<{ path: string }>).map((row) => row.path);
   }
 
-  lookupHash(hash: string): { path: string; kind: "file" | "directory" } | undefined {
-    const row = this.database.query("SELECT path, kind FROM objects WHERE hash = ? ORDER BY path LIMIT 1").get(hash) as { path: string; kind: "file" | "directory" } | null;
+  lookupHash(hash: string): { path: string; kind: ObjectKind } | undefined {
+    const row = this.database.query("SELECT path, kind FROM objects WHERE hash = ? ORDER BY path LIMIT 1").get(hash) as { path: string; kind: ObjectKind } | null;
     return row ?? undefined;
   }
 

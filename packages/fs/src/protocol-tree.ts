@@ -5,8 +5,13 @@ import type { CollectionReference } from "@ovst/protocol";
 import {
   compareProtocolNames,
   decodeProtocolDirectory,
+  decodeProtocolPage,
   encodeProtocolDirectory,
+  encodeProtocolPage,
   hashObject,
+  isPageName,
+  parsePage,
+  writePageFile,
   type LazyTreeSnapshot,
   type ObjectHash,
   type TreeSnapshot,
@@ -68,7 +73,8 @@ export class UnavailableCloudContentError extends Error {
  */
 export interface SnapshotObjectIndex {
   fileHash(absolute: string, stat: BigIntStats): ObjectHash | undefined;
-  remember(absolute: string, kind: "file" | "directory", stat: BigIntStats | undefined, hash: ObjectHash): void;
+  /** A page's row names the page object its Markdown file reads as. */
+  remember(absolute: string, kind: "file" | "page" | "directory", stat: BigIntStats | undefined, hash: ObjectHash): void;
   directoryHash?(absolute: string): ObjectHash | undefined;
 }
 
@@ -99,6 +105,12 @@ export async function snapshotDirectory(
   objectIndex?: SnapshotObjectIndex,
   /** Leaves out ignored, untracked content; see `membershipSkip`. Nested tree boundaries are never skipped. */
   skip?: SkipPath,
+  /**
+   * Page mode (directory format §3): Markdown files read as `page` entries,
+   * except one whose frontmatter does not parse, which stays a file. A
+   * writer is in page mode when its basis holds a page entry.
+   */
+  pages = false,
 ): Promise<LazyTreeSnapshot> {
   const resolvedInputRoot = resolve(inputRoot);
   const root = await realpath(inputRoot);
@@ -127,6 +139,18 @@ export async function snapshotDirectory(
   const readFileObject = async (absolute: string): Promise<{ hash: ObjectHash; bytes: Uint8Array }> => {
     const bytes = await readFile(absolute);
     return { hash: hashObject(bytes), bytes };
+  };
+
+  /** A Markdown file's page in page mode, or null when it stays a file. */
+  const pageSource = async (absolute: string, name: string): Promise<ObjectHash | null> => {
+    if (!pages || !isPageName(name)) return null;
+    const info = objectIndex ? await stat(absolute, { bigint: true }) : undefined;
+    const page = parsePage(await readFile(absolute));
+    if (!page) return null;
+    const bytes = encodeProtocolPage(page), hash = hashObject(bytes);
+    objects.set(hash, { hash, bytes: () => Promise.resolve(bytes) });
+    if (info) objectIndex!.remember(absolute, "page", info, hash);
+    return hash;
   };
 
   /** A file's object: cached bytes when read now, otherwise a verified on-demand loader. */
@@ -180,9 +204,9 @@ export async function snapshotDirectory(
         entries.push({ name: entry.name, directory: objectIndex?.directoryHash?.(absolute) ?? await walk(absolute, childPath(entry.name)) });
         seen.add(entry.name);
       } else if (entry.isFile()) {
-        const source = await fileSource(absolute, entry.name);
+        const page = await pageSource(absolute, entry.name);
         fileNames.push(entry.name);
-        entries.push({ name: entry.name, file: source });
+        entries.push(page ? { name: entry.name, page } : { name: entry.name, file: await fileSource(absolute, entry.name) });
         seen.add(entry.name);
       }
     }
@@ -270,18 +294,21 @@ export async function materializeTree(
     const candidate = resolve(path);
     return exclusions.some((excluded) => candidate === excluded || candidate.startsWith(`${excluded}${sep}`));
   };
-  const visit = async (path: string, hash: ObjectHash, kind: "file" | "directory"): Promise<void> => {
+  const visit = async (path: string, hash: ObjectHash, kind: "file" | "page" | "directory"): Promise<void> => {
     if (isExcluded(path)) return;
     const bytes = await load(hash);
     if (hashObject(bytes) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
-    if (kind === "file") {
+    if (kind !== "directory") {
       await mkdir(dirname(path), { recursive: true });
       const existing = await readFile(path).catch((error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT") return undefined;
         throw error;
       });
-      if (existing?.equals(Buffer.from(bytes))) return;
-      await writeAtomic(path, bytes);
+      // A page is written into the file already there, changing only what
+      // changed; a file that already reads as the page is left alone.
+      const content = kind === "page" ? writePageFile(decodeProtocolPage(bytes), existing ?? null) : bytes;
+      if (existing?.equals(Buffer.from(content))) return;
+      await writeAtomic(path, content);
       return;
     }
     const object = decodeProtocolDirectory(bytes);
@@ -303,6 +330,7 @@ export async function materializeTree(
       if (isExcluded(target)) continue;
       if (entry.tree) await onBoundary?.(target, entry.tree);
       else if (entry.file) await visit(target, entry.file, "file");
+      else if (entry.page) await visit(target, entry.page, "page");
       else if (entry.directory) await visit(target, entry.directory, "directory");
     }
   };

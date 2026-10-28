@@ -48,6 +48,30 @@ export function protocolPageOf(kind: "file" | "page", bytes: Uint8Array): Protoc
   return kind === "page" ? decodeProtocolPage(bytes) : undefined;
 }
 
+/**
+ * Whether a tree holds a page entry anywhere below `root` (not across nested
+ * trees): a writer whose basis does is in page mode (directory format §3).
+ * `memo` keeps each directory's answer by hash, so a later root that shares
+ * most directories reads only the ones that changed.
+ */
+export async function treeHoldsPages(
+  root: ObjectHash,
+  load: (hash: ObjectHash) => Promise<Uint8Array>,
+  memo: Map<ObjectHash, boolean> = new Map(),
+): Promise<boolean> {
+  const known = memo.get(root);
+  if (known !== undefined) return known;
+  const directory = decodeProtocolDirectory(await load(root));
+  let holds = directory.entries.some((entry) => entry.page !== undefined);
+  for (const entry of directory.entries) {
+    if (holds) break;
+    if (entry.directory) holds = await treeHoldsPages(entry.directory, load, memo);
+  }
+  if (memo.size >= 100_000) memo.clear();
+  memo.set(root, holds);
+  return holds;
+}
+
 /** What an object is, which its referrer says: an entry's file, page or directory, or a collection's table or rows chunk. */
 export type ProtocolObjectKind = ProtocolEntryKind | "table" | "rows";
 

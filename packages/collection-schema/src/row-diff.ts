@@ -1,6 +1,13 @@
 import {
   decodeProtocolDirectory,
+  decodeProtocolPage,
+  encodeCanonicalCBOR,
   executeRowOperations,
+  pageValueJSON,
+  type PageOperation,
+  type PageValue,
+  type PropertyOperation,
+  type ProtocolPage,
   logicalRowKey,
   stableJSONString,
   type JSONValue,
@@ -85,14 +92,48 @@ async function collectionEdits(path: string, object: ObjectHash, before: Protoco
   return operations;
 }
 
+/** Property operations for one page whose properties alone changed, or null
+ * when its id or body changed too. */
+function pageEdits(path: string, object: ObjectHash, before: ProtocolPage, after: ProtocolPage): PageOperation[] | null {
+  if (before.id !== after.id || !Buffer.from(before.body).equals(Buffer.from(after.body))) return null;
+  const page = { material: { kind: "basis" as const, path, object } };
+  const operations: PageOperation[] = [];
+  const op = (fields: Record<string, unknown>) => operations.push({ key: "", page, ...fields } as PageOperation);
+  const same = (a: PageValue | undefined, b: PageValue | undefined) =>
+    a === undefined || b === undefined ? a === b : Buffer.from(encodeCanonicalCBOR(a)).equals(Buffer.from(encodeCanonicalCBOR(b)));
+  const valuesBefore = new Map(before.properties), valuesAfter = new Map(after.properties);
+  for (const name of new Set([...valuesBefore.keys(), ...valuesAfter.keys()])) {
+    const b = valuesBefore.get(name), a = valuesAfter.get(name);
+    if (same(b, a)) continue;
+    // A list both versions hold changes member by member, as an ordered field.
+    if (Array.isArray(b) && Array.isArray(a) && new Set(b.map((m) => json(pageValueJSON(m)))).size === b.length
+      && new Set(a.map((m) => json(pageValueJSON(m)))).size === a.length) {
+      const key = (m: PageValue) => json(pageValueJSON(m));
+      const target = new Set(a.map(key)), source = new Set(b.map(key));
+      const working = b.filter((m) => target.has(key(m)));
+      for (const member of b) if (!target.has(key(member))) op({ kind: "disconnect", field: name, member: pageValueJSON(member) });
+      for (const member of a) if (!source.has(key(member))) { op({ kind: "connect", field: name, member: pageValueJSON(member) }); working.push(member); }
+      for (const [index, member] of a.entries()) {
+        if (working[index] !== undefined && key(working[index]!) === key(member)) continue;
+        op({ kind: "move", field: name, member: pageValueJSON(member), after: index ? pageValueJSON(a[index - 1]!) : null });
+        working.splice(working.findIndex((m) => key(m) === key(member)), 1);
+        working.splice(index, 0, member);
+      }
+      continue;
+    }
+    op({ kind: "set", field: name, before: b === undefined ? null : pageValueJSON(b), value: a === undefined ? null : pageValueJSON(a) });
+  }
+  return operations;
+}
+
 /**
- * The row operations that explain a change from `basis` to `candidate`, when
- * that change is only edits to collection rows and replaying the operations
- * reproduces `candidate` exactly (spec 10 §4.1). Null otherwise: any other
- * change stays a snapshot.
+ * The property operations that explain a change from `basis` to
+ * `candidate`, when that change is only edits to collection rows and to page
+ * properties and replaying the operations reproduces `candidate` exactly
+ * (spec 10 §4.1). Null otherwise: any other change stays a snapshot.
  */
-export async function deriveRowOperations(basis: ObjectHash, candidate: ObjectHash, read: Read): Promise<RowOperation[] | null> {
-  const operations: RowOperation[] = [];
+export async function deriveRowOperations(basis: ObjectHash, candidate: ObjectHash, read: Read): Promise<PropertyOperation[] | null> {
+  const operations: PropertyOperation[] = [];
   const walk = async (path: string, before: ObjectHash, after: ObjectHash): Promise<boolean> => {
     if (before === after) return true;
     const [left, right] = [decodeProtocolDirectory(await read(before)), decodeProtocolDirectory(await read(after))];
@@ -107,13 +148,20 @@ export async function deriveRowOperations(basis: ObjectHash, candidate: ObjectHa
     for (const name of names) {
       const a = left.entries.find((e) => e.name === name), b = right.entries.find((e) => e.name === name);
       if (stableJSONString(a ?? null) === stableJSONString(b ?? null)) continue;
+      const child = `${path === "/" ? "" : path}/${name}`;
+      if (a?.page && b?.page) {
+        const edits = pageEdits(child, a.page, decodeProtocolPage(await read(a.page)), decodeProtocolPage(await read(b.page)));
+        if (!edits?.length) return false;
+        operations.push(...edits);
+        continue;
+      }
       if (!a?.directory || !b?.directory) return false;
       if (!(await walk(`${path === "/" ? "" : path}/${name}`, a.directory, b.directory))) return false;
     }
     return true;
   };
   if (!(await walk("/", basis, candidate)) || !operations.length) return null;
-  operations.forEach((operation, index) => { operation.key = `row-${index + 1}`; });
+  operations.forEach((operation, index) => { operation.key = `${"page" in operation ? "page" : "row"}-${index + 1}`; });
   try {
     const replayed = await executeRowOperations(basis, operations, read, replayCollectionRows);
     return replayed.root === candidate ? operations : null;

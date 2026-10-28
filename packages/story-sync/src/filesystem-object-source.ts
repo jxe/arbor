@@ -13,7 +13,7 @@ import {
 } from "@ovst/fs";
 import { toTreePath } from "@ovst/protocol/path";
 import { ObjectIndex } from "./state/index.ts";
-import { hashObject, type ObjectHash } from "@ovst/protocol";
+import { encodeProtocolPage, hashObject, parsePage, type ObjectHash } from "@ovst/protocol";
 
 /** A root whose entries stay synchronized where an ignore rule matches them, and how to read its directories. */
 export interface TrackedRoot {
@@ -46,6 +46,8 @@ export class FilesystemObjectSource implements AsyncDisposable {
   private audit?: Promise<void>;
   private timer?: ReturnType<typeof setInterval>;
   private tracked?: () => Promise<TrackedRoot | null>;
+  /** Whether the folder's Markdown reads as pages (directory format §3). */
+  private pages = false;
 
   constructor(readonly root: string, databasePath: string, private readonly options: {
     exclusions: () => readonly string[];
@@ -74,6 +76,11 @@ export class FilesystemObjectSource implements AsyncDisposable {
   /** Drop directory rows at and beneath `absolute`: their encodings followed rules that changed. */
   invalidateDirectories(absolute: string): void {
     this.rows.forgetDirectoriesBeneath(absolute);
+  }
+
+  /** Read the folder's Markdown files as pages from now on, or as files. */
+  setPageMode(pages: boolean): void {
+    this.pages = pages;
   }
 
   /** Where the folder's tracked root comes from; without one, every ignored path is left out. */
@@ -105,11 +112,13 @@ export class FilesystemObjectSource implements AsyncDisposable {
         this.options.report?.({ source: "filesystem", reason: "missing", hash });
         return undefined;
       }
-      const bytes = row.kind === "file"
-        ? await readFile(row.path).catch((error) => {
-          this.options.report?.(objectReadError({ source: "filesystem", hash, path: row.path }, error));
-          return undefined;
-        })
+      const read = () => readFile(row.path).catch((error) => {
+        this.options.report?.(objectReadError({ source: "filesystem", hash, path: row.path }, error));
+        return undefined;
+      });
+      // A page's object is the page its Markdown file reads as.
+      const bytes = row.kind === "file" ? await read()
+        : row.kind === "page" ? await read().then((file) => { const page = file && parsePage(file); return page ? encodeProtocolPage(page) : undefined; })
         : await this.directoryBytes(row.path, hash, scope);
       if (bytes && hashObject(bytes) === hash) return bytes;
       // Inside a tracked lookup a directory that does not rebuild from rows is not stale, only unknown here.
@@ -139,7 +148,7 @@ export class FilesystemObjectSource implements AsyncDisposable {
     for (const { tracked, index } of attempts) {
       try {
         const skip = await this.skip(path, scope.exclusions, tracked);
-        const snapshot = await snapshotDirectory(path, scope.boundaries, scope.exclusions, scope.describe, index, skip);
+        const snapshot = await snapshotDirectory(path, scope.boundaries, scope.exclusions, scope.describe, index, skip, this.pages);
         if (snapshot.root === expected) return await snapshot.objects.get(snapshot.root)!.bytes();
       } catch (error) {
         this.options.report?.(objectReadError({ source: "filesystem", hash: expected, path }, error));
@@ -158,18 +167,18 @@ export class FilesystemObjectSource implements AsyncDisposable {
       const index: SnapshotObjectIndex = {
         fileHash: () => undefined,
         remember: (path, kind, info, hash) => {
-          if (kind !== "file") return;
+          if (kind === "directory") return;
           audited.add(path);
           const stored = this.rows.storedObjectHash(path);
-          if (stored?.kind === "file" && stored.hash !== hash) this.options.changed(path);
-          this.rows.rememberObject(path, "file", info, hash);
+          if (stored && stored.kind !== "directory" && stored.hash !== hash) this.options.changed(path);
+          this.rows.rememberObject(path, kind, info, hash);
         },
       };
       // Boundaries affect directory encodings, not the file rows audited here.
       const exclusions = this.options.exclusions();
       const skip = await this.skip(this.root, exclusions, await this.trackedLookup());
-      await snapshotDirectory(this.root, new Map(), exclusions, undefined, index, skip);
-      for (const path of this.rows.storedObjectPaths("file")) {
+      await snapshotDirectory(this.root, new Map(), exclusions, undefined, index, skip, this.pages);
+      for (const path of [...this.rows.storedObjectPaths("file"), ...this.rows.storedObjectPaths("page")]) {
         if (!audited.has(path)) this.rows.forgetObject(path);
       }
     })().catch((error) => {

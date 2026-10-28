@@ -138,7 +138,7 @@ describe("rows of several tables", () => {
     const reread = await resolveSnapshot(await snapshotDirectory(join(sandbox, "replay"), new Map(), [], (dir, list) => snapshot.projections.read(dir, list)));
     expect(reread.root).toBe(result.root);
     const derived = await deriveRowOperations(snapshot.root, reread.root, async (hash) => objects.get(hash) ?? reread.objects.get(hash)!);
-    expect(derived?.map((op) => [op.model, op.kind])).toEqual([["Game", "set"], ["List", "disconnect"], ["List", "rowCreate"]]);
+    expect(derived?.map((op) => ["model" in op ? op.model : null, op.kind])).toEqual([["Game", "set"], ["List", "disconnect"], ["List", "rowCreate"]]);
   });
 
   test("an operation on a model the schema does not have is invalid", async () => {

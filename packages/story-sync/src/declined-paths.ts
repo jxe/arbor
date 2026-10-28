@@ -23,6 +23,7 @@ const EMPTY_FILE = hashObject(new Uint8Array());
 function entryKey(entry: Entry): string {
   if (!entry) return "none";
   if (entry.file !== undefined) return `file:${entry.file}`;
+  if (entry.page !== undefined) return `page:${entry.page}`;
   if (entry.directory !== undefined) return `directory:${entry.directory}`;
   return `tree:${entry.tree}`;
 }
@@ -100,6 +101,7 @@ export async function declinedPoint(path: string, disk: ObjectHash, accepted: Ob
 /** Every file hash beneath an entry. Child-tree boundaries contribute nothing. */
 async function contents(entry: Entry, load: LoadObject, into = new Set<string>()): Promise<Set<string>> {
   if (entry?.file !== undefined) into.add(entry.file);
+  else if (entry?.page !== undefined) into.add(entry.page);
   else if (entry?.directory !== undefined) {
     for (const child of (await directory(entry.directory, load)).entries) await contents(child, load, into);
   }

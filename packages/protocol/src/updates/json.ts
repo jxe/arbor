@@ -392,7 +392,7 @@ export function verifyTreeSnapshotGraph(snapshot: TreeSnapshot, mode: "complete"
     if (visited.has(hash)) return;
     const bytes = snapshot.objects.get(hash);
     if (!bytes) {
-      if (mode === "sparse-files" && kind === "file") return;
+      if (mode === "sparse-files" && (kind === "file" || kind === "page")) return;
       throw new Error(`Snapshot is missing reachable object: ${hash}`);
     }
     if (hashObject(bytes) !== hash) throw new Error(`Snapshot object hash mismatch: ${hash}`);

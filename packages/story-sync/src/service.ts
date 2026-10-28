@@ -12,7 +12,7 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@ovst/protocol";
-import { canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, protocolObjectReferences, verifyTreeSnapshotGraph, type ObjectHash, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
+import { canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type ObjectHash, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@ovst/client";
 import { type SharedTreePlacement } from "./state/index.ts";
@@ -94,11 +94,12 @@ async function sparseSpine(
     for (const { table } of directory.collection?.tables ?? []) await visit(table, "table");
     for (const entry of directory.entries) {
       if (entry.directory) await visit(entry.directory);
-      else if (entry.file && entry.name.toLowerCase().endsWith(".md")) {
-        const child = spine.get(entry.file) ?? await readObject(entry.file);
-        if (!child) throw new Error(`Accepted snapshot is missing Markdown ${entry.file}`);
-        if (hashObject(child) !== entry.file) throw new Error(`Accepted Markdown does not match ${entry.file}`);
-        spine.set(entry.file, child);
+      else if ((entry.file || entry.page) && entry.name.toLowerCase().endsWith(".md")) {
+        const content = (entry.file ?? entry.page)!;
+        const child = spine.get(content) ?? await readObject(content);
+        if (!child) throw new Error(`Accepted snapshot is missing Markdown ${content}`);
+        if (hashObject(child) !== content) throw new Error(`Accepted Markdown does not match ${content}`);
+        spine.set(content, child);
       }
     }
   };
@@ -578,6 +579,9 @@ export class StorySyncDaemon implements AsyncDisposable {
     return boundaries;
   }
 
+  /** Which directories hold a page, by hash, across every folder's scans. */
+  private readonly pageDirectories = new Map<ObjectHash, boolean>();
+
   /**
    * Walk a folder into a lazy graph; index hits read no file bytes until a
    * change needs them. An ignored path is left out unless `tracked` holds it,
@@ -587,6 +591,10 @@ export class StorySyncDaemon implements AsyncDisposable {
     const exclusions = this.trees.excludedMountsWithin(workspace.root);
     const policy = await loadIgnorePolicy(workspace.root, { excludedRoots: exclusions });
     const skip = membershipSkip(policy, tracked ? trackedEntries(tracked.root, tracked.load) : null);
+    // Markdown reads as pages once the root the folder builds on holds one.
+    const basis = tracked ?? collectionBasis;
+    const pages = basis ? await treeHoldsPages(basis.root, basis.load, this.pageDirectories) : false;
+    workspace.objects.setPageMode(pages);
     return snapshotDirectory(
       workspace.root,
       this.canonicalBoundariesFor(workspace, remoteTrees),
@@ -594,6 +602,7 @@ export class StorySyncDaemon implements AsyncDisposable {
       (directory, names) => workspace.describeProtocolCollection(directory, names, collectionBasis),
       workspace.objectIndex(),
       also ? async (path, isDirectory) => await skip(path, isDirectory) || await also(path, isDirectory) : skip,
+      pages,
     );
   }
 

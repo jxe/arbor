@@ -2,6 +2,9 @@ import { existsSync } from "node:fs";
 import { lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  decodeProtocolPage,
+  isProtocolContentKind,
+  writePageFile,
   overstoryPrivateRoot,
   decodeTreeSnapshotJSON,
   decodeProtocolDirectory,
@@ -164,7 +167,7 @@ function reachable(root: string, objects: ReadonlyMap<string, Uint8Array>): Set<
   for (let next = pending.pop(); next; next = pending.pop()) {
     if (seen.has(next.hash)) continue;
     seen.add(next.hash);
-    if (next.kind === "file") continue;
+    if (isProtocolContentKind(next.kind)) continue;
     const bytes = objects.get(next.hash);
     if (!bytes) throw new Error(`Folder graph is missing ${next.kind} ${next.hash}`);
     pending.push(...protocolObjectReferences(next.kind, bytes));
@@ -386,7 +389,7 @@ export class FolderSync implements AcceptedTree {
       if (!object || objects.has(object.hash)) return;
       const source: ProtocolObjectSource = { hash: object.hash, bytes: () => load(object.hash) };
       objects.set(object.hash, source);
-      if (object.kind !== "file") for (const child of protocolObjectReferences(object.kind, await source.bytes())) await add(child);
+      if (!isProtocolContentKind(object.kind)) for (const child of protocolObjectReferences(object.kind, await source.bytes())) await add(child);
     };
     for (const point of points) {
       const entry = await entryAt(accepted as ObjectHash, point, load);
@@ -572,7 +575,7 @@ export class FolderSync implements AcceptedTree {
     const pending: Array<{ hash: string; kind: ProtocolObjectKind }> = [{ hash: lazy.root, kind: "directory" }];
     for (let next = pending.pop(); next; next = pending.pop()) {
       if (objects.has(next.hash as ObjectHash)) continue;
-      if (next.kind === "file" && retained.has(next.hash)) continue;
+      if (isProtocolContentKind(next.kind) && retained.has(next.hash)) continue;
       const source = lazy.objects.get(next.hash as ObjectHash);
       const bytes = graph.objects.get(next.hash as ObjectHash) ?? await source?.bytes();
       if (!bytes || hashObject(bytes) !== next.hash) throw new UpdateValidationError(`The folder changed while it was scanned: ${next.hash}`);
@@ -612,7 +615,7 @@ export class FolderSync implements AcceptedTree {
     const objects = new Map<ObjectHash, Uint8Array>();
     const pending: Array<{ hash: string; kind: ProtocolObjectKind }> = [{ hash: root, kind: "directory" }];
     for (let next = pending.pop(); next; next = pending.pop()) {
-      if (next.kind === "file" || objects.has(next.hash as ObjectHash)) continue;
+      if (isProtocolContentKind(next.kind) || objects.has(next.hash as ObjectHash)) continue;
       const bytes = await this.host.objectBytes(next.hash as ObjectHash);
       if (!bytes) throw new UpdateValidationError(`Accepted ${next.kind} is unavailable: ${next.hash}`);
       objects.set(next.hash as ObjectHash, bytes);
@@ -868,9 +871,10 @@ export class FolderSync implements AcceptedTree {
         await rm(target, { force: true });
       }
     }
-    if (entry?.file) {
+    if (entry?.file || entry?.page) {
       await mkdir(dirname(target), { recursive: true });
-      await writeFileAtomic(target, await load(entry.file), 0o644);
+      const existing = entry.page ? await readFile(target).catch(() => null) : null;
+      await writeFileAtomic(target, entry.page ? writePageFile(decodeProtocolPage(await load(entry.page)), existing) : await load(entry.file!), 0o644);
     } else if (entry?.directory) {
       if (existing && !existing.isDirectory()) await rm(target, { force: true });
       await materializeTree(target, entry.directory, load, undefined, mounts, skip, this.host.collections);
@@ -892,7 +896,7 @@ export class FolderSync implements AcceptedTree {
 async function holdsLocalContent(directory: ObjectHash, bytes: (hash: ObjectHash) => Promise<Uint8Array>): Promise<boolean> {
   const { entries } = decodeProtocolDirectory(await bytes(directory));
   for (const entry of entries) {
-    if (entry.file !== undefined) return true;
+    if (entry.file !== undefined || entry.page !== undefined) return true;
     if (entry.directory !== undefined && await holdsLocalContent(entry.directory, bytes)) return true;
   }
   return false;
