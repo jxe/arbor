@@ -1,27 +1,12 @@
 # Small work and verification
 
-Tasks too small for a plan of their own, and the install, deploy, hand-check and soak
-gates left by finished work. Nothing here authorizes installing, restarting Joe's apps,
+Decided tasks too small for a plan of their own, and the hand checks, schedules and soak
+gates left by finished work: anything here can just be done. What isn't decided yet, whether
+or how, is in [ideas](ideas.md); procedures live in the docs beside the code they test. Nothing here authorizes installing, restarting Joe's apps,
 changing live data or deleting backups. When an item is done, record its revision, date
 and evidence in [status](../status.md) and delete it here.
 
-## Small work
-
-### Teach external agents to work in placed folders
-
-Formerly CLI 004. Agents edit placed folders with their own tools; `story sync status [<locator>]
---json` already reports readiness and resolves locators. No new read/mutation commands, no
-MCP server, no new story-sync routes.
-
-- [ ] Check whether `story sync status --json` shows that a local edit reached the host; if not,
-  add `story sync status --wait [--timeout <s>]` (exit 0 when every in-scope tree is up to date,
-  non-zero with the condition if one is held).
-- [ ] Write one short skill for Claude Code and Codex from one source: check `story sync status`
-  first; resolve a locator before assuming its tree or writability; edit only the placed
-  folder; keep frontmatter `id:` values and links; wait for publication and report changed
-  paths; treat a held tree as a stop.
-- [ ] From outside the checkout, have both agents do a research task over two placed trees
-  and one edit, wait for publication and report the changed locator; revise the skill.
+## Hand checks
 
 ### Inviting and joining follow-ups
 
@@ -53,22 +38,3 @@ Dated evidence closes these; elapsed time alone does not.
   real rejection (a `LinkPreviews/` directory in the account checkout is easiest), that
   other edits still publish, `story sync declined` lists the path, and `story sync declined restore`
   removes it.
-
-## Manual recipes
-
-**Editor recovery.** Rebuild the app and use a disposable page: edit offline, reconnect
-without Sync Now, and verify host and peer convergence. Quit while offline with unpublished
-edits and verify the reopened page shows them from the change log, then that they publish.
-Preserve real user text before testing process interruption.
-
-**Automatic publication.** If publication stalls, capture the machine phase and the actual
-preparation error before any manual retry; the two historical stalls were a no-work pass
-that left `preparing: true` with no task, and a preparation failure raised outside the
-submission error handler. A fix never clears a pending request, rewrites its digest,
-discards a saved head or alters protocol semantics.
-
-**Resource policy soak.** Exercise Story consent and revocation and configuration
-conflict resolution on the isolated production copy, including queued configuration writes.
-The schema 13 migration backups were deleted on 2026-10-26, so take a fresh backup of the
-live host before the soak. Required before enabling a
-real application ([Apps 005](later/apps-005-source-resolution-and-sidecar.md)).

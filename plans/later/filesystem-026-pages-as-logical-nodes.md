@@ -20,7 +20,7 @@ It was an item in [ideas](../ideas.md).
 - Spec 02's byte-exact front-matter round trip becomes per placement.
 - Front-matter edits become property effects, which removes the representation-versus-model
   special cases in merge and access (for example a field merge per property instead of a
-  text merge of the front matter, and Schema language 002's `who: {property: authors}`).
+  text merge of the front matter, and Schema language 010's `who: {property: authors}`).
 
 ## Before starting
 

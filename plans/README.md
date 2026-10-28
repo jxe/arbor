@@ -7,9 +7,9 @@ plans that wait on a trigger ("when merges bite", "when size hurts") rather than
 is named by its topic and number, such as `features/live-001-presence.md`. When a plan's timing
 changes, move the file (or, in `features/`, change its timing line) and its paragraph here.
 
-Each plan starts with why and when Joe wants it; the same paragraph is below. Small tasks
-and install, deploy and soak checks are in [small work](small-work.md); unplanned candidates
-and open design questions are in [ideas](ideas.md). Current behavior is in
+Each plan starts with why and when Joe wants it; the same paragraph is below. Decided small
+tasks, hand checks and soaks are in [small work](small-work.md); anything not yet decided,
+candidates and open questions, is in [ideas](ideas.md). Current behavior is in
 [status](../status.md). Plans carry no priorities. Delete a plan once done, after recording
 its evidence in status.
 
@@ -37,6 +37,11 @@ hosts (a side slice for any time). Moved to soon on 2026-10-25.
 *Later.* Nothing carries rows across a schema change yet, so a seed bump empties the People
 directory. USL meant migrations between relation forms to be small edits to one declaration.
 From the ideas' open questions, 2026-10-28.
+
+**[CLI 004: external agents work in placed folders](features/cli-004-agents-in-placed-folders.md).**
+*Later.* A `story sync status --wait` if needed, and one skill for Claude Code and Codex: check
+readiness, edit only the placed folder, wait for publication, report what changed. Moved
+from small work on 2026-10-28.
 
 **[Filesystem 024: open plain folders on the Mac](features/filesystem-024-open-plain-folders-on-the-mac.md).**
 *Later.* Opening an ordinary folder in the Mac app, and making it into a tree from there, went away
@@ -80,27 +85,31 @@ from soon to when needed on 2026-10-24.
 
 ## Soon
 
-**[Schema language 007: edit collection rows in Story, on the Mac and iPhone](soon/schema-language-007-edit-rows-in-story.md).**
-Joe, 2026-10-24: the next step after Schema language 006, which shows collections read-only in
-Story on the Mac ([status](../status.md#collections-in-story-on-the-mac--2026-10-25)). Part 1 is the
-backend: Story reads collections on the iPhone and writes row operations from code, through
-the host on every device, queued while offline (Schema language 002's milestone 3a). The host
-derives the result (spec 10 §2.2, Joe 2026-10-25), so no client encodes a collection's tables. Part 1
-is done, the iPhone check included; the People directory writes all its rows through it
-(2026-10-25). Part 2 is simple edits in the view on the games sandbox: a bullet's value, a
-row's name, chips, delete and add.
+**[Schema language 007: edit collections in Story, on the Mac and iPhone](soon/schema-language-007-edit-collections-in-story.md).**
+Joe wants collections edited natively in Story, the People directory first. The write path is
+done and in daily use: Story sends row operations through the host on every device, queued
+while offline, and the host derives the result (spec 10 §2.2). Left: the queue's loose ends,
+every view intent as row operations, simple edits in the view, then the structured editor
+(groups, chips, bullets, drag, inline Markdown). The editing half of the split Joe made on
+2026-10-28.
 
-**[Schema language 002: the collection editor, ownership and pages that show collections](soon/schema-language-002-collection-editor.md).**
-Joe wants collections edited natively in Story: a structured editor (groups, chips, bullets,
-drag, inline Markdown), row ownership as access policy, and pages that show a collection kept
-elsewhere. Its first customer is the People directory. Moved to soon on 2026-10-25, without the
-site ports, which are Schema language 008 in later.
+**[Schema language 002: show collections the way People needs](soon/schema-language-002-present-collections-for-people.md).**
+The presenting half: the directory's arrangements (groupings from a menu, host-supplied
+groups, "Unassigned"), people in cells, styling a schema can't set yet, and pages that show a
+collection kept elsewhere, including groups that are other trees. With 007's editor it is
+People 001 phase 2.
 
 ## Later
 
 **[Schema language 008: port excellences and supplies-remake to Story](later/schema-language-008-port-excellences-and-supplies.md).**
 Joe wants the excellences document and supplies-remake to run natively in Story instead of on
-Supabase. Split out of Schema language 002 on 2026-10-25; it needs 002's editor and ownership.
+Supabase. Split out of Schema language 002 on 2026-10-25; it needs 007's editor and 010's
+ownership.
+
+**[Schema language 010: row ownership](later/schema-language-010-row-ownership.md).**
+Rows only their authors edit, as access policy (`who: {property: authors}`, one
+`unless`/`when` predicate), with device updates authorized by effect. Formerly 002's
+milestone 5; moved to later beside 008, its only customer, on 2026-10-28.
 
 **[Apps 005: source resolution, execution authority and the sidecar](later/apps-005-source-resolution-and-sidecar.md).**
 Joe wants queries and mutations running on hosts fairly soon, to test the permissions and

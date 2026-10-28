@@ -247,3 +247,16 @@ the TypeScript tests also run the real merge engine against concurrent peer edit
 The runner vectors cover exact retries, restart, work after an ambiguous request and discard.
 Further byte reductions are ordered in [Clients 002](../../plans/later/merge-002-identity-preserving-coalescing.md),
 starting with plain edits across records, then moves with edits and selections.
+
+## Checking by hand
+
+**Editor recovery.** Rebuild the app and use a disposable page: edit offline, reconnect
+without Sync Now, and verify host and peer convergence. Quit while offline with unpublished
+edits and verify the reopened page shows them from the change log, then that they publish.
+Preserve real user text before testing process interruption.
+
+**A stalled publication.** Capture the machine phase and the actual preparation error before
+any manual retry; the two historical stalls were a no-work pass that left `preparing: true`
+with no task, and a preparation failure raised outside the submission error handler. A fix
+never clears a pending request, rewrites its digest, discards a saved head or alters protocol
+semantics.

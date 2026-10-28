@@ -41,6 +41,14 @@ Joe reviewed the plans in soon, the ideas and small work, and closed out these:
   went to Security 010; determinism was answered in spec 07 §4 (queries get no clock,
   randomness or I/O); consent shows declared prefixes, as spec 07 §6 already says; host
   administration stays an idea (it may stay hard for now).
+- **A clearer split (Joe).** Small work holds only decided tasks, hand checks and soaks; ideas
+  hold everything undecided. The agent skill became
+  [CLI 004](plans/features/cli-004-agents-in-placed-folders.md), and the manual recipes moved
+  to the [update machine](docs/implementing-sync-services/update-machine.md#checking-by-hand)
+  and Apps 005. Schema language 007 is now all of editing collections (its write path, every
+  view intent, simple edits and the structured editor), 002 is presenting them for People
+  (arrangements, people cells, pages showing other collections), and 002's ownership milestone
+  is [Schema language 010](plans/later/schema-language-010-row-ownership.md) in later.
 
 ## Rows on the host: eviction and a collection-scoped guard — 2026-10-28
 
@@ -187,7 +195,7 @@ git history at `ac1a7de`.
 
 Implemented and installed on Joe's Mac (main `6ebe9ea`); Joe 2026-10-25: "this will do for now".
 [People 001](plans/features/people-001-groups-sharing-and-go-to.md) phase 1 ("As built" there) and
-[Schema language 007](plans/soon/schema-language-007-edit-rows-in-story.md)'s row queue, which it
+[Schema language 007](plans/soon/schema-language-007-edit-collections-in-story.md)'s row queue, which it
 writes through.
 
 - **Rows from Story go through the host.** Story sends row edits as derived candidates
@@ -233,7 +241,7 @@ Plan Schema language 006 is done and deleted; its text is in git history at `58e
   `bun run test:affected` passes. At `58e23a6` the packages, the TS tests and the Mac and iOS
   builds passed; the app-hosted tests didn't run, as Joe's debug Story was open (small work).
 
-Next: [Schema language 007](plans/soon/schema-language-007-edit-rows-in-story.md), editing rows
+Next: [Schema language 007](plans/soon/schema-language-007-edit-collections-in-story.md), editing rows
 in Story on the Mac and iPhone.
 
 ## Earlier merge-cache formats retired — 2026-10-24
@@ -1133,7 +1141,7 @@ measurements before broadening the implementation.
 |---|---|---|---|
 | Story editing and review | implemented, not installed | Copies with changes, paste and inline provenance, compound undo, and interactive acceptance of the implemented review UI | [Native 008](plans/when-needed/merge-008-copies-with-changes-and-compound-undo.md), release gate retired 2026-10-26 |
 | Markdown source-transfer policy | deployed | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order. Also deployed: list items, table rows and contextual links, same-anchor ordering, keyed JSON/YAML members and TS/JS function declaration moves ([transfers](docs/architecture/overstoryd/merge-tool.md#transfers)); their hand checks were retired ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)). Swift/Python declaration moves, structured moves between files, cross-document fragment and reference links and richer list hosts still require review | [overstoryd 014](plans/when-needed/merge-014-merge-handles-many-cases.md) |
-| Resource policy providers | deployed | Provider-specific enforcement, source resolution, activation consent, the execution sidecar, observation and soak | [Apps 005](plans/later/apps-005-source-resolution-and-sidecar.md), [small work](plans/small-work.md#manual-recipes) |
+| Resource policy providers | deployed | Provider-specific enforcement, source resolution, activation consent, the execution sidecar, observation and soak | [Apps 005](plans/later/apps-005-source-resolution-and-sidecar.md) |
 | Working-tree client transition | installed | None: the soaks were recorded from daily use ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)) | |
 | Story for the web | not mounted | The browser editor is out of the build until it is rebuilt as a working-tree client over the same machines as the Mac app | [Web 025](plans/later/story-web-025-story-web.md) |
 | Executable documents | core only | MDX/TSX compilation, generated typing, editor integration, React presentation, activation, Story presentation, overstoryd hosting | [Apps 001, 003, 005 and 006](plans/README.md) |

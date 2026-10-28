@@ -1,8 +1,9 @@
 # Ideas and open questions
 
-Candidates without a plan, and unresolved design questions. Nothing here is committed
-work. Before promoting a candidate, check current source and tests: an old audit finding
-does not prove a current gap. When one becomes real work, write a plan (or add it to
+Everything not yet decided, whether or how: candidates without a plan, and open design
+questions. Nothing here is committed work; decided small tasks are in
+[small work](small-work.md). Before promoting a candidate, check current source and tests:
+an old audit finding does not prove a current gap. When one becomes real work, write a plan (or add it to
 [small work](small-work.md)) and delete it here.
 
 ## Product design needed

@@ -119,8 +119,10 @@ each behave as above.
 - Document configuration, limits (body size, concurrent executions, deadlines, stream
   buffers), shutdown and rollback in the deployment guide. Ordinary readiness must not
   depend on any app.
-- The consent, revocation and configuration-conflict soak in
-  [small work](../small-work.md#manual-recipes) applies before enabling a real app.
+- Before enabling a real app, a soak on an isolated copy of the live host: Story consent and
+  revocation, and configuration conflict resolution including queued configuration writes.
+  Take a fresh backup of the live host first (the schema 13 migration backups were deleted on
+  2026-10-26).
 
 **Verify:** `bun run test:affected`, `bun run test:protocol`, and one hand check with
 Joe on a disposable host: an activated Supplies query and mutation, then revocation.

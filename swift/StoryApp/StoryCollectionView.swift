@@ -4,7 +4,7 @@ import SwiftUI
 
 /// A logical collection folder, read-only (Schema language 006): its main
 /// model's rows arranged by the schema's views, with tabs, groups that
-/// collapse and a search field. Editing comes with Schema language 002.
+/// collapse and a search field. Editing comes with Schema language 007.
 struct StoryCollectionView: View {
     let node: WorkspaceNode
     let workspace: StoryWorkspaceState

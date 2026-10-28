@@ -2,16 +2,16 @@
 
 **Why and when:** Joe asked on 2026-10-13 for the MAI excellences document and supplies-remake
 to run natively in Story on Overstory collections instead of Supabase. This was milestone 6 of
-[Schema language 002](../soon/schema-language-002-collection-editor.md); Joe split it out and
-left it in later on 2026-10-25, when the rest of 002 moved to soon. It needs 002's editor
-(milestone 4) and ownership (milestone 5), and the sites on USL 0.3.0
+Schema language 002; Joe split it out and left it in later on 2026-10-25. It needs
+[Schema language 007](../soon/schema-language-007-edit-collections-in-story.md)'s structured
+editor and [Schema language 010](schema-language-010-row-ownership.md)'s ownership, and the sites on USL 0.3.0
 (done 2026-10-28, [status](../../status.md#plans-and-small-work-trimmed--2026-10-28)).
 
 ## Status
 
 - **Effort:** M.
 - **Risk:** MEDIUM. Each site's data moves; the live sites keep running until Joe switches.
-- **Depends on:** Schema language 002 milestones 4 and 5.
+- **Depends on:** Schema language 007 step 8 and Schema language 010.
 
 ## Steps
 
