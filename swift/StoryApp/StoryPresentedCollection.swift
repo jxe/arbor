@@ -87,9 +87,8 @@ struct StoryPresentedCollection<Avatar: View>: View {
 
     /// A group of people: its member as a chip, for the heading's avatar.
     private func personGroup(_ group: PresentedGroup) -> PresentedChip? {
-        guard group.kind == .connection, group.table == nil, let member = group.member else { return nil }
-        let chip = PresentedChip(member: member, name: group.heading, placeholder: group.placeholder)
-        return storyCollectionIsPerson(chip) ? chip : nil
+        guard group.person, let member = group.member else { return nil }
+        return PresentedChip(member: member, name: group.heading, person: true, placeholder: group.placeholder)
     }
 }
 
@@ -256,7 +255,7 @@ private struct StoryCollectionMember<Avatar: View>: View {
     @ViewBuilder let avatar: (PresentedChip, CGFloat) -> Avatar
 
     var body: some View {
-        if isPerson {
+        if chip.person {
             HStack(spacing: 5) {
                 avatar(chip, 22)
                 Text(chip.name)
@@ -269,14 +268,6 @@ private struct StoryCollectionMember<Avatar: View>: View {
                 .foregroundStyle(chip.color.flatMap(Color.init(collectionHex:)) ?? .secondary)
         }
     }
-
-    private var isPerson: Bool { storyCollectionIsPerson(chip) }
-}
-
-/// People are profile ids (TreeIDs) or placeholders; other members are rows, values or choices.
-func storyCollectionIsPerson(_ chip: PresentedChip) -> Bool {
-    guard case let .string(id) = chip.member else { return false }
-    return chip.placeholder || id.hasPrefix("tr_")
 }
 
 /// A person with no avatar: initials in a ring; a placeholder's ring is dashed.

@@ -46,6 +46,8 @@ export interface Chip {
   member: Scalar;
   name: string;
   color?: string;
+  /** A `Person`: a profile id, or a placeholder. */
+  person?: true;
   /** A `Person` placeholder (`contact:<key>`): someone with no profile yet. */
   placeholder?: true;
 }
@@ -75,6 +77,8 @@ export interface PresentedGroup {
   heading: string;
   member?: Scalar;
   color?: string;
+  /** A `Person` group: its member is a profile id or a placeholder. */
+  person?: true;
   /** A `Person` group whose member is a placeholder. */
   placeholder?: true;
   /** A connection group whose member is a row: that row's table and key. */
@@ -466,7 +470,7 @@ class Collection {
     if (target === "Person") {
       const placeholder = personPlaceholderKey(member);
       const name = this.people.find((p) => p.id === member)?.name ?? placeholder ?? scalarText(member);
-      return { member, name, ...(placeholder !== undefined ? { placeholder: true } : {}) };
+      return { member, name, person: true, ...(placeholder !== undefined ? { placeholder: true } : {}) };
     }
     if (VALUE_TYPES.has(target)) return { member, name: scalarText(member) };
     const model = this.models.get(target);
@@ -597,6 +601,7 @@ interface Arranged {
   heading: string;
   member?: Scalar;
   color?: string;
+  person?: true;
   placeholder?: true;
   table?: Table;
   row?: string;
@@ -686,6 +691,7 @@ function arrange(collection: Collection, options: PresentOptions): Arrangement {
       heading: c.name,
       member: c.member,
       ...(c.color ? { color: c.color } : {}),
+      ...(c.person ? { person: true } : {}),
       ...(c.placeholder ? { placeholder: true } : {}),
       ...(targetTable && groupRow ? { table: targetTable, row: rowKey(targetTable, groupRow)! } : {}),
       ordered,
@@ -884,6 +890,7 @@ export function presentView(schema: CheckResult, rows: RowsByTable, options: Pre
       heading: group.heading,
       ...(group.member !== undefined ? { member: group.member } : {}),
       ...(group.color ? { color: group.color } : {}),
+      ...(group.person ? { person: true } : {}),
       ...(group.placeholder ? { placeholder: true } : {}),
       ...(group.table && group.row ? { table: collection.opName(group.table), row: group.row } : {}),
       ...(group.table && group.row && nameField ? { headingField: nameField } : {}),
