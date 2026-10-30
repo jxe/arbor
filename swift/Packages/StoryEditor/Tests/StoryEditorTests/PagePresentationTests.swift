@@ -185,7 +185,7 @@ struct PagePresentationTests {
         var page = Self.present(opened.blocks, .init(path: "/dir", body: .index), [.init(name: "a", path: "/dir/a", body: .sibling)])
         page[1].children.insert(.paragraph(text: AttributedString("Start here.")), at: 0)
         let source = StoryMarkdownCodec.admission(blocks: page, ledger: opened.ledger).0.source
-        #expect(source == "# Dir\n\n# Children\n\nStart here.\n\n[a](a.md)\n\n", "\(source.debugDescription)")
+        #expect(source == "# Dir\n\n# Subpages\n\nStart here.\n\n[a](a.md)\n\n", "\(source.debugDescription)")
         // The authored heading holds a child added later, with nothing presented.
         let reopened = StoryMarkdownCodec.open(source: source, revision: "r2", identitySeed: "above")
         let next = Self.present(reopened.blocks, .init(path: "/dir", body: .index),

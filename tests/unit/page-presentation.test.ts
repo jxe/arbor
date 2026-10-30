@@ -76,6 +76,6 @@ describe("page presentation", () => {
     const page = presentPage(node, parseMarkdown("Intro.\n"), [{ name: "a", path: "/dir/a", body: "sibling" }]);
     const edited = page.document.blocks.map((block) => presentedHeading(block) === "title" ? { ...block, content: "Dir" } : block);
     const authored = authorPage(node, edited);
-    expect(authored.filter((block) => block.props?.storyGenerated === true).map((block) => block.content)).toEqual(["Children", "a"]);
+    expect(authored.filter((block) => block.props?.storyGenerated === true).map((block) => block.content)).toEqual(["Subpages", "a"]);
   });
 });

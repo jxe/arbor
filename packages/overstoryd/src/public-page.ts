@@ -282,7 +282,7 @@ export function renderPublicMarkdownPage(options: PublicMarkdownPageOptions): st
   };
   // Presented headings (directory format §4.1): a page whose body does not
   // begin with an H1 opens with its name, hyphens shown as spaces, and
-  // children no authored link names close it under Children unless an
+  // children no authored link names close it under Subpages unless an
   // explicit marker says where they stand.
   const title = markdownDisplayTitle(document, options.fallbackTitle.replaceAll("-", " "));
   const referenced = referencedChildren(document.blocks, context);

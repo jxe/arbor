@@ -1255,7 +1255,7 @@ struct StoryEditorTests {
         ).blocks
         let parent = try #require(projected.first)
         let markerIndex = try #require(parent.children.firstIndex {
-            if case let .unsupported(_, display) = $0.kind { return display == "Children" }
+            if case let .unsupported(_, display) = $0.kind { return display == StoryPagePresentation.childrenHeading }
             return false
         })
         let generated = try #require(parent.children.indices.contains(markerIndex + 1)

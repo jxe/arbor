@@ -607,7 +607,7 @@ public enum StoryMarkdownCodec {
         // no source to move and the origin generates them again, so they stay.
         // A presented heading in the selection gives way to the authored
         // source under it, so a page's last section moves without its
-        // Children heading.
+        // Subpages heading.
         var projected: Set<BlockID> = []
         walk(blocks) { block, _ in if isProjectedChild(block) { projected.insert(block.id) } }
         let roots = removingSubtrees(projected, from: StoryPagePresentation.transferable(roots, in: blocks))
@@ -1051,7 +1051,7 @@ public enum StoryMarkdownCodec {
         if trimmed.hasPrefix("<") || trimmed.hasPrefix("$$") || trimmed.hasPrefix("|") || trimmed.hasPrefix("[^") {
             return .unsupported(
                 payload: lines.map(\.raw).joined(),
-                display: isChildrenMarkerText(trimmed) ? "Children" : "Raw Markdown",
+                display: isChildrenMarkerText(trimmed) ? StoryPagePresentation.childrenHeading : "Raw Markdown",
                 id: id
             )
         }

@@ -9,8 +9,8 @@ import Quagmire
 /// placement alone. It adds a title when the body does not begin with an H1,
 /// and, for a node with children whose document has no explicit marker, the
 /// children no authored link names at the page's end: under the body's last
-/// H1 when that is an authored `# Children`, otherwise in a presented
-/// Children section. With an explicit marker those children stand at the
+/// H1 when that is an authored `# Subpages`, otherwise in a presented
+/// Subpages section. With an explicit marker those children stand at the
 /// marker and no heading is added. `authored` is the inverse: the blocks an edited page writes. The
 /// TypeScript twin is `packages/protocol/src/documents/page-presentation.ts`,
 /// and both run `docs/overstory-spec/conformance/page-presentation.json`.
@@ -32,7 +32,10 @@ public enum StoryPagePresentation {
         }
     }
 
-    public static let childrenHeading = "Children"
+    public static let childrenHeading = "Subpages"
+    /// The authored last H1s that hold a page's remainder: `# Subpages`, or
+    /// `# Children` as clients wrote it before.
+    static let authoredChildrenHeadings: Set<String> = [childrenHeading, "Children"]
     static let headingMetadataKey = "story.presented-heading"
     /// The text the heading was presented with; any other text is an edit.
     static let textMetadataKey = "story.presented-text"
@@ -55,7 +58,7 @@ public enum StoryPagePresentation {
     }
 
     /// A presented heading as it was presented: an H1 with its presented text.
-    /// A title in this state is not source. A Children heading in this state
+    /// A title in this state is not source. A Subpages heading in this state
     /// is not source either unless authored content stands under it.
     static func isUntouched(_ block: Block) -> Bool {
         guard heading(block) != nil, case let .heading(.h1, text) = block.kind else { return false }
@@ -89,7 +92,7 @@ public enum StoryPagePresentation {
             result.replaceSubrange(..<end, with: [block])
         }
         if !remainder.isEmpty, let last = result.indices.last, isAuthoredChildrenHeading(result[last]) {
-            // An authored `# Children` that is the body's last H1 holds them at its end.
+            // An authored `# Subpages` (or legacy `# Children`) that is the body's last H1 holds them at its end.
             result[last].children += remainder
         } else if !remainder.isEmpty {
             // An H1 closes every authored section above it.
@@ -102,15 +105,15 @@ public enum StoryPagePresentation {
         return hidingChildrenMarker(result)
     }
 
-    /// Whether a block is an authored `# Children`, which holds the page's
-    /// remainder when it is the body's last H1.
+    /// Whether a block is an authored `# Subpages` (or legacy `# Children`),
+    /// which holds the page's remainder when it is the body's last H1.
     private static func isAuthoredChildrenHeading(_ block: Block) -> Bool {
         guard heading(block) == nil, case let .heading(.h1, text) = block.kind else { return false }
-        return String(text.characters) == childrenHeading
+        return authoredChildrenHeadings.contains(String(text.characters))
     }
 
     /// Whether a row reads as derived rather than written: a generated child
-    /// link, or the Children heading presented over them.
+    /// link, or the Subpages heading presented over them.
     public static func isMuted(_ block: Block) -> Bool {
         StoryMarkdownCodec.isProjectedChild(block) || (heading(block) == .children && isUntouched(block))
     }
@@ -146,7 +149,7 @@ public enum StoryPagePresentation {
     ///
     /// A presented heading the reader left alone is not source; what stands
     /// under a title is written where the title stood. An edited title (new
-    /// text, or another kind of block) is written as it reads. A Children
+    /// text, or another kind of block) is written as it reads. A Subpages
     /// section the reader edited (renamed, added content under, or
     /// reordered) is written whole: its heading, then everything under it in
     /// the order shown, each generated link as an authored link. Generated
@@ -266,7 +269,7 @@ public enum StoryPagePresentation {
     }
 
     /// Where a block appended to the page's authored source stands in a
-    /// presented tree: before the presented Children heading, and under the
+    /// presented tree: before the presented Subpages heading, and under the
     /// presented title when that is all that precedes it.
     static func endOfBody(in blocks: [Block]) -> DropPath {
         var roots = blocks[...]

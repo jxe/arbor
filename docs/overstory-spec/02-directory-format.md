@@ -199,10 +199,11 @@ that its source may lack. Neither is authored source.
   presented H1 naming the node: the last segment of its logical path, which is
   the body file's name without its extension, or the directory's name for
   `_index.md`, with each hyphen shown as a space.
-- **Children.** When the implicit marker's remainder is not empty, the page
-  ends with it. If the body's last H1 is an authored `# Children`, the
-  remainder stands at the end of that section with nothing added. Otherwise
-  the page ends with a presented `# Children` H1 followed by the remainder. It
+- **Subpages.** When the implicit marker's remainder is not empty, the page
+  ends with it. If the body's last H1 is an authored `# Subpages`, or a
+  `# Children` as earlier clients wrote it, the remainder stands at the end of
+  that section with nothing added. Otherwise the page ends with a presented
+  `# Subpages` H1 followed by the remainder. It
   closes every authored section above it, so the remainder never reads as part
   of the last authored section. An explicit marker presents its remainder
   where it stands, with no presented heading.
@@ -219,11 +220,11 @@ presented headings as a client does.
 
 Editing a presented heading materializes it through an ordinary content write.
 Editing the title writes it as the body's first H1; it does not rename the
-node. Editing anywhere in a presented Children section materializes the whole
+node. Editing anywhere in a presented Subpages section materializes the whole
 section: renaming its heading, adding content under it, or reordering its
 links writes the heading followed by everything under it, each generated link
 as an authored standalone link, in the order shown. No marker is written; the
-authored `# Children` now holds the children, and a child added later joins
+authored `# Subpages` now holds the children, and a child added later joins
 its end. Moving one generated link elsewhere materializes only that link.
 Materializing one heading never materializes the other.
 

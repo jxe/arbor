@@ -35,21 +35,21 @@ describe("presented headings on a public page", () => {
     expect(render("# Authored\n")).not.toContain("<h1>field notes</h1>");
   });
 
-  test("unlinked children close the page under Children", () => {
+  test("unlinked children close the page under Subpages", () => {
     const html = render("# Dir\n\n## Last\n\nBody.\n");
-    expect(html).toContain('<h1>Children</h1><div class="child-list">');
-    expect(html.indexOf("Body.")).toBeLessThan(html.indexOf("<h1>Children</h1>"));
+    expect(html).toContain('<h1>Subpages</h1><div class="child-list">');
+    expect(html.indexOf("Body.")).toBeLessThan(html.indexOf("<h1>Subpages</h1>"));
   });
 
   test("an explicit marker places them with no heading", () => {
     const html = render("# Dir\n\n<!-- overstory:children -->\n\nTail.\n");
-    expect(html).not.toContain("<h1>Children</h1>");
+    expect(html).not.toContain("<h1>Subpages</h1>");
     expect(html).not.toContain('class="raw-markdown"');
     expect(html.indexOf('class="child-list"')).toBeLessThan(html.indexOf("Tail."));
   });
 
   test("linked children present no heading", () => {
-    expect(render("# Dir\n\n[Note](note.md)\n")).not.toContain("<h1>Children</h1>");
+    expect(render("# Dir\n\n[Note](note.md)\n")).not.toContain("<h1>Subpages</h1>");
   });
 });
 

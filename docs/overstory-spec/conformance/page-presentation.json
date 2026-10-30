@@ -55,7 +55,7 @@
       ],
       "expectedOutline": [
         { "presented": "title", "text": "dir" },
-        { "presented": "children", "text": "Children" },
+        { "presented": "children", "text": "Subpages" },
         { "link": "a.md", "generated": true },
         { "link": "b.md", "generated": true }
       ]
@@ -73,7 +73,7 @@
         { "heading": 1, "text": "Directory" },
         { "link": "linked.md", "generated": false },
         { "heading": 2, "text": "Last section" },
-        { "presented": "children", "text": "Children" },
+        { "presented": "children", "text": "Subpages" },
         { "link": "folder/_index.md", "generated": true },
         { "link": "loose.md", "generated": true }
       ]
@@ -93,7 +93,7 @@
       ]
     },
     {
-      "name": "authored-children-heading-holds-the-remainder",
+      "name": "authored-legacy-children-heading-holds-the-remainder",
       "node": { "path": "/dir", "body": "index" },
       "source": "# Directory\n\n# Children\n\nHey\n\n[A](a.md)\n",
       "children": [
@@ -103,6 +103,21 @@
       "expectedOutline": [
         { "heading": 1, "text": "Directory" },
         { "heading": 1, "text": "Children" },
+        { "link": "a.md", "generated": false },
+        { "link": "b.md", "generated": true }
+      ]
+    },
+    {
+      "name": "authored-subpages-heading-holds-the-remainder",
+      "node": { "path": "/dir", "body": "index" },
+      "source": "# Directory\n\n# Subpages\n\n[A](a.md)\n",
+      "children": [
+        { "name": "a", "path": "/dir/a", "body": "sibling" },
+        { "name": "b", "path": "/dir/b", "body": "sibling" }
+      ],
+      "expectedOutline": [
+        { "heading": 1, "text": "Directory" },
+        { "heading": 1, "text": "Subpages" },
         { "link": "a.md", "generated": false },
         { "link": "b.md", "generated": true }
       ]
@@ -178,7 +193,7 @@
         { "name": "a", "path": "/dir/a", "body": "sibling" }
       ],
       "edit": { "append": "See also the archive." },
-      "expectedSource": "Intro.\n\n# Children\n\n[a](a.md)\n\nSee also the archive.\n\n"
+      "expectedSource": "Intro.\n\n# Subpages\n\n[a](a.md)\n\nSee also the archive.\n\n"
     },
     {
       "name": "reordering-children-writes-the-section",
@@ -189,7 +204,7 @@
         { "name": "b", "path": "/dir/b", "body": "sibling" }
       ],
       "edit": { "reverse": "children" },
-      "expectedSource": "Intro.\n\n# Children\n\n[b](b.md)\n\n[a](a.md)\n\n"
+      "expectedSource": "Intro.\n\n# Subpages\n\n[b](b.md)\n\n[a](a.md)\n\n"
     },
     {
       "name": "an-untouched-page-writes-nothing",
