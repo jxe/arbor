@@ -4,7 +4,7 @@ Feature plans, the things you would notice in Story, are in [`features/`](featur
 their timing, which leads each one's entry here and its file. The rest are filed by when Joe
 wants them: [`soon/`](soon), [`later/`](later) and [`when-needed/`](when-needed), which holds
 plans that wait on a trigger ("when merges bite", "when size hurts") rather than a date. A file
-is named by its topic and number, such as `features/live-001-presence.md`. When a plan's timing
+is named by its topic and number, such as `features/agents-001-presence-and-a-first-agent.md`. When a plan's timing
 changes, move the file (or, in `features/`, change its timing line) and its paragraph here.
 
 Each plan starts with why and when Joe wants it; the same paragraph is below. Decided small
@@ -18,12 +18,32 @@ its evidence in status.
 
 What you would notice in Story, as opposed to protocol, host or data plumbing.
 
-**[Live 001: see who else is here](features/live-001-presence.md).**
-*Soon.* Joe asked on 2026-10-13 for presence in Overstory and Story: who is looking at a tree, which
-page each person is on, and where their cursor is when two people share a page. It must be
-light: nothing about cursors is sent unless someone else is on the same page. Joe wants it soon (2026-10-20).
-It starts with the spec, because presence is the first live data a host relays that is not
-part of a tree.
+**[Agents 001: see who's here, and run a first agent task on the Mac](features/agents-001-presence-and-a-first-agent.md).**
+*Soon.* Joe asked on 2026-10-30 for the smoothest way to bring AI into Story: an agent that is a
+collaborator, shown through presence the way a person is, run by Claude Code on his own Mac
+(no API token). This first plan is presence (formerly Live 001: who is in a tree, on which
+page, at which block; light, nothing about cursors sent unless someone shares the page) and a
+first cut: task blocks (`> [!agent] …`) added anywhere, Run on the Mac, and the agent as a
+presence peer with a status line. It absorbs CLI 004's readiness check and agent skill.
+
+**[Agents 002: talk to the agent, and run tasks from the iPhone](features/agents-002-talk-to-the-agent-and-run-from-anywhere.md).**
+*Later.* After Agents 001: the agent asks and Joe answers at its cursor from any device, Run
+works from the iPhone while the Mac is awake (through presence messages between one person's
+devices), and Codex as a second runner. The conversation vanishes like presence.
+
+**[Agents 003: agent runs in history](features/agents-003-agent-runs-in-history.md).**
+*Later,* after overstoryd 007. A run is one history entry labelled with its task, Undo Run is
+a history restore, and updates gain an optional attribution so an agent's edits are both
+Joe's and the agent's (Joe, 2026-10-30).
+
+**[Live 002: exact carets and selections](features/live-002-exact-carets.md).**
+*Later.* After Agents 001: a Quagmire release that reports and draws exact carets and
+selections, for people and agents alike. The wire does not change.
+
+**[Editor 003: suggestions, from people and agents](features/editor-003-suggestions.md).**
+*Later.* Joe wants two representations that mean different things: inline suggestions in the
+page as CriticMarkup, and overlay trees that reference a parent tree like a Git branch. Forks
+open.
 
 **[People 001: form groups, share with people, and go to any tree](features/people-001-groups-sharing-and-go-to.md).**
 *Soon.* Joe wants People to remember everyone and every tree he has come across, and to make forming
@@ -38,11 +58,6 @@ hosts (a side slice for any time). Moved to soon on 2026-10-25.
 *Later.* Nothing carries rows across a schema change yet, so a seed bump empties the People
 directory. USL meant migrations between relation forms to be small edits to one declaration.
 From the ideas' open questions, 2026-10-28.
-
-**[CLI 004: external agents work in placed folders](features/cli-004-agents-in-placed-folders.md).**
-*Later.* A `story sync status --wait` if needed, and one skill for Claude Code and Codex: check
-readiness, edit only the placed folder, wait for publication, report what changed. Moved
-from small work on 2026-10-28.
 
 **[Filesystem 024: open plain folders on the Mac](features/filesystem-024-open-plain-folders-on-the-mac.md).**
 *Later.* Opening an ordinary folder in the Mac app, and making it into a tree from there, went away

@@ -235,14 +235,14 @@ both reconnect and both edits are there, and Story Sync's `Game.jsonl` shows the
 made in `Game.jsonl` shows in Story. The same
 field edited on both devices shows a decision.
 
-## Interaction with presence (Live 001)
+## Interaction with presence (Agents 001)
 
 Presence names a page by its logical path and a caret as a byte range in a
 file object. A presented view's page is the collection folder (or the page
 that presents it), so the roster works unchanged. A caret in a view is in one
 field of one row, and a row in SQLite has no file object, so the editor
 needs a second selection kind, such as `{ row: { table, key }, field, anchor,
-head }`, with offsets into that field's text. That is easiest if Live 001's
+head }`, with offsets into that field's text. That is easiest if Agents 001's
 phase 1 makes `PresenceSelection` extensible (a `kind`, or decoders that skip
 an unknown selection) rather than fixing the byte-range shape.
 

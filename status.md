@@ -53,7 +53,8 @@ Joe reviewed the plans in soon, the ideas and small work, and closed out these:
   administration stays an idea (it may stay hard for now).
 - **A clearer split (Joe).** Small work holds only decided tasks, hand checks and soaks; ideas
   hold everything undecided. The agent skill became
-  [CLI 004](plans/features/cli-004-agents-in-placed-folders.md), and the manual recipes moved
+  CLI 004 (folded into
+  [Agents 001](plans/features/agents-001-presence-and-a-first-agent.md) on 2026-10-30), and the manual recipes moved
   to the [update machine](docs/implementing-sync-services/update-machine.md#checking-by-hand)
   and Apps 005. Schema language 007 is now all of editing collections (its write path, every
   view intent, simple edits and the structured editor), and 002's ownership milestone
