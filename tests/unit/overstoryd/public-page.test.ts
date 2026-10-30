@@ -41,14 +41,6 @@ describe("presented headings on a public page", () => {
     expect(html.indexOf("Body.")).toBeLessThan(html.indexOf("<h1>Subpages</h1>"));
   });
 
-  test("an authored last Subpages or legacy Children heading holds them with no heading added", () => {
-    for (const heading of ["Subpages", "Children"]) {
-      const html = render(`# Dir\n\n# ${heading}\n\nTail.\n`);
-      expect(html.match(/<h1>/g)).toHaveLength(2);
-      expect(html.indexOf("Tail.")).toBeLessThan(html.indexOf('class="child-list"'));
-    }
-  });
-
   test("linked children present no heading", () => {
     expect(render("# Dir\n\n[Note](note.md)\n")).not.toContain("<h1>Subpages</h1>");
   });

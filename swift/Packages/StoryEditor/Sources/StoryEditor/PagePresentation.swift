@@ -8,8 +8,7 @@ import Quagmire
 /// The editor shows every page through `present`, never through directory
 /// placement alone. It adds a title when the body does not begin with an H1,
 /// and, for a node with children, the children no authored link names at the
-/// page's end: under the body's last H1 when that is an authored `# Subpages`,
-/// otherwise in a presented Subpages section. `authored` is the inverse: the
+/// page's end, in a presented Subpages section. `authored` is the inverse: the
 /// blocks an edited page writes. The
 /// TypeScript twin is `packages/protocol/src/documents/page-presentation.ts`,
 /// and both run `docs/overstory-spec/conformance/page-presentation.json`.
@@ -32,9 +31,6 @@ public enum StoryPagePresentation {
     }
 
     public static let childrenHeading = "Subpages"
-    /// The authored last H1s that hold a page's remainder: `# Subpages`, or
-    /// `# Children` as clients wrote it before.
-    static let authoredChildrenHeadings: Set<String> = [childrenHeading, "Children"]
     static let headingMetadataKey = "story.presented-heading"
     /// The text the heading was presented with; any other text is an edit.
     static let textMetadataKey = "story.presented-text"
@@ -85,10 +81,7 @@ public enum StoryPagePresentation {
                 metadata: [headingMetadataKey: Heading.title.rawValue, textMetadataKey: title])
             result.replaceSubrange(..<end, with: [block])
         }
-        if !remainder.isEmpty, let last = result.indices.last, isAuthoredChildrenHeading(result[last]) {
-            // An authored `# Subpages` (or legacy `# Children`) that is the body's last H1 holds them at its end.
-            result[last].children += remainder
-        } else if !remainder.isEmpty {
+        if !remainder.isEmpty {
             // An H1 closes every authored section above it.
             result.append(Block(
                 id: unusedID("children", in: &used),
@@ -97,13 +90,6 @@ public enum StoryPagePresentation {
                 metadata: [headingMetadataKey: Heading.children.rawValue, textMetadataKey: childrenHeading]))
         }
         return result
-    }
-
-    /// Whether a block is an authored `# Subpages` (or legacy `# Children`),
-    /// which holds the page's remainder when it is the body's last H1.
-    private static func isAuthoredChildrenHeading(_ block: Block) -> Bool {
-        guard heading(block) == nil, case let .heading(.h1, text) = block.kind else { return false }
-        return authoredChildrenHeadings.contains(String(text.characters))
     }
 
     /// Whether a row reads as derived rather than written: a generated child

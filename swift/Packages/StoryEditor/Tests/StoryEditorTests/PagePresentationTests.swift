@@ -4,7 +4,7 @@ import Foundation
 import Quagmire
 import Testing
 
-@Suite("Pages present a title and a Children section their source lacks")
+@Suite("Pages present a title and a Subpages section their source lacks")
 struct PagePresentationTests {
     private struct Fixture: Decodable {
         struct Node: Decodable {
@@ -186,15 +186,16 @@ struct PagePresentationTests {
         page[1].children.insert(.paragraph(text: AttributedString("Start here.")), at: 0)
         let source = StoryMarkdownCodec.admission(blocks: page, ledger: opened.ledger).0.source
         #expect(source == "# Dir\n\n# Subpages\n\nStart here.\n\n[a](a.md)\n\n", "\(source.debugDescription)")
-        // The authored heading holds a child added later, with nothing presented.
+        // The written heading is ordinary source: a child added later stands
+        // under a new presented Subpages heading.
         let reopened = StoryMarkdownCodec.open(source: source, revision: "r2", identitySeed: "above")
         let next = Self.present(reopened.blocks, .init(path: "/dir", body: .index),
                                 [.init(name: "a", path: "/dir/a", body: .sibling), .init(name: "b", path: "/dir/b", body: .sibling)])
-        #expect(next.count == 2)
+        #expect(next.count == 3)
         #expect(StoryPagePresentation.heading(next[1]) == nil)
-        #expect(next[1].children.map(StoryMarkdownCodec.isProjectedChild) == [false, false, true])
-        #expect(StoryPagePresentation.isMuted(next[1].children[2]))
-        #expect(!StoryPagePresentation.isMuted(next[1]))
+        #expect(next[1].children.map(StoryMarkdownCodec.isProjectedChild) == [false, false])
+        #expect(StoryPagePresentation.heading(next[2]) == .children)
+        #expect(next[2].children.map(StoryMarkdownCodec.isProjectedChild) == [true])
     }
 
     @Test("A legacy children marker is ordinary raw Markdown, and the children stand at the page's end")
@@ -202,8 +203,9 @@ struct PagePresentationTests {
         let source = "# Children\n\nHey\n\n<!-- overstory:children -->\n"
         let opened = StoryMarkdownCodec.open(source: source, revision: "r1", identitySeed: "legacy-marker")
         let page = Self.present(opened.blocks, .init(path: "/", body: .index), [.init(name: "story", path: "/story", body: .sibling)])
-        #expect(page.count == 1)
-        #expect(page[0].children.map(StoryMarkdownCodec.isProjectedChild) == [false, false, true])
+        #expect(page.count == 2)
+        #expect(page[0].children.map(StoryMarkdownCodec.isProjectedChild) == [false, false])
+        #expect(StoryPagePresentation.heading(page[1]) == .children)
         if case let .unsupported(_, display) = page[0].children[1].kind { #expect(display == "Raw Markdown") } else { Issue.record("marker is not raw Markdown") }
         #expect(StoryMarkdownCodec.admission(blocks: page, ledger: opened.ledger).0.source == source)
         #expect(Self.present(page, .init(path: "/", body: .index), [.init(name: "story", path: "/story", body: .sibling)]) == page)

@@ -200,10 +200,7 @@ that its source may lack. Neither is authored source.
   the body file's name without its extension, or the directory's name for
   `_index.md`, with each hyphen shown as a space.
 - **Subpages.** When the remainder is not empty, the page
-  ends with it. If the body's last H1 is an authored `# Subpages`, or a
-  `# Children` as earlier clients wrote it, the remainder stands at the end of
-  that section with nothing added. Otherwise the page ends with a presented
-  `# Subpages` H1 followed by the remainder. It
+  ends with a presented `# Subpages` H1 followed by the remainder. It
   closes every authored section above it, so the remainder never reads as part
   of the last authored section.
 
@@ -213,8 +210,8 @@ them. Once written they read like any other content.
 
 Indexing, searching, fragment targets, and transfers of authored blocks
 ignore presented headings, and a presented heading cannot be deleted: an
-authored first H1 removes the title, and an authored last `# Subpages` or a
-link to every child removes the Subpages heading. A selection that includes one carries only authored source, so moving
+authored first H1 removes the title, and a link to every child removes the
+Subpages heading. A selection that includes one carries only authored source, so moving
 a page's last section leaves the remainder with the page. Hosted output renders
 presented headings as a client does.
 
@@ -223,9 +220,9 @@ Editing the title writes it as the body's first H1; it does not rename the
 node. Editing anywhere in a presented Subpages section materializes the whole
 section: renaming its heading, adding content under it, or reordering its
 links writes the heading followed by everything under it, each generated link
-as an authored standalone link, in the order shown. The
-authored `# Subpages` now holds the children, and a child added later joins
-its end. Moving one generated link elsewhere materializes only that link.
+as an authored standalone link, in the order shown. The written heading is
+then ordinary source: a child added later is unlinked, so it stands under a
+new presented Subpages heading. Moving one generated link elsewhere materializes only that link.
 Materializing one heading never materializes the other.
 
 ## 5. Recognized authored files

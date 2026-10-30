@@ -94,24 +94,9 @@
       ]
     },
     {
-      "name": "authored-legacy-children-heading-holds-the-remainder",
+      "name": "an-authored-subpages-heading-is-ordinary-source",
       "node": { "path": "/dir", "body": "index" },
-      "source": "# Directory\n\n# Children\n\nHey\n\n[A](a.md)\n",
-      "children": [
-        { "name": "a", "path": "/dir/a", "body": "sibling" },
-        { "name": "b", "path": "/dir/b", "body": "sibling" }
-      ],
-      "expectedOutline": [
-        { "heading": 1, "text": "Directory" },
-        { "heading": 1, "text": "Children" },
-        { "link": "a.md", "generated": false },
-        { "link": "b.md", "generated": true }
-      ]
-    },
-    {
-      "name": "authored-subpages-heading-holds-the-remainder",
-      "node": { "path": "/dir", "body": "index" },
-      "source": "# Directory\n\n# Subpages\n\n[A](a.md)\n",
+      "source": "# Directory\n\n# Subpages\n\nHey\n\n[A](a.md)\n",
       "children": [
         { "name": "a", "path": "/dir/a", "body": "sibling" },
         { "name": "b", "path": "/dir/b", "body": "sibling" }
@@ -120,6 +105,7 @@
         { "heading": 1, "text": "Directory" },
         { "heading": 1, "text": "Subpages" },
         { "link": "a.md", "generated": false },
+        { "presented": "children", "text": "Subpages" },
         { "link": "b.md", "generated": true }
       ]
     },

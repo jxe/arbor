@@ -6,9 +6,6 @@ import { serializeBlocks } from "./markdown.ts";
 /** The text of the presented Subpages heading. */
 export const PRESENTED_CHILDREN_HEADING = "Subpages";
 
-/** The authored last H1s that hold a page's remainder: `# Subpages`, or `# Children` as clients wrote it before. */
-export const AUTHORED_CHILDREN_HEADINGS: readonly string[] = [PRESENTED_CHILDREN_HEADING, "Children"];
-
 export type PresentedHeading = "title" | "children";
 
 export interface PagePresentation {
@@ -63,9 +60,8 @@ function presented(kind: PresentedHeading, text: string): OverstoryBlock {
  * Every client shows a page through this function rather than through
  * directory placement. It adds what the page shows and its source lacks: a
  * title when the body does not begin with an H1, and, for a node with
- * children, the children no authored link names at the page's end: under the
- * body's last H1 when that is an authored `# Subpages` (or a legacy
- * `# Children`), otherwise in a presented Subpages section.
+ * children, the children no authored link names at the page's end, in a
+ * presented Subpages section.
  * `children` is null for a node that has none to place.
  *
  * Everything added carries `storyGenerated`, which the Markdown serializer
@@ -88,12 +84,7 @@ export function presentPage(
     blocks.splice(first === -1 ? blocks.length : first, 0, presented("title", title));
   }
   if (placement.remainder.length) {
-    // An authored `# Subpages` (or legacy `# Children`) that is the body's last H1 holds the remainder at its end.
-    const lastH1 = blocks.findLast((block) => isH1(block));
-    const authoredChildren = lastH1 !== undefined && presentedHeading(lastH1) === null
-      && AUTHORED_CHILDREN_HEADINGS.includes(lastH1.content ?? "");
-    if (!authoredChildren) blocks.push(presented("children", PRESENTED_CHILDREN_HEADING));
-    blocks.push(...placement.remainder);
+    blocks.push(presented("children", PRESENTED_CHILDREN_HEADING), ...placement.remainder);
   }
   return {
     document: { ...placement.document, blocks },
