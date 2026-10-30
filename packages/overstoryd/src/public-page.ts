@@ -1,6 +1,6 @@
 import { buildNetworkLocator, resolveLogicalURL } from "@ovst/protocol/logical-url";
 import type { OverstoryBlock, JSONValue } from "@ovst/protocol";
-import { PRESENTED_CHILDREN_HEADING, isChildrenMarker, beginsWithTitle, markdownDisplayTitle, parseMarkdown } from "@ovst/protocol";
+import { AUTHORED_CHILDREN_HEADINGS, PRESENTED_CHILDREN_HEADING, beginsWithTitle, markdownDisplayTitle, parseMarkdown } from "@ovst/protocol";
 
 export interface PublicPageChild {
   name: string;
@@ -282,8 +282,8 @@ export function renderPublicMarkdownPage(options: PublicMarkdownPageOptions): st
   };
   // Presented headings (directory format §4.1): a page whose body does not
   // begin with an H1 opens with its name, hyphens shown as spaces, and
-  // children no authored link names close it under Subpages unless an
-  // explicit marker says where they stand.
+  // children no authored link names close it under Subpages, or under the
+  // body's last H1 when that is an authored Subpages (or legacy Children).
   const title = markdownDisplayTitle(document, options.fallbackTitle.replaceAll("-", " "));
   const referenced = referencedChildren(document.blocks, context);
   const projectedChildren = (options.children ?? [])
@@ -291,11 +291,10 @@ export function renderPublicMarkdownPage(options: PublicMarkdownPageOptions): st
     .map((child) => childRow(child.name, child.href, child.href, child.kind === "folder", context, true))
     .join("");
   const childList = projectedChildren ? `<div class="child-list">${projectedChildren}</div>` : "";
-  const markers = document.blocks.flatMap((block, index) => isChildrenMarker(block) ? [index] : []);
-  const marker = markers.length === 1 ? markers[0]! : -1;
-  const body = marker === -1
-    ? `${renderBlocks(document.blocks, context)}${childList ? `<h1>${escapeHTML(PRESENTED_CHILDREN_HEADING)}</h1>${childList}` : ""}`
-    : `${renderBlocks(document.blocks.slice(0, marker), context)}${childList}${renderBlocks(document.blocks.slice(marker + 1), context)}`;
+  const lastH1 = document.blocks.findLast((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1);
+  const authoredHeading = lastH1 !== undefined && AUTHORED_CHILDREN_HEADINGS.includes(lastH1.content ?? "");
+  const heading = childList && !authoredHeading ? `<h1>${escapeHTML(PRESENTED_CHILDREN_HEADING)}</h1>` : "";
+  const body = `${renderBlocks(document.blocks, context)}${heading}${childList}`;
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light dark"><title>${escapeHTML(title)}</title><style>${PUBLIC_STYLES}</style></head><body><main class="public-page"><article class="story-document">${beginsWithTitle(document.blocks) ? "" : `<h1>${escapeHTML(title)}</h1>`}${body}</article></main></body></html>`;
 }
 

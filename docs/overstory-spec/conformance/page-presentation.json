@@ -79,7 +79,7 @@
       ]
     },
     {
-      "name": "explicit-marker-presents-no-children-heading",
+      "name": "legacy-marker-is-ordinary-source",
       "node": { "path": "/dir", "body": "index" },
       "source": "# Directory\n\n## Pages\n\n<!-- overstory:children -->\n\n## After\n",
       "children": [
@@ -88,8 +88,9 @@
       "expectedOutline": [
         { "heading": 1, "text": "Directory" },
         { "heading": 2, "text": "Pages" },
-        { "link": "a.md", "generated": true },
-        { "heading": 2, "text": "After" }
+        { "heading": 2, "text": "After" },
+        { "presented": "children", "text": "Subpages" },
+        { "link": "a.md", "generated": true }
       ]
     },
     {
@@ -137,14 +138,16 @@
       ]
     },
     {
-      "name": "duplicate-markers-still-present-the-title",
+      "name": "repeated-legacy-markers-are-ordinary-source",
       "node": { "path": "/dir", "body": "index" },
       "source": "<!-- overstory:children -->\n\nText\n\n<!-- overstory:children -->\n",
       "children": [
         { "name": "child", "path": "/dir/child", "body": "sibling" }
       ],
       "expectedOutline": [
-        { "presented": "title", "text": "dir" }
+        { "presented": "title", "text": "dir" },
+        { "presented": "children", "text": "Subpages" },
+        { "link": "child.md", "generated": true }
       ]
     }
   ],

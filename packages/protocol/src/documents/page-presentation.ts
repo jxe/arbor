@@ -1,4 +1,4 @@
-import type { OverstoryBlock, Diagnostic, MarkdownDocument } from "../index.ts";
+import type { OverstoryBlock, MarkdownDocument } from "../index.ts";
 import { canonicalNodePath, nodeDisplayName } from "../model/logical-path.ts";
 import { placeDirectoryChildren, type DirectoryPlacementChild, type PlacementDirectory } from "./directory-document.ts";
 import { serializeBlocks } from "./markdown.ts";
@@ -16,7 +16,6 @@ export interface PagePresentation {
   document: MarkdownDocument;
   placedChildren: string[];
   generatedChildren: string[];
-  diagnostics: Diagnostic[];
 }
 
 /**
@@ -64,11 +63,9 @@ function presented(kind: PresentedHeading, text: string): OverstoryBlock {
  * Every client shows a page through this function rather than through
  * directory placement. It adds what the page shows and its source lacks: a
  * title when the body does not begin with an H1, and, for a node with
- * children whose document has no explicit marker, the children no authored
- * link names at the page's end: under the body's last H1 when that is an
- * authored `# Subpages` (or a legacy `# Children`), otherwise in a presented
- * Subpages section. With an
- * explicit marker those children stand at the marker and no heading is added.
+ * children, the children no authored link names at the page's end: under the
+ * body's last H1 when that is an authored `# Subpages` (or a legacy
+ * `# Children`), otherwise in a presented Subpages section.
  * `children` is null for a node that has none to place.
  *
  * Everything added carries `storyGenerated`, which the Markdown serializer
@@ -82,7 +79,7 @@ export function presentPage(
 ): PagePresentation {
   const placement = children
     ? placeDirectoryChildren(node, document, children)
-    : { document, remainder: [], placedChildren: [], generatedChildren: [], diagnostics: [] };
+    : { document, remainder: [], placedChildren: [], generatedChildren: [] };
   const blocks = [...placement.document.blocks];
   const title = presentedPageTitle(node.path);
   if (title !== null && !beginsWithTitle(blocks)) {
@@ -102,7 +99,6 @@ export function presentPage(
     document: { ...placement.document, blocks },
     placedChildren: placement.placedChildren,
     generatedChildren: placement.generatedChildren,
-    diagnostics: placement.diagnostics,
   };
 }
 

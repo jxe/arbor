@@ -42,10 +42,6 @@ public struct StoryMarkdownOpenedDocument: Sendable {
 }
 
 public enum StoryMarkdownCodec {
-    static let childrenMarker = "<!-- overstory:children -->"
-    private static func isChildrenMarkerText(_ text: String) -> Bool {
-        text == childrenMarker
-    }
     static let projectedChildMetadataKey = "story.projected-child"
     /// Where a generated child link was placed among its siblings, so a reorder can be told.
     static let projectedOrdinalMetadataKey = "story.projected-ordinal"
@@ -66,10 +62,9 @@ public enum StoryMarkdownCodec {
     }
 
     /// Authored blocks with a directory's unmentioned immediate children
-    /// placed against them. With an explicit children marker they stand after
-    /// it in `blocks`; without one they are the `remainder` of the implicit
-    /// marker after authored source, and `StoryPagePresentation.present`
-    /// decides how that reads.
+    /// placed against them: those children are the `remainder` after
+    /// authored source, and `StoryPagePresentation.present` decides how that
+    /// reads.
     struct DirectoryPlacement {
         var blocks: [Block]
         var remainder: [Block]
@@ -90,7 +85,6 @@ public enum StoryMarkdownCodec {
         let authored = StoryPagePresentation.authored(blocks)
         var mentionedIdentities = Set<WorkspaceIdentity>()
         var mentionedPaths = Set<String>()
-        var markerCount = 0
 
         func pathKey(tree: TreeID, path: String) -> String {
             "\(tree.rawValue)\u{0}\(path)"
@@ -105,12 +99,10 @@ public enum StoryMarkdownCodec {
                     }
                     mentionedPaths.insert(pathKey(tree: tree, path: target.path))
                 }
-                if isChildrenMarker(block) { markerCount += 1 }
                 inspect(block.children)
             }
         }
         inspect(authored)
-        guard markerCount <= 1 else { return DirectoryPlacement(blocks: authored, remainder: []) }
 
         let missing = children
             .filter {
@@ -137,8 +129,6 @@ public enum StoryMarkdownCodec {
             )
         }
 
-        var result = authored
-        if insert(generated, afterChildrenMarkerIn: &result) { return DirectoryPlacement(blocks: result, remainder: []) }
         return DirectoryPlacement(blocks: authored, remainder: generated)
     }
 
@@ -1051,7 +1041,7 @@ public enum StoryMarkdownCodec {
         if trimmed.hasPrefix("<") || trimmed.hasPrefix("$$") || trimmed.hasPrefix("|") || trimmed.hasPrefix("[^") {
             return .unsupported(
                 payload: lines.map(\.raw).joined(),
-                display: isChildrenMarkerText(trimmed) ? StoryPagePresentation.childrenHeading : "Raw Markdown",
+                display: "Raw Markdown",
                 id: id
             )
         }
@@ -1315,11 +1305,6 @@ public enum StoryMarkdownCodec {
         )))
     }
 
-    static func isChildrenMarker(_ block: Block) -> Bool {
-        guard case let .unsupported(payload, _) = block.kind else { return false }
-        return isChildrenMarkerText(payload.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
     private static func removingProjectedBlocks(from blocks: [Block]) -> [Block] {
         blocks.compactMap { block in
             guard !isProjectedChild(block) else { return nil }
@@ -1379,17 +1364,6 @@ public enum StoryMarkdownCodec {
             return value
         }
         return blocks.map(materialize)
-    }
-
-    private static func insert(_ generated: [Block], afterChildrenMarkerIn blocks: inout [Block]) -> Bool {
-        for index in blocks.indices {
-            if isChildrenMarker(blocks[index]) {
-                blocks.insert(contentsOf: generated, at: index + 1)
-                return true
-            }
-            if insert(generated, afterChildrenMarkerIn: &blocks[index].children) { return true }
-        }
-        return false
     }
 
     private static func foldHeadings(_ blocks: [Block]) -> [Block] {

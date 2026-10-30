@@ -1,7 +1,7 @@
 {
   "cases": [
     {
-      "name": "implicit-marker-preserves-source",
+      "name": "remainder-preserves-source",
       "directory": { "path": "/notes", "body": "index" },
       "source": "Intro with [inline](alpha).\r\n\r\n[Beta label](beta)\r\n\r\n",
       "children": [
@@ -9,11 +9,10 @@
         { "name": "beta", "path": "/notes/beta", "body": "sibling" }
       ],
       "expectedBlockPaths": ["beta", "alpha.md"],
-      "expectedGeneratedChildren": ["/notes/alpha"],
-      "expectedDiagnosticCodes": []
+      "expectedGeneratedChildren": ["/notes/alpha"]
     },
     {
-      "name": "explicit-marker-places-unmatched",
+      "name": "legacy-marker-is-ordinary-source",
       "directory": { "path": "/dir", "body": "index" },
       "source": "# Directory\n\n<!-- overstory:children -->\n\nTail.\n",
       "children": [
@@ -21,8 +20,7 @@
         { "name": "A", "path": "/dir/A", "body": "index" }
       ],
       "expectedBlockPaths": ["A/_index.md", "z.md"],
-      "expectedGeneratedChildren": ["/dir/A", "/dir/z"],
-      "expectedDiagnosticCodes": []
+      "expectedGeneratedChildren": ["/dir/A", "/dir/z"]
     },
     {
       "name": "sibling-body-rows-resolve-from-the-parent",
@@ -33,8 +31,7 @@
         { "name": "beta", "path": "/notes/beta", "body": "sibling" }
       ],
       "expectedBlockPaths": ["notes/beta.md", "notes/alpha.md#overstory-key=id:a1"],
-      "expectedGeneratedChildren": ["/notes/alpha"],
-      "expectedDiagnosticCodes": []
+      "expectedGeneratedChildren": ["/notes/alpha"]
     },
     {
       "name": "stable-key-survives-stale-path",
@@ -44,8 +41,7 @@
         { "name": "Moved", "path": "/dir/new", "body": "sibling", "stableKey": "[[\"id\",\"page-opaque\"]]" }
       ],
       "expectedBlockPaths": ["old.md#overstory-key=id:page-opaque"],
-      "expectedGeneratedChildren": [],
-      "expectedDiagnosticCodes": []
+      "expectedGeneratedChildren": []
     },
     {
       "name": "a-bare-fragment-is-not-identity",
@@ -55,19 +51,17 @@
         { "name": "Moved", "path": "/dir/new", "body": "sibling", "stableKey": "[[\"id\",\"page-opaque\"]]" }
       ],
       "expectedBlockPaths": ["old#page-opaque", "new.md#overstory-key=id:page-opaque"],
-      "expectedGeneratedChildren": ["/dir/new"],
-      "expectedDiagnosticCodes": []
+      "expectedGeneratedChildren": ["/dir/new"]
     },
     {
-      "name": "duplicate-marker-blocks-generation",
+      "name": "repeated-legacy-markers-are-ordinary-source",
       "directory": { "path": "/dir", "body": "index" },
       "source": "<!-- overstory:children -->\n\nText\n\n<!-- overstory:children -->\n",
       "children": [
         { "name": "child", "path": "/dir/child", "body": "sibling" }
       ],
-      "expectedBlockPaths": [],
-      "expectedGeneratedChildren": [],
-      "expectedDiagnosticCodes": ["duplicate-children-marker"]
+      "expectedBlockPaths": ["child.md"],
+      "expectedGeneratedChildren": ["/dir/child"]
     }
   ]
 }

@@ -158,19 +158,19 @@ from the stored sibling/index Markdown body, or an empty implicit body. Authored
 placement and child membership are distinct:
 
 1. Walk standalone links in source order. The first link that resolves to each immediate child represents that child at its authored position. Inline links never qualify, and later standalone links to the same child remain ordinary duplicate links.
-2. A standalone `<!-- overstory:children -->` marker represents every otherwise-unmentioned immediate child at that position. When source contains no marker, one implicit marker exists after the authored source. More than one marker is `duplicate-children-marker` and blocks authored placement edits until repaired. Clients do not write a marker: a page's children stand at its end ([§4.1](#41-presented-headings)), and an explicit marker in source is honored but not shown.
-3. The provider enumerates the marker's remainder in canonical logical-path order and may page or virtualize it. The operational document retains the marker rather than expanding one literal source link per child. Reading, rendering, indexing, searching, backlinks, hosted output, and export consume the same placement model.
+2. Every otherwise-unmentioned immediate child belongs to the document's remainder, which stands after the authored source: a page's children stand at its end ([§4.1](#41-presented-headings)). Source has no syntax that places the remainder elsewhere. A `<!-- overstory:children -->` comment, which earlier clients wrote for that, is ordinary source.
+3. The provider enumerates the remainder in canonical logical-path order and may page or virtualize it rather than expanding one literal source link per child. Reading, rendering, indexing, searching, backlinks, hosted output, and export consume the same placement model.
 
-Reading an implicit body or marker does not materialize it. The first authored
+Reading an implicit body or its remainder does not materialize either. The first authored
 content/property/placement write persists only the exact authored source; it
-does not serialize the marker's remainder. A placement write must match the parent's bytes hash together with the
+does not serialize the remainder. A placement write must match the parent's bytes hash together with the
 children cursor it observed. Child add/remove/relocate/identity changes
 invalidate a concurrent placement write; property or content changes within an
 existing child do not change parent membership unless they also change its
 location or identity.
 
 Link ordering, nesting, labels, and deletion are ordinary source edits. Removing
-an explicit child link returns that child to the marker; it never deletes the
+an explicit child link returns that child to the remainder; it never deletes the
 target. Create, move, rename, copy, delete, restore, and row mutations are
 explicit structural or provider operations. Filesystem entries, collection
 rows, database tables, database records, and mounted boundaries are all children
@@ -199,22 +199,22 @@ that its source may lack. Neither is authored source.
   presented H1 naming the node: the last segment of its logical path, which is
   the body file's name without its extension, or the directory's name for
   `_index.md`, with each hyphen shown as a space.
-- **Subpages.** When the implicit marker's remainder is not empty, the page
+- **Subpages.** When the remainder is not empty, the page
   ends with it. If the body's last H1 is an authored `# Subpages`, or a
   `# Children` as earlier clients wrote it, the remainder stands at the end of
   that section with nothing added. Otherwise the page ends with a presented
   `# Subpages` H1 followed by the remainder. It
   closes every authored section above it, so the remainder never reads as part
-  of the last authored section. An explicit marker presents its remainder
-  where it stands, with no presented heading.
+  of the last authored section.
 
 Clients show a presented heading, and the generated links of a remainder, so
 that they read as derived from the tree rather than written: Story mutes
 them. Once written they read like any other content.
 
 Indexing, searching, fragment targets, and transfers of authored blocks
-ignore presented headings, and a presented heading cannot be deleted: adding an
-authored H1, linking the children, or placing a marker removes it. A selection that includes one carries only authored source, so moving
+ignore presented headings, and a presented heading cannot be deleted: an
+authored first H1 removes the title, and an authored last `# Subpages` or a
+link to every child removes the Subpages heading. A selection that includes one carries only authored source, so moving
 a page's last section leaves the remainder with the page. Hosted output renders
 presented headings as a client does.
 
@@ -223,7 +223,7 @@ Editing the title writes it as the body's first H1; it does not rename the
 node. Editing anywhere in a presented Subpages section materializes the whole
 section: renaming its heading, adding content under it, or reordering its
 links writes the heading followed by everything under it, each generated link
-as an authored standalone link, in the order shown. No marker is written; the
+as an authored standalone link, in the order shown. The
 authored `# Subpages` now holds the children, and a child added later joins
 its end. Moving one generated link elsewhere materializes only that link.
 Materializing one heading never materializes the other.

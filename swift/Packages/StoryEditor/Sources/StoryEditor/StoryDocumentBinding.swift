@@ -150,7 +150,7 @@ public final class StoryDocumentBinding {
     /// Show the page as its current source presents it. Source is unchanged:
     /// a presented heading that was removed or moved comes back, one that was
     /// edited is from now on an authored block, and one that is no longer
-    /// called for (an authored first H1, a marker, every child linked) goes.
+    /// called for (an authored first H1, every child linked) goes.
     func represent() {
         presentationTask?.cancel()
         presentationTask = nil

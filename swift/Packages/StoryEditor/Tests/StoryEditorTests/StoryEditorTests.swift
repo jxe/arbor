@@ -1223,7 +1223,7 @@ struct StoryEditorTests {
     }
 
     @MainActor
-    @Test("Directory children project at the marker and materialize when moved")
+    @Test("Directory children project after authored source and materialize when moved")
     func directoryChildrenProjectAndMaterialize() throws {
         let tree: TreeID = "tr_projected_children"
         let directory = WorkspaceReference(
@@ -1241,26 +1241,21 @@ struct StoryEditorTests {
             surface: .markdown(source: "# Child\n", contentRevision: "r1"),
             provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
         )
-        let source = "# Parent\n\nBefore\n\n<!-- overstory:children -->\n"
+        let source = "# Parent\n\nBefore\n"
         let opened = StoryMarkdownCodec.open(
             source: source,
             revision: "r1",
             identitySeed: "projected-children"
         )
-        let projected = StoryMarkdownCodec.placeDirectoryChildren(
+        let placement = StoryMarkdownCodec.placeDirectoryChildren(
             [child],
             in: opened.blocks,
             directory: directory,
             sourceDirectory: "/parent"
-        ).blocks
+        )
+        let projected = placement.document
         let parent = try #require(projected.first)
-        let markerIndex = try #require(parent.children.firstIndex {
-            if case let .unsupported(_, display) = $0.kind { return display == StoryPagePresentation.childrenHeading }
-            return false
-        })
-        let generated = try #require(parent.children.indices.contains(markerIndex + 1)
-            ? parent.children[markerIndex + 1]
-            : nil)
+        let generated = try #require(placement.remainder.first)
 
         #expect(StoryMarkdownCodec.isProjectedChild(generated))
         #expect(StoryMarkdownCodec.admission(blocks: projected, ledger: opened.ledger).0.source == source)
@@ -1277,8 +1272,8 @@ struct StoryEditorTests {
         #expect(document.find(generatedID).map(StoryMarkdownCodec.isProjectedChild) == false)
         #expect(admitted.contains("[Child](child.md#overstory-key=id:pg_child)"))
         let linkRange = try #require(admitted.range(of: "[Child]("))
-        let markerRange = try #require(admitted.range(of: "<!-- overstory:children -->"))
-        #expect(linkRange.lowerBound < markerRange.lowerBound)
+        let beforeRange = try #require(admitted.range(of: "Before"))
+        #expect(linkRange.lowerBound < beforeRange.lowerBound)
     }
 
     @MainActor
@@ -1295,18 +1290,16 @@ struct StoryEditorTests {
             isWritable: false
         )
         let opened = StoryMarkdownCodec.open(
-            source: "# Community\n\n<!-- overstory:children -->\n",
+            source: "# Community\n",
             revision: "r1",
             identitySeed: "nested-profile"
         )
-        let projected = StoryMarkdownCodec.placeDirectoryChildren(
+        let generated = try #require(StoryMarkdownCodec.placeDirectoryChildren(
             [child],
             in: opened.blocks,
             directory: directory,
             sourceDirectory: "/"
-        ).blocks
-        let heading = try #require(projected.first)
-        let generated = try #require(heading.children.first(where: StoryMarkdownCodec.isProjectedChild))
+        ).remainder.first(where: StoryMarkdownCodec.isProjectedChild))
         guard case let .documentLink(label, reference) = generated.kind else {
             Issue.record("Expected a projected document link")
             return
@@ -2322,7 +2315,7 @@ extension Document {
 }
 
 extension StoryMarkdownCodec.DirectoryPlacement {
-    /// The placed document with the implicit marker's remainder after its authored source.
+    /// The placed document with its remainder after its authored source.
     var document: [Block] { blocks + remainder }
 }
 

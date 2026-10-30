@@ -7,11 +7,10 @@ import Quagmire
 ///
 /// The editor shows every page through `present`, never through directory
 /// placement alone. It adds a title when the body does not begin with an H1,
-/// and, for a node with children whose document has no explicit marker, the
-/// children no authored link names at the page's end: under the body's last
-/// H1 when that is an authored `# Subpages`, otherwise in a presented
-/// Subpages section. With an explicit marker those children stand at the
-/// marker and no heading is added. `authored` is the inverse: the blocks an edited page writes. The
+/// and, for a node with children, the children no authored link names at the
+/// page's end: under the body's last H1 when that is an authored `# Subpages`,
+/// otherwise in a presented Subpages section. `authored` is the inverse: the
+/// blocks an edited page writes. The
 /// TypeScript twin is `packages/protocol/src/documents/page-presentation.ts`,
 /// and both run `docs/overstory-spec/conformance/page-presentation.json`.
 public enum StoryPagePresentation {
@@ -39,11 +38,6 @@ public enum StoryPagePresentation {
     static let headingMetadataKey = "story.presented-heading"
     /// The text the heading was presented with; any other text is an edit.
     static let textMetadataKey = "story.presented-text"
-    /// On the parent of an explicit children marker the page does not show:
-    /// the marker's source, written back before the generated children.
-    static let markerMetadataKey = "story.children-marker"
-    /// The hidden marker's block ID, so it is written back as the same block.
-    static let markerIDMetadataKey = "story.children-marker-id"
 
     /// The title a page presents when its body does not begin with an H1: the
     /// last segment of the node's logical path with each hyphen shown as a
@@ -102,7 +96,7 @@ public enum StoryPagePresentation {
                 children: remainder,
                 metadata: [headingMetadataKey: Heading.children.rawValue, textMetadataKey: childrenHeading]))
         }
-        return hidingChildrenMarker(result)
+        return result
     }
 
     /// Whether a block is an authored `# Subpages` (or legacy `# Children`),
@@ -124,26 +118,6 @@ public enum StoryPagePresentation {
         return zip(ordinals, ordinals.dropFirst()).contains { $0 > $1 }
     }
 
-    /// An explicit children marker is source, not something to read. Where the
-    /// generated children stand right after it, it leaves the presented tree,
-    /// and its parent keeps it for `authored` to write back before them. A
-    /// marker no generated child follows stays shown, so it keeps its place.
-    private static func hidingChildrenMarker(_ blocks: [Block]) -> [Block] {
-        blocks.map { block in
-            var value = block
-            if let index = value.children.firstIndex(where: StoryMarkdownCodec.isChildrenMarker),
-               value.children.indices.contains(index + 1),
-               StoryMarkdownCodec.isProjectedChild(value.children[index + 1]),
-               case let .unsupported(payload, _) = value.children[index].kind {
-                value.metadata[markerMetadataKey] = payload
-                value.metadata[markerIDMetadataKey] = value.children[index].id.value.uuidString
-                value.children.remove(at: index)
-            }
-            value.children = hidingChildrenMarker(value.children)
-            return value
-        }
-    }
-
     /// The authored blocks of a presented page: the inverse of `present`,
     /// whose result serializes to the page's source.
     ///
@@ -155,47 +129,21 @@ public enum StoryPagePresentation {
     /// the order shown, each generated link as an authored link. Generated
     /// links are otherwise never written.
     public static func authored(_ blocks: [Block]) -> [Block] {
-        var used: Set<BlockID>?
-        func usedIDs() -> Set<BlockID> {
-            if let used { return used }
-            var ids = Set<BlockID>()
-            func collect(_ values: [Block]) { for block in values { ids.insert(block.id); collect(block.children) } }
-            collect(blocks)
-            used = ids
-            return ids
-        }
         func plain(_ block: Block, children: [Block]) -> Block {
             var value = block
             value.children = children
             value.metadata.removeValue(forKey: headingMetadataKey)
             value.metadata.removeValue(forKey: textMetadataKey)
-            value.metadata.removeValue(forKey: markerMetadataKey)
-            value.metadata.removeValue(forKey: markerIDMetadataKey)
             return value
-        }
-        /// A block's authored children, with a hidden marker written back
-        /// where its generated children begin.
-        func authoredChildren(_ block: Block) -> [Block] {
-            guard let payload = block.metadata[markerMetadataKey] else { return walk(block.children) }
-            var ids = usedIDs()
-            let id = block.metadata[markerIDMetadataKey].flatMap(UUID.init(uuidString:)).map { BlockID($0) }
-                .flatMap { ids.contains($0) ? nil : $0 }
-            let marker = Block(
-                id: id ?? unusedID("children-marker", in: &ids),
-                kind: .unsupported(payload: payload, display: childrenHeading))
-            let generated = block.children.firstIndex(where: StoryMarkdownCodec.isProjectedChild) ?? block.children.count
-            return walk(Array(block.children[..<generated])) + [marker] + walk(Array(block.children[generated...]))
         }
         func walk(_ values: [Block]) -> [Block] {
             values.flatMap { block -> [Block] in
                 if StoryMarkdownCodec.isProjectedChild(block) { return [] }
-                let children = authoredChildren(block)
+                let children = walk(block.children)
                 switch heading(block) {
                 case nil:
                     var value = block
                     value.children = children
-                    value.metadata.removeValue(forKey: markerMetadataKey)
-                    value.metadata.removeValue(forKey: markerIDMetadataKey)
                     return [value]
                 case .title:
                     return isUntouched(block) ? children : [plain(block, children: children)]
@@ -234,8 +182,6 @@ public enum StoryPagePresentation {
                 if untouched.contains(block.id) { return walk(block.children) }
                 var value = block
                 value.children = walk(block.children)
-                value.metadata.removeValue(forKey: markerMetadataKey)
-                value.metadata.removeValue(forKey: markerIDMetadataKey)
                 return [value]
             }
         }
@@ -260,8 +206,6 @@ public enum StoryPagePresentation {
                 if untouched.contains(source.id) { return walk(block.children, source.children) }
                 var value = block
                 value.children = walk(block.children, source.children)
-                value.metadata.removeValue(forKey: markerMetadataKey)
-                value.metadata.removeValue(forKey: markerIDMetadataKey)
                 return [value]
             }
         }

@@ -34,14 +34,11 @@ const RawMarkdownBlock = createReactBlockSpec(
     type: "rawMarkdown",
     propSchema: {
       blank: { default: false },
-      storyChildrenMarker: { default: false },
     },
     content: "inline",
   },
   {
-    render: ({ block, contentRef }) => block.props.storyChildrenMarker
-      ? <div className="story-children-marker" contentEditable={false}><span>Children</span><span className="managed-hidden-content" ref={contentRef} /></div>
-      : block.props.blank
+    render: ({ block, contentRef }) => block.props.blank
       ? <div className="raw-blank" ref={contentRef} />
       : <div className="raw-markdown"><span className="raw-label">Markdown</span><pre ref={contentRef} /></div>,
     toExternalHTML: ({ contentRef }) => <pre data-story-raw="true" ref={contentRef} />,
@@ -810,7 +807,6 @@ export function toBlockNote(block: OverstoryBlock, editor: OverstoryBlockNoteEdi
       type: "rawMarkdown",
       props: {
         blank: Boolean(block.props?.blank),
-        storyChildrenMarker: Boolean(block.props?.storyChildrenMarker),
       },
       content: block.content ?? "",
     };
@@ -853,7 +849,6 @@ export function fromBlockNote(block: OverstoryEditorBlock, originals: Map<string
   if (block.type === "image") { props.url = block.props.url; props.caption = block.props.caption; }
   if (block.type === "rawMarkdown") {
     props.blank = block.props.blank;
-    props.storyChildrenMarker = block.props.storyChildrenMarker;
   }
   if (block.type === "standaloneLink") {
     props.path = block.props.path;

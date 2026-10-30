@@ -197,28 +197,16 @@ struct PagePresentationTests {
         #expect(!StoryPagePresentation.isMuted(next[1]))
     }
 
-    @Test("An explicit marker is not shown where the generated children stand, and is written back before them")
-    func markerHiddenAtGeneratedChildren() throws {
+    @Test("A legacy children marker is ordinary raw Markdown, and the children stand at the page's end")
+    func legacyMarkerIsRawMarkdown() throws {
         let source = "# Children\n\nHey\n\n<!-- overstory:children -->\n"
-        let opened = StoryMarkdownCodec.open(source: source, revision: "r1", identitySeed: "hidden-marker")
-        var page = Self.present(opened.blocks, .init(path: "/", body: .index), [.init(name: "story", path: "/story", body: .sibling)])
-        func markers(_ blocks: [Block]) -> Int {
-            blocks.reduce(0) { $0 + (StoryMarkdownCodec.isChildrenMarker($1) ? 1 : 0) + markers($1.children) }
-        }
-        #expect(markers(page) == 0)
+        let opened = StoryMarkdownCodec.open(source: source, revision: "r1", identitySeed: "legacy-marker")
+        let page = Self.present(opened.blocks, .init(path: "/", body: .index), [.init(name: "story", path: "/story", body: .sibling)])
         #expect(page.count == 1)
-        #expect(page[0].children.map(StoryMarkdownCodec.isProjectedChild) == [false, true])
+        #expect(page[0].children.map(StoryMarkdownCodec.isProjectedChild) == [false, false, true])
+        if case let .unsupported(_, display) = page[0].children[1].kind { #expect(display == "Raw Markdown") } else { Issue.record("marker is not raw Markdown") }
         #expect(StoryMarkdownCodec.admission(blocks: page, ledger: opened.ledger).0.source == source)
-        // Presenting the presented page again changes nothing.
         #expect(Self.present(page, .init(path: "/", body: .index), [.init(name: "story", path: "/story", body: .sibling)]) == page)
-        // Text added after the children stays after the marker, as it would
-        // on the unpresented page.
-        let later = Block.paragraph(text: AttributedString("Later."))
-        page[0].children.append(later)
-        var unpresented = opened.blocks
-        unpresented[0].children.append(later)
-        #expect(StoryMarkdownCodec.admission(blocks: page, ledger: opened.ledger).0.source
-            == StoryMarkdownCodec.admission(blocks: unpresented, ledger: opened.ledger).0.source)
     }
 
     @Test("A selection that includes a presented heading moves only authored source")

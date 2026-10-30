@@ -41,11 +41,12 @@ describe("presented headings on a public page", () => {
     expect(html.indexOf("Body.")).toBeLessThan(html.indexOf("<h1>Subpages</h1>"));
   });
 
-  test("an explicit marker places them with no heading", () => {
-    const html = render("# Dir\n\n<!-- overstory:children -->\n\nTail.\n");
-    expect(html).not.toContain("<h1>Subpages</h1>");
-    expect(html).not.toContain('class="raw-markdown"');
-    expect(html.indexOf('class="child-list"')).toBeLessThan(html.indexOf("Tail."));
+  test("an authored last Subpages or legacy Children heading holds them with no heading added", () => {
+    for (const heading of ["Subpages", "Children"]) {
+      const html = render(`# Dir\n\n# ${heading}\n\nTail.\n`);
+      expect(html.match(/<h1>/g)).toHaveLength(2);
+      expect(html.indexOf("Tail.")).toBeLessThan(html.indexOf('class="child-list"'));
+    }
   });
 
   test("linked children present no heading", () => {
