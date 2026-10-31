@@ -14,6 +14,9 @@ numbers are separate from migration numbers: this is not migration 014.)
   [status](../../status.md) and the
   [transfer rules](../../docs/architecture/overstoryd/merge-tool.md#transfers).
   Everything below is a menu. Take an item when a real edit has asked for it.
+- **Markdown:** [overstoryd 017](merge-017-markdown-block-merge.md) proposes
+  merging Markdown as blocks, which would cover most of section B. Do it
+  before taking more Markdown items here.
 
 ## What a good merge does
 
