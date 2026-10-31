@@ -201,7 +201,6 @@ const rangeCases: Array<{ name: string; left: RangeEdit[]; right: RangeEdit[] }>
     right: [{ range: [0,1], text: "🌲" }, { range: [1,2], text: "B" }] },
 
   { name: "format rule declines disjoint Markdown edits", left: [{ range: [0,1], text: "**A**" }], right: [{ range: [2,3], text: "C" }] },
-  { name: "equal-byte overlapping intent", left: [{ range: [1,2], text: "b" }], right: [{ range: [1,2], text: "b" }] },
 ];
 for (const scenario of rangeCases) for (const reverse of [false, true]) {
   test(`root range choices preserve complete provenance through restart: ${scenario.name}, reverse=${reverse}`, async () => {
@@ -228,6 +227,16 @@ for (const scenario of rangeCases) for (const reverse of [false, true]) {
     await running.overstoryd.verifyIntegrity();
   });
 }
+for (const reverse of [false, true])
+  test(`the same edit made on both sides is not a conflict, reverse=${reverse}`, async () => {
+    const pair = [await rangeCandidate([{ range: [1, 2], text: "b" }]), await rangeCandidate([{ range: [1, 2], text: "b" }])];
+    if (reverse) pair.reverse();
+    await client.submitUpdates(tree, { base, updates: [pair[0]!] });
+    const accepted = (await client.submitUpdates(tree, { base, updates: [pair[1]!] })).results[0]!.update;
+    expect(accepted.conflicted).toBe(false);
+    expect(accepted.root).toBe(pair[0]!.candidate);
+    await running.overstoryd.verifyIntegrity();
+  });
 test("nested range collisions create a decision at the physical file", async () => {
   const directory = decodeProtocolDirectory(objects.get(root)!);
   const original = directory.entries.find(e => e.name === "note.md")!;

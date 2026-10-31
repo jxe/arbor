@@ -1437,9 +1437,10 @@ class Engine {
    * it again often selects it a little differently (the item's text and the
    * next item's marker rather than its own marker and text). Such a deletion
    * repeats current when sliding it along equal bytes of the base lands on
-   * material current removed from between its neighbors. Repeated insertions
-   * stay concurrent contributions with their own provenance. */
-  async unrepeated(base: Piece[], local: PieceEdit[], now: Piece[]): Promise<PieceEdit[]> {
+   * material current removed from between its neighbors. Other overlapping
+   * edits repeat current when both sides leave the same bytes there; current
+   * keeps its own contribution. */
+  async unrepeated(base: Piece[], local: PieceEdit[], remote: PieceEdit[], now: Piece[]): Promise<PieceEdit[]> {
     const bytes = Buffer.from(await this.bytes(base));
     // Where a base byte is in `now`, or -1 when current no longer has it.
     const position = (at: number) => {
@@ -1471,7 +1472,20 @@ class Engine {
       }
       return false;
     };
-    return local.filter(e => !deletedAlready(e));
+    const repeated = new Set<PieceEdit>(local.filter(deletedAlready));
+    const sided = [
+      ...local.filter(e => !repeated.has(e)).map(e => ({ ...e, side: 1, edit: e })),
+      ...remote.map(e => ({ ...e, side: 0, edit: e })),
+    ];
+    for (const group of overlapGroups(sided)) {
+      if (!group.some(e => e.side === 0) || !group.some(e => e.side === 1)) continue;
+      const start = Math.min(...group.map(e => e.range[0])), end = Math.max(...group.map(e => e.range[1]));
+      const [mine, theirs] = await Promise.all([1, 0].map(side => this.bytes(applyPieceEdits(slice(base, start, end),
+        group.filter(e => e.side === side).map(e => ({ range: [e.range[0] - start, e.range[1] - start] as [number, number], pieces: e.pieces }))))));
+      if (Buffer.from(mine!).equals(theirs!))
+        for (const e of group) if (e.side === 1) repeated.add(e.edit);
+    }
+    return local.filter(e => !repeated.has(e));
   }
   /** The choices a format refusal requires. Each group holding an incoming
    * edit grows to whole blocks of the base (blank-line separated), takes in
@@ -2698,7 +2712,7 @@ class Engine {
             ) {
               const remoteEdits = await this.edits(b.pieces, remote.pieces, current),
                 authoredEdits = await this.edits(b.pieces, incoming.pieces, authored),
-                localEdits = await this.unrepeated(b.pieces, authoredEdits, remote.pieces);
+                localEdits = await this.unrepeated(b.pieces, authoredEdits, remoteEdits, remote.pieces);
               for (const edit of authoredEdits)
                 if (!localEdits.includes(edit)) repeats.push(...slice(b.pieces, edit.range[0], edit.range[1]));
               // Every incoming edit here repeats what current already shows.

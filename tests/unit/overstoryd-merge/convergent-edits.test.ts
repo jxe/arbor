@@ -53,3 +53,15 @@ test("a refused overlap is a choice about its own blocks, not every edit in the 
   expect(end).toBeLessThanOrEqual(at("- Untouched task 1\n"));
   expect(f.content(result.result.object, "note.md")).toContain("An added paragraph.");
 });
+
+test("the same text typed on both sides is not a conflict", async () => {
+  const f = new Fixture(), base = f.tree({ "note.md": source });
+  const typed = source.replace("Take pills", "Take pills and vitamins"), at = Buffer.byteLength(source.slice(0, source.indexOf("Take pills") + 10));
+  const edit = (change: string, current?: { object: string; state: string }) => f.request(base, f.tree({ "note.md": typed }), [
+    { key: "type", kind: "editSource", source: f.ref("/note.md", source, [at, at]), text: " and vitamins" },
+  ], change, current);
+  const first = await f.run(edit("phone"));
+  const second = await f.run(edit("mac", first.result));
+  expect(second.decisions).toEqual([]);
+  expect(f.content(second.result.object, "note.md")).toBe(typed);
+});

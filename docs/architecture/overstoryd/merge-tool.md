@@ -376,7 +376,9 @@ a format rule refuses edits within one file. Before any of this, a candidate
 deletion that only repeats an accepted one (sliding it along equal base bytes
 lands on material current removed from between its neighbors, as when a stale
 device deletes an item again but selects the next item's marker with it) is
-dropped, and current keeps what it showed. Every other file merges. A transfer
+dropped, and so is any other candidate edit that leaves the same bytes as
+the accepted edits it overlaps; current keeps what it showed. Every other
+file merges. A transfer
 that changed no file (a move to where its text already was) couples nothing.
 When replay succeeds but format policy refuses a single Markdown insertion within one
 document, removing its output by identity must exactly reproduce current.
