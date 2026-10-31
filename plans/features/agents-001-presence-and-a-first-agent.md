@@ -119,8 +119,10 @@ Presence (Live 001; Joe's choices there stand):
 5. **A cursor is a byte range in a named source.** `{ source: Hash, anchor, head }` holds
    UTF-8 byte offsets into the file object whose hash is `source`. A receiver showing another
    version may approximate it, but must not present it as exact.
-6. **Block-level first.** Story sends the byte range of the block holding its caret and shows
-   each peer's block; the exact caret is [Live 002](live-002-exact-carets.md). (Joe's choice.)
+6. **Send exact, show by block.** Story sends its exact caret or selection within the block it
+   is editing (Quagmire already reports it), but shows each peer at block level: a marker and
+   a tinted row. Drawing others' carets inside text is [Live 002](live-002-exact-carets.md),
+   which then needs no wire or sending change. (Joe, 2026-10-31.)
 7. **The host names people, clients colour them.** An entry carries the profile TreeID and the
    host's display name for it, or `null`. A client derives a stable colour from the profile
    TreeID. One person on two devices appears once per device. A presence ID is opaque and per
@@ -275,9 +277,12 @@ Then `bun run test:affected` and `bun run test:protocol`.
 - `StoryAppModel` starts one runner beside each host watch (the open tree, and a visited
   tree), with the same credential. It stops it with them, so iOS `suspendLiveSync()` also
   leaves the roster.
-- The page is the current `WorkspaceReference`. The selection is the byte range of the caret's
-  block in the document's current source object. It is sent from `draftCaretMoved`, only
-  while the roster shows another person on this page, and throttled per decision 8.
+- The page is the current `WorkspaceReference`. The selection is the exact range: Quagmire's
+  `EditorState.textSelection` (UTF-16 offsets within the editing block's text) mapped through
+  the codec to UTF-8 bytes of the document's current source object, accounting for inline
+  Markdown such as `**` and links. When no block is being edited, it is the selected blocks'
+  range. It is sent on caret and selection changes, only while the roster shows another
+  person on this page, and throttled per decision 8.
 - The "Show me to others" setting is per device and defaults to on.
 
 **Verification:** `HostPresenceRunner` tests against a stub host: reconnect resends the page,
@@ -287,16 +292,24 @@ block.
 
 ## Phase 4: showing people and agents in Story (Mac)
 
-- **Check first:** whether Quagmire can decorate a block (a gutter mark or tint) without a
-  release. If it cannot, v1 shows "Ana · Implementation" (the peer's block heading or first
-  words) in the document header, and the in-text mark waits for [Live 002](live-002-exact-carets.md).
+- **What Quagmire has (checked 2026-10-31, Quagmire `d58ae9d`):** `EditorAccessory` puts a
+  host marker in a 32 pt lane beside a block, with a detail view that expands inline under
+  it (choice review uses it). There is no row tint and no floating view. Joe wants a floating
+  bubble, so this phase includes a Quagmire release (with the next arbor release):
+  - **Peer markers:** a host-supplied list of `(BlockID, colour, label)` drawn as small
+    initials in the accessory lane, stacked when several peers share a block.
+  - **Row tint** (Joe unsure; build it behind a flag and decide by hand): a faint wash of the
+    peer's colour behind the row.
+  - **A floating bubble:** a host view anchored to a block, drawn over the page beside the
+    row (not pushing text down), that follows the block as it moves or scrolls, and stays
+    within the visible page.
 - Small initials in the peer's colour in the document header for everyone on this page, and a
   dot beside each page in the sidebar where someone is. Hovering shows names.
 - Each peer's block is marked in their colour when the block can be found. A cursor whose
   `source` differs from the shown source is mapped through the receiver's own version and
   drawn fainter. If it cannot be mapped, it is not drawn.
-- An agent peer has the agent mark, and its status shows in a small bubble beside its block
-  (or beside its initials in the header, if blocks can't be decorated yet).
+- An agent peer has the agent mark, and its status shows in the floating bubble beside its
+  block.
 - `docs/implementing-editors/design.md` describes what Story shows and the opt-out.
 
 **Verification:** an app-hosted test that a roster update renders the header and sidebar
