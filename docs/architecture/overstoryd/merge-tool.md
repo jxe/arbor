@@ -367,8 +367,16 @@ not hold the candidate is reviewed as before; a rule never guesses.
 When the replay itself fails, the review is as narrow as the transfers allow.
 A transfer between files in the candidate, or one accepted since its base
 joining two or more files the candidate also edited, makes one whole-root
-choice. Otherwise each file a transfer touched is one choice about that file
-(both sides' edits there together), and every other file merges. A transfer
+choice. Otherwise, in each file a transfer touched, every group of the
+candidate's edits is one choice: it grows to whole blank-line-separated blocks
+of the base, takes in the accepted edits inside those blocks and any edit that
+carries their material elsewhere (a move's other end), and accepted edits
+outside every choice merge as they would have. The same narrowing applies when
+a format rule refuses edits within one file. Before any of this, a candidate
+deletion that only repeats an accepted one (sliding it along equal base bytes
+lands on material current removed from between its neighbors, as when a stale
+device deletes an item again but selects the next item's marker with it) is
+dropped, and current keeps what it showed. Every other file merges. A transfer
 that changed no file (a move to where its text already was) couples nothing.
 When replay succeeds but format policy refuses a single Markdown insertion within one
 document, removing its output by identity must exactly reproduce current.

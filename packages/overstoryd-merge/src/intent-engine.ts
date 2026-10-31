@@ -1432,6 +1432,93 @@ class Engine {
         edit.pieces.every((p) => state.effects[p.origin]?.preserves === true),
     }));
   }
+  /** `local` without the deletions that only repeat one `remote` already
+   * made. A device that missed the other's deletion of an item and deletes
+   * it again often selects it a little differently (the item's text and the
+   * next item's marker rather than its own marker and text). Such a deletion
+   * repeats current when sliding it along equal bytes of the base lands on
+   * material current removed from between its neighbors. Repeated insertions
+   * stay concurrent contributions with their own provenance. */
+  async unrepeated(base: Piece[], local: PieceEdit[], now: Piece[]): Promise<PieceEdit[]> {
+    const bytes = Buffer.from(await this.bytes(base));
+    // Where a base byte is in `now`, or -1 when current no longer has it.
+    const position = (at: number) => {
+      const [p] = slice(base, at, at + 1);
+      let offset = 0;
+      for (const q of now) {
+        const shared = p && intersect(p, q);
+        if (shared) return offset + shared[0] - q.start;
+        offset += q.length;
+      }
+      return -1;
+    };
+    // Current removed exactly this material and put nothing between its neighbors.
+    const gone = (start: number, end: number) => {
+      if (!slice(base, start, end).every(p => !now.some(q => intersect(p, q)))) return false;
+      const before = start === 0 ? -1 : position(start - 1),
+        after = end === bytes.length ? length(now) : position(end);
+      return (start === 0 || before >= 0) && after >= 0 && after === before + 1;
+    };
+    const deletedAlready = ({ range: [start, end], pieces }: PieceEdit) => {
+      if (pieces.length || start === end) return false;
+      for (let shift = -(end - start); shift <= end - start; shift++) {
+        const s = start + shift, e = end + shift;
+        if (s < 0 || e > bytes.length) continue;
+        const slides = shift < 0
+          ? bytes.subarray(s, start).equals(bytes.subarray(e, end))
+          : bytes.subarray(start, s).equals(bytes.subarray(end, e));
+        if (slides && gone(s, e)) return true;
+      }
+      return false;
+    };
+    return local.filter(e => !deletedAlready(e));
+  }
+  /** The choices a format refusal requires. Each group holding an incoming
+   * edit grows to whole blocks of the base (blank-line separated), takes in
+   * every edit those blocks contain and any edit that carries their material
+   * elsewhere (a move's other end), and becomes one choice; edits outside
+   * every choice keep merging as they would have. */
+  coupledGroups<E extends PieceEdit & { side: number }>(base: Piece[], groups: E[][], bytes: Uint8Array): Array<E[] & { span?: [number, number] }> {
+    const text = Buffer.from(bytes);
+    const blockStart = (at: number) => Math.max(0, ...["\n\n", "\n\r\n"].map(s => {
+      const found = at < s.length ? -1 : text.lastIndexOf(s, at - s.length);
+      return found < 0 ? 0 : found + s.length;
+    }));
+    const blockEnd = (at: number) => Math.min(text.length, ...["\n\n", "\n\r\n"].map(s => {
+      const found = text.indexOf(s, at);
+      return found < 0 ? text.length : found + s.length;
+    }));
+    const range = (group: E[]): [number, number] =>
+      [Math.min(...group.map(e => e.range[0])), Math.max(...group.map(e => e.range[1]))];
+    const carries = (group: E[], [start, end]: [number, number]) => {
+      const material = slice(base, start, end);
+      return group.some(e => e.pieces.some(p => material.some(q => intersect(p, q))));
+    };
+    const pending = groups.map(group => ({ group: [...group], span: range(group) }));
+    const choices: Array<{ group: E[]; span: [number, number] }> = [];
+    for (let seed = pending.find(g => g.group.some(e => e.side === 1)); seed; seed = pending.find(g => g.group.some(e => e.side === 1))) {
+      pending.splice(pending.indexOf(seed), 1);
+      let span: [number, number] = [blockStart(seed.span[0]), blockEnd(seed.span[1])], grew = true;
+      const group = seed.group;
+      while (grew) {
+        grew = false;
+        for (const other of [...pending, ...choices]) {
+          const [s, e] = other.span;
+          const inside = s === e ? span[0] <= s && s <= span[1] : s < span[1] && span[0] < e;
+          if (!inside && !carries(other.group, span) && !carries(group, other.span)) continue;
+          group.push(...other.group);
+          span = [blockStart(Math.min(span[0], s)), blockEnd(Math.max(span[1], e))];
+          (pending.includes(other) ? pending : choices).splice((pending.includes(other) ? pending : choices).indexOf(other), 1);
+          grew = true;
+        }
+      }
+      choices.push({ group, span });
+    }
+    return [
+      ...choices.map(({ group, span }) => Object.assign(group.sort((a, c) => a.range[0] - c.range[0]), { span })),
+      ...pending.map(({ group }) => group),
+    ].sort((a, c) => ((a as { span?: [number, number] }).span ?? range(a))[0] - ((c as { span?: [number, number] }).span ?? range(c))[0]);
+  }
   /** Enforce the deletions of `effects` (by default all of the state's). */
   enforceDeletions(state: IntentState, effects: Record<string, Effect> = state.effects) {
     const realm = this.realms(state);
@@ -2517,6 +2604,8 @@ class Engine {
       }
       if (branchContinuation) affected.length = 0;
       const contentDecisions: IntentState["decisions"] = [];
+      // Base material of incoming edits that only repeated current's.
+      const repeats: Piece[] = [];
       let branchStates:
         | {
             old: { object: string; state: string };
@@ -2607,12 +2696,13 @@ class Engine {
               incoming.pieces &&
               remote.pieces
             ) {
-              const localEdits = await this.edits(
-                  b.pieces,
-                  incoming.pieces,
-                  authored
-                ),
-                remoteEdits = await this.edits(b.pieces, remote.pieces, current);
+              const remoteEdits = await this.edits(b.pieces, remote.pieces, current),
+                authoredEdits = await this.edits(b.pieces, incoming.pieces, authored),
+                localEdits = await this.unrepeated(b.pieces, authoredEdits, remote.pieces);
+              for (const edit of authoredEdits)
+                if (!localEdits.includes(edit)) repeats.push(...slice(b.pieces, edit.range[0], edit.range[1]));
+              // Every incoming edit here repeats what current already shows.
+              if (!localEdits.length) continue;
               let basisBytes: Promise<Uint8Array> | undefined;
               const baseBytes = () => (basisBytes ??= this.bytes(b.pieces!));
               const transferred = transferPaths.has(basePath(id));
@@ -2652,12 +2742,7 @@ class Engine {
                 ...left,
                 ...right,
               ].sort((a, c) => a.range[0] - c.range[0]);
-              const groups: Array<Array<PieceEdit & { side: number }>> = [];
-              for (const edit of edits) {
-                const last = groups.at(-1);
-                if (last?.some((e) => overlap(e, edit))) last.push(edit);
-                else groups.push([edit]);
-              }
+              const groups: Array<Array<PieceEdit & { side: number }> & { span?: [number, number] }> = overlapGroups(edits);
               // A policy refusal couples this file even if byte edits are disjoint.
               const hasOverlap = groups.some(
                 (g) =>
@@ -2705,11 +2790,14 @@ class Engine {
                   coupledByFormat = false;
               }
               if (transferred) coupledByFormat = true;
-              if (coupledByFormat) groups.splice(0, groups.length, edits);
+              if (coupledByFormat)
+                groups.splice(0, groups.length, ...this.coupledGroups(b.pieces, groups, await baseBytes()));
               const selected = [];
               for (const group of groups) {
-                const start = Math.min(...group.map((e) => e.range[0])),
-                  end = Math.max(...group.map((e) => e.range[1]));
+                const [start, end] = group.span ?? [
+                  Math.min(...group.map((e) => e.range[0])),
+                  Math.max(...group.map((e) => e.range[1])),
+                ];
                 const versions = [0, 1].map((side) =>
                   applyPieceEdits(
                     slice(b.pieces!, start, end),
@@ -2724,13 +2812,11 @@ class Engine {
                       }))
                   )
                 );
-                if (
-                  group.some((e) => e.side === 0) &&
-                  group.some((e) => e.side === 1)
-                ) {
+                const both = group.some((e) => e.side === 0) && group.some((e) => e.side === 1);
+                if (both || group.span) {
                   const formatConfig =
                     request.rules.config?.formats?.[basePath(id)];
-                  if (start === end) {
+                  if (both && start === end) {
                     const basisOrigins = new Set(b.pieces.map((p) => p.origin));
                     const origins = (origin: string) =>
                       Object.hasOwn(authored.origins, origin)
@@ -2880,6 +2966,15 @@ class Engine {
       merged.changes[request.incoming.change] = signature;
       for (const node of Object.values(merged.nodes))
         if (node.deletions?.length) this.assign(merged, node, "active", false);
+      // A repeated deletion selected some material current kept (the next
+      // item's marker); what current kept stays.
+      if (repeats.length)
+        for (const key of Object.keys(since(authored.effects, base.effects))) {
+          const effect = merged.effects[key];
+          if (effect?.kind !== "editSource") continue;
+          merged.effects[key] = { ...effect, edits: Object.fromEntries(Object.entries(effect.edits).map(([id, list]) =>
+            [id, list.map((edit) => ({ ...edit, removed: subtractPieces(edit.removed, repeats) }))])) };
+        }
       for (const decision of contentDecisions)
         await this.declineDeletions(merged, decision,
           decision.placement?.pieces ?? merged.nodes[decision.affected[0]!]?.pieces ?? []);
@@ -3880,4 +3975,15 @@ export async function checkpointIntent(
   const result = await engine.record(state, editable);
   await keep(engine, objects);
   return result;
+}
+
+/** Edits in order, grouped where they overlap. */
+function overlapGroups<E extends PieceEdit>(edits: E[]): E[][] {
+  const groups: E[][] = [];
+  for (const edit of [...edits].sort((a, c) => a.range[0] - c.range[0])) {
+    const last = groups.at(-1);
+    if (last?.some((e) => overlap(e, edit))) last.push(edit);
+    else groups.push([edit]);
+  }
+  return groups;
 }
