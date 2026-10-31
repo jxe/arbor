@@ -24,30 +24,30 @@ Live 001's phase 6 and part of the agents work.
 
 - The presence contract already carries an exact range: `{ source: Hash, anchor, head }` in
   UTF-8 bytes of a named source object. Nothing on the wire or the host changes here.
-- Story sends the byte range of the caret's *block*, because Quagmire's `EditorState` exposes
-  the cursor as a `BlockID` (`EditorState.swift`, `Selection.cursor`) and no offset within it.
+- Story already sends the exact caret within the editing block (Agents 001, from Quagmire's
+  `EditorState.textSelection`), so this plan only draws.
 - Peers are drawn as a block mark (or as header text, if Quagmire couldn't decorate blocks).
 - The agent runner already knows the exact range an agent edited (it hashes the new file and
   finds the replaced bytes) and the lines it read, but sends them only as block ranges'
   worth of precision on screen.
 
-## Phase 1: Quagmire reports and draws exact ranges
+## Phase 1: Quagmire draws exact ranges
 
-- `EditorState` reports the caret and selection as a source byte range, including selections
-  across blocks, through the binding that already maps blocks to source bytes.
 - The editor draws remote carets and selections given ranges, colours and a label: a thin
-  caret with a small name flag, and a translucent selection. An agent's caret carries the
-  agent mark, and its status bubble attaches to the caret instead of the block.
+  caret with a small name flag, and a translucent selection, inside a block's text. An
+  agent's caret carries the agent mark, and its floating bubble attaches to the caret
+  instead of the block.
+- Quagmire reports a selection that spans blocks, which Agents 001 sends as the selected
+  blocks' range.
 - A range in another version of the source is drawn fainter (decision 5 of Agents 001).
 
-**Verification:** Quagmire tests for range reporting across block kinds (headings, lists,
-toggles, task blocks) and for drawing at a range after local edits shift it.
+**Verification:** Quagmire tests for drawing at a range across block kinds (headings, lists,
+toggles, task blocks) and after local edits shift it.
 
-## Phase 2: Story sends exact ranges
+## Phase 2: Story draws them
 
-- Story sends the exact range instead of the block's, still only while someone else is on the
-  page, throttled to 4 a second, coalescing to the latest.
-- The agent runner sends the exact edited range, and a read as the exact lines read.
+- Story passes each peer's range to the editor; the agent runner sends the exact edited range
+  and a read as the exact lines read.
 - `docs/implementing-editors/design.md` updated.
 
 **Verification:** by hand with Joe: two devices typing in one paragraph; a selection across
