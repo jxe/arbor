@@ -201,6 +201,10 @@ final class StoryConflictReviewModel {
                     differences["current:" + alternative.id] = try await coordinator.reviewDirectoryDifferences(current, comparedTo: alternative)
                 }
             } catch { message = "Current contents could not be compared: \(error.localizedDescription)" }
+        } else if let path = decision.path, let snapshot {
+            // What the page holds now, beside the versions as they were when they conflicted.
+            do { contents["current:" + path] = try await coordinator.reviewCurrentText(at: path, root: snapshot.root) }
+            catch { message = "Current contents could not be loaded: \(error.localizedDescription)" }
         }
         return (contents, directories, differences, message)
     }
@@ -589,6 +593,9 @@ struct StoryChoiceVersionCards: View {
             if review.draft?.supportsKeepingCurrent == true,
                decision.alternatives.allSatisfy({ review.directoryDifferences["current:" + $0.id] != nil }) {
                 currentContents
+            } else if review.draft?.supportsKeepingCurrent == true, let path = decision.path,
+                      let current = review.contents["current:" + path].flatMap({ String(data: $0, encoding: .utf8) }) {
+                currentPage(current, texts: texts)
             }
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 10) { cards(contents, texts, listings) }
@@ -677,6 +684,44 @@ struct StoryChoiceVersionCards: View {
             }
         }
         return nil
+    }
+
+    /// The page as it is now, which keeping current contents leaves as is: the
+    /// versions are as they were when they conflicted, and later edits may
+    /// have changed both. Lists the lines a version holds that the page lacks.
+    private func currentPage(_ current: String, texts: [String?]) -> some View {
+        let missing: [MissingLines] = decision.alternatives.enumerated().compactMap { index, alternative in
+            let lines = Self.missingLines(in: texts[index], others: [], current: current)
+            return lines.isEmpty ? nil : .init(version: label(alternative, index), path: decision.title, lines: lines)
+        }
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Current contents").font(.headline)
+            Text("These versions are as they were when they conflicted. Edits made since are in the page now.")
+                .font(.callout)
+            if missing.isEmpty {
+                Label("Every line of both versions is in the page now.", systemImage: "checkmark.circle")
+                    .font(.callout)
+            } else {
+                ForEach(missing) { page in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("Only in \(page.version.lowercased()), missing from the page now", systemImage: "exclamationmark.triangle")
+                            .font(.callout.weight(.semibold))
+                        ForEach(Array(page.lines.enumerated()), id: \.offset) { _, line in
+                            Text(line).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.orange.opacity(0.18))
+                        }
+                    }
+                }
+                Text("Copy anything you want to keep into the page before keeping the current contents.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text("Keeping the current contents resolves the conflict without changing any page.")
+                .font(.caption).foregroundStyle(.secondary)
+            Button("Keep current contents") { Task { await review.keepCurrent() } }
+                .buttonStyle(.borderedProminent).disabled(busy)
+        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.background, in: RoundedRectangle(cornerRadius: 10))
     }
 
     /// The current text of `path`, from its comparison with `alternative`, or
