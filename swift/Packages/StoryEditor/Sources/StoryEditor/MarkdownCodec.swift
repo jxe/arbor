@@ -1111,7 +1111,12 @@ public enum StoryMarkdownCodec {
             if text.characters.isEmpty {
                 return explicitEmptyMarker ? prefix + "\u{00A0}" + newline + newline : prefix + newline
             }
-            line = prefix + inline(text)
+            // Dictation makes a task as a paragraph; it is written, and reads back, as a task quote.
+            if let task = StoryAgentTask.taskText(of: text) {
+                line = prefix + "> " + StoryAgentTask.marker + (task.characters.isEmpty ? "" : " " + inline(task))
+            } else {
+                line = prefix + inline(text)
+            }
         case let .heading(level, text): line = prefix + String(repeating: "#", count: level.rawValue) + " " + inline(text)
         case let .bullet(text): line = prefix + "- " + inline(text)
         case let .numbered(text): line = prefix + "1. " + inline(text)

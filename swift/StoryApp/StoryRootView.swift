@@ -1329,7 +1329,7 @@ struct StoryRootView: View {
                 // Play Recording action use.
                 let pageKey = model?.binding?.reference.stableKey
                 return switch await recordingSession.stopAndReturnTranscript(pageKey: pageKey) {
-                case .transcript(let text): EditorPinchDictation.Completion.transcript(text)
+                case .transcript(let text): EditorPinchDictation.Completion.transcript(StoryAgentTask.dictated(text))
                 case .noSpeech: EditorPinchDictation.Completion.noSpeech
                 case .failed: EditorPinchDictation.Completion.failed
                 }

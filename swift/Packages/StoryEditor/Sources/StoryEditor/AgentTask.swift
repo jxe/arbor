@@ -17,9 +17,15 @@ public enum StoryAgentTask {
         return AttributedString(text[start...])
     }
 
-    /// The task's plain text when `block` is an agent task block.
+    /// The task's plain text when `block` is an agent task block. A
+    /// dictated task is a paragraph until its page is next read.
     public static func task(in block: Block) -> String? {
-        guard case let .quote(text) = block.kind, let task = taskText(of: text) else { return nil }
+        let text: AttributedString
+        switch block.kind {
+        case let .quote(value), let .paragraph(value): text = value
+        default: return nil
+        }
+        guard let task = taskText(of: text) else { return nil }
         let plain = String(task.characters).trimmingCharacters(in: .whitespacesAndNewlines)
         return plain.isEmpty ? nil : plain
     }
@@ -27,6 +33,17 @@ public enum StoryAgentTask {
     /// A new task block holding `text`, as dictation or Turn Into makes one.
     public static func block(_ text: String) -> Block {
         Block(kind: .quote(text: AttributedString("\(marker) \(text)")))
+    }
+
+    /// Dictation that starts with "Agent" ("Agent, merge the duplicates")
+    /// becomes a task's text, marker first; anything else is unchanged.
+    public static func dictated(_ transcript: String) -> String {
+        guard let match = transcript.range(of: #"^\s*agent\b[\s,:.;!-]*"#, options: [.regularExpression, .caseInsensitive]) else {
+            return transcript
+        }
+        let rest = transcript[match.upperBound...].trimmingCharacters(in: .whitespaces)
+        guard !rest.isEmpty else { return transcript }
+        return "\(marker) \(rest.prefix(1).uppercased())\(rest.dropFirst())"
     }
 
     /// Every task block in `blocks`, depth first, in document order.

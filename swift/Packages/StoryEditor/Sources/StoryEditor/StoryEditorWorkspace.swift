@@ -266,7 +266,7 @@ public final class StoryEditorWorkspace {
         to stableKey: String,
         in tree: TreeID
     ) async throws {
-        let block = Block.paragraph(text: AttributedString(transcript))
+        let block = Block.paragraph(text: AttributedString(StoryAgentTask.dictated(transcript)))
 
         if let binding = entries.values.lazy.map(\.binding).first(where: {
             $0.reference.tree == tree && $0.reference.stableKey == stableKey

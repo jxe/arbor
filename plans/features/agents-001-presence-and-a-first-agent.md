@@ -37,7 +37,20 @@ needs.
 - **Risk:** LOW for phases 1 and 2: a new route, in memory, with nothing persisted. MEDIUM for
   phase 4, the first time Story shows another person inside the editor, and for phase 8, the
   first time Story starts a process that edits Joe's files.
-- **Progress:** TODO
+- **Progress:** first cut built on branch `claude/project-thread-p83n39` (2026-11-01), in the
+  cloud. TS parts tested (phases 1, 2, 7, 8). The Swift parts (3, 4, 6, part of 5) are written
+  but have never been compiled; build and test them on the Mac before merging. What the first
+  cut does differently from the phases below, to avoid a Quagmire release for now:
+  - Peer carets use the existing `EditorAccessory`: the peer's initials in the lane beside the
+    block holding their caret, and an agent's status as the accessory's open detail (inline
+    under the block, not floating). No row tint, no sidebar dots yet. The toolbar shows
+    initials for this page, a count for elsewhere, and the Show Me to Others switch.
+  - A task block is a quote whose text starts `[!agent]` (no `.task` kind); its accessory panel
+    has Run, Stop, Undo Run. A dictated "Agent, …" is a paragraph written as a task quote. No
+    Turn Into item. iPhone shows "Run this task from Story on your Mac".
+  - Presence page paths are canonical node paths (`/Groceries`), as Story Sync already sends.
+  - Left: the floating bubble and tint in Quagmire, sidebar dots, Turn Into, Run from iPhone,
+    `story sync status --wait`, the app-hosted test, and every by-hand check.
 - **Written against:** `776b64d`
 
 ## The experience at the end of this plan
