@@ -127,78 +127,45 @@ struct StoryPresenceHeader: View {
     }
 }
 
-/// What an agent task block offers (Agents 001 phase 6): Run on the Mac,
-/// then Running with Stop, then the agent's result with Undo Run. On iPhone
-/// and iPad the task waits for a Mac.
-struct StoryAgentTaskPanel: View {
+/// The control at the end of an agent task callout (Agents 001 phase 6):
+/// Run on the Mac, then a spinner with Stop, then Undo Run or Run Again. The
+/// result and Undo also stay in the toolbar's presence menu, since a
+/// finished run removes its block. On iPhone and iPad the task waits for a Mac.
+struct StoryAgentTaskControl: View {
     let workspace: StoryWorkspaceState
     let reference: WorkspaceReference
     let task: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
 #if os(macOS)
-            if let run = workspace.agentRun(task: task, on: reference) {
-                runView(run)
-            } else {
+        let run = workspace.agentRun(task: task, on: reference)
+        HStack(spacing: 6) {
+            switch run?.state {
+            case .queued?, .running?:
+                ProgressView().controlSize(.small)
+                Button("Stop") { if let run { Task { await workspace.stopAgentRun(run) } } }
+            case .failed?, .stopped?:
+                Image(systemName: "exclamationmark.circle").foregroundStyle(.red)
+                    .help(run?.result ?? "The run did not finish")
+                Button("Run Again") { Task { await workspace.runAgentTask(task, on: reference) } }
+            case .finished?:
+                if let run, run.undoable { Button("Undo Run") { Task { await workspace.undoAgentRun(run) } } }
+            case .undone?, nil:
                 Button {
                     Task { await workspace.runAgentTask(task, on: reference) }
                 } label: {
-                    Label("Run with Claude", systemImage: "play.fill")
+                    Label("Run", systemImage: "play.fill")
                 }
-                .help("Run this task with Claude Code in this tree's folder")
+                .help(workspace.agentRunError ?? "Run this task with Claude Code in this tree's folder")
             }
-            if let error = workspace.agentRunError {
-                Text(error).font(.caption).foregroundStyle(.red)
-            }
+        }
+        .controlSize(.small)
+        .buttonStyle(.bordered)
 #else
-            Label("Run this task from Story on your Mac.", systemImage: "desktopcomputer")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+        Image(systemName: "desktopcomputer")
+            .foregroundStyle(.secondary)
+            .help("Run this task from Story on your Mac")
+            .accessibilityLabel("Run this task from Story on your Mac")
 #endif
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.purple.opacity(0.08)))
     }
-
-#if os(macOS)
-    @ViewBuilder
-    private func runView(_ run: StoryAgentRun) -> some View {
-        switch run.state {
-        case .queued, .running:
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text(run.state == .queued ? "Waiting for another run in this tree…" : "Claude is working…")
-                    .foregroundStyle(.secondary)
-                Button("Stop") { Task { await workspace.stopAgentRun(run) } }
-            }
-        case .finished, .failed, .stopped, .undone:
-            VStack(alignment: .leading, spacing: 4) {
-                Text(run.result ?? Self.title(run.state)).lineLimit(3)
-                    .foregroundStyle(run.state == .failed ? Color.red : Color.primary)
-                if !run.changed.isEmpty {
-                    Text("Changed \(run.changed.joined(separator: ", "))").font(.caption).foregroundStyle(.secondary)
-                }
-                HStack {
-                    if run.undoable { Button("Undo Run") { Task { await workspace.undoAgentRun(run) } } }
-                    if run.state != .finished {
-                        Button("Run Again") { Task { await workspace.runAgentTask(task, on: reference) } }
-                    }
-                    Button("Dismiss") { workspace.dismissAgentRun(run) }
-                }
-            }
-        }
-    }
-
-    private static func title(_ state: StoryAgentRun.State) -> String {
-        switch state {
-        case .finished: "Done"
-        case .failed: "The run failed"
-        case .stopped: "Stopped"
-        case .undone: "Undone"
-        case .queued, .running: ""
-        }
-    }
-#endif
 }

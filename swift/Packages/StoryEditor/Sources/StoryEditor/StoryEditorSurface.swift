@@ -12,6 +12,24 @@ public struct StoryEditorSurface<Footer: View>: View {
     public let accessoryReveal: EditorAccessoryReveal?
     public let readOnly: Bool
     private let footer: Footer
+    private var editorPeers: [EditorPeer] = []
+    private var tintsPeerRows = false
+    private var editorCallouts: [EditorCallout] = []
+
+    /// Others in this document, beside their blocks (presence).
+    public func peers(_ values: [EditorPeer], tint: Bool = false) -> Self {
+        var copy = self
+        copy.editorPeers = values
+        copy.tintsPeerRows = tint
+        return copy
+    }
+
+    /// Quotes drawn as callouts, such as agent tasks.
+    public func callouts(_ values: [EditorCallout]) -> Self {
+        var copy = self
+        copy.editorCallouts = values
+        return copy
+    }
 
     public init(
         binding: StoryDocumentBinding,
@@ -57,6 +75,8 @@ public struct StoryEditorSurface<Footer: View>: View {
             footer
         }
         .accessories(accessories, reveal: accessoryReveal)
+        .peers(editorPeers, tint: tintsPeerRows)
+        .callouts(editorCallouts)
         .bulletMarkers([.timeRows])
         // EditorView keeps its key monitor, commands, undo history and document
         // hooks in @State for the document it first appeared with. A new

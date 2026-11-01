@@ -200,8 +200,10 @@ public enum StoryMarkdownCodec {
             let leafBytes = Data(lines[start..<contentEnd].map(\.raw).joined().utf8)
             let kind = cachedKinds[leafBytes] ?? parseBlock(Array(lines[start..<contentEnd]), id: id).kind
             parsedKinds[leafBytes] = kind
+            // An agent task opens as a quote of the task's text, marked by metadata.
+            let task = StoryAgentTask.opened(kind)
             parsed.append(ParsedBlock(
-                block: Block(id: id, kind: kind),
+                block: Block(id: id, kind: task.kind, metadata: task.metadata),
                 raw: raw,
                 indent: indentationDepth(lines[start].content)
             ))
@@ -294,7 +296,7 @@ public enum StoryMarkdownCodec {
             var raw: String
             var copied: SourceRecord?
             if let record = ledger.records[block.id] ?? copiedRecord(block.id),
-               record.block.kind == block.kind,
+               sameSource(record.block, block),
                (record.depth == depth || foreignCopies[block.id] != nil),
                record.indent == containerDepth {
                 raw = record.raw
@@ -413,7 +415,7 @@ public enum StoryMarkdownCodec {
         var placed: [Placed] = []
         var seen = Set<BlockID>()
         func place(_ block: Block, depth: Int, indent: Int) -> Bool {
-            guard let record = ledger.records[block.id], record.block.kind == block.kind, seen.insert(block.id).inserted,
+            guard let record = ledger.records[block.id], sameSource(record.block, block), seen.insert(block.id).inserted,
                   let shifted = reindented(record, by: indent - record.indent) else { return false }
             placed.append(Placed(record: record, depth: depth, indent: indent, raw: shifted.raw, edits: shifted.edits))
             let child = indent + (isIndentContainer(block) ? 1 : 0)
@@ -589,7 +591,7 @@ public enum StoryMarkdownCodec {
         typealias Placed = (record: SourceRecord, raw: String, edits: [WorkspaceSourceEdit])
         var placed: [Placed] = []
         func place(_ block: Block, indent: Int) -> Bool {
-            guard let record = ledger.records[block.id], record.block.kind == block.kind,
+            guard let record = ledger.records[block.id], sameSource(record.block, block),
                   let shifted = reindented(record, by: indent - record.indent) else { return false }
             placed.append((record, shifted.raw, shifted.edits))
             let child = indent + (isIndentContainer(block) ? 1 : 0)
@@ -736,7 +738,7 @@ public enum StoryMarkdownCodec {
         var seen: Set<BlockID> = []
         func place(_ block: Block, indent: Int) -> Bool {
             let moved = movedIDs.contains(block.id)
-            guard let record = (moved ? ledger : destination).records[block.id], record.block.kind == block.kind,
+            guard let record = (moved ? ledger : destination).records[block.id], sameSource(record.block, block),
                   seen.insert(block.id).inserted,
                   let shifted = reindented(record, by: indent - record.indent),
                   moved || shifted.edits.isEmpty else { return false }
@@ -847,7 +849,13 @@ public enum StoryMarkdownCodec {
     /// Whether two trees have the same content and nesting, ignoring
     /// identities and host metadata.
     private static func sameShape(_ a: [Block], _ b: [Block]) -> Bool {
-        a.count == b.count && zip(a, b).allSatisfy { $0.kind == $1.kind && sameShape($0.children, $1.children) }
+        a.count == b.count && zip(a, b).allSatisfy { sameSource($0, $1) && sameShape($0.children, $1.children) }
+    }
+
+    /// Whether two blocks are written the same way: the same kind, and both
+    /// or neither an agent task (the one metadata tag that changes source).
+    static func sameSource(_ a: Block, _ b: Block) -> Bool {
+        a.kind == b.kind && StoryAgentTask.isMarked(a) == StoryAgentTask.isMarked(b)
     }
 
     static func rebased(_ opened: StoryMarkdownOpenedDocument, preserving current: [Block]) -> StoryMarkdownOpenedDocument {
@@ -1082,7 +1090,7 @@ public enum StoryMarkdownCodec {
         let nested = blocks.map { block in
             block.children.isEmpty
                 ? block
-                : Block(id: block.id, kind: block.kind, children: foldHeadingsInScopes(block.children))
+                : Block(id: block.id, kind: block.kind, children: foldHeadingsInScopes(block.children), metadata: block.metadata)
         }
         return foldHeadings(nested)
     }
@@ -1121,6 +1129,8 @@ public enum StoryMarkdownCodec {
         case let .bullet(text): line = prefix + "- " + inline(text)
         case let .numbered(text): line = prefix + "1. " + inline(text)
         case let .todo(text, done): line = prefix + "- [\(done ? "x" : " ")] " + inline(text)
+        case let .quote(text) where StoryAgentTask.isMarked(block):
+            line = prefix + "> " + StoryAgentTask.marker + (text.characters.isEmpty ? "" : " " + inline(text))
         case let .quote(text):
             // An agent task's marker is written as authored, never escaped.
             if let task = StoryAgentTask.taskText(of: text) {

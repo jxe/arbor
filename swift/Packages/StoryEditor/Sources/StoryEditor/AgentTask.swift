@@ -1,14 +1,32 @@
 import Foundation
 import Quagmire
 
-/// An agent task block (Agents 001 phase 6): a quote whose text starts with
-/// `[!agent]`, as `> [!agent] merge the duplicates` reads in Markdown. The
-/// editor shows it as a quote with a Run accessory; Story Sync finds it in the
-/// page by its text and removes it when the run succeeds.
+/// An agent task block (Agents 001 phase 6): `> [!agent] merge the
+/// duplicates` in Markdown. It opens as a quote of the task's text tagged
+/// with `metadataKey`, which Quagmire draws as a callout with a Run button
+/// (see `StoryAgentTask.callout`). A paragraph or quote whose text itself
+/// starts `[!agent]` (dictation, or typing the marker) is a task too and is
+/// written the same way. Story Sync finds the block by its text and removes
+/// it when the run succeeds.
 public enum StoryAgentTask {
     public static let marker = "[!agent]"
+    public static let metadataKey = "story.agent-task"
 
-    /// The task's text after the marker, or nil when `text` is not a task.
+    /// A quote tagged as a task. A tagged block turned into anything else is
+    /// no longer a task, though the tag travels with it until the page reopens.
+    public static func isMarked(_ block: Block) -> Bool {
+        guard case .quote = block.kind else { return false }
+        return block.metadata[metadataKey] != nil
+    }
+
+    /// A parsed quote whose text starts with the marker, as the editor opens
+    /// it: the marker gone from the text and the block tagged.
+    static func opened(_ kind: BlockKind) -> (kind: BlockKind, metadata: [String: String]) {
+        guard case let .quote(text) = kind, let task = taskText(of: text) else { return (kind, [:]) }
+        return (.quote(text: task), [metadataKey: "1"])
+    }
+
+    /// The task's text after the marker, or nil when `text` does not start with it.
     public static func taskText(of text: AttributedString) -> AttributedString? {
         let characters = String(text.characters)
         guard characters.lowercased().hasPrefix(marker) else { return nil }
@@ -17,22 +35,34 @@ public enum StoryAgentTask {
         return AttributedString(text[start...])
     }
 
-    /// The task's plain text when `block` is an agent task block. A
-    /// dictated task is a paragraph until its page is next read.
+    /// The task's plain text when `block` is an agent task block.
     public static func task(in block: Block) -> String? {
         let text: AttributedString
         switch block.kind {
-        case let .quote(value), let .paragraph(value): text = value
+        case let .quote(value) where isMarked(block): text = value
+        case let .quote(value), let .paragraph(value):
+            guard let task = taskText(of: value) else { return nil }
+            text = task
         default: return nil
         }
-        guard let task = taskText(of: text) else { return nil }
-        let plain = String(task.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+        let plain = String(text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
         return plain.isEmpty ? nil : plain
     }
 
-    /// A new task block holding `text`, as dictation or Turn Into makes one.
-    public static func block(_ text: String) -> Block {
-        Block(kind: .quote(text: AttributedString("\(marker) \(text)")))
+    /// `block` as an agent task, keeping its id, text and children; nil for
+    /// a block without text to give.
+    public static func turnInto(_ block: Block) -> Block? {
+        let text: AttributedString
+        switch block.kind {
+        case let .paragraph(value), let .bullet(value), let .numbered(value), let .quote(value), let .heading(_, value):
+            text = taskText(of: value) ?? value
+        case let .todo(value, _): text = value
+        default: return nil
+        }
+        var value = block
+        value.kind = .quote(text: text)
+        value.metadata[metadataKey] = "1"
+        return value
     }
 
     /// Dictation that starts with "Agent" ("Agent, merge the duplicates")

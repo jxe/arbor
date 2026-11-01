@@ -1238,8 +1238,6 @@ struct StoryRootView: View {
     @State private var sidebarSearchText = ""
     @State private var reviewingChoices = false
     @State private var reviewAccessoryReveal: EditorAccessoryReveal?
-    /// Agent task blocks whose Run panel the reader opened.
-    @State private var expandedAgentTasks: Set<BlockID> = []
     @State private var sidebarKeyboardSelection: WorkspaceIdentity?
     @Environment(\.openWindow) private var openWindow
     /// The request this window was opened with, if another window opened it.
@@ -3118,45 +3116,36 @@ struct StoryRootView: View {
         return binding.blocks(overlapping: range, inSource: object)
     }
 
-    /// Everyone else on this page, each beside the block holding their caret
-    /// (spec 12). An agent's status shows open under its block, as a bubble.
-    private func presenceAccessories(for location: WorkspaceLocation, node: WorkspaceNode, binding: StoryDocumentBinding) -> [EditorAccessory] {
+    /// Everyone else on this page, beside the block holding their caret
+    /// (spec 12). An agent's status floats under its block as a bubble.
+    private func presencePeers(for location: WorkspaceLocation, node: WorkspaceNode, binding: StoryDocumentBinding) -> [EditorPeer] {
         guard location == model.currentLocation else { return [] }
-        let peers = workspace.presencePeers(on: node.reference)
-        return peers.compactMap { peer in
+        return workspace.presencePeers(on: node.reference).compactMap { peer in
             guard let selection = workspace.presenceRoster.cursors[peer.id],
                   let caret = binding.caret(for: selection) else { return nil }
-            let status = peer.agent?.status
-            return EditorAccessory(
-                id: "presence-\(peer.id)", anchor: .block(caret.block),
-                accessibilityLabel: StoryPresenceBadge.label(for: peer),
-                isExpanded: .constant(status != nil),
-                marker: { StoryPresenceBadge(peer: peer) },
-                detail: {
-                    if let status { StoryPresenceStatus(peer: peer, status: status) }
-                })
+            let color = StoryPresenceBadge.color(for: peer)
+            let initials = StoryPresenceBadge.initials(for: peer)
+            let label = StoryPresenceBadge.label(for: peer)
+            if let status = peer.agent?.status {
+                return EditorPeer(id: peer.id, block: caret.block, color: color, initials: initials, label: label, isAgent: true) {
+                    StoryPresenceStatus(peer: peer, status: status)
+                }
+            }
+            return EditorPeer(id: peer.id, block: caret.block, color: color, initials: initials, label: label, isAgent: peer.agent != nil)
         }
     }
 
-    /// A Run control beside each agent task block (`> [!agent] …`). The
-    /// detail opens while the task is running or has a result to show.
-    private func agentTaskAccessories(for location: WorkspaceLocation, node: WorkspaceNode, binding: StoryDocumentBinding) -> [EditorAccessory] {
-        guard location == model.currentLocation else { return [] }
-        return StoryAgentTask.tasks(in: binding.document.children).map { item in
-            EditorAccessory(
-                id: "agent-task-\(item.block)", anchor: .block(item.block), accessibilityLabel: "Agent task",
-                isExpanded: Binding(
-                    get: { expandedAgentTasks.contains(item.block) || workspace.hasAgentRun(task: item.task, on: node.reference) },
-                    set: { open in
-                        if open { expandedAgentTasks.insert(item.block) } else { expandedAgentTasks.remove(item.block) }
-                    }),
-                marker: {
-                    Image(systemName: "sparkles").foregroundStyle(.purple).help("Agent task")
-                },
-                detail: {
-                    StoryAgentTaskPanel(workspace: workspace, reference: node.reference, task: item.task)
-                })
-        }
+    /// Agent task blocks (`> [!agent] …`) as callouts with a Run control.
+    private func agentTaskCallouts(for node: WorkspaceNode) -> [EditorCallout] {
+        [EditorCallout(
+            id: "agent-task", title: "Agent Task", systemImage: "sparkles", tint: .purple,
+            recognizes: { StoryAgentTask.isMarked($0) },
+            turnInto: { StoryAgentTask.turnInto($0) },
+            trailing: { block in
+                if let task = StoryAgentTask.task(in: block) {
+                    StoryAgentTaskControl(workspace: workspace, reference: node.reference, task: task)
+                }
+            })]
     }
 
     private func reviewAccessories(for location: WorkspaceLocation, binding: StoryDocumentBinding) -> [EditorAccessory] {
@@ -3242,9 +3231,7 @@ struct StoryRootView: View {
                             configuration: StoryStyle.editorConfiguration,
                             pinchDictation: pinchDictation,
                             topOverscrollAction: editorTopOverscrollAction,
-                            accessories: reviewAccessories(for: location, binding: lease.binding)
-                                + presenceAccessories(for: location, node: node, binding: lease.binding)
-                                + agentTaskAccessories(for: location, node: node, binding: lease.binding),
+                            accessories: reviewAccessories(for: location, binding: lease.binding),
                             accessoryReveal: location == model.currentLocation ? reviewAccessoryReveal : nil,
                             readOnly: !node.isWritable
                         ) {
@@ -3253,6 +3240,9 @@ struct StoryRootView: View {
                                 open: { destination in Task { await model.navigate(to: destination) } }
                             )
                         }
+                        .peers(presencePeers(for: location, node: node, binding: lease.binding),
+                               tint: UserDefaults.standard.bool(forKey: "StoryTintPresenceRows"))
+                        .callouts(agentTaskCallouts(for: node))
                     }
                     .onChange(of: lease.binding.editorState.textSelection) { _, _ in
                         guard location == model.currentLocation else { return }
