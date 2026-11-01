@@ -497,6 +497,9 @@ export class HostDaemon implements AsyncDisposable {
     this.provenanceQueue.add(tree);
     this.provenanceRun ??= (async () => {
       while (!this.disposed) {
+        // An entry asks for a backfill before its acceptance commits; wait
+        // for it, so the backfill reaches it.
+        await new Promise((resolve) => setTimeout(resolve, 500));
         const [next] = this.provenanceQueue;
         if (next === undefined) break;
         this.provenanceQueue.delete(next);
@@ -510,6 +513,8 @@ export class HostDaemon implements AsyncDisposable {
           // slow one ends it (2026-11-01).
           const filled = await this.history.provenance!.fill(head);
           if (filled) console.info(`Provenance index: ${filled} entries of ${next} indexed in ${Math.round(performance.now() - started)} ms`);
+          const now = this.currentUpdate(next);
+          if (now && now.id !== current.id) this.provenanceQueue.add(next);
         } catch (error) {
           if (!this.disposed) console.warn(`Provenance backfill of ${next} failed: ${error instanceof Error ? error.message : String(error)}`);
         }

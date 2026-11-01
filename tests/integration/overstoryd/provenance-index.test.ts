@@ -75,9 +75,21 @@ async function history() {
   return { first, accepted, concurrent, merged };
 }
 
-test("each accepted entry stores its index beside it, and collection keeps its records", async () => {
+/** Every entry's index, once the backfill has written them all. */
+async function filled() {
+  const deadline = Date.now() + 20_000;
+  let found = await indexes();
+  while ([...found.values()].some((index) => index === null) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    found = await indexes();
+  }
+  return found;
+}
+
+test("each accepted entry gets its index beside it, and collection keeps its records", async () => {
+  await stop(); await start(true);
   const { first, concurrent } = await history();
-  const entries = acceptedEntries(dir, tree), found = await indexes();
+  const entries = acceptedEntries(dir, tree), found = await filled();
   expect([...found.values()].every((index) => index !== null)).toBe(true);
   // The tree's first entry, a boundary rewrite, the snapshot adding the note,
   // the fast-forward, the answered edit.
@@ -88,8 +100,8 @@ test("each accepted entry stores its index beside it, and collection keeps its r
   expect(original).toStartWith("snapshot:");
   // The fast-forward replaced the first three bytes with its own.
   expect(note(plain)).toEqual([[operationIdentity(first.change, "edit"), 0, 3], [original, 3, 2]]);
-  // The answered entry carries the sidecar's index: both edits' bytes.
-  expect(note(answered)).toEqual([[operationIdentity(first.change, "edit"), 0, 3], [operationIdentity(concurrent.change, "edit"), 0, 2]]);
+  // An answered entry is rebound as a snapshot of its root.
+  expect(note(answered)).toEqual([[`snapshot:${concurrent.change}:/note.md`, 0, 5]]);
   expect((answered as Extract<ProvenanceNode, { kind: "directory" }>).entries["note.md"]!.node).toBe(basis.node);
 
   // Every stored record survives a collection of everything old.
@@ -103,23 +115,13 @@ test("each accepted entry stores its index beside it, and collection keeps its r
   await start();
 });
 
-test("a backfill computes missing indexes as acceptance would have", async () => {
+test("a backfill computes missing indexes again the same way", async () => {
+  await stop(); await start(true);
   await history();
-  const live = await indexes();
+  const live = await filled();
   await stop();
   await rm(join(dir, "provenance"), { recursive: true, force: true });
   expect([...(await indexes()).values()].every((index) => index === null)).toBe(true);
   await start(true);
-  const deadline = Date.now() + 20_000;
-  let filled = await indexes();
-  while ([...filled.values()].some((index) => index === null) && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    filled = await indexes();
-  }
-  // Answered entries are rebound as snapshots; every other entry is indexed
-  // as acceptance indexed it.
-  const asked = new Set(acceptedEntries(dir, tree).filter(({ entry }) => entry.asked).map(({ hash }) => hash));
-  expect([...filled.values()].every((index) => index !== null)).toBe(true);
-  for (const [hash, index] of filled) if (!asked.has(hash) && !asked.has(acceptedEntries(dir, tree).find((e) => e.hash === hash)!.entry.previous ?? ""))
-    expect(stableJSONString(index)).toBe(stableJSONString(live.get(hash)));
+  expect(stableJSONString([...await filled()])).toBe(stableJSONString([...live]));
 });

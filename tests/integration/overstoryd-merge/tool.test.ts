@@ -1,4 +1,3 @@
-import { ProvenanceStore } from "../../../packages/overstoryd/src/updates/provenance-store.ts";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, readdir, rm, writeFile, stat, utimes } from "node:fs/promises";
 import { join } from "node:path";
@@ -207,12 +206,8 @@ test("unchanged shared outputs need no staging copies and existing objects are n
   const out = JSON.parse(await new Response(child.stdout).text());
   expect(await child.exited).toBe(0);
   expect(out.root).toBe(base.root);
-  // Nothing of the tree is staged again; only the answer's provenance index
-  // records are new.
-  const records = new Set<string>();
-  await new ProvenanceStore(directory, new ObjectStore(staging), () => { throw new Error("unused"); }).records(out.provenance, records);
-  expect(out.objects.sort()).toEqual([...records].sort());
-  expect(out.objects.some((hash: string) => base.objects.has(hash))).toBe(false);
+  expect(out.objects).toEqual([]);
+  expect(await readdir(staging).catch(() => [])).toEqual([]);
   expect((await tool.ask(question, base.objects)).answer.root).toBe(base.root);
   const shard = join(directory, "objects", base.root.slice(7, 9));
   const timestamp = new Date("2020-01-01T00:00:00Z");

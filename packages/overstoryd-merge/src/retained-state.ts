@@ -181,12 +181,7 @@ export function resetHistoryMapDiagnostics(): void {
   historyMapDiagnostics.enumerated = historyMapDiagnostics.compared = historyMapDiagnostics.recorded = 0;
 }
 
-/** A measurement hook (Performance 004's spike): told of every read of a
- * working history map, by field. Unset, it costs one property check. */
-export const historyProbe: { read?: (field: string, kind: "get" | "has" | "enumerate", key?: string, found?: boolean) => void } = {};
-
 interface WorkingHistory {
-  field?: string;
   bucket: Bucket;
   values: Map<string, unknown>;
   removed: Set<string>;
@@ -198,9 +193,8 @@ const histories = new WeakMap<object, WorkingHistory>();
  * writes until a caller actually enumerates the map. In particular, loading,
  * cloning, comparing and recording an ordinary head edit need not visit every
  * historical operation. Nodes still use mutable, detached working copies. */
-function historyMap<T>(bucket: Bucket, values = new Map<string, unknown>(), removed = new Set<string>(), appended = new Set<string>(), field?: string): Record<string, T> {
-  const working = { bucket, values, removed, appended, field };
-  const probe = (kind: "get" | "has" | "enumerate", key?: string, found?: boolean) => { if (historyProbe.read && field) historyProbe.read(field, kind, key, found); };
+function historyMap<T>(bucket: Bucket, values = new Map<string, unknown>(), removed = new Set<string>(), appended = new Set<string>()): Record<string, T> {
+  const working = { bucket, values, removed, appended };
   const target = {} as Record<string, T>;
   let materialized = false;
   const value = (key: string) => removed.has(key) ? undefined : values.has(key) ? values.get(key) : lookup(bucket, key);
@@ -209,20 +203,17 @@ function historyMap<T>(bucket: Bucket, values = new Map<string, unknown>(), remo
     if (!materialized) {
       const entries = entriesOf(bucket);
       historyMapDiagnostics.enumerated += entries.length;
-      probe("enumerate", String(entries.length));
       for (const [key, next] of entries) if (!removed.has(key) && !appended.has(key)) define(key, next);
       for (const [key, next] of values) if (!removed.has(key)) define(key, next);
       materialized = true;
     }
     return Object.keys(target);
   };
-  const probed = (key: string) => { const found = lookup(bucket, key) !== undefined; probe("has", key, found); return found; };
   const result = new Proxy(target, {
     get: (target, key, receiver) => {
       if (materialized || typeof key !== "string" || removed.has(key)) return Reflect.get(target, key, receiver);
       if (values.has(key)) return values.get(key);
       const known = lookup(bucket, key);
-      probe("get", key, known !== undefined);
       return known !== undefined ? known : Reflect.get(target, key, receiver);
     },
     set: (_target, key, next) => {
@@ -237,10 +228,10 @@ function historyMap<T>(bucket: Bucket, values = new Map<string, unknown>(), remo
       return true;
     },
     has: (target, key) => materialized ? Reflect.has(target, key)
-      : typeof key === "string" && !removed.has(key) && (values.has(key) || probed(key)) || Reflect.has(target, key),
+      : typeof key === "string" && !removed.has(key) && (values.has(key) || lookup(bucket, key) !== undefined) || Reflect.has(target, key),
     ownKeys: keys,
     getOwnPropertyDescriptor: (_target, key) => materialized ? Reflect.getOwnPropertyDescriptor(target, key)
-      : typeof key === "string" && !removed.has(key) && (values.has(key) || probed(key))
+      : typeof key === "string" && !removed.has(key) && (values.has(key) || lookup(bucket, key) !== undefined)
         ? { value: value(key), enumerable: true, writable: true, configurable: true } : undefined,
   });
   histories.set(result, working);
@@ -262,7 +253,6 @@ function materialize<T>(bucket: Bucket, nodes = false): Record<string, T> {
 /** A recorded state to read: its nodes, decisions and records frozen. */
 export function viewState(retained: RetainedState): IntentState {
   const { format, tree, root, decisions } = retained;
-  if (historyProbe.read) for (const field of HISTORY) historyProbe.read(field, "enumerate", String(retained.history[field].count));
   const state: IntentState = {
     format, tree, root, decisions: decisions as IntentDecision[],
     nodes: materialize<Node>(retained.nodes, true),
@@ -271,9 +261,6 @@ export function viewState(retained: RetainedState): IntentState {
   return state;
 }
 
-/** A recorded state's nodes alone, read-only. */
-export const viewNodes = (retained: RetainedState): Record<string, Node> => materialize<Node>(retained.nodes, true);
-
 /** A recorded state to edit: nodes and decisions copied, records shared. */
 export function loadState(retained: RetainedState): IntentState {
   const { format, tree, root } = retained;
@@ -281,7 +268,7 @@ export function loadState(retained: RetainedState): IntentState {
   sources.set(nodes, retained.nodes);
   sources.set(decisions, retained.decisions);
   return { format, tree, root, nodes, decisions,
-    ...(Object.fromEntries(HISTORY.map((field) => [field, historyMap(retained.history[field], undefined, undefined, undefined, field)])) as Pick<IntentState, HistoryField>) };
+    ...(Object.fromEntries(HISTORY.map((field) => [field, historyMap(retained.history[field])])) as Pick<IntentState, HistoryField>) };
 }
 
 /** A value to keep in a working state: frozen values are shared (nothing can
@@ -292,7 +279,7 @@ export const own = <T>(value: T): T =>
 /** A history map to write: its records as `own` gives them. */
 export function cloneMap<T extends Record<string, unknown>>(map: T): T {
   const lazy = histories.get(map);
-  if (lazy) return historyMap(lazy.bucket, new Map([...lazy.values].map(([key, value]) => [key, own(value)])), new Set(lazy.removed), new Set(lazy.appended), lazy.field) as T;
+  if (lazy) return historyMap(lazy.bucket, new Map([...lazy.values].map(([key, value]) => [key, own(value)])), new Set(lazy.removed), new Set(lazy.appended)) as T;
   const result = Object.fromEntries(Object.entries(map).map(([key, value]) => [key, own(value)])) as T;
   const source = sources.get(map);
   if (source) sources.set(result, source);

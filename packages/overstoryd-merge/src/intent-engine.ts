@@ -3832,16 +3832,11 @@ export async function checkpointIntent(
       const [start, end] = input.range;
       const context = (await previousRecord()).state;
       const alternatives = [];
-      const placed = !input.at && end <= length(node.pieces);
       for (const [index, a] of input.alternatives.entries()) {
         const id = `imported:${input.key}:${index}`;
-        const bytes = await objects.read(a.object), size = bytes.byteLength;
-        // The selected alternative is the text the file shows in the range:
-        // it is those pieces, so edits that leave them alone do not continue it.
-        const shown = placed && index === input.selected ? slice(node.pieces, start, end) : undefined;
-        const own = shown && Buffer.from(await engine.bytes(shown)).equals(bytes);
+        const size = (await objects.read(a.object)).byteLength;
         engine.setNode(state, id, { id, parent: null, name: "", kind: "file", object: a.object,
-          pieces: own ? clone(shown) : [{ origin: id, start: 0, object: a.object, offset: 0, length: size }], active: true });
+          pieces: [{ origin: id, start: 0, object: a.object, offset: 0, length: size }], active: true });
         alternatives.push({ state: context, object: a.object, node: id, contributions: a.contributions });
       }
       const shown = await engine.project(state, node.id);
@@ -3854,7 +3849,7 @@ export async function checkpointIntent(
         dependencies: input.dependencies ?? [],
         reason: "Retained source choice",
         subject: { material: { kind: "basis", path: "/" + input.path.join("/"), object: input.at ?? shown }, range: input.range },
-        ...(placed ? { placement: { node: node.id, pieces: slice(node.pieces, start, end), anchor: start } } : {}),
+        ...(input.at || end > length(node.pieces) ? {} : { placement: { node: node.id, pieces: slice(node.pieces, start, end), anchor: start } }),
       });
       continue;
     }
