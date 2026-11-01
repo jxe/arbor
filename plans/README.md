@@ -37,9 +37,9 @@ open.
 groups to share with easy: see whether a group exists, drag people into it, invite whoever is
 missing. Phase 1, the directory tree kept by code, is done (2026-10-25,
 [status](../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)). Left:
-forming groups with 007's editor, a share sheet, and a Go to… field that finds visited trees and
+forming groups with 007's editor, a person picker, and a Go to… field that finds visited trees and
 pages by title, with `overstory://tr_…` links found by asking the directory, then the account
-hosts (a side slice for any time). Moved to soon on 2026-10-25.
+hosts (a side slice for any time). Moved to soon on 2026-10-25. Its share sheet phase was dropped on 2026-11-01 for Sharing 003.
 
 **[Schema language 009: change a collection's schema and keep its rows](features/schema-language-009-schema-changes-keep-the-data.md).**
 *Later.* Nothing carries rows across a schema change yet, so a seed bump empties the People

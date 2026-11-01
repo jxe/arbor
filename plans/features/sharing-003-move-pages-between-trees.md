@@ -8,7 +8,7 @@
 
 - **Effort**: M to L
 - **Risk**: MEDIUM. A move publishes a page to a new audience, which can't be taken back once someone has read it. The sheet shows the destination's access before anything moves.
-- **Depends on**: nothing. People 001 phase 3 (the people picker in the share sheet) is separate and can land before or after.
+- **Depends on**: nothing. People 001's person picker (phase 2) will serve the access section; it can land before or after.
 - **Category**: product completion
 
 ## What exists

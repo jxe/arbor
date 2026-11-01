@@ -19,14 +19,14 @@ Formerly "a directory you own, Go to…, and links by tree ID".
 
 > **Executor instructions**: Refresh each phase against the source first. Do the phases in
 > order and stop after each for Joe's hands-on check. Forks 1–3 are settled (Joe, 2026-10-25);
-> settle fork 4 before phase 3. Go to… (a side slice, any time) needs only fork 5.
+> settle fork 4 before phase 2's invites. Go to… (a side slice, any time) needs only fork 5.
 
 ## Status
 
 - **Effort:** L, in phases.
 - **Risk:** MEDIUM. Group edits write to group profile trees on hosts.
 - **State:** phase 1 done (2026-10-25, through 6ebe9ea). Left: phase 1's loose ends, phases
-  2–4 and the Go to… slice.
+  2 and 4 and the Go to… slice (phase 3, the share sheet, was dropped on 2026-11-01).
 - **Order** (Joe, 2026-10-24): the directory first, because it is People's point; Go to… and
   tree-ID links are a side slice for any time.
 - **Gated on:** phase 2 on [Schema language 007](../soon/schema-language-007-edit-collections-in-story.md)'s
@@ -35,7 +35,7 @@ Formerly "a directory you own, Go to…, and links by tree ID".
   spec extension. How the directory is shown is done (Schema language 002, closed 2026-10-28). The Go to… slice
   and phase 1's loose ends on nothing.
 - **Built on collection views** (Joe, 2026-10-24): People is the directory's collection shown
-  with USL views (Schema language 006 and 002), not hand-built screens. Only Go to… and the share sheet
+  with USL views (Schema language 006 and 002), not hand-built screens. Only Go to… and the person picker
   are hand-built.
 - **Includes Links 001** (following a link that names a tree by its ID), folded in on
   2026-10-24 (the Go to… slice and phase 4). Its earlier text is in git history at `7b29f1b`
@@ -122,20 +122,24 @@ of those plans is listed in each of them.
   `invite:` member; the row's actions are Copy invite link and Send invite…, and a status cell
   shows not invited, invited, or joined. Accepting turns the placeholder into the profile and
   keeps groups, shares and notes (fork 4).
+- **The person picker** (hand-built; from the dropped phase 3). One field that finds a person
+  or group: your contacts first, then host communities, members of groups shared with you, an
+  exact `~handle@host` or `tr_…`, then "Add as a placeholder and invite". It serves "+" and
+  New Group here, a tree's access list in [Sharing 003](sharing-003-move-pages-between-trees.md)'s
+  share sheet, and `Person` fields in collections (007's chip picker uses it).
 - Retire `StoryDirectoryView`'s hand-built sections and the Members sheet for groups; keep the
   sheet for host communities.
 - **Proof:** make a group by dragging three people on the Mac; it shows on the iPhone and the
-  host's group tree lists them.
+  host's group tree lists them. Add a placeholder through the picker to a tree's access, and
+  accept the link from another account.
 
-## Phase 3: the share sheet (hand-built)
+## Phase 3: dropped (2026-11-01)
 
-- The share sheet takes people and groups in one field and compares the picks with your groups:
-  an exact match suggests the group, a near match offers to add the missing person to it, and
-  three or more unmatched people offer "Make a group of these…". The same picker serves New
-  Group and `Person` fields in collections (007's chip picker uses it).
-- Search widens past your contacts: host communities, then members of groups shared with you,
-  then an exact `~handle@host` or `tr_…`, then "Add as a placeholder and invite".
-- **Proof:** share with a placeholder and accept the link from another account.
+Phase 3 was a hand-built share sheet that matched the people you pick against your groups
+("Make a group of these…"). Joe dropped it on 2026-11-01 once
+[Sharing 003](sharing-003-move-pages-between-trees.md) made sharing a choice of tree, so a
+page's audience is its tree's. Its person search moved to phase 2's person picker. Its text is
+in git history before that date. Phase 4 keeps its number.
 
 ## Side slice: Go to… and tree-ID links on the Mac
 
