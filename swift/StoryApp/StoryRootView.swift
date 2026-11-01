@@ -3706,13 +3706,15 @@ private struct StorySharePanel: View {
 #else
             LabeledContent("This page is in", value: treeTitle(access.tree))
 #endif
-        } footer: {
-#if os(macOS)
-            if moveTarget == nil, currentNode?.reference.path != "/" {
-                Text("Pick another tree to move the page there. A link stays in \(treeTitle(access.tree)).")
-            }
-#endif
         }
+    }
+
+    /// A section heading a little larger than the form's default, with room above it.
+    private func accessHeader(_ text: String) -> some View {
+        Text(text)
+            .font(.headline)
+            .foregroundStyle(.primary)
+            .padding(.top, 14)
     }
 
 #if os(macOS)
@@ -3783,7 +3785,7 @@ private struct StorySharePanel: View {
                 ProgressView()
             }
         } header: {
-            Text("Who has access to \(target.title)")
+            accessHeader("Who has access to \(target.title)")
         }
         Section {
             if let movePreview {
@@ -3861,7 +3863,7 @@ private struct StorySharePanel: View {
             }
 #endif
         } header: {
-            Text("Who has access to \(treeTitle(access.tree))")
+            accessHeader("Who has access to \(treeTitle(access.tree))")
         } footer: {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 if !access.canEdit {
