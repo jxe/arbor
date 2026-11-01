@@ -524,6 +524,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
             guard operation.kind == "addEntry", case let .object(value)? = operation.fields["value"] else { return nil }
             if case let .string(hash)? = value["directory"] { return hash }
             if case let .string(hash)? = value["file"] { return hash }
+            if case let .string(hash)? = value["page"] { return hash }
             return nil
         })
         for object in update.objects {
@@ -607,8 +608,9 @@ public struct LocalChange: Codable, Equatable, Sendable {
             }
             let value: ProtocolSemanticValue
             if let file = added.file { value = .object(["file": .string(file)]) }
+            else if let page = added.page { value = .object(["page": .string(page)]) }
             else if let directory = added.directory { value = .object(["directory": .string(directory)]) }
-            else { throw invalid("Page creation entry is not a file or directory") }
+            else { throw invalid("Page creation entry is not a file, page or directory") }
             let parentPath = parentParts.isEmpty ? "/" : "/" + parentParts.joined(separator: "/")
             return try ProtocolSourceOperation([
                 "key": .string("add-\(index)"), "kind": .string("addEntry"),
