@@ -76,6 +76,11 @@ People 001 phase 4 owns the iPhone's other link opens.
 through `@ovst/client`, with Story Sync out of the path. The rest of the CLI's host edits
 moving the same way is recorded there as a follow-up.
 
+**[Sharing 003: move a page to another tree from the share sheet](features/sharing-003-move-pages-between-trees.md).**
+*Later.* Joe wants a public tree and to move pages into it from todos while keeping them linked
+there (2026-11-01). The share sheet names the page's tree and who has access to that tree;
+picking another tree previews its access and moves the page, leaving a link where it was.
+
 **[Security 012: get back into an account with the admin's help](features/security-012-get-back-in-with-the-admins-help.md).**
 *Later.* A person who has lost every device gets back in through the host's administrator, as the
 spec has it; Joe wants that to be as easy as possible for both. The administrator makes a
