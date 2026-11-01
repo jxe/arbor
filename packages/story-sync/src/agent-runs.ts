@@ -295,7 +295,8 @@ export class AgentRuns {
     const exit = await new Promise<{ code: number | null; error?: string }>((resolve) => {
       const child = spawn(command, args, {
         cwd: folder,
-        env: { ...process.env, STORY_AGENT_SESSION: run.session, STORY_AGENT_LABEL: "Claude" },
+        // STORY_AGENT_RUN quiets `story agent hook`: this runner reports the tools itself.
+        env: { ...process.env, STORY_AGENT_SESSION: run.session, STORY_AGENT_LABEL: "Claude", STORY_AGENT_RUN: run.id },
         stdio: ["ignore", "pipe", "pipe"],
       });
       run.process = child;

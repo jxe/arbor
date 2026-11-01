@@ -154,5 +154,6 @@ describe("story agent install", () => {
     expect(textReport("status", "sorting", "/w", environment)).toEqual({ cwd: "/w", session: "run-1", agent: "Claude", status: "sorting" });
     expect(hookReport('{"cwd":"/x","tool_name":"Read"}', "/w", undefined, {})).toEqual({ cwd: "/x", hook: { cwd: "/x", tool_name: "Read" } });
     expect(hookReport("not json", "/w", "Claude", {})).toBeNull();
+    expect(hookReport('{"cwd":"/x","tool_name":"Read"}', "/w", undefined, { STORY_AGENT_RUN: "run-1" })).toBeNull();
   });
 });

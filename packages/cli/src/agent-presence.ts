@@ -138,8 +138,12 @@ export function textReport(kind: "status" | "done", text: string, cwd: string, e
   };
 }
 
-/** The report for one hook payload read from stdin; null when it is not one. */
+/**
+ * The report for one hook payload read from stdin; null when it is not one,
+ * or inside a run Story Sync started, which reports the agent's tools itself.
+ */
 export function hookReport(input: string, cwd: string, agent: string | undefined, environment: NodeJS.ProcessEnv): AgentReportBody | null {
+  if (environment.STORY_AGENT_RUN) return null;
   let hook: unknown;
   try { hook = JSON.parse(input); } catch { return null; }
   if (!hook || typeof hook !== "object" || Array.isArray(hook)) return null;
