@@ -70,6 +70,19 @@ public final class StoryDocumentBinding {
     /// Object hashes of ledger sources, by ledger revision; revisions are opaque.
     @ObservationIgnored private var sourceObjects: [String: String] = [:]
 
+    /// The object hash of a ledger's source, cached by revision.
+    func sourceObject(of ledger: StorySourceLedger) -> String {
+        if let hash = sourceObjects[ledger.revision] { return hash }
+        let hash = ProtocolObjectCodec.hash(Data(ledger.source.utf8))
+        sourceObjects[ledger.revision] = hash
+        return hash
+    }
+
+    /// The ledger this editor holds for exactly the source stored as `object`.
+    func ledger(forSource object: String) -> StorySourceLedger? {
+        ([ledger] + basisLedgers.values).first { sourceObject(of: $0) == object }
+    }
+
     /// The blocks, in document order, whose source overlaps `range` (UTF-8
     /// bytes) of the source stored as `object`. An empty range names the
     /// block ending at it, or the one it sits in. Nil when this editor holds

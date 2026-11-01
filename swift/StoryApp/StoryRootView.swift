@@ -1430,6 +1430,9 @@ struct StoryRootView: View {
                 Task { await workspace.flush() }
             }
         }
+        .onChange(of: model.currentReference, initial: true) { _, reference in
+            workspace.setPresencePage(reference)
+        }
         .onChange(of: model.currentLocation) { _, _ in
             if let review = workspace.conflictReview,
                review.selectedDecision?.path.map({ reviewLogicalPath($0) != model.currentReference.path }) == true {
@@ -2985,6 +2988,7 @@ struct StoryRootView: View {
             ToolbarSpacer(.flexible)
 #endif
             ToolbarItemGroup(placement: .primaryAction) {
+                StoryPresenceHeader(workspace: workspace, reference: model.currentReference)
 #if os(iOS)
                 StoryEditorUndoButtons()
                 if let presentation = model.pagePresentation(for: location),
@@ -3112,6 +3116,26 @@ struct StoryRootView: View {
         return binding.blocks(overlapping: range, inSource: object)
     }
 
+    /// Everyone else on this page, each beside the block holding their caret
+    /// (spec 12). An agent's status shows open under its block, as a bubble.
+    private func presenceAccessories(for location: WorkspaceLocation, node: WorkspaceNode, binding: StoryDocumentBinding) -> [EditorAccessory] {
+        guard location == model.currentLocation else { return [] }
+        let peers = workspace.presencePeers(on: node.reference)
+        return peers.compactMap { peer in
+            guard let selection = workspace.presenceRoster.cursors[peer.id],
+                  let caret = binding.caret(for: selection) else { return nil }
+            let status = peer.agent?.status
+            return EditorAccessory(
+                id: "presence-\(peer.id)", anchor: .block(caret.block),
+                accessibilityLabel: StoryPresenceBadge.label(for: peer),
+                isExpanded: .constant(status != nil),
+                marker: { StoryPresenceBadge(peer: peer) },
+                detail: {
+                    if let status { StoryPresenceStatus(peer: peer, status: status) }
+                })
+        }
+    }
+
     private func reviewAccessories(for location: WorkspaceLocation, binding: StoryDocumentBinding) -> [EditorAccessory] {
         guard location == model.currentLocation, hostsReviewAccessory(location), let review = workspace.conflictReview else { return [] }
         let choices = review.decisions.filter { $0.path.map { reviewLogicalPath($0) == model.currentReference.path } ?? false }
@@ -3195,7 +3219,8 @@ struct StoryRootView: View {
                             configuration: StoryStyle.editorConfiguration,
                             pinchDictation: pinchDictation,
                             topOverscrollAction: editorTopOverscrollAction,
-                            accessories: reviewAccessories(for: location, binding: lease.binding),
+                            accessories: reviewAccessories(for: location, binding: lease.binding)
+                                + presenceAccessories(for: location, node: node, binding: lease.binding),
                             accessoryReveal: location == model.currentLocation ? reviewAccessoryReveal : nil,
                             readOnly: !node.isWritable
                         ) {
@@ -3204,6 +3229,14 @@ struct StoryRootView: View {
                                 open: { destination in Task { await model.navigate(to: destination) } }
                             )
                         }
+                    }
+                    .onChange(of: lease.binding.editorState.textSelection) { _, _ in
+                        guard location == model.currentLocation else { return }
+                        workspace.setPresenceSelection(lease.binding.presenceSelection())
+                    }
+                    .onChange(of: lease.binding.editorState.editingBlock) { _, _ in
+                        guard location == model.currentLocation else { return }
+                        workspace.setPresenceSelection(lease.binding.presenceSelection())
                     }
                     .overlay {
                         if location == model.currentLocation,

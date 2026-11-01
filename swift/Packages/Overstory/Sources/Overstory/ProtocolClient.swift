@@ -523,6 +523,82 @@ public actor ProtocolClient {
         }
     }
 
+    /// A tree's presence stream (spec 12). Opening it joins the tree's roster
+    /// and closing it leaves; `visible: false` watches without being listed.
+    /// `agent` names an agent entry under the caller's person. Fails with
+    /// `URLError(.timedOut)` after `idleTimeout` without a byte, like `watch`.
+    public func presence(
+        tree: String,
+        visible: Bool = true,
+        agent: String? = nil,
+        idleTimeout: Duration = ProtocolClient.watchIdleTimeout,
+        onOpen: (@Sendable () async -> Void)? = nil
+    ) async throws -> AsyncThrowingStream<ProtocolPresenceEvent, Error> {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+        var query: [String] = []
+        if !visible { query.append("visible=false") }
+        if let agent { query.append("agent=\(agent.addingPercentEncoding(withAllowedCharacters: allowed)!)") }
+        let suffix = query.isEmpty ? "" : "?" + query.joined(separator: "&")
+        var request = try await authorizedRequest(path: "/.overstory/trees/\(component(tree))/presence\(suffix)")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        let session = session
+        let credentialProvider = credentialProvider
+        let finalRequest = request
+        return AsyncThrowingStream { continuation in
+            let idle = WatchIdleClock()
+            let task = Task {
+                do {
+                    let (bytes, response) = try await session.bytes(for: finalRequest)
+                    idle.heard()
+                    guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+                    guard http.statusCode < 400 else {
+                        if http.statusCode == 401 { await credentialProvider.invalidate() }
+                        var body = Data()
+                        for try await byte in bytes { body.append(byte) }
+                        throw Self.httpError(data: body, status: http.statusCode)
+                    }
+                    guard http.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("text/event-stream") == true else {
+                        throw ProtocolValidationError.malformedSSE("Presence response is not an event stream")
+                    }
+                    await onOpen?()
+                    var parser = ProtocolSSEParser()
+                    for try await byte in bytes {
+                        idle.heard()
+                        for frame in try parser.append(byte: byte) {
+                            continuation.yield(try ProtocolPresence.decodeEvent(event: frame.event, data: Data(frame.data.utf8)))
+                        }
+                    }
+                    _ = try parser.finish()
+                    continuation.finish()
+                } catch where idle.expired {
+                    continuation.finish(throwing: URLError(.timedOut))
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            let watchdog = Task {
+                await idle.expire(after: idleTimeout)
+                if idle.expired { task.cancel() }
+            }
+            continuation.onTermination = { _ in task.cancel(); watchdog.cancel() }
+        }
+    }
+
+    /// Move this stream's entry: its page, its caret, or (an agent's) status.
+    /// `id` is the `self` the stream's ready event named.
+    public func updatePresence(tree: String, id: String, update: ProtocolPresenceUpdate) async throws {
+        var request = try await authorizedRequest(path: "/.overstory/trees/\(component(tree))/presence/\(component(id))")
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(update)
+        let (data, response) = try await session.data(for: request)
+        let status = try statusCode(response)
+        if status == 401 { await credentialProvider.invalidate() }
+        try validate(data: data, status: status)
+    }
+
     private func get<T: Decodable>(path: String) async throws -> T {
         try await perform(authorizedRequest(path: path))
     }

@@ -39,6 +39,7 @@
 		9C704388497EA12B9D978089 /* StoryApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63D9EA3BB99A535CFAB23B48 /* StoryApp.swift */; };
 		A4E6F18847B2453BAB914E79 /* OverstoryObjectStore in Frameworks */ = {isa = PBXBuildFile; productRef = 491E232029FB50606050C5E4 /* OverstoryObjectStore */; };
 		AA89544D1E5D6CBF675BD8B1 /* StoryPresentedCollection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3BA07DA90783DCD9751C14D /* StoryPresentedCollection.swift */; };
+		A11CE0E5A6E2D7F0C0FFEE01 /* StoryPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0E5A6E2D7F0C0FFEE02 /* StoryPresence.swift */; };
 		B7927EDF50F594B3EB1D11E5 /* StoryVisits.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */; };
 		C20D247C8BC789EA714ECA50 /* Overstory in Frameworks */ = {isa = PBXBuildFile; productRef = 3DE1482AFACF580E96254A07 /* Overstory */; };
 		C8A9FA9F81FECD5E612F0AA2 /* StoryAgentBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4988444CA00D5B4D30BFBF9 /* StoryAgentBundle.swift */; };
@@ -101,6 +102,7 @@
 		C801E1356B70DF981F10CE55 /* StoryAgentBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAgentBundleTests.swift; sourceTree = "<group>"; };
 		CCCF2321660F3AFFB1B3CC9F /* StoryAppIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAppIconTests.swift; sourceTree = "<group>"; };
 		D3BA07DA90783DCD9751C14D /* StoryPresentedCollection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryPresentedCollection.swift; sourceTree = "<group>"; };
+		A11CE0E5A6E2D7F0C0FFEE02 /* StoryPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryPresence.swift; sourceTree = "<group>"; };
 		D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryVisits.swift; sourceTree = "<group>"; };
 		E264714074530EDE343A1F69 /* StoryAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = StoryAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E461AB2FE619EC60E92149F0 /* StoryMenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryMenuBar.swift; sourceTree = "<group>"; };
@@ -200,6 +202,7 @@
 				8B3FAFCE4CBE59350772DC86 /* StorySupportDirectories.swift */,
 				71E92471C42C9DD9FAE87E05 /* StoryTour.swift */,
 				0FDE2E5423C22378EE9EAC6B /* StoryUpdates.swift */,
+				A11CE0E5A6E2D7F0C0FFEE02 /* StoryPresence.swift */,
 				D6A7442BCF0C8B05B3C21515 /* StoryVisits.swift */,
 				F6B87FA2419E6805DE2A2DD2 /* VoiceRecordingIntents.swift */,
 			);
@@ -417,6 +420,7 @@
 				7E28C9228D2AD90BA27BBCC8 /* StorySyncRESTClient.swift in Sources */,
 				14554EF5D50A77EC9DE05CCB /* StoryTour.swift in Sources */,
 				9BD579B02F3143195AFB5663 /* StoryUpdates.swift in Sources */,
+				A11CE0E5A6E2D7F0C0FFEE01 /* StoryPresence.swift in Sources */,
 				B7927EDF50F594B3EB1D11E5 /* StoryVisits.swift in Sources */,
 				8D856512BD7DE6492C00A93E /* VoiceRecordingIntents.swift in Sources */,
 			);

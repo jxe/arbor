@@ -249,6 +249,21 @@ final class StoryWorkspaceState {
     private var serverWatchRunner: HostWatchRunner?
     /// The connections the open tree's client uses, renewed on return from suspension.
     private let hostSessions = ProtocolSession()
+    /// The open tree's presence (spec 12): who else is here, on which page,
+    /// and where their caret is. Empty while no host tree is open.
+    private(set) var presenceRoster = ProtocolPresenceRoster()
+    private var hostPresence: HostPresence?
+    /// The page this device last reported to presence.
+    private var presencePage: WorkspaceReference?
+    /// "Show me to others": off, this device watches presence without joining it.
+    static let showMeToOthersDefaultsKey = "StoryShowMeToOthers"
+    var showsMeToOthers: Bool = UserDefaults.standard.object(forKey: StoryWorkspaceState.showMeToOthersDefaultsKey) as? Bool ?? true {
+        didSet {
+            guard showsMeToOthers != oldValue else { return }
+            UserDefaults.standard.set(showsMeToOthers, forKey: Self.showMeToOthersDefaultsKey)
+            if let current = hostPresence { startPresence(client: current.client, tree: current.tree) }
+        }
+    }
 #if os(macOS)
     private var supervisor: StorySyncProcessSupervisor?
     private var storySyncClient: StorySyncRESTClient?
@@ -397,6 +412,7 @@ final class StoryWorkspaceState {
         serverWatchTask?.cancel()
         serverWatchTask = nil
         serverWatchRunner = nil
+        stopPresence()
         let store = KeychainDeviceCredentialStore()
         // A tree on one of the account's placement hosts syncs with this
         // device's session there, which its home device key opens (accounts §1.3).
@@ -569,6 +585,7 @@ final class StoryWorkspaceState {
         serverWatchTask?.cancel()
         serverWatchTask = nil
         serverWatchRunner = nil
+        stopPresence()
         if let syncCoordinator { await syncCoordinator.close() }
         syncCoordinator = nil
         conflictReview = nil
@@ -1262,6 +1279,7 @@ final class StoryWorkspaceState {
         serverWatchTask?.cancel()
         serverWatchTask = nil
         serverWatchRunner = nil
+        stopPresence()
         visitFollowTask?.cancel()
         visitFollowTask = nil
         initialSyncTask?.cancel()
@@ -2162,6 +2180,7 @@ final class StoryWorkspaceState {
         serverWatchTask?.cancel()
         serverWatchTask = nil
         serverWatchRunner = nil
+        stopPresence()
         nativePathMonitor.cancel()
 #if os(macOS)
         visitFollowTask?.cancel()
@@ -2255,6 +2274,57 @@ final class StoryWorkspaceState {
         serverWatchRunner = runner
         serverWatchTask?.cancel()
         serverWatchTask = runner.start()
+        startPresence(client: client, tree: tree.id)
+    }
+
+    // MARK: Presence
+
+    private func startPresence(client: ProtocolClient, tree: String) {
+        stopPresence()
+        let presence = HostPresence(client: client, tree: tree, visible: showsMeToOthers) { [weak self] roster in
+            await MainActor.run { self?.presenceRoster = roster }
+        }
+        hostPresence = presence
+        let page = presencePage
+        Task {
+            await presence.start()
+            if let page, page.tree.rawValue == tree { await presence.setPage(Self.presencePage(page)) }
+        }
+    }
+
+    private func stopPresence() {
+        guard let presence = hostPresence else { return }
+        hostPresence = nil
+        presenceRoster = ProtocolPresenceRoster()
+        Task { await presence.stop() }
+    }
+
+    /// The page this device shows; presence hears of it only for the open host tree.
+    func setPresencePage(_ reference: WorkspaceReference?) {
+        presencePage = reference
+        guard let presence = hostPresence else { return }
+        let page = reference.flatMap { $0.tree.rawValue == presence.tree ? Self.presencePage($0) : nil }
+        Task { await presence.setPage(page) }
+    }
+
+    /// The caret on the current page, as `StoryDocumentBinding.presenceSelection()` reports it.
+    func setPresenceSelection(_ selection: ProtocolPresenceSelection?) {
+        guard let presence = hostPresence else { return }
+        Task { await presence.setSelection(selection) }
+    }
+
+    /// Everyone else on `reference`'s page, people first.
+    func presencePeers(on reference: WorkspaceReference) -> [ProtocolPresencePeer] {
+        guard let tree = hostPresence?.tree, reference.tree.rawValue == tree else { return [] }
+        return presenceRoster.peers(onPage: Self.presencePage(reference).path)
+    }
+
+    /// Presence names a page by its canonical node path: `/Groceries`, never `/Groceries.md`.
+    nonisolated static func presencePage(_ reference: WorkspaceReference) -> ProtocolPresencePage {
+        var path = reference.path
+        if path.hasSuffix("/_index.md") { path = String(path.dropLast("/_index.md".count)) }
+        else if path.hasSuffix(".md") { path = String(path.dropLast(3)) }
+        return ProtocolPresencePage(path: path.isEmpty ? "/" : path, stableKey: reference.stableKey)
     }
 
     /// Stop the open tree's watch while the app is not active. iOS may
@@ -2263,6 +2333,7 @@ final class StoryWorkspaceState {
     func suspendLiveSync() {
         serverWatchTask?.cancel()
         serverWatchTask = nil
+        if let presence = hostPresence { Task { await presence.stop() } }
     }
 
     /// Follow the open tree again on fresh connections. The watch resumes
@@ -2273,6 +2344,7 @@ final class StoryWorkspaceState {
         hostSessions.renew()
         serverWatchTask?.cancel()
         serverWatchTask = runner.start()
+        if let presence = hostPresence { Task { await presence.start() } }
     }
 
     /// The placement host a tree's session is for: its canonical `endpoint`
