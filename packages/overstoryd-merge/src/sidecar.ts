@@ -74,9 +74,11 @@ export interface SavedCheckpoint {
  * This does not bound replay for bases outside the retained checkpoints. */
 const SAVE_AFTER = 32;
 const SAVES_KEPT = 2;
-/** How far back a cold cache looks for a cached entry before starting from
- * an entry's provenance index instead. */
-const SEED_WITHIN = 128;
+/** How far back a cold cache looks for a cached or saved entry before
+ * starting from the entry's provenance index instead. Starting from an index
+ * costs about as much as replaying a few ordinary entries, while an old
+ * entry can take seconds to replay. */
+const SEED_WITHIN = 8;
 
 /** Change identities a client can see as contributions. overstoryd's own
  * acceptances (tree creation, pairing, boundary rewrites) are not changes an
@@ -266,7 +268,8 @@ export class Sidecar {
    * saved entry. As a question's head (`basis` given), only a state whose
    * history covers `basis` is a starting point. Otherwise, when no cached
    * entry is within `SEED_WITHIN`, the entry's provenance index is (decision
-   * 6: its decisions from the log), else the chain's start. */
+   * 6: its decisions from the log), else the chain's start. A replay that
+   * runs past the budget also falls back to the index. */
   private async stateOf(hash: string, rules: TreeDefaultRules, basis?: string): Promise<Cached> {
     if (basis === hash) basis = undefined;
     const chain: string[] = [];
@@ -286,14 +289,25 @@ export class Sidecar {
       }
     }
     chain.reverse();
-    for (const [index, entry] of chain.entries()) {
-      // A long rebuild (a cold cache over a long chain) stops at the budget,
-      // keeping every state it built, and asks overstoryd to retry: the next
-      // attempt continues from there. An overstoryd timeout would instead end
-      // the process and lose them, so a long chain could never be rebuilt.
-      // Every attempt replays at least one entry, so retries always progress.
-      if (index > 0 && performance.now() > this.replayDeadline)
+    let reseeded = false;
+    for (let index = 0; index < chain.length; index++) {
+      const entry = chain[index]!;
+      // A long rebuild (a cold cache over a long chain) stops at the budget.
+      // It starts instead from the index of the entry wanted (or, for a
+      // head, of its basis, replaying only the entries after it), when one
+      // is readable. Otherwise it keeps every state it built and asks
+      // overstoryd to retry: the next attempt continues from there. An
+      // overstoryd timeout would instead end the process and lose them, so
+      // a long chain could never be rebuilt. Every attempt replays at least
+      // one entry, so retries always progress.
+      if (index > 0 && performance.now() > this.replayDeadline) {
+        const target = basis === undefined ? hash : chain.indexOf(basis, index) >= 0 ? basis : null;
+        const seeded = !reseeded && target && this.stores.provenance ? await this.seeded(target) : null;
+        reseeded = true;
+        if (seeded && target === hash) return seeded;
+        if (seeded) { previous = seeded; index = chain.indexOf(target!); this.replayDeadline = performance.now() + this.replayMillis; continue; }
         throw new EvaluationFailure(`Rebuilding accepted history: ${index} of ${chain.length} entries replayed; retry to continue`, "unavailable");
+      }
       const seed: string | undefined = previous?.seed;
       previous = { ...(await this.replay(entry, previous, rules)), ...(seed ? { seed } : {}) };
       this.states.set(entry, previous);
