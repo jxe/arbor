@@ -26,9 +26,9 @@ source from the second. This is evidence for a useful resolution, but comparing
 file hashes alone does not establish which source identities or hidden edits a
 resolution would preserve. Use synthetic fixtures, not the private captured text.
 
-Story's initial explicit action keeps the pinned current root for an independent
-whole-tree choice. It uses the existing guarded review publication path. Extend
-this to smaller scopes and coupled groups only after their obligations are checked.
+Story's explicit action keeps the pinned current root for any conflict group whose
+linked choices are all loaded (whole-tree, file, range and coupled groups, since
+2026-11-01). It uses the existing guarded review publication path.
 
 ## Remaining work
 
@@ -99,9 +99,10 @@ exist. Distinguish a proven automatic reconciliation from a plausible combined
 result requiring a person's choice. Allow inspection of current text alongside
 captured text, with explicit additions, removals, moves, and hidden material.
 
-Extend “Keep current contents” to file/range choices and dependency groups. Compile
-one guarded resolution that preserves all current bytes and independent choices.
-Never substitute an old selected alternative for current contents. Pin previews
+“Keep current contents” covers file/range choices and dependency groups since
+2026-11-01 (`5fe7157d`): one guarded resolution of the whole group with the pinned
+current root, listing lines a version holds that the page lacks. Never substitute an
+old selected alternative for current contents. Pin previews
 to the accepted state and reject stale submission; retain drafts across restart
 and uncertain acknowledgement. Include Swift and TypeScript client APIs and the
 web reviewer when rebuilt. Show automatic resolutions with their reason and

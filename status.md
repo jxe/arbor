@@ -12,6 +12,31 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Merge as blocks and elements — 2026-11-01
+
+Prompted by the 2026-10-31 todos conflicts (a Mac waking with a 6½-hour-old page repeated
+edits the phone had made; the Markdown rule refused the whole file and coupled 28 KB into one
+choice). All **deployed** on main:
+
+- **Merge fixes** (`5fab53bc`, `348c9eed`): a deletion that repeats one current already made,
+  and any edit leaving the same bytes as the other side's, is not a conflict; a refusal couples
+  only the blocks its edits touch, not every edit in the file.
+- **Markdown merges as blocks** (overstoryd 017, `85fa5a31`, `802e6e25`): blocks are named
+  across versions by piece identity, and a merge stands when each keeps the kind, attributes,
+  container, section and inline syntax its last editor gave it, with no split or join one side
+  did not make. The line-skeleton rule and its allowances are deleted; moves are judged the same
+  way, with contextual link checks kept.
+- **Data files merge as elements** (017 step 7, `4cd2e0d9`): JSON, YAML, TOML and CSV/TSV
+  through the same check (`elements.ts`, `data-elements.ts`); new keys, array items and rows on
+  both sides merge.
+- **Keep current contents** (`5fe7157d`, overstoryd 015 step 3 in part): Story offers it for any
+  conflict group, page conflicts included, listing only lines a version holds that the page
+  lacks. **Installed** in Joe's Mac build on 2026-11-01; not yet checked by hand.
+- Replaying the real 2026-10-31 versions: the Mac's repeated deletion merges, and the sync batch
+  is one choice of about 450 bytes. Remaining: [overstoryd 017](plans/soon/merge-017-markdown-block-merge.md)
+  steps 7 (JSONL, XML/HTML/CSS, code) and 8 (choices named by block); merge notes moved to
+  [Editor 003](plans/features/editor-003-suggestions.md#part-3-merge-notes).
+
 ## Pages as logical nodes built — 2026-10-28
 
 Filesystem 026 steps 1 to 5 are **implemented** in both stacks and merged to main: Markdown
