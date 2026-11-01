@@ -187,7 +187,12 @@ export class StorySyncDaemon implements AsyncDisposable {
         const descriptor = (await trees.descriptors()).find((candidate) => candidate.id === tree);
         return descriptor?.placement === "placed" && descriptor.osPath && !descriptor.missing ? descriptor.osPath : null;
       },
-      publish: async () => { await this.synchronizeNow(); },
+      // Only the run's tree: not behind a full pass, and not failed by another tree.
+      publish: async (tree) => {
+        const folder = this.folders.get(tree);
+        if (folder) await folder.sync.syncOnce();
+        else await this.synchronizeNow();
+      },
       stateDirectory: join(storyDataRoot(), ".state"),
     }, this.agents);
     if (options.autoSync !== false) this.startAutoSync(options.syncIntervalMs);

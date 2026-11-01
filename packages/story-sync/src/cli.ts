@@ -12,6 +12,11 @@ function usage(): never {
 
 export async function runStorySyncDaemon(args = process.argv.slice(2)): Promise<void> {
   const control = args.includes("--control");
+  // The launch agent's log has no times of its own; a stall is only legible with them.
+  if (control) for (const method of ["log", "warn", "error"] as const) {
+    const write = console[method].bind(console);
+    console[method] = (...values: unknown[]) => write(new Date().toISOString(), ...values);
+  }
   const portIndex = args.indexOf("--port");
   const portValue = portIndex >= 0 ? args[portIndex + 1] : undefined;
   if (portIndex >= 0 && (!portValue || portValue.startsWith("--"))) throw new Error("--port requires a number");

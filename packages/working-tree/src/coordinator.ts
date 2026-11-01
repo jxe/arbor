@@ -75,6 +75,9 @@ export interface UpdatePresentation {
 type Work = { kind: "effect"; effect: UpdateEffect } | { kind: "recordCursor"; base: AcceptedBase };
 interface Current { update: string; root: string; conflicted: boolean; cursor: string }
 
+/** Retries after a submission fails in transport; the poll and reconnects take over after these. */
+const TRANSPORT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+
 /** A 4xx answer other than timeouts and rate limits: the host refused this request. */
 function refusal(status: number): boolean {
   return status >= 400 && status < 500 && status !== 408 && status !== 429;
@@ -125,6 +128,8 @@ export class UpdateCoordinator {
   private watchEvent?: Extract<WatchEvent, { kind: "tree.update" }>;
   private watching = false;
   private failure?: string;
+  /** Submissions that failed in transport since the last acceptance. */
+  private transportRetries = 0;
 
   constructor(
     readonly tree: string,
@@ -368,6 +373,7 @@ export class UpdateCoordinator {
       const current = await this.validate(response, attempt);
       this.submission = { digest: attempt.digest, response, current };
       this.failure = undefined;
+      this.transportRetries = 0;
       this.dispatch({ type: "accepted", id: attempt.digest, result: { kind: "accepted", root: current.root, update: current.update,
         cursor: current.cursor, digests: [...attempt.requestDigests], conflicted: current.conflicted } });
     } catch (error) {
@@ -645,8 +651,18 @@ export class UpdateCoordinator {
       this.dispatch({ type: "validationFailed", reason: this.failure });
     } else {
       this.dispatch({ type: "transportFailed", ...(id ? { id } : {}) });
+      // A failed submission retries soon, not only at the next poll or
+      // reconnect: the elapsed delay resumes an offline machine.
+      const delay = id ? TRANSPORT_RETRY_DELAYS_MS[this.transportRetries] : undefined;
+      if (delay !== undefined) {
+        this.transportRetries += 1;
+        this.schedule("trailing", delay);
+      }
     }
   }
+
+  /** Why the last effect failed, while it stands. */
+  get lastFailure(): string | undefined { return this.failure; }
 
   private async hold(reason: HeldReason, detail: string, id: string): Promise<void> {
     this.control.held = { reason, detail };

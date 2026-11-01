@@ -201,6 +201,8 @@ export class FolderSync implements AcceptedTree {
   private readonly knownPath: string;
   private known?: KnownFolder;
   private scanTimer?: ReturnType<typeof setTimeout>;
+  /** Whether the last logged state was a stall: offline, held or stopped. */
+  private loggedStall = false;
   private scanning?: Promise<void>;
   private rescan = false;
   private watch?: { abort: AbortController; done: Promise<void>; key: string };
@@ -245,6 +247,12 @@ export class FolderSync implements AcceptedTree {
       ...(options.pollIntervalMs === undefined ? {} : { pollIntervalMs: options.pollIntervalMs }),
       onState: (state) => {
         if (state.kind !== "unplaced") this.report(folderSyncState(state));
+        // Publishing that stops or resumes is logged, with why, so a stall can be traced.
+        const stalled = state.kind === "offline" || state.kind === "held" || state.kind === "terminal";
+        if (stalled !== this.loggedStall) {
+          this.loggedStall = stalled;
+          console.warn(`[story-sync:publish] ${tree} ${state.kind}${stalled ? `: ${this.coordinator?.lastFailure ?? "no failure recorded"}` : ""}`);
+        }
         // A definitive refusal becomes declined paths once the transition finishes.
         if (state.kind === "held" && state.reason === "rejected") setTimeout(() => void this.settleRefusal().catch(() => {}), 0);
       },
