@@ -12,7 +12,7 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@ovst/protocol";
-import { canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type ObjectHash, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
+import { canonicalNodePath, storyDataRoot, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type ObjectHash, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@ovst/client";
 import { type SharedTreePlacement } from "./state/index.ts";
@@ -22,6 +22,7 @@ import { decodeRequestPath } from "./http.ts";
 import { TreeObjectCache } from "./object-cache.ts";
 import { TreeManager } from "./tree-manager.ts";
 import { AgentSessions } from "./agents.ts";
+import { AgentRuns } from "./agent-runs.ts";
 import { ProtocolError, Workspace, type WorkspaceOptions } from "./workspace.ts";
 
 export { resolveUserPath } from "@ovst/client";
@@ -140,6 +141,8 @@ export class StorySyncDaemon implements AsyncDisposable {
   private readonly objectCache: TreeObjectCache;
   /** Agents working in placed folders, shown in their trees' presence. */
   readonly agents: AgentSessions;
+  /** Tasks run by the person's own agent in a placed folder. */
+  readonly runs: AgentRuns;
 
   private constructor(events: EventBus, trees: TreeManager, options: StorySyncDaemonOptions = {}) {
     this.connections = options.connections ?? localSyncConnections();
@@ -178,6 +181,15 @@ export class StorySyncDaemon implements AsyncDisposable {
         return placement ? this.accountClient(placement) : undefined;
       },
     });
+    this.runs = new AgentRuns({
+      folder: async (tree) => {
+        if (!trees.placementFor(tree)) return null;
+        const descriptor = (await trees.descriptors()).find((candidate) => candidate.id === tree);
+        return descriptor?.placement === "placed" && descriptor.osPath && !descriptor.missing ? descriptor.osPath : null;
+      },
+      publish: async () => { await this.synchronizeNow(); },
+      stateDirectory: join(storyDataRoot(), ".state"),
+    }, this.agents);
     if (options.autoSync !== false) this.startAutoSync(options.syncIntervalMs);
   }
 
@@ -723,6 +735,7 @@ export class StorySyncDaemon implements AsyncDisposable {
 
   async [Symbol.asyncDispose](): Promise<void> {
     if (this.syncStartupTimer) clearTimeout(this.syncStartupTimer);
+    await this.runs[Symbol.asyncDispose]();
     await this.agents[Symbol.asyncDispose]();
     if (this.syncing) await new Promise<void>((resolve) => this.syncWaiters.push(resolve));
     this.unsubscribeEvents();

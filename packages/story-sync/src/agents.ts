@@ -113,6 +113,8 @@ interface HookPayload {
 
 export class AgentSessions {
   private readonly sessions = new Map<string, Session>();
+  /** What each session said with `done`, kept after it leaves; the most recent 100. */
+  private readonly results = new Map<string, string>();
   private readonly quietMs: number;
   private readonly doneLingerMs: number;
   private readonly updateIntervalMs: number;
@@ -145,10 +147,18 @@ export class AgentSessions {
     if (report.status !== undefined) this.change(session, { status: oneLine(report.status, PRESENCE_LIMITS.statusCharacters) || null });
     if (hook) await this.applyHook(session, hook);
     if (report.done !== undefined) {
-      this.change(session, { status: oneLine(report.done, PRESENCE_LIMITS.statusCharacters) || "Done" });
+      const result = oneLine(report.done, PRESENCE_LIMITS.statusCharacters) || "Done";
+      this.results.set(session.key, result);
+      if (this.results.size > 100) this.results.delete(this.results.keys().next().value!);
+      this.change(session, { status: result });
       this.finish(session, this.doneLingerMs);
     }
     return { session: session.key, tree: session.tree };
+  }
+
+  /** What a session said with `done`, if it did. */
+  result(key: string): string | undefined {
+    return this.results.get(key);
   }
 
   /** End a session now, as when its run stops. */

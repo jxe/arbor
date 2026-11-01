@@ -26,3 +26,29 @@ one session per agent session:
 permission into `~/.claude/settings.json` and `~/.claude/skills/`, rather than
 packaging a Claude Code plugin, so it needs no marketplace; reinstalling
 replaces its own entries and uninstalling removes only them.
+
+## Runs
+
+`AgentRuns` (`packages/story-sync/src/agent-runs.ts`) starts a task's run:
+
+- **Finding the agent.** Story Sync runs under launchd without the person's
+  shell PATH, so `findClaude` tries `STORY_CLAUDE_PATH`, then the usual install
+  locations (`~/.claude/local`, `~/.local/bin`, Homebrew, `/usr/local/bin`),
+  then `PATH`.
+- **Starting.** One run at a time per tree. The run snapshots the folder
+  (every file but `.state` and `.git`, cloned where the filesystem can, as
+  APFS does), records each file's hash, and starts `claude -p` in the folder
+  with streaming JSON, `--session-id` set to the run's session, edits accepted,
+  only file tools plus `story agent` and `story sync status`, and the skill
+  appended to the system prompt. `STORY_AGENT_SESSION` makes the agent's own
+  `story agent` commands land in the run's session.
+- **Following.** The runner reads the agent's stream itself and reports each
+  finished tool call as a hook would, so a run shows in presence whether or
+  not `story agent install` was run.
+- **Finishing.** On success it removes the task block (matched by its text,
+  with its continuation lines and the blank line after) and publishes. The
+  result is the agent's `story agent done` line, else the first line of its
+  final message. Failure keeps the block and shows the last line of stderr.
+- **Undo.** The files the run changed, with their hashes right after it, and
+  the snapshot. The snapshot goes when the tree's next run starts or after a
+  day. Agents 003 replaces this with history.

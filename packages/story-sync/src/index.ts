@@ -6,3 +6,5 @@ export * from "./tree-manager.ts";
 export * from "./events.ts";
 export * from "./node-provider-router.ts";
 export type { DeclinedFolder, DeclinedReport } from "./folder-sync.ts";
+export { AGENT_SKILL } from "./agent-skill.ts";
+export * from "./agents.ts";

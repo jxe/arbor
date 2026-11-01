@@ -5,10 +5,11 @@ import type { StorySyncDaemon } from "./service.ts";
 import { OBJECT_HASH_PATTERN } from "./object-cache.ts";
 import { json, errorResponse } from "./http.ts";
 import { isCloudPlaceholderError } from "./cloud-placeholders.ts";
+import { AgentRunError } from "./agent-runs.ts";
 
 type SyncHTTPService = Pick<StorySyncDaemon,
   "events" | "synchronizeNow" | "moveLocalPlacement" | "treeList" | "bootstrapTree" |
-  "objectBytes" | "agents" | "declinedChanges" | "discardHeldChanges" | "restoreDeclined" | "resendDeclined" | "resolveLocator" | "pauseFolder" | "resumeFolder" | "pendingUpdate">;
+  "objectBytes" | "agents" | "runs" | "declinedChanges" | "discardHeldChanges" | "restoreDeclined" | "resendDeclined" | "resolveLocator" | "pauseFolder" | "resumeFolder" | "pendingUpdate">;
 
 export function syncHandler(service: SyncHTTPService, options: {
   instanceID: string;
@@ -67,6 +68,35 @@ export function syncHandler(service: SyncHTTPService, options: {
     }
     if (request.method === "GET" && url.pathname === "/v1/agents") {
       return json(service.agents.list());
+    }
+    if (url.pathname === "/v1/agents/runs" || url.pathname.startsWith("/v1/agents/runs/")) {
+      try {
+        if (request.method === "GET" && url.pathname === "/v1/agents/runs") return json(service.runs.list());
+        if (request.method === "POST" && url.pathname === "/v1/agents/runs") {
+          let body: Record<string, unknown>;
+          try { body = await request.json() as Record<string, unknown>; } catch { throw new ProtocolError("invalid-request", "A run must be a JSON object", 400); }
+          if (!body || typeof body !== "object" || Array.isArray(body)) throw new ProtocolError("invalid-request", "A run must be a JSON object", 400);
+          const unknown = Object.keys(body).filter((key) => !["tree", "page", "task"].includes(key));
+          if (unknown.length) throw new ProtocolError("invalid-request", `Unknown run fields: ${unknown.join(", ")}`, 400);
+          if (typeof body.tree !== "string" || typeof body.page !== "string" || typeof body.task !== "string" || !body.task.trim()) {
+            throw new ProtocolError("invalid-request", "A run needs a tree, a page and the task's text", 400);
+          }
+          return json(await service.runs.start({ tree: body.tree, page: body.page, task: body.task }), 202);
+        }
+        const match = /^\/v1\/agents\/runs\/(run_[0-9a-f]+)(?:\/(stop|undo))?$/.exec(url.pathname);
+        if (match && request.method === "GET" && !match[2]) {
+          const run = service.runs.get(match[1]!);
+          if (!run) throw new ProtocolError("not-found", "No such run", 404);
+          return json(run);
+        }
+        if (match && request.method === "POST" && match[2] === "stop") return json(service.runs.stop(match[1]!));
+        if (match && request.method === "POST" && match[2] === "undo") return json(await service.runs.undo(match[1]!));
+        throw new ProtocolError("not-found", "No such run route", 404);
+      } catch (error) {
+        if (!(error instanceof AgentRunError)) throw error;
+        const status = error.code === "not-found" || error.code === "not-placed" ? 404 : 409;
+        throw new ProtocolError(status === 404 ? "not-found" : "conflict", error.message, status, { kind: error.code } as never);
+      }
     }
     if (request.method === "POST" && url.pathname === "/v1/placements/move") {
       const body = await request.json() as { source?: unknown; destination?: unknown; check?: unknown };
