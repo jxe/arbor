@@ -78,6 +78,7 @@ enum StoryIOSSettings {
 /// Device preferences, pushed from the gear in Sync & Accounts.
 struct StoryIOSSettingsView: View {
     @AppStorage(StoryIOSSettings.showsSidebarHandleKey) private var showsSidebarHandle = true
+    @AppStorage(StoryWorkspaceState.showMeToOthersDefaultsKey) private var showsMeToOthers = true
     /// Disconnects this iPhone so it can be paired again; nil when it has no account here.
     var disconnect: (@MainActor () async -> Void)?
     @State private var confirmingDisconnect = false
@@ -93,6 +94,13 @@ struct StoryIOSSettingsView: View {
                 Text("Sidebar")
             } footer: {
                 Text("A grip on the page's left edge, near the bottom, slides the page aside to show the sidebar. Without it, swipe in from the left edge.")
+            }
+            Section {
+                Toggle("Show Me to Others", isOn: $showsMeToOthers)
+            } header: {
+                Text("Presence")
+            } footer: {
+                Text("When off, people in your trees don't see you or your cursor. You still see them.")
             }
             if disconnect != nil {
                 Section {
@@ -117,14 +125,22 @@ struct StoryIOSSettingsView: View {
 #endif
 
 #if os(macOS)
-/// Story › Settings…: the app icon and the command line tool.
+/// Story › Settings…: the app icon, presence and the command line tool.
 struct StoryMacSettingsView: View {
     @State private var installed = StoryCommandLineTool.isInstalled
+    @AppStorage(StoryWorkspaceState.showMeToOthersDefaultsKey) private var showsMeToOthers = true
 
     var body: some View {
         Form {
             Section("App Icon") {
                 StoryAppIconChoices()
+            }
+            Section {
+                Toggle("Show Me to Others", isOn: $showsMeToOthers)
+            } header: {
+                Text("Presence")
+            } footer: {
+                Text("When off, people in your trees don't see you or your cursor. You still see them.")
             }
             Section {
                 if StoryCommandLineTool.launcher == nil {

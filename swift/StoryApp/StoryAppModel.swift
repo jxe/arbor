@@ -264,6 +264,13 @@ final class StoryWorkspaceState {
             if let current = hostPresence { startPresence(client: current.client, tree: current.tree) }
         }
     }
+    /// Settings writes "Show Me to Others" straight to the defaults.
+    @ObservationIgnored private var defaultsObserver: NSObjectProtocol?
+
+    private func followShowMeToOthersDefault() {
+        let value = UserDefaults.standard.object(forKey: Self.showMeToOthersDefaultsKey) as? Bool ?? true
+        if value != showsMeToOthers { showsMeToOthers = value }
+    }
 #if os(macOS)
     private var supervisor: StorySyncProcessSupervisor?
     private var storySyncClient: StorySyncRESTClient?
@@ -385,6 +392,11 @@ final class StoryWorkspaceState {
         self.launchPhase = initialPhase
         self.directory = (try? DirectoryStore.load()) ?? []
         if case let .restoring(name) = initialPhase { self.providerDetail = "Opening \(name)…" }
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.followShowMeToOthersDefault() }
+        }
         if suppliedProvider != nil {
             self.capabilities = .full
             self.providerDetail = "In-memory test fixture"

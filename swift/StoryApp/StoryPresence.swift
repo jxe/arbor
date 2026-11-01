@@ -67,7 +67,7 @@ struct StoryPresenceStatus: View {
 }
 
 /// The iPhone toolbar's presence: initials of everyone on this page, a count
-/// of those elsewhere in the tree, and the "Show me to others" switch. On the
+/// of those elsewhere in the tree; shown only when someone else is here. On the
 /// Mac it shows only the out-of-date Story Sync warning.
 struct StoryPresenceHeader: View {
     let workspace: StoryWorkspaceState
@@ -81,22 +81,17 @@ struct StoryPresenceHeader: View {
 #else
         let here = workspace.presencePeers(on: reference)
         let everyone = workspace.presenceRoster.peers.values.sorted { ($0.name ?? "", $0.id) < ($1.name ?? "", $1.id) }
-        if !everyone.isEmpty || !workspace.showsMeToOthers {
+        if !everyone.isEmpty {
             Menu {
-                if everyone.isEmpty { Text("No one else is here") }
                 ForEach(everyone) { peer in
                     let page = peer.page.map { $0.path.split(separator: "/").last.map(String.init) ?? "Home" } ?? "No page"
                     Text("\(StoryPresenceBadge.label(for: peer)): \(page)\(peer.agent?.status.map { " (\($0))" } ?? "")")
                 }
-                Divider()
-                Toggle("Show Me to Others", isOn: Binding(
-                    get: { workspace.showsMeToOthers },
-                    set: { workspace.showsMeToOthers = $0 }))
             } label: {
                 HStack(spacing: -4) {
                     ForEach(here.prefix(4)) { StoryPresenceBadge(peer: $0) }
                     if here.isEmpty {
-                        Image(systemName: workspace.showsMeToOthers ? "person.2" : "eye.slash")
+                        Image(systemName: "person.2")
                     }
                     if everyone.count > here.count {
                         Text("+\(everyone.count - here.count)").font(.caption2).foregroundStyle(.secondary).padding(.leading, 6)

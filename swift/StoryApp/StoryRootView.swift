@@ -3402,8 +3402,8 @@ struct StoryRootView: View {
 /// The Mac toolbar's one button for presence and your account: your person
 /// icon with the sync badge (a dashed circle while you're hidden from others),
 /// with initials of anyone else on this page overlapping it from the left and
-/// a count of those elsewhere in the tree. Its menu lists who's here, the Show
-/// Me to Others switch, the sync state and Sync & Accounts….
+/// a count of those elsewhere in the tree. Its menu lists who's here, the sync
+/// state and Sync & Accounts…; Show Me to Others is in Settings.
 private struct StoryMacPresenceAccountMenu: View {
     let workspace: StoryWorkspaceState
     let reference: WorkspaceReference
@@ -3430,10 +3430,9 @@ private struct StoryMacPresenceAccountMenu: View {
                     }
                 }
             }
-            Divider()
-            Toggle("Show Me to Others", isOn: Binding(
-                get: { workspace.showsMeToOthers },
-                set: { workspace.showsMeToOthers = $0 }))
+            if !workspace.showsMeToOthers {
+                Text("You're hidden from others (Settings)")
+            }
             Divider()
             Text(status.label)
             Button("Sync & Accounts…", action: openAccounts)
