@@ -163,6 +163,12 @@ Since Agents 001, Story Sync holds a tree's publishing while an agent edits it: 
 - The skill says when to use it: after each finished part of a long task, never mid-edit.
 - Open: whether a Run can ask for live syncing up front (e.g. a task block option), and whether the person's own edits during a held run need anything beyond the usual merge.
 
+## Phase 7: longer tasks as a task with blocks under it (Joe, 2026-11-01)
+
+A task block can have blocks indented under it, like sub-bullets: the task line is the headline, the blocks under it are the details. Run sends the agent the task with all its children, and a finished run removes the task together with them. In Markdown the children are the quote's own nested content or the indented blocks that follow; settle which when this is built, so Story and `findTaskBlock` agree. (Shift-Return line breaks inside a task came first, in Agents 001's follow-ups.)
+
+Also open from the same day: which way of running from the iPhone is smoothest (Mac runner, an always-on runner on a setup-token, a routine's API trigger, or handing a prompt to the Claude iPhone app) needs research before phase 3 or 5 picks one.
+
 ## Not in this plan
 
 - **A host-side runner** (perhaps beside the execution sidecar) that needs no cloud session of
