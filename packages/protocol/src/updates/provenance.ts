@@ -16,7 +16,7 @@
  *   continue it as imported nodes do;
  * - a snapshot's replaced bytes and new nodes: `snapshot:<change>:/<path>`.
  */
-import { decodeProtocolDirectory, type ObjectHash } from "../objects.ts";
+import { decodeProtocolDirectory, hashObject, type ObjectHash } from "../objects.ts";
 import { decodeProtocolPage } from "../pages.ts";
 import type { AuthoredOperation, MaterialRef } from "./authored-contract.ts";
 
@@ -299,4 +299,91 @@ export async function rebindProvenance(
     return { kind: "directory", node, entries };
   };
   return visit(previous, previousRoot, root, "directory", "");
+}
+
+// ---- Records ----------------------------------------------------------------
+
+export const PROVENANCE_RECORD_FORMAT = "overstory-provenance-v1";
+type Pieces = Array<[string, number, number]>;
+export type ProvenanceRecord =
+  | { format: typeof PROVENANCE_RECORD_FORMAT; node: string; kind: "directory"; entries: Array<[string, ObjectHash]> }
+  | { format: typeof PROVENANCE_RECORD_FORMAT; node: string; kind: "file" | "page"; chunks: ObjectHash[] }
+  | { format: typeof PROVENANCE_RECORD_FORMAT; node: string; kind: "tree" }
+  | { format: typeof PROVENANCE_RECORD_FORMAT; kind: "pieces"; pieces: Pieces };
+
+const recordEncoder = new TextEncoder(), recordDecoder = new TextDecoder("utf-8", { fatal: true });
+/** Canonical JSON: sorted keys, no whitespace. */
+const canonicalJSON = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(canonicalJSON).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonicalJSON((value as Record<string, unknown>)[k])}`).join(",")}}`;
+  return JSON.stringify(value);
+};
+/** Where a file's piece list is cut into chunks: after each piece whose
+ * `sha256(origin + "\0" + start)` begins with five zero bits. */
+export function chunkPieces(pieces: readonly ProvenancePiece[]): ProvenancePiece[][] {
+  const chunks: ProvenancePiece[][] = [[]];
+  for (const p of pieces) {
+    chunks.at(-1)!.push(p);
+    const digest = hashObject(recordEncoder.encode(`${p.origin}\0${p.start}`));
+    if ((parseInt(digest.slice(7, 9), 16) & 0xf8) === 0) chunks.push([]);
+  }
+  if (!chunks.at(-1)!.length) chunks.pop();
+  return chunks;
+}
+
+/** Write `index` as records with `put`, returning its root record's hash.
+ * `written` remembers nodes already written (an index shares every node its
+ * edit did not change), so pass one per writer to write only what changed. */
+export function encodeProvenance(
+  index: ProvenanceNode, put: (bytes: Uint8Array) => ObjectHash, written: WeakMap<object, ObjectHash> = new WeakMap(),
+): ObjectHash {
+  const write = (record: ProvenanceRecord) => put(recordEncoder.encode(canonicalJSON(record)));
+  const visit = (node: ProvenanceNode): ObjectHash => {
+    const known = written.get(node);
+    if (known) return known;
+    const format = PROVENANCE_RECORD_FORMAT;
+    const hash = node.kind === "tree" ? write({ format, node: node.node, kind: "tree" })
+      : node.kind === "directory"
+      ? write({ format, node: node.node, kind: "directory",
+          entries: Object.keys(node.entries).sort(compareUTF8).map((name) => [name, visit(node.entries[name]!)] as [string, ObjectHash]) })
+      : write({ format, node: node.node, kind: node.kind,
+          chunks: chunkPieces(node.pieces).map((chunk) => write({ format, kind: "pieces", pieces: chunk.map((p) => [p.origin, p.start, p.length]) })) });
+    written.set(node, hash);
+    return hash;
+  };
+  return visit(index);
+}
+const compareUTF8 = (a: string, b: string) => Buffer.compare(Buffer.from(a), Buffer.from(b));
+
+export function decodeProvenanceRecord(bytes: Uint8Array): ProvenanceRecord {
+  const text = recordDecoder.decode(bytes), value = JSON.parse(text) as ProvenanceRecord;
+  if (value?.format !== PROVENANCE_RECORD_FORMAT || canonicalJSON(value) !== text) refuse("Not a canonical provenance record");
+  const valid = value.kind === "pieces" ? Array.isArray(value.pieces) && value.pieces.every((p) => Array.isArray(p) && p.length === 3 &&
+      typeof p[0] === "string" && Number.isSafeInteger(p[1]) && p[1] >= 0 && Number.isSafeInteger(p[2]) && p[2] > 0)
+    : typeof value.node !== "string" ? false
+    : value.kind === "tree" ? Object.keys(value).length === 3
+    : value.kind === "directory" ? Array.isArray(value.entries) && value.entries.every((e) => Array.isArray(e) && e.length === 2 && typeof e[0] === "string" && typeof e[1] === "string")
+    : (value.kind === "file" || value.kind === "page") && Array.isArray(value.chunks) && value.chunks.every((c) => typeof c === "string");
+  if (!valid) refuse("Invalid provenance record");
+  return value;
+}
+
+/** Read the whole index whose root record is `hash`. */
+export async function readProvenance(hash: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<ProvenanceNode> {
+  const record = decodeProvenanceRecord(await load(hash));
+  if (record.kind === "pieces") return refuse("A pieces record is not a node");
+  if (record.kind === "tree") return { kind: "tree", node: record.node };
+  if (record.kind === "directory") {
+    const entries: Record<string, ProvenanceNode> = {};
+    for (const [name, child] of record.entries) entries[name] = await readProvenance(child, load);
+    return { kind: "directory", node: record.node, entries };
+  }
+  const pieces: ProvenancePiece[] = [];
+  for (const chunk of record.chunks) {
+    const r = decodeProvenanceRecord(await load(chunk));
+    if (r.kind !== "pieces") refuse("A file's chunk is not a pieces record");
+    for (const [origin, start, length] of (r as { pieces: Pieces }).pieces) pieces.push({ origin, start, length });
+  }
+  return { kind: record.kind, node: record.node, pieces: normalizePieces(pieces) };
 }

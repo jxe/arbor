@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  advanceProvenance, encodeProtocolDirectory, encodeProtocolPage, hashObject, importProvenance, normalizePieces,
+  advanceProvenance, decodeProvenanceRecord, encodeProtocolDirectory, encodeProvenance, readProvenance, encodeProtocolPage, hashObject, importProvenance, normalizePieces,
   rebindProvenance, stableJSONString, type ObjectHash, type ProtocolDirectoryEntry, type ProvenanceNode, type SourceOperation,
 } from "@ovst/protocol";
 import { encodeLogEntry, LOG_ENTRY_FORMAT } from "@ovst/merge-protocol";
@@ -183,4 +183,28 @@ test("provenance conformance vectors are current", async () => {
   const text = JSON.stringify({ format: "overstory-provenance-vectors", version: 1, vectors }, null, 1) + "\n";
   if (process.env.UPDATE_VECTORS) writeFileSync(VECTORS, text);
   expect(readFileSync(VECTORS, "utf8")).toBe(text);
+});
+
+test("provenance records round-trip, share unchanged records, and chunk long piece lists", async () => {
+  const store = new Map<string, Uint8Array>();
+  const put = (bytes: Uint8Array) => { const h = hashObject(bytes); store.set(h, bytes); return h as ObjectHash; };
+  const load = async (h: string) => store.get(h)!;
+  const many = Array.from({ length: 400 }, (_, i) => ({ origin: `o${i}`, start: i, length: 1 + (i % 3) }));
+  const index: ProvenanceNode = { kind: "directory", node: "r", entries: {
+    "a.md": { kind: "file", node: "a", pieces: many },
+    sub: { kind: "directory", node: "s", entries: { "p.md": { kind: "page", node: "p", pieces: [] }, mount: { kind: "tree", node: "t" } } },
+  } };
+  const written = new WeakMap<object, ObjectHash>();
+  const root = encodeProvenance(index, put, written);
+  expect(stableJSONString(await readProvenance(root, load))).toBe(stableJSONString(index));
+  // About one chunk per 32 pieces.
+  const file = decodeProvenanceRecord(store.get((decodeProvenanceRecord(store.get(root)!) as { entries: [string, string][] }).entries[0]![1])!);
+  expect((file as { chunks: string[] }).chunks.length).toBeGreaterThan(4);
+  // An edit to one piece rewrites that chunk, its file and the root.
+  const before = store.size;
+  const edited: ProvenanceNode = { ...index, entries: { ...(index as { entries: Record<string, ProvenanceNode> }).entries,
+    "a.md": { kind: "file", node: "a", pieces: many.map((p, i) => (i === 200 ? { ...p, origin: "edited" } : p)) } } };
+  encodeProvenance(edited, put, written);
+  expect(store.size - before).toBeLessThanOrEqual(4);
+  expect(() => decodeProvenanceRecord(new TextEncoder().encode('{"kind":"tree","node":"t","format":"overstory-provenance-v1"}'))).toThrow("canonical");
 });
