@@ -25,7 +25,8 @@ way until this plan lands.
   two programs must agree exactly on piece semantics: if overstoryd's index ever
   differs from what the engine would have computed, later merges go wrong with no
   error.
-- **State:** PLANNED
+- **State:** Step 1 measured (2026-11-01, below); waiting on Joe for the
+  open-choice limit
 - **Depends on:** nothing. History 006 should build on it (see below).
 
 ## What the engine keeps late
@@ -144,6 +145,76 @@ private, discardable cache, as the saved checkpoints are today.
 5. **Entries from before the index.** No backfill migration. The sidecar's first
    replay over an old entry writes its index, so coverage grows on its own; an
    index computed by replay is the same object overstoryd would have written.
+
+## Step 1 results (2026-11-01)
+
+Measured on the 2026-10-28 production backup (`.backups/railway/20261028T180216Z`),
+todos tree `tr_owozr6aegt5z7x6qyllvzljl5u`: 9,561 entries, of which 8,954 are
+fast-forwards, 538 asked on the head, 28 asked on an older basis (window up to
+128 entries, p90 42), 38 asked snapshots. Scripts are in
+`tests/performance/provenance/`; a probe hook (`historyProbe` in
+`retained-state.ts`) records which history records an evaluation reads.
+
+**What questions read.** Every history read of every asked question falls into
+one of: the incoming change itself, changes accepted between the question's base
+and head (the window), or lineage (`origins`) of pieces in files the question
+touches. Old-basis questions also read thousands of old `effects` and `changes`
+records, but only because `since()` compares two whole maps point by point; the
+records it returns are the window's.
+
+**Answers from the index alone.** Each asked question was answered again by a
+fresh sidecar whose states at or before the base held only nodes and pieces
+(every history map emptied); window entries were replayed from there.
+
+| States at the base | Same as full history | Differ |
+| --- | --- | --- |
+| Nodes, pieces, engine's decisions | 597 of 604 | 7, contribution order only |
+| Nodes, pieces, decisions imported from the log entry | 595 of 604 | the same 7 by order; 2 (updates 12002, 12003) where an open choice's alternative gains one contribution |
+
+- Full-history replay itself differs from the accepted entry on 15 questions
+  (engine drift since acceptance; replay aligns to the entry). The index-only
+  runs differ from history on exactly those.
+- Contribution order inside a choice follows the history map's bucket order,
+  an implementation detail. The engine must sort contributions canonically
+  (acceptance order) before the index path can give byte-equal answers.
+- **The limit:** an open choice's engine detail (placement pieces, alternative
+  nodes, context states) does not follow from the log's decision record. 238 of
+  the 604 questions start with open choices, though the whole tree has had only
+  5 distinct ones, open at most 109 entries. Without the engine's private cache,
+  the exact answer needs replay from the entry that opened the oldest open
+  choice: bounded by how long choices stay open, not by history length.
+
+**Lineage (decision 2).** 111 of 308 questions on the full evaluator read
+lineage: 7 records typical, p95 62, max 133, up to 2,087 entries old.
+Answers without any lineage were the same as with it in all 604 questions.
+Every lineage record comes from one `editSource` operation and its basis's
+pieces, so the engine can derive it from the index and the log (about four
+object reads each). Recommendation: leave lineage out of the shared format;
+the engine derives and caches it.
+
+**Index size and cost** (tree-shaped records, piece lists in content-defined
+chunks of about 32 pieces):
+
+- Pieces per file stay small: the most-edited file (`/_index.md`) peaked at 708
+  pieces; the whole tree now holds 1,947 pieces in 121 files. Chunks of about
+  32 pieces mean a typical file is a few chunks.
+- Per accepted change: 3 new records (p95 5, max 19), 11.9 KB (p95 24 KB,
+  max 80 KB) before compression, written in the same batch as the root, so no
+  added fsync.
+- All 9,561 indexes: 30,856 records, 123 MB as loose JSON, 3.1 MB in
+  zstd frames of 1 MiB as packs store them (today's object store: 49 MB, 32 MB
+  of it packs). Folder records, not pieces, are most of the bytes; interning
+  origins and objects saves only 18%.
+- Recomputing every index by replay: 12 to 20 minutes for this tree on a cloud
+  machine.
+
+**Other findings.**
+
+- Old-basis questions are slow in evaluation itself, not in replay: updates
+  6657, 6658, 8670, 8671 and 11926 take 23 to 83 seconds with any state, more
+  than the 20-second budget, so a cold rebuild of this tree on today's engine
+  fails at update 6657. The index does not fix this.
+- 37% of asked questions reach lineage, but a typical question reads 7 records.
 
 ## Steps
 

@@ -41,7 +41,10 @@ type Internals = { stateOf(hash: string, rules: unknown): Promise<Cached>; recor
   memory: Map<string, Uint8Array>; entries: Map<string, unknown>; replayed: number };
 const warm = unbudgeted(new Sidecar(stores, Infinity, undefined, Infinity)) as unknown as Internals;
 const started = performance.now();
-for (const [index, { hash }] of entries.entries()) {
+const only = onlyArg ? new Set(onlyArg.split(",").map(Number)) : undefined;
+const last = only ? Math.max(...only) : entries.length - 1;
+const dump = process.env.DUMP;
+for (const [index, { hash }] of entries.slice(0, last + 1).entries()) {
   await warm.stateOf(hash, rules);
   if (index % 1000 === 0) console.error(`reference ${index}/${entries.length} ${Math.round((performance.now() - started) / 1000)}s`);
 }
@@ -97,7 +100,6 @@ async function fromIndexAndLog(fresh: Internals, hash: string): Promise<Cached> 
   return internals.align(await internals.entry(hash), { object: c.object, state: id, decisions: [] });
 }
 writeFileSync(out, "");
-const only = onlyArg ? new Set(onlyArg.split(",").map(Number)) : undefined;
 let n = 0, matched = 0;
 for (const [index, { id, entry }] of entries.entries()) {
   if ((only && !only.has(index)) || !entry.previous || !entry.asked) continue;
@@ -121,6 +123,7 @@ for (const [index, { id, entry }] of entries.entries()) {
     const answer = await (fresh as unknown as Sidecar).answer(recordedQuestion(entry));
     const same = answer.root === entry.root && stableJSONString(answer.decisions) === stableJSONString(entry.decisions);
     result = { same, root: answer.root === entry.root, decisions: stableJSONString(answer.decisions) === stableJSONString(entry.decisions),
+      ...(dump ? { full: answer } : {}),
       answer: hashObject(new TextEncoder().encode(stableJSONString({ root: answer.root, decisions: answer.decisions }))).slice(7, 23) };
   } catch (error) {
     result = { same: false, error: error instanceof Error ? error.message.slice(0, 200) : String(error) };
