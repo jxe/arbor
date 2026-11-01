@@ -17,12 +17,15 @@ import { acceptedEntries } from "../../support/log-entries.ts";
 import { recordedQuestion } from "../../support/replay-check.ts";
 import { DEFAULT_RULES, unbudgeted } from "./unbudgeted.ts";
 import { Sidecar } from "../../../packages/overstoryd-merge/src/sidecar.ts";
-import type { RetainedState, Bucket } from "../../../packages/overstoryd-merge/src/retained-state.ts";
+import { retainState, viewState, type RetainedState, type Bucket } from "../../../packages/overstoryd-merge/src/retained-state.ts";
+import type { IntentState, Node } from "../../../packages/overstoryd-merge/src/intent-model.ts";
 
 const [root, tree, out, variantArg = "bare", onlyArg] = process.argv.slice(2);
 if (!root || !tree || !out) throw Error("usage: spike.ts <data-root> <tree> <out.jsonl> [bare|origins|full[,…]] [index,index,…]");
 // bare: every history map emptied; origins: origins kept (derived lineage);
-// full: nothing emptied, a control for the harness itself.
+// full: nothing emptied, a control for the harness itself; log: only the
+// index (the nodes reachable from the root, with their pieces) and the
+// decisions the log entry records, imported as replay aligns to an entry.
 const variants = variantArg.split(",");
 const rules = DEFAULT_RULES;
 const entries = acceptedEntries(root, tree);
@@ -59,6 +62,7 @@ const strip = (variant: string, id: string): string => {
 /** The fresh sidecar's states: its own, else the index's view of any entry at or before `upto`. */
 class IndexStates extends Map<string, Cached> {
   constructor(private upto: number, private variant: string) { super(); }
+  seed(hash: string, value: Cached) { super.set(hash, value); }
   override has(hash: string) { return super.has(hash) || (position.get(hash) ?? Infinity) <= this.upto; }
   override get(hash: string) {
     const own = super.get(hash); if (own) return own;
@@ -73,6 +77,25 @@ class Recorded extends Map<string, RetainedState> {
   override get(id: string) { return super.get(id) ?? strippedStates.get(id) ?? warm.recorded.get(id); }
   override has(id: string) { return super.has(id) || strippedStates.has(id) || warm.recorded.has(id); }
 }
+/** An entry's state as the index and log give it: the nodes reachable from
+ * its root with their pieces, no history, and the entry's own decisions. */
+async function fromIndexAndLog(fresh: Internals, hash: string): Promise<Cached> {
+  const c = warm.states.get(hash)!, r = warm.recorded.get(c.state)!, view = viewState(r);
+  const reachable = new Map<string, Node>();
+  const children = new Map<string, Node[]>();
+  for (const node of Object.values(view.nodes) as Node[]) if (node.parent !== null) {
+    const list = children.get(node.parent) ?? []; list.push(node); children.set(node.parent, list);
+  }
+  const visit = (node: Node) => { reachable.set(node.id, node); for (const child of children.get(node.id) ?? []) visit(child); };
+  visit(view.nodes[view.root] as Node);
+  const state: IntentState = { format: view.format, tree: view.tree, root: view.root, nodes: Object.fromEntries(reachable),
+    decisions: [], outputs: {}, effects: {}, origins: {}, alternatives: {}, changes: {} };
+  const recorded = new Map<string, RetainedState>();
+  const { id } = retainState(recorded, state, c.object, r.editable);
+  for (const [key, value] of recorded) fresh.recorded.set(key, value);
+  const internals = fresh as unknown as { align(entry: unknown, from: Cached): Promise<Cached>; entry(hash: string): Promise<unknown> };
+  return internals.align(await internals.entry(hash), { object: c.object, state: id, decisions: [] });
+}
 writeFileSync(out, "");
 const only = onlyArg ? new Set(onlyArg.split(",").map(Number)) : undefined;
 let n = 0, matched = 0;
@@ -84,6 +107,15 @@ for (const [index, { id, entry }] of entries.entries()) {
   fresh.memory = warm.memory; fresh.entries = warm.entries;
   fresh.recorded = new Recorded(); fresh.states = new IndexStates(base, variant);
   const t = performance.now();
+  if (variant === "log") {
+    // Every state at or before the base that this question can start from.
+    const needed = new Set<string>([entry.asked.base ?? entry.previous]);
+    for (let j = base + 1; j < index; j++) {
+      const w = entries[j]!.entry;
+      for (const h of [w.asked?.base, w.previous]) if (h && position.get(h)! <= base) needed.add(h);
+    }
+    for (const h of needed) (fresh.states as IndexStates).seed(h, await fromIndexAndLog(fresh, h));
+  }
   let result: Record<string, unknown>;
   try {
     const answer = await (fresh as unknown as Sidecar).answer(recordedQuestion(entry));
