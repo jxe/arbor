@@ -23,7 +23,7 @@ its section B.
   then aligns to the recorded root and decisions, so accepted results stand
   whatever a newer rule would answer (merge-tool, "Cache and replay"). The
   plan's earlier "run both revisions side by side" step is dropped.
-- **Remaining:** step 6 below.
+- **Remaining:** steps 7 and 8 below; step 6 moved to Editor 003.
 
 ## The problem with today's rule
 
@@ -118,9 +118,24 @@ elsewhere) and **review**, which steps 5 and 6 confine to blocks.
    replay failures the block check does not judge: two moves of one text and
    same-anchor insertions the insertion policy refuses. A moved nested item
    beside an edit to its text now merges (014 item 6).
-6. **Notes**, once [overstoryd 015](merge-015-resolve-reconciled-choices.md)
-   gives merges with a note a portable shape: list numbering and broken
-   anchors.
+6. **Notes.** Deferred to
+   [Editor 003](../features/editor-003-suggestions.md#part-3-merge-notes) on 2026-11-01:
+   a note is the host's own suggestion and shares its UI.
+7. **Every structured format as elements.** Joe liked this on 2026-11-01. JSON, YAML,
+   TOML, CSV, XML and code still require all four versions to have identical key
+   structure, the rigid pattern Markdown had. Make the block check format-neutral: a
+   format supplies a reader that names its elements by identity (object keys, array
+   items, CSV rows by key, declarations) with kind, attributes, container and content,
+   and one shared check applies (each element keeps what its last editor gave it; no
+   split or join one side did not make; refusals name their elements). Markdown becomes
+   one reader. This covers most of
+   [overstoryd 014](merge-014-merge-handles-many-cases.md) section C (new keys on both
+   sides, arrays, keyed arrays) and part of D.
+8. **Choices named by what they cover.** A decision's subject stays a byte range, which
+   works for every file. Where a reader can parse the base, the sidecar adds labels for the
+   blocks or elements the range covers ("Take pills, in Before 7pm"), read from the base
+   text alone, so it needs no identity: a snapshot from folder sync gets labels too. A
+   file no reader parses (binary, an unknown format) keeps the range or the whole file.
 
 ## Rules carried over from 014
 

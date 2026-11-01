@@ -90,6 +90,33 @@ A sketch for the forks below.
 - Access: an overlay's readers need read access to the parent too; it never widens what anyone
   can see of the parent.
 
+## Part 3: merge notes
+
+Joe deferred merge notes ([overstoryd 017](../soon/merge-017-markdown-block-merge.md)
+step 6, [overstoryd 015](../soon/merge-015-resolve-reconciled-choices.md) step 0) to this
+plan on 2026-11-01: a note is the host's own small suggestion about a merged result, so it
+should share the suggestion UI rather than get one of its own.
+
+- **What a note is.** A merge that loses nothing and keeps the syntax, but may have changed
+  the meaning: a numbered list left out of sequence, a `#fragment` link whose heading was
+  renamed or moved, an item that landed in a different section than its author put it in.
+  Each has a short message, a path and range in the accepted root, the rule that wrote it,
+  and often a one-click fix (renumber the list, rewrite the link), which is exactly a
+  suggestion.
+- **Proposed shape (2026-11-01, not settled).** A note works like a decision without
+  alternatives. The sidecar's answer returns the notes it raises, and the log entry keeps the
+  notes still open, the way it keeps open decisions. Later answers carry them forward,
+  rebasing their ranges, until an edit touches the range or someone dismisses the note (a
+  `resolves`-like declaration). Clients read open notes from the same inspection call they
+  make for decisions, and show them in the margin, beside suggestions. The rejected
+  alternative was a notes route per accepted update: simpler, but a note disappears as
+  soon as the next edit lands.
+- **Where the fix lives.** A note's fix could be offered as a CriticMarkup suggestion
+  written by the host (part 1) or as a client-side action. Decide with part 1.
+- **What the Markdown rule can already detect** (`markdown-blocks.ts`): blocks, sections,
+  list attributes and contextual links of every version, so the first notes need no new
+  analysis.
+
 ## Forks for Joe
 
 1. **Overlay storage.** Store only the differences (light, but every read composes two trees),
