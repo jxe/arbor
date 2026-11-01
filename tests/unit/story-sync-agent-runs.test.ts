@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { PresenceEvent, PresenceUpdate } from "@ovst/protocol";
@@ -41,7 +41,8 @@ emit({ type: "result", result: "Merged the duplicate milk.\\nAnything else?" });
 `;
 
 beforeEach(async () => {
-  sandbox = await mkdtemp(join(tmpdir(), "agent-runs-"));
+  // Real path: the agent's cwd is resolved, and macOS's tmpdir is behind /var -> /private/var.
+  sandbox = await realpath(await mkdtemp(join(tmpdir(), "agent-runs-")));
   folder = join(sandbox, "notes");
   await Bun.write(join(folder, "Groceries.md"), PAGE);
   await Bun.write(join(folder, ".state", "private"), "not snapshotted");
