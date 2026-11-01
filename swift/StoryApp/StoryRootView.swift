@@ -3529,6 +3529,7 @@ private struct StorySharePanel: View {
     @State private var moveTarget: StoryMoveDestination?
     @State private var moveTargetAccess: NativeTreeAccessPresentation?
     @State private var movePreview: StoryPageMovePreview?
+    @State private var newTreeSheet = false
 #endif
 
     var body: some View {
@@ -3603,6 +3604,13 @@ private struct StorySharePanel: View {
                 }
             }
         }
+#if os(macOS)
+        .sheet(isPresented: $newTreeSheet) {
+            StoryNewTreeSheet(workspace: workspace) { tree in
+                Task { await pickNewTree(tree) }
+            }
+        }
+#endif
         .sheet(item: $newGroup) { request in
             StoryNewGroupSheet(workspace: workspace, request: request) { tree in
                 guard case let .tracked(access) = presentation else { return }
@@ -3672,19 +3680,24 @@ private struct StorySharePanel: View {
     private func treeSection(_ access: NativeTreeAccessPresentation) -> some View {
         Section {
 #if os(macOS)
-            if moveDestinations.isEmpty {
+            if currentNode?.reference.path == "/" {
                 LabeledContent("This page is in", value: treeTitle(access.tree))
             } else {
                 Picker(moveTarget == nil ? "This page is in" : "Move this page to", selection: Binding(
                     get: { moveTarget?.id ?? access.tree },
-                    set: { id in pickMoveTarget(moveDestinations.first { $0.id == id }) }
+                    set: { id in
+                        if id == Self.newTreeTag { newTreeSheet = true }
+                        else { pickMoveTarget(moveDestinations.first { $0.id == id }) }
+                    }
                 )) {
                     Text(treeTitle(access.tree)).tag(access.tree)
-                    Divider()
+                    if !moveDestinations.isEmpty { Divider() }
                     ForEach(moveDestinations) { destination in
                         Text(destination.account.map { "\(destination.title)  ·  \($0)" } ?? destination.title)
                             .tag(destination.id)
                     }
+                    Divider()
+                    Text("New Tree…").tag(Self.newTreeTag)
                 }
                 .disabled(busy)
             }
@@ -3695,7 +3708,7 @@ private struct StorySharePanel: View {
             Text("Tree")
         } footer: {
 #if os(macOS)
-            if moveTarget == nil, !moveDestinations.isEmpty {
+            if moveTarget == nil, currentNode?.reference.path != "/" {
                 Text("Pick another tree to move the page there. A link stays in \(treeTitle(access.tree)).")
             }
 #endif
@@ -3703,6 +3716,19 @@ private struct StorySharePanel: View {
     }
 
 #if os(macOS)
+    private static let newTreeTag = "story-new-tree"
+
+    /// A tree just made from New Tree…: list it, then preview moving there.
+    private func pickNewTree(_ tree: String) async {
+        guard let currentNode else { return }
+        moveDestinations = await workspace.moveDestinations(for: currentNode)
+        if let destination = moveDestinations.first(where: { $0.id == tree }) {
+            pickMoveTarget(destination)
+        } else {
+            message = "The new tree isn't on this Mac yet. Open Share again in a moment to move the page there."
+        }
+    }
+
     private func pickMoveTarget(_ destination: StoryMoveDestination?) {
         moveTarget = destination
         moveTargetAccess = nil
@@ -4216,6 +4242,92 @@ private struct StorySharePanel: View {
 }
 
 #if os(macOS)
+/// New Tree… from the share sheet's tree menu: a name, the account it goes
+/// under, and who can see it. The tree starts empty in a new Documents folder.
+private struct StoryNewTreeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let workspace: StoryWorkspaceState
+    let created: (String) -> Void
+    @State private var name = ""
+    @State private var accounts: [StoryShareAccount] = []
+    @State private var accountID = ""
+    @State private var access = StoryTreeAccess.noAccess
+    @State private var loading = true
+    @State private var busy = false
+    @State private var message: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("New Tree")
+                .font(.title2.bold())
+                .padding(.horizontal)
+                .padding(.vertical, 12)
+            Divider()
+            Form {
+                if loading {
+                    ProgressView()
+                } else if accounts.isEmpty {
+                    Text("This Mac needs to be an administrator of a host account to make a tree.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    TextField("Name", text: $name)
+                    Picker("Account", selection: $accountID) {
+                        ForEach(accounts) { account in Text(account.destinationLabel).tag(account.id) }
+                    }
+                    Picker("Who can see it", selection: $access) {
+                        Text("Only people you add").tag(StoryTreeAccess.noAccess)
+                        Text("Everyone can view").tag(StoryTreeAccess.read)
+                        Text("Everyone can edit").tag(StoryTreeAccess.write)
+                    }
+                    if let address {
+                        LabeledContent("Address", value: address)
+                    }
+                }
+                if let message {
+                    Text(message).foregroundStyle(.red)
+                }
+            }
+            .formStyle(.grouped)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Create Tree") { Task { await create() } }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(busy || account == nil || StoryWorkspaceState.treeSlug(name).isEmpty)
+            }
+            .padding()
+        }
+        .frame(width: 440)
+        .task {
+            accounts = await workspace.newTreeAccounts()
+            accountID = accounts.first?.id ?? ""
+            loading = false
+        }
+    }
+
+    private var account: StoryShareAccount? { accounts.first { $0.id == accountID } }
+
+    private var address: String? {
+        let slug = StoryWorkspaceState.treeSlug(name)
+        guard let account, !slug.isEmpty else { return nil }
+        return account.accountURL + "/" + slug
+    }
+
+    private func create() async {
+        guard let account else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            let tree = try await workspace.createTree(named: name, account: account, publicAccess: access)
+            dismiss()
+            created(tree)
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+}
+
 /// Pushed from the Share panel: make an agent code for one tree and show it
 /// once, with how to use it. A macOS popover draws no navigation bar or
 /// toolbar items, so the page draws its own back button and actions.

@@ -626,27 +626,7 @@ final class StoryWorkspaceState {
             case .directory, .directoryDocument: physicalURL
             default: physicalURL.deletingLastPathComponent()
             }
-            if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
-            var accounts: [StoryShareAccount] = []
-            for account in localStorySyncOverview?.accounts ?? [] {
-                guard account.credentialAvailable,
-                      let origin = account.host,
-                      isLocalAccountAdministrator(account) else { continue }
-                accounts.append(StoryShareAccount(
-                    configurationTree: account.configurationTree,
-                    origin: origin,
-                    handle: account.handle
-                ))
-                // The account's placement accounts on other hosts; declaring a
-                // tree under a placement root needs an administrator device too.
-                do {
-                    accounts += try await accountService.placements(configurationTree: account.configurationTree)
-                        .map(StoryShareAccount.init(placement:))
-                } catch {
-                    Self.recordDiagnostic("placement-list", error)
-                }
-            }
-            return .promotable(path: folder.standardizedFileURL.path, accounts: accounts)
+            return .promotable(path: folder.standardizedFileURL.path, accounts: await newTreeAccounts())
         }
         return .tracked(try await loadLocalTreeAccess(tree: node.reference.tree.rawValue))
 #endif
@@ -1059,6 +1039,69 @@ final class StoryWorkspaceState {
             throw ProtocolValidationError.invalidValue("Enter a person or group Overstory URL, handle, or TreeID")
         }
         return try await accountClient(origin: remote.origin).resolve(path: remote.path).ref.tree
+    }
+
+    /// The accounts a new tree can go under: each host account this Mac
+    /// administers, and its placement accounts on other hosts.
+    func newTreeAccounts() async -> [StoryShareAccount] {
+        if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
+        var accounts: [StoryShareAccount] = []
+        for account in localStorySyncOverview?.accounts ?? [] {
+            guard account.credentialAvailable,
+                  let origin = account.host,
+                  isLocalAccountAdministrator(account) else { continue }
+            accounts.append(StoryShareAccount(
+                configurationTree: account.configurationTree,
+                origin: origin,
+                handle: account.handle
+            ))
+            // The account's placement accounts on other hosts; declaring a
+            // tree under a placement root needs an administrator device too.
+            do {
+                accounts += try await accountService.placements(configurationTree: account.configurationTree)
+                    .map(StoryShareAccount.init(placement:))
+            } catch {
+                Self.recordDiagnostic("placement-list", error)
+            }
+        }
+        return accounts
+    }
+
+    /// The URL slug a new tree named `name` is suggested at: lowercase words joined by hyphens.
+    static func treeSlug(_ name: String) -> String {
+        name.lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+
+    /// Make an empty tree named `name` in a new folder in Documents, at
+    /// `<account URL>/<slug>`, readable or writable by everyone when `publicAccess`
+    /// says so, and place it on this Mac. Returns its TreeID.
+    func createTree(named name: String, account: StoryShareAccount, publicAccess: StoryTreeAccess) async throws -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let slug = Self.treeSlug(trimmed)
+        guard !trimmed.isEmpty, !slug.isEmpty else {
+            throw ProtocolValidationError.invalidValue("Give the tree a name with at least one letter or number")
+        }
+        let folderName = trimmed.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        let folder = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: "Documents/\(folderName)", directoryHint: .isDirectory)
+        guard !FileManager.default.fileExists(atPath: folder.path) else {
+            throw ProtocolValidationError.invalidValue("Documents already has a folder named \(folderName). Pick another name.")
+        }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let rules = publicAccess == .noAccess ? [] : [AccountAccessRule(subject: .everyone, access: publicAccess.rawValue)]
+        do {
+            return try await declareAndPlaceNewTree(
+                folder: folder.standardizedFileURL.path,
+                account: account,
+                canonical: account.accountURL + "/" + slug,
+                rules: rules
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: folder)
+            throw error
+        }
     }
 
     func promoteLocalFolder(
