@@ -193,6 +193,15 @@ struct ChangeLogTests {
         #expect(created.update.trace?.count == 1 && created.update.trace?.first?.operations.count == 1)
         #expect(added.kind == "addEntry")
         #expect(added.fields["value"] == .object(["file": .string(ProtocolObjectCodec.hash(file))]))
+        // In a tree that holds pages, the created Markdown is a page entry.
+        var pageBytes = Data()
+        let pageEntry = ProtocolDirectoryEntry.markdown(name: String(f.createdPath.dropFirst()), bytes: file, pages: true) { pageBytes = $0; return ProtocolObjectCodec.hash($0) }
+        let pageHash = try #require(pageEntry.page)
+        let pageRoot = try ProtocolObjectCodec.encode(.directory([pageEntry] + entries))
+        let pageCandidate = ProtocolSnapshot(root: ProtocolObjectCodec.hash(pageRoot), objects: graph.objects.filter { $0.hash != graph.root } + [pageBytes, pageRoot].map { .init(hash: ProtocolObjectCodec.hash($0), bytes: $0) })
+        let createdPage = try LocalChange(change: "page-creation", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: pageCandidate,
+            creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: [f.createdPath]))
+        #expect(createdPage.update.trace?.first?.operations.first?.fields["value"] == .object(["page": .string(pageHash)]))
         #expect(throws: (any Error).self) {
             try LocalChange(change: "wrong", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: candidate,
                 creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: ["/elsewhere"]))
