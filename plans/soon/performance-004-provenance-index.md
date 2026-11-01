@@ -91,7 +91,7 @@ missing state with today's snapshot, skips unproved history or prunes it.
 
 ## Decisions (freeze first)
 
-1. **Where the index lives: beside history, not in it** (Joe, 2026-11-01). An
+1. **Where the index lives.** Recommended: beside history, not in it. An
    index is derived: replay over the same entry produces the same object. So it
    is a cache, not a fact of history. Store it beside the entry, keyed by the
    entry's hash and an index format version, and do not chain it into the entry's
@@ -133,9 +133,19 @@ missing state with today's snapshot, skips unproved history or prunes it.
    affected files. Compare roots, decisions, alternatives, contributions and evidence
    with full replay. Record which history records each question actually needed.
    If evaluation needs history the index cannot give cheaply, stop and bring the
-   measured limit to Joe before going further. Also measure what decisions 2 and 4
-   need: how often questions reach copy/move lineage and its cost each way, and
-   piece counts per file on the most-edited files.
+   measured limit to Joe before going further.
+
+   Before the spike, calculate, with a read-only script over a production copy of
+   accepted history, and write the numbers into this plan:
+   - pieces per file over time on the most-edited files (sets decision 4's chunk
+     size and how fast piece lists grow);
+   - index records and bytes written per accepted change, against the 100 ms
+     fast-forward target;
+   - total index size against today's object store;
+   - time to recompute every index by replay (what decision 1's "delete and
+     recompute" would cost);
+   - how often real questions reach copy/move lineage, what deriving it from
+     traces costs per question, and what storing it costs per entry (decision 2).
 2. **Shared piece module.** Move piece-edit computation for `editSource`,
    `moveSource` and `addEntry` into `@ovst/protocol` beside `checkPlainTrace`, and
    make the engine's exact-basis path call it. No behavior change; the existing
