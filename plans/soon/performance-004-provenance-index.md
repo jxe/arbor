@@ -12,6 +12,12 @@ states it needs instead of rebuilding them, and line provenance (History 006)
 reads the same index for exact blame. It replaces Performance 003, whose deployed
 first steps are in [status](../../status.md#historical-catch-up-improvements--2026-10-09).
 
+Evidence, 2026-11-01: after a redeploy, the first change to the Telocracy tree
+waited about 30 seconds: the sidecar's in-memory history was gone, and loading the
+saved state for 1 of 22 entries used its whole 10-second replay budget, so the host
+answered "retry to continue". Every deploy makes each tree's next change slow this
+way until this plan lands.
+
 ## Status
 
 - **Effort:** L
@@ -85,22 +91,39 @@ missing state with today's snapshot, skips unproved history or prunes it.
 
 ## Decisions (freeze first)
 
-1. **Where the index is named.** Recommended: a `provenance` field on the log entry,
-   hash-chained with it, so the sidecar finds it from the entry it already reads and
-   no question changes shape. Alternative: a private overstoryd column passed in each
-   question. Either way it is a sidecar contract change, recorded in
+1. **Where the index lives: beside history, not in it** (Joe, 2026-11-01). An
+   index is derived: replay over the same entry produces the same object. So it
+   is a cache, not a fact of history. Store it beside the entry, keyed by the
+   entry's hash and an index format version, and do not chain it into the entry's
+   hash. A wrong or outdated index can then be deleted and recomputed, and the
+   format can change later without touching accepted history (history is never
+   rewritten, so an index chained into it would make any format mistake
+   permanent). The sidecar finds it by the entry it already reads; the contract
+   change is only "an entry may have an index of version N", recorded in
    [writing a sidecar](../../docs/architecture/overstoryd/writing-a-sidecar.md) and
-   `@ovst/merge-protocol`.
-2. **What the index holds.** At minimum nodes and pieces. Whether `origins` (copy
-   and move lineage) belongs in it, or stays engine-derived from traces, follows from
-   step 1's spike.
-3. **Encoding.** The engine's persistent bucket layout, or a directory-shaped record
-   per folder mirroring the tree. Choose by write cost per fast-forward and lazy-read
-   cost per question.
-4. **Entries from before the index.** Recommended: no backfill migration. The
-   sidecar's first replay over an old entry writes its index, so coverage grows on
-   its own; an index computed by replay is the same object overstoryd would have
-   written.
+   `@ovst/merge-protocol`. What the entry's hash no longer covers is made up by
+   overstoryd's closure check on what the sidecar returns and by sampled
+   differential checks against replay (Verification).
+2. **What the index holds.** Nodes (path to node identity) and each file's pieces,
+   which is the engine's own model saved instead of rebuilt. Whether copy and move
+   lineage (`origins`) belongs in it is **decided by measurement, not up front**:
+   step 1 computes, on a production copy, how often questions need lineage, what
+   deriving it from traces costs per question, and what storing it costs per
+   entry (records written, bytes, and the effect on the 100 ms fast-forward
+   target). Put it in the index if deriving it would keep history length
+   mattering; otherwise leave it engine-derived.
+3. **Encoding: records shaped like the tree** (Joe, 2026-11-01). One record per
+   folder mirroring the directory, so an entry writes only the files it touched
+   and their ancestor folders, sharing everything else as roots do.
+4. **Long piece lists are chunked** (Joe, 2026-11-01). A file edited many times
+   fragments into many pieces, and a single record per file would be rewritten
+   whole on every edit. Split a file's piece list into content-defined chunks,
+   like collection `rows` (step 6), so an edit rewrites only the chunks it
+   touches. Step 1 measures piece counts on the most-edited real files to set the
+   chunk size.
+5. **Entries from before the index.** No backfill migration. The sidecar's first
+   replay over an old entry writes its index, so coverage grows on its own; an
+   index computed by replay is the same object overstoryd would have written.
 
 ## Steps
 
@@ -110,7 +133,9 @@ missing state with today's snapshot, skips unproved history or prunes it.
    affected files. Compare roots, decisions, alternatives, contributions and evidence
    with full replay. Record which history records each question actually needed.
    If evaluation needs history the index cannot give cheaply, stop and bring the
-   measured limit to Joe before going further.
+   measured limit to Joe before going further. Also measure what decisions 2 and 4
+   need: how often questions reach copy/move lineage and its cost each way, and
+   piece counts per file on the most-edited files.
 2. **Shared piece module.** Move piece-edit computation for `editSource`,
    `moveSource` and `addEntry` into `@ovst/protocol` beside `checkPlainTrace`, and
    make the engine's exact-basis path call it. No behavior change; the existing
@@ -147,7 +172,9 @@ missing state with today's snapshot, skips unproved history or prunes it.
 ## Verification
 
 - Differential: for every entry of a production copy, the index overstoryd or the
-  sidecar wrote equals the one full replay produces, and every question answered
+  sidecar wrote equals the one full replay produces. In production, recompute a
+  sample of indexes by replay and compare, since the entry's hash does not cover
+  them, and every question answered
   from indexes equals its full-replay answer. Cover source edits, moves and copies,
   snapshot barriers, delete/edit choices, root choices and guarded resolutions.
 - Extend `tests/unit/overstoryd-merge/history-differential.test.ts`,
