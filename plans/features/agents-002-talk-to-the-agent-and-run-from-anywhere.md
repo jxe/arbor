@@ -25,9 +25,10 @@ their own plans, for people and agents alike (Joe, 2026-10-30). Runs in history 
 ## What happens after Agents 001
 
 - Presence routes, the hub, `HostPresenceRunner`, and the agent peer with a status line.
-- Task blocks, and Run on the Mac with Claude Code in the placed folder, with a Story MCP
-  server (`status`, `done`), cursor following from the agent's streamed tool calls, an APFS
-  snapshot for Undo Run, and one run at a time per tree.
+- Any Claude Code session in a placed folder reports to Story Sync through `story agent
+  status|done|hook` (a skill, hooks and a permission installed as one plugin), and shows as an
+  agent peer. Run on the Mac has Story Sync start `claude -p` there, with an APFS snapshot for
+  Undo Run and one run at a time per tree.
 - No way for the agent to ask, no Run on the iPhone, and no Codex.
 
 ## Decisions
@@ -93,8 +94,10 @@ stream; a hidden stream asking to be a runner is refused. Then `bun run test:aff
 
 ## Phase 2: the agent asks
 
-- The Story MCP server gains `ask(text)`, which sets the question and blocks until an `answer`
-  message arrives or the run is stopped.
+- `story agent ask <text>` sets the question and blocks until an `answer` message arrives or
+  the run is stopped, then prints the answer. Check it against Claude Code's and Codex's
+  command timeouts; if waiting proves unreliable, this is the point to add the thin MCP
+  wrapper over Story Sync's routes (Agents 001, decision 17).
 - The agent's bubble grows a reply field when it has a question; Return sends `answer` to the
   agent stream. Stop sends `stop` from any of Joe's devices.
 - The skill says when to ask: before a change it can't undo cleanly, or when the task is
@@ -118,7 +121,9 @@ a runner stream on each placed tree costs the Mac and the host.
 
 ## Phase 4: Codex
 
-The same runner with `codex exec` and its JSON event stream, the same skill and MCP server. A
+The same runner with `codex exec`, the same skill and `story agent` commands. Codex's hooks are
+weaker than Claude Code's, so check what it can report; where it can't, Story Sync falls back
+to the files it sees change in the placed folder during the run. A
 Mac setting picks the agent; the presence label follows it.
 
 **Verification:** the fake-agent harness with Codex's event shape, then one real task by hand.

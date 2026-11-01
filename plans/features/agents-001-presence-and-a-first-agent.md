@@ -33,9 +33,9 @@ needs.
 ## Status
 
 - **Effort:** M for presence (phases 1 to 5), as Live 001 estimated; S to M for task blocks
-  and the runner (6 and 7).
+  and the runner (6 to 8).
 - **Risk:** LOW for phases 1 and 2: a new route, in memory, with nothing persisted. MEDIUM for
-  phase 4, the first time Story shows another person inside the editor, and for phase 7, the
+  phase 4, the first time Story shows another person inside the editor, and for phase 8, the
   first time Story starts a process that edits Joe's files.
 - **Progress:** TODO
 - **Written against:** `776b64d`
@@ -153,11 +153,17 @@ Agents (Joe, 2026-10-30, except where marked as a recommendation):
     (Recommendation for the syntax: it reads as an ordinary quote anywhere that doesn't know
     it, and Claude Code reading the raw file sees the task in place.)
 13. **Tasks run only from a Run button**, never automatically. In this plan, Run is on the Mac.
-14. **The runner is Joe's own Claude Code**, started headless by Story on the Mac in the
-    tree's placed folder, with his own sign-in. Story never holds a model API key.
+14. **The runner is Joe's own Claude Code**, started headless by Story Sync on the Mac in the
+    tree's placed folder, with his own sign-in. Story never holds a model API key. Story Sync
+    runs it, not the app, so it works with the Story window closed. (Joe, 2026-10-31.)
 15. **When a run finishes, its task block is removed.** History will be the archive
     (Agents 003).
 16. **Edits land directly.** Suggestions are [Editor 003](editor-003-suggestions.md).
+17. **Any agent session in a placed folder is visible, not only runs.** An agent reports to
+    Story Sync through the `story` command (`story agent status|done|hook`), taught by a
+    skill and wired by hooks, all installed together. A run started by Run is the same thing
+    plus task bookkeeping. No MCP server at first; add a thin one only if command timeouts
+    or models fumbling the commands turn out to matter. (Joe, 2026-11-01.)
 
 ## The contract (what phase 1 writes)
 
@@ -341,47 +347,69 @@ being backgrounded and rejoins on return.
 headings and lists, and next to ordinary quotes. By hand on the iPhone: dictate a task and see
 it on the Mac after sync.
 
-## Phase 7: run a task on the Mac
+## Phase 7: agents report to Story Sync
 
-This is CLI 004's work, with Story as the caller.
+This is CLI 004's work: any Claude Code session in a placed folder shows up as an agent.
 
 - **Readiness and publication.** Check whether `story sync status --json` shows that a local
   edit reached the host. If not, add `story sync status --wait [--timeout <s>]` (exit 0 when
-  every in-scope tree is up to date, non-zero with the condition if one is held). The runner
-  waits for readiness before starting and for publication before finishing.
-- **The skill**, written so Codex can use it later (CLI 004 step 2): check `story sync status`
-  first; resolve a locator before assuming its tree or writability; edit only the placed
-  folder; keep frontmatter `id:` values and links; treat a held tree as a stop; keep to the
-  task's section unless the task says otherwise; report what you are doing with the `status`
-  tool. It is also installable on its own, so Joe's own Claude Code sessions follow it.
-- **Starting a run.** On Run, Story finds the tree's placed folder from `placements.yaml`
-  (no placement on this Mac: Run explains that). It snapshots the folder with an APFS clone
-  (`cp -c -R`, without `.state`), opens an agent presence stream on the tree, and starts
-  `claude -p` in the placed folder with streaming JSON output, edit permission only, no shell
-  beyond `story` read commands, the skill as appended system prompt, and a Story MCP server.
-  The prompt names the page's path, the section the task sits in, and the task text.
-- **The Story MCP server** is a small stdio process the app ships, connected back to the app.
-  Its tools: `status(text)` sets the presence status; `done(result)` sets the final line.
-- **Following the agent.** Story reads the agent's streamed tool calls. A read of a file in the
-  folder moves the agent's page there. An edit moves its cursor to the edited block: Story
-  hashes the file's new bytes for `source` and finds the replaced range. Paths map to logical
-  paths through the placement. Status falls back to the tool in use ("Reading Groceries")
-  when the agent hasn't set one.
-- **Finishing.** When the agent exits, Story removes the task block from the page file
+  every in-scope tree is up to date, non-zero with the condition if one is held).
+- **Story Sync's agent routes** on its loopback API: a session starts (on its first report)
+  with an agent presence stream on its tree, takes status, done and hook reports, and ends
+  when the agent says done, its process exits, or it goes quiet for a few minutes. Story Sync
+  holds the host credential, so it opens the presence stream itself.
+- **`story agent status <text>`**, **`story agent done <result>`** and **`story agent hook`**
+  (reads a hook's JSON on stdin). A session is named by `STORY_AGENT_SESSION` when the runner
+  set it, otherwise by the session ID in the hook payload; the commands find the tree from
+  the working directory, and do nothing outside a placed folder. These are lasting commands,
+  not one-offs, so they belong in the CLI.
+- **Following the agent.** Claude Code's `PostToolUse` hooks (Read, Edit, Write) call
+  `story agent hook`. A read moves the agent's page to that file; an edit moves its cursor to
+  the edited range: Story Sync hashes the file's new bytes for `source` and finds the replaced
+  range. Paths map to logical paths through the placement. Status falls back to the tool in
+  use ("Reading Groceries") when the agent hasn't set one.
+- **The skill** (CLI 004 step 2), written so Codex can use it later: check
+  `story sync status` first; resolve a locator before assuming its tree or writability; edit
+  only the placed folder; keep frontmatter `id:` values and links; treat a held tree as a stop;
+  keep to a task's section unless the task says otherwise; say what you are doing with
+  `story agent status`, and finish with `story agent done`.
+- **`story agent install`** puts the skill, the hooks and a permission for
+  `Bash(story agent:*)` into Joe's user-level Claude Code settings, packaged as one Claude
+  Code plugin so it can be updated or removed as a unit. Nothing goes into the tree.
+  `story agent uninstall` removes it.
+
+**Verification:** tests of the routes and commands with recorded hook payloads: page and cursor
+mapping, status, done, a quiet session ending, and commands outside a placed folder doing
+nothing. By hand with Joe (CLI 004 step 3): an interactive Claude Code session in a placed
+folder, from outside the checkout, doing a research task over two placed trees and one edit,
+watched in Story on the Mac and iPhone.
+
+## Phase 8: run a task from the Mac
+
+- **Run** in the app calls Story Sync's loopback (`POST` a run: tree, page, task range).
+- **Starting a run.** Story Sync finds the tree's placed folder from `placements.yaml` (no
+  placement on this Mac: Run explains that). It snapshots the folder with an APFS clone
+  (`cp -c -R`, without `.state`), waits for readiness, and starts `claude -p` in the placed
+  folder with `STORY_AGENT_SESSION` set, edit permission plus `story agent` and `story` read
+  commands only, and the installed plugin (installing it for the run if Joe hasn't). The
+  prompt names the page's path, the section the task sits in, and the task text.
+- **Finding `claude`.** Story Sync runs under launchd without Joe's shell PATH, so it looks in
+  the usual install locations and takes an explicit path from a setting; Run says so if it
+  can't find one.
+- **Finishing.** When the agent exits, Story Sync removes the task block from the page file
   (matching its text in its section; nothing to do if the agent already removed it), waits for
   publication, shows the result for a few seconds, and closes the agent stream. On failure,
-  the task block stays and the bubble shows why. A **Stop** button on the Mac ends the run.
+  the task block stays and the bubble shows why. A **Stop** button ends the run.
 - **Undo Run, for now.** The snapshot is kept until the next run on that tree, or a day. Undo
   Run restores every file the run changed whose content is still what the run left; files
   changed since are listed and left alone. Agents 003 replaces this with history.
 - **One run at a time per tree**; a second Run waits in line.
-- `docs/architecture/story-browser/agent-runner.md` describes the runner, the MCP server and
-  the snapshot.
+- `docs/architecture/story-sync/agents.md` describes the routes, the commands, the plugin,
+  runs and the snapshot.
 
-**Verification:** a harness with a fake agent (a script that emits the same streaming JSON and
-edits files) covers cursor mapping, status, finishing, failure, Stop and Undo Run. By hand
-with Joe (CLI 004 step 3): from outside the checkout, a research task over two placed trees and
-one edit, then a real task on a day plan, watched from the iPhone.
+**Verification:** a harness with a fake `claude` (a script that calls the hooks and `story
+agent` commands and edits files) covers a run end to end, failure, Stop and Undo Run. By hand
+with Joe: a real task on a day plan, started on the Mac and watched from the iPhone.
 
 ## Not in this plan
 
@@ -405,7 +433,7 @@ one edit, then a real task on a day plan, watched from the iPhone.
    the text around `head` (as in W3C Web Annotation's `TextQuoteSelector`) at about 60 bytes
    more per update. Decide from phase 4's hands-on use.
 2. **Concurrent editing.** Joe typing on a page while the agent edits the same page goes
-   through the host's merge, which handles prose well. Watch phase 7's hands-on use for
+   through the host's merge, which handles prose well. Watch phase 8's hands-on use for
    conflicts before adding any locking.
 
 ## Close out
