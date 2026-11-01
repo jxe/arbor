@@ -3145,6 +3145,11 @@ struct StoryRootView: View {
             // A finished task stays checked off; its check unticks it, like a to-do.
             isDone: { StoryAgentTask.isDone($0) },
             toggle: { StoryAgentTask.toggled($0) },
+            detail: { block in
+                StoryAgentTask.task(in: block).map {
+                    AnyView(StoryAgentTaskDetail(workspace: workspace, reference: node.reference, task: $0, done: StoryAgentTask.isDone(block)))
+                }
+            },
             trailing: { block in
                 if let task = StoryAgentTask.task(in: block) {
                     StoryAgentTaskControl(workspace: workspace, reference: node.reference, task: task, done: StoryAgentTask.isDone(block))

@@ -147,6 +147,26 @@ struct StoryOutdatedSyncWarning: View {
 }
 #endif
 
+/// The line under an agent task's text: the finished run's result on a done
+/// task, or why the last Run didn't start.
+struct StoryAgentTaskDetail: View {
+    let workspace: StoryWorkspaceState
+    let reference: WorkspaceReference
+    let task: String
+    let done: Bool
+
+    var body: some View {
+#if os(macOS)
+        let run = workspace.agentRun(task: task, on: reference)
+        if done, let run, run.state == .finished, let result = run.result {
+            Text(result).font(.caption).foregroundStyle(.secondary).lineLimit(2).help(result)
+        } else if !done, let error = workspace.agentRunError(task: task, on: reference) {
+            Label(error, systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        }
+#endif
+    }
+}
+
 /// The control at the end of an agent task callout (Agents 001 phase 6):
 /// Run on the Mac, then a spinner with Stop, then Run Again on failure. A
 /// finished run checks its task off; the done task shows the run's result and
@@ -162,11 +182,9 @@ struct StoryAgentTaskControl: View {
         let run = workspace.agentRun(task: task, on: reference)
         HStack(spacing: 6) {
             if done {
-                if let run, run.state == .finished {
-                    if let result = run.result {
-                        Text(result).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    }
-                    if run.undoable { Button("Undo Run") { Task { await workspace.undoAgentRun(run) } } }
+                // The result is the callout's detail line, under the text (`StoryAgentTaskDetail`).
+                if let run, run.state == .finished, run.undoable {
+                    Button("Undo Run") { Task { await workspace.undoAgentRun(run) } }
                 }
             } else {
                 switch run?.state {
@@ -178,10 +196,6 @@ struct StoryAgentTaskControl: View {
                         .help(run?.result ?? "The run did not finish")
                     Button("Run Again") { Task { await workspace.runAgentTask(task, on: reference) } }
                 case .finished?, .undone?, nil:
-                    if let error = workspace.agentRunError(task: task, on: reference) {
-                        Image(systemName: "exclamationmark.circle").foregroundStyle(.red)
-                        Text(error).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    }
                     Button {
                         Task { await workspace.runAgentTask(task, on: reference) }
                     } label: {
