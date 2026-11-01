@@ -3524,13 +3524,13 @@ private struct StorySharePanel: View {
     /// Whether the pushed agent page shows a created code, which needs more height.
     @State private var agentPageShowsCode = false
     @State private var revokingAgent: StoryCloudBundleRecord?
+#endif
+    @State private var newTreeSheet = false
     /// Trees this page could move to, and the one picked, whose access the sheet previews.
     @State private var moveDestinations: [StoryMoveDestination] = []
     @State private var moveTarget: StoryMoveDestination?
     @State private var moveTargetAccess: NativeTreeAccessPresentation?
     @State private var movePreview: StoryPageMovePreview?
-    @State private var newTreeSheet = false
-#endif
     @State private var copiedURL = false
 
     var body: some View {
@@ -3549,15 +3549,11 @@ private struct StorySharePanel: View {
                         switch presentation {
                         case .tracked(let access):
                             treeSection(access)
-#if os(macOS)
                             if let moveTarget {
                                 movePreviewSections(moveTarget, from: access)
                             } else {
                                 trackedTree(access)
                             }
-#else
-                            trackedTree(access)
-#endif
                         case .promotable(let path, let accounts):
                             promotion(path: path, accounts: accounts)
                         }
@@ -3677,12 +3673,11 @@ private struct StorySharePanel: View {
         workspace.placedTreeTitle(tree) ?? "this tree"
     }
 
-    /// The tree this page is in. On the Mac, picking another tree previews moving the page there.
+    /// The tree this page is in. Picking another tree previews moving the page there.
     @ViewBuilder
     private func treeSection(_ access: NativeTreeAccessPresentation) -> some View {
         Section {
-#if os(macOS)
-            if currentNode?.reference.path == "/" {
+            if currentNode?.reference.path == "/" || (moveDestinations.isEmpty && !Self.offersNewTree) {
                 LabeledContent("This page is in", value: treeTitle(access.tree))
             } else {
                 Picker(moveTarget == nil ? "This page is in" : "Move this page to", selection: Binding(
@@ -3698,16 +3693,23 @@ private struct StorySharePanel: View {
                         Text(destination.account.map { "\(destination.title)  ·  \($0)" } ?? destination.title)
                             .tag(destination.id)
                     }
-                    Divider()
-                    Text("New Tree…").tag(Self.newTreeTag)
+                    if Self.offersNewTree {
+                        Divider()
+                        Text("New Tree…").tag(Self.newTreeTag)
+                    }
                 }
                 .disabled(busy)
             }
-#else
-            LabeledContent("This page is in", value: treeTitle(access.tree))
-#endif
         }
     }
+
+    private static let newTreeTag = "story-new-tree"
+    /// New Tree… is Mac-only for now: on the iPhone it needs an administrator device (Sharing 003).
+#if os(macOS)
+    private static let offersNewTree = true
+#else
+    private static let offersNewTree = false
+#endif
 
     /// A section heading a little larger than the form's default, with room above it.
     private func accessHeader(_ text: String) -> some View {
@@ -3718,8 +3720,6 @@ private struct StorySharePanel: View {
     }
 
 #if os(macOS)
-    private static let newTreeTag = "story-new-tree"
-
     /// A tree just made from New Tree…: list it, then preview moving there.
     private func pickNewTree(_ tree: String) async {
         guard let currentNode else { return }
@@ -3730,6 +3730,8 @@ private struct StorySharePanel: View {
             message = "The new tree isn't on this Mac yet. Open Share again in a moment to move the page there."
         }
     }
+
+#endif
 
     private func pickMoveTarget(_ destination: StoryMoveDestination?) {
         moveTarget = destination
@@ -3828,7 +3830,6 @@ private struct StorySharePanel: View {
             message = error.localizedDescription
         }
     }
-#endif
 
     @ViewBuilder
     private func trackedTree(_ access: NativeTreeAccessPresentation) -> some View {
@@ -4173,14 +4174,14 @@ private struct StorySharePanel: View {
             let value = try await workspace.sharePresentation(for: currentNode)
             presentation = value
             message = nil
-#if os(macOS)
             if case let .tracked(access) = value {
+#if os(macOS)
                 agentBundles = try workspace.agentBundles(tree: access.tree)
+#endif
                 if currentNode.reference.path != "/" {
                     moveDestinations = await workspace.moveDestinations(for: currentNode)
                 }
             }
-#endif
             if case let .promotable(path, accounts) = value, let first = accounts.first {
                 selectedAccountID = first.id
                 canonicalURL = suggestedCanonical(path: path, account: first)

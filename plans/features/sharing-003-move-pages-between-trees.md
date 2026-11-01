@@ -66,6 +66,8 @@ The share sheet's Tree section, the destination preview and Move are in `StorySh
 
 ## iPhone
 
+*Built on branch `claude/project-thread-eyd0mt` (2026-11-01, Joe: "build the iphone version on a branch"), steps 1–4 and 6; step 5 (New Tree… on the iPhone) not yet. Not tried on a device.*
+
 The iPhone opens one tree at a time, from a working tree the app keeps itself (`place(tree:from:configurationTree:)`, replicas under `StorySupportDirectories.workingTrees`); there is no Story Sync and no folder to write into. Its share sheet already reads a tree's access through `NativeAccountService`. So a move on the iPhone writes through a second working tree instead of a folder:
 
 1. **Destinations.** The iPhone's placed trees (`nativePlacements`) the account can write (`grantsWrite`), minus profiles and the People directory, grouped by account like the Mac. Trees known from the directory but not placed on the iPhone come later.

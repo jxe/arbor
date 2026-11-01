@@ -4099,13 +4099,15 @@ struct PickerTree: Identifiable, Hashable, Sendable {
 
 // MARK: Moving a page to another tree (Sharing 003)
 
-/// A tree a page can move to from the share sheet: placed on this Mac, writable,
+/// A tree a page can move to from the share sheet: placed on this device, writable,
 /// and an ordinary tree of pages.
 struct StoryMoveDestination: Identifiable, Hashable, Sendable {
     let id: String
     let title: String
     let account: String?
-    let folder: URL
+    /// The tree's folder on this Mac, where Story Sync publishes what is written.
+    /// Nil on the iPhone, which writes through the tree's own working tree.
+    let folder: URL?
 }
 
 /// What a move would carry and what it would leave pointing back.
@@ -4139,15 +4141,15 @@ extension StoryWorkspaceState {
 #endif
     }
 
-#if os(macOS)
-    /// The trees `node` could move to: placed on this Mac with a folder, writable, ordinary,
+    /// The trees `node` could move to: placed on this device, writable, ordinary,
     /// and not a profile or the People directory. Grouped by account like the sidebar's picker.
     func moveDestinations(for node: WorkspaceNode) async -> [StoryMoveDestination] {
+        let current = node.reference.tree.rawValue
+#if os(macOS)
         if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
         guard let overview = localStorySyncOverview else { return [] }
         let accounts = Dictionary(overview.accounts.map { ($0.configurationTree, $0) }, uniquingKeysWith: { first, _ in first })
-        let current = node.reference.tree.rawValue
-        return overview.trees.compactMap { tree -> StoryMoveDestination? in
+        let destinations = overview.trees.compactMap { tree -> StoryMoveDestination? in
             guard tree.id != current,
                   tree.kind == StoryTreeKind.ordinary,
                   tree.access == StoryTreeAccess.write.rawValue,
@@ -4159,7 +4161,21 @@ extension StoryWorkspaceState {
             return StoryMoveDestination(id: tree.id, title: tree.canonicalPath ?? tree.name, account: account,
                                         folder: URL(filePath: path, directoryHint: .isDirectory))
         }
-        .sorted { a, b in
+#else
+        if nativePlacements.isEmpty { nativePlacements = (try? await nativePlacementStore.loadAll()) ?? [] }
+        let destinations = nativePlacements.compactMap { record -> StoryMoveDestination? in
+            let tree = record.tree
+            guard tree.id != current,
+                  tree.kind == StoryTreeKind.ordinary,
+                  tree.grantsWrite,
+                  record.configurationTree != nil,
+                  !isOwnProfile(tree.id),
+                  tree.id != personalDirectoryTree?.tree.id else { return nil }
+            return StoryMoveDestination(id: tree.id, title: tree.canonicalPath ?? tree.id,
+                                        account: URL(string: record.origin.absoluteString)?.host(), folder: nil)
+        }
+#endif
+        return destinations.sorted { a, b in
             let accounts = (a.account ?? "").localizedStandardCompare(b.account ?? "")
             if accounts != .orderedSame { return accounts == .orderedAscending }
             return a.title.localizedStandardCompare(b.title) == .orderedAscending
@@ -4189,10 +4205,12 @@ extension StoryWorkspaceState {
         return StoryPageMovePreview(subpages: subpages, linksLeaving: titles)
     }
 
-    /// Move `node` and everything beneath it into `destination`'s folder, where
-    /// Story Sync publishes it, then point this tree's links at it, leave a link
-    /// in its parent, and put the old pages in this tree's Trash. Nothing in this
-    /// tree changes unless every file was written.
+    /// Move `node` and everything beneath it into `destination`, then point this
+    /// tree's links at it, leave a link in its parent, and put the old pages in this
+    /// tree's Trash. On the Mac the pages are written into the destination's folder,
+    /// where Story Sync publishes them; on the iPhone through the destination's own
+    /// working tree, which must publish them before anything here changes.
+    /// Returns the moved page's `overstory://` locator.
     @discardableResult
     func movePage(_ node: WorkspaceNode, to destination: StoryMoveDestination) async throws -> String {
         try await editorWorkspace.flushAll()
@@ -4201,30 +4219,10 @@ extension StoryWorkspaceState {
             throw WorkspaceProviderError.invalidAction("A tree's home page can't move to another tree")
         }
         let tree = root.reference.tree
-        let name = Self.availableName(Self.lastComponent(root.reference.path), in: destination.folder)
-        let move = CrossTreePageMove(sourceTree: tree.rawValue, sourceRoot: root.reference.path,
-                                     destinationTree: destination.id, destinationRoot: "/" + name)
         let entries = try await movedEntries(root)
 
-        // 1. Write every file into the destination folder.
-        var written: [URL] = []
-        do {
-            for entry in entries {
-                let (file, bytes): (String, Data) = switch entry {
-                case let .page(file, _, source, _):
-                    (file, Data(move.movedSource(source, sourceDirectory: Self.directory(of: file)).utf8))
-                case let .file(path, data): (path, data)
-                }
-                guard let target = move.destinationPath(of: file) else { continue }
-                let url = destination.folder.appending(path: String(target.dropFirst()))
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try bytes.write(to: url, options: .withoutOverwriting)
-                written.append(url)
-            }
-        } catch {
-            for url in written { try? FileManager.default.removeItem(at: url) }
-            throw error
-        }
+        // 1. Write everything into the destination; nothing here changes if this fails.
+        let move = try await writeMovedEntries(entries, root: root, to: destination)
 
         // 2. Point this tree's links at the moved pages, and leave a link in the parent.
         var sources: [WorkspaceReference] = []
@@ -4245,10 +4243,12 @@ extension StoryWorkspaceState {
 
     private enum MovedEntry {
         case page(file: String, path: String, source: String, title: String)
+        /// A folder with no page of its own, such as `Assets`.
+        case directory(path: String)
         case file(path: String, data: Data)
     }
 
-    /// The pages and files at and beneath `root`, read through the provider.
+    /// The pages, folders and files at and beneath `root`, parents first, read through the provider.
     private func movedEntries(_ root: WorkspaceNode) async throws -> [MovedEntry] {
         var entries: [MovedEntry] = []
         var queue = [root]
@@ -4262,9 +4262,12 @@ extension StoryWorkspaceState {
             case let .directoryDocument(source, _, stored):
                 if let body = node.markdownBody ?? (stored ? .index : nil) {
                     entries.append(.page(file: markdownLinkFile(nodePath: path, body: body), path: path, source: source, title: node.title))
+                } else {
+                    entries.append(.directory(path: path))
                 }
                 queue += try await provider.children(of: node.reference)
             case .directory:
+                entries.append(.directory(path: path))
                 queue += try await provider.children(of: node.reference)
             case .file:
                 entries.append(.file(path: path, data: try await provider.readFile(node.reference)))
@@ -4276,6 +4279,137 @@ extension StoryWorkspaceState {
         }
         return entries
     }
+
+#if os(macOS)
+    /// Write the moved entries into the destination's folder, where Story Sync publishes them.
+    private func writeMovedEntries(_ entries: [MovedEntry], root: WorkspaceNode, to destination: StoryMoveDestination) async throws -> CrossTreePageMove {
+        guard let folder = destination.folder else {
+            throw ProtocolValidationError.invalidValue("\(destination.title) is not placed in a folder on this Mac")
+        }
+        let name = Self.availableName(Self.lastComponent(root.reference.path), in: folder)
+        let move = CrossTreePageMove(sourceTree: root.reference.tree.rawValue, sourceRoot: root.reference.path,
+                                     destinationTree: destination.id, destinationRoot: "/" + name)
+        var written: [URL] = []
+        do {
+            for entry in entries {
+                let file: String, bytes: Data
+                switch entry {
+                case let .page(path, _, source, _):
+                    (file, bytes) = (path, Data(move.movedSource(source, sourceDirectory: Self.directory(of: path)).utf8))
+                case let .file(path, data):
+                    (file, bytes) = (path, data)
+                case .directory:
+                    continue
+                }
+                guard let target = move.destinationPath(of: file) else { continue }
+                let url = folder.appending(path: String(target.dropFirst()))
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try bytes.write(to: url, options: .withoutOverwriting)
+                written.append(url)
+            }
+        } catch {
+            for url in written { try? FileManager.default.removeItem(at: url) }
+            throw error
+        }
+        return move
+    }
+
+    /// `name`, or `name-2`, `name-3`… so that neither `name.md` nor a `name` folder exists in `folder`.
+    private static func availableName(_ name: String, in folder: URL) -> String {
+        func taken(_ candidate: String) -> Bool {
+            FileManager.default.fileExists(atPath: folder.appending(path: candidate + ".md").path)
+                || FileManager.default.fileExists(atPath: folder.appending(path: candidate).path)
+        }
+        var candidate = name
+        var counter = 2
+        while taken(candidate) { candidate = "\(name)-\(counter)"; counter += 1 }
+        return candidate
+    }
+#else
+    /// Write the moved entries through the destination's own working tree, opened beside
+    /// the visible one, and publish them. Throws, leaving this tree alone, unless the
+    /// host accepted every page.
+    private func writeMovedEntries(_ entries: [MovedEntry], root: WorkspaceNode, to destination: StoryMoveDestination) async throws -> CrossTreePageMove {
+        guard nativeTransportAvailable else {
+            throw ProtocolValidationError.invalidValue("Connect to the internet to move pages between trees")
+        }
+        guard let record = nativePlacements.first(where: { $0.tree.id == destination.id }) else {
+            throw ProtocolValidationError.invalidValue("\(destination.title) is not placed on this iPhone")
+        }
+        let (coordinator, target) = try await openBackgroundTree(record)
+        defer { Task { await coordinator.close() } }
+        // Start from the host's latest, so the new pages land on what is there now.
+        _ = try await coordinator.syncOnce()
+        let destinationTree = TreeID(rawValue: destination.id)
+        var name = Self.lastComponent(root.reference.path)
+        var counter = 2
+        while (try? await target.resolve(WorkspaceReference(tree: destinationTree, path: "/" + name))) != nil {
+            name = "\(Self.lastComponent(root.reference.path))-\(counter)"
+            counter += 1
+        }
+        let move = CrossTreePageMove(sourceTree: root.reference.tree.rawValue, sourceRoot: root.reference.path,
+                                     destinationTree: destination.id, destinationRoot: "/" + name)
+        for entry in entries {
+            switch entry {
+            case let .page(file, path, source, _):
+                guard let created = move.destinationPath(of: path) else { continue }
+                let parent = WorkspaceReference(tree: destinationTree, path: Self.directory(of: created))
+                _ = try await target.perform(.createMarkdown(parent: parent, name: Self.lastComponent(created),
+                                                             source: move.movedSource(source, sourceDirectory: Self.directory(of: file))))
+            case let .directory(path):
+                guard let created = move.destinationPath(of: path),
+                      (try? await target.resolve(WorkspaceReference(tree: destinationTree, path: created))) == nil else { continue }
+                let parent = WorkspaceReference(tree: destinationTree, path: Self.directory(of: created))
+                _ = try await target.perform(.createDirectory(parent: parent, name: Self.lastComponent(created)))
+            case let .file(path, data):
+                guard let created = move.destinationPath(of: path) else { continue }
+                let parent = WorkspaceReference(tree: destinationTree, path: Self.directory(of: created))
+                _ = try await target.importFile(name: Self.lastComponent(created), bytes: data, in: parent)
+            }
+        }
+        let result = try await coordinator.syncOnce()
+        guard result.state == .current, !result.localAdditions else {
+            throw ProtocolValidationError.invalidValue(
+                "\(destination.title) hasn't accepted the moved pages yet (\(result.detail ?? "still sending")). Nothing was removed from this tree; open \(destination.title) to check before trying again.")
+        }
+        return move
+    }
+
+    /// A placed tree's working tree and update coordinator, opened without
+    /// replacing the visible tree. The caller closes the coordinator.
+    private func openBackgroundTree(_ record: NativePlacementRecord) async throws -> (UpdateCoordinator, WorkingTreeProvider) {
+        guard let configurationTree = record.configurationTree else {
+            throw ProtocolValidationError.invalidValue("This tree's placement names no account; pair this device again")
+        }
+        let tree = record.tree
+        let store = KeychainDeviceCredentialStore()
+        let home = try await store.accounts().first { $0.configurationTree == configurationTree }
+        let placementOrigin = Self.placementOrigin(endpoint: record.origin.absoluteString, home: home?.origin.absoluteString)
+        let credentialProvider = placementOrigin.map {
+            AccountStoredCredentialProvider.shared(configurationTree: configurationTree, origin: $0, store: store)
+        } ?? AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: store)
+        let client = ProtocolClient(origin: record.origin, credentialProvider: credentialProvider, sessions: hostSessions)
+        let transport = ProtocolReplicaTransport(client: client)
+        let platform = HostObjectStore(client: client, tree: tree.id)
+        let key = StorySupportDirectories.workingTreeKey(tree.id)
+        let replicaRoot = StorySupportDirectories.workingTrees.appending(path: key, directoryHint: .isDirectory)
+        let syncStateRoot = StorySupportDirectories.root.appending(path: "Sync/\(key)", directoryHint: .isDirectory)
+        let workingTree = try await Self.openOrPlaceWorkingTree(
+            tree,
+            replicaRoot: replicaRoot,
+            syncStateRoot: syncStateRoot,
+            recoveryNames: (workingTree: "WorkingTree", sync: "Sync"),
+            transport: transport,
+            platform: platform
+        )
+        return try synchronizedProvider(
+            workingTree: workingTree,
+            transport: transport,
+            stateRoot: syncStateRoot,
+            platformObjectStore: workingTree
+        )
+    }
+#endif
 
     /// Rewrite `reference`'s links to moved pages; when `title` is given and the page does
     /// not link to the moved page, add a link to it at the end. Best effort, like link healing.
@@ -4311,17 +4445,4 @@ extension StoryWorkspaceState {
         let parts = file.split(separator: "/").dropLast()
         return parts.isEmpty ? "/" : "/" + parts.joined(separator: "/")
     }
-
-    /// `name`, or `name-2`, `name-3`… so that neither `name.md` nor a `name` folder exists in `folder`.
-    private static func availableName(_ name: String, in folder: URL) -> String {
-        func taken(_ candidate: String) -> Bool {
-            FileManager.default.fileExists(atPath: folder.appending(path: candidate + ".md").path)
-                || FileManager.default.fileExists(atPath: folder.appending(path: candidate).path)
-        }
-        var candidate = name
-        var counter = 2
-        while taken(candidate) { candidate = "\(name)-\(counter)"; counter += 1 }
-        return candidate
-    }
-#endif
 }
