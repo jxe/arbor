@@ -69,6 +69,7 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 | [authoring API](08-authoring-api.md) | The `overstory/react` and `overstory/data` packages, React Actions, hooks, and styling an executable document is written against |
 | [working-tree updates](09-client-synchronization.md), with [the update machine's runner](../implementing-sync-services/update-machine.md) | The update machine a working tree runs against Overstory: durable heads with their objects, sparse install entry, one self-contained prepared request in flight, one retained successor, validated apply, accepted conflicts as ordinary acceptance, and exact ambiguous recovery |
 | [schema language](11-schema-language.md) | Ultimate Schema Language (`.usl`): models, enums, connections and keys; the model, storage (`@`) and presentation (`~`) layers; default views; fingerprints; the relational layout; and limits |
+| [presence](12-presence.md) | Who else is in a tree: the roster, the page each person or agent is on, cursors between people on one page, and an agent's status; ephemeral, never part of a tree |
 
 The specification map does not report implementation progress. See
 [status.md](../../status.md) for that boundary and [`conformance/`](conformance) for
@@ -93,6 +94,7 @@ Every HTTP route an Overstory host exposes, and the section that defines it.
 | `GET /.overstory/trees/{TreeID}`, `/snapshots/{root}`, `/entry-metadata`, `/objects/{hash}` | [tree reads §1.1–1.2](01-tree-operations.md#1-reading-trees) |
 | `POST /.overstory/trees/{TreeID}/updates` | [updates §2.1](01-tree-operations.md#21-the-update-request) |
 | `GET /.overstory/trees/{TreeID}/watch` | [watching §1.1.3](01-tree-operations.md#113-watching) |
+| `GET /.overstory/trees/{TreeID}/presence`, `POST /.overstory/trees/{TreeID}/presence/{PresenceID}` | [presence §3](12-presence.md#3-routes) |
 | `QUERY /.overstory/trees/{TreeID}/queries` | [executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-named-queries) |
 | `POST /.overstory/trees/{TreeID}/mutate` | [executable documents §12.2](07-executable-documents.md#122-execute-named-mutations) |
 | `GET /.overstory/trees/{TreeID}/access` | [access control §4](05-access-control.md#4-reading-access) |

@@ -600,6 +600,11 @@ An agent is an executable document whose body is a prompt. It shares the
 no-ambient-authority rule, the consent statement, named handles, and mutation
 receipts defined above; this section adds only what is specific to agents.
 
+A person's own agent run by a client, such as a coding agent working in a
+placed folder, is not an agent in this sense: it edits as its person, through
+that person's placement, has no manifest, and appears to others through
+[presence](12-presence.md) as an agent of that person.
+
 ### 13.1 Agent files
 
 An agent is an ordinary Markdown document. Its body is the primary instruction/prompt; frontmatter declares configuration such as model policy, named tools, context roots or queries, and transcript destination. Model/provider-specific tuning may be present as optional namespaced metadata, but the portable agent remains readable without a proprietary database. The portable frontmatter key set is not yet defined ([deferred 6](README.md#deferred)).

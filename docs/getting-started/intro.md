@@ -280,7 +280,9 @@ Several other things fall out that the web has always struggled with:
 multiplayer often means adding operational transforms or CRDTs, presence
 servers, and conflict UX. Here, a component rendered over a shared Overstory tree
 can reuse the tree's synchronization and conflict semantics instead of
-inventing another data plane.
+inventing another data plane. The one ephemeral exception is
+[presence](../overstory-spec/12-presence.md), who is on which page right now,
+which a host relays and never keeps.
 
 **Per-app identity can be replaced.** The web makes you an account at every
 site, tracked by cookies and authenticated by passwords. Overstory instead grants

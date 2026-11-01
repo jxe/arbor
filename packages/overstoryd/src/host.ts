@@ -2,7 +2,7 @@ import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID } from "@ovst/protocol";
+import { decodePresenceAgentLabel, decodePresenceUpdate, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID } from "@ovst/protocol";
 import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { AccountChallenge, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeQueryResponse } from "./exec-routes.ts";
@@ -17,6 +17,7 @@ import {
   type StoredUpdateResponse,
 } from "./overstoryd.ts";
 import { handleOfPath } from "./profile.ts";
+import { PresenceBusy, PresenceHub, PresenceNotFound, PresenceRefused } from "./presence.ts";
 import { PhaseTimer, withPhaseTimer } from "./updates/timing.ts";
 import {
   decodeDerivableUpdateRequestJSON,
@@ -406,6 +407,7 @@ export async function serveHost(options: {
   const queryRuntime = options.queryRuntime ?? collections?.queryRuntime();
   const mutationRuntime = options.mutationRuntime ?? collections?.mutationRuntime();
   const onAuthorizationTick = authorizationTicker(overstoryd);
+  const presence = new PresenceHub();
   const pairingClaims = options.rateLimits ? new AttemptLimiter(10, 10 * 60 * 1000) : null;
   const challenges = options.rateLimits ? new AttemptLimiter(30, 10 * 60 * 1000) : null;
   const server = Bun.serve({
@@ -842,6 +844,94 @@ export async function serveHost(options: {
             return response;
           });
         }
+        const presenceRoute = /^\/\.overstory\/trees\/([^/]+)\/presence(?:\/([^/]+))?$/.exec(url.pathname);
+        if (presenceRoute && execution) return protocolError("permission-denied", "Presence is for people and their agents, not execution tokens", 403);
+        if (presenceRoute && !presenceRoute[2] && request.method === "GET") {
+          const { tree } = readableTree(presenceRoute[1]!);
+          const agentParameter = url.searchParams.get("agent");
+          let agent: string | null = null;
+          try { agent = agentParameter === null ? null : decodePresenceAgentLabel(agentParameter); }
+          catch (error) { return protocolError("invalid-request", error instanceof Error ? error.message : String(error), 400); }
+          if (agent !== null && !authentication) return protocolError("unauthenticated", "An agent's presence needs an account", 401);
+          const visible = url.searchParams.get("visible") !== "false";
+          let name: string | null = null;
+          if (authentication) {
+            try { name = overstoryd.profileCard(authentication.account.id).displayName ?? null; } catch { name = null; }
+          }
+          server.timeout(request, 0);
+          const encoder = new TextEncoder();
+          const readable = cachedAuthorization(overstoryd, () => {
+            const active = !authentication || overstoryd.authenticationIsActive(authentication);
+            return active && overstoryd.canRead(account, tree.id, link);
+          });
+          const authorized = (epoch?: string) => (!authentication || overstoryd.authenticationIsCurrent(authentication)) && readable(epoch);
+          let closed = false;
+          let wake: (() => void) | undefined;
+          let end = () => {};
+          let entryID: string | undefined;
+          return new Response(new ReadableStream<Uint8Array>({
+            start(controller) {
+              const joined = presence.join(tree.id, {
+                caller: authentication ? { account: authentication.account.id, device: authentication.device } : null,
+                visible, agent, name,
+                wake: () => { wake?.(); wake = undefined; },
+                close: () => end(),
+              });
+              entryID = joined.id;
+              const stopTicks = onAuthorizationTick((epoch) => { if (!authorized(epoch)) end(); });
+              const keepalive = setInterval(() => {
+                if (closed) return;
+                try { controller.enqueue(encoder.encode(": keepalive\n\n")); } catch { /* closing */ }
+              }, WATCH_KEEPALIVE_MS);
+              keepalive.unref?.();
+              const abort = () => end();
+              end = () => {
+                if (closed) return;
+                closed = true;
+                stopTicks(); clearInterval(keepalive);
+                request.signal.removeEventListener("abort", abort);
+                presence.leave(tree.id, joined.id);
+                wake?.(); wake = undefined;
+                try { controller.close(); } catch {}
+              };
+              request.signal.addEventListener("abort", abort, {once: true});
+              if (request.signal.aborted) return end();
+              controller.enqueue(encoder.encode(joined.ready));
+            },
+            async pull(controller) {
+              while (!closed) {
+                if (!authorized()) return end();
+                const frames = presence.take(tree.id, entryID!);
+                if (frames.length) { controller.enqueue(encoder.encode(frames.join(""))); return; }
+                await new Promise<void>(resolve => { wake = resolve; });
+              }
+            },
+            cancel() { end(); },
+          }), { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache" } });
+        }
+        if (presenceRoute && presenceRoute[2] && request.method === "POST") {
+          const { tree } = readableTree(presenceRoute[1]!);
+          // Only the caller that opened the stream may change it; anyone else
+          // is told it does not exist, so a presence ID is not a credential.
+          if (!authentication) return notFound("Presence entry not found");
+          const raw = new Uint8Array(await request.arrayBuffer());
+          if (raw.byteLength > PRESENCE_LIMITS.bodyBytes) return protocolError("invalid-request", "The presence update is too large", 413);
+          let update;
+          try { update = decodePresenceUpdate(JSON.parse(new TextDecoder().decode(raw))); }
+          catch (error) {
+            return protocolError("invalid-request", error instanceof PresenceDecodeError ? error.message : "The presence update must be a JSON object", 400);
+          }
+          try {
+            presence.update(tree.id, decodeURIComponent(presenceRoute[2]), { account: authentication.account.id, device: authentication.device }, update);
+          } catch (error) {
+            if (error instanceof PresenceNotFound) return notFound("Presence entry not found");
+            if (error instanceof PresenceRefused) return protocolError("invalid-request", error.message, 400);
+            if (error instanceof PresenceBusy) return protocolError("rate-limited", error.message, 429, true);
+            throw error;
+          }
+          return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+        }
+        if (presenceRoute) return methodNotAllowed();
         const watch = /^\/\.overstory\/trees\/([^/]+)\/watch$/.exec(url.pathname);
         if (watch && request.method === "GET") {
           const { tree, level: access } = readableTree(watch[1]!);

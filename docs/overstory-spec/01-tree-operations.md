@@ -1297,7 +1297,7 @@ freeze valid encodings and rejected byte sequences for every language binding.
 
 ### 4.2 Stream framing and errors
 
-Tree watch and query result streams use one UTF-8 SSE framing rule: blank lines
+Tree watch, query result and [presence](12-presence.md) streams use one UTF-8 SSE framing rule: blank lines
 separate frames, multiple `data:` lines join with newlines, and clients ignore
 comments and keepalives. A host sends a comment as soon as a watch opens and
 at least every 30 seconds while it is idle, with no request header to ask for

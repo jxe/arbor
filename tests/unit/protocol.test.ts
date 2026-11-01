@@ -6,7 +6,7 @@ import type {
   OverstoryError,
   WorkspaceEvent,
 } from "@ovst/protocol";
-import { applySourceEdits, canonicalOverstoryLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeUpdateConflictJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeProtocolDirectory, hashObject, updateRequestDigests } from "@ovst/protocol";
+import { applySourceEdits, canonicalOverstoryLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, decodePresenceEvent, PresenceDecodeError, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeUpdateConflictJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeProtocolDirectory, hashObject, updateRequestDigests } from "@ovst/protocol";
 import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@ovst/protocol";
 import { decodeCanonicalCBOR } from "@ovst/protocol";
 import type { StorySyncStatus, TreeBootstrap, TreeCredential } from "../../packages/cli/src/daemon-client.ts";
@@ -165,6 +165,24 @@ describe("REST v1 protocol fixtures", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  test("presence-events.sse frames decode, in order, with no id", async () => {
+    const source = await readFile(join(conformance, "presence-events.sse"), "utf8");
+    const frames = await Array.fromAsync(parseSSEStream(new Response(source).body!));
+    const events = frames.map((frame) => {
+      expect(frame.id).toBeUndefined();
+      return decodePresenceEvent(frame.event, JSON.parse(frame.data));
+    });
+    expect(events.map((event) => event.kind)).toEqual(["presence.ready", "presence.peer", "presence.cursor", "presence.peer", "presence.cursor", "presence.leave"]);
+    const agent = events[3]!;
+    expect(agent.kind === "presence.peer" && agent.peer.agent).toEqual({ label: "Claude", status: "merging duplicates" });
+  });
+
+  test("presence-events-invalid.json frames are rejected", async () => {
+    const { cases } = await conformanceJSON<{ cases: Array<{ name: string; event: string; data: unknown }> }>("presence-events-invalid.json");
+    expect(cases.length).toBeGreaterThan(0);
+    for (const item of cases) expect(() => decodePresenceEvent(item.event, item.data), item.name).toThrow(PresenceDecodeError);
   });
 
   test("protocol-values.json values decode and every invalid value is rejected", async () => {

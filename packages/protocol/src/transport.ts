@@ -11,6 +11,10 @@ import type {
 } from "./updates/types.ts";
 import {
   parseSSEStream,
+  decodePresenceEvent,
+  type PresenceEvent,
+  type PresenceID,
+  type PresenceUpdate,
   decodePublishedDeviceKeys,
   type SafeResourceAccessRule,
   type OverstoryError,
@@ -661,6 +665,58 @@ export class ProtocolClient {
         throw new Error("Malformed Overstory watch event: unsupported kind");
       }
     }
+  }
+
+  /**
+   * Join a tree's presence (spec 12): the roster, then peers' changes,
+   * cursors and departures. Being subscribed is being present; the stream
+   * starts over on reconnect. `agent` opens an agent's stream under the
+   * caller's profile; `visible: false` watches without being listed.
+   */
+  async *presence(tree: TreeID, options: { visible?: boolean; agent?: string; signal?: AbortSignal; onOpen?: () => void } = {}): AsyncGenerator<PresenceEvent> {
+    const query = new URLSearchParams();
+    if (options.visible === false) query.set("visible", "false");
+    if (options.agent !== undefined) query.set("agent", options.agent);
+    const search = query.size ? `?${query}` : "";
+    const idle = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expectBytes = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => idle.abort(), this.watchIdleTimeoutMs);
+      (timer as { unref?: () => void }).unref?.();
+    };
+    expectBytes();
+    try {
+      const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/presence${search}`, {
+        headers: { ...this.headers(), accept: "text/event-stream" },
+        signal: options.signal ? AbortSignal.any([options.signal, idle.signal]) : idle.signal,
+      }));
+      if (!response.body) throw new Error("Presence response has no body");
+      options.onOpen?.();
+      const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) { expectBytes(); controller.enqueue(chunk); },
+      }));
+      for await (const frame of parseSSEStream(body)) {
+        if (!frame.data) continue;
+        try { yield decodePresenceEvent(frame.event, JSON.parse(frame.data)); }
+        catch (error) { throw new Error(`Malformed Overstory presence event: ${error instanceof Error ? error.message : String(error)}`); }
+      }
+    } catch (error) {
+      if (idle.signal.aborted && !options.signal?.aborted) {
+        throw new ProtocolTransportError(`Presence from ${this.origin} went silent`, error);
+      }
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** Change this stream's page, selection or (an agent's) status. */
+  async updatePresence(tree: TreeID, id: PresenceID, update: PresenceUpdate): Promise<void> {
+    await this.checked(await this.request(
+      `/.overstory/trees/${encodeURIComponent(tree)}/presence/${encodeURIComponent(id)}`,
+      { method: "POST", headers: this.headers(true), body: JSON.stringify(update) },
+    ));
   }
 
   async object(tree: TreeID, hash: string): Promise<Uint8Array> {

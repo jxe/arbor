@@ -292,6 +292,8 @@ escape after revocation. Terminate or invalidate affected streams without
 revealing private details. Reconnect repeats authorization; a cursor is not a grant.
 A stream opened with a device session ends no later than the session expires,
 and when its device is deleted; the client reopens it with a fresh session.
+[Presence](12-presence.md) streams are admitted and kept the same way, and an
+entry is never disclosed outside what a subscriber may read.
 
 Hosts notify trusted runtimes of policy, device/session, and group-membership
 changes affecting active execution. A disconnected invalidation channel blocks

@@ -1,0 +1,115 @@
+# Presence
+
+Presence tells the readers of a tree who else is there: which page each
+person, or each person's agent, is on, and where their caret is when two of
+them share a page. It is the one deliberately ephemeral exception to
+"multiplayer state comes from the tree": presence is never part of a tree,
+its history, a watch or a snapshot, and a host keeps none of it across
+restarts. A reconnect starts over.
+
+## 1. Model
+
+A presence **entry** exists while its stream is open. Being subscribed is
+being present: opening the stream joins and closing it leaves. There is no
+heartbeat, time-to-live or resume cursor.
+
+```ts
+type PresenceID = string;   // opaque, unguessable, valid only for its stream
+
+/** `path` is the page's canonical node path, such as `/Groceries`. */
+type PresencePage = { path: LogicalPath; stableKey: string | null };
+
+/** UTF-8 byte offsets into the file object whose hash is `source`. */
+type PresenceSelection = { source: Hash; anchor: number; head: number };
+
+type PresenceAgent = {
+  label: string;           // the agent's name, at most 40 characters, one line
+  status: string | null;   // at most 140 characters, one line
+};
+
+type PresencePeer = {
+  id: PresenceID;
+  profile: TreeID;         // the person's profile, or the agent's person's
+  name: string | null;     // the host's display name for the profile, if it has one
+  page: PresencePage | null;
+  agent: PresenceAgent | null;   // null for a person
+};
+```
+
+1. **One roster per tree.** A subscriber sees every listed entry of the tree
+   and the page each is on.
+2. **Visible by default.** A device that asks not to be shown subscribes with
+   `visible=false`: it receives the roster but is not in it. A caller
+   authenticated only by an access link, or not at all, may subscribe if it may
+   read the tree, but is never listed.
+3. **Agents.** A stream opened with `agent=<label>` is an agent's entry, listed
+   under the caller's profile and always visible. Only an agent's entry has a
+   status. One person on two devices, or with several agents, appears once per
+   stream.
+4. **The host names people; clients colour them.** `name` is the display name
+   the host holds for the profile, or `null` (for example for a placement
+   account whose profile is homed elsewhere). A client derives a stable colour
+   from `profile`. A presence ID never reveals a device ID.
+
+## 2. Cursors
+
+A cursor is a byte range in a named source: the file object, by hash, that the
+sender is showing, which may be a local edit not yet accepted. A receiver
+showing the same object places it exactly. A receiver showing another version
+may approximate it within its own version, but must not present the
+approximation as exact; if it cannot map it, it does not show it.
+
+Cursors are reciprocal and page-local: a cursor event reaches only visible
+subscribers on the sender's page, and a hidden subscriber receives none. A
+client sends cursor updates only while the roster shows someone else on its
+page. Changing page clears the entry's selection; a receiver drops a peer's
+cursor when the peer's page changes.
+
+## 3. Routes
+
+```text
+GET  /.overstory/trees/{TreeID}/presence[?visible=false][&agent=<label>]
+POST /.overstory/trees/{TreeID}/presence/{PresenceID}
+```
+
+The GET is a stream with the shared framing
+([tree operations §4.2](01-tree-operations.md#42-stream-framing-and-errors)),
+with no `id` and no `after`. Its events, each `data` one JSON value:
+
+| `event` | `data` | Sent |
+| --- | --- | --- |
+| `presence.ready` | `{ self: PresenceID \| null; peers: PresencePeer[] }` | First, once. `self` is null when the subscriber is not listed; `peers` excludes it. |
+| `presence.peer` | `PresencePeer` | A listed entry joined, changed page, or (an agent) changed status. |
+| `presence.cursor` | `{ id: PresenceID; selection: PresenceSelection \| null }` | Per §2. |
+| `presence.leave` | `{ id: PresenceID }` | A listed entry's stream closed. |
+
+A client rejects any other event. An agent stream requires an account; an
+execution token may not open or change presence.
+
+The POST body is a JSON object with any of `page`, `selection` and `status`;
+an omitted member leaves its value unchanged, and an unknown member is
+refused. `status` is accepted only on an agent's entry. The POST is accepted
+only from the caller (account and device) that opened the stream, and only
+while it is open; any other request, including one naming a page the caller
+cannot read, is answered `404`, the same as a missing entry, so a presence ID
+is not a credential. Success is `204`.
+
+## 4. Access
+
+Presence streams are admitted and kept as watches are
+([access control §3.2](05-access-control.md#32-watches-and-revocation)): the
+caller must be able to read the tree, the stream ends when that stops, and
+an entry is never disclosed outside what a subscriber may read. Opening,
+changing and leaving an entry is not an update and changes nothing in the
+tree.
+
+## 5. Bounds
+
+- A client SHOULD send at most 4 cursor updates a second, coalescing to the
+  latest.
+- A host keeps only an entry's latest page, selection and status, and only
+  the latest pending event about each peer for each subscriber; a subscriber
+  that falls far behind MAY be closed, and starts over on reconnect.
+- A host MAY refuse a POST body over 1 KiB (`413`) and MAY answer `429` to a
+  stream that changes faster than it allows.
+- A selection's offsets are integers from 0 to 2³²−1.

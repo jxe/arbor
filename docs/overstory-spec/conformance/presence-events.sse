@@ -1,0 +1,22 @@
+: ready
+
+event: presence.ready
+data: {"self":"pr_me","peers":[{"id":"pr_ana","profile":"tr_anaprofile","name":"Ana","page":null,"agent":null}]}
+
+event: presence.peer
+data: {"id":"pr_ana","profile":"tr_anaprofile","name":"Ana","page":{"path":"/Groceries","stableKey":null},"agent":null}
+
+event: presence.cursor
+data: {"id":"pr_ana","selection":{"source":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","anchor":12,"head":20}}
+
+event: presence.peer
+data: {"id":"pr_agent","profile":"tr_anaprofile","name":"Ana","page":{"path":"/Groceries","stableKey":"id:groceries"},"agent":{"label":"Claude","status":"merging duplicates"}}
+
+event: presence.cursor
+data: {"id":"pr_ana","selection":null}
+
+event: presence.leave
+data: {"id":"pr_agent"}
+
+: keepalive
+

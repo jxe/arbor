@@ -8,7 +8,7 @@ handling separates decision, causal reconciliation, and transactional storage
 from rule computation. Accepted history is a chain of log entries in the
 object store; the [merge sidecar](merge-tool.md) answers one question about
 it when concurrent work must combine, and keeps whatever it caches in its own
-memory ([writing a sidecar](writing-a-sidecar.md)). overstoryd accepts plain
+memory ([writing a sidecar](writing-a-sidecar.md)). Who is in a tree right now is [presence](presence.md), kept in memory only. overstoryd accepts plain
 edits on the head itself, checks each answer's shape and objects, merges
 tree configurations itself, and owns acceptance. Table definitions, the schema stamp, and the startup schema
 assertion live in `schema.ts`; the [schema history](../../../packages/overstoryd/migrations/README.md#schema-history)
