@@ -34,6 +34,7 @@ export * from "./updates/transition-payload.ts";
 export * from "./updates/describe.ts";
 export * from "./updates/source-trace.ts";
 export * from "./updates/source-moves.ts";
+export * from "./updates/provenance.ts";
 export * from "./transport.ts";
 export type { AuthoredOperation as SourceOperation, AuthoredFrame as SourceTraceFrame, DerivableFrame, DerivableUpdateIntent, Material, MaterialRef, EntryDestination, ResolutionDeclaration, RowOperation, RowMember, PageOperation, PropertyOperation } from "./updates/authored-contract.ts";
 export { AuthoredContractError, decodeAuthoredCandidateIntent, decodeMaterialRef, isPageOperation, isPropertyOperation, isRowOperation, isStatedUpdate, ROW_OPERATION_KINDS, ROW_TIME } from "./updates/authored-contract.ts";
