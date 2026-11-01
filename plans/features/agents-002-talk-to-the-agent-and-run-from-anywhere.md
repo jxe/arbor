@@ -155,6 +155,14 @@ Mac setting picks the agent; the presence label follows it.
 checkout, and the change and the agent's presence reach a second client; by hand, Run on a
 cloud agent from the iPhone with the Mac asleep.
 
+## Phase 6: show work in progress, when the agent chooses (Joe, 2026-11-01)
+
+Since Agents 001, Story Sync holds a tree's publishing while an agent edits it: an edit tool's PreToolUse hook (or a Run's start) holds the folder in memory, and Stop, `done`, SessionEnd, the quiet timeout or the run's end lets go, so the work goes up as one change. Joe would like the text to sync while the agent works, at least sometimes, decided by the agent.
+
+- `story agent sync` publishes what the folder holds now and keeps the hold, so a long task can show its progress at a point where the page reads well.
+- The skill says when to use it: after each finished part of a long task, never mid-edit.
+- Open: whether a Run can ask for live syncing up front (e.g. a task block option), and whether the person's own edits during a held run need anything beyond the usual merge.
+
 ## Not in this plan
 
 - **A host-side runner** (perhaps beside the execution sidecar) that needs no cloud session of
