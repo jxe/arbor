@@ -25,8 +25,9 @@ way until this plan lands.
   two programs must agree exactly on piece semantics: if overstoryd's index ever
   differs from what the engine would have computed, later merges go wrong with no
   error.
-- **State:** Step 1 measured (2026-11-01, below); open choices settled as
-  decision 6; step 2 next
+- **State:** Step 1 measured and step 2's module built (2026-11-01, below,
+  on branch `claude/project-thread-uxhic5`); open choices settled as
+  decision 6
 - **Depends on:** nothing. History 006 should build on it (see below).
 
 ## What the engine keeps late
@@ -231,6 +232,26 @@ chunks of about 32 pieces):
   than the 20-second budget, so a cold rebuild of this tree on today's engine
   fails at update 6657. The index does not fix this.
 - 37% of asked questions reach lineage, but a typical question reads 7 records.
+
+**Step 2, first part (2026-11-01).** `packages/protocol/src/updates/provenance.ts`
+holds the index's piece semantics: `importProvenance`, `advanceProvenance`
+(a plain frame) and `rebindProvenance` (a snapshot or property trace). A piece
+is only `(origin, start, length)`; its bytes are the file's at that root.
+Hand-checked cases and language-neutral vectors
+(`docs/overstory-spec/conformance/provenance.json`) also check the engine
+reaches the same index. Over the production copy
+(`tests/performance/provenance/differential.ts`), the module's index equals the
+engine's on 8,947 of 8,954 fast-forwards. The other 7 are move-heavy entries
+the engine's replay could not follow, so it aligned to the root and lost the
+file's whole history to one snapshot piece; the module's pieces hold exactly
+the root's bytes in all 7. Rebuilt from the index and the log after the
+imported-choice fix, 597 of 604 questions answer as full history does, the
+other 7 differing only in contribution order.
+
+Remaining in step 2: the engine's own operation executor still computes
+pieces separately (`apply`); it moves onto the module when the engine reads
+the index (step 4), since the engine's pieces then lose `object`/`offset`.
+Until then the vectors' engine check and the differential guard agreement.
 
 ## Steps
 

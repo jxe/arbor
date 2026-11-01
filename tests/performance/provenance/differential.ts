@@ -9,7 +9,7 @@
  * takes the engine's index, as a sidecar answer would carry it. */
 import { join } from "node:path";
 import { ObjectStore } from "@ovst/object-store";
-import { advanceProvenance, importProvenance, isPropertyOperation, normalizePieces, rebindProvenance,
+import { advanceProvenance, decodeProtocolDirectory, decodeProtocolPage, importProvenance, isPropertyOperation, normalizePieces, rebindProvenance,
   stableJSONString, type ObjectHash, type ProvenanceNode } from "@ovst/protocol";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { sidecar } from "../../support/replay-check.ts";
@@ -29,9 +29,14 @@ const s = unbudgeted(sidecar(root)) as unknown as {
 const store = new ObjectStore(join(root, "objects"));
 const load = async (hash: ObjectHash) => (await store.find(hash)) ?? s.objects.read(hash);
 
+/** Where each origin's bytes are, as the engine's states place them:
+ * origin -> [object, offset - start]. Fed by every state the engine replays. */
+const located = new Map<string, [string, number]>();
 /** The index the engine's state implies. */
 function engineIndex(stateId: string): ProvenanceNode {
   const view = viewState(s.recorded.get(stateId)!);
+  for (const node of Object.values(view.nodes) as Node[])
+    for (const p of node.pieces ?? []) if (!located.has(p.origin)) located.set(p.origin, [p.object, p.offset - p.start]);
   const children = new Map<string, Node[]>();
   for (const node of Object.values(view.nodes) as Node[])
     if (node.active && node.parent !== null) { const l = children.get(node.parent) ?? []; l.push(node); children.set(node.parent, l); }
@@ -46,6 +51,42 @@ function engineIndex(stateId: string): ProvenanceNode {
   return visit(view.nodes[view.root] as Node);
 }
 const canonical = (node: ProvenanceNode): string => stableJSONString(node);
+/** Whether every text file of `index` that differs from `engine` holds, by
+ * its pieces, exactly the bytes `root` holds there. New origins of `trace`
+ * are its edit texts and added files. */
+async function bytesHold(index: ProvenanceNode, engine: ProvenanceNode, root: string, change: string,
+  trace: Array<{ operations: Array<Record<string, unknown>> }>): Promise<string | true> {
+  const texts = new Map<string, Uint8Array>();
+  for (const frame of trace) for (const op of frame.operations)
+    if (op.kind === "editSource") texts.set(JSON.stringify([change, op.key]), new TextEncoder().encode(op.text as string));
+  const pieceBytes = async (p: { origin: string; start: number; length: number }) => {
+    const text = texts.get(p.origin);
+    if (text) return text.subarray(p.start, p.start + p.length);
+    const at = located.get(p.origin);
+    if (!at) throw Error(`unlocated origin ${p.origin.slice(0, 80)}`);
+    let bytes = await load(at[0] as ObjectHash);
+    try { const page = decodeProtocolPage(bytes); if (page.body) bytes = page.body; } catch { /* a file */ }
+    return bytes.subarray(p.start + at[1], p.start + at[1] + p.length);
+  };
+  const visit = async (a: ProvenanceNode, b: ProvenanceNode | undefined, object: string, path: string): Promise<string | true> => {
+    if (b && canonical(a) === canonical(b)) return true;
+    if (a.kind === "directory") {
+      const entries = decodeProtocolDirectory(await load(object as ObjectHash)).entries;
+      for (const entry of entries) {
+        const child = a.entries[entry.name]; if (!child) return `${path}/${entry.name}: missing`;
+        const r = await visit(child, b?.kind === "directory" ? b.entries[entry.name] : undefined, (entry.file ?? entry.page ?? entry.directory ?? entry.tree)!, `${path}/${entry.name}`);
+        if (r !== true) return r;
+      }
+      return true;
+    }
+    if (a.kind === "tree") return true;
+    let expected = await load(object as ObjectHash);
+    if (a.kind === "page") expected = decodeProtocolPage(expected).body;
+    const got = Buffer.concat(await Promise.all(a.pieces.map(pieceBytes)));
+    return got.equals(Buffer.from(expected)) ? true : `${path}: bytes differ (${got.length} vs ${expected.length})`;
+  };
+  return visit(index, engine, root, "");
+}
 /** First differing path between two indexes. */
 function firstDifference(a: ProvenanceNode, b: ProvenanceNode, path = ""): string {
   if (a.kind !== b.kind) return `${path}: kind ${a.kind} vs ${b.kind}`;
@@ -89,7 +130,12 @@ for (const [i, { id, hash, entry }] of entries.slice(0, limit).entries()) {
   }
   if (mine) {
     if (canonical(mine) === canonical(engine)) bump(`${kind}:same`);
-    else { bump(`${kind}:differs`); if (examples.length < 30) examples.push(`${i} (${id}) ${kind}: ${firstDifference(mine, engine)}`); }
+    else {
+      bump(`${kind}:differs`);
+      const held = kind === "plain" ? await bytesHold(mine, engine, entry.root, entry.change, entry.trace as never).catch((e) => String(e)) : "not checked";
+      bump(`${kind}:differs:bytes ${held === true ? "right" : "wrong"}`);
+      if (examples.length < 30) examples.push(`${i} (${id}) ${kind}: module bytes ${held === true ? "right" : held}; ${firstDifference(mine, engine).slice(0, 300)}`);
+    }
   } else if (kind! === "asked") bump("asked");
   // Continue from the engine's index, as overstoryd would from an answer
   // (and so one difference does not cascade).
