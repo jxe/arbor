@@ -57,9 +57,10 @@ export function syncHandler(service: SyncHTTPService, options: {
       } catch {
         throw new ProtocolError("invalid-request", "An agent report must be a JSON object", 400);
       }
-      const unknown = Object.keys(body).filter((key) => !["session", "cwd", "agent", "status", "done", "hook"].includes(key));
+      const unknown = Object.keys(body).filter((key) => !["session", "cwd", "agent", "status", "at", "hold", "done", "hook"].includes(key));
       if (unknown.length) throw new ProtocolError("invalid-request", `Unknown agent report fields: ${unknown.join(", ")}`, 400);
-      for (const key of ["session", "agent", "status", "done"]) {
+      if (body.hold !== undefined && typeof body.hold !== "boolean") throw new ProtocolError("invalid-request", "hold must be a boolean", 400);
+      for (const key of ["session", "agent", "status", "at", "done"]) {
         if (body[key] !== undefined && typeof body[key] !== "string") throw new ProtocolError("invalid-request", `${key} must be a string`, 400);
       }
       if (typeof body.cwd !== "string" || !body.cwd.startsWith("/")) throw new ProtocolError("invalid-request", "cwd must be an absolute path", 400);

@@ -275,7 +275,8 @@ export class AgentRuns {
     }
     const pagePath = this.pageFile(folder, run.page);
     const source = pagePath ? await readFile(pagePath, "utf8").catch(() => null) : null;
-    const section = source ? findTaskBlock(source, run.task)?.section ?? null : null;
+    const found = source ? findTaskBlock(source, run.task) : null;
+    const section = found?.section ?? null;
     run.snapshotDirectory = join(this.host.stateDirectory, "agent-runs", run.id);
     await rm(run.snapshotDirectory, { recursive: true, force: true });
     await snapshot(folder, run.snapshotDirectory);
@@ -284,11 +285,15 @@ export class AgentRuns {
     // Held under the run's session, which the agent's own reports hold too.
     this.host.hold?.(run.tree, run.session);
 
-    const report = (body: { status?: string; done?: string; hook?: unknown }) =>
+    const report = (body: { status?: string; hold?: boolean; done?: string; hook?: unknown }) =>
       this.agents.report({ cwd: folder, session: run.session, agent: "Claude", ...body }).catch(() => null);
-    await report({ status: "Starting" });
+    // The session holds too, so it shows the page as others still see it.
+    await report({ status: "Starting", hold: true });
     // Show the agent at the task block from the start.
-    if (pagePath) await report({ hook: { hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: pagePath } } });
+    if (pagePath) {
+      const lines = found ? { offset: found.start + 1, limit: found.end - found.start } : {};
+      await report({ hook: { hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: pagePath, ...lines } } });
+    }
 
     const prompt = runPrompt(run, section);
     const args = this.options.argumentsFor?.(run, prompt, run.session) ?? [

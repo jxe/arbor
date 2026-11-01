@@ -96,6 +96,8 @@ describe("agent runs", () => {
     expect(hostCalls.indexOf("release tr_notes")).toBeLessThan(hostCalls.lastIndexOf("publish"));
     await Bun.sleep(30);
     expect(updates.some((update) => update.status === "Editing Groceries")).toBe(true);
+    // The agent starts at its task block, not wherever a whole-page read would put it.
+    expect(updates.find((update) => update.selection)!.selection).toMatchObject({ anchor: 13, head: 45 });
     expect(updates.at(-1)).toEqual({ status: "Merged the duplicate milk." });
 
     expect(await runs.undo(run.id)).toEqual({ restored: ["Groceries.md"], skipped: [] });

@@ -110,7 +110,7 @@ Agents
       Check those folders out and keep them syncing, for a harness that starts the agent itself.
   story agent finish [--root <directory>] [--timeout <duration>] [--json]
       Send what is left and stop.
-  story agent status <text>
+  story agent status <text> [--at <text on the page>]
   story agent done <text>
       From an agent in a placed folder: say what it is doing, or what it did; Story shows it beside the agent's cursor.
   story agent hook [--agent <label>]
@@ -1305,6 +1305,7 @@ function agentInstructions(root: string, placements: CloudSessionRecord["placeme
       ``,
       `People may be reading these pages in Story while you work; Story shows you to them as "${presence.label}".`,
       `- Say what you are doing, in a few words, whenever it changes: ${story} agent status "merging duplicates"`,
+      `- When you are weighing one part of a page, point at it: ${story} agent status "checking which are dairy" --at "oat milk"`,
       `- When you are done, say what you did in one line: ${story} agent done "Merged 3 duplicates"`,
       presence.hooks
         ? `- Claude Code's hooks for this are installed, so your reads and edits also move your place on the page.`
@@ -1795,10 +1796,16 @@ async function agentSyncClient(cwd: string): Promise<StorySyncRESTClient> {
 }
 
 async function agentTextCommand(kind: "status" | "done", operands: string[]): Promise<void> {
-  const text = operands.join(" ").trim();
+  let at: string | undefined;
+  const words: string[] = [];
+  for (let index = 0; index < operands.length; index += 1) {
+    if (kind === "status" && operands[index] === "--at" && operands[index + 1] !== undefined) at = operands[++index];
+    else words.push(operands[index]!);
+  }
+  const text = words.join(" ").trim();
   if (!text) usageError(`story agent ${kind} needs some text`);
   const cwd = process.cwd();
-  const result = await (await agentSyncClient(cwd)).agentReport(textReport(kind, text, cwd, process.env));
+  const result = await (await agentSyncClient(cwd)).agentReport(textReport(kind, text, cwd, process.env, at));
   if (!result) console.error("This folder is not placed, so Story shows nothing.");
 }
 

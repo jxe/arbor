@@ -126,14 +126,16 @@ export interface AgentReportBody {
   cwd: string;
   agent?: string;
   status?: string;
+  at?: string;
   done?: string;
   hook?: unknown;
 }
 
 /** The report for `story agent status|done <text>`, named by the runner's environment when it set one. */
-export function textReport(kind: "status" | "done", text: string, cwd: string, environment: NodeJS.ProcessEnv): AgentReportBody {
+export function textReport(kind: "status" | "done", text: string, cwd: string, environment: NodeJS.ProcessEnv, at?: string): AgentReportBody {
   return {
     cwd,
+    ...(at ? { at } : {}),
     ...(environment.STORY_AGENT_SESSION ? { session: environment.STORY_AGENT_SESSION } : {}),
     ...(environment.STORY_AGENT_LABEL ? { agent: environment.STORY_AGENT_LABEL } : {}),
     [kind]: text,

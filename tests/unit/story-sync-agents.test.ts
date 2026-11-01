@@ -88,6 +88,50 @@ describe("agent sessions", () => {
     expect(updates[1]!.update).toMatchObject({ selection: { anchor: 4, head: 8 }, status: "Reading Plan" });
   });
 
+  test("a whole page read leaves the agent where it is, or puts it at the top", async () => {
+    const file = join(root, "Plan.md");
+    await writeFile(file, "one\ntwo\nthree\n");
+    const read = (input: Record<string, unknown>) => sessions.report({ cwd: root, hook: { session_id: "s1", cwd: root, hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: file, ...input } } });
+    await read({});
+    await settle();
+    expect(updates[1]!.update).toMatchObject({ selection: { anchor: 0, head: 0 }, status: "Reading Plan" });
+    await read({ offset: 2, limit: 1 });
+    await settle();
+    await read({});
+    await settle();
+    expect(updates.at(-1)!.update).toEqual({ status: "Reading Plan" });
+    expect(updates.filter((update) => update.update.selection).at(-1)!.update).toMatchObject({ selection: { anchor: 4, head: 8 } });
+  });
+
+  test("held, the agent is placed in the page as others still see it, and --at points there", async () => {
+    const held: string[] = [];
+    const holding = new AgentSessions({
+      locate: async (path) => path.startsWith(root) ? { tree: "tr_notes", root, path: path.slice(root.length) || "/" } : null,
+      presence: async () => client,
+      hold: (_tree, holder) => { held.push(holder); },
+      release: async () => {},
+    }, { updateIntervalMs: 0, doneLingerMs: 0 });
+    try {
+      const file = join(root, "Groceries.md");
+      const before = new TextEncoder().encode("# Groceries\n\n- milk\n- milk\n- eggs\n");
+      const source = hashObject(before);
+      await writeFile(file, before);
+      const edit = { session_id: "s1", cwd: root, tool_name: "Edit", tool_input: { file_path: file, old_string: "- milk\n- milk", new_string: "- milk" } };
+      await holding.report({ cwd: root, hook: { ...edit, hook_event_name: "PreToolUse" } });
+      await writeFile(file, "# Groceries\n\n- milk\n- eggs\n");
+      await holding.report({ cwd: root, hook: { ...edit, hook_event_name: "PostToolUse" } });
+      await settle();
+      // The edited text as the page still reads: the old string, in the old bytes.
+      expect(updates.filter((update) => update.update.selection).at(-1)!.update).toMatchObject({ selection: { source, anchor: 13, head: 26 } });
+      await holding.report({ cwd: root, session: "s1", status: "checking the dairy", at: "eggs" });
+      await settle();
+      expect(updates.at(-1)!.update).toMatchObject({ selection: { source, anchor: 29, head: 33 } });
+      expect(updates.some((update) => update.update.status === "checking the dairy")).toBe(true);
+    } finally {
+      await holding[Symbol.asyncDispose]();
+    }
+  });
+
   test("done shows the result and then leaves", async () => {
     await sessions.report({ cwd: root, status: "working" });
     await sessions.report({ cwd: root, done: "Merged 3 duplicates" });

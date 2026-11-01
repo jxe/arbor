@@ -42,6 +42,10 @@ export interface AgentReport {
   /** The agent's name, such as "Claude". */
   agent?: string;
   status?: string;
+  /** Text on the agent's page to point at, as `story agent status --at` gives it. */
+  at?: string;
+  /** Hold the tree's publishing from now, as a run does before its agent starts. */
+  hold?: boolean;
   done?: string;
   hook?: unknown;
 }
@@ -77,6 +81,11 @@ interface Session {
   ended: boolean;
   /** Whether this session holds its tree's publishing. */
   holding: boolean;
+  /** The page it was last placed on, by logical path, and that page's file. */
+  page?: string;
+  pageFile?: string;
+  /** While holding: each file as it was before the agent's first edit, which is what others still see. */
+  before: Map<string, { bytes: Uint8Array; source: PresenceSelection["source"] }>;
 }
 
 /** The tools that change files: an agent using one holds its tree's publishing. */
@@ -156,7 +165,12 @@ export class AgentSessions {
     session.lastReport = Date.now();
     this.armQuiet(session);
 
+    if (report.hold && !session.holding && this.host.hold) {
+      session.holding = true;
+      this.host.hold(session.tree, session.key);
+    }
     if (report.status !== undefined) this.change(session, { status: oneLine(report.status, PRESENCE_LIMITS.statusCharacters) || null });
+    if (report.at) await this.pointAt(session, report.at);
     if (hook) await this.applyHook(session, hook);
     if (report.done !== undefined) {
       this.letGo(session);
@@ -204,7 +218,7 @@ export class AgentSessions {
     const self = new Promise<string | null>((resolve) => { ready = resolve; });
     const session: Session = {
       key, tree: location.tree, root: location.root, label: agent, abort, self, client,
-      pending: {}, lastSent: 0, lastReport: Date.now(), ended: false, holding: false,
+      pending: {}, lastSent: 0, lastReport: Date.now(), ended: false, holding: false, before: new Map(),
     };
     this.sessions.set(key, session);
     // Drain the stream for as long as the session lasts: the roster is not
@@ -233,34 +247,49 @@ export class AgentSessions {
     }
     const input = hook.tool_input ?? {};
     const file = typeof input.file_path === "string" ? input.file_path : typeof input.notebook_path === "string" ? input.notebook_path : undefined;
-    if (hook.tool_name && EDIT_TOOLS.has(hook.tool_name) && !session.holding && this.host.hold) {
-      session.holding = true;
-      this.host.hold(session.tree, session.key);
+    const absolute = file === undefined ? undefined : isAbsolute(file) ? file : resolve(session.root, file);
+    if (hook.tool_name && EDIT_TOOLS.has(hook.tool_name)) {
+      if (!session.holding && this.host.hold) {
+        session.holding = true;
+        this.host.hold(session.tree, session.key);
+      }
+      // Before the edit: keep the page as everyone else still sees it.
+      if (hook.hook_event_name === "PreToolUse" && absolute) await this.seen(session, absolute);
     }
     // Before an edit only the hold matters; where it lands shows after.
     if (hook.hook_event_name === "PreToolUse") return;
-    if (!file) {
+    if (!absolute) {
       if (hook.tool_name) this.change(session, { status: `Using ${oneLine(hook.tool_name, 40)}` });
       return;
     }
-    const absolute = isAbsolute(file) ? file : resolve(session.root, file);
     const location = await this.host.locate(absolute);
     // A file outside this session's tree moves nothing.
     if (!location || location.tree !== session.tree) return;
     const page: PresencePage = { path: location.path, stableKey: null };
-    let bytes: Uint8Array;
-    try { bytes = new Uint8Array(await readFile(absolute)); } catch { return this.change(session, { page }); }
-    const source = hashObject(bytes) as PresenceSelection["source"];
+    const shown = await this.seen(session, absolute);
+    if (!shown) return this.change(session, { page });
+    const { bytes, source } = shown;
     const tool = hook.tool_name ?? "";
     let range: { anchor: number; head: number } | null = null;
     let status: string;
     if (tool === "Read") {
-      range = lineRange(bytes, numberOf(input.offset), numberOf(input.limit));
+      const offset = numberOf(input.offset), limit = numberOf(input.limit);
       status = `Reading ${fileName(location.path)}`;
+      // A whole page read is no place on the page: the agent stays where it
+      // was (or arrives at the top), instead of selecting to the last block.
+      if (offset === undefined && limit === undefined) {
+        const samePage = session.page === location.path;
+        session.page = location.path;
+        session.pageFile = absolute;
+        return this.change(session, samePage ? {} : { page, selection: { source, anchor: 0, head: 0 } }, status);
+      }
+      range = lineRange(bytes, offset, limit);
     } else if (tool === "Edit" || tool === "MultiEdit") {
       const edits = tool === "MultiEdit" && Array.isArray(input.edits) ? input.edits as Array<Record<string, unknown>> : [input];
       const last = edits[edits.length - 1];
-      range = typeof last?.new_string === "string" ? textRange(bytes, last.new_string) : null;
+      // Held, the page others see still has the old text; otherwise the new.
+      const wanted = session.holding ? last?.old_string : last?.new_string;
+      range = typeof wanted === "string" ? textRange(bytes, wanted) : null;
       status = `Editing ${fileName(location.path)}`;
     } else if (tool === "Write") {
       range = { anchor: bytes.length, head: bytes.length };
@@ -268,8 +297,33 @@ export class AgentSessions {
     } else {
       status = `${oneLine(tool || "Working", 40)} ${fileName(location.path)}`;
     }
-    const selection: PresenceSelection | null = range ? { source, ...range } : null;
-    this.change(session, { page, selection }, status);
+    session.page = location.path;
+    session.pageFile = absolute;
+    // A place that can't be found leaves the caret where it was.
+    this.change(session, range ? { page, selection: { source, ...range } } : { page }, status);
+  }
+
+  /** Point at `text` on the session's page, as `story agent status --at` asks. */
+  private async pointAt(session: Session, text: string): Promise<void> {
+    if (!session.page || !session.pageFile) return;
+    const shown = await this.seen(session, session.pageFile);
+    const range = shown ? textRange(shown.bytes, text) : null;
+    if (shown && range) this.change(session, { page: { path: session.page, stableKey: null }, selection: { source: shown.source, ...range } });
+  }
+
+  /**
+   * A file's bytes as the people watching see them. While the session holds
+   * its tree they are the bytes from before its first edit, which is what
+   * the host still has; otherwise the file now.
+   */
+  private async seen(session: Session, absolute: string): Promise<{ bytes: Uint8Array; source: PresenceSelection["source"] } | null> {
+    const kept = session.holding ? session.before.get(absolute) : undefined;
+    if (kept) return kept;
+    let bytes: Uint8Array;
+    try { bytes = new Uint8Array(await readFile(absolute)); } catch { return null; }
+    const shown = { bytes, source: hashObject(bytes) as PresenceSelection["source"] };
+    if (session.holding) session.before.set(absolute, shown);
+    return shown;
   }
 
   /** Queue a change; POSTs are coalesced to the update interval. A fallback
@@ -322,6 +376,7 @@ export class AgentSessions {
   private letGo(session: Session): void {
     if (!session.holding) return;
     session.holding = false;
+    session.before.clear();
     void this.host.release?.(session.tree, session.key)?.catch(() => {});
   }
 

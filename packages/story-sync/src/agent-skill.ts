@@ -25,6 +25,10 @@ doing.
 5. Say what you are doing, in a few words, whenever it changes:
    \`story agent status "merging duplicates"\`. People see this beside your
    cursor.
-6. When you are finished, say what you did in one line:
+6. When you are thinking about one part of a page, point at it so people can
+   follow your attention: \`story agent status "checking which are dairy"
+   --at "oat milk"\` puts your cursor on the block holding that text. Point
+   where your attention goes, not at every line.
+7. When you are finished, say what you did in one line:
    \`story agent done "Merged 3 duplicates and sorted by aisle"\`.
 `;
