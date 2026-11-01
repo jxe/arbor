@@ -343,7 +343,6 @@ export class AgentRuns {
       run.state = "stopped";
       run.result = "Stopped";
     } else if (exit.code === 0) {
-      run.state = "finished";
       // The task is done: its block goes, and history keeps it.
       if (pagePath) {
         const current = await readFile(pagePath, "utf8").catch(() => null);
@@ -355,6 +354,8 @@ export class AgentRuns {
         }
       }
       run.result = this.resultLine(run, finalText);
+      // Finished only with its result: a poll never sees one without the other.
+      run.state = "finished";
     } else {
       run.state = "failed";
       run.result = exit.error ?? "The agent failed";
