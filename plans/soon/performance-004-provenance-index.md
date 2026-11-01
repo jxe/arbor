@@ -268,6 +268,27 @@ tree's 9,561 entries takes 52 seconds without the sidecar (64,334 records
 written), and a warm writer computes an entry's index in 2 ms (7 records,
 13.7 KB). Not deployed.
 
+**Incident (2026-11-01, 18:16 to 19:29).** Step 3's first deploy re-asked the
+single merge worker old questions from its backfill; they ran past the 45 s
+worker timeout, so merges were refused, and the worker's saved states were
+evicted (two kept per tree). baeed27 took the sidecar's part out and made
+the backfill index answered entries as snapshots without the worker; an
+out-of-band catch-up (`/mnt/project-files/perf004/todos-merge-catchup.sh`)
+rebuilt the todos states. Background work must never use the merge worker.
+
+**Step 4, first part (2026-11-01).** A cold sidecar starts a question's
+basis from its entry's index (`indexedIntent`, aligned to the entry's
+decisions from the log) when nothing cached or saved is within 128 entries,
+and replays only the entries after it. Rehearsal
+(`tests/performance/provenance/rehearse.ts`): every one of the 604 asked
+todos questions on the 2026-10-28 copy, each by a fresh sidecar with nothing
+cached or saved, under the live budgets, with the indexes the backfill
+writes (answered entries rebound): 591 answer as accepted. The other 13 are
+the cases full history also misses: 7 answered as today's engine answers
+with full history, 6 over the evaluation budget with any state. Median 92 ms
+per cold question, p95 468 ms; no question needed a retry. Answers need not
+carry their index.
+
 ## Steps
 
 1. **Spike: can the engine evaluate from the index?** On a production copy, take

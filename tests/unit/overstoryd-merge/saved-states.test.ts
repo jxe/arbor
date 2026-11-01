@@ -217,7 +217,7 @@ test("a cold sidecar starts a far basis from its provenance index, replaying onl
   let previous: { index: Awaited<ReturnType<typeof entryProvenance>>; root: string } | null = null;
   for (const hash of chain) {
     const entry = decodeLogEntry(f.objects.get(hash)!);
-    const index = entry.asked && previous ? await rebindProvenance(previous.index, previous.root as never, entry.root as never, entry.change, load as never)
+    const index: Awaited<ReturnType<typeof entryProvenance>> = entry.asked && previous ? await rebindProvenance(previous.index, previous.root as never, entry.root as never, entry.change, load as never)
       : await entryProvenance(previous as never, entry as never, load as never);
     indexes.set(hash, index);
     previous = { index, root: entry.root };
