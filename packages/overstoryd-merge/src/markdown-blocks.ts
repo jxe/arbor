@@ -288,7 +288,14 @@ function read(source: string, pieces: Piece[], base?: BaseIndex): (Reading & { i
 /** What a block is, for comparing its versions: kind, attributes, container. */
 const shape = (r: Reading, i: number) => {
   const b = r.blocks[i]!;
-  return JSON.stringify([b.kind, b.attributes, b.parent < 0 ? "" : r.keys[b.parent]]);
+  return JSON.stringify([b.kind, b.attributes, b.parent < 0 ? "" : r.keys[b.parent], section(r, i)]);
+};
+/** The heading a block falls under: the nearest heading before it. A heading
+ * is not in its own section, so moving text across a heading, or a heading
+ * across text, changes which section the text is in. */
+const section = (r: Reading, i: number) => {
+  for (let j = i - 1; j >= 0; j--) if (r.blocks[j]!.kind === "heading") return r.keys[j];
+  return "";
 };
 
 export interface BlockVerdict {

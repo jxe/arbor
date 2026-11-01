@@ -2309,6 +2309,11 @@ class Engine {
         concurrentTransfers = this.addedEffects(current, base).filter((e) => this.transfers(e));
       const structuralTransfer = incomingTransfers.length > 0 || concurrentTransfers.length > 0;
       let transported: IntentState | undefined;
+      // Why a replay failed, where Markdown's block check cannot stand in for
+      // it: a moved link whose document changed, two moves of one text, or
+      // insertions at one anchor that the insertion policy refuses.
+      const linkBound = new Set<string>();
+      let competing = false;
       if (
         structuralTransfer &&
         current.root === base.root &&
@@ -2469,14 +2474,12 @@ class Engine {
               continue;
             const path = basePath(id),
               config = request.rules.config?.formats?.[path];
-            const evidence = await evaluateTransfer(path, [
-              await this.bytes(b.pieces ?? []),
-              await this.bytes(current.nodes[id]?.pieces ?? []),
-              await this.bytes(authored.nodes[id]?.pieces ?? []),
-              await this.bytes(next.pieces ?? []),
-            ], config, context(id));
+            const versions = [b.pieces ?? [], current.nodes[id]?.pieces ?? [], authored.nodes[id]?.pieces ?? [], next.pieces ?? []];
+            const evidence = await evaluateTransfer(path, await Promise.all(versions.map(v => this.bytes(v))),
+              config, context(id), versions);
             this.formatEvidence.push(evidence);
             if (evidence.outcome !== "resolved") {
+              if (evidence.reason === "Transfer changes a contextual link's document") linkBound.add(path);
               if (evidence.id === "markdown-source-transfer" && context(id).crossDocument === "none")
                 transported = await this.insertionChoice(current, attempt, id, signature);
               throw new Error("Transfer requires format review");
@@ -2492,6 +2495,10 @@ class Engine {
           transported = attempt;
         } catch (error) {
           rethrowUnlessFallback(error);
+          // Only a refusal the block check can judge again, or material the
+          // replay could not locate, leaves Markdown to the block check.
+          if (!(error instanceof MergeRefusal) && !(error instanceof Error && error.message === "Transfer requires format review"))
+            competing = true;
         }
       }
       // A transfer between files cannot merge file by file; one within a file
@@ -2748,11 +2755,13 @@ class Engine {
               let basisBytes: Promise<Uint8Array> | undefined;
               const baseBytes = () => (basisBytes ??= this.bytes(b.pieces!));
               const config = this.request.rules.config?.formats?.[basePath(id)];
-              // Markdown merges as blocks. A transfer the replay could not
-              // reconcile still couples the incoming edits in this file, now
-              // within the Markdown blocks they touch.
+              // Markdown merges as blocks, where a move the replay could not
+              // place is a block in a new place. It still couples the incoming
+              // edits in this file (within the blocks they touch) when the
+              // replay failed for a reason the block check does not judge.
               const blocks = formatOf(basePath(id), config) === "markdown";
-              const transferred = transferPaths.has(basePath(id));
+              const transferred = transferPaths.has(basePath(id)) &&
+                (!blocks || competing || linkBound.has(basePath(id)));
               // The blocks a refusal names; without them it couples every incoming edit.
               let scope: Array<[number, number]> | undefined;
               if (

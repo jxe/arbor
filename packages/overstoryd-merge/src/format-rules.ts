@@ -1,4 +1,4 @@
-import { markdownProseInsertion, markdownTransferShape, markdownTransferStructure, type LinkPolicy } from "./markdown-format.ts";
+import { contextualLinkList, markdownProseInsertion, markdownTransferShape, markdownTransferStructure, type LinkPolicy } from "./markdown-format.ts";
 import { byte, xmlUnits, webUnits } from "./web-formats.ts";
 import Parser from "web-tree-sitter";
 import { fileURLToPath } from "node:url";
@@ -725,7 +725,8 @@ export function evaluateSourceTransfer(
   path: string,
   versions: Uint8Array[],
   config: FormatConfig = {},
-  context?: TransferContext
+  context?: TransferContext,
+  pieces?: Piece[][],
 ): FormatEvidence {
   const format =
     config.format ?? formats[extname(path).toLowerCase()] ?? "binary";
@@ -750,6 +751,20 @@ export function evaluateSourceTransfer(
     return result(false, "Invalid UTF-8 for source transfer");
   }
   if (format === "text") return result(true, "Identity-verified text transfer");
+  // Merged as blocks (overstoryd 017): the replay is valid when every block
+  // keeps what its last editor gave it; links that depend on their document
+  // are then checked as before.
+  if (pieces && sources.length === 4) {
+    const verdict = markdownBlockMerge(sources, pieces);
+    if (!verdict || verdict.conflicts.length || verdict.embedded.length)
+      return result(false, verdict ? verdict.reason || "Embedded source both sides changed requires review" : "Markdown with an unclosed fence or front matter");
+    const links: LinkPolicy = context?.crossDocument === "none"
+      ? { relative: true, fragment: true, reference: true }
+      : context?.crossDocument === "same-directory" ? { relative: true } : {};
+    return linksBound(sources, links, context)
+      ? result(true, "Identity-verified transfer keeps every block as its last editor wrote it, and link bindings")
+      : result(false, "Transfer changes a contextual link's document");
+  }
   const shapes = sources.map(source => markdownTransferShape(source));
   const safe =
     shapes.length === 4 &&
@@ -801,6 +816,26 @@ export function evaluateSourceTransfer(
         ? "Transfer changes a contextual link's document"
         : "Transfer changes protected Markdown structure or embedded content"
   );
+}
+
+/** Whether every contextual link still binds as where it was written. A link
+ * kind the transfer's reach does not admit (a fragment or reference carried
+ * into another document, a relative link into another directory) must not
+ * move or change at all. An admitted link needs what it binds to unchanged:
+ * the directory for a relative link, the headings for a fragment, the
+ * definitions for a reference. */
+function linksBound(sources: string[], admitted: LinkPolicy, context?: TransferContext): boolean {
+  const same = (lists: string[][]) => lists.every((list) => JSON.stringify(list) === JSON.stringify(lists[0]));
+  const read = sources.map(contextualLinkList);
+  for (const kind of ["relative", "fragment", "reference"] as const) {
+    const uses = read.map((r) => r.links.filter((l) => l.kind === kind).map((l) => l.text).sort());
+    if (!uses.some((list) => list.length)) continue;
+    if (!admitted[kind]) { if (!same(uses)) return false; continue; }
+    if (kind === "relative" && !(context && context.directories.length === 4 && context.directories.every((d) => d === context.directories[0]))) return false;
+    if (kind === "fragment" && !same(read.map((r) => r.headings))) return false;
+    if (kind === "reference" && !same(read.map((r) => r.definitions))) return false;
+  }
+  return true;
 }
 
 /** Whether `a` is `b` or one of its ancestors. */
@@ -964,10 +999,11 @@ export async function evaluateTransfer(
   versions: Uint8Array[],
   config: FormatConfig = {},
   context?: TransferContext,
+  pieces?: Piece[][],
 ): Promise<FormatEvidence> {
   const format = config.format ?? formats[extname(path).toLowerCase()] ?? "binary";
   if (!["json", "yaml", "typescript", "javascript"].includes(format) || versions.length !== 4)
-    return evaluateSourceTransfer(path, versions, config, context);
+    return evaluateSourceTransfer(path, versions, config, context, pieces);
   const result = (safe: boolean, reason: string): FormatEvidence => ({
     id: `${format}-source-transfer`,
     revision: 1,

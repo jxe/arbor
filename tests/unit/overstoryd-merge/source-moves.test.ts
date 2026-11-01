@@ -63,7 +63,8 @@ const shapes: Shape[] = [
     moves: [{ source: "- one\n", anchor: "  - child\n", side: "after" }],
     edits: [{ range: [0, 1], text: "  -" }],
     expected: "Intro\n\n- two\n  - child\n  - one\n- three\n\nOutro\n",
-    peer: { find: "one", replace: "ONE", choice: true },
+    // Merged as blocks (overstoryd 017), the peer's edit follows the item.
+    peer: { find: "one", replace: "ONE" },
   },
   {
     // An editor reports an outdented last child as moved to where it already
@@ -275,9 +276,10 @@ test("an unreconciled move is a choice about its page, not the whole tree", asyn
   const other = "Other page\n";
   const root = f.tree({ "a.md": shape.text, "b.md": other });
   const basis = (await f.run(f.request(root, root, [{ key: "start", kind: "editSource", source: f.ref("/a.md", shape.text, [0, 0]), text: "" }], "start"))).result;
-  const peerText = shape.text.replace("three", "THREE");
+  // The peer renumbers the item the move re-indents: both change how it reads.
+  const peerText = shape.text.replace("- one", "1. one");
   const peer = f.request(basis, f.tree({ "a.md": peerText, "b.md": "Other PEER\n" }), [
-    { key: "peer-a", kind: "editSource", source: f.ref("/a.md", shape.text, at(shape.text, "three")), text: "THREE" },
+    { key: "peer-a", kind: "editSource", source: f.ref("/a.md", shape.text, at(shape.text, "-")), text: "1." },
     { key: "peer-b", kind: "editSource", source: f.ref("/b.md", other, at(other, "page")), text: "PEER" },
   ], "peer");
   const arranged = f.request(basis, f.tree({ "a.md": shape.expected, "b.md": other }), operations(f, shape), "arranged");
@@ -314,8 +316,9 @@ for (const both of [false, true])
       { key: "edit-0-0", kind: "editSource", source: f.ref("/b.md", destination, [end - 1, end]), text: "\n\n", lineage: [{ source: f.ref("/b.md", destination, [end - 1, end]), range: [0, 1] }] },
       { key: "edit-0-1", kind: "editSource", source: f.ref("/a.md", origin, here), text: "HERE" },
     ], "peer");
-    const late = f.request(basis, f.tree({ "a.md": origin.replace("here", "here, inserted"), "b.md": both ? "TARGET\n" : destination, "c.md": "Other LATE\n" }), [
-      { key: "late-a", kind: "editSource", source: f.ref("/a.md", origin, [here[1], here[1]]), text: ", inserted" },
+    // The late change rewrites the word the peer also rewrote.
+    const late = f.request(basis, f.tree({ "a.md": origin.replace("here", "there"), "b.md": both ? "TARGET\n" : destination, "c.md": "Other LATE\n" }), [
+      { key: "late-a", kind: "editSource", source: f.ref("/a.md", origin, here), text: "there" },
       ...(both ? [{ key: "late-b", kind: "editSource" as const, source: f.ref("/b.md", destination, at(destination, "Target")), text: "TARGET" }] : []),
       { key: "late-c", kind: "editSource", source: f.ref("/c.md", other, at(other, "page")), text: "LATE" },
     ], "late");

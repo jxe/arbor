@@ -23,7 +23,7 @@ its section B.
   then aligns to the recorded root and decisions, so accepted results stand
   whatever a newer rule would answer (merge-tool, "Cache and replay"). The
   plan's earlier "run both revisions side by side" step is dropped.
-- **Remaining:** steps 5 and 6 below.
+- **Remaining:** step 6 below.
 
 ## The problem with today's rule
 
@@ -111,12 +111,13 @@ elsewhere) and **review**, which steps 5 and 6 confine to blocks.
    side's blocks.
 3. ~~Measure before switching.~~ Dropped; see Status.
 4. ~~Switch the default.~~ Done.
-5. **Transfers as block moves.** A move the transfer replay cannot reconcile
-   still couples the incoming edits of its file (now within Markdown blocks).
-   Read such a move as a block in a new place and run the block check
-   instead, keeping the link-binding checks of `markdown-source-transfer`
-   (relative links across directories, reference definitions) as the reasons
-   a moved block still needs review.
+5. ~~Transfers as block moves.~~ Done 2026-11-01. A Markdown transfer, replayed
+   or not, is judged by the block check, which also keeps each block in the
+   section (nearest heading) its last editor gave it. Links that depend on
+   their document still review (`linksBound` in `format-rules.ts`), and so do
+   replay failures the block check does not judge: two moves of one text and
+   same-anchor insertions the insertion policy refuses. A moved nested item
+   beside an edit to its text now merges (014 item 6).
 6. **Notes**, once [overstoryd 015](merge-015-resolve-reconciled-choices.md)
    gives merges with a note a portable shape: list numbering and broken
    anchors.

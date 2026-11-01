@@ -40,6 +40,30 @@ function contextualLinks(source: string, links: LinkPolicy, found?: Set<LinkKind
   });
 }
 
+/** A document's contextual links, as `contextualLinks` recognizes them, with
+ * what they bind to: its heading lines and its reference definitions. */
+export function contextualLinkList(source: string): {
+  links: Array<{ kind: LinkKind; text: string }>;
+  headings: string[];
+  definitions: string[];
+} {
+  const links: Array<{ kind: LinkKind; text: string }> = [];
+  const rest = source.replace(/!?\[[^\[\]\r\n]*\]\(([^\s()<>]+)\)/g, (link, destination: string) => {
+    if (/[\\&]/.test(destination) || /^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/\/)/.test(destination)) return link;
+    links.push({ kind: destination.startsWith("#") ? "fragment" : "relative", text: link });
+    return "span";
+  });
+  const lines = source.split(/\r?\n/);
+  const definitions = lines.filter((line) => /^ {0,3}\[[^\]]+\]:/.test(line));
+  rest.split(/\r?\n/).filter((line) => !/^ {0,3}\[[^\]]+\]:/.test(line)).join("\n")
+    .replace(/!?\[([^\[\]\r\n]*)\](?:\[([^\[\]\r\n]*)\])?(?![\[(:])/g, (link, text: string, label?: string) => {
+      const name = label ? label : text;
+      if (name.trim() && /^[\x20-\x7e]+$/.test(name) && !name.includes("\\")) links.push({ kind: "reference", text: link });
+      return link;
+    });
+  return { links, headings: lines.filter((line) => /^ {0,3}#{1,6}(\s|$)/.test(line)), definitions };
+}
+
 /** One document's scans, each computed on first use: its UTF-8 bytes and
  * opaque regions. Checks that ask about many offsets in the same document
  * share one, so the document is encoded and scanned once. */
