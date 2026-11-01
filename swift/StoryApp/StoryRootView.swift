@@ -3038,14 +3038,13 @@ struct StoryRootView: View {
                     .accessibilityLabel("Share")
                     .frame(width: 32, height: 32)
                     .mutedMacToolbarHover()
-                    Button {
-                        showAccountsPanel()
-                    } label: {
-                        StoryProfileSyncToolbarLabel(status: toolbarSyncStatus)
-                    }
-                    .help("Accounts — \(toolbarSyncStatus.accessibilityDescription)")
-                    .accessibilityLabel("Accounts. \(toolbarSyncStatus.accessibilityDescription)")
-                    .frame(width: 32, height: 32)
+                    StoryMacPresenceAccountMenu(
+                        workspace: workspace,
+                        reference: model.currentReference,
+                        status: toolbarSyncStatus,
+                        openAccounts: showAccountsPanel
+                    )
+                    .frame(minWidth: 32, minHeight: 32)
                     .mutedMacToolbarHover()
                 }
                 .buttonStyle(.plain)
@@ -3400,12 +3399,77 @@ struct StoryRootView: View {
 }
 
 #if os(macOS)
+/// The Mac toolbar's one button for presence and your account: your person
+/// icon with the sync badge (a dashed circle while you're hidden from others),
+/// with initials of anyone else on this page overlapping it from the left and
+/// a count of those elsewhere in the tree. Its menu lists who's here, the Show
+/// Me to Others switch, the sync state and Sync & Accounts….
+private struct StoryMacPresenceAccountMenu: View {
+    let workspace: StoryWorkspaceState
+    let reference: WorkspaceReference
+    let status: StorySyncStatus
+    let openAccounts: () -> Void
+
+    var body: some View {
+        let here = workspace.presencePeers(on: reference)
+        let hereIDs = Set(here.map(\.id))
+        let elsewhere = workspace.presenceRoster.peers.values
+            .filter { !hereIDs.contains($0.id) }
+            .sorted { ($0.name ?? "", $0.id) < ($1.name ?? "", $1.id) }
+        Menu {
+            if here.isEmpty && elsewhere.isEmpty { Text("No one else is here") }
+            if !here.isEmpty {
+                Section("On This Page") {
+                    ForEach(here) { Text(Self.line(for: $0, page: nil)) }
+                }
+            }
+            if !elsewhere.isEmpty {
+                Section("Elsewhere") {
+                    ForEach(elsewhere) { peer in
+                        Text(Self.line(for: peer, page: peer.page.map { $0.path.split(separator: "/").last.map(String.init) ?? "Home" } ?? "No page"))
+                    }
+                }
+            }
+            Divider()
+            Toggle("Show Me to Others", isOn: Binding(
+                get: { workspace.showsMeToOthers },
+                set: { workspace.showsMeToOthers = $0 }))
+            Divider()
+            Text(status.label)
+            Button("Sync & Accounts…", action: openAccounts)
+        } label: {
+            HStack(spacing: -6) {
+                ForEach(here.prefix(3)) { StoryPresenceBadge(peer: $0) }
+                if !elsewhere.isEmpty {
+                    Text("+\(elsewhere.count)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 8)
+                        .padding(.trailing, 2)
+                }
+                StoryProfileSyncToolbarLabel(status: status, hidden: !workspace.showsMeToOthers)
+            }
+        }
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Who's here and accounts — \(status.accessibilityDescription)")
+        .accessibilityLabel("Who's here and accounts. \(status.accessibilityDescription)")
+    }
+
+    private static func line(for peer: ProtocolPresencePeer, page: String?) -> String {
+        let status = peer.agent?.status.map { " (\($0))" } ?? ""
+        guard let page else { return StoryPresenceBadge.label(for: peer) + status }
+        return "\(StoryPresenceBadge.label(for: peer)): \(page)\(status)"
+    }
+}
+
 private struct StoryProfileSyncToolbarLabel: View {
     let status: StorySyncStatus
+    var hidden = false
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            Image(systemName: "person.crop.circle")
+            Image(systemName: hidden ? "person.crop.circle.dashed" : "person.crop.circle")
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(Color.secondary.opacity(StoryStyle.mutedToolbarOpacity))
                 .frame(width: 32, height: 32)

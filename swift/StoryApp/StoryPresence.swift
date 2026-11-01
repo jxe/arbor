@@ -66,16 +66,19 @@ struct StoryPresenceStatus: View {
     }
 }
 
-/// The toolbar's presence: initials of everyone on this page, a count of
-/// those elsewhere in the tree, and the "Show me to others" switch.
+/// The iPhone toolbar's presence: initials of everyone on this page, a count
+/// of those elsewhere in the tree, and the "Show me to others" switch. On the
+/// Mac it shows only the out-of-date Story Sync warning.
 struct StoryPresenceHeader: View {
     let workspace: StoryWorkspaceState
     let reference: WorkspaceReference
 
     var body: some View {
 #if os(macOS)
+        // On the Mac, presence lives in the account button
+        // (StoryMacPresenceAccountMenu); only the warning stays here.
         if workspace.storySyncIsOutdated { StoryOutdatedSyncWarning(workspace: workspace) }
-#endif
+#else
         let here = workspace.presencePeers(on: reference)
         let everyone = workspace.presenceRoster.peers.values.sorted { ($0.name ?? "", $0.id) < ($1.name ?? "", $1.id) }
         if !everyone.isEmpty || !workspace.showsMeToOthers {
@@ -104,6 +107,7 @@ struct StoryPresenceHeader: View {
             .help("Who's here")
             .accessibilityLabel("Who's here")
         }
+#endif
     }
 }
 
