@@ -271,6 +271,9 @@ export function viewState(retained: RetainedState): IntentState {
   return state;
 }
 
+/** A recorded state's nodes alone, read-only. */
+export const viewNodes = (retained: RetainedState): Record<string, Node> => materialize<Node>(retained.nodes, true);
+
 /** A recorded state to edit: nodes and decisions copied, records shared. */
 export function loadState(retained: RetainedState): IntentState {
   const { format, tree, root } = retained;

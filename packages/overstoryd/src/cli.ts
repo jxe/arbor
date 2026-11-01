@@ -228,6 +228,8 @@ export async function serveCommunity(args: string[]): Promise<void> {
       hostname: hostnameOption(args),
       rateLimits: process.env.OVERSTORYD_RATE_LIMITS === "1",
       pages: pagesOption(process.env.OVERSTORYD_PAGES),
+      // `OVERSTORYD_PROVENANCE_FILL=0` leaves missing provenance indexes uncomputed.
+      provenanceFill: process.env.OVERSTORYD_PROVENANCE_FILL?.trim() !== "0",
       trustedProxyHops: trustedProxyHops(),
       storyDownloads: storyDownloads(),
     });

@@ -19,6 +19,7 @@ import { logDecisions } from "./log-decisions.ts";
 import { mergeProtocolTrees, type CollectionFieldConflict, type PagePropertyConflict } from "@ovst/tree-merge";
 import { lookup, type RetainedState } from "./retained-state.ts";
 import { snapshotDecisions } from "./snapshot.ts";
+import { encodeStateProvenance } from "./provenance.ts";
 import { absentClosure, changedEntryPaths, type TreeIO } from "./trees.ts";
 
 /** A replayed or evaluated retained state: its projection, the engine's state
@@ -209,7 +210,28 @@ export class Sidecar {
       return { root: result.object, objects: await this.export(result.object, []), decisions: [], evidence };
     const { decisions } = await this.cached(result);
     this.rememberSolved(question, { ...result, decisions });
-    return { root: result.object, objects: await this.export(result.object, decisions), decisions, evidence };
+    const objects = await this.export(result.object, decisions);
+    const provenance = await this.provenance(result.state, objects);
+    return { root: result.object, objects, decisions, evidence, provenance };
+  }
+
+  /** Write the provenance index of an answer's state as records, staging
+   * those overstoryd lacks into `objects`; the root record's hash. */
+  private async provenance(state: string, objects: string[]): Promise<string> {
+    const recorded = this.recorded.get(state);
+    if (!recorded) throw new Error(`Unrecorded engine state ${state}`);
+    const records = new Map<string, Uint8Array>();
+    const root = encodeStateProvenance(recorded, (bytes) => {
+      const hash = hashObject(bytes);
+      records.set(hash, bytes);
+      return hash as never;
+    });
+    const named = new Set(objects), values: Array<{ hash: string; bytes: Uint8Array }> = [];
+    for (const [hash, bytes] of records)
+      if (!named.has(hash) && !(await this.stores.shared.has(hash))) values.push({ hash, bytes });
+    await this.stores.staging.stage(values);
+    objects.push(...values.map((v) => v.hash));
+    return root;
   }
 
   private rememberSolved(question: MergeQuestion, state: Cached): void {

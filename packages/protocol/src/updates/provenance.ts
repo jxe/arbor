@@ -279,6 +279,7 @@ export async function rebindProvenance(
   const visit = async (old: ProvenanceNode | undefined, oldObject: ObjectHash | undefined, object: ObjectHash,
     kind: ProvenanceNode["kind"], path: string): Promise<ProvenanceNode> => {
     const same = old?.kind === kind;
+    if (same && oldObject === object) return old!;
     const node = same ? old!.node : fresh(path);
     if (kind === "tree") return { kind, node };
     if (kind === "file" || kind === "page") {
@@ -299,6 +300,32 @@ export async function rebindProvenance(
     return { kind: "directory", node, entries };
   };
   return visit(previous, previousRoot, root, "directory", "");
+}
+
+// ---- One entry -------------------------------------------------------------
+
+const PLAIN = new Set(["editSource", "moveSource", "addEntry"]);
+
+/** The index of an accepted entry that overstoryd computes itself, from the
+ * index of the entry before it (`previous`, at `previousRoot`), or as an
+ * import for a chain's first entry: each frame of a plain trace advances it,
+ * any other frame (property operations) and a snapshot rebind it. An answered
+ * entry instead takes the index its answer carries. */
+export async function entryProvenance(
+  previous: { index: ProvenanceNode; root: ObjectHash } | null,
+  entry: { tree: string; root: ObjectHash; change: string; trace: ReadonlyArray<{ before: ObjectHash; after: ObjectHash; operations: readonly unknown[] }> | null },
+  load: (hash: ObjectHash) => Promise<Uint8Array>,
+): Promise<ProvenanceNode> {
+  if (!previous) return importProvenance(entry.root, "directory", `basis:${entry.tree}:${entry.root}`, load);
+  let { index, root } = previous;
+  for (const frame of entry.trace ?? []) {
+    if (frame.before !== root) index = await rebindProvenance(index, root, frame.before, entry.change, load);
+    index = frame.operations.every((op) => PLAIN.has((op as { kind: string }).kind))
+      ? await advanceProvenance(index, frame.operations as AuthoredOperation[], entry.change, load)
+      : await rebindProvenance(index, frame.before, frame.after, entry.change, load);
+    root = frame.after;
+  }
+  return root === entry.root ? index : rebindProvenance(index, root, entry.root, entry.change, load);
 }
 
 // ---- Records ----------------------------------------------------------------
@@ -336,7 +363,8 @@ export function chunkPieces(pieces: readonly ProvenancePiece[]): ProvenancePiece
  * `written` remembers nodes already written (an index shares every node its
  * edit did not change), so pass one per writer to write only what changed. */
 export function encodeProvenance(
-  index: ProvenanceNode, put: (bytes: Uint8Array) => ObjectHash, written: WeakMap<object, ObjectHash> = new WeakMap(),
+  index: ProvenanceNode, put: (bytes: Uint8Array) => ObjectHash,
+  written: { get(node: object): ObjectHash | undefined; set(node: object, hash: ObjectHash): unknown } = new WeakMap(),
 ): ObjectHash {
   const write = (record: ProvenanceRecord) => put(recordEncoder.encode(canonicalJSON(record)));
   const visit = (node: ProvenanceNode): ObjectHash => {

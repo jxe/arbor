@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { ObjectStore, type PackUsage } from "@ovst/object-store";
 import type { ObjectHash } from "@ovst/protocol";
 import { retainedObjects } from "./retention.ts";
+import { ProvenanceStore } from "./updates/provenance-store.ts";
 import { assertCurrentHostSchema } from "./schema.ts";
 
 /**
@@ -100,7 +101,10 @@ export async function collectObjects(dataRoot: string, options: CollectOptions =
   try {
     assertCurrentHostSchema(db);
     progress("walking retained history");
-    retained = await retainedObjects(db, store);
+    // Index records stay as long as their entries (the pointer files of
+    // collected entries are left; they name nothing a reader can reach).
+    const provenance = new ProvenanceStore(root, store, () => { throw new Error("The collector reads no entries for provenance"); });
+    retained = await retainedObjects(db, store, provenance);
   } finally {
     db.close();
   }

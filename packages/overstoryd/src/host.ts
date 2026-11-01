@@ -368,13 +368,15 @@ export async function serveHost(options: {
   /** Serve named queries and mutations through the execution sidecar, from the host's collection materializations, unless a runtime above is given. */
   collections?: HostCollectionsOptions;
   /** Session and placement device-key lifetimes; tests shorten them. */
-  lifetimes?: Omit<HostDaemonOptions, "servedOverHTTP" | "pages">;
+  lifetimes?: Omit<HostDaemonOptions, "servedOverHTTP" | "pages" | "provenanceFill">;
   /**
    * Accept page entries and conversions to them (spec 02 §3), in every tree
    * or in the trees listed: health advertises `pages-v1`, and those trees'
    * descriptors say `pages`, which is when a writer's Story Sync converts.
    */
   pages?: boolean | readonly string[];
+  /** Compute missing provenance indexes in the background (`HostDaemonOptions`). */
+  provenanceFill?: boolean;
   /**
    * Bound unauthenticated session challenges and pairing claims per caller.
    * Off unless asked for: with one person's devices behind each host, a
@@ -400,7 +402,7 @@ export async function serveHost(options: {
     name: options.community?.name ?? "Overstory Community",
     accounts: bootstrapAccounts,
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
-  }, options.mergeTool, { ...options.lifetimes, servedOverHTTP: new URL(publicOrigin).protocol === "http:", pages: options.pages ?? false });
+  }, options.mergeTool, { ...options.lifetimes, servedOverHTTP: new URL(publicOrigin).protocol === "http:", pages: options.pages ?? false, provenanceFill: options.provenanceFill ?? false });
   if (!dynamicLoopbackOrigin) overstoryd.setCommunityHost(new URL(publicOrigin).host);
   // Named queries and mutations over the host's collection materializations.
   const collections = options.collections ? overstoryd.disposeWith(new HostCollections(overstoryd, resolve(options.dataRoot), options.collections)) : null;

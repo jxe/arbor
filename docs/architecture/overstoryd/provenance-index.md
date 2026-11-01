@@ -37,7 +37,9 @@ From the previous entry's index:
 - **A snapshot or property trace** keeps each node where the same path holds the
   same kind, keeps a text file's pieces where its bytes (a page: its body) are
   unchanged, and names anything else as a snapshot.
-- **A sidecar's answer** carries the index of the root it answers with.
+- **A sidecar's answer** carries the index of the root it answers with: the
+  answer's `provenance` names its root record, and its records are among the
+  answer's objects.
 
 ## How it is stored
 
@@ -60,4 +62,8 @@ An entry's index is found by its hash: the file
 `provenance/v1/<hex 0..2>/<hex 2..64>` beside `objects/` holds the hash of its root
 record. overstoryd writes it, with the records, in the same batch as the entry.
 Absent means not computed (an entry from before the index): a reader computes it
-from the nearest earlier entry that has one, over the entries between.
+from the nearest earlier entry that has one, over the entries between. overstoryd
+does this in the background from startup (`OVERSTORYD_PROVENANCE_FILL=0` turns it
+off), asking the sidecar again for an answered entry within 128 entries of the
+head and rebinding an older one as a snapshot. The object collector keeps the
+records of every retained entry's index.

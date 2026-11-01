@@ -250,9 +250,13 @@ export interface MergeAnswer {
   /** Decisions open after this update. */
   decisions: LogDecision[];
   evidence: unknown;
+  /** The root record of the provenance index of `root` as this answer
+   * reached it (docs/architecture/overstoryd/provenance-index.md); its
+   * records are among `objects` or already stored. */
+  provenance?: ObjectHash;
 }
 const answerSchema = z
-  .object({ root: hash, objects: z.array(hash), decisions: logDecisions, evidence: z.unknown() })
+  .object({ root: hash, objects: z.array(hash), decisions: logDecisions, evidence: z.unknown(), provenance: hash.optional() })
   .strict();
 
 // ---- Refusals and failures -------------------------------------------------

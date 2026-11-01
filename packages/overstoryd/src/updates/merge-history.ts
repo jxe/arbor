@@ -20,6 +20,7 @@ import { decodeLogEntry, rawAlternatives, validatedLogEntry, type AlternativeBin
 import type { ObjectStore } from "@ovst/object-store";
 import type { AcceptedUpdateStore } from "./store.ts";
 import { Recent } from "../recent.ts";
+import type { ComputedProvenance, ProvenanceStore } from "./provenance-store.ts";
 
 const encoder = new TextEncoder();
 const id = (value: unknown) => hashObject(encoder.encode(stableJSONString(value))).slice(7);
@@ -52,16 +53,39 @@ export class MergeHistory {
   private readonly entries = new Recent<LogEntry>(1024);
   private readonly inspected = new Recent<OpenDecision[]>(256);
 
-  constructor(private readonly updates: AcceptedUpdateStore, private readonly objects: ObjectStore) {}
+  constructor(
+    private readonly updates: AcceptedUpdateStore,
+    private readonly objects: ObjectStore,
+    /** Where entries' provenance indexes are kept; none, none are written. */
+    readonly provenance?: ProvenanceStore,
+    /** Told of an entry written without an index, its predecessor having none. */
+    private readonly provenanceMissing?: (tree: string, entry: ObjectHash) => void,
+  ) {}
 
   /** Store an entry durably, before the transaction that records it, in one
    * durable publish with the objects it names. Nothing names the entry until
    * that transaction commits, so every object is durable before any commit
    * reaches it. */
-  async write(entry: LogEntry, objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }> = []): Promise<{ hash: ObjectHash; conflicted: boolean }> {
+  async write(
+    entry: LogEntry, objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }> = [], answered?: ObjectHash,
+  ): Promise<{ hash: ObjectHash; conflicted: boolean }> {
     const { entry: valid, bytes } = validatedLogEntry(entry), hash = hashObject(bytes);
-    await this.objects.store([...objects, { hash, bytes }]);
+    const batch = [...objects];
+    // The provenance index is a cache: failing to compute it never fails the
+    // entry, and a backfill computes what is missing.
+    let provenance: ComputedProvenance | null = null;
+    if (this.provenance) {
+      try {
+        provenance = await this.provenance.prepare(valid, answered, new Map(batch.map((o) => [o.hash, o.bytes])));
+      } catch (error) {
+        console.warn(`Provenance index not computed for ${hash}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (!provenance && valid.previous) this.provenanceMissing?.(valid.tree, hash);
+    }
+    await this.objects.store([...batch, ...[...provenance?.records ?? []].map(([hash, bytes]) => ({ hash, bytes })), { hash, bytes }]);
     this.entries.set(hash, valid);
+    if (provenance) await this.provenance!.publish(hash, provenance).catch((error) =>
+      console.warn(`Provenance pointer not written for ${hash}: ${error instanceof Error ? error.message : String(error)}`));
     return { hash, conflicted: valid.decisions.length > 0 };
   }
 

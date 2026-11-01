@@ -9,9 +9,10 @@ import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
 import { checkPageConversion } from "./page-conversion.ts";
 import { MergeHistory } from "./updates/merge-history.ts";
+import { ProvenanceStore } from "./updates/provenance-store.ts";
 import { Recent } from "./recent.ts";
-import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
-import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
+import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type LogEntry, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
+import { MergeTool, MergeWorkerError, type MergeToolOptions } from "./merge-tool.ts";
 import { retainedObjects } from "./retention.ts";
 import { checkPlainTrace, deriveTrace, encodeProtocolPage, isRowOperation, loadProtocolContent, parsePage, protocolContentObject, isStatedUpdate, TreeReader, UnsupportedDerivation, type DecisionPage, type ProtocolDirectory, type DerivableUpdateRequest } from "@ovst/protocol";
 import { mkdir } from "node:fs/promises";
@@ -147,6 +148,9 @@ export interface HostDaemonOptions {
   remoteGroupStaleMs?: number;
   /** Accept page entries and conversions to them (spec 02 §3): in every tree, or in the trees listed. */
   pages?: boolean | readonly string[];
+  /** Compute missing provenance indexes in the background, from startup on
+   * (docs/architecture/overstoryd/provenance-index.md). */
+  provenanceFill?: boolean;
 }
 
 export interface HostBootstrap {
@@ -412,7 +416,9 @@ export class HostDaemon implements AsyncDisposable {
       ...mergeTool,
     });
     this.acceptedStore = new AcceptedUpdateStore(db);
-    this.history = new MergeHistory(this.acceptedStore, this.objects);
+    this.history = new MergeHistory(this.acceptedStore, this.objects,
+      new ProvenanceStore(dataRoot, this.objects, (hash) => this.history.entry(hash)),
+      (tree) => this.fillProvenance(tree));
     this.packing = new PackMaintenance(db, this.objects, join(dataRoot, "objects"));
     this.observations = new ObservationLog(db);
     this.accounts = new AccountDirectory(db);
@@ -474,7 +480,70 @@ export class HostDaemon implements AsyncDisposable {
     overstoryd.scheduleRemoteGroupRefresh();
     void overstoryd.refreshRemoteGroups();
     overstoryd.packing.start();
+    if (overstoryd.provenanceFill) for (const tree of overstoryd.list()) overstoryd.fillProvenance(tree.id);
     return overstoryd;
+  }
+
+  /** Whether missing provenance indexes are computed in the background. */
+  readonly provenanceFill: boolean = false;
+  /** Trees waiting for a provenance backfill, filled one at a time. */
+  private readonly provenanceQueue = new Set<string>();
+  private provenanceRun: Promise<void> | undefined;
+
+  /** Compute a tree's missing provenance indexes up to its head, in the
+   * background and one tree at a time. Only when `provenanceFill`. */
+  private fillProvenance(tree: string): void {
+    if (!this.provenanceFill || this.disposed) return;
+    this.provenanceQueue.add(tree);
+    this.provenanceRun ??= (async () => {
+      while (!this.disposed) {
+        const [next] = this.provenanceQueue;
+        if (next === undefined) break;
+        this.provenanceQueue.delete(next);
+        const current = this.currentUpdate(next);
+        if (!current) continue;
+        try {
+          const head = (await this.history.entryFor(current)).hash;
+          const started = performance.now();
+          const filled = await this.history.provenance!.fill(head, (hash, entry) => this.askAgain(entry));
+          if (filled) console.info(`Provenance index: ${filled} entries of ${next} indexed in ${Math.round(performance.now() - started)} ms`);
+        } catch (error) {
+          if (!this.disposed) console.warn(`Provenance backfill of ${next} failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    })().finally(() => { this.provenanceRun = undefined; });
+  }
+
+  /** An answered entry's question asked again, for its provenance index;
+   * a rebuild that runs out of time is continued. Null when the sidecar
+   * cannot answer it or carries no index. */
+  private async askAgain(entry: LogEntry): Promise<{ provenance: ObjectHash; root: ObjectHash; objects: ReadonlyMap<ObjectHash, Uint8Array> } | null> {
+    const asked = entry.asked;
+    if (!asked || !entry.previous) return null;
+    const question: MergeQuestion = {
+      base: asked.base ?? entry.previous,
+      head: entry.previous,
+      ...(asked.prefix ? { prefix: asked.prefix } : {}),
+      candidate: {
+        root: asked.candidate ?? entry.trace?.at(-1)?.after ?? entry.root,
+        change: entry.change, trace: entry.trace, resolves: entry.resolves,
+        ...(asked.alternatives ? { alternatives: asked.alternatives } : {}),
+      },
+      rules: asked.rules,
+    };
+    for (let attempt = 0; attempt < 100 && !this.disposed; attempt++) {
+      try {
+        const { answer, objects } = await this.mergeTool.ask(question, new Map());
+        return answer.provenance ? { provenance: answer.provenance, root: answer.root, objects } : null;
+      } catch (error) {
+        if (error instanceof MergeWorkerError && error.code === "unavailable") {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          continue;
+        }
+        return null;
+      }
+    }
+    return null;
   }
 
   private async bootstrap(config: HostBootstrap): Promise<void> {
@@ -2210,7 +2279,7 @@ export class HostDaemon implements AsyncDisposable {
       // Authored directly on the head: nothing concurrent to merge.
       const direct = basis.entry === head.hash && !basis.prefix.length;
       let root: ObjectHash, decisions: LogDecision[], evidence: unknown;
-      let question: MergeQuestion | null = null;
+      let question: MergeQuestion | null = null, answered: ObjectHash | undefined;
       const carried = request.trace !== null && direct && !guards.length && await this.fastForward(current.root, request, open, proposed)
         ? await this.history.carry(open, request.candidate, proposed) : null;
       if (carried) {
@@ -2271,6 +2340,7 @@ export class HostDaemon implements AsyncDisposable {
         for (const [hash, bytes] of objects) proposed.set(hash, bytes);
         markPhase("evaluate");
         root = answer.root;
+        answered = answer.provenance;
         decisions = imposed ? [...answer.decisions.filter((d) => d.key !== imposed!.key), imposed] : answer.decisions;
         evidence = answer.evidence;
         // A snapshot the sidecar leaves exactly as the head changed nothing.
@@ -2297,7 +2367,7 @@ export class HostDaemon implements AsyncDisposable {
         decisions,
         ...(question ? { asked: asked(question, root) } : {}),
         ...(evidence !== undefined && evidence !== null ? { evidence } : {}),
-      }, [...proposed].map(([hash, bytes]) => ({ hash, bytes })));
+      }, [...proposed].map(([hash, bytes]) => ({ hash, bytes })), answered);
       markPhase("accepted-store");
       const now = Date.now(),
         commit = await policy.prepareCommit(
@@ -3076,6 +3146,7 @@ export class HostDaemon implements AsyncDisposable {
   async [Symbol.asyncDispose](): Promise<void> {
     for (const resource of this.dependents.splice(0).reverse()) await resource[Symbol.asyncDispose]();
     this.disposed = true;
+    await this.provenanceRun;
     clearTimeout(this.deviceKeyTimer);
     clearTimeout(this.remoteGroupTimer);
     await this.packing[Symbol.asyncDispose]();
