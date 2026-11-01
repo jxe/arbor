@@ -91,6 +91,14 @@ missing state with today's snapshot, skips unproved history or prunes it.
 
 ## Decisions (freeze first)
 
+**Principle (Joe, 2026-11-01): the format overstoryd and the merge tool share must
+be really robust and as simple as possible.** The merge tool itself can be
+rewritten; the shared format outlives it. So the shared index holds only facts
+any merge engine needs and overstoryd can compute exactly (which node each path
+is, and which change and operation inserted each run of bytes), with no engine
+data structures in it. Anything else an engine wants, it keeps in its own
+private, discardable cache, as the saved checkpoints are today.
+
 1. **Where the index lives.** Recommended: beside history, not in it. An
    index is derived: replay over the same entry produces the same object. So it
    is a cache, not a fact of history. Store it beside the entry, keyed by the
@@ -111,7 +119,9 @@ missing state with today's snapshot, skips unproved history or prunes it.
    deriving it from traces costs per question, and what storing it costs per
    entry (records written, bytes, and the effect on the 100 ms fast-forward
    target). Put it in the index if deriving it would keep history length
-   mattering; otherwise leave it engine-derived.
+   mattering; otherwise leave it engine-derived. By the principle above, the bar
+   for putting it in the shared format is high: if it goes anywhere, the engine's
+   private cache comes first.
 3. **Encoding: records shaped like the tree** (Joe, 2026-11-01). One record per
    folder mirroring the directory, so an entry writes only the files it touched
    and their ancestor folders, sharing everything else as roots do.
