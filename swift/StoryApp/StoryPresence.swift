@@ -72,40 +72,19 @@ struct StoryPresenceHeader: View {
     let workspace: StoryWorkspaceState
     let reference: WorkspaceReference
 
-    private var runs: [StoryAgentRun] {
-#if os(macOS)
-        // A finished run's task stays on its page, checked off, with Undo Run there.
-        workspace.agentRuns.values.filter { $0.tree == reference.tree.rawValue && $0.isActive }.sorted { $0.id < $1.id }
-#else
-        []
-#endif
-    }
-
     var body: some View {
 #if os(macOS)
         if workspace.storySyncIsOutdated { StoryOutdatedSyncWarning(workspace: workspace) }
 #endif
         let here = workspace.presencePeers(on: reference)
         let everyone = workspace.presenceRoster.peers.values.sorted { ($0.name ?? "", $0.id) < ($1.name ?? "", $1.id) }
-        if !everyone.isEmpty || !workspace.showsMeToOthers || !runs.isEmpty {
+        if !everyone.isEmpty || !workspace.showsMeToOthers {
             Menu {
                 if everyone.isEmpty { Text("No one else is here") }
                 ForEach(everyone) { peer in
                     let page = peer.page.map { $0.path.split(separator: "/").last.map(String.init) ?? "Home" } ?? "No page"
                     Text("\(StoryPresenceBadge.label(for: peer)): \(page)\(peer.agent?.status.map { " (\($0))" } ?? "")")
                 }
-#if os(macOS)
-                if !runs.isEmpty {
-                    Divider()
-                    Section("Agent Runs") {
-                        ForEach(runs) { run in
-                            Menu("\(run.task): \(run.state.rawValue)") {
-                                Button("Stop") { Task { await workspace.stopAgentRun(run) } }
-                            }
-                        }
-                    }
-                }
-#endif
                 Divider()
                 Toggle("Show Me to Others", isOn: Binding(
                     get: { workspace.showsMeToOthers },
@@ -114,7 +93,7 @@ struct StoryPresenceHeader: View {
                 HStack(spacing: -4) {
                     ForEach(here.prefix(4)) { StoryPresenceBadge(peer: $0) }
                     if here.isEmpty {
-                        Image(systemName: !runs.isEmpty ? "sparkles" : workspace.showsMeToOthers ? "person.2" : "eye.slash")
+                        Image(systemName: workspace.showsMeToOthers ? "person.2" : "eye.slash")
                     }
                     if everyone.count > here.count {
                         Text("+\(everyone.count - here.count)").font(.caption2).foregroundStyle(.secondary).padding(.leading, 6)
