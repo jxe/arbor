@@ -25,8 +25,8 @@ way until this plan lands.
   two programs must agree exactly on piece semantics: if overstoryd's index ever
   differs from what the engine would have computed, later merges go wrong with no
   error.
-- **State:** Step 1 measured and step 2's module built (2026-11-01, below,
-  on branch `claude/project-thread-uxhic5`); open choices settled as
+- **State:** Steps 1 to 3 done (2026-11-01, below, on branch
+  `claude/project-thread-uxhic5`, not deployed); open choices settled as
   decision 6
 - **Depends on:** nothing. History 006 should build on it (see below).
 
@@ -252,6 +252,21 @@ Remaining in step 2: the engine's own operation executor still computes
 pieces separately (`apply`); it moves onto the module when the engine reads
 the index (step 4), since the engine's pieces then lose `object`/`offset`.
 Until then the vectors' engine check and the differential guard agreement.
+
+**Step 3 (2026-11-01).** overstoryd writes each entry's index in the entry's
+own object batch, then its pointer file (`ProvenanceStore`,
+`packages/overstoryd/src/updates/provenance-store.ts`): fast-forwards,
+snapshots and property traces computed from the previous entry's index
+(`entryProvenance`), an asked entry from its answer, which now carries
+`provenance` (the sidecar's `stateProvenance`). A failure to compute never
+fails the entry. A background backfill from startup fills missing indexes
+(asking the sidecar again for answered entries within 128 of the head,
+rebinding older ones); `OVERSTORYD_PROVENANCE_FILL=0` turns it off. The
+collector keeps every retained entry's records. On the production copy
+(`tests/performance/provenance/backfill.ts`), a cold backfill of the todos
+tree's 9,561 entries takes 52 seconds without the sidecar (64,334 records
+written), and a warm writer computes an entry's index in 2 ms (7 records,
+13.7 KB). Not deployed.
 
 ## Steps
 
