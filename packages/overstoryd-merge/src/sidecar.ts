@@ -13,7 +13,8 @@ import {
   type MergeRules,
 } from "@ovst/merge-protocol";
 import { EvaluationFailure, treeDefaultConfig, type CheckpointRequest, type MergeObjects, type TreeDefaultRules } from "./engine-contract.ts";
-import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
+import { checkpointIntent, indexedIntent, mergeIntent } from "./intent-engine.ts";
+import type { ProvenanceIndexes } from "./provenance.ts";
 import type { Node } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
 import { mergeProtocolTrees, type CollectionFieldConflict, type PagePropertyConflict } from "@ovst/tree-merge";
@@ -27,6 +28,10 @@ interface Cached {
   object: string;
   state: string;
   decisions: LogDecision[];
+  /** The entry whose provenance index this state was replayed from; its
+   * history covers only what came after. Absent: replayed from the chain's
+   * start (or restored), so it covers everything. */
+  seed?: string;
 }
 
 /** Where the sidecar reads accepted objects and writes an answer's new ones.
@@ -40,6 +45,9 @@ export interface SidecarStores {
    * from the nearest saved entry instead of the chain's start. Optional, and
    * a cache like the rest: anything missing or unreadable is replayed. */
   saved?: SavedStates;
+  /** Entries' provenance indexes: a state the cache lacks starts from its
+   * entry's index instead of replaying history (Performance 004 step 4). */
+  provenance?: ProvenanceIndexes;
 }
 
 /** Saved entry states, one value per entry, grouped by tree. */
@@ -66,6 +74,9 @@ export interface SavedCheckpoint {
  * This does not bound replay for bases outside the retained checkpoints. */
 const SAVE_AFTER = 32;
 const SAVES_KEPT = 2;
+/** How far back a cold cache looks for a cached entry before starting from
+ * an entry's provenance index instead. */
+const SEED_WITHIN = 128;
 
 /** Change identities a client can see as contributions. overstoryd's own
  * acceptances (tree creation, pairing, boundary rewrites) are not changes an
@@ -109,6 +120,8 @@ export class Sidecar {
   private replayDeadline = Infinity;
   /** Entries the current question read back from saved states; a diagnostic. */
   restored = 0;
+  /** States this question started from a provenance index. */
+  seededCount = 0;
   /** Saved entries by hash, listed once; kept across `clear`. */
   private savedEntries?: Map<string, { tree: string; savedAt: number }>;
   /** Entries replayed per tree since its last save. */
@@ -192,6 +205,7 @@ export class Sidecar {
     if (this.memoryBytes > this.cacheBytes) this.clear();
     this.replayed = 0;
     this.restored = 0;
+    this.seededCount = 0;
     this.lastHead = question.head;
     this.lastBase = question.base;
     this.saveBasis = question.base !== question.head && !this.states.has(question.base);
@@ -228,7 +242,9 @@ export class Sidecar {
     const head = await this.entry(question.head);
     const base = await this.entry(question.base);
     if (head.tree !== base.tree) throw new MergeRefusal("invalid", "Question entries belong to different trees");
-    const current = await this.stateOf(question.head, rules);
+    // The head replays from the basis or later; a cold cache starts the
+    // basis from its index (`stateOf`), so the head replays only what follows.
+    const current = await this.stateOf(question.head, rules, question.base);
     let basis: { object: string; state: string } = await this.stateOf(question.base, rules);
     for (const prior of question.prefix ?? []) basis = await this.authored(head.tree, basis, prior, rules);
     const candidate = question.candidate;
@@ -246,16 +262,29 @@ export class Sidecar {
     return { id: "tree-default", revision: 1, ...(rules.config === undefined ? {} : { config: parsed.data }) };
   }
 
-  /** The retained state of an entry, replaying from the nearest cached entry
-   * or the chain's start. */
-  private async stateOf(hash: string, rules: TreeDefaultRules): Promise<Cached> {
+  /** The retained state of an entry, replaying from the nearest cached or
+   * saved entry. As a question's head (`basis` given), only a state whose
+   * history covers `basis` is a starting point. Otherwise, when no cached
+   * entry is within `SEED_WITHIN`, the entry's provenance index is (decision
+   * 6: its decisions from the log), else the chain's start. */
+  private async stateOf(hash: string, rules: TreeDefaultRules, basis?: string): Promise<Cached> {
+    if (basis === hash) basis = undefined;
     const chain: string[] = [];
-    let at: string | null = hash;
-    while (at && !this.states.has(at) && !(await this.restore(at))) {
+    let at: string | null = hash, previous: Cached | null = null;
+    while (at) {
+      const cached = this.states.get(at);
+      if (cached && await this.covers(cached, at, basis ?? at)) { previous = cached; break; }
+      if (await this.restore(at)) { previous = this.states.get(at)!; break; }
+      // A head reaching its question's basis uncached starts from the basis,
+      // which may start from its index.
+      if (at === basis && at !== hash && this.stores.provenance) { previous = await this.stateOf(at, rules); break; }
       chain.push(at);
       at = (await this.entry(at)).previous;
+      if (basis === undefined && chain.length === SEED_WITHIN && this.stores.provenance) {
+        const seeded = await this.seeded(hash);
+        if (seeded) { previous = seeded; chain.length = 0; break; }
+      }
     }
-    let previous = at ? this.states.get(at)! : null;
     chain.reverse();
     for (const [index, entry] of chain.entries()) {
       // A long rebuild (a cold cache over a long chain) stops at the budget,
@@ -265,7 +294,8 @@ export class Sidecar {
       // Every attempt replays at least one entry, so retries always progress.
       if (index > 0 && performance.now() > this.replayDeadline)
         throw new EvaluationFailure(`Rebuilding accepted history: ${index} of ${chain.length} entries replayed; retry to continue`, "unavailable");
-      previous = await this.replay(entry, previous, rules);
+      const seed: string | undefined = previous?.seed;
+      previous = { ...(await this.replay(entry, previous, rules)), ...(seed ? { seed } : {}) };
       this.states.set(entry, previous);
       this.frontier = entry;
       this.replayed++;
@@ -273,6 +303,36 @@ export class Sidecar {
       this.unsaved.set(tree, (this.unsaved.get(tree) ?? 0) + 1);
     }
     return previous!;
+  }
+
+  /** Whether `cached`, the state of entry `at`, has history covering
+   * `basis`: it was not seeded, or its seed is `basis` or before it. `at`
+   * is `basis` or after it. */
+  private async covers(cached: Cached, at: string, basis: string): Promise<boolean> {
+    if (!cached.seed || cached.seed === basis || at === basis) return true;
+    for (let walk: string | null = at; walk; walk = (await this.entry(walk)).previous) {
+      if (walk === basis) return true;
+      if (walk === cached.seed) return false;
+    }
+    return false;
+  }
+
+  /** An entry's state from its provenance index, aligned to its decisions;
+   * null when it has no readable index. */
+  private async seeded(hash: string): Promise<Cached | null> {
+    const index = await this.stores.provenance?.index(hash);
+    if (!index) return null;
+    const entry = await this.entry(hash);
+    try {
+      const imported = await this.cached(await indexedIntent({ tree: entry.tree, root: entry.root, index }, this.objects));
+      const state = { ...(await this.align(entry, imported)), seed: hash };
+      this.states.set(hash, state);
+      this.seededCount++;
+      return state;
+    } catch (error) {
+      if (error instanceof MergeRefusal) return null;
+      throw error;
+    }
   }
 
   /** Entries are facts. Ask the entry's question again with its previous
@@ -345,7 +405,9 @@ export class Sidecar {
     if (!saved || !head) return;
     if ((this.interrupted || requestedBasis) && (await this.savedIndex()).has(head)) return;
     const cached = this.states.get(head), tree = (await this.entry(head)).tree;
-    if (!cached || (!this.interrupted && !requestedBasis && (this.unsaved.get(tree) ?? 0) < SAVE_AFTER)) return;
+    // A state started from an index lacks the history before it; the index
+    // starts it again, so it is not saved.
+    if (!cached || cached.seed || (!this.interrupted && !requestedBasis && (this.unsaved.get(tree) ?? 0) < SAVE_AFTER)) return;
     // The state and every state its decisions name, and the objects they
     // name that only this sidecar holds.
     const states = new Map<string, RetainedState>();

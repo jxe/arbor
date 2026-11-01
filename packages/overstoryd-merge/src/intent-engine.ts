@@ -1,5 +1,5 @@
 import { cloneState, copy, loadState, lookup, own, retainState, same, shareState, since, union, viewState, type RetainedState, type RetainedStates } from "./retained-state.ts";
-import { isPropertyOperation, stableJSONString } from "@ovst/protocol";
+import { isPropertyOperation, stableJSONString, type ProvenanceNode } from "@ovst/protocol";
 import {
   decodeProtocolDirectory,
   decodeProtocolPage,
@@ -4085,4 +4085,53 @@ function overlapGroups<E extends PieceEdit>(edits: E[]): E[][] {
     else groups.push([edit]);
   }
   return groups;
+}
+
+/** The state an accepted entry's provenance index gives (Performance 004
+ * step 4; docs/architecture/overstoryd/provenance-index.md): `root` imported
+ * with the index's node identities and pieces, no history and no decisions
+ * (the sidecar aligns the entry's decisions from the log, decision 6). A
+ * node's pieces locate its bytes in the file (a page: its body) at `root`. */
+export async function indexedIntent(
+  request: { tree: string; root: string; index: ProvenanceNode },
+  objects: MergeObjects,
+): Promise<{ object: string; state: string }> {
+  const engine = new Engine({
+    tree: request.tree, base: { object: request.root }, current: { object: request.root },
+    incoming: { change: "provenance-index", object: request.root, trace: [] },
+    rules: { id: "tree-default", revision: 1 },
+  }, objects);
+  const fresh = await engine.initial(request.root);
+  const state: IntentState = { ...fresh, root: request.index.node, nodes: {} };
+  const children = engine.childIndex(fresh);
+  const visit = (id: string, index: ProvenanceNode, parent: string | null) => {
+    const node = fresh.nodes[id]!;
+    if (index.kind !== node.kind) return fail("Provenance index does not match the root");
+    const next: Node = { ...clone(node), id: index.node, parent };
+    if (index.kind === "file" || index.kind === "page") {
+      const piece = node.pieces?.[0];
+      let offset = 0;
+      next.pieces = index.pieces.map((p) => {
+        const value = { origin: p.origin, start: p.start, object: piece?.object ?? node.object, offset, length: p.length };
+        offset += p.length;
+        return value;
+      });
+      if (offset !== length(node.pieces ?? [])) return fail("Provenance index does not match the root");
+    }
+    engine.setNode(state, index.node, next);
+    if (index.kind === "directory") {
+      const named = engine.children(fresh, id, children);
+      if (named.length !== Object.keys(index.entries).length) return fail("Provenance index does not match the root");
+      for (const child of named) {
+        const entry = index.entries[child.name];
+        if (!entry) return fail("Provenance index does not match the root");
+        visit(child.id, entry, index.node);
+      }
+    }
+  };
+  visit(fresh.root, request.index, null);
+  const recorded = await engine.record(state, true);
+  if (recorded.object !== request.root) return fail("Provenance index does not match the root");
+  await keep(engine, objects);
+  return recorded;
 }

@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { holdsObject, ObjectStore } from "@ovst/object-store";
 import { MergeRefusal } from "@ovst/merge-protocol";
 import { EvaluationFailure } from "./engine-contract.ts";
 import { engineDiagnostics } from "./intent-engine.ts";
 import { savedStatesIn } from "./saved-states.ts";
+import { provenanceIn } from "./provenance.ts";
 import { REPLAY_MILLIS, Sidecar } from "./sidecar.ts";
 
 const maxRequestBytes = 8 * 1024 * 1024;
@@ -56,6 +57,8 @@ export async function run(args = process.argv.slice(2), testing: { treeMerge?: C
     shared: { find: (hash) => shared.find(hash), has: (hash) => holdsObject(shared, hash) },
     staging: { find: (hash) => staging.find(hash), stage: (values) => staging.stage(values) },
     ...(options.has("--cache") ? { saved: savedStatesIn(options.get("--cache")!) } : {}),
+    // overstoryd keeps entries' provenance indexes beside the shared objects.
+    provenance: provenanceIn(join(dirname(options.get("--objects")!), "provenance"), (hash) => shared.find(hash)),
   }, (Number.isFinite(stateMB) && stateMB >= 0 ? stateMB : 512) * 1024 * 1024, testing.treeMerge,
   Number.isFinite(replayMS) && replayMS > 0 ? replayMS : REPLAY_MILLIS);
   // One question per line, one response per line, in order.
@@ -78,7 +81,7 @@ export async function run(args = process.argv.slice(2), testing: { treeMerge?: C
           } };
     }
     // Diagnostics only: no request content or hashes.
-    process.stderr.write(JSON.stringify({ timings: { "total-ms": performance.now() - started, replayed: sidecar.replayed, restored: sidecar.restored, ...engineDiagnostics } }) + "\n");
+    process.stderr.write(JSON.stringify({ timings: { "total-ms": performance.now() - started, replayed: sidecar.replayed, restored: sidecar.restored, seeded: sidecar.seededCount, ...engineDiagnostics } }) + "\n");
     process.stdout.write(JSON.stringify(response) + "\n");
     // After answering, so a save never delays an answer or changes one.
     await sidecar.save().catch((error) => {

@@ -203,3 +203,38 @@ test("warm historical bases do not trigger a checkpoint write on every question"
   await warm.save();
   expect(saves.files.size).toBe(0);
 });
+
+test("a cold sidecar starts a far basis from its provenance index, replaying only what follows it", async () => {
+  const { entryProvenance, rebindProvenance } = await import("@ovst/protocol");
+  const f = new Fixture();
+  const { head } = await history(f, sidecar(f, undefined, true), 150);
+  // Each entry's index as overstoryd keeps it: computed from the one before,
+  // an answered entry rebound as a snapshot.
+  const chain: string[] = [];
+  for (let at: string | null = head; at; at = decodeLogEntry(f.objects.get(at)!).previous) chain.unshift(at);
+  const indexes = new Map<string, Awaited<ReturnType<typeof entryProvenance>>>();
+  const load = async (hash: string) => f.objects.get(hash)!;
+  let previous: { index: Awaited<ReturnType<typeof entryProvenance>>; root: string } | null = null;
+  for (const hash of chain) {
+    const entry = decodeLogEntry(f.objects.get(hash)!);
+    const index = entry.asked && previous ? await rebindProvenance(previous.index, previous.root as never, entry.root as never, entry.change, load as never)
+      : await entryProvenance(previous as never, entry as never, load as never);
+    indexes.set(hash, index);
+    previous = { index, root: entry.root };
+  }
+  let base = head;
+  for (let i = 0; i < 4; i++) base = decodeLogEntry(f.objects.get(base)!).previous!;
+  const question = { base, head, candidate: { root: withFiles(f, decodeLogEntry(f.objects.get(base)!).root, { "a.md": "concurrent" }),
+    change: "concurrent", trace: null, resolves: [] }, rules: { id: "tree-default", revision: 1 } };
+  const expected = await sidecar(f).answer(question);
+  const indexed = new Sidecar({
+    shared: { find: async (hash) => f.objects.get(hash) ?? null, has: async (hash) => f.objects.has(hash) },
+    staging: { find: async () => null, stage: async () => {} },
+    provenance: { index: async (entry) => indexes.get(entry) ?? null },
+  });
+  const answer = await indexed.answer(question);
+  expect(answer.root).toBe(expected.root);
+  expect(answer.decisions.map((d) => d.key)).toEqual(expected.decisions.map((d) => d.key));
+  expect(indexed.seededCount).toBeGreaterThan(0);
+  expect(indexed.replayed).toBeLessThanOrEqual(8);
+}, 60_000);
