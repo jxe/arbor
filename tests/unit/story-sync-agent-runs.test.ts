@@ -129,9 +129,12 @@ describe("agent runs", () => {
 
 describe("task blocks", () => {
   test("found by text, with their section, and removed with the blank line after", () => {
-    const source = "# Plan\n\nIntro\n\n## Shopping\n\n> [!agent] merge the\n> duplicates\n\n- milk\n";
-    expect(findTaskBlock(source, "merge the duplicates")).toEqual({ start: 6, end: 8, section: "Shopping" });
-    expect(removeTaskBlock(source, "merge the duplicates")).toBe("# Plan\n\nIntro\n\n## Shopping\n\n- milk\n");
+    const source = "# Plan\n\nIntro\n\n## Shopping\n\n> [!agent] merge the duplicates\\\n> and sort by aisle\n\n- milk\n";
+    // A line break in the task is a hard break; the editor sends the newline.
+    expect(findTaskBlock(source, "merge the duplicates\nand sort by aisle")).toEqual({ start: 6, end: 8, section: "Shopping" });
+    expect(removeTaskBlock(source, "merge the duplicates\nand sort by aisle")).toBe("# Plan\n\nIntro\n\n## Shopping\n\n- milk\n");
+    // Without a hard break the next `>` line is a quote of its own, and stays.
+    expect(removeTaskBlock("> [!agent] tidy up\n> a quote\n", "tidy up")).toBe("> a quote\n");
     expect(removeTaskBlock(source, "something else")).toBeNull();
     expect(findTaskBlock("> an ordinary quote\n", "an ordinary quote")).toBeNull();
     // As Story's editor writes an edited one: escaped punctuation, matched by its plain text.

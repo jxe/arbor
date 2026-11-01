@@ -40,4 +40,33 @@ struct AgentTaskTests {
         #expect(StoryAgentTask.task(in: paragraph) == "Sort this list")
         #expect(StoryMarkdownCodec.serializeBlocks([paragraph]).trimmingCharacters(in: .newlines) == "> [!agent] Sort this list")
     }
+
+    @Test("a line break in a task, quote or paragraph is a hard break, and reads back as one block")
+    func lineBreaks() {
+        let task = StoryMarkdownCodec.parseBlocks("> [!agent] merge the duplicates\\\n> and sort by aisle\n")
+        #expect(task.count == 1)
+        #expect(task.first.flatMap(StoryAgentTask.task(in:)) == "merge the duplicates\nand sort by aisle")
+        #expect(StoryMarkdownCodec.serializeBlocks(task).trimmingCharacters(in: .newlines)
+            == "> [!agent] merge the duplicates\\\n> and sort by aisle")
+
+        let quote = Block.quote(text: AttributedString("first\n\nthird"))
+        let written = StoryMarkdownCodec.serializeBlocks([quote])
+        #expect(written.trimmingCharacters(in: .newlines) == "> first\\\n> \\\n> third")
+        #expect(StoryMarkdownCodec.parseBlocks(written).map(\.kind) == [quote.kind])
+
+        let paragraph = Block.paragraph(text: AttributedString("one\ntwo"))
+        let prose = StoryMarkdownCodec.serializeBlocks([paragraph])
+        #expect(prose.trimmingCharacters(in: .newlines) == "one\\\ntwo")
+        #expect(StoryMarkdownCodec.parseBlocks(prose).map(\.kind) == [paragraph.kind])
+    }
+
+    @Test("consecutive > lines without a hard break stay separate quotes, byte for byte")
+    func separateQuotesUnchanged() {
+        let source = "> a\n> b\n"
+        let opened = StoryMarkdownCodec.open(source: source, revision: "r1", identitySeed: "pg_quotes")
+        #expect(opened.blocks.count == 2)
+        let (admission, _) = StoryMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        #expect(admission.source == source)
+        #expect(StoryMarkdownCodec.serializeBlocks(StoryMarkdownCodec.parseBlocks(source)) == StoryMarkdownCodec.serializeBlocks(opened.blocks))
+    }
 }

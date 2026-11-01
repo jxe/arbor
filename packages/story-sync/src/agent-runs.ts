@@ -113,7 +113,8 @@ export function findTaskBlock(source: string, task: string): { start: number; en
     if (!marker) continue;
     let end = index + 1;
     const text = [marker[2]!];
-    while (end < lines.length && /^\s*>/.test(lines[end]!) && !/^\s*>\s*\\?\[!/.test(lines[end]!)) {
+    // A line ending in a hard break (an odd run of `\`) continues the task, as Story writes a line break.
+    while (end < lines.length && /(?:^|[^\\])(?:\\\\)*\\\r?$/.test(lines[end - 1]!) && /^\s*>/.test(lines[end]!)) {
       text.push(lines[end]!.replace(/^\s*>\s?/, ""));
       end += 1;
     }

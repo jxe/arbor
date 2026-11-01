@@ -178,6 +178,15 @@ public enum StoryMarkdownCodec {
                     cursor += 1
                     if closing { break }
                 }
+            } else if structuralFirst.hasPrefix("> ") {
+                // A `>` line ending in a hard break continues into the next `>`
+                // line at its indentation; any other `>` line is a quote of its own.
+                let indentation = first.prefix { $0 == " " || $0 == "\t" }
+                cursor += 1
+                while cursor < lines.count, endsInHardBreak(lines[cursor - 1].content), isQuoteLine(lines[cursor].content),
+                      lines[cursor].content.prefix(while: { $0 == " " || $0 == "\t" }) == indentation {
+                    cursor += 1
+                }
             } else if structuralLine(first) {
                 cursor += 1
             } else {
@@ -1014,7 +1023,14 @@ public enum StoryMarkdownCodec {
         if let match = leadingTrimmed.range(of: #"^\d+\.\s"#, options: .regularExpression) {
             return .numbered(text: parseInline(String(leadingTrimmed[match.upperBound...])), id: id)
         }
-        if leadingTrimmed.hasPrefix("> ") { return .quote(text: parseInline(String(leadingTrimmed.dropFirst(2))), id: id) }
+        if leadingTrimmed.hasPrefix("> ") {
+            // Each line after the first followed a hard break.
+            let quoted = contents.map { line -> String in
+                let body = line.drop(while: { $0 == " " || $0 == "\t" }).dropFirst()
+                return String(body.hasPrefix(" ") ? body.dropFirst() : body)
+            }
+            return .quote(text: parseInline(quoted.map(withoutHardBreak).joined(separator: "\n")), id: id)
+        }
         if ["---", "***", "___"].contains(trimmed) { return .divider(id: id) }
         if let pair = wholeLink(trimmed) {
             return .documentLink(label: parseInline(pair.label), reference: DocumentReference(pair.target), id: id)
@@ -1027,8 +1043,30 @@ public enum StoryMarkdownCodec {
                 id: id
             )
         }
-        let text = contents.filter { !$0.isEmpty }.joined(separator: "\n")
+        let text = contents.filter { !$0.isEmpty }.map(withoutHardBreak).joined(separator: "\n")
         return .paragraph(text: parseInline(text), id: id)
+    }
+
+    /// A `>` line continuing a quote: `> text`, or a bare `>` for an empty line.
+    private static func isQuoteLine(_ value: String) -> Bool {
+        let leadingTrimmed = value.drop(while: { $0 == " " || $0 == "\t" })
+        return leadingTrimmed.hasPrefix("> ") || leadingTrimmed == ">"
+    }
+
+    /// `line` without the `\` that ends it as a CommonMark hard break; an escaped
+    /// backslash (an even run) is text.
+    private static func withoutHardBreak(_ line: String) -> String {
+        endsInHardBreak(line) ? String(line.dropLast()) : line
+    }
+
+    private static func endsInHardBreak(_ line: String) -> Bool {
+        line.reversed().prefix { $0 == "\\" }.count % 2 == 1
+    }
+
+    /// Inline Markdown for `text` with each line break written as a CommonMark
+    /// hard break (`\` and a newline), the next line starting with `continuation`.
+    private static func inline(_ text: AttributedString, newline: String, continuation: String) -> String {
+        inline(text).components(separatedBy: "\n").joined(separator: "\\" + newline + continuation)
     }
 
     private static func indentationDepth(_ value: String) -> Int {
@@ -1121,22 +1159,22 @@ public enum StoryMarkdownCodec {
             }
             // Dictation makes a task as a paragraph; it is written, and reads back, as a task quote.
             if let task = StoryAgentTask.taskText(of: text) {
-                line = prefix + "> " + StoryAgentTask.marker + (task.characters.isEmpty ? "" : " " + inline(task))
+                line = prefix + "> " + StoryAgentTask.marker + (task.characters.isEmpty ? "" : " " + inline(task, newline: newline, continuation: prefix + "> "))
             } else {
-                line = prefix + inline(text)
+                line = prefix + inline(text, newline: newline, continuation: prefix)
             }
         case let .heading(level, text): line = prefix + String(repeating: "#", count: level.rawValue) + " " + inline(text)
         case let .bullet(text): line = prefix + "- " + inline(text)
         case let .numbered(text): line = prefix + "1. " + inline(text)
         case let .todo(text, done): line = prefix + "- [\(done ? "x" : " ")] " + inline(text)
         case let .quote(text) where StoryAgentTask.isMarked(block):
-            line = prefix + "> " + StoryAgentTask.marker + (text.characters.isEmpty ? "" : " " + inline(text))
+            line = prefix + "> " + StoryAgentTask.marker + (text.characters.isEmpty ? "" : " " + inline(text, newline: newline, continuation: prefix + "> "))
         case let .quote(text):
             // An agent task's marker is written as authored, never escaped.
             if let task = StoryAgentTask.taskText(of: text) {
-                line = prefix + "> " + StoryAgentTask.marker + (task.characters.isEmpty ? "" : " " + inline(task))
+                line = prefix + "> " + StoryAgentTask.marker + (task.characters.isEmpty ? "" : " " + inline(task, newline: newline, continuation: prefix + "> "))
             } else {
-                line = prefix + "> " + inline(text)
+                line = prefix + "> " + inline(text, newline: newline, continuation: prefix + "> ")
             }
         case let .code(source, language):
             let body = source
