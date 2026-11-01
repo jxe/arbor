@@ -23,11 +23,6 @@ What you would notice in Story, as opposed to protocol, host or data plumbing.
 works from the iPhone while the Mac is awake (through presence messages between one person's
 devices), and Codex as a second runner. The conversation vanishes like presence.
 
-**[Agents 003: agent runs in history](features/agents-003-agent-runs-in-history.md).**
-*Later,* after overstoryd 007. A run is one history entry labelled with its task, Undo Run is
-a history restore, and updates gain an optional attribution so an agent's edits are both
-Joe's and the agent's (Joe, 2026-10-30).
-
 **[Live 002: exact carets and selections](features/live-002-exact-carets.md).**
 *Later.* After Agents 001: a Quagmire release that reports and draws exact carets and
 selections, for people and agents alike. The wire does not change.
@@ -81,7 +76,9 @@ depend on Story enough to lose a Mac.
 
 **[overstoryd 007: document history and restore](features/history-007-document-history-routes-and-restore.md).**
 *Later.* Seeing and restoring earlier versions of a page; it also decides how long document
-versions are kept, which is most of what overstoryd retains.
+versions are kept, which is most of what overstoryd retains. Since 2026-11-01 it also holds
+agent runs in History (formerly Agents 003): updates carry an optional attribution naming the
+agent and run, a run is one History entry, and Undo Run is a restore.
 
 **[Editor 001: snippets you type or say](features/editor-001-snippets.md).**
 *When needed.* Joe asked on 2026-10-24 for TextMate-style snippets in place of template buttons: a page he
@@ -133,10 +130,11 @@ one unchanged span. Implement each case in the Swift and TypeScript clients,
 using shared examples and the host merge engine to prove the result.
 
 **[Filesystem 026: pages as logical nodes, written to disk by each placement](soon/filesystem-026-pages-as-logical-nodes.md).**
-The tree would hold a page's properties and content, and each placement would write its
-front matter; formatting stops traveling between devices, which Joe accepted on 2026-10-28,
-when he put it in soon.
-Front-matter edits become property effects in merge and access.
+The tree holds a page's properties and content, and each placement writes its front matter;
+formatting stops traveling between devices, which Joe accepted on 2026-10-28. Steps 1 to 5
+are on main ([status](../status.md#pages-as-logical-nodes-built--2026-10-28)) and the host
+converted Joe's todos tree on 2026-11-01. Left: the hand check, a release, converting the
+other trees, and step 6's cleanup.
 
 **[overstoryd 015: explain automatic resolutions and clear reconciled choices](soon/merge-015-resolve-reconciled-choices.md).**
 Joe encountered a whole-tree conflict after moving blocks into a new page. Later
@@ -145,9 +143,12 @@ and its cards showed only older alternatives. overstoryd should clear choices it
 prove reconciled, and Story should explain the current result and make explicit
 resolution easy. Joe moved it to soon on 2026-10-28.
 
-**[overstoryd 014: the merge handles many cases](soon/merge-014-merge-handles-many-cases.md).**
-Prose already merges well; a menu of cases that still go to review. Joe moved it to soon on
-2026-10-28.
+**[overstoryd 017: merge as blocks and elements, and the cases still open](soon/merge-017-blocks-and-elements.md).**
+After the 2026-10-31 todos conflicts, Joe asked for one merge model instead of a growing list
+of allowances. Markdown merges as blocks and JSON, YAML, TOML and CSV as elements since
+2026-11-01 ([status](../status.md#merge-as-blocks-and-elements--2026-11-01)). Left: JSONL,
+XML/HTML/CSS and code as elements, choices named by the blocks they cover, then the menu of
+cases that still go to review, which was overstoryd 014 until Joe folded it in on 2026-11-01.
 
 ## Later
 
@@ -205,14 +206,13 @@ are using the TestFlight build. A sketch of what review requires: account deleti
 and block, and policy pages. The sample pages are the reviewer's way in.
 
 **[overstoryd 006: line provenance](later/history-006-line-provenance.md).** After
-overstoryd 007: who submitted each current line. With Performance 004's index it reads
-pieces instead of matching lines.
+overstoryd 007: who submitted each current line, and the agent when an update names one
+("Joe · Claude"). With Performance 004's index it reads pieces instead of matching lines.
 
-**Postgres [001](later/postgres-001-child-provider.md), [002](later/postgres-002-observation-and-semantic-sync.md),
-[003](later/postgres-003-read-only-sqlite-projection.md), [004](later/postgres-004-bidirectional-projection.md),
-[005](later/postgres-005-representation-equivalence.md).** Longer term. For now the point is that
-the design shows Postgres backings, SQLite projections and moving a collection between
-representations are possible.
+**[Postgres 001: collections backed by Postgres, and SQLite projections of them](later/postgres-001-postgres-backed-collections.md).**
+Longer term. For now the point is that the design shows Postgres backings, SQLite projections
+and moving a collection between representations are possible. Five plans until 2026-11-01,
+when Joe had them rewritten as one against logical collections.
 
 ## When needed
 
@@ -236,10 +236,11 @@ proofs and release boundaries differ, and they share examples rather than duplic
 Editor intent, client publication, host merging and conflict review. [Native 008](when-needed/merge-008-copies-with-changes-and-compound-undo.md)
 supplies truthful command evidence; [Clients 002](soon/merge-002-identity-preserving-coalescing.md)
 can simplify that evidence after it exists, and must not invent missing copy or move identity;
-[overstoryd 014](soon/merge-014-merge-handles-many-cases.md) must support an emitted
+[overstoryd 017](soon/merge-017-blocks-and-elements.md) must support an emitted
 operation form before a client that emits it is installed; [overstoryd 015](soon/merge-015-resolve-reconciled-choices.md)
-gives every automatic outcome its explanation, which 014's "merge with a note" candidates wait
-for. The numbers are identifiers, not an execution order. History and provenance support
+clears choices later work has reconciled; [Editor 003 part 3](features/editor-003-suggestions.md#part-3-merge-notes)
+gives every automatic outcome its explanation (merge notes), which 015's authority resolutions
+and 017's "merge with a note" cases wait for. The numbers are identifiers, not an execution order. History and provenance support
 explanation but do not improve merge decisions; [overstoryd 016](later/merge-016-choice-review-extensions.md)
 extends the choice review; Web 025 owns rebuilding the web reviewer;
 merge replay cost is Performance 004, including merge and replay cost for large collections
@@ -250,7 +251,8 @@ include editor alignment and round-trip characterization.
 
 [overstoryd 007](features/history-007-document-history-routes-and-restore.md) (history and
 restore) comes before [overstoryd 006](later/history-006-line-provenance.md) (line
-provenance), which builds on the history API and adds its own metadata and policy. Merge
+provenance), which builds on the history API and adds its own metadata and policy. 007 adds
+the agent attribution on updates; 006 adds who submitted each update and shows both. Merge
 explanations can link to this history; their provenance proofs and conflict rules stay with
 merge work.
 

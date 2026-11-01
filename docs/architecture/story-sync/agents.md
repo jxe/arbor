@@ -52,4 +52,5 @@ replaces its own entries and uninstalling removes only them.
   final message. Failure keeps the block and shows the last line of stderr.
 - **Undo.** The files the run changed, with their hashes right after it, and
   the snapshot, kept for a day and saved in `agent-runs/runs.json` so they
-  survive a restart. Agents 003 replaces this with history.
+  survive a restart. [overstoryd 007](../../../plans/features/history-007-document-history-routes-and-restore.md)
+  step 6 plans to replace this with a history restore.

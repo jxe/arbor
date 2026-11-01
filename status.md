@@ -61,7 +61,7 @@ choice). All **deployed** on main:
   conflict group, page conflicts included, listing only lines a version holds that the page
   lacks. **Installed** in Joe's Mac build on 2026-11-01; not yet checked by hand.
 - Replaying the real 2026-10-31 versions: the Mac's repeated deletion merges, and the sync batch
-  is one choice of about 450 bytes. Remaining: [overstoryd 017](plans/soon/merge-017-markdown-block-merge.md)
+  is one choice of about 450 bytes. Remaining: [overstoryd 017](plans/soon/merge-017-blocks-and-elements.md)
   steps 7 (JSONL, XML/HTML/CSS, code) and 8 (choices named by block); merge notes moved to
   [Editor 003](plans/features/editor-003-suggestions.md#part-3-merge-notes).
 
@@ -1266,7 +1266,7 @@ measurements before broadening the implementation.
 | Area | State | Remaining | Owning plan |
 |---|---|---|---|
 | Story editing and review | implemented, not installed | Copies with changes, paste and inline provenance, compound undo, and interactive acceptance of the implemented review UI | [Native 008](plans/when-needed/merge-008-copies-with-changes-and-compound-undo.md), release gate retired 2026-10-26 |
-| Markdown source-transfer policy | deployed | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order. Also deployed: list items, table rows and contextual links, same-anchor ordering, keyed JSON/YAML members and TS/JS function declaration moves ([transfers](docs/architecture/overstoryd/merge-tool.md#transfers)); their hand checks were retired ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)). Swift/Python declaration moves, structured moves between files, cross-document fragment and reference links and richer list hosts still require review | [overstoryd 014](plans/soon/merge-014-merge-handles-many-cases.md) |
+| Markdown source-transfer policy | deployed | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order. Also deployed: list items, table rows and contextual links, same-anchor ordering, keyed JSON/YAML members and TS/JS function declaration moves ([transfers](docs/architecture/overstoryd/merge-tool.md#transfers)); their hand checks were retired ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)). Swift/Python declaration moves, structured moves between files, cross-document fragment and reference links and richer list hosts still require review | [overstoryd 017](plans/soon/merge-017-blocks-and-elements.md#cases-still-open) |
 | Resource policy providers | deployed | Provider-specific enforcement, source resolution, activation consent, the execution sidecar, observation and soak | [Apps 005](plans/soon/apps-005-source-resolution-and-sidecar.md) |
 | Working-tree client transition | installed | None: the soaks were recorded from daily use ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)) | |
 | Story for the web | not mounted | The browser editor is out of the build until it is rebuilt as a working-tree client over the same machines as the Mac app | [Web 025](plans/later/story-web-025-story-web.md) |

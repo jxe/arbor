@@ -4,7 +4,8 @@
 
 ## Status
 
-**PLANNED · L effort · high authority-boundary risk.** Rewritten 2026-10-24 after
+**IN PROGRESS · L effort · high authority-boundary risk.** Step 4 (the sidecar) is done
+(2026-10-28); steps 1 to 3 are left. Rewritten 2026-10-24 after
 Schema language 005 milestone 6 ([status](../../status.md#collections-that-sync--2026-10-24))
 put named queries and mutations inside overstoryd. The earlier version (replanned at
 `d55f4142`, 2026-09-21) assumed no query evaluator would ever load in overstoryd; its

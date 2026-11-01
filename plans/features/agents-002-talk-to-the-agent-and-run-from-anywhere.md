@@ -8,7 +8,7 @@ Google Docs or Notion: the agent can ask, and Joe answers right at its cursor, f
 device he's on. Run should work from the iPhone whenever the Mac happens to be awake. Codex
 should work as well as Claude Code. Exact carets ([Live 002](live-002-exact-carets.md)) and suggestions ([Editor 003](editor-003-suggestions.md)) are
 their own plans, for people and agents alike (Joe, 2026-10-30). Runs in history are
-[Agents 003](agents-003-agent-runs-in-history.md).
+[overstoryd 007](history-007-document-history-routes-and-restore.md) steps 5 and 6.
 
 > **Executor instructions**: Refresh "What happens today" against Agents 001 as built. Do the
 > phases in order and stop after each for Joe's hands-on check. Phase 1 changes a host route,
@@ -177,7 +177,8 @@ Also open from the same day: which way of running from the iPhone is smoothest (
   your own. The runner is a role a device takes on, so it could come later without a contract
   change.
 - Exact carets: [Live 002](live-002-exact-carets.md). Suggestions: [Editor 003](editor-003-suggestions.md).
-- Runs in history and attribution: [Agents 003](agents-003-agent-runs-in-history.md).
+- Runs in history and attribution: [overstoryd 007](history-007-document-history-routes-and-restore.md) steps 5 and 6; both names in
+  line provenance: [overstoryd 006](../later/history-006-line-provenance.md).
 
 ## Close out
 

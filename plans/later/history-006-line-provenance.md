@@ -2,6 +2,11 @@
 
 **Why and when:** parked, and after overstoryd 007: who submitted each current line.
 
+Since 2026-11-01 (Joe) it also shows agents: a line last changed by an update carrying
+an agent attribution ([overstoryd 007](../features/history-007-document-history-routes-and-restore.md)
+step 5) shows the person and the agent, such as "Joe · Claude". This was Agents 003's
+third phase.
+
 Historical identifier: **Smaller project 006**. Rewritten 2026-09-24 for the current
 host: migration 016 squashed each tree's accepted history to its head, overstoryd 016
 made each accepted update an immutable log entry, and every editor is a direct
@@ -88,6 +93,7 @@ type LineProvenanceSpan = {
   update: string | null;                // null when the update was squashed
   acceptedAt: number;
   actor: LineProvenanceActor;
+  attribution: UpdateAttribution | null; // the agent and run, from overstoryd 007 step 5
 };
 
 type LineProvenance = {
@@ -109,35 +115,19 @@ no Story Sync proxy: editors call overstoryd directly.
 
 ## Algorithm
 
-[Performance 004](../soon/performance-004-provenance-index.md) keeps a provenance index (each
-file's pieces, naming the change that inserted them) at every acceptance. Once it
-exists, replace this section with a lookup in that index; the line matching below is
-the fallback for documents and versions from before it.
+Read [Performance 004](../soon/performance-004-provenance-index.md)'s provenance index:
+every acceptance records which update inserted each run of each file's bytes, so a line's
+update is the update of the pieces it holds, exact through moves and merges, with no line
+matching. A line holding pieces from several updates is attributed to the newest of them.
+Settle the details against the index as built (it is being built in its own thread).
 
-A pure module in `packages/overstoryd/src/`, no HTTP or account lookups.
-
-1. Resolve `path` in the current root to its body, content hash and key (overstoryd
-   007's resolver). Tokenize exact source into lines, keeping each terminator; a
-   final unterminated line is still a line.
-2. Read that key's `document_versions` rows newest first. Start every line at the
-   newest version.
-3. For each older version, match unchanged exact lines against the newer one and
-   carry matches back; freeze unmatched lines at the newer version.
-4. Duplicate lines: deterministic occurrence-aware matching; when ambiguous,
-   prefer the newer attribution.
-5. A merged update wrote one version compared with the one before it, so lines it
-   kept stay with their earlier versions and only lines new in that version are
-   attributed to the merge's submitter.
-6. Restores attribute reintroduced lines to the restoring update. No copy
-   detection.
-7. Stop honestly at the first version, at overstoryd 007's retention bound, or where
-   a path-keyed document was moved. Report `continuity: "path"` for path keys.
-
-Use a bounded-memory line matcher, with explicit limits on source bytes, lines,
-versions and work, and a typed error past them; never a partial result that looks
-complete. Measure a long document with long history before fixing the limits. Add
-a cache keyed by `(tree, update, key, contentHash)` only if measurement justifies
-it, and never on the acceptance path.
+**Fallback, for versions from before the index.** Line matching over `document_versions`,
+as this plan first had it (text in git history before 2026-11-01): newest version first,
+carry exact unchanged lines back, occurrence-aware for duplicates, preferring the newer
+attribution when ambiguous; stop honestly at the first version, the retention bound, or a
+path-keyed move (`continuity: "path"`). Bounded memory and work, a typed error past the
+limits, never a partial result that looks complete. Drop the fallback if every retained
+version is indexed by the time this is built.
 
 ## Steps
 
@@ -147,7 +137,7 @@ it, and never on the acceptance path.
    and backfilling post-squash rows. Rehearse on a production copy.
 2. **Portable actor.** Replace `subject` with `actor` in TS, Swift, fixtures, spec
    (`01-tree-operations.md`) and docs together.
-3. **Engine.** Direct edits, insert/delete/replace, repeated and blank lines,
+3. **Engine.** The index lookup, then the fallback. Cases: direct edits, insert/delete/replace, repeated and blank lines,
    LF/CRLF/CR, frontmatter, stable-ID moves, path-only moves, merges, restores,
    squashed versions, limits.
 4. **Route.** Current-only, authorized like history, typed failures for stale,
@@ -157,7 +147,8 @@ it, and never on the acceptance path.
    grouping spans, profile labels resolved from the TreeID at display time,
    literal labels for non-profile actors, **Available after changes sync** while the
    change log has unpublished work for the document, and accessibility labels that
-   read line, submitter and date.
+   read line, submitter and date. An attributed span shows both names ("Joe · Claude"),
+   and the view can filter by agent.
 
 ## Verification
 

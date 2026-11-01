@@ -4,6 +4,12 @@
 
 **Why and when:** parked. Seeing and restoring earlier versions of a page; it also decides how long document versions are kept, which is most of what overstoryd retains.
 
+Agent runs in History (formerly **Agents 003** phases 1 and 2) joined this plan on
+2026-11-01 (Joe): a run is one History entry labelled with its task, Undo Run is a
+restore, and updates gain an optional attribution naming the agent and run. Its third
+phase, both names in line provenance, went to
+[overstoryd 006](../later/history-006-line-provenance.md).
+
 Historical identifier: **Smaller project 007**, formerly "Surface accepted document
 history from overstoryd". Its storage half shipped with overstoryd 013
 ([closeout](../../status.md#overstoryd-011-012-and-013-closeout--2026-09-22)); this plan is
@@ -126,6 +132,39 @@ decision.
    needs a connection to the host"; never a local fallback), error, rows labelled
    by acceptance time, and the **Restore as New Change** confirmation saying later
    history is kept.
+
+5. **Updates can say an agent made them** (from Agents 003). `01-tree-operations.md`: an
+   update gains an optional `attribution`:
+
+   ```ts
+   type UpdateAttribution = {
+     agent: string;        // "Claude", "Codex"
+     run: string;          // opaque, the same for every update of one run
+     task: string;         // the task text, ≤ 280 characters
+   };
+   ```
+
+   It is descriptive only: it never grants or limits anything, and access and
+   authorship stay the account's and device's. The host stores it with the accepted
+   update and returns it in history entries. Story Sync's loopback API gains a way for
+   the runner to say "updates from this placed tree belong to run R until I say
+   otherwise" (it already holds the tree's publishing during a run, so a run publishes
+   as one change); edits Joe makes in the same folder by other means during a run are
+   attributed too, while the Story editor publishes on its own credential and is not.
+   Models, vectors, and tests that an update with and without `attribution` round-trips,
+   and that a forged one changes nothing about access. Runs `bun run test:protocol`.
+6. **Agent runs in History** (from Agents 003; Joe, 2026-10-30). A run is one History
+   entry labelled with its task ("Agent: merge the duplicates and sort by aisle"), even
+   when it touched several pages, listing the pages it changed. History is the task
+   archive: the entry shows the task it came from. **Undo Run** (on the checked-off
+   `[!agent-done]` block, and from the run's entry) restores each changed page to its
+   version before the run, through step 3's restore, as new changes; a page changed by
+   someone else since is listed and left alone, as the snapshot undo does today. Story
+   Sync then stops keeping per-run snapshots
+   ([agents](../../docs/architecture/story-sync/agents.md#runs)).
+   **Verification:** a run touching two pages appears once in each page's history and
+   once as a run; Undo Run restores both; with one page edited by hand after the run,
+   that page is left alone and named.
 
 ## Verification
 

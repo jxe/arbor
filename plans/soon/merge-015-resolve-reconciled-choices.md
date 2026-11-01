@@ -5,8 +5,9 @@ new page. Later accepted edits already produced the intended contents, but the
 conflict remained and its cards showed only older alternatives. overstoryd should
 clear choices it can prove reconciled, and Story should explain the current result
 and make explicit resolution easy. Joe moved it to when-needed on 2026-10-25, and back to soon on 2026-10-28. Its first step is the
-foundation every automatic outcome needs, moved here from
-[overstoryd 014](../soon/merge-014-merge-handles-many-cases.md) on 2026-10-11.
+foundation every automatic outcome needs, moved here from overstoryd 014 on
+2026-10-11 and on to [Editor 003](../features/editor-003-suggestions.md#part-3-merge-notes)
+on 2026-11-01.
 
 Formerly "Resolve choices that later work has reconciled".
 
@@ -32,37 +33,14 @@ linked choices are all loaded (whole-tree, file, range and coupled groups, since
 
 ## Remaining work
 
-### 0. Give automatic outcomes a portable explanation
+### 0. A portable explanation (moved)
 
-Steps 2 and 3 record why the host resolved something and show it in clients. That
-needs three things first, which [overstoryd 014](../soon/merge-014-merge-handles-many-cases.md)'s
-candidates reuse:
-
-- **The three outcomes in the spec.** Add 014's three constraints (lose nothing,
-  keep the syntax, keep the meaning as far as possible) and three outcomes (merge,
-  merge with a note, review) to
-  [source intent §7](../../docs/overstory-spec/10-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution)
-  as what any merge tool may do. The spec permits all three and requires only the
-  first two constraints for an automatic outcome. How eagerly a tool merges is its
-  own choice.
-- **A portable note.** §7 already requires an automatic resolution to record its
-  justification, and lets each rule define extra evidence fields. A note needs a
-  shape clients can show without knowing the rule: a short message, the affected
-  range or path, and whether someone has seen it. Specify it in §7, carry it in the
-  log entry's decision evidence, and show it in the editor's margin beside choices
-  from the portable
-  [accepted-state review contract](../../docs/overstory-spec/09-client-synchronization.md#accepted-state-review).
-  An authority resolution of a reconciled choice (step 2) is the first thing that
-  writes one.
-- **Rule revisions.** §7 requires evidence to name a rule's identity and revision,
-  so a change to what a rule decides bumps its revision. **Open:** the first round
-  of 014 changed the Markdown, JSON, YAML and TS/JS rules' decisions without bumping
-  them from `revision: 1`, and it is deployed. Replay aligns to recorded decisions,
-  so history is not reinterpreted either way; decide whether to bump them now, and
-  add a test that fails when a rule's decisions change without a bump.
-
-Update the protocol models, Swift and TypeScript decoding, fixtures and
-conformance vectors together.
+Steps 2 and 3 record why the host resolved something and show it in clients. The
+shape of that explanation, a merge note, and the three merge outcomes in the spec
+are [Editor 003 part 3](../features/editor-003-suggestions.md#part-3-merge-notes)
+since 2026-11-01 (Joe), and rule revisions are
+[overstoryd 017](merge-017-blocks-and-elements.md#before-taking-a-case)'s. Step 2
+needs the note shape settled there.
 
 ### 1. Establish the automatic rule with a regression matrix
 
@@ -90,7 +68,7 @@ Keep the resolution separate from the fact that a new edit was accepted. Decide
 and document how the host represents its authority authorship in the accepted log
 and how a client discovers the explanation. Update protocol models, Swift and
 TypeScript decoding, fixtures and conformance tests together if exposed shapes
-change. The explanation is step 0's note.
+change. The explanation is a note in Editor 003 part 3's shape.
 
 ### 3. Explain and resolve current contents in clients
 

@@ -85,24 +85,37 @@ A sketch for the forks below.
   concurrent work; conflicts become choices in the overlay.
 - **Proposing** shows the parent's owner the overlay's changes against the parent, page by
   page. **Merging** applies them to the parent as ordinary updates (attributed to the overlay's
-  author, Agents 003), with conflicts going through choice review. Merging part of an overlay
+  author, as overstoryd 007's update attribution does for agents), with conflicts going through choice review. Merging part of an overlay
   is fork 5.
 - Access: an overlay's readers need read access to the parent too; it never widens what anyone
   can see of the parent.
 
 ## Part 3: merge notes
 
-Joe deferred merge notes ([overstoryd 017](../soon/merge-017-markdown-block-merge.md)
-step 6, [overstoryd 015](../soon/merge-015-resolve-reconciled-choices.md) step 0) to this
-plan on 2026-11-01: a note is the host's own small suggestion about a merged result, so it
-should share the suggestion UI rather than get one of its own.
+Joe deferred merge notes ([overstoryd 017](../soon/merge-017-blocks-and-elements.md)
+step 6) to this plan on 2026-11-01: a note is the host's own small suggestion about a merged
+result, so it should share the suggestion UI rather than get one of its own. The same day this
+part became the one home for explaining automatic merge outcomes: overstoryd 015's step 0 and
+014's "why it merged" item moved here. overstoryd 015's authority resolutions (its step 2) and
+017's note-outcome cases wait for the note shape settled here.
+
+- **The three outcomes in the spec.** Add the three constraints (lose nothing, keep the
+  syntax, keep the meaning as far as possible) and three outcomes (merge, merge with a note,
+  review) from [overstoryd 017](../soon/merge-017-blocks-and-elements.md#what-a-good-merge-does)
+  to [source intent §7](../../docs/overstory-spec/10-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution)
+  as what any merge tool may do. The spec permits all three and requires only the first two
+  constraints for an automatic outcome; how eagerly a tool merges is its own choice.
 
 - **What a note is.** A merge that loses nothing and keeps the syntax, but may have changed
   the meaning: a numbered list left out of sequence, a `#fragment` link whose heading was
   renamed or moved, an item that landed in a different section than its author put it in.
   Each has a short message, a path and range in the accepted root, the rule that wrote it,
   and often a one-click fix (renumber the list, rewrite the link), which is exactly a
-  suggestion.
+  suggestion. §7 already requires an automatic resolution to record its justification and
+  lets each rule add evidence fields; a note is the shape clients can show without knowing
+  the rule. An authority resolution of a reconciled choice
+  ([overstoryd 015](../soon/merge-015-resolve-reconciled-choices.md) step 2) writes one too,
+  and so does "why it merged" on request.
 - **Proposed shape (2026-11-01, not settled).** A note works like a decision without
   alternatives. The sidecar's answer returns the notes it raises, and the log entry keeps the
   notes still open, the way it keeps open decisions. Later answers carry them forward,
@@ -116,6 +129,8 @@ should share the suggestion UI rather than get one of its own.
 - **What the Markdown rule can already detect** (`markdown-blocks.ts`): blocks, sections,
   list attributes and contextual links of every version, so the first notes need no new
   analysis.
+- Update the protocol models, Swift and TypeScript decoding, fixtures and conformance
+  vectors together.
 
 ## Forks for Joe
 

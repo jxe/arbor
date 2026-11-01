@@ -12,7 +12,7 @@ needs it.
   resolution, which change when a guarded resolution is accepted.
 - **Relates to:** [overstoryd 015](../soon/merge-015-resolve-reconciled-choices.md)
   (clearing choices later work has reconciled, and explaining automatic outcomes), and
-  [overstoryd 014](../soon/merge-014-merge-handles-many-cases.md) item 33 (suggested
+  [overstoryd 017](../soon/merge-017-blocks-and-elements.md#cases-still-open) item 33 (suggested
   resolutions).
 
 ## The extensions
