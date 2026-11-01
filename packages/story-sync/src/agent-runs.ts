@@ -299,6 +299,8 @@ export class AgentRuns {
       "--append-system-prompt", AGENT_SKILL,
     ];
     let finalText: string | null = null;
+    // Tool reports still in flight when the agent exits land before its result.
+    const reports: Array<Promise<unknown>> = [];
     const exit = await new Promise<{ code: number | null; error?: string }>((resolve) => {
       const child = spawn(command, args, {
         cwd: folder,
@@ -320,7 +322,7 @@ export class AgentRuns {
           if (part.type === "tool_result" && typeof part.tool_use_id === "string") {
             const call = pending.get(part.tool_use_id);
             pending.delete(part.tool_use_id);
-            if (call && !part.is_error) void report({ hook: { hook_event_name: "PostToolUse", tool_name: call.name, tool_input: call.input } });
+            if (call && !part.is_error) reports.push(report({ hook: { hook_event_name: "PostToolUse", tool_name: call.name, tool_input: call.input } }));
           }
         }
         if (message.type === "result" && typeof message.result === "string") finalText = message.result;
@@ -329,6 +331,7 @@ export class AgentRuns {
       child.on("close", (code) => resolve({ code, ...(code === 0 ? {} : { error: stderr.trim().split("\n").pop() || `exited with ${code}` }) }));
     });
     run.process = undefined;
+    await Promise.all(reports);
 
     const after = await fileHashes(folder);
     const changes = new Map<string, string | null>();
