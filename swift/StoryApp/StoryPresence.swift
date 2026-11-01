@@ -204,6 +204,7 @@ struct StoryAgentTaskControl: View {
                 } label: {
                     Image(systemName: "play.fill")
                 }
+                .controlSize(.regular)
                 .buttonBorderShape(.circle)
                 .help("Run this task with Claude Code in this tree's folder")
                 .accessibilityLabel("Run with Claude")
