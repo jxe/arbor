@@ -3661,7 +3661,7 @@ private struct StorySharePanel: View {
             }
             let people = access.entries.filter { $0.subject != .everyone }.count
             let rows = people + 1
-            let agents: CGFloat = 96 + CGFloat(agentBundles.count) * 44
+            let agents: CGFloat = 20 + CGFloat(agentBundles.count) * 52
             return min(720, max(300, 190 + tree + CGFloat(rows) * 62 + agents + messageHeight))
         case .promotable(_, let accounts):
             return accounts.isEmpty ? 300 + messageHeight : 430 + messageHeight
@@ -3704,8 +3704,6 @@ private struct StorySharePanel: View {
 #else
             LabeledContent("This page is in", value: treeTitle(access.tree))
 #endif
-        } header: {
-            Text("Tree")
         } footer: {
 #if os(macOS)
             if moveTarget == nil, currentNode?.reference.path != "/" {
@@ -3843,18 +3841,10 @@ private struct StorySharePanel: View {
                     newGroupAccess = .read
                     newGroup = StoryNewGroupRequest(name: name)
                     profileLocator = ""
-                } : nil
+                } : nil,
+                prompt: "Add a person or group by name, ~handle, or profile URL"
             )
-        } footer: {
-            if !access.canEdit {
-#if os(iOS)
-                Text("This iPhone needs administrator access to share. On a Mac, open Account and make this device an administrator.")
-#else
-                Text("This Mac needs administrator access to share.")
-#endif
-            }
-        }
-        Section {
+            .labelsHidden()
             ForEach(access.entries.filter { $0.subject != .everyone }) { entry in
                 accessRow(entry, in: access)
             }
@@ -3863,23 +3853,41 @@ private struct StorySharePanel: View {
             } else {
                 everyoneRow(in: access)
             }
+#if os(macOS)
+            ForEach(agentBundles) { record in
+                agentRow(record, canEdit: access.canEdit)
+            }
+#endif
         } header: {
             Text("Who has access to \(treeTitle(access.tree))")
         } footer: {
-            if !access.canEdit {
-                Text("Only an administrator for this host account can change access.")
-            } else if canCreateGroup, groupableEntries(access).count >= 2 {
-                Button("Make these people a group…") {
-                    let entries = groupableEntries(access)
-                    newGroupAccess = entries.allSatisfy { $0.access == StoryTreeAccess.write.rawValue } ? .write : .read
-                    newGroup = StoryNewGroupRequest(members: entries.compactMap { entry in
-                        if case .profile(let tree) = entry.subject { tree } else { nil }
-                    })
-                }
-#if os(macOS)
-                .buttonStyle(.link)
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                if !access.canEdit {
+#if os(iOS)
+                    Text("This iPhone needs administrator access to share. On a Mac, open Account and make this device an administrator.")
+#else
+                    Text("Only an administrator of this tree's host account can change who has access.")
 #endif
-                .disabled(busy)
+                } else if canCreateGroup, groupableEntries(access).count >= 2 {
+                    Button("Make these people a group…") {
+                        let entries = groupableEntries(access)
+                        newGroupAccess = entries.allSatisfy { $0.access == StoryTreeAccess.write.rawValue } ? .write : .read
+                        newGroup = StoryNewGroupRequest(members: entries.compactMap { entry in
+                            if case .profile(let tree) = entry.subject { tree } else { nil }
+                        })
+                    }
+#if os(macOS)
+                    .buttonStyle(.link)
+#endif
+                    .disabled(busy)
+                }
+                Spacer(minLength: 0)
+#if os(macOS)
+                Button("Use with an agent…") { agentPage = true }
+                    .buttonStyle(.link)
+                    .help("Make a code that lets a coding agent's cloud machine check out this tree with `story agent start`")
+                    .disabled(busy || !access.canEdit)
+#endif
             }
         }
         // Whole-tree rules are the rows above; only rules for an app or part of the tree are listed here.
@@ -3891,19 +3899,6 @@ private struct StorySharePanel: View {
                 }
             } header: { Text("Scoped and app permissions") }
         }
-#if os(macOS)
-        Section {
-            ForEach(agentBundles) { record in
-                agentRow(record, canEdit: access.canEdit)
-            }
-            Button("Use with an agent…", systemImage: "terminal") { agentPage = true }
-                .disabled(busy || !access.canEdit)
-        } header: {
-            Text("Agents")
-        } footer: {
-            Text("An agent code lets a coding agent's cloud machine check out this tree with `story agent start`.")
-        }
-#endif
     }
 
 #if os(macOS)
