@@ -97,20 +97,23 @@ export function runPrompt(run: Pick<AgentRun, "page" | "task">, section: string 
 /** A task block's lines in a Markdown page: `> [!agent] text`, with any `> ` continuation lines. */
 export function findTaskBlock(source: string, task: string): { start: number; end: number; section: string | null } | null {
   const lines = source.split("\n");
-  const wanted = task.replace(/\s+/g, " ").trim();
+  // The task arrives as the editor's plain text; the file may hold escapes and
+  // emphasis delimiters, so both sides are compared without them.
+  const plain = (value: string) => value.replace(/[\\*_~`]/g, "").replace(/\s+/g, " ").trim();
+  const wanted = plain(task);
   let section: string | null = null;
   for (let index = 0; index < lines.length; index += 1) {
     const heading = /^#{1,6}\s+(.*)$/.exec(lines[index]!);
     if (heading) section = heading[1]!.trim();
-    const marker = /^(\s*)>\s*\[!agent\]\s?(.*)$/i.exec(lines[index]!);
+    const marker = /^(\s*)>\s*\\?\[!agent\\?\]\s?(.*)$/i.exec(lines[index]!);
     if (!marker) continue;
     let end = index + 1;
     const text = [marker[2]!];
-    while (end < lines.length && /^\s*>/.test(lines[end]!) && !/^\s*>\s*\[!/.test(lines[end]!)) {
+    while (end < lines.length && /^\s*>/.test(lines[end]!) && !/^\s*>\s*\\?\[!/.test(lines[end]!)) {
       text.push(lines[end]!.replace(/^\s*>\s?/, ""));
       end += 1;
     }
-    if (text.join(" ").replace(/\s+/g, " ").trim() === wanted) return { start: index, end, section };
+    if (plain(text.join(" ")) === wanted) return { start: index, end, section };
   }
   return null;
 }

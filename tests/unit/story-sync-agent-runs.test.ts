@@ -126,6 +126,8 @@ describe("task blocks", () => {
     expect(removeTaskBlock(source, "merge the duplicates")).toBe("# Plan\n\nIntro\n\n## Shopping\n\n- milk\n");
     expect(removeTaskBlock(source, "something else")).toBeNull();
     expect(findTaskBlock("> an ordinary quote\n", "an ordinary quote")).toBeNull();
+    // As Story's editor writes an edited one: escaped punctuation, matched by its plain text.
+    expect(findTaskBlock("> \\[!agent\\] sort *these*\\_now\n", "sort these_now")).toEqual({ start: 0, end: 1, section: null });
   });
 
   test("the prompt names the page, the section and the task", () => {

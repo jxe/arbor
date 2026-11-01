@@ -345,6 +345,38 @@ actor StorySyncRESTClient {
         }
     }
 
+    // MARK: Agent runs (Agents 001 phase 6)
+
+    /// Start the person's agent on a task block's task in a placed tree.
+    func startAgentRun(tree: String, page: String, task: String) async throws -> StoryAgentRun {
+        try await agentPost("/v1/agents/runs", body: ["tree": tree, "page": page, "task": task])
+    }
+
+    func agentRun(_ id: String) async throws -> StoryAgentRun {
+        try await get(path: "/v1/agents/runs/\(id)", items: [])
+    }
+
+    func agentRuns() async throws -> [StoryAgentRun] {
+        try await get(path: "/v1/agents/runs", items: [])
+    }
+
+    func stopAgentRun(_ id: String) async throws -> StoryAgentRun {
+        try await agentPost("/v1/agents/runs/\(id)/stop", body: [:])
+    }
+
+    /// Put back the files a run changed, unless they changed again since.
+    func undoAgentRun(_ id: String) async throws -> StoryAgentRunUndo {
+        try await agentPost("/v1/agents/runs/\(id)/undo", body: [:])
+    }
+
+    private func agentPost<T: Decodable>(_ path: String, body: [String: String]) async throws -> T {
+        var request = URLRequest(url: url(path))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+        return try await perform(request)
+    }
+
     private func get<T: Decodable>(
         path: String,
         items: [URLQueryItem]
@@ -394,3 +426,26 @@ private struct TreeBootstrapEnvelope: Decodable {
     var observedThrough: String
 }
 #endif
+
+// Outside the macOS block: views shared with iOS name these types, though only the Mac runs.
+
+/// One run of the person's agent, as Story Sync reports it.
+struct StoryAgentRun: Decodable, Equatable, Sendable, Identifiable {
+    enum State: String, Decodable, Sendable { case queued, running, finished, failed, stopped, undone }
+    var id: String
+    var tree: String
+    var page: String
+    var task: String
+    var state: State
+    /// The agent's one-line result, or why the run failed.
+    var result: String?
+    var changed: [String]
+    var undoable: Bool
+
+    var isActive: Bool { state == .queued || state == .running }
+}
+
+struct StoryAgentRunUndo: Decodable, Equatable, Sendable {
+    var restored: [String]
+    var skipped: [String]
+}

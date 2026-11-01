@@ -1116,7 +1116,13 @@ public enum StoryMarkdownCodec {
         case let .bullet(text): line = prefix + "- " + inline(text)
         case let .numbered(text): line = prefix + "1. " + inline(text)
         case let .todo(text, done): line = prefix + "- [\(done ? "x" : " ")] " + inline(text)
-        case let .quote(text): line = prefix + "> " + inline(text)
+        case let .quote(text):
+            // An agent task's marker is written as authored, never escaped.
+            if let task = StoryAgentTask.taskText(of: text) {
+                line = prefix + "> " + StoryAgentTask.marker + (task.characters.isEmpty ? "" : " " + inline(task))
+            } else {
+                line = prefix + "> " + inline(text)
+            }
         case let .code(source, language):
             let body = source
                 .components(separatedBy: "\n")

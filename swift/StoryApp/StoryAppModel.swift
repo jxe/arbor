@@ -2319,6 +2319,92 @@ final class StoryWorkspaceState {
         return presenceRoster.peers(onPage: Self.presencePage(reference).path)
     }
 
+#if os(macOS)
+    // MARK: Agent runs (Agents 001 phase 6)
+
+    /// The latest run of each task, keyed by `agentRunKey`.
+    private(set) var agentRuns: [String: StoryAgentRun] = [:]
+    private(set) var agentRunError: String?
+    private var agentRunFollowers: [String: Task<Void, Never>] = [:]
+
+    nonisolated static func agentRunKey(tree: String, page: String, task: String) -> String {
+        "\(tree)|\(page)|\(task)"
+    }
+
+    /// The run, if any, of `task` on `reference`'s page.
+    func agentRun(task: String, on reference: WorkspaceReference) -> StoryAgentRun? {
+        agentRuns[Self.agentRunKey(tree: reference.tree.rawValue, page: Self.presencePage(reference).path, task: task)]
+    }
+
+    /// Run a task block with the person's agent. Only a placed tree runs:
+    /// the agent works in its folder on this Mac.
+    func runAgentTask(_ task: String, on reference: WorkspaceReference) async {
+        agentRunError = nil
+        let page = Self.presencePage(reference).path
+        do {
+            await flush()
+            guard let client = storySyncClient ?? (try? await ensureStorySync())?.client else {
+                throw StorySyncSupervisorError.serviceUnavailable
+            }
+            let run = try await client.startAgentRun(tree: reference.tree.rawValue, page: page, task: task)
+            follow(run, client: client)
+        } catch {
+            agentRunError = "Couldn't run the task: \(error.localizedDescription)"
+        }
+    }
+
+    func stopAgentRun(_ run: StoryAgentRun) async {
+        guard let client = storySyncClient else { return }
+        if let stopped = try? await client.stopAgentRun(run.id) { record(stopped) }
+    }
+
+    func undoAgentRun(_ run: StoryAgentRun) async {
+        guard let client = storySyncClient else { return }
+        do {
+            let undo = try await client.undoAgentRun(run.id)
+            if !undo.skipped.isEmpty {
+                agentRunError = "Left \(undo.skipped.joined(separator: ", ")) alone: changed again since the run."
+            }
+            if let latest = try? await client.agentRun(run.id) { record(latest) }
+        } catch {
+            agentRunError = "Couldn't undo the run: \(error.localizedDescription)"
+        }
+    }
+
+    func dismissAgentRun(_ run: StoryAgentRun) {
+        agentRuns[Self.agentRunKey(tree: run.tree, page: run.page, task: run.task)] = nil
+    }
+
+    private func record(_ run: StoryAgentRun) {
+        agentRuns[Self.agentRunKey(tree: run.tree, page: run.page, task: run.task)] = run
+    }
+
+    /// Poll a run until it ends. Presence shows what the agent is doing meanwhile.
+    private func follow(_ run: StoryAgentRun, client: StorySyncRESTClient) {
+        record(run)
+        agentRunFollowers[run.id]?.cancel()
+        agentRunFollowers[run.id] = Task { [weak self] in
+            var current = run
+            while current.isActive, !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let next = try? await client.agentRun(run.id) else { continue }
+                current = next
+                self?.record(next)
+            }
+            self?.agentRunFollowers[run.id] = nil
+        }
+    }
+#endif
+
+    /// Whether `task` on this page has a run to show (always false off the Mac).
+    func hasAgentRun(task: String, on reference: WorkspaceReference) -> Bool {
+#if os(macOS)
+        agentRun(task: task, on: reference) != nil
+#else
+        false
+#endif
+    }
+
     /// Presence names a page by its canonical node path: `/Groceries`, never `/Groceries.md`.
     nonisolated static func presencePage(_ reference: WorkspaceReference) -> ProtocolPresencePage {
         var path = reference.path

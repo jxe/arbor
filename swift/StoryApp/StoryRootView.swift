@@ -1238,6 +1238,8 @@ struct StoryRootView: View {
     @State private var sidebarSearchText = ""
     @State private var reviewingChoices = false
     @State private var reviewAccessoryReveal: EditorAccessoryReveal?
+    /// Agent task blocks whose Run panel the reader opened.
+    @State private var expandedAgentTasks: Set<BlockID> = []
     @State private var sidebarKeyboardSelection: WorkspaceIdentity?
     @Environment(\.openWindow) private var openWindow
     /// The request this window was opened with, if another window opened it.
@@ -3136,6 +3138,27 @@ struct StoryRootView: View {
         }
     }
 
+    /// A Run control beside each agent task block (`> [!agent] …`). The
+    /// detail opens while the task is running or has a result to show.
+    private func agentTaskAccessories(for location: WorkspaceLocation, node: WorkspaceNode, binding: StoryDocumentBinding) -> [EditorAccessory] {
+        guard location == model.currentLocation else { return [] }
+        return StoryAgentTask.tasks(in: binding.document.children).map { item in
+            EditorAccessory(
+                id: "agent-task-\(item.block)", anchor: .block(item.block), accessibilityLabel: "Agent task",
+                isExpanded: Binding(
+                    get: { expandedAgentTasks.contains(item.block) || workspace.hasAgentRun(task: item.task, on: node.reference) },
+                    set: { open in
+                        if open { expandedAgentTasks.insert(item.block) } else { expandedAgentTasks.remove(item.block) }
+                    }),
+                marker: {
+                    Image(systemName: "sparkles").foregroundStyle(.purple).help("Agent task")
+                },
+                detail: {
+                    StoryAgentTaskPanel(workspace: workspace, reference: node.reference, task: item.task)
+                })
+        }
+    }
+
     private func reviewAccessories(for location: WorkspaceLocation, binding: StoryDocumentBinding) -> [EditorAccessory] {
         guard location == model.currentLocation, hostsReviewAccessory(location), let review = workspace.conflictReview else { return [] }
         let choices = review.decisions.filter { $0.path.map { reviewLogicalPath($0) == model.currentReference.path } ?? false }
@@ -3220,7 +3243,8 @@ struct StoryRootView: View {
                             pinchDictation: pinchDictation,
                             topOverscrollAction: editorTopOverscrollAction,
                             accessories: reviewAccessories(for: location, binding: lease.binding)
-                                + presenceAccessories(for: location, node: node, binding: lease.binding),
+                                + presenceAccessories(for: location, node: node, binding: lease.binding)
+                                + agentTaskAccessories(for: location, node: node, binding: lease.binding),
                             accessoryReveal: location == model.currentLocation ? reviewAccessoryReveal : nil,
                             readOnly: !node.isWritable
                         ) {

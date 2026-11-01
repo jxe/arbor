@@ -72,16 +72,39 @@ struct StoryPresenceHeader: View {
     let workspace: StoryWorkspaceState
     let reference: WorkspaceReference
 
+    private var runs: [StoryAgentRun] {
+#if os(macOS)
+        workspace.agentRuns.values.filter { $0.tree == reference.tree.rawValue }.sorted { $0.id < $1.id }
+#else
+        []
+#endif
+    }
+
     var body: some View {
         let here = workspace.presencePeers(on: reference)
         let everyone = workspace.presenceRoster.peers.values.sorted { ($0.name ?? "", $0.id) < ($1.name ?? "", $1.id) }
-        if !everyone.isEmpty || !workspace.showsMeToOthers {
+        if !everyone.isEmpty || !workspace.showsMeToOthers || !runs.isEmpty {
             Menu {
                 if everyone.isEmpty { Text("No one else is here") }
                 ForEach(everyone) { peer in
                     let page = peer.page.map { $0.path.split(separator: "/").last.map(String.init) ?? "Home" } ?? "No page"
                     Text("\(StoryPresenceBadge.label(for: peer)): \(page)\(peer.agent?.status.map { " (\($0))" } ?? "")")
                 }
+#if os(macOS)
+                // A finished run took its task block with it; its result and Undo stay here.
+                if !runs.isEmpty {
+                    Divider()
+                    Section("Agent Runs") {
+                        ForEach(runs) { run in
+                            Menu("\(run.task): \(run.result ?? run.state.rawValue)") {
+                                if run.undoable { Button("Undo Run") { Task { await workspace.undoAgentRun(run) } } }
+                                if run.isActive { Button("Stop") { Task { await workspace.stopAgentRun(run) } } }
+                                Button("Dismiss") { workspace.dismissAgentRun(run) }
+                            }
+                        }
+                    }
+                }
+#endif
                 Divider()
                 Toggle("Show Me to Others", isOn: Binding(
                     get: { workspace.showsMeToOthers },
@@ -90,7 +113,7 @@ struct StoryPresenceHeader: View {
                 HStack(spacing: -4) {
                     ForEach(here.prefix(4)) { StoryPresenceBadge(peer: $0) }
                     if here.isEmpty {
-                        Image(systemName: workspace.showsMeToOthers ? "person.2" : "eye.slash")
+                        Image(systemName: !runs.isEmpty ? "sparkles" : workspace.showsMeToOthers ? "person.2" : "eye.slash")
                     }
                     if everyone.count > here.count {
                         Text("+\(everyone.count - here.count)").font(.caption2).foregroundStyle(.secondary).padding(.leading, 6)
@@ -102,4 +125,80 @@ struct StoryPresenceHeader: View {
             .accessibilityLabel("Who's here")
         }
     }
+}
+
+/// What an agent task block offers (Agents 001 phase 6): Run on the Mac,
+/// then Running with Stop, then the agent's result with Undo Run. On iPhone
+/// and iPad the task waits for a Mac.
+struct StoryAgentTaskPanel: View {
+    let workspace: StoryWorkspaceState
+    let reference: WorkspaceReference
+    let task: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+#if os(macOS)
+            if let run = workspace.agentRun(task: task, on: reference) {
+                runView(run)
+            } else {
+                Button {
+                    Task { await workspace.runAgentTask(task, on: reference) }
+                } label: {
+                    Label("Run with Claude", systemImage: "play.fill")
+                }
+                .help("Run this task with Claude Code in this tree's folder")
+            }
+            if let error = workspace.agentRunError {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
+#else
+            Label("Run this task from Story on your Mac.", systemImage: "desktopcomputer")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+#endif
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.purple.opacity(0.08)))
+    }
+
+#if os(macOS)
+    @ViewBuilder
+    private func runView(_ run: StoryAgentRun) -> some View {
+        switch run.state {
+        case .queued, .running:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(run.state == .queued ? "Waiting for another run in this tree…" : "Claude is working…")
+                    .foregroundStyle(.secondary)
+                Button("Stop") { Task { await workspace.stopAgentRun(run) } }
+            }
+        case .finished, .failed, .stopped, .undone:
+            VStack(alignment: .leading, spacing: 4) {
+                Text(run.result ?? Self.title(run.state)).lineLimit(3)
+                    .foregroundStyle(run.state == .failed ? Color.red : Color.primary)
+                if !run.changed.isEmpty {
+                    Text("Changed \(run.changed.joined(separator: ", "))").font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
+                    if run.undoable { Button("Undo Run") { Task { await workspace.undoAgentRun(run) } } }
+                    if run.state != .finished {
+                        Button("Run Again") { Task { await workspace.runAgentTask(task, on: reference) } }
+                    }
+                    Button("Dismiss") { workspace.dismissAgentRun(run) }
+                }
+            }
+        }
+    }
+
+    private static func title(_ state: StoryAgentRun.State) -> String {
+        switch state {
+        case .finished: "Done"
+        case .failed: "The run failed"
+        case .stopped: "Stopped"
+        case .undone: "Undone"
+        case .queued, .running: ""
+        }
+    }
+#endif
 }
