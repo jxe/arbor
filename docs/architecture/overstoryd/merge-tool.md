@@ -340,7 +340,7 @@ are the automatic subsets; other simultaneous changes retain alternatives.
 | Format | Automatic subset | Requires review |
 | --- | --- | --- |
 | Text | Disjoint verified origins, including retained lineage and transport | Overlaps and competing anchors by default |
-| Markdown | Stable host structure; prose, heading/list text, task values and simple table cells; a new heading block inserted between blocks (after a blank line, closed by one, and not before an indented line); independent embedded regions; concurrent known embedded edits delegate to their format; identity-verified [transfers](#transfers) of paragraphs, list items and table rows, with contextual links whose binding is proven | Structural delimiter/order changes, ambiguous links, escaped tables and unsupported embedded combinations |
+| Markdown | Merged as blocks (`markdown-blocks.ts`): front matter, headings, paragraphs, list items, quotes, fences, tables and HTML blocks, each named across versions by the pieces it shares with base. Any edits merge when every block of the result keeps the kind, attributes (heading level, list marker, task state, fence language), container and inline syntax its last editor gave it, no text one side holds in one block is split, and no text a side holds apart is joined, unless the other side made that change. Front matter and fences both sides changed delegate to their language. Identity-verified [transfers](#transfers) of paragraphs, list items and table rows, with contextual links whose binding is proven | Both sides changing one block's attributes or inline syntax differently, overlapping edits, a merge that splits or joins a side's blocks, and unsupported embedded combinations; each is a choice about the blocks involved, never the whole document |
 | JSON | Different values under unique, unchanged object-key paths; identity-verified keyed member [transfers](#transfers) within one file | Duplicate keys, array ordering, key creation/removal or competing values |
 | JSONL | Independent record fields with configured unique `recordKey` and stable order | Missing/nonunique keys, key/order/schema changes |
 | YAML | Different mapping values with unique stable keys and preserved source; identity-verified keyed member [transfers](#transfers) within one file | Anchors, aliases, tags, sequences, multiline scalars and parse warnings |
@@ -368,11 +368,13 @@ When the replay itself fails, the review is as narrow as the transfers allow.
 A transfer between files in the candidate, or one accepted since its base
 joining two or more files the candidate also edited, makes one whole-root
 choice. Otherwise, in each file a transfer touched, every group of the
-candidate's edits is one choice: it grows to whole blank-line-separated blocks
-of the base, takes in the accepted edits inside those blocks and any edit that
-carries their material elsewhere (a move's other end), and accepted edits
-outside every choice merge as they would have. The same narrowing applies when
-a format rule refuses edits within one file. Before any of this, a candidate
+candidate's edits is one choice: it grows to whole blocks of the base
+(Markdown blocks in Markdown, blank-line separated runs elsewhere), takes in
+the accepted edits inside those blocks and any edit that carries their material
+elsewhere (a move's other end), and accepted edits outside every choice merge
+as they would have. The same narrowing applies when a format rule refuses edits
+within one file; a Markdown refusal names its blocks, and only edits in or
+touching them, and overlapping edits, become choices. Before any of this, a candidate
 deletion that only repeats an accepted one (sliding it along equal base bytes
 lands on material current removed from between its neighbors, as when a stale
 device deletes an item again but selects the next item's marker with it) is

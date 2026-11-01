@@ -30,11 +30,13 @@ import {
 
 import {
   evaluateFormat,
+  formatOf,
   evaluateTransfer,
   evaluateProseInsertions,
   type FormatEvidence,
   type TransferContext,
 } from "./format-rules.ts";
+import { markdownBlocks } from "./markdown-blocks.ts";
 import {
   pieceEdits,
   applyPieceEdits,
@@ -1487,35 +1489,61 @@ class Engine {
     }
     return local.filter(e => !repeated.has(e));
   }
-  /** The choices a format refusal requires. Each group holding an incoming
-   * edit grows to whole blocks of the base (blank-line separated), takes in
-   * every edit those blocks contain and any edit that carries their material
-   * elsewhere (a move's other end), and becomes one choice; edits outside
-   * every choice keep merging as they would have. */
-  coupledGroups<E extends PieceEdit & { side: number }>(base: Piece[], groups: E[][], bytes: Uint8Array): Array<E[] & { span?: [number, number] }> {
+  /** The choices a format refusal requires. Each group of edits the refusal
+   * concerns (every group holding an incoming edit, or, when the refusal names
+   * blocks, the groups in those blocks and any group where both sides' edits
+   * overlap) grows to whole blocks of the base: Markdown blocks for Markdown,
+   * blank-line separated runs otherwise. It takes in every edit those blocks
+   * contain and any edit that carries their material elsewhere (a move's other
+   * end), and becomes one choice. Edits outside every choice keep merging as
+   * they would have. */
+  coupledGroups<E extends PieceEdit & { side: number }>(
+    base: Piece[], groups: E[][], bytes: Uint8Array, markdown = false, scope?: Array<[number, number]>,
+  ): Array<E[] & { span?: [number, number] }> {
     const text = Buffer.from(bytes);
-    const blockStart = (at: number) => Math.max(0, ...["\n\n", "\n\r\n"].map(s => {
+    const parsed = markdown ? markdownBlocks(text.toString("utf8")) : null;
+    // The innermost block holding a position, or a blank-line separated run.
+    const holding = (at: number, end: boolean) => parsed
+      ?.filter(b => end ? b.start < at && at <= b.end : b.start <= at && at < b.end)
+      .reduce<typeof parsed[number] | undefined>((inner, b) => !inner || b.start >= inner.start ? b : inner, undefined);
+    const blockStart = (at: number) => holding(at, false)?.start ?? Math.max(0, ...["\n\n", "\n\r\n"].map(s => {
       const found = at < s.length ? -1 : text.lastIndexOf(s, at - s.length);
       return found < 0 ? 0 : found + s.length;
     }));
-    const blockEnd = (at: number) => Math.min(text.length, ...["\n\n", "\n\r\n"].map(s => {
+    const blockEnd = (at: number) => holding(at, true)?.end ?? Math.min(text.length, ...["\n\n", "\n\r\n"].map(s => {
       const found = text.indexOf(s, at);
       return found < 0 ? text.length : found + s.length;
     }));
     const range = (group: E[]): [number, number] =>
       [Math.min(...group.map(e => e.range[0])), Math.max(...group.map(e => e.range[1]))];
+    const meets = ([s, e]: [number, number], [a, b]: [number, number]) => s === e ? a <= s && s <= b : s < b && a < e;
+    // A refused block concerns the edits in it or touching it. A refusal whose
+    // blocks no edit touches cannot be placed, so it concerns every incoming edit.
+    const touches = ([s, e]: [number, number], [a, b]: [number, number]) => s <= b && a <= e;
+    if (scope && !scope.every(blocks => groups.some(group => touches(range(group), blocks)))) scope = undefined;
+    const concerned = (group: E[]) => {
+      if (!scope) return group.some(e => e.side === 1);
+      if (group.some(e => e.side === 0) && group.some(e => e.side === 1)) return true;
+      return scope.some(blocks => touches(range(group), blocks));
+    };
     const carries = (group: E[], [start, end]: [number, number]) => {
       const material = slice(base, start, end);
       return group.some(e => e.pieces.some(p => material.some(q => intersect(p, q))));
     };
     const pending = groups.map(group => ({ group: [...group], span: range(group) }));
     const choices: Array<{ group: E[]; span: [number, number] }> = [];
-    for (let seed = pending.find(g => g.group.some(e => e.side === 1)); seed; seed = pending.find(g => g.group.some(e => e.side === 1))) {
+    for (let seed = pending.find(g => concerned(g.group)); seed; seed = pending.find(g => concerned(g.group))) {
       pending.splice(pending.indexOf(seed), 1);
       let span: [number, number] = [blockStart(seed.span[0]), blockEnd(seed.span[1])], grew = true;
       const group = seed.group;
       while (grew) {
         grew = false;
+        // The refused blocks this choice meets are wholly inside it.
+        for (const [s, e] of scope ?? [])
+          if (meets(span, [s, e]) && (s < span[0] || e > span[1])) {
+            span = [blockStart(Math.min(span[0], s)), blockEnd(Math.max(span[1], e))];
+            grew = true;
+          }
         for (const other of [...pending, ...choices]) {
           const [s, e] = other.span;
           const inside = s === e ? span[0] <= s && s <= span[1] : s < span[1] && span[0] < e;
@@ -2719,7 +2747,14 @@ class Engine {
               if (!localEdits.length) continue;
               let basisBytes: Promise<Uint8Array> | undefined;
               const baseBytes = () => (basisBytes ??= this.bytes(b.pieces!));
+              const config = this.request.rules.config?.formats?.[basePath(id)];
+              // Markdown merges as blocks. A transfer the replay could not
+              // reconcile still couples the incoming edits in this file, now
+              // within the Markdown blocks they touch.
+              const blocks = formatOf(basePath(id), config) === "markdown";
               const transferred = transferPaths.has(basePath(id));
+              // The blocks a refusal names; without them it couples every incoming edit.
+              let scope: Array<[number, number]> | undefined;
               if (
                 !transferred &&
                 !localEdits.some((a) => remoteEdits.some((c) => overlap(a, c)))
@@ -2728,7 +2763,7 @@ class Engine {
                   applyPieceEdits(b.pieces, [...localEdits, ...remoteEdits])
                 );
                 const path = basePath(id);
-                const evidence = await evaluateFormat(
+                const { scope: refused, ...evidence } = await evaluateFormat(
                   path,
                   await baseBytes(),
                   await this.bytes(remote.pieces),
@@ -2736,9 +2771,11 @@ class Engine {
                   await this.bytes(proposal),
                   remoteEdits,
                   localEdits,
-                  this.request.rules.config?.formats?.[path]
+                  this.request.rules.config?.formats?.[path],
+                  blocks ? [b.pieces, remote.pieces, incoming.pieces, proposal] : undefined
                 );
                 this.formatEvidence.push(evidence);
+                scope = refused;
                 if (evidence.outcome === "resolved") {
                   this.assign(merged, remote, "pieces", proposal);
                   continue;
@@ -2769,7 +2806,7 @@ class Engine {
                   ...right,
                   ...left.filter((a) => !right.some((b) => overlap(a, b))),
                 ]);
-                const policy = await evaluateFormat(
+                const { scope: refused, ...policy } = await evaluateFormat(
                   path,
                   await baseBytes(),
                   await this.bytes(remote.pieces),
@@ -2777,9 +2814,11 @@ class Engine {
                   await this.bytes(tentative),
                   left,
                   right,
-                  request.rules.config?.formats?.[path]
+                  request.rules.config?.formats?.[path],
+                  blocks ? [b.pieces, remote.pieces, incoming.pieces, normalize(tentative)] : undefined
                 );
                 this.formatEvidence.push(policy);
+                scope = refused;
                 coupledByFormat = policy.outcome !== "resolved";
               }
               if (
@@ -2805,7 +2844,7 @@ class Engine {
               }
               if (transferred) coupledByFormat = true;
               if (coupledByFormat)
-                groups.splice(0, groups.length, ...this.coupledGroups(b.pieces, groups, await baseBytes()));
+                groups.splice(0, groups.length, ...this.coupledGroups(b.pieces, groups, await baseBytes(), blocks, scope));
               const selected = [];
               for (const group of groups) {
                 const [start, end] = group.span ?? [

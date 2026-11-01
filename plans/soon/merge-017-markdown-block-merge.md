@@ -11,7 +11,19 @@ its section B.
 
 ## Status
 
-- **State:** PROPOSED (2026-10-31), not started.
+- **State:** IN PROGRESS. The block model is the Markdown rule since
+  2026-11-01: `packages/overstoryd-merge/src/markdown-blocks.ts` (parser,
+  identity and the check), `markdownBlocksEvidence` in `format-rules.ts`, and
+  block-sized choices in `coupledGroups`. The skeleton check and its
+  allowances (`proseTransferShape`, `markdownLayout`, list-edit and heading
+  insertion guards) are deleted. Replaying the 2026-10-31 todos versions, the
+  Mac's repeated deletion merges and the sync batch is one choice of about
+  450 bytes instead of two of 28 KB.
+- **Recorded merges need nothing.** Replay re-asks a recorded question and
+  then aligns to the recorded root and decisions, so accepted results stand
+  whatever a newer rule would answer (merge-tool, "Cache and replay"). The
+  plan's earlier "run both revisions side by side" step is dropped.
+- **Remaining:** steps 5 and 6 below.
 
 ## The problem with today's rule
 
@@ -92,24 +104,20 @@ elsewhere) and **review**, which steps 5 and 6 confine to blocks.
 
 ## Steps
 
-1. **Parser and block identity.** Choose the block parser and add
-   `markdownBlocks(source, pieces)` returning blocks with spans, container,
-   attributes and the piece identity of each block. Test it against
-   CommonMark's block examples and every Markdown fixture in
-   `tests/unit/overstoryd-merge`.
-2. **Block diff and merge, behind a rule revision.** Add `markdown-blocks`
-   as a new rule revision beside `markdown-independent`, so recorded
-   questions still replay with the rule they were asked under. Run both on
-   every existing test, plus a regression built from the 2026-10-31 todos
-   versions (base `14664`, phone `14691`, Mac `14692`, sync batch `14693`):
-   no choice for the repeated deletion, and one block-sized choice for the
-   batch's moved item.
-3. **Measure before switching.** With Joe's go-ahead, replay recorded
-   Markdown questions from the live host's accepted history under both
-   revisions (counts only, no content leaves the host). Compare how many
-   reach review and how large their choices are.
-4. **Switch the default** and delete the old allowances and fallbacks.
-5. **Notes**, once [overstoryd 015](merge-015-resolve-reconciled-choices.md)
+1. ~~Parser and block identity.~~ Done.
+2. ~~Block diff and merge.~~ Done as a check on the identity-merged result
+   rather than a separate block diff: the engine's piece merge already places
+   every edit, and the block check decides whether the result keeps each
+   side's blocks.
+3. ~~Measure before switching.~~ Dropped; see Status.
+4. ~~Switch the default.~~ Done.
+5. **Transfers as block moves.** A move the transfer replay cannot reconcile
+   still couples the incoming edits of its file (now within Markdown blocks).
+   Read such a move as a block in a new place and run the block check
+   instead, keeping the link-binding checks of `markdown-source-transfer`
+   (relative links across directories, reference definitions) as the reasons
+   a moved block still needs review.
+6. **Notes**, once [overstoryd 015](merge-015-resolve-reconciled-choices.md)
    gives merges with a note a portable shape: list numbering and broken
    anchors.
 

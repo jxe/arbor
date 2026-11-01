@@ -2,11 +2,11 @@ import { expect, test } from "bun:test";
 import type { SourceOperation } from "@ovst/protocol";
 import { Fixture } from "./fixture.ts";
 
-// One side inserts a new ATX heading block between blocks; the other edits
-// elsewhere. A complete heading closed by a blank line parses alone, so it
-// merges unless the other side changed the context it relies on (the blank
-// line before it) or what follows it would change its parse (an indented line).
-// Before this, any new heading was protected structure (live update 8670).
+// One side inserts a new ATX heading block; the other edits elsewhere. Merged
+// as blocks (overstoryd 017), each side's blocks keep what it gave them, so a
+// heading merges even where it ends a list or closes the other side's tight
+// list: the result reads as the heading's author wrote it. Before 017 these
+// went to review (live update 8670 first allowed headings between blocks).
 
 const base = "# Notes\n\n- one\n\n- two\n\nPara 1\n";
 const at = base.indexOf("- two"), para = base.indexOf("1\n", base.indexOf("Para"));
@@ -29,17 +29,32 @@ test("a new heading between blocks merges with a distant edit", async () => {
   expect(content).toBe("# Notes\n\n- one\n\n# New\n\n- two\n\nPara 2\n");
 });
 
-test("a new heading needs review when the other side removes the blank line before it", async () => {
+test("a new heading merges where the other side removed the blank line before it", async () => {
   const joined = { text: base.slice(0, at - 1) + base.slice(at), range: [at - 1, at] as [number, number], with: "" };
-  expect((await merge("# New\n\n", joined)).decisions.length).toBeGreaterThan(0);
+  const { decisions, content } = await merge("# New\n\n", joined);
+  expect(decisions).toEqual([]);
+  expect(content).toBe("# Notes\n\n- one\n# New\n\n- two\n\nPara 1\n");
 });
 
-test("a new heading before an indented line needs review", async () => {
+test("a new heading before an indented line merges as its author wrote it", async () => {
   const source = "- one\n\n  more\n\nPara 1\n", offset = source.indexOf("  more"), one = source.indexOf("1\n");
   const other = { text: source.replace("Para 1", "Para 2"), range: [one, one + 1] as [number, number], with: "2" };
-  expect((await merge("# New\n\n", other, source, offset)).decisions.length).toBeGreaterThan(0);
+  const { decisions, content } = await merge("# New\n\n", other, source, offset);
+  expect(decisions).toEqual([]);
+  expect(content).toBe("- one\n\n# New\n\n  more\n\nPara 2\n");
 });
 
-test("a new heading not closed by a blank line needs review", async () => {
-  expect((await merge("# New\n", distant)).decisions.length).toBeGreaterThan(0);
+test("a new heading not closed by a blank line merges", async () => {
+  const { decisions, content } = await merge("# New\n", distant);
+  expect(decisions).toEqual([]);
+  expect(content).toBe("# Notes\n\n- one\n\n# New\n- two\n\nPara 2\n");
+});
+
+test("a heading between paragraphs the other side joined needs review", async () => {
+  // The peer joins Tail onto Intro's paragraph; a heading between them would
+  // split that paragraph again, so the join is not what the merge shows.
+  const source = "Intro\n\nTail\n", offset = source.indexOf("Tail");
+  const joined = { text: "Intro\nTail\n", range: [6, 7] as [number, number], with: "" };
+  const { decisions } = await merge("# New\n\n", joined, source, offset);
+  expect(decisions.length).toBeGreaterThan(0);
 });

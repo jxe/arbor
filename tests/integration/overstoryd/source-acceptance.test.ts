@@ -200,7 +200,7 @@ const rangeCases: Array<{ name: string; left: RangeEdit[]; right: RangeEdit[] }>
   { name: "several operations and Unicode replacements", left: [{ range: [0,1], text: "🪴" }, { range: [2,3], text: "C" }],
     right: [{ range: [0,1], text: "🌲" }, { range: [1,2], text: "B" }] },
 
-  { name: "format rule declines disjoint Markdown edits", left: [{ range: [0,1], text: "**A**" }], right: [{ range: [2,3], text: "C" }] },
+  { name: "format rule declines disjoint Markdown edits", left: [{ range: [0,1], text: "**A**" }], right: [{ range: [2,3], text: "`C`" }] },
 ];
 for (const scenario of rangeCases) for (const reverse of [false, true]) {
   test(`root range choices preserve complete provenance through restart: ${scenario.name}, reverse=${reverse}`, async () => {
