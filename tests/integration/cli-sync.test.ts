@@ -22,6 +22,7 @@ let profile: string;
 let firstHost: Awaited<ReturnType<typeof serveHost>>;
 let secondHost: Awaited<ReturnType<typeof serveHost>>;
 let profileTree: string;
+let previousClaudeDirectory: string | undefined;
 let previousCloudHome: string | undefined;
 
 async function storyOutput(args: string[]): Promise<{ stdout: string; stderr: string }> {
@@ -119,6 +120,9 @@ beforeAll(async () => {
   sandbox = await mkdtemp(join(tmpdir(), "story-cli-sync-"));
   previousCloudHome = process.env.STORY_CLOUD_HOME;
   process.env.STORY_CLOUD_HOME = join(sandbox, "cloud-sessions");
+  // `agent start` installs Claude Code hooks; keep them out of the real ~/.claude.
+  previousClaudeDirectory = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = join(sandbox, "claude");
   state = join(sandbox, "state");
   profile = join(sandbox, "profile");
   await Promise.all([state, profile].map((path) => mkdir(path, { recursive: true })));
@@ -161,6 +165,8 @@ afterAll(async () => {
   await rm(sandbox, { recursive: true, force: true });
   if (previousCloudHome === undefined) delete process.env.STORY_CLOUD_HOME;
   else process.env.STORY_CLOUD_HOME = previousCloudHome;
+  if (previousClaudeDirectory === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+  else process.env.CLAUDE_CONFIG_DIR = previousClaudeDirectory;
 });
 
 describe("plural-account CLI place", () => {
@@ -184,8 +190,15 @@ describe("plural-account CLI place", () => {
       context: { kind: "cloud" },
       cloudSession: { phase: "interrupted" },
     });
+    await mkdir(join(sandbox, "claude"), { recursive: true });
     const started = await storyOutput(["agent", "start", created.stdout, "--root", firstRoot, "--timeout", "15s", "--json"]);
-    expect(JSON.parse(started.stdout)).toMatchObject({ ready: true, root: await realpath(firstRoot) });
+    const startedResult = JSON.parse(started.stdout);
+    expect(startedResult).toMatchObject({ ready: true, root: await realpath(firstRoot) });
+    // Start shows the agent in presence under the bundle's label: Claude Code's hooks, and status/done in the instructions.
+    expect(startedResult.instructions).toContain('Story shows you to them as "Integration agent bundle"');
+    expect(startedResult.instructions).toContain("agent status");
+    const claudeSettings = JSON.parse(await readFile(join(sandbox, "claude", "settings.json"), "utf8"));
+    expect(claudeSettings.hooks.PostToolUse[0].hooks[0].command).toBe('story agent hook --agent "Integration agent bundle"');
     expect(await cloudStatus(firstRoot)).toMatchObject({
       ready: true,
       context: { kind: "cloud" },

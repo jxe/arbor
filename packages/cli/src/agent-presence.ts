@@ -2,6 +2,7 @@
 // agent working in a placed folder reports to Story Sync, which shows it in
 // the tree's presence. Reports are best effort: a hook never fails the agent.
 
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -24,7 +25,7 @@ type ClaudeSettings = {
 } & Record<string, unknown>;
 
 export interface AgentInstallOptions {
-  /** Claude Code's user directory; default `~/.claude`. */
+  /** Claude Code's user directory; default `$CLAUDE_CONFIG_DIR`, else `~/.claude`. */
   claudeDirectory?: string;
   /** How hooks run the command; default `story`. */
   command?: string;
@@ -33,7 +34,7 @@ export interface AgentInstallOptions {
 }
 
 function claudeDirectory(options: AgentInstallOptions): string {
-  return options.claudeDirectory ?? join(homedir(), ".claude");
+  return options.claudeDirectory ?? process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
 }
 
 function isOurs(command: string): boolean {
@@ -104,6 +105,17 @@ export async function uninstallAgentPresence(options: AgentInstallOptions = {}):
     await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
   }
   await rm(join(directory, "skills", SKILL_DIRECTORY), { recursive: true, force: true });
+}
+
+/** An agent label presence accepts: one line of at most 40 characters. */
+export function agentLabel(value: string | undefined, fallback = "Agent"): string {
+  const line = [...(value ?? "").replace(/\s+/g, " ").trim()].slice(0, 40).join("").trim();
+  return line || fallback;
+}
+
+/** Whether this machine has Claude Code, so its hooks are worth installing. */
+export function hasClaudeCode(options: AgentInstallOptions = {}): boolean {
+  return Boolean(Bun.which("claude")) || existsSync(claudeDirectory(options));
 }
 
 /** A report's body, as `POST /v1/agents/report` takes it. */

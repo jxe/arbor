@@ -141,6 +141,13 @@ describe("story agent install", () => {
     expect(await Bun.file(join(claude, "skills/story-placed-folders/SKILL.md")).exists()).toBe(false);
   });
 
+  test("an agent label is one line of at most 40 characters", async () => {
+    const { agentLabel } = await import("../../packages/cli/src/agent-presence.ts");
+    expect(agentLabel("  Supplies\nbot  ")).toBe("Supplies bot");
+    expect(agentLabel("x".repeat(50))).toHaveLength(40);
+    expect(agentLabel("   ")).toBe("Agent");
+  });
+
   test("hook and text reports carry the runner's session and label", async () => {
     const { hookReport, textReport } = await import("../../packages/cli/src/agent-presence.ts");
     const environment = { STORY_AGENT_SESSION: "run-1", STORY_AGENT_LABEL: "Claude" };

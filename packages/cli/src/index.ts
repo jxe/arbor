@@ -6,7 +6,7 @@ import { constants as osConstants } from "node:os";
 import { resolveUserPath, STORY_VERSION } from "@ovst/story-sync";
 import { runStorySyncDaemon } from "@ovst/story-sync/cli";
 import { StorySyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
-import { hookReport, installAgentPresence, textReport, uninstallAgentPresence } from "./agent-presence.ts";
+import { agentLabel, hasClaudeCode, hookReport, installAgentPresence, textReport, uninstallAgentPresence } from "./agent-presence.ts";
 import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@ovst/fs";
 import { listLocalAccounts } from "@ovst/story-sync/state";
 import { addLocalPlacement, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
@@ -1286,7 +1286,7 @@ function storyInvocation(): string {
 }
 
 /** The working rules for an agent session, said once where the agent will read them: start's output. */
-function agentInstructions(root: string, placements: CloudSessionRecord["placements"]): string {
+function agentInstructions(root: string, placements: CloudSessionRecord["placements"], presence?: { label: string; hooks: boolean }): string {
   const story = storyInvocation();
   const folders = placements.map((placement) => `  ${placement.path}  (${placement.canonicalURL})`).join("\n");
   return [
@@ -1301,6 +1301,15 @@ function agentInstructions(root: string, placements: CloudSessionRecord["placeme
     `    ${story} agent finish --root ${root}`,
     `  and wait for it to succeed. Until then your last edits may exist only on this machine.`,
     `- If something seems stuck, "${story} status ${root}" says what is held back.`,
+    ...(presence ? [
+      ``,
+      `People may be reading these pages in Story while you work; Story shows you to them as "${presence.label}".`,
+      `- Say what you are doing, in a few words, whenever it changes: ${story} agent status "merging duplicates"`,
+      `- When you are done, say what you did in one line: ${story} agent done "Merged 3 duplicates"`,
+      presence.hooks
+        ? `- Claude Code's hooks for this are installed, so your reads and edits also move your place on the page.`
+        : `- Run these from inside a synced folder.`,
+    ] : []),
   ].join("\n");
 }
 
@@ -1434,9 +1443,16 @@ async function startCloudSession(options: CloudStartOptions): Promise<CloudStart
     await waitForCloudPlacements(session, await cloudAccountAccess(session), deadline);
     session = { ...session, phase: "ready", updatedAt: new Date().toISOString(), lastError: undefined };
     await saveCloudSession(session);
+    // Show this agent in presence under the bundle's own label: Claude Code
+    // reports through hooks; any agent can say status and done itself.
+    const label = agentLabel(payload.label);
+    let hooks = false;
+    if (hasClaudeCode()) {
+      try { await installAgentPresence({ command: storyInvocation(), agent: label }); hooks = true; } catch { hooks = false; }
+    }
     return {
       schemaVersion: 1, ready: true, sessionID: session.sessionID, bundleID: session.bundleID, root, origin,
-      placements: session.placements, instructions: agentInstructions(root, session.placements),
+      placements: session.placements, instructions: agentInstructions(root, session.placements, { label, hooks }),
     };
   } catch (error) {
     if (spawnedPID) await stopOwnedProcess(spawnedPID);

@@ -183,7 +183,10 @@ exactly those out. From inside the folder, an agent says what it is doing with
 `story agent done "Merged 3 duplicates"`. Outside a placed folder these do
 nothing; `hook` never fails the agent. A runner that starts the agent sets
 `STORY_AGENT_SESSION` (and optionally `STORY_AGENT_LABEL`) so every report
-lands in one session.
+lands in one session. Claude Code's directory is `$CLAUDE_CONFIG_DIR` when set.
+`story agent start` does the same for a cloud agent: when the machine has
+Claude Code it installs the hooks labelled with the bundle's name, and its
+instructions tell any agent to report with `status` and `done`.
 
 An agent bundle is one revocable string that lets an agent on another machine
 work in the folders you choose. Create it on an already configured
