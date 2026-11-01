@@ -2343,7 +2343,9 @@ final class StoryWorkspaceState {
         let page = Self.presencePage(reference).path
         do {
             await flush()
-            guard let client = storySyncClient ?? (try? await ensureStorySync())?.client else {
+            var client = storySyncClient
+            if client == nil { client = (try? await ensureStorySync())?.client }
+            guard let client else {
                 throw StorySyncSupervisorError.serviceUnavailable
             }
             let run = try await client.startAgentRun(tree: reference.tree.rawValue, page: page, task: task)
