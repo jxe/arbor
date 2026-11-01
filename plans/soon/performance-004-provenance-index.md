@@ -25,8 +25,8 @@ way until this plan lands.
   two programs must agree exactly on piece semantics: if overstoryd's index ever
   differs from what the engine would have computed, later merges go wrong with no
   error.
-- **State:** Step 1 measured (2026-11-01, below); waiting on Joe for the
-  open-choice limit
+- **State:** Step 1 measured (2026-11-01, below); open choices settled as
+  decision 6; step 2 next
 - **Depends on:** nothing. History 006 should build on it (see below).
 
 ## What the engine keeps late
@@ -133,6 +133,9 @@ private, discardable cache, as the saved checkpoints are today.
    mattering; otherwise leave it engine-derived. By the principle above, the bar
    for putting it in the shared format is high: if it goes anywhere, the engine's
    private cache comes first.
+   **Measured (step 1): engine-derived.** A question reads 7 lineage records
+   typically (p95 62), each derivable from one `editSource` and its basis's
+   pieces, and no answer changed without lineage at all.
 3. **Encoding: records shaped like the tree** (Joe, 2026-11-01). One record per
    folder mirroring the directory, so an entry writes only the files it touched
    and their ancestor folders, sharing everything else as roots do.
@@ -145,6 +148,17 @@ private, discardable cache, as the saved checkpoints are today.
 5. **Entries from before the index.** No backfill migration. The sidecar's first
    replay over an old entry writes its index, so coverage grows on its own; an
    index computed by replay is the same object overstoryd would have written.
+
+6. **Choices continue from what the log records** (Joe, 2026-11-01, over
+   keeping choice detail in the engine's cache and replaying from where a
+   choice opened, or putting choice material in the shared format). Every
+   state the engine needs is the index plus the entry's decisions as the log
+   records them: a range choice's placement is its recorded range on that
+   entry's root, and its identity is the index's pieces there. The engine's
+   cache is then only about speed. Answers need to resolve right, not
+   identically to the old engine (Joe). This is also what
+   [Merge 015](merge-015-resolve-reconciled-choices.md) traces through later
+   edits: the range from the log, the identity from the index.
 
 ## Step 1 results (2026-11-01)
 
@@ -177,12 +191,14 @@ fresh sidecar whose states at or before the base held only nodes and pieces
 - Contribution order inside a choice follows the history map's bucket order,
   an implementation detail. The engine must sort contributions canonically
   (acceptance order) before the index path can give byte-equal answers.
-- **The limit:** an open choice's engine detail (placement pieces, alternative
-  nodes, context states) does not follow from the log's decision record. 238 of
-  the 604 questions start with open choices, though the whole tree has had only
-  5 distinct ones, open at most 109 entries. Without the engine's private cache,
-  the exact answer needs replay from the entry that opened the oldest open
-  choice: bounded by how long choices stay open, not by history length.
+- **Open choices.** An engine-retained choice carries detail its log record
+  lacks (alternative nodes, contexts). 238 of the 604 questions start with
+  open choices (5 distinct choices in the tree's history, open at most 109
+  entries). Rebuilt from the log, 2 answers (updates 12002, 12003) first
+  differed: an edit far outside a choice's range counted as continuing it,
+  because the imported selected alternative had fresh pieces of its own.
+  Fixed on the branch: it now holds the file's own pieces in its range. See
+  decision 6.
 
 **Lineage (decision 2).** 111 of 308 questions on the full evaluator read
 lineage: 7 records typical, p95 62, max 133, up to 2,087 entries old.
