@@ -99,6 +99,16 @@ is, and which change and operation inserted each run of bytes), with no engine
 data structures in it. Anything else an engine wants, it keeps in its own
 private, discardable cache, as the saved checkpoints are today.
 
+- The format belongs to overstoryd, not the engine: specified with the protocol,
+  written by one shared module, with conformance tests a rewritten merge tool can
+  check itself against.
+- It holds only facts that follow from the accepted bytes and traces, nothing a
+  merge tool decides.
+- It is versioned, one meaning per version: no optional fields whose absence
+  means something.
+- It fits on one page. If a measurement would push it past that (copy and move
+  lineage, say), the default is to leave that out and let the engine work it out.
+
 1. **Where the index lives.** Recommended: beside history, not in it. An
    index is derived: replay over the same entry produces the same object. So it
    is a cache, not a fact of history. Store it beside the entry, keyed by the
