@@ -74,7 +74,8 @@ struct StoryPresenceHeader: View {
 
     private var runs: [StoryAgentRun] {
 #if os(macOS)
-        workspace.agentRuns.values.filter { $0.tree == reference.tree.rawValue }.sorted { $0.id < $1.id }
+        // A finished run's task stays on its page, checked off, with Undo Run there.
+        workspace.agentRuns.values.filter { $0.tree == reference.tree.rawValue && $0.isActive }.sorted { $0.id < $1.id }
 #else
         []
 #endif
@@ -94,15 +95,12 @@ struct StoryPresenceHeader: View {
                     Text("\(StoryPresenceBadge.label(for: peer)): \(page)\(peer.agent?.status.map { " (\($0))" } ?? "")")
                 }
 #if os(macOS)
-                // A finished run took its task block with it; its result and Undo stay here.
                 if !runs.isEmpty {
                     Divider()
                     Section("Agent Runs") {
                         ForEach(runs) { run in
-                            Menu("\(run.task): \(run.result ?? run.state.rawValue)") {
-                                if run.undoable { Button("Undo Run") { Task { await workspace.undoAgentRun(run) } } }
-                                if run.isActive { Button("Stop") { Task { await workspace.stopAgentRun(run) } } }
-                                Button("Dismiss") { workspace.dismissAgentRun(run) }
+                            Menu("\(run.task): \(run.state.rawValue)") {
+                                Button("Stop") { Task { await workspace.stopAgentRun(run) } }
                             }
                         }
                     }
@@ -172,51 +170,61 @@ struct StoryOutdatedSyncWarning: View {
 #endif
 
 /// The control at the end of an agent task callout (Agents 001 phase 6):
-/// Run on the Mac, then a spinner with Stop, then Undo Run or Run Again. The
-/// result and Undo also stay in the toolbar's presence menu, since a
-/// finished run removes its block. On iPhone and iPad the task waits for a Mac.
+/// Run on the Mac, then a spinner with Stop, then Run Again on failure. A
+/// finished run checks its task off; the done task shows the run's result and
+/// Undo Run while the run can be undone. On iPhone and iPad the task waits for a Mac.
 struct StoryAgentTaskControl: View {
     let workspace: StoryWorkspaceState
     let reference: WorkspaceReference
     let task: String
+    var done = false
 
     var body: some View {
 #if os(macOS)
         let run = workspace.agentRun(task: task, on: reference)
         HStack(spacing: 6) {
-            switch run?.state {
-            case .queued?, .running?:
-                ProgressView().controlSize(.small)
-                Button("Stop") { if let run { Task { await workspace.stopAgentRun(run) } } }
-            case .failed?, .stopped?:
-                Image(systemName: "exclamationmark.circle").foregroundStyle(.red)
-                    .help(run?.result ?? "The run did not finish")
-                Button("Run Again") { Task { await workspace.runAgentTask(task, on: reference) } }
-            case .finished?:
-                if let run, run.undoable { Button("Undo Run") { Task { await workspace.undoAgentRun(run) } } }
-            case .undone?, nil:
-                if let error = workspace.agentRunError(task: task, on: reference) {
+            if done {
+                if let run, run.state == .finished {
+                    if let result = run.result {
+                        Text(result).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    if run.undoable { Button("Undo Run") { Task { await workspace.undoAgentRun(run) } } }
+                }
+            } else {
+                switch run?.state {
+                case .queued?, .running?:
+                    ProgressView().controlSize(.small)
+                    Button("Stop") { if let run { Task { await workspace.stopAgentRun(run) } } }
+                case .failed?, .stopped?:
                     Image(systemName: "exclamationmark.circle").foregroundStyle(.red)
-                    Text(error).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        .help(run?.result ?? "The run did not finish")
+                    Button("Run Again") { Task { await workspace.runAgentTask(task, on: reference) } }
+                case .finished?, .undone?, nil:
+                    if let error = workspace.agentRunError(task: task, on: reference) {
+                        Image(systemName: "exclamationmark.circle").foregroundStyle(.red)
+                        Text(error).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    Button {
+                        Task { await workspace.runAgentTask(task, on: reference) }
+                    } label: {
+                        Image(systemName: "play.fill")
+                    }
+                    .controlSize(.regular)
+                    .buttonBorderShape(.circle)
+                    .help("Run this task with Claude Code in this tree's folder")
+                    .accessibilityLabel("Run with Claude")
                 }
-                Button {
-                    Task { await workspace.runAgentTask(task, on: reference) }
-                } label: {
-                    Image(systemName: "play.fill")
-                }
-                .controlSize(.regular)
-                .buttonBorderShape(.circle)
-                .help("Run this task with Claude Code in this tree's folder")
-                .accessibilityLabel("Run with Claude")
             }
         }
         .controlSize(.small)
         .buttonStyle(.bordered)
 #else
-        Image(systemName: "desktopcomputer")
-            .foregroundStyle(.secondary)
-            .help("Run this task from Story on your Mac")
-            .accessibilityLabel("Run this task from Story on your Mac")
+        if !done {
+            Image(systemName: "desktopcomputer")
+                .foregroundStyle(.secondary)
+                .help("Run this task from Story on your Mac")
+                .accessibilityLabel("Run this task from Story on your Mac")
+        }
 #endif
     }
 }

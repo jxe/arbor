@@ -2349,7 +2349,8 @@ final class StoryWorkspaceState {
     func checkStorySyncIsCurrent() async {
         guard let client = storySyncClient else { return }
         do {
-            _ = try await client.agentRuns()
+            // Runs outlive the app (Story Sync keeps them), so a done task keeps its Undo Run.
+            for run in try await client.agentRuns() { record(run) }
             storySyncIsOutdated = false
         } catch let error as StorySyncServerError where error.status == 405 {
             storySyncIsOutdated = true

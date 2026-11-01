@@ -864,7 +864,7 @@ public enum StoryMarkdownCodec {
     /// Whether two blocks are written the same way: the same kind, and both
     /// or neither an agent task (the one metadata tag that changes source).
     static func sameSource(_ a: Block, _ b: Block) -> Bool {
-        a.kind == b.kind && StoryAgentTask.isMarked(a) == StoryAgentTask.isMarked(b)
+        a.kind == b.kind && StoryAgentTask.isMarked(a) == StoryAgentTask.isMarked(b) && StoryAgentTask.isDone(a) == StoryAgentTask.isDone(b)
     }
 
     static func rebased(_ opened: StoryMarkdownOpenedDocument, preserving current: [Block]) -> StoryMarkdownOpenedDocument {
@@ -1168,7 +1168,8 @@ public enum StoryMarkdownCodec {
         case let .numbered(text): line = prefix + "1. " + inline(text)
         case let .todo(text, done): line = prefix + "- [\(done ? "x" : " ")] " + inline(text)
         case let .quote(text) where StoryAgentTask.isMarked(block):
-            line = prefix + "> " + StoryAgentTask.marker + (text.characters.isEmpty ? "" : " " + inline(text, newline: newline, continuation: prefix + "> "))
+            let marker = StoryAgentTask.isDone(block) ? StoryAgentTask.doneMarker : StoryAgentTask.marker
+            line = prefix + "> " + marker + (text.characters.isEmpty ? "" : " " + inline(text, newline: newline, continuation: prefix + "> "))
         case let .quote(text):
             // An agent task's marker is written as authored, never escaped.
             if let task = StoryAgentTask.taskText(of: text) {

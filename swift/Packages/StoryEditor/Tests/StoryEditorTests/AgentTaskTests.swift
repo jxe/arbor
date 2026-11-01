@@ -69,4 +69,24 @@ struct AgentTaskTests {
         #expect(admission.source == source)
         #expect(StoryMarkdownCodec.serializeBlocks(StoryMarkdownCodec.parseBlocks(source)) == StoryMarkdownCodec.serializeBlocks(opened.blocks))
     }
+
+    @Test("a done task reads and writes as > [!agent-done], byte for byte, and toggles back to a task")
+    func doneTask() throws {
+        let source = "> [!agent-done] merge the duplicates\\\n> and sort by aisle\n"
+        let opened = StoryMarkdownCodec.open(source: source, revision: "r1", identitySeed: "pg_done")
+        let block = try #require(opened.blocks.first)
+        #expect(StoryAgentTask.isMarked(block))
+        #expect(StoryAgentTask.isDone(block))
+        #expect(StoryAgentTask.task(in: block) == "merge the duplicates\nand sort by aisle")
+        let (admission, _) = StoryMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        #expect(admission.source == source)
+
+        let reopened = try #require(StoryAgentTask.toggled(block))
+        #expect(reopened.id == block.id)
+        #expect(!StoryAgentTask.isDone(reopened))
+        let (undone, _) = StoryMarkdownCodec.admission(blocks: [reopened], ledger: opened.ledger)
+        #expect(undone.source.trimmingCharacters(in: .newlines) == "> [!agent] merge the duplicates\\\n> and sort by aisle")
+        #expect(StoryAgentTask.toggled(Block.quote(text: AttributedString("a quote"))) == nil)
+    }
 }
+

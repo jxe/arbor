@@ -10,7 +10,10 @@ import Quagmire
 /// it when the run succeeds.
 public enum StoryAgentTask {
     public static let marker = "[!agent]"
+    /// A finished task stays on the page as `> [!agent-done] …`, checked off.
+    public static let doneMarker = "[!agent-done]"
     public static let metadataKey = "story.agent-task"
+    public static let doneMetadataKey = "story.agent-task.done"
 
     /// A quote tagged as a task. A tagged block turned into anything else is
     /// no longer a task, though the tag travels with it until the page reopens.
@@ -19,18 +22,42 @@ public enum StoryAgentTask {
         return block.metadata[metadataKey] != nil
     }
 
-    /// A parsed quote whose text starts with the marker, as the editor opens
+    /// Whether a task block is checked off.
+    public static func isDone(_ block: Block) -> Bool {
+        isMarked(block) && block.metadata[doneMetadataKey] != nil
+    }
+
+    /// The task with its done state flipped, keeping its id, text and children.
+    public static func toggled(_ block: Block) -> Block? {
+        guard isMarked(block) else { return nil }
+        var value = block
+        value.metadata[doneMetadataKey] = isDone(block) ? nil : "1"
+        return value
+    }
+
+    /// A parsed quote whose text starts with a marker, as the editor opens
     /// it: the marker gone from the text and the block tagged.
     static func opened(_ kind: BlockKind) -> (kind: BlockKind, metadata: [String: String]) {
-        guard case let .quote(text) = kind, let task = taskText(of: text) else { return (kind, [:]) }
+        guard case let .quote(text) = kind else { return (kind, [:]) }
+        if let task = doneTaskText(of: text) { return (.quote(text: task), [metadataKey: "1", doneMetadataKey: "1"]) }
+        guard let task = taskText(of: text) else { return (kind, [:]) }
         return (.quote(text: task), [metadataKey: "1"])
+    }
+
+    /// The task's text after the done marker, or nil when `text` does not start with it.
+    static func doneTaskText(of text: AttributedString) -> AttributedString? {
+        Self.text(after: doneMarker, in: text)
     }
 
     /// The task's text after the marker, or nil when `text` does not start with it.
     public static func taskText(of text: AttributedString) -> AttributedString? {
+        Self.text(after: marker, in: text)
+    }
+
+    private static func text(after prefix: String, in text: AttributedString) -> AttributedString? {
         let characters = String(text.characters)
-        guard characters.lowercased().hasPrefix(marker) else { return nil }
-        var start = text.characters.index(text.startIndex, offsetBy: marker.count)
+        guard characters.lowercased().hasPrefix(prefix) else { return nil }
+        var start = text.characters.index(text.startIndex, offsetBy: prefix.count)
         if start < text.endIndex, text.characters[start] == " " { start = text.characters.index(after: start) }
         return AttributedString(text[start...])
     }
