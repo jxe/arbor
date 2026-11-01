@@ -3531,6 +3531,7 @@ private struct StorySharePanel: View {
     @State private var movePreview: StoryPageMovePreview?
     @State private var newTreeSheet = false
 #endif
+    @State private var copiedURL = false
 
     var body: some View {
         NavigationStack {
@@ -3539,14 +3540,6 @@ private struct StorySharePanel: View {
                     Text("Share")
                         .font(.title2.bold())
                     Spacer(minLength: 12)
-                    if let displayedCanonical {
-                        Text(displayedCanonical)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
-                    }
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 12)
@@ -3642,9 +3635,18 @@ private struct StorySharePanel: View {
         }
     }
 
-    private var displayedCanonical: String? {
-        guard case let .tracked(access) = presentation else { return nil }
-        return access.canonical
+    private func copyURL(_ url: String) {
+#if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url, forType: .string)
+#else
+        UIPasteboard.general.string = url
+#endif
+        copiedURL = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            copiedURL = false
+        }
     }
 
 #if os(macOS)
@@ -3962,10 +3964,28 @@ private struct StorySharePanel: View {
                         Text("(You)").foregroundStyle(.secondary)
                     }
                 }
-                Text(detail(for: entry))
+                if entry.subject == .everyone, entry.access != StoryTreeAccess.noAccess.rawValue, !access.canonical.isEmpty {
+                    // A public tree's address, to hand out: click copies it.
+                    Button {
+                        copyURL(access.canonical)
+                    } label: {
+                        Label(copiedURL ? "Copied" : access.canonical, systemImage: copiedURL ? "checkmark" : "doc.on.doc")
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+#if os(macOS)
+                    .buttonStyle(.link)
+#else
+                    .buttonStyle(.borderless)
+#endif
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .help("Copy this tree's address")
+                } else {
+                    Text(detail(for: entry))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 8)
             if entry.isCurrentUser {
