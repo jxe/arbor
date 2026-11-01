@@ -3139,6 +3139,8 @@ struct StoryRootView: View {
     private func agentTaskCallouts(for node: WorkspaceNode) -> [EditorCallout] {
         [EditorCallout(
             id: "agent-task", title: "Agent Task", systemImage: "sparkles", tint: .purple,
+            // Typing "! " at the start of a paragraph makes it a task.
+            trigger: "! ",
             recognizes: { StoryAgentTask.isMarked($0) },
             turnInto: { StoryAgentTask.turnInto($0) },
             trailing: { block in
