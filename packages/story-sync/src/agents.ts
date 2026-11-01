@@ -19,6 +19,13 @@ export interface AgentLocation {
 export interface AgentHost {
   locate(absolutePath: string): Promise<AgentLocation | null>;
   presence(tree: string): Promise<AgentPresenceClient | undefined>;
+  /**
+   * Hold the tree's publishing while the agent edits, so what it does goes
+   * up as one change when it stops, says done, or leaves. Optional: without
+   * it each edit publishes as it lands.
+   */
+  hold?(tree: string, holder: string): void;
+  release?(tree: string, holder: string): Promise<void>;
 }
 
 export interface AgentPresenceClient {
@@ -68,7 +75,12 @@ interface Session {
   quietTimer?: ReturnType<typeof setTimeout>;
   lastReport: number;
   ended: boolean;
+  /** Whether this session holds its tree's publishing. */
+  holding: boolean;
 }
+
+/** The tools that change files: an agent using one holds its tree's publishing. */
+const EDIT_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
 
 const DEFAULT_LABEL = "Agent";
 
@@ -147,6 +159,7 @@ export class AgentSessions {
     if (report.status !== undefined) this.change(session, { status: oneLine(report.status, PRESENCE_LIMITS.statusCharacters) || null });
     if (hook) await this.applyHook(session, hook);
     if (report.done !== undefined) {
+      this.letGo(session);
       const result = oneLine(report.done, PRESENCE_LIMITS.statusCharacters) || "Done";
       this.results.set(session.key, result);
       if (this.results.size > 100) this.results.delete(this.results.keys().next().value!);
@@ -191,7 +204,7 @@ export class AgentSessions {
     const self = new Promise<string | null>((resolve) => { ready = resolve; });
     const session: Session = {
       key, tree: location.tree, root: location.root, label: agent, abort, self, client,
-      pending: {}, lastSent: 0, lastReport: Date.now(), ended: false,
+      pending: {}, lastSent: 0, lastReport: Date.now(), ended: false, holding: false,
     };
     this.sessions.set(key, session);
     // Drain the stream for as long as the session lasts: the roster is not
@@ -213,9 +226,19 @@ export class AgentSessions {
 
   private async applyHook(session: Session, hook: HookPayload): Promise<void> {
     if (hook.hook_event_name === "SessionEnd") return this.finish(session, 0);
-    if (hook.hook_event_name === "Stop") return this.change(session, { status: "Waiting" });
+    if (hook.hook_event_name === "Stop") {
+      // The agent's turn is over: what it changed goes up now.
+      this.letGo(session);
+      return this.change(session, { status: "Waiting" });
+    }
     const input = hook.tool_input ?? {};
     const file = typeof input.file_path === "string" ? input.file_path : typeof input.notebook_path === "string" ? input.notebook_path : undefined;
+    if (hook.tool_name && EDIT_TOOLS.has(hook.tool_name) && !session.holding && this.host.hold) {
+      session.holding = true;
+      this.host.hold(session.tree, session.key);
+    }
+    // Before an edit only the hold matters; where it lands shows after.
+    if (hook.hook_event_name === "PreToolUse") return;
     if (!file) {
       if (hook.tool_name) this.change(session, { status: `Using ${oneLine(hook.tool_name, 40)}` });
       return;
@@ -295,8 +318,16 @@ export class AgentSessions {
     (session.quietTimer as { unref?: () => void }).unref?.();
   }
 
+  /** Let go of the session's hold, if any, so its tree publishes. */
+  private letGo(session: Session): void {
+    if (!session.holding) return;
+    session.holding = false;
+    void this.host.release?.(session.tree, session.key)?.catch(() => {});
+  }
+
   private close(session: Session): void {
     if (session.ended) return;
+    this.letGo(session);
     session.ended = true;
     if (session.flushTimer) clearTimeout(session.flushTimer);
     if (session.quietTimer) clearTimeout(session.quietTimer);

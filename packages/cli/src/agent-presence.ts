@@ -10,6 +10,8 @@ import { AGENT_SKILL } from "@ovst/story-sync";
 
 
 const HOOK_EVENTS = {
+  // Before an edit, so Story Sync holds the tree's publishing from the first one.
+  PreToolUse: "Edit|MultiEdit|Write|NotebookEdit",
   PostToolUse: "Read|Edit|MultiEdit|Write|NotebookEdit",
   Stop: undefined,
   SessionEnd: undefined,

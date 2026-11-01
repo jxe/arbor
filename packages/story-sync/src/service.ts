@@ -180,6 +180,8 @@ export class StorySyncDaemon implements AsyncDisposable {
         const placement = trees.placementFor(tree);
         return placement ? this.accountClient(placement) : undefined;
       },
+      hold: (tree, holder) => this.folders.get(tree)?.sync.hold(holder),
+      release: async (tree, holder) => { await this.folders.get(tree)?.sync.release(holder); },
     });
     this.runs = new AgentRuns({
       folder: async (tree) => {
@@ -187,6 +189,8 @@ export class StorySyncDaemon implements AsyncDisposable {
         const descriptor = (await trees.descriptors()).find((candidate) => candidate.id === tree);
         return descriptor?.placement === "placed" && descriptor.osPath && !descriptor.missing ? descriptor.osPath : null;
       },
+      hold: (tree, holder) => this.folders.get(tree)?.sync.hold(holder),
+      release: async (tree, holder) => { await this.folders.get(tree)?.sync.release(holder); },
       // Only the run's tree: not behind a full pass, and not failed by another tree.
       publish: async (tree) => {
         const folder = this.folders.get(tree);

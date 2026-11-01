@@ -106,6 +106,34 @@ describe("agent sessions", () => {
 });
 
 describe("ranges", () => {
+  test("an edit holds the tree's publishing until the agent stops, and each session holds once", async () => {
+    const held: string[] = [];
+    const holding = new AgentSessions({
+      locate: async (path) => path.startsWith(root) ? { tree: "tr_notes", root, path: path.slice(root.length) || "/" } : null,
+      presence: async () => client,
+      hold: (tree, holder) => { held.push(`hold ${tree} ${holder}`); },
+      release: async (tree, holder) => { held.push(`release ${tree} ${holder}`); },
+    }, { updateIntervalMs: 0, doneLingerMs: 0 });
+    try {
+      const file = join(root, "Groceries.md");
+      await writeFile(file, "- milk\n");
+      const edit = { session_id: "s1", cwd: root, tool_name: "Edit", tool_input: { file_path: file, new_string: "milk" } };
+      await holding.report({ cwd: root, hook: { ...edit, hook_event_name: "PreToolUse" } });
+      await holding.report({ cwd: root, hook: { ...edit, hook_event_name: "PostToolUse" } });
+      await holding.report({ cwd: root, hook: { session_id: "s1", cwd: root, hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: file } } });
+      expect(held).toEqual(["hold tr_notes s1"]);
+      await holding.report({ cwd: root, hook: { session_id: "s1", cwd: root, hook_event_name: "Stop" } });
+      expect(held).toEqual(["hold tr_notes s1", "release tr_notes s1"]);
+      // A session that leaves mid-edit lets go too.
+      await holding.report({ cwd: root, hook: { ...edit, session_id: "s2", hook_event_name: "PreToolUse" } });
+      await holding.report({ cwd: root, hook: { session_id: "s2", cwd: root, hook_event_name: "SessionEnd" } });
+      await settle();
+      expect(held.slice(2)).toEqual(["hold tr_notes s2", "release tr_notes s2"]);
+    } finally {
+      await holding[Symbol.asyncDispose]();
+    }
+  });
+
   test("lineRange covers 1-based lines", () => {
     const bytes = new TextEncoder().encode("a\nbb\nccc");
     expect(lineRange(bytes)).toEqual({ anchor: 0, head: 8 });

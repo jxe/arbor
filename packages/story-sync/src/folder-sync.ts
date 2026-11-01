@@ -209,6 +209,8 @@ export class FolderSync implements AcceptedTree {
   private closed = false;
   private readonly pausedPath: string;
   private paused: boolean;
+  /** Who holds the folder's publishing, in memory only: agents editing it. */
+  private readonly holders = new Set<string>();
   private readonly declinedPath: string;
   private declined?: { value: DeclinedFolder | undefined };
   private settling?: Promise<boolean>;
@@ -543,6 +545,8 @@ export class FolderSync implements AcceptedTree {
     if (!placement?.ref || !placement.update) return;
     await this.coordinator.start();
     if (this.paused) return this.report(folderSyncState(this.coordinator.state));
+    // An agent mid-edit: its changes go together when it lets go.
+    if (this.holders.size > 0) return;
     const appended = await this.host.withWorkspaceIO(async () => {
       const known = await this.loadKnown();
       if (!known) return false;
@@ -721,6 +725,23 @@ export class FolderSync implements AcceptedTree {
   // MARK: Pausing
 
   get isPaused(): boolean { return this.paused; }
+
+  get isHeld(): boolean { return this.holders.size > 0; }
+
+  /**
+   * Hold publishing while `holder`, such as an agent, edits the folder, so
+   * its edits go up as one change. Kept in memory only: a restart lets go.
+   * Accepted updates still arrive.
+   */
+  hold(holder: string): void {
+    this.holders.add(holder);
+  }
+
+  /** Let go of a hold; when none remain, scan and publish what the folder holds now. */
+  async release(holder: string): Promise<void> {
+    if (!this.holders.delete(holder) || this.holders.size > 0) return;
+    await this.scan();
+  }
 
   /** Stop publishing the folder's changes, durably; accepted updates still arrive. */
   async pause(): Promise<void> {

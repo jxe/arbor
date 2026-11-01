@@ -51,6 +51,10 @@ export interface AgentRunHost {
   folder(tree: string): Promise<string | null>;
   /** Publish the folder's changes and wait until the host has them. */
   publish(tree: string): Promise<void>;
+  /** Hold the folder's publishing while `holder` edits it (see AgentHost.hold). */
+  hold?(tree: string, holder: string): void;
+  /** Let go; the folder publishes once no one holds it. */
+  release?(tree: string, holder: string): Promise<void>;
   /** Where runs keep their snapshots. */
   stateDirectory: string;
 }
@@ -275,6 +279,9 @@ export class AgentRuns {
     await rm(run.snapshotDirectory, { recursive: true, force: true });
     await snapshot(folder, run.snapshotDirectory);
     const before = await fileHashes(folder);
+    // The agent's edits and the task block's removal go up as one change.
+    // Held under the run's session, which the agent's own reports hold too.
+    this.host.hold?.(run.tree, run.session);
 
     const report = (body: { status?: string; done?: string; hook?: unknown }) =>
       this.agents.report({ cwd: folder, session: run.session, agent: "Claude", ...body }).catch(() => null);
@@ -365,6 +372,7 @@ export class AgentRuns {
       }, this.snapshotMs);
       (timer as { unref?: () => void }).unref?.();
     }
+    await this.host.release?.(run.tree, run.session).catch(() => {});
     await this.host.publish(run.tree).catch(() => {});
     // The agent's own `done` already showed its result; otherwise show the run's.
     if (run.state !== "finished" || this.agents.result(run.session) === undefined) {

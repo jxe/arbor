@@ -13,6 +13,7 @@ let sandbox: string;
 let folder: string;
 let updates: PresenceUpdate[];
 let published: number;
+let hostCalls: string[];
 let sessions: AgentSessions;
 let runs: AgentRuns;
 
@@ -51,13 +52,16 @@ beforeEach(async () => {
   await chmod(agent, 0o755);
   updates = [];
   published = 0;
+  hostCalls = [];
   sessions = new AgentSessions({
     locate: async (path) => path.startsWith(folder) ? { tree: "tr_notes", root: folder, path: path.slice(folder.length) || "/" } : null,
     presence: async () => client,
   }, { updateIntervalMs: 0, doneLingerMs: 0 });
   runs = new AgentRuns({
     folder: async (tree) => tree === "tr_notes" ? folder : null,
-    publish: async () => { published += 1; },
+    publish: async () => { published += 1; hostCalls.push("publish"); },
+    hold: (tree) => { hostCalls.push(`hold ${tree}`); },
+    release: async (tree) => { hostCalls.push(`release ${tree}`); },
     stateDirectory: join(sandbox, "state"),
   }, sessions, { command: agent, argumentsFor: () => [] });
 });
@@ -87,6 +91,9 @@ describe("agent runs", () => {
     expect(run.undoable).toBe(true);
     expect(await readFile(join(folder, "Groceries.md"), "utf8")).toBe("# Groceries\n\n- milk\n- eggs\n");
     expect(published).toBeGreaterThan(0);
+    // Held from before the agent starts; let go before the final publish.
+    expect(hostCalls[0]).toBe("hold tr_notes");
+    expect(hostCalls.indexOf("release tr_notes")).toBeLessThan(hostCalls.lastIndexOf("publish"));
     await Bun.sleep(30);
     expect(updates.some((update) => update.status === "Editing Groceries")).toBe(true);
     expect(updates.at(-1)).toEqual({ status: "Merged the duplicate milk." });
