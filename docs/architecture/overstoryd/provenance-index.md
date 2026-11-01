@@ -64,6 +64,6 @@ record. overstoryd writes it, with the records, in the same batch as the entry.
 Absent means not computed (an entry from before the index): a reader computes it
 from the nearest earlier entry that has one, over the entries between. overstoryd
 does this in the background from startup (`OVERSTORYD_PROVENANCE_FILL=0` turns it
-off), asking the sidecar again for an answered entry within 128 entries of the
-head and rebinding an older one as a snapshot. The object collector keeps the
+off), rebinding an answered entry as a snapshot (asking the sidecar again would
+hold the merge worker that live updates need). The object collector keeps the
 records of every retained entry's index.

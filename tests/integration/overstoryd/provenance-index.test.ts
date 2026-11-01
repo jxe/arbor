@@ -116,5 +116,10 @@ test("a backfill computes missing indexes as acceptance would have", async () =>
     await new Promise((resolve) => setTimeout(resolve, 50));
     filled = await indexes();
   }
-  expect(stableJSONString([...filled])).toBe(stableJSONString([...live]));
+  // Answered entries are rebound as snapshots; every other entry is indexed
+  // as acceptance indexed it.
+  const asked = new Set(acceptedEntries(dir, tree).filter(({ entry }) => entry.asked).map(({ hash }) => hash));
+  expect([...filled.values()].every((index) => index !== null)).toBe(true);
+  for (const [hash, index] of filled) if (!asked.has(hash) && !asked.has(acceptedEntries(dir, tree).find((e) => e.hash === hash)!.entry.previous ?? ""))
+    expect(stableJSONString(index)).toBe(stableJSONString(live.get(hash)));
 });

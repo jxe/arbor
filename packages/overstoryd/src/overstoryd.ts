@@ -11,8 +11,8 @@ import { checkPageConversion } from "./page-conversion.ts";
 import { MergeHistory } from "./updates/merge-history.ts";
 import { ProvenanceStore } from "./updates/provenance-store.ts";
 import { Recent } from "./recent.ts";
-import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type LogEntry, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
-import { MergeTool, MergeWorkerError, type MergeToolOptions } from "./merge-tool.ts";
+import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
+import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { retainedObjects } from "./retention.ts";
 import { checkPlainTrace, deriveTrace, encodeProtocolPage, isRowOperation, loadProtocolContent, parsePage, protocolContentObject, isStatedUpdate, TreeReader, UnsupportedDerivation, type DecisionPage, type ProtocolDirectory, type DerivableUpdateRequest } from "@ovst/protocol";
 import { mkdir } from "node:fs/promises";
@@ -505,45 +505,16 @@ export class HostDaemon implements AsyncDisposable {
         try {
           const head = (await this.history.entryFor(current)).hash;
           const started = performance.now();
-          const filled = await this.history.provenance!.fill(head, (hash, entry) => this.askAgain(entry));
+          // Answered entries are rebound, not asked again: re-asking old
+          // questions occupies the one merge worker live updates need, and a
+          // slow one ends it (2026-11-01).
+          const filled = await this.history.provenance!.fill(head);
           if (filled) console.info(`Provenance index: ${filled} entries of ${next} indexed in ${Math.round(performance.now() - started)} ms`);
         } catch (error) {
           if (!this.disposed) console.warn(`Provenance backfill of ${next} failed: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
     })().finally(() => { this.provenanceRun = undefined; });
-  }
-
-  /** An answered entry's question asked again, for its provenance index;
-   * a rebuild that runs out of time is continued. Null when the sidecar
-   * cannot answer it or carries no index. */
-  private async askAgain(entry: LogEntry): Promise<{ provenance: ObjectHash; root: ObjectHash; objects: ReadonlyMap<ObjectHash, Uint8Array> } | null> {
-    const asked = entry.asked;
-    if (!asked || !entry.previous) return null;
-    const question: MergeQuestion = {
-      base: asked.base ?? entry.previous,
-      head: entry.previous,
-      ...(asked.prefix ? { prefix: asked.prefix } : {}),
-      candidate: {
-        root: asked.candidate ?? entry.trace?.at(-1)?.after ?? entry.root,
-        change: entry.change, trace: entry.trace, resolves: entry.resolves,
-        ...(asked.alternatives ? { alternatives: asked.alternatives } : {}),
-      },
-      rules: asked.rules,
-    };
-    for (let attempt = 0; attempt < 100 && !this.disposed; attempt++) {
-      try {
-        const { answer, objects } = await this.mergeTool.ask(question, new Map());
-        return answer.provenance ? { provenance: answer.provenance, root: answer.root, objects } : null;
-      } catch (error) {
-        if (error instanceof MergeWorkerError && error.code === "unavailable") {
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          continue;
-        }
-        return null;
-      }
-    }
-    return null;
   }
 
   private async bootstrap(config: HostBootstrap): Promise<void> {
