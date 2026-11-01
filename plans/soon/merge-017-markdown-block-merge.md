@@ -23,7 +23,7 @@ its section B.
   then aligns to the recorded root and decisions, so accepted results stand
   whatever a newer rule would answer (merge-tool, "Cache and replay"). The
   plan's earlier "run both revisions side by side" step is dropped.
-- **Remaining:** steps 7 and 8 below; step 6 moved to Editor 003.
+- **Remaining:** the rest of step 7 and step 8 below; step 6 moved to Editor 003.
 
 ## The problem with today's rule
 
@@ -121,16 +121,15 @@ elsewhere) and **review**, which steps 5 and 6 confine to blocks.
 6. **Notes.** Deferred to
    [Editor 003](../features/editor-003-suggestions.md#part-3-merge-notes) on 2026-11-01:
    a note is the host's own suggestion and shares its UI.
-7. **Every structured format as elements.** Joe liked this on 2026-11-01. JSON, YAML,
-   TOML, CSV, XML and code still require all four versions to have identical key
-   structure, the rigid pattern Markdown had. Make the block check format-neutral: a
-   format supplies a reader that names its elements by identity (object keys, array
-   items, CSV rows by key, declarations) with kind, attributes, container and content,
-   and one shared check applies (each element keeps what its last editor gave it; no
-   split or join one side did not make; refusals name their elements). Markdown becomes
-   one reader. This covers most of
-   [overstoryd 014](merge-014-merge-handles-many-cases.md) section C (new keys on both
-   sides, arrays, keyed arrays) and part of D.
+7. **Every structured format as elements.** Done for JSON, YAML, TOML and
+   CSV/TSV on 2026-11-01: `elements.ts` is the format-neutral check, Markdown
+   is one reader (`markdown-blocks.ts`) and the data formats are others
+   (`data-elements.ts`). New keys and array items on both sides now merge,
+   at one place in contribution order. **Remaining:** JSONL (records as
+   elements by `recordKey`), XML/HTML/CSS, and code declarations, which keep
+   their rules for now: merging two edits in one function needs the notes of
+   [Editor 003](../features/editor-003-suggestions.md#part-3-merge-notes)
+   (a rename beside a new use) before it is safe to do silently.
 8. **Choices named by what they cover.** A decision's subject stays a byte range, which
    works for every file. Where a reader can parse the base, the sidecar adds labels for the
    blocks or elements the range covers ("Take pills, in Before 7pm"), read from the base

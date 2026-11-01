@@ -31,6 +31,9 @@ import {
 import {
   evaluateFormat,
   formatOf,
+  elementFormats,
+  dataReader,
+  evaluateElementInsertions,
   evaluateTransfer,
   evaluateProseInsertions,
   type FormatEvidence,
@@ -1498,10 +1501,9 @@ class Engine {
    * end), and becomes one choice. Edits outside every choice keep merging as
    * they would have. */
   coupledGroups<E extends PieceEdit & { side: number }>(
-    base: Piece[], groups: E[][], bytes: Uint8Array, markdown = false, scope?: Array<[number, number]>,
+    base: Piece[], groups: E[][], bytes: Uint8Array, parsed?: Array<{ start: number; end: number }> | null, scope?: Array<[number, number]>,
   ): Array<E[] & { span?: [number, number] }> {
     const text = Buffer.from(bytes);
-    const parsed = markdown ? markdownBlocks(text.toString("utf8")) : null;
     // The innermost block holding a position, or a blank-line separated run.
     const holding = (at: number, end: boolean) => parsed
       ?.filter(b => end ? b.start < at && at <= b.end : b.start <= at && at < b.end)
@@ -2759,7 +2761,8 @@ class Engine {
               // place is a block in a new place. It still couples the incoming
               // edits in this file (within the blocks they touch) when the
               // replay failed for a reason the block check does not judge.
-              const blocks = formatOf(basePath(id), config) === "markdown";
+              const format = formatOf(basePath(id), config);
+              const blocks = format === "markdown", elements = elementFormats.has(format);
               const transferred = transferPaths.has(basePath(id)) &&
                 (!blocks || competing || linkBound.has(basePath(id)));
               // The blocks a refusal names; without them it couples every incoming edit.
@@ -2781,7 +2784,7 @@ class Engine {
                   remoteEdits,
                   localEdits,
                   this.request.rules.config?.formats?.[path],
-                  blocks ? [b.pieces, remote.pieces, incoming.pieces, proposal] : undefined
+                  blocks || elements ? [b.pieces, remote.pieces, incoming.pieces, proposal] : undefined
                 );
                 this.formatEvidence.push(evidence);
                 scope = refused;
@@ -2824,7 +2827,7 @@ class Engine {
                   left,
                   right,
                   request.rules.config?.formats?.[path],
-                  blocks ? [b.pieces, remote.pieces, incoming.pieces, normalize(tentative)] : undefined
+                  blocks || elements ? [b.pieces, remote.pieces, incoming.pieces, normalize(tentative)] : undefined
                 );
                 this.formatEvidence.push(policy);
                 scope = refused;
@@ -2836,7 +2839,20 @@ class Engine {
               ) {
                 const path = basePath(id),
                   bytes = await baseBytes();
-                const policies = await Promise.all(
+                if (elements) {
+                  // Data files: the whole document with every insertion must keep
+                  // every element as its author gave it; each group then keeps
+                  // its insertions in contribution order, checked again there.
+                  const both = applyPieceEdits(b.pieces, groups.map((group) => ({
+                    range: group[0]!.range, pieces: group.flatMap((e) => e.pieces),
+                  })));
+                  const documents = [b.pieces, remote.pieces, incoming.pieces, normalize(both)];
+                  const verdict = await evaluateElementInsertions(path,
+                    await Promise.all(documents.map((d) => this.bytes(d))), documents, request.rules.config?.formats?.[path]);
+                  this.formatEvidence.push(verdict);
+                  if (verdict.outcome === "resolved") coupledByFormat = false;
+                }
+                const policies = elements ? [] : await Promise.all(
                   groups.map(async (group) =>
                     evaluateProseInsertions(
                       path,
@@ -2848,12 +2864,17 @@ class Engine {
                   )
                 );
                 this.formatEvidence.push(...policies);
-                if (policies.every((p) => p.outcome === "resolved"))
+                if (!elements && policies.every((p) => p.outcome === "resolved"))
                   coupledByFormat = false;
               }
               if (transferred) coupledByFormat = true;
-              if (coupledByFormat)
-                groups.splice(0, groups.length, ...this.coupledGroups(b.pieces, groups, await baseBytes(), blocks, scope));
+              if (coupledByFormat) {
+                // Choices grow to whole elements of the base where its format reads them.
+                const bytes = await baseBytes(), source = Buffer.from(bytes).toString("utf8");
+                const parsed = blocks ? markdownBlocks(source)
+                  : elements ? (await dataReader(format, [source], config).catch(() => null))?.read(source) : null;
+                groups.splice(0, groups.length, ...this.coupledGroups(b.pieces, groups, bytes, parsed, scope));
+              }
               const selected = [];
               for (const group of groups) {
                 const [start, end] = group.span ?? [
@@ -2917,6 +2938,17 @@ class Engine {
                     const combined = [...contributions]
                       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
                       .flatMap(([, pieces]) => pieces);
+                    if (elements) {
+                      // Data files: both insertions, when every element keeps what its author gave it.
+                      const documents = [b.pieces, ...versions.map((v) => replacePieces(b.pieces!, start, end, v)), replacePieces(b.pieces, start, end, combined)];
+                      const verdict = await evaluateElementInsertions(basePath(id),
+                        await Promise.all(documents.map((d) => this.bytes(d))), documents, formatConfig);
+                      this.formatEvidence.push(verdict);
+                      if (verdict.outcome === "resolved") {
+                        selected.push({ range: [start, end] as [number, number], pieces: combined });
+                        continue;
+                      }
+                    }
                     const policy = evaluateProseInsertions(
                       basePath(id),
                       await baseBytes(),

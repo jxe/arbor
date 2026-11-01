@@ -8,6 +8,8 @@ import type { PieceEdit } from "./pieces.ts";
 import type { Format } from "./format-names.ts";
 import type { Piece } from "./intent-model.ts";
 import { markdownBlockMerge } from "./markdown-blocks.ts";
+import { elementMerge, type Element, type ElementReader } from "./elements.ts";
+import { jsonElements, tableElements, tableInvalid, tomlElements, yamlElements } from "./data-elements.ts";
 export type { Format };
 
 export interface FormatConfig {
@@ -476,6 +478,8 @@ export async function evaluateFormat(
     return result(false, "Source exceeds parser budget");
   if (format === "text")
     return result(true, "Disjoint verified source contributions");
+  // Data files merge as elements: keyed members, array items, table rows.
+  if (pieces && elementFormats.has(format)) return dataElementsEvidence(format, sources, pieces, config, result);
   // Markdown merges as blocks, named by the pieces each version is made of.
   if (format === "markdown")
     return pieces ? markdownBlocksEvidence(sources, pieces, result) : result(false, "Markdown needs each version's pieces");
@@ -651,6 +655,7 @@ async function markdownBlocksEvidence(
 ): Promise<ScopedEvidence> {
   const verdict = markdownBlockMerge(sources, pieces);
   if (!verdict) return result(false, "Markdown with an unclosed fence or front matter");
+  if (verdict.unreadable) return result(false, verdict.reason);
   if (verdict.conflicts.length) return { ...result(false, verdict.reason), scope: verdict.conflicts };
   const aliases: Record<string, Format> = {
     js: "javascript", ts: "typescript", javascript: "javascript", typescript: "typescript",
@@ -665,6 +670,78 @@ async function markdownBlocksEvidence(
     if (!nested || nested.outcome !== "resolved")
       return { ...result(false, "Embedded source both sides changed requires review" + (nested ? ": " + nested.reason : "")), scope: [base] };
   }
+  return result(true, verdict.reason);
+}
+
+/** Formats whose rule is the element check with a data reader. */
+export const elementFormats = new Set<Format>(["json", "yaml", "toml", "csv", "tsv"]);
+
+/** An element reader for a data format, reading each of `sources` once. */
+export async function dataReader(format: Format, sources: string[], config: FormatConfig = {}): Promise<ElementReader | null> {
+  const read = new Map<string, Element[] | null>();
+  if (format === "json" || format === "toml") {
+    const parser = await createParser(format);
+    try {
+      for (const source of sources) {
+        if (read.has(source)) continue;
+        const tree = parse(parser, source);
+        try { read.set(source, format === "json" ? jsonElements(source, tree.rootNode) : tomlElements(source, tree.rootNode)); }
+        finally { tree.delete(); }
+      }
+    } finally { parser.delete(); }
+  } else if (format === "yaml") {
+    for (const source of sources) if (!read.has(source)) read.set(source, yamlElements(source));
+  } else if (format === "csv" || format === "tsv") {
+    for (const source of sources) if (!read.has(source)) read.set(source, tableElements(source, format === "csv" ? "," : "\t", config.recordKey));
+  } else return null;
+  return {
+    read: (source) => read.get(source) ?? null,
+    invalid: format === "csv" || format === "tsv" ? (_, elements) => tableInvalid(elements) : undefined,
+    merged: "Every element keeps what its last editor gave it",
+  };
+}
+
+/** Insertions both sides made at one place in a data file, kept in
+ * contribution order, when every element of the result keeps what its author
+ * gave it (two new keys, two new array items, two new rows). `versions` and
+ * `pieces` are base, base with current's insertion, base with incoming's, and
+ * base with both. */
+export async function evaluateElementInsertions(
+  path: string,
+  versions: Uint8Array[],
+  pieces: Piece[][],
+  config: FormatConfig = {},
+): Promise<FormatEvidence> {
+  const format = formatOf(path, config);
+  const result = (safe: boolean, reason: string): FormatEvidence => ({
+    id: `${format}-insertions`,
+    revision: 1,
+    outcome: safe ? "resolved" : "unresolved",
+    reason,
+    config,
+  });
+  let sources: string[];
+  try { sources = versions.map((bytes) => decoder.decode(bytes)); }
+  catch { return result(false, "Invalid UTF-8 for selected text format"); }
+  const evidence = await dataElementsEvidence(format, sources, pieces, config, result);
+  return { id: evidence.id, revision: evidence.revision, outcome: evidence.outcome, reason: evidence.reason, config: evidence.config };
+}
+
+/** A data file merged as elements (overstoryd 017 step 7). */
+async function dataElementsEvidence(
+  format: Format,
+  sources: string[],
+  pieces: Piece[][],
+  config: FormatConfig,
+  result: (safe: boolean, reason: string) => FormatEvidence,
+): Promise<ScopedEvidence> {
+  let reader: ElementReader | null;
+  try { reader = await dataReader(format, sources, config); }
+  catch { return result(false, "Parser or semantic context unavailable"); }
+  const verdict = reader && elementMerge(sources, pieces, reader);
+  if (!verdict) return result(false, "Malformed or unsupported structure");
+  if (verdict.unreadable) return result(false, verdict.reason);
+  if (verdict.conflicts.length) return { ...result(false, verdict.reason), scope: verdict.conflicts };
   return result(true, verdict.reason);
 }
 
@@ -756,7 +833,7 @@ export function evaluateSourceTransfer(
   // are then checked as before.
   if (pieces && sources.length === 4) {
     const verdict = markdownBlockMerge(sources, pieces);
-    if (!verdict || verdict.conflicts.length || verdict.embedded.length)
+    if (!verdict || verdict.unreadable || verdict.conflicts.length || verdict.embedded.length)
       return result(false, verdict ? verdict.reason || "Embedded source both sides changed requires review" : "Markdown with an unclosed fence or front matter");
     const links: LinkPolicy = context?.crossDocument === "none"
       ? { relative: true, fragment: true, reference: true }
