@@ -3,7 +3,7 @@ import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { PresenceEvent, PresenceUpdate } from "@ovst/protocol";
-import { AgentRuns, findTaskBlock, removeTaskBlock, runPrompt, type AgentRun } from "../../packages/story-sync/src/agent-runs.ts";
+import { AgentRuns, findTaskBlock, markTaskDone, runPrompt, type AgentRun } from "../../packages/story-sync/src/agent-runs.ts";
 import { AgentSessions, type AgentPresenceClient } from "../../packages/story-sync/src/agents.ts";
 
 // Agents 001 phase 8: Run starts the person's agent in the placed folder,
@@ -89,7 +89,7 @@ describe("agent runs", () => {
     expect(run.result).toBe("Merged the duplicate milk.");
     expect(run.changed).toEqual(["Groceries.md"]);
     expect(run.undoable).toBe(true);
-    expect(await readFile(join(folder, "Groceries.md"), "utf8")).toBe("# Groceries\n\n- milk\n- eggs\n");
+    expect(await readFile(join(folder, "Groceries.md"), "utf8")).toBe("# Groceries\n\n> [!agent-done] merge the duplicates\n\n- milk\n- eggs\n");
     expect(published).toBeGreaterThan(0);
     // Held from before the agent starts; let go before the final publish.
     expect(hostCalls[0]).toBe("hold tr_notes");
@@ -103,6 +103,18 @@ describe("agent runs", () => {
     expect(await runs.undo(run.id)).toEqual({ restored: ["Groceries.md"], skipped: [] });
     expect(await readFile(join(folder, "Groceries.md"), "utf8")).toBe(PAGE);
     expect(runs.get(run.id)!.state).toBe("undone");
+  });
+
+  test("a finished run and its Undo survive a restart", async () => {
+    const run = await settled((await runs.start({ tree: "tr_notes", page: "/Groceries.md", task: "merge the duplicates" })).id);
+    const restarted = new AgentRuns({
+      folder: async (tree) => tree === "tr_notes" ? folder : null,
+      publish: async () => {},
+      stateDirectory: join(sandbox, "state"),
+    }, sessions, { command: "unused" });
+    expect(restarted.get(run.id)).toMatchObject({ state: "finished", undoable: true, result: "Merged the duplicate milk." });
+    expect(await restarted.undo(run.id)).toEqual({ restored: ["Groceries.md"], skipped: [] });
+    expect(await readFile(join(folder, "Groceries.md"), "utf8")).toBe(PAGE);
   });
 
   test("undo leaves a file changed again since the run", async () => {
@@ -130,14 +142,16 @@ describe("agent runs", () => {
 });
 
 describe("task blocks", () => {
-  test("found by text, with their section, and removed with the blank line after", () => {
+  test("found by text, with their section, and marked done in place", () => {
     const source = "# Plan\n\nIntro\n\n## Shopping\n\n> [!agent] merge the duplicates\\\n> and sort by aisle\n\n- milk\n";
     // A line break in the task is a hard break; the editor sends the newline.
     expect(findTaskBlock(source, "merge the duplicates\nand sort by aisle")).toEqual({ start: 6, end: 8, section: "Shopping" });
-    expect(removeTaskBlock(source, "merge the duplicates\nand sort by aisle")).toBe("# Plan\n\nIntro\n\n## Shopping\n\n- milk\n");
-    // Without a hard break the next `>` line is a quote of its own, and stays.
-    expect(removeTaskBlock("> [!agent] tidy up\n> a quote\n", "tidy up")).toBe("> a quote\n");
-    expect(removeTaskBlock(source, "something else")).toBeNull();
+    expect(markTaskDone(source, "merge the duplicates\nand sort by aisle")).toBe(source.replace("[!agent]", "[!agent-done]"));
+    expect(markTaskDone("> [!agent] tidy up\n> a quote\n", "tidy up")).toBe("> [!agent-done] tidy up\n> a quote\n");
+    expect(markTaskDone("> \\[!agent\\] tidy up\n", "tidy up")).toBe("> \\[!agent-done\\] tidy up\n");
+    expect(markTaskDone(source, "something else")).toBeNull();
+    // A done task is not a task to run.
+    expect(findTaskBlock("> [!agent-done] tidy up\n", "tidy up")).toBeNull();
     expect(findTaskBlock("> an ordinary quote\n", "an ordinary quote")).toBeNull();
     // As Story's editor writes an edited one: escaped punctuation, matched by its plain text.
     expect(findTaskBlock("> \\[!agent\\] sort *these*\\_now\n", "sort these_now")).toEqual({ start: 0, end: 1, section: null });

@@ -169,8 +169,9 @@ Agents (Joe, 2026-10-30, except where marked as a recommendation):
 14. **The runner is Joe's own Claude Code**, started headless by Story Sync on the Mac in the
     tree's placed folder, with his own sign-in. Story never holds a model API key. Story Sync
     runs it, not the app, so it works with the Story window closed. (Joe, 2026-10-31.)
-15. **When a run finishes, its task block is removed.** History will be the archive
-    (Agents 003).
+15. **When a run finishes, its task block is checked off,** not removed: `> [!agent-done]`,
+    struck through like a done to-do, with Undo Run on the block while the run's snapshot
+    lasts. The person deletes it when sure. (Joe, 2026-11-01; it was removed before.)
 16. **Edits land directly.** Suggestions are [Editor 003](editor-003-suggestions.md).
 17. **Any agent session in a placed folder is visible, not only runs.** An agent reports to
     Story Sync through the `story` command (`story agent status|done|hook`), taught by a

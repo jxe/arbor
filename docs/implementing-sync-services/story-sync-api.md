@@ -531,12 +531,12 @@ A run is a task block's Run button: Story Sync starts the person's own Claude
 Code headless in the tree's placed folder, one run at a time per tree, and
 shows it as above. `page` is the page's logical path and `task` the block's
 text without its `> [!agent]` marker. When the agent finishes, Story Sync
-removes the task block from the page and publishes. An `AgentRun` is
+marks the task block done (`> [!agent-done]`, text unchanged) and publishes. An `AgentRun` is
 `{ id, tree, page, task, state, result, changed, undoable, startedAt,
 finishedAt }`, with `state` one of `queued`, `running`, `finished`, `failed`,
 `stopped` or `undone`. Undo restores each file the run changed that is still
-as the run left it, from a snapshot taken when it started and kept until the
-tree's next run or a day; files changed since are listed in `skipped`. A tree
+as the run left it, from a snapshot taken when it started and kept for a day,
+across restarts; files changed since are listed in `skipped`. A tree
 not placed on this device is `404`; no Claude Code found, or a run no longer
 undoable, is `409` with `details.kind` saying which.
 

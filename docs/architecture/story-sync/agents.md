@@ -45,10 +45,11 @@ replaces its own entries and uninstalling removes only them.
 - **Following.** The runner reads the agent's stream itself and reports each
   finished tool call as a hook would, so a run shows in presence whether or
   not `story agent install` was run.
-- **Finishing.** On success it removes the task block (matched by its text,
-  with its continuation lines and the blank line after) and publishes. The
+- **Finishing.** On success it marks the task block done, `> [!agent-done]`
+  with its text unchanged (matched by its text and continuation lines), and
+  publishes. The person deletes done tasks when they no longer need Undo. The
   result is the agent's `story agent done` line, else the first line of its
   final message. Failure keeps the block and shows the last line of stderr.
 - **Undo.** The files the run changed, with their hashes right after it, and
-  the snapshot. The snapshot goes when the tree's next run starts or after a
-  day. Agents 003 replaces this with history.
+  the snapshot, kept for a day and saved in `agent-runs/runs.json` so they
+  survive a restart. Agents 003 replaces this with history.

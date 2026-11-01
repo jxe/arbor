@@ -1,10 +1,11 @@
 // Runs (Agents 001 phase 8): Run on a task block asks Story Sync to start the
 // person's own Claude Code headless in the tree's placed folder. Story Sync
 // snapshots the folder first, shows the agent in presence while it works,
-// removes the task block when it finishes, and can undo what it changed.
+// marks the task block done (`> [!agent-done]`) when it finishes, and can undo
+// what it changed. Finished runs and their snapshots survive a restart.
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { constants, existsSync, statSync } from "node:fs";
+import { constants, existsSync, readFileSync, statSync } from "node:fs";
 import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
@@ -93,7 +94,7 @@ export function runPrompt(run: Pick<AgentRun, "page" | "task">, section: string 
     "",
     run.task,
     "",
-    "Do the task in this folder. Story removes the task block itself when you finish, so leave it in place.",
+    "Do the task in this folder. Story marks the task block done itself when you finish, so leave it as it is.",
     'When you are done, run `story agent done "<what you did, in one line>"`.',
   ].join("\n");
 }
@@ -123,14 +124,12 @@ export function findTaskBlock(source: string, task: string): { start: number; en
   return null;
 }
 
-/** The page without its task block, and one blank line it leaves behind. */
-export function removeTaskBlock(source: string, task: string): string | null {
+/** The page with its task block marked done: `> [!agent]` becomes `> [!agent-done]`, all else as it was. */
+export function markTaskDone(source: string, task: string): string | null {
   const found = findTaskBlock(source, task);
   if (!found) return null;
   const lines = source.split("\n");
-  let { start, end } = found;
-  if (end < lines.length && lines[end]!.trim() === "" && (start === 0 || lines[start - 1]!.trim() === "")) end += 1;
-  lines.splice(start, end - start);
+  lines[found.start] = lines[found.start]!.replace(/\[!agent(\\?)\]/i, "[!agent-done$1]");
   return lines.join("\n");
 }
 
@@ -162,6 +161,9 @@ async function snapshot(root: string, into: string): Promise<void> {
   }
 }
 
+/** A run as runs.json keeps it. */
+type SavedRun = Omit<RunRecord, "after" | "process" | "stopRequested"> & { after?: Array<[string, string | null]> };
+
 interface RunRecord extends AgentRun {
   folder?: string;
   snapshotDirectory?: string;
@@ -180,6 +182,56 @@ export class AgentRuns {
 
   constructor(private readonly host: AgentRunHost, private readonly agents: AgentSessions, private readonly options: AgentRunsOptions = {}) {
     this.snapshotMs = options.snapshotMs ?? 24 * 60 * 60_000;
+    this.load();
+  }
+
+  private get savedPath(): string {
+    return join(this.host.stateDirectory, "agent-runs", "runs.json");
+  }
+
+  /** Finished runs from before a restart, so a done task's Undo Run still works. */
+  private load(): void {
+    let saved: SavedRun[];
+    try { saved = JSON.parse(readFileSync(this.savedPath, "utf8")) as SavedRun[]; } catch { return; }
+    if (!Array.isArray(saved)) return;
+    for (const entry of saved) {
+      const run: RunRecord = {
+        ...entry, after: entry.after ? new Map(entry.after) : undefined, stopRequested: false,
+        // A run cut off by the restart did not finish.
+        ...(entry.state === "queued" || entry.state === "running" ? { state: "failed" as const, result: "Story Sync restarted during the run" } : {}),
+      };
+      if (run.undoable && (!run.snapshotDirectory || !existsSync(run.snapshotDirectory))) {
+        run.undoable = false;
+        run.snapshotDirectory = undefined;
+      }
+      this.runs.set(run.id, run);
+      if (run.undoable) this.expireLater(run, (run.finishedAt ?? 0) + this.snapshotMs - Date.now());
+    }
+  }
+
+  /** Keep the latest runs on disk; a write that fails only costs Undo after a restart. */
+  private async save(): Promise<void> {
+    const runs = [...this.runs.values()].filter((run) => run.state !== "queued" && run.state !== "running").slice(-100);
+    const saved: SavedRun[] = runs.map(({ process: _process, stopRequested: _stop, after, ...rest }) => ({ ...rest, after: after ? [...after] : undefined }));
+    try {
+      await mkdir(dirname(this.savedPath), { recursive: true });
+      await writeFile(this.savedPath, JSON.stringify(saved));
+    } catch { /* best effort */ }
+  }
+
+  /** Drop the run's snapshot after `ms`: Undo Run is gone from then on. */
+  private expireLater(run: RunRecord, ms: number): void {
+    const directory = run.snapshotDirectory;
+    const expire = () => {
+      if (run.snapshotDirectory !== directory) return;
+      run.undoable = false;
+      run.snapshotDirectory = undefined;
+      if (directory) void rm(directory, { recursive: true, force: true });
+      void this.save();
+    };
+    if (ms <= 0) return expire();
+    const timer = setTimeout(expire, ms);
+    (timer as { unref?: () => void }).unref?.();
   }
 
   list(): AgentRun[] {
@@ -241,6 +293,8 @@ export class AgentRuns {
     run.state = "undone";
     run.undoable = false;
     await rm(run.snapshotDirectory, { recursive: true, force: true });
+    run.snapshotDirectory = undefined;
+    await this.save();
     await this.host.publish(run.tree).catch(() => {});
     return { restored, skipped };
   }
@@ -265,14 +319,8 @@ export class AgentRuns {
     const folder = run.folder!;
     run.state = "running";
     run.startedAt = Date.now();
-    // An earlier run's snapshot goes when the next run on its tree starts.
-    for (const other of this.runs.values()) {
-      if (other !== run && other.tree === run.tree && other.snapshotDirectory) {
-        await rm(other.snapshotDirectory, { recursive: true, force: true });
-        other.snapshotDirectory = undefined;
-        other.undoable = false;
-      }
-    }
+    // Earlier runs keep their snapshots: each done task keeps its own Undo Run
+    // until it expires, and undo leaves alone what a later run changed again.
     const pagePath = this.pageFile(folder, run.page);
     const source = pagePath ? await readFile(pagePath, "utf8").catch(() => null) : null;
     const found = source ? findTaskBlock(source, run.task) : null;
@@ -348,14 +396,14 @@ export class AgentRuns {
       run.state = "stopped";
       run.result = "Stopped";
     } else if (exit.code === 0) {
-      // The task is done: its block goes, and history keeps it.
+      // The task is done: its block stays, checked off, until the person deletes it.
       if (pagePath) {
         const current = await readFile(pagePath, "utf8").catch(() => null);
-        const without = current === null ? null : removeTaskBlock(current, run.task);
-        if (without !== null) {
-          await writeFile(pagePath, without);
+        const done = current === null ? null : markTaskDone(current, run.task);
+        if (done !== null) {
+          await writeFile(pagePath, done);
           const relativePage = relative(folder, pagePath).split(sep).join("/");
-          changes.set(relativePage, hashObject(new TextEncoder().encode(without)));
+          changes.set(relativePage, hashObject(new TextEncoder().encode(done)));
         }
       }
       run.result = this.resultLine(run, finalText);
@@ -373,15 +421,9 @@ export class AgentRuns {
       await rm(run.snapshotDirectory, { recursive: true, force: true });
       run.snapshotDirectory = undefined;
     } else {
-      const directory = run.snapshotDirectory;
-      const timer = setTimeout(() => {
-        if (run.snapshotDirectory !== directory) return;
-        run.undoable = false;
-        run.snapshotDirectory = undefined;
-        void rm(directory, { recursive: true, force: true });
-      }, this.snapshotMs);
-      (timer as { unref?: () => void }).unref?.();
+      this.expireLater(run, this.snapshotMs);
     }
+    await this.save();
     await this.host.release?.(run.tree, run.session).catch(() => {});
     await this.host.publish(run.tree).catch(() => {});
     // The agent's own `done` already showed its result; otherwise show the run's.
