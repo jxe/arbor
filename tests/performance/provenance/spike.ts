@@ -19,8 +19,11 @@ import { DEFAULT_RULES, unbudgeted } from "./unbudgeted.ts";
 import { Sidecar } from "../../../packages/overstoryd-merge/src/sidecar.ts";
 import type { RetainedState, Bucket } from "../../../packages/overstoryd-merge/src/retained-state.ts";
 
-const [root, tree, out, variant = "bare", fromArg] = process.argv.slice(2);
-if (!root || !tree || !out) throw Error("usage: spike.ts <data-root> <tree> <out.jsonl> [origins|bare] [from-index]");
+const [root, tree, out, variantArg = "bare", onlyArg] = process.argv.slice(2);
+if (!root || !tree || !out) throw Error("usage: spike.ts <data-root> <tree> <out.jsonl> [bare|origins|full[,…]] [index,index,…]");
+// bare: every history map emptied; origins: origins kept (derived lineage);
+// full: nothing emptied, a control for the harness itself.
+const variants = variantArg.split(",");
 const rules = DEFAULT_RULES;
 const entries = acceptedEntries(root, tree);
 const position = new Map(entries.map((e, i) => [e.hash, i]));
@@ -43,7 +46,8 @@ console.error(`reference replay ${Math.round((performance.now() - started) / 100
 
 const empty: Bucket = { entries: [], hash: hashObject(new TextEncoder().encode("L")), size: 0, count: 0 };
 const strippedStates = new Map<string, RetainedState>();
-const strip = (id: string): string => {
+const strip = (variant: string, id: string): string => {
+  if (variant === "full") return id;
   const sid = `stripped:${variant}:${id}`;
   if (!strippedStates.has(sid)) {
     const r = warm.recorded.get(id)!;
@@ -54,13 +58,13 @@ const strip = (id: string): string => {
 };
 /** The fresh sidecar's states: its own, else the index's view of any entry at or before `upto`. */
 class IndexStates extends Map<string, Cached> {
-  constructor(private upto: number) { super(); }
+  constructor(private upto: number, private variant: string) { super(); }
   override has(hash: string) { return super.has(hash) || (position.get(hash) ?? Infinity) <= this.upto; }
   override get(hash: string) {
     const own = super.get(hash); if (own) return own;
     if ((position.get(hash) ?? Infinity) > this.upto) return undefined;
     const c = warm.states.get(hash)!;
-    const value = { ...c, state: strip(c.state) };
+    const value = { ...c, state: strip(this.variant, c.state) };
     super.set(hash, value);
     return value;
   }
@@ -70,26 +74,29 @@ class Recorded extends Map<string, RetainedState> {
   override has(id: string) { return super.has(id) || strippedStates.has(id) || warm.recorded.has(id); }
 }
 writeFileSync(out, "");
-const from = Number(fromArg ?? 0);
+const only = onlyArg ? new Set(onlyArg.split(",").map(Number)) : undefined;
 let n = 0, matched = 0;
 for (const [index, { id, entry }] of entries.entries()) {
-  if (index < from || !entry.previous || !entry.asked) continue;
+  if ((only && !only.has(index)) || !entry.previous || !entry.asked) continue;
   const base = position.get(entry.asked.base ?? entry.previous)!;
+  for (const variant of variants) {
   const fresh = unbudgeted(new Sidecar(stores, Infinity, undefined, Infinity)) as unknown as Internals;
   fresh.memory = warm.memory; fresh.entries = warm.entries;
-  fresh.recorded = new Recorded(); fresh.states = new IndexStates(base);
+  fresh.recorded = new Recorded(); fresh.states = new IndexStates(base, variant);
   const t = performance.now();
   let result: Record<string, unknown>;
   try {
     const answer = await (fresh as unknown as Sidecar).answer(recordedQuestion(entry));
     const same = answer.root === entry.root && stableJSONString(answer.decisions) === stableJSONString(entry.decisions);
-    result = { same, root: answer.root === entry.root, decisions: stableJSONString(answer.decisions) === stableJSONString(entry.decisions) };
+    result = { same, root: answer.root === entry.root, decisions: stableJSONString(answer.decisions) === stableJSONString(entry.decisions),
+      answer: hashObject(new TextEncoder().encode(stableJSONString({ root: answer.root, decisions: answer.decisions }))).slice(7, 23) };
   } catch (error) {
     result = { same: false, error: error instanceof Error ? error.message.slice(0, 200) : String(error) };
   }
   n++; if (result.same) matched++;
-  appendFileSync(out, JSON.stringify({ index, ordinal: Number(id), kind: entry.trace === null ? "snapshot" : "traced",
+  appendFileSync(out, JSON.stringify({ variant, index, ordinal: Number(id), kind: entry.trace === null ? "snapshot" : "traced",
     window: index - 1 - base, replayed: fresh.replayed, ms: Math.round(performance.now() - t), ...result }) + "\n");
   if (n % 50 === 0) console.error(`${n} questions, ${matched} same`);
+  }
 }
 console.error(`done: ${n} questions, ${matched} same as accepted`);

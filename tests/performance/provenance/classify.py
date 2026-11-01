@@ -11,7 +11,8 @@ for r in rows: change_at.setdefault(r['change'], r['index'])
 def change_of(field, key):
     if field in ('effects', 'outputs', 'origins'):
         if key.startswith('['):
-            return json.loads(key)[0]
+            try: return json.loads(key)[0]
+            except ValueError: return None
         for p in ('snapshot:', 'imported:', 'snapshot-alternative:', 'existence:', 'context:', 'alternative:'):
             if key.startswith(p): return key[len(p):].split(':')[0]
         return None

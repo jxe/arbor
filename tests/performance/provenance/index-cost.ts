@@ -17,6 +17,7 @@ if (!root || !tree || !out) throw Error("usage: index-cost.ts <data-root> <tree>
 // A chunk ends after a piece whose identity hashes to 0 under the mask: about
 // one piece in (mask + 1).
 const MASK = Number(maskArg ?? 31);
+const COMPACT = process.env.COMPACT === "1";
 const entries = acceptedEntries(root, tree);
 const s = unbudgeted(sidecar(root)) as unknown as {
   stateOf(hash: string, rules: unknown): Promise<{ object: string; state: string }>;
@@ -27,10 +28,24 @@ const rules = DEFAULT_RULES;
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
 const stored = new Map<string, number>(); // record hash -> bytes
 let totalBytes = 0;
+// Every new record in acceptance order, compressed in frames of about 1 MiB
+// as overstoryd's packs store objects.
+let frame: string[] = [], frameBytes = 0, packedBytes = 0;
+const flush = () => { if (frame.length) packedBytes += Bun.zstdCompressSync(Buffer.from(frame.join("\n"))).byteLength; frame = []; frameBytes = 0; };
 const put = (value: unknown, fresh: { records: number; bytes: number }) => {
   const text = JSON.stringify(value), hash = sha(text);
-  if (!stored.has(hash)) { stored.set(hash, text.length); totalBytes += text.length; fresh.records++; fresh.bytes += text.length; }
+  if (!stored.has(hash)) {
+    stored.set(hash, text.length); totalBytes += text.length; fresh.records++; fresh.bytes += text.length;
+    frame.push(text); frameBytes += text.length; if (frameBytes > 1 << 20) flush();
+  }
   return hash;
+};
+// A compact chunk: each distinct origin and object once, pieces as numbers.
+const compact = (pieces: Piece[]) => {
+  const origins: string[] = [], objects: string[] = [];
+  const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) { i = list.length; list.push(v); } return i; };
+  const rows = pieces.map((p) => [at(origins, p.origin), p.start, at(objects, p.object), p.offset, p.length]);
+  return { origins, objects, pieces: rows };
 };
 const boundary = (p: Piece) => (parseInt(sha(`${p.origin}\0${p.start}`).slice(0, 8), 16) & MASK) === 0;
 const chunked = (pieces: Piece[]) => {
@@ -67,7 +82,7 @@ for (const [index, { hash, entry }] of entries.entries()) {
       if (node.pieces.length > previous) maxPiecesByPath.set(path, node.pieces.length);
       const known = memo.get(node); if (known) return known;
       const record = put({ node: node.id, kind: node.kind,
-        chunks: chunked(node.pieces).map((c) => put(c.map((p) => [p.origin, p.start, p.object, p.offset, p.length]), fresh)) }, fresh);
+        chunks: chunked(node.pieces).map((c) => put(COMPACT ? compact(c) : c.map((p) => [p.origin, p.start, p.object, p.offset, p.length]), fresh)) }, fresh);
       memo.set(node, record);
       return record;
     }
@@ -79,10 +94,11 @@ for (const [index, { hash, entry }] of entries.entries()) {
   perEntry.push({ index, kind, ...fresh, files, pieces, maxPieces, ms: Math.round(ms * 10) / 10 });
   if (index % 1000 === 0) console.error(`${index}/${entries.length} ${Math.round((performance.now() - started) / 1000)}s records=${stored.size} bytes=${totalBytes}`);
 }
+flush();
 const top = [...maxPiecesByPath].sort((a, b) => b[1] - a[1]).slice(0, 15);
 writeFileSync(out, JSON.stringify({
   mask: MASK, entries: entries.length, replaySeconds: (performance.now() - started) / 1000,
-  totalRecords: stored.size, totalBytes, perEntry,
+  totalRecords: stored.size, totalBytes, packedBytes, compact: COMPACT, perEntry,
   top: top.map(([path, max]) => ({ path, max, series: series.get(path) })),
 }));
 console.error(`done ${entries.length} in ${Math.round((performance.now() - started) / 1000)}s records=${stored.size} bytes=${totalBytes}`);
