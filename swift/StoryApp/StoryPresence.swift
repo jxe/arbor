@@ -42,7 +42,11 @@ struct StoryPresenceBadge: View {
 
     /// One steady hue per person, so an agent shares its person's color.
     static func color(for peer: ProtocolPresencePeer) -> Color {
-        let hash = peer.profile.unicodeScalars.reduce(UInt32(2166136261)) { ($0 ^ $1.value) &* 16777619 }
+        color(profile: peer.profile)
+    }
+
+    static func color(profile: String) -> Color {
+        let hash = profile.unicodeScalars.reduce(UInt32(2166136261)) { ($0 ^ $1.value) &* 16777619 }
         return Color(hue: Double(hash % 360) / 360, saturation: 0.55, brightness: 0.8)
     }
 }

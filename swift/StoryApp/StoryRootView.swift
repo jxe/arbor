@@ -3016,6 +3016,14 @@ struct StoryRootView: View {
                 }
 #else
                 HStack(spacing: 4) {
+                    StoryMacPresenceAccountMenu(
+                        workspace: workspace,
+                        reference: model.currentReference,
+                        status: toolbarSyncStatus,
+                        openAccounts: showAccountsPanel
+                    )
+                    .frame(minHeight: 32)
+                    .padding(.trailing, 6)
                     if let presentation = model.pagePresentation(for: location),
                        presentation.node.isWritable,
                        presentation.editorLease != nil {
@@ -3037,14 +3045,6 @@ struct StoryRootView: View {
                     .help("Share")
                     .accessibilityLabel("Share")
                     .frame(width: 32, height: 32)
-                    .mutedMacToolbarHover()
-                    StoryMacPresenceAccountMenu(
-                        workspace: workspace,
-                        reference: model.currentReference,
-                        status: toolbarSyncStatus,
-                        openAccounts: showAccountsPanel
-                    )
-                    .frame(minWidth: 32, minHeight: 32)
                     .mutedMacToolbarHover()
                 }
                 .buttonStyle(.plain)
@@ -3404,10 +3404,11 @@ struct StoryRootView: View {
 }
 
 #if os(macOS)
-/// The Mac toolbar's one button for presence and your account: your person
-/// icon with the sync badge (a dashed circle while you're hidden from others),
-/// with initials of anyone else on this page overlapping it from the left and
-/// a count of those elsewhere in the tree. Its menu lists who's here, the sync
+/// The Mac toolbar's presence and account button, just before the
+/// microphone: your avatar always (dimmed while you're hidden from others),
+/// your agents beside it as sparkles, then everyone else on this page and a
+/// count of those elsewhere in the tree. Sync shows only when it isn't
+/// finished, as a badge on your avatar. Its menu lists who's here, the sync
 /// state and Sync & Accounts…; Show Me to Others is in Settings.
 private struct StoryMacPresenceAccountMenu: View {
     let workspace: StoryWorkspaceState
@@ -3416,8 +3417,11 @@ private struct StoryMacPresenceAccountMenu: View {
     let openAccounts: () -> Void
 
     var body: some View {
+        let me = workspace.directory.first { workspace.isOwnProfile($0.id) }
         let here = workspace.presencePeers(on: reference)
         let hereIDs = Set(here.map(\.id))
+        let mine = here.filter { $0.agent != nil && workspace.isOwnProfile($0.profile) }
+        let others = here.filter { !($0.agent != nil && workspace.isOwnProfile($0.profile)) }
         let elsewhere = workspace.presenceRoster.peers.values
             .filter { !hereIDs.contains($0.id) }
             .sorted { ($0.name ?? "", $0.id) < ($1.name ?? "", $1.id) }
@@ -3442,17 +3446,47 @@ private struct StoryMacPresenceAccountMenu: View {
             Text(status.label)
             Button("Sync & Accounts…", action: openAccounts)
         } label: {
-            HStack(spacing: -6) {
-                ForEach(here.prefix(3)) { StoryPresenceBadge(peer: $0) }
+            HStack(spacing: 4) {
+                HStack(spacing: -5) {
+                    StoryToolbarAvatar(
+                        person: me,
+                        workspace: workspace,
+                        fallbackName: me?.title,
+                        tint: me.map { StoryPresenceBadge.color(profile: $0.id) } ?? .accentColor)
+                        .opacity(workspace.showsMeToOthers ? 1 : 0.45)
+                        .overlay(alignment: .bottomTrailing) {
+                            if status != .synchronized {
+                                StorySyncToolbarIndicator(status: status)
+                                    .frame(width: 11, height: 11)
+                                    .background(.bar, in: Circle())
+                                    .offset(x: 3, y: 3)
+                            }
+                        }
+                        .zIndex(2)
+                    ForEach(mine.prefix(2)) { StoryToolbarAgentMark(peer: $0) }
+                }
+                if !others.isEmpty {
+                    HStack(spacing: -5) {
+                        ForEach(others.prefix(3)) { peer in
+                            if peer.agent != nil {
+                                StoryToolbarAgentMark(peer: peer)
+                            } else {
+                                StoryToolbarAvatar(
+                                    person: workspace.directory.first { $0.id == peer.profile },
+                                    workspace: workspace,
+                                    fallbackName: peer.name,
+                                    tint: StoryPresenceBadge.color(for: peer))
+                            }
+                        }
+                    }
+                }
                 if !elsewhere.isEmpty {
                     Text("+\(elsewhere.count)")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                        .padding(.leading, 8)
-                        .padding(.trailing, 2)
                 }
-                StoryProfileSyncToolbarLabel(status: status, hidden: !workspace.showsMeToOthers)
             }
+            .contentShape(.rect)
         }
         .menuIndicator(.hidden)
         .fixedSize()
@@ -3467,28 +3501,65 @@ private struct StoryMacPresenceAccountMenu: View {
     }
 }
 
-private struct StoryProfileSyncToolbarLabel: View {
-    let status: StorySyncStatus
-    var hidden = false
+/// A person in the toolbar: their profile photo, or initials on their color.
+private struct StoryToolbarAvatar: View {
+    let person: DirectoryPerson?
+    let workspace: StoryWorkspaceState
+    let fallbackName: String?
+    var tint: Color = .accentColor
+    var size: CGFloat = 20
+    @State private var image: Image?
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            Image(systemName: hidden ? "person.crop.circle.dashed" : "person.crop.circle")
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(Color.secondary.opacity(StoryStyle.mutedToolbarOpacity))
-                .frame(width: 32, height: 32)
-
-            badge
-                .frame(width: 13, height: 13)
-                .background(.bar, in: Circle())
-                .offset(x: -2, y: -2)
+        ZStack {
+            Circle().fill(tint)
+            if let image {
+                image.resizable().scaledToFill()
+            } else if let initials {
+                Text(initials)
+                    .font(.system(size: size * 0.42, weight: .semibold))
+                    .foregroundStyle(.white)
+            } else {
+                Image(systemName: "person.fill")
+                    .font(.system(size: size * 0.5))
+                    .foregroundStyle(.white)
+            }
         }
-        .contentShape(.rect)
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().strokeBorder(.background, lineWidth: 1.5))
+        .task(id: person?.entry.avatar?.hash) {
+            guard let person, let avatar = person.entry.avatar else { image = nil; return }
+            guard let data = try? await AvatarCache().data(for: avatar, fetch: {
+                try await workspace.avatarData(for: person)
+            }), let thumbnail = StoryAvatarImage.thumbnail(data, maxPixelSize: 96) else { return }
+            image = Image(decorative: thumbnail, scale: 2)
+        }
     }
 
-    @ViewBuilder
-    private var badge: some View {
-        StorySyncToolbarIndicator(status: status)
+    private var initials: String? {
+        if let person { return person.initials }
+        let words = (fallbackName ?? "").split(whereSeparator: \.isWhitespace)
+        let letters = words.prefix(2).compactMap(\.first).map { String($0).uppercased() }
+        return letters.isEmpty ? nil : letters.joined()
+    }
+}
+
+/// An agent in the toolbar: a sparkle in its person's color, lighter than a
+/// person, so it reads as working for someone rather than as someone.
+private struct StoryToolbarAgentMark: View {
+    let peer: ProtocolPresencePeer
+    var size: CGFloat = 20
+
+    var body: some View {
+        let color = StoryPresenceBadge.color(for: peer)
+        Image(systemName: "sparkle")
+            .font(.system(size: size * 0.5, weight: .semibold))
+            .foregroundStyle(color)
+            .frame(width: size, height: size)
+            .background(Circle().fill(color.opacity(0.18)).background(Circle().fill(.background)))
+            .overlay(Circle().strokeBorder(color.opacity(0.6), lineWidth: 1))
+            .help(StoryPresenceBadge.label(for: peer) + (peer.agent?.status.map { ": \($0)" } ?? ""))
     }
 }
 #endif
