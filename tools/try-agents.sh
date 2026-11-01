@@ -60,7 +60,7 @@ case "${1:-}" in
       [ -n "$me" ] || { echo "No identity: run \`story me create\` (or set one up in Story) first." >&2; exit 1; }
       bun "$repo/packages/overstoryd/src/cli.ts" init agentstry --founder "$handle=$me" --data "$data"
     fi
-    echo "In Story: Sync & Accounts → Add Account or Host… → http://127.0.0.1:$port"
+    echo "In Story: Sync & Accounts → Join Another Community… → I Don’t Have One → http://127.0.0.1:$port → Add Host"
     echo "Then run: tools/try-agents.sh seed"
     exec bun "$repo/packages/overstoryd/src/cli.ts" serve "$data" --port "$port" --hostname 127.0.0.1
     ;;
