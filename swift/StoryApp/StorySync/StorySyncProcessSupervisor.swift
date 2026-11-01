@@ -132,6 +132,24 @@ actor StorySyncProcessSupervisor {
         return try await start(executable: executable, preferredPort: preferredPort)
     }
 
+    /// Restart Story Sync itself. A helper the launch agent runs is no child of
+    /// ours, so `restartControl` would only reattach to it: kickstart it instead.
+    func restartService() async throws -> StorySyncControlRuntime {
+        guard process == nil, let current = controlRuntime, current.status.runtimeKind == "persistent",
+              await installedServiceExists() else { return try await restartControl() }
+        controlRuntime = nil
+        _ = await launchctl(["kickstart", "-k", serviceTarget()])
+        for _ in 0..<100 {
+            if let restarted = try await attachOwn(preferredPort: preferredPort),
+               restarted.status.instanceID != current.status.instanceID {
+                controlRuntime = restarted
+                return restarted
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        throw StorySyncSupervisorError.readinessTimedOut(canonicalServiceLog())
+    }
+
     func logs() -> String {
         guard let logURL, let data = try? Data(contentsOf: logURL) else {
             let persistent = canonicalServiceLog()

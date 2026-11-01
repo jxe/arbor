@@ -81,6 +81,9 @@ struct StoryPresenceHeader: View {
     }
 
     var body: some View {
+#if os(macOS)
+        if workspace.storySyncIsOutdated { StoryOutdatedSyncWarning(workspace: workspace) }
+#endif
         let here = workspace.presencePeers(on: reference)
         let everyone = workspace.presenceRoster.peers.values.sorted { ($0.name ?? "", $0.id) < ($1.name ?? "", $1.id) }
         if !everyone.isEmpty || !workspace.showsMeToOthers || !runs.isEmpty {
@@ -126,6 +129,47 @@ struct StoryPresenceHeader: View {
         }
     }
 }
+
+#if os(macOS)
+/// Story Sync answered 405 to the agent routes: it runs older code than this
+/// app, which a rebuild doesn't restart. Restarting it is the person's click.
+struct StoryOutdatedSyncWarning: View {
+    let workspace: StoryWorkspaceState
+    @State private var showing = false
+    @State private var restarting = false
+
+    var body: some View {
+        Button { showing = true } label: {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+        }
+        .help("Story Sync is out of date")
+        .accessibilityLabel("Story Sync is out of date")
+        .popover(isPresented: $showing) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Story Sync is out of date").font(.headline)
+                Text("It is still running code from before this build of Story, so agent tasks can't run. Restarting it doesn't close your pages.")
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    if restarting { ProgressView().controlSize(.small) }
+                    Button("Restart Story Sync") {
+                        restarting = true
+                        Task {
+                            await workspace.restartStorySync(restartingService: true)
+                            restarting = false
+                            if !workspace.storySyncIsOutdated { showing = false }
+                        }
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(restarting)
+                }
+            }
+            .padding()
+            .frame(width: 300)
+        }
+    }
+}
+#endif
 
 /// The control at the end of an agent task callout (Agents 001 phase 6):
 /// Run on the Mac, then a spinner with Stop, then Undo Run or Run Again. The

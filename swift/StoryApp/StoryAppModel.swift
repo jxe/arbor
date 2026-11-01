@@ -1261,6 +1261,12 @@ final class StoryWorkspaceState {
             let runtime = try await supervisor.start(preferredPort: preferredPort)
             storySyncClient = runtime.client
             storySyncProcessKind = runtime.attachedToExistingProcess ? .external : .supervised
+#if os(macOS)
+            if checkedStorySyncInstance != runtime.status.instanceID {
+                checkedStorySyncInstance = runtime.status.instanceID
+                Task { await checkStorySyncIsCurrent() }
+            }
+#endif
             return runtime
         } catch {
             await supervisor.stop()
@@ -1659,8 +1665,9 @@ final class StoryWorkspaceState {
         await restoreLocalWorkspaceIfAvailable()
     }
 
-    /// Reconnect to the control-mode daemon and re-open whatever was open.
-    func restartStorySync() async {
+    /// Reconnect to the control-mode daemon and re-open whatever was open;
+    /// `restartingService` also restarts a Story Sync the launch agent runs.
+    func restartStorySync(restartingService: Bool = false) async {
         do {
             try await editorWorkspace.flushAll()
             let supervisor = self.supervisor ?? StorySyncProcessSupervisor(launchPolicy: .automatic)
@@ -1672,9 +1679,13 @@ final class StoryWorkspaceState {
             overviewEventRefreshTask?.cancel()
             overviewEventRefreshTask = nil
             if storySyncClient != nil {
-                let runtime = try await supervisor.restartControl()
+                let runtime = try await restartingService ? supervisor.restartService() : supervisor.restartControl()
                 storySyncClient = runtime.client
                 storySyncProcessKind = runtime.attachedToExistingProcess ? .external : .supervised
+#if os(macOS)
+                checkedStorySyncInstance = runtime.status.instanceID
+                await checkStorySyncIsCurrent()
+#endif
             } else {
                 try await ensureStorySync()
             }
@@ -2328,6 +2339,22 @@ final class StoryWorkspaceState {
     /// Why the last Run of a task failed to start, keyed like `agentRuns`.
     private var agentRunStartErrors: [String: String] = [:]
     private var agentRunFollowers: [String: Task<Void, Never>] = [:]
+    /// Story Sync is running code older than this app: it answers 405 to the
+    /// agent routes. A rebuild doesn't restart a Story Sync the launch agent runs.
+    private(set) var storySyncIsOutdated = false
+    /// The Story Sync instance `checkStorySyncIsCurrent` last asked.
+    private var checkedStorySyncInstance: String?
+
+    /// Ask the connected Story Sync for its agent runs; only an old one has no such route.
+    func checkStorySyncIsCurrent() async {
+        guard let client = storySyncClient else { return }
+        do {
+            _ = try await client.agentRuns()
+            storySyncIsOutdated = false
+        } catch let error as StorySyncServerError where error.status == 405 {
+            storySyncIsOutdated = true
+        } catch {}
+    }
 
     nonisolated static func agentRunKey(tree: String, page: String, task: String) -> String {
         "\(tree)|\(page)|\(task)"
@@ -2357,19 +2384,10 @@ final class StoryWorkspaceState {
             guard let client else {
                 throw StorySyncSupervisorError.serviceUnavailable
             }
-            let run: StoryAgentRun
-            do {
-                run = try await client.startAgentRun(tree: reference.tree.rawValue, page: page, task: task)
-            } catch let error as StorySyncServerError where error.status == 405 {
-                // A Story Sync started before this build (a rebuild doesn't
-                // restart it) has no agent routes: restart it and try once more.
-                await restartStorySync()
-                guard let restarted = storySyncClient else { throw error }
-                client = restarted
-                run = try await restarted.startAgentRun(tree: reference.tree.rawValue, page: page, task: task)
-            }
-            follow(run, client: client!)
+            let run = try await client.startAgentRun(tree: reference.tree.rawValue, page: page, task: task)
+            follow(run, client: client)
         } catch {
+            if let server = error as? StorySyncServerError, server.status == 405 { storySyncIsOutdated = true }
             let message = Self.agentRunMessage(error)
             agentRunError = message
             agentRunStartErrors[key] = message
@@ -2379,7 +2397,7 @@ final class StoryWorkspaceState {
     /// A start failure in words; an old Story Sync answers 405 to the agent routes.
     nonisolated static func agentRunMessage(_ error: any Error) -> String {
         if let server = error as? StorySyncServerError, server.status == 405 {
-            return "Story Sync is too old to run agents. Restart it from Sync & Accounts."
+            return "Story Sync is out of date"
         }
         return "Couldn't run: \(error.localizedDescription)"
     }
