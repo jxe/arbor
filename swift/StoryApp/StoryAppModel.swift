@@ -2325,6 +2325,8 @@ final class StoryWorkspaceState {
     /// The latest run of each task, keyed by `agentRunKey`.
     private(set) var agentRuns: [String: StoryAgentRun] = [:]
     private(set) var agentRunError: String?
+    /// Why the last Run of a task failed to start, keyed like `agentRuns`.
+    private var agentRunStartErrors: [String: String] = [:]
     private var agentRunFollowers: [String: Task<Void, Never>] = [:]
 
     nonisolated static func agentRunKey(tree: String, page: String, task: String) -> String {
@@ -2336,11 +2338,18 @@ final class StoryWorkspaceState {
         agentRuns[Self.agentRunKey(tree: reference.tree.rawValue, page: Self.presencePage(reference).path, task: task)]
     }
 
+    /// Why the last Run of `task` didn't start, shown beside its button.
+    func agentRunError(task: String, on reference: WorkspaceReference) -> String? {
+        agentRunStartErrors[Self.agentRunKey(tree: reference.tree.rawValue, page: Self.presencePage(reference).path, task: task)]
+    }
+
     /// Run a task block with the person's agent. Only a placed tree runs:
     /// the agent works in its folder on this Mac.
     func runAgentTask(_ task: String, on reference: WorkspaceReference) async {
         agentRunError = nil
         let page = Self.presencePage(reference).path
+        let key = Self.agentRunKey(tree: reference.tree.rawValue, page: page, task: task)
+        agentRunStartErrors[key] = nil
         do {
             await flush()
             var client = storySyncClient
@@ -2348,11 +2357,31 @@ final class StoryWorkspaceState {
             guard let client else {
                 throw StorySyncSupervisorError.serviceUnavailable
             }
-            let run = try await client.startAgentRun(tree: reference.tree.rawValue, page: page, task: task)
-            follow(run, client: client)
+            let run: StoryAgentRun
+            do {
+                run = try await client.startAgentRun(tree: reference.tree.rawValue, page: page, task: task)
+            } catch let error as StorySyncServerError where error.status == 405 {
+                // A Story Sync started before this build (a rebuild doesn't
+                // restart it) has no agent routes: restart it and try once more.
+                await restartStorySync()
+                guard let restarted = storySyncClient else { throw error }
+                client = restarted
+                run = try await restarted.startAgentRun(tree: reference.tree.rawValue, page: page, task: task)
+            }
+            follow(run, client: client!)
         } catch {
-            agentRunError = "Couldn't run the task: \(error.localizedDescription)"
+            let message = Self.agentRunMessage(error)
+            agentRunError = message
+            agentRunStartErrors[key] = message
         }
+    }
+
+    /// A start failure in words; an old Story Sync answers 405 to the agent routes.
+    nonisolated static func agentRunMessage(_ error: any Error) -> String {
+        if let server = error as? StorySyncServerError, server.status == 405 {
+            return "Story Sync is too old to run agents. Restart it from Sync & Accounts."
+        }
+        return "Couldn't run: \(error.localizedDescription)"
     }
 
     func stopAgentRun(_ run: StoryAgentRun) async {

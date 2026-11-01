@@ -151,12 +151,17 @@ struct StoryAgentTaskControl: View {
             case .finished?:
                 if let run, run.undoable { Button("Undo Run") { Task { await workspace.undoAgentRun(run) } } }
             case .undone?, nil:
+                if let error = workspace.agentRunError(task: task, on: reference) {
+                    Image(systemName: "exclamationmark.circle").foregroundStyle(.red)
+                    Text(error).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
                 Button {
                     Task { await workspace.runAgentTask(task, on: reference) }
                 } label: {
-                    Label("Run", systemImage: "play.fill")
+                    Image(systemName: "play.fill")
                 }
-                .help(workspace.agentRunError ?? "Run this task with Claude Code in this tree's folder")
+                .help("Run this task with Claude Code in this tree's folder")
+                .accessibilityLabel("Run with Claude")
             }
         }
         .controlSize(.small)
