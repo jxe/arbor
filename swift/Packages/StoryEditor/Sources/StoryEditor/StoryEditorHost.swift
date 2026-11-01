@@ -938,14 +938,12 @@ public final class StoryEditorHost: EditorHost {
         }
     }
 
-    public func prepareBlocksForTransfer(_ blocks: [Block], in document: Document) -> [Block] {
-        guard document === binding.document else { return blocks }
-        // A presented heading is not placed by moving it: it and the children
-        // generated under it keep their marks, and presentation puts it back.
-        return blocks.flatMap { block in
-            StoryPagePresentation.heading(block) != nil && StoryPagePresentation.isUntouched(block)
-                ? [block] : StoryMarkdownCodec.materializingProjectedChildren([block])
-        }
+    public func prepareBlocksForTransfer(_ blocks: [Block], in document: Document) -> [Block] { blocks }
+
+    /// A link to one of the page's children, dropped on its Subpages, is
+    /// unlinked: the editor removes it and the child returns there.
+    public func receiveBlocks(_ blocks: [Block], inRegion _: DocumentRegion, of document: Document) -> Bool {
+        document === binding.document && binding.unlinksSubpages(blocks)
     }
 
     public func relocateDocument(_ reference: DocumentReference, from document: Document) async -> Bool {

@@ -118,7 +118,7 @@ public final class StoryDocumentBinding {
         self.ledger = opened.ledger
         let document = Document(
             id: DocumentID(String(describing: snapshot.reference.identity)),
-            children: StoryPagePresentation.present(opened.blocks, path: snapshot.reference.path, directory: nil),
+            children: StoryPagePresentation.present(opened.blocks, path: snapshot.reference.path),
             fallbackTitle: snapshot.reference.path.split(separator: "/").last.map(String.init)
         )
         self.document = document
@@ -140,23 +140,39 @@ public final class StoryDocumentBinding {
 
     // MARK: Presentation
 
-    /// `blocks` (authored, or this editor's edited tree) as the page shows them.
-    private func presented(_ blocks: [Block]) -> [Block] {
-        StoryPagePresentation.present(blocks, path: reference.path, directory: directoryProjection.map {
+    /// The page's directory, for its Subpages.
+    private var subpagesDirectory: StoryPagePresentation.Directory? {
+        directoryProjection.map {
             .init(children: $0.children, reference: $0.directory.reference, sourceDirectory: $0.directory.sourceDirectory)
-        })
+        }
+    }
+
+    /// Show `blocks` (authored, or this editor's edited tree) as the page:
+    /// its presented title in the tree, and the children no link names as
+    /// the Subpages region after it.
+    private func show(_ blocks: [Block]) {
+        let next = StoryPagePresentation.present(blocks, path: reference.path)
+        if next != document.children { _ = document.replaceChildrenReconciled(next) }
+        let subpages = subpagesDirectory.flatMap { StoryPagePresentation.subpages($0, of: document.children, path: reference.path) }
+        document.setRegions(subpages.map { [$0] } ?? [])
     }
 
     /// Show the page as its current source presents it. Source is unchanged:
-    /// a presented heading that was removed or moved comes back, one that was
-    /// edited is from now on an authored block, and one that is no longer
-    /// called for (an authored first H1, every child linked) goes.
+    /// a presented title that was removed or moved comes back, one that was
+    /// edited is from now on an authored block, and an authored first H1
+    /// retires it. A link to a child takes it out of the Subpages.
     func represent() {
         presentationTask?.cancel()
         presentationTask = nil
         guard !holdsTransferred else { return }
-        let next = presented(document.children)
-        if next != document.children { _ = document.replaceChildrenReconciled(next) }
+        show(document.children)
+    }
+
+    /// Whether `blocks`, dropped on the page's Subpages, are links to its own
+    /// children, so that removing them returns those children there.
+    func unlinksSubpages(_ blocks: [Block]) -> Bool {
+        guard let directory = subpagesDirectory, !blocks.isEmpty else { return false }
+        return blocks.allSatisfy { StoryPagePresentation.linksChild($0, of: directory) }
     }
 
     /// Re-present once the editor's commit has returned: the tree is replaced
@@ -428,7 +444,7 @@ public final class StoryDocumentBinding {
         let opened = StoryMarkdownCodec.open(source: replacement, revision: source.basis.contentRevision,
                                              identitySeed: String(describing: reference.identity), reusing: ledger.parsedKinds)
         let rebased = StoryMarkdownCodec.rebased(opened, preserving: document.children)
-        _ = document.replaceChildrenReconciled(presented(rebased.blocks))
+        show(rebased.blocks)
         ledger = rebased.ledger
         authoredLedgers[generation] = rebased.ledger
         lastEnqueuedSource = replacement
@@ -440,9 +456,9 @@ public final class StoryDocumentBinding {
         if let error = lastError { throw error }
     }
 
-    /// Present the directory's immediate children in the live editor without
-    /// adding them to authored Markdown. Moving a generated row materializes
-    /// it through Quagmire's ordinary block move transaction.
+    /// Show the directory's immediate children no link names as the page's
+    /// Subpages, never as authored Markdown. Dragging one into the page
+    /// places a link to it.
     public func projectDirectoryChildren(
         _ children: [WorkspaceNode],
         in directory: WorkspaceNode
@@ -491,7 +507,7 @@ public final class StoryDocumentBinding {
         )
         let rebased = StoryMarkdownCodec.rebased(opened, preserving: document.children)
         reference = snapshot.reference
-        _ = document.replaceChildrenReconciled(presented(rebased.blocks))
+        show(rebased.blocks)
         ledger = rebased.ledger
         basisLedgers = [snapshot.contentRevision: rebased.ledger]
         acceptedTitle = Self.authoredTitle(of: document)
@@ -604,8 +620,7 @@ public final class StoryDocumentBinding {
                 )
                 let rebased = StoryMarkdownCodec.rebased(opened, preserving: document.children)
                 ledger = rebased.ledger
-                let next = presented(rebased.blocks)
-                if next != document.children { _ = document.replaceChildrenReconciled(next) }
+                show(rebased.blocks)
             }
             acceptedTitle = Self.authoredTitle(of: document)
             authoredLedgers.removeAll()

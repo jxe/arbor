@@ -1223,7 +1223,7 @@ struct StoryEditorTests {
     }
 
     @MainActor
-    @Test("Directory children project after authored source and materialize when moved")
+    @Test("Directory children stand after authored source, and a link to one places it")
     func directoryChildrenProjectAndMaterialize() throws {
         let tree: TreeID = "tr_projected_children"
         let directory = WorkspaceReference(
@@ -1253,23 +1253,15 @@ struct StoryEditorTests {
             directory: directory,
             sourceDirectory: "/parent"
         )
-        let projected = placement.document
-        let parent = try #require(projected.first)
+        let parent = try #require(placement.blocks.first)
         let generated = try #require(placement.remainder.first)
+        #expect(StoryMarkdownCodec.admission(blocks: placement.blocks, ledger: opened.ledger).0.source == source)
 
-        #expect(StoryMarkdownCodec.isProjectedChild(generated))
-        #expect(StoryMarkdownCodec.admission(blocks: projected, ledger: opened.ledger).0.source == source)
-
-        let document = Document(id: DocumentID("projected-children"), children: projected)
-        let generatedID = generated.id
-        let parentID = parent.id
-        let prepared = StoryMarkdownCodec.materializingProjectedChildren([generated])
-        document.transaction(name: "Move Child Link") {
-            _ = document.replaceSubtree(generatedID, with: prepared)
-            _ = document.moveSubtrees([generatedID], to: DropPath(parent: parentID, position: 0))
-        }
+        // Dragging the Subpages row into the page inserts a copy of its link.
+        let document = Document(id: DocumentID("projected-children"), children: placement.blocks)
+        _ = document.insertCopies(of: [generated], at: DropPath(parent: parent.id, position: 0))
         let admitted = StoryMarkdownCodec.admission(blocks: document.body, ledger: opened.ledger).0.source
-        #expect(document.find(generatedID).map(StoryMarkdownCodec.isProjectedChild) == false)
+        #expect(StoryMarkdownCodec.placeDirectoryChildren([child], in: document.children, directory: directory, sourceDirectory: "/parent").remainder.isEmpty)
         #expect(admitted.contains("[Child](child.md#overstory-key=id:pg_child)"))
         let linkRange = try #require(admitted.range(of: "[Child]("))
         let beforeRange = try #require(admitted.range(of: "Before"))
@@ -1299,7 +1291,7 @@ struct StoryEditorTests {
             in: opened.blocks,
             directory: directory,
             sourceDirectory: "/"
-        ).remainder.first(where: StoryMarkdownCodec.isProjectedChild))
+        ).remainder.first)
         guard case let .documentLink(label, reference) = generated.kind else {
             Issue.record("Expected a projected document link")
             return
@@ -2148,23 +2140,6 @@ struct TransferPlanTests {
         #expect(adjacent.transfer.moves.count == 1)
     }
 
-    @Test("A last section carrying a generated child link moves without it")
-    func generatedChildLink() throws {
-        let origin = "Intro\n\n# First\n\n- one\n\n# Last\n\n- two\n"
-        let a = StoryMarkdownCodec.open(source:origin,revision:"a1",identitySeed:"origin")
-        // The page projects an unmentioned child page into its last section,
-        // and Quagmire materializes it before asking for a transfer.
-        var blocks = a.blocks
-        let link = Block(kind:.documentLink(label:AttributedString("Child"),reference:DocumentReference("Last/Child.md")),
-                         metadata:[StoryMarkdownCodec.projectedChildMetadataKey:"true"])
-        blocks[2].children.append(link)
-        let roots = StoryMarkdownCodec.materializingProjectedChildren([blocks[1], blocks[2]])
-        let b = StoryMarkdownCodec.open(source:"Target\n\n",revision:"b1",identitySeed:"destination")
-        let planned = try #require(StoryMarkdownCodec.transfer(roots, from:blocks, ledger:a.ledger, into:b))
-        #expect(planned.originSource == "Intro\n\n")
-        #expect(planned.destinationSource == "Target\n\n# First\n\n- one\n\n# Last\n\n- two\n")
-    }
-
     @Test("Moved relative links are rewritten to lead where they did from the destination's directory")
     func movedLinksAreRebased() throws {
         // /Social/Life.md moves a section to /Social.md, whose links resolve from the root.
@@ -2366,12 +2341,10 @@ struct MarkdownLinkWritingTests {
         )
     }
 
-    private static func documentLinks(_ blocks: [Block]) -> [(reference: DocumentReference, projected: Bool)] {
-        blocks.flatMap { block -> [(reference: DocumentReference, projected: Bool)] in
-            var links: [(reference: DocumentReference, projected: Bool)] = []
-            if case let .documentLink(_, reference) = block.kind {
-                links.append((reference, StoryMarkdownCodec.isProjectedChild(block)))
-            }
+    private static func documentLinks(_ blocks: [Block]) -> [DocumentReference] {
+        blocks.flatMap { block -> [DocumentReference] in
+            var links: [DocumentReference] = []
+            if case let .documentLink(_, reference) = block.kind { links.append(reference) }
             return links + documentLinks(block.children)
         }
     }
@@ -2387,20 +2360,19 @@ struct MarkdownLinkWritingTests {
             let directory = Self.node(item.directory.path, body: item.directory.body)
             let children = item.children.map { Self.node($0.path, body: $0.body, stableKey: $0.stableKey, title: $0.name) }
             let opened = StoryMarkdownCodec.open(source: item.source, revision: "r1", identitySeed: item.name)
-            let projected = StoryMarkdownCodec.placeDirectoryChildren(
+            let placement = StoryMarkdownCodec.placeDirectoryChildren(
                 children,
                 in: opened.blocks,
                 directory: directory.reference,
                 sourceDirectory: directory.sourceDirectory
-            ).document
-            let links = Self.documentLinks(projected)
+            )
             let comment = Comment(rawValue: item.name)
-            #expect(links.map(\.reference.rawValue) == item.expectedBlockPaths, comment)
-            let generated = links.filter(\.projected).compactMap {
-                resolveNodeTarget(sourceDirectory: directory.sourceDirectory, href: $0.reference.rawValue)?.path
+            #expect(Self.documentLinks(placement.document).map(\.rawValue) == item.expectedBlockPaths, comment)
+            let generated = Self.documentLinks(placement.remainder).compactMap {
+                resolveNodeTarget(sourceDirectory: directory.sourceDirectory, href: $0.rawValue)?.path
             }
             #expect(generated.sorted() == item.expectedGeneratedChildren.sorted(), comment)
-            #expect(StoryMarkdownCodec.admission(blocks: projected, ledger: opened.ledger).0.source == item.source, comment)
+            #expect(StoryMarkdownCodec.admission(blocks: placement.blocks, ledger: opened.ledger).0.source == item.source, comment)
         }
     }
 
@@ -2417,7 +2389,7 @@ struct MarkdownLinkWritingTests {
                 in: opened.blocks,
                 directory: directory.reference,
                 sourceDirectory: directory.sourceDirectory
-            ).document).map(\.reference.rawValue)
+            ).document).map(\.rawValue)
         }
         #expect(rows(.index) == ["overstory://tr_other/", "alpha.md#overstory-key=id:a1", "folder/_index.md#overstory-key=id:f1"])
         #expect(rows(.sibling) == ["overstory://tr_other/", "notes/alpha.md#overstory-key=id:a1", "notes/folder/_index.md#overstory-key=id:f1"])

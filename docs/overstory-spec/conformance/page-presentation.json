@@ -165,37 +165,6 @@
       "expectedSource": "## notes\n\nBody.\n"
     },
     {
-      "name": "renaming-children-writes-the-section",
-      "node": { "path": "/dir", "body": "index" },
-      "source": "# Directory\n\nIntro.\n",
-      "children": [
-        { "name": "a", "path": "/dir/a", "body": "sibling" }
-      ],
-      "edit": { "retitle": "children", "text": "Pages" },
-      "expectedSource": "# Directory\n\nIntro.\n\n# Pages\n\n[a](a.md)\n\n"
-    },
-    {
-      "name": "content-under-children-writes-the-section",
-      "node": { "path": "/dir", "body": "index" },
-      "source": "Intro.\n",
-      "children": [
-        { "name": "a", "path": "/dir/a", "body": "sibling" }
-      ],
-      "edit": { "append": "See also the archive." },
-      "expectedSource": "Intro.\n\n# Subpages\n\n[a](a.md)\n\nSee also the archive.\n\n"
-    },
-    {
-      "name": "reordering-children-writes-the-section",
-      "node": { "path": "/dir", "body": "index" },
-      "source": "Intro.\n",
-      "children": [
-        { "name": "a", "path": "/dir/a", "body": "sibling" },
-        { "name": "b", "path": "/dir/b", "body": "sibling" }
-      ],
-      "edit": { "reverse": "children" },
-      "expectedSource": "Intro.\n\n# Subpages\n\n[b](b.md)\n\n[a](a.md)\n\n"
-    },
-    {
       "name": "an-untouched-page-writes-nothing",
       "node": { "path": "/dir", "body": "index" },
       "source": "Intro.\r\n",

@@ -42,10 +42,6 @@ public struct StoryMarkdownOpenedDocument: Sendable {
 }
 
 public enum StoryMarkdownCodec {
-    static let projectedChildMetadataKey = "story.projected-child"
-    /// Where a generated child link was placed among its siblings, so a reorder can be told.
-    static let projectedOrdinalMetadataKey = "story.projected-ordinal"
-
     private struct ParsedBlock {
         var block: Block
         var raw: String
@@ -62,18 +58,16 @@ public enum StoryMarkdownCodec {
     }
 
     /// Authored blocks with a directory's unmentioned immediate children
-    /// placed against them: those children are the `remainder` after
-    /// authored source, and `StoryPagePresentation.present` decides how that
-    /// reads.
+    /// placed against them: those children are the `remainder`, which
+    /// `StoryPagePresentation.subpages` shows after the page.
     struct DirectoryPlacement {
         var blocks: [Block]
         var remainder: [Block]
     }
 
-    /// Place unmentioned immediate children against the operational document.
-    /// The generated links are ordinary Quagmire blocks carrying host-owned
-    /// metadata until a transfer explicitly places them. Rows resolve from,
-    /// and generated rows are written from, the directory's source directory:
+    /// Place unmentioned immediate children against the operational document,
+    /// as links to them. Rows resolve from, and generated rows are written
+    /// from, the directory's source directory:
     /// the directory itself for `_index.md`, its parent for a sibling `x.md`
     /// body.
     static func placeDirectoryChildren(
@@ -112,7 +106,7 @@ public enum StoryMarkdownCodec {
             .sorted { Array($0.reference.path.utf8).lexicographicallyPrecedes(Array($1.reference.path.utf8)) }
         guard !missing.isEmpty else { return DirectoryPlacement(blocks: authored, remainder: []) }
 
-        let generated = missing.enumerated().map { ordinal, child -> Block in
+        let generated = missing.map { child -> Block in
             let rawReference = if child.reference.tree != directory.tree {
                 StoryDocumentReferenceCodec.encode(child.reference).rawValue
             } else {
@@ -120,12 +114,11 @@ public enum StoryMarkdownCodec {
                     ?? relativeFileReference(from: sourceDirectory, toFile: child.reference.path)
             }
             return Block(
-                id: projectedChildID(child.reference),
+                id: childLinkID(child.reference),
                 kind: .documentLink(
                     label: AttributedString(child.title),
                     reference: DocumentReference(rawReference)
-                ),
-                metadata: [projectedChildMetadataKey: "true", projectedOrdinalMetadataKey: String(ordinal)]
+                )
             )
         }
 
@@ -258,8 +251,8 @@ public enum StoryMarkdownCodec {
     }
 
     static func admission(blocks: [Block], ledger: StorySourceLedger, copies: [BlockID: BlockID] = [:], moved: Set<BlockID> = [], foreignCopies: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]) -> (StoryMarkdownAdmission, StorySourceLedger) {
-        // Only authored source is written: presented headings and generated
-        // child links are not, and an edited presented heading is.
+        // Only authored source is written: a presented title is not, and an
+        // edited one is.
         let blocks = StoryPagePresentation.authored(blocks)
         if copies.isEmpty, foreignCopies.isEmpty, let arranged = arrangement(blocks: blocks, ledger: ledger, moved: moved) { return arranged }
         var chunks: [String] = [ledger.envelope]
@@ -296,7 +289,6 @@ public enum StoryMarkdownCodec {
         let originallyLast = ledger.records.values.max { $0.range.lowerBound < $1.range.lowerBound }?.block.id
         var previousEmitted: BlockID?
         func append(_ block: Block, depth: Int, containerDepth: Int) {
-            guard !isProjectedChild(block) else { return }
             let emptyParagraph = isEmptyParagraph(block)
             if !emptyParagraph { remainingNonemptyBlocks -= 1 }
             var raw: String
@@ -421,7 +413,6 @@ public enum StoryMarkdownCodec {
         var placed: [Placed] = []
         var seen = Set<BlockID>()
         func place(_ block: Block, depth: Int, indent: Int) -> Bool {
-            guard !isProjectedChild(block) else { return true }
             guard let record = ledger.records[block.id], record.block.kind == block.kind, seen.insert(block.id).inserted,
                   let shifted = reindented(record, by: indent - record.indent) else { return false }
             placed.append(Placed(record: record, depth: depth, indent: indent, raw: shifted.raw, edits: shifted.edits))
@@ -501,7 +492,7 @@ public enum StoryMarkdownCodec {
         // The bytes must mean the editor's tree: separators and indentation
         // that read differently in the new order are not a rearrangement.
         let reopened = open(source: source, revision: ledger.revision, identitySeed: "arrangement", reusing: ledger.parsedKinds)
-        guard sameShape(reopened.blocks, removingProjectedBlocks(from: blocks)) else { return nil }
+        guard sameShape(reopened.blocks, blocks) else { return nil }
         var records: [BlockID: SourceRecord] = [:]
         var position = envelope
         for item in placed {
@@ -592,19 +583,12 @@ public enum StoryMarkdownCodec {
     static func transfer(_ roots: [Block], from blocks: [Block], ledger: StorySourceLedger,
                          into destination: StoryMarkdownOpenedDocument,
                          relink: (from: String, to: String)? = nil) -> PlannedTransfer? {
-        // A page's generated child links reach here materialized (they lose
-        // their projected mark in `materializingProjectedChildren`). They have
-        // no source to move and the origin generates them again, so they stay.
-        // A presented heading in the selection gives way to the authored
-        // source under it, so a page's last section moves without its
-        // Subpages heading.
-        var projected: Set<BlockID> = []
-        walk(blocks) { block, _ in if isProjectedChild(block) { projected.insert(block.id) } }
-        let roots = removingSubtrees(projected, from: StoryPagePresentation.transferable(roots, in: blocks))
+        // A presented title in the selection gives way to the authored source
+        // under it.
+        let roots = StoryPagePresentation.transferable(roots, in: blocks)
         typealias Placed = (record: SourceRecord, raw: String, edits: [WorkspaceSourceEdit])
         var placed: [Placed] = []
         func place(_ block: Block, indent: Int) -> Bool {
-            guard !isProjectedChild(block) else { return true }
             guard let record = ledger.records[block.id], record.block.kind == block.kind,
                   let shifted = reindented(record, by: indent - record.indent) else { return false }
             placed.append((record, shifted.raw, shifted.edits))
@@ -721,7 +705,7 @@ public enum StoryMarkdownCodec {
             let remaining = removingSubtrees(removed, from: StoryPagePresentation.authored(blocks))
             guard sameShape(open(source: originSource, revision: "transfer", identitySeed: "origin").blocks, remaining),
                   sameShape(open(source: destinationSource, revision: "transfer", identitySeed: "destination").blocks,
-                            foldHeadingsInScopes(removingProjectedBlocks(from: destination.blocks) + roots.map(stripped))) else { return nil }
+                            foldHeadingsInScopes(destination.blocks + roots)) else { return nil }
             return PlannedTransfer(moves: moves, edits: edits, originSource: originSource,
                 originLedger: StorySourceLedger(source: originSource, revision: ledger.revision, envelope: ledger.envelope, newline: ledger.newline, records: records),
                 destinationSource: relinked.map { landingSource + $0.joined() } ?? destinationSource)
@@ -744,17 +728,13 @@ public enum StoryMarkdownCodec {
     static func transfer(_ roots: [Block], from blocks: [Block], ledger: StorySourceLedger,
                          into destination: StorySourceLedger, landing: [Block],
                          relink: (from: String, to: String)? = nil) -> PlannedTransfer? {
-        var projected: Set<BlockID> = []
-        walk(blocks) { block, _ in if isProjectedChild(block) { projected.insert(block.id) } }
-        let roots = removingSubtrees(projected, from: StoryPagePresentation.transferable(roots, in: blocks))
+        let roots = StoryPagePresentation.transferable(roots, in: blocks)
         var movedIDs: Set<BlockID> = []
         walk(roots) { block, _ in movedIDs.insert(block.id) }
-        let landing = removingSubtrees(projected, from: landing)
         struct Placed { var record: SourceRecord; var raw: String; var edits: [WorkspaceSourceEdit]; var moved: Bool; var indent: Int }
         var placed: [Placed] = []
         var seen: Set<BlockID> = []
         func place(_ block: Block, indent: Int) -> Bool {
-            guard !isProjectedChild(block) else { return true }
             let moved = movedIDs.contains(block.id)
             guard let record = (moved ? ledger : destination).records[block.id], record.block.kind == block.kind,
                   seen.insert(block.id).inserted,
@@ -793,7 +773,7 @@ public enum StoryMarkdownCodec {
             ledger.records.values.sorted { $0.range.lowerBound < $1.range.lowerBound }.dropFirst().map(\.block.id).map(Optional.some) + [nil]))
         let removed = Set(placed[first...last].map(\.record.block.id))
         let remaining = removingSubtrees(removed, from: StoryPagePresentation.authored(blocks))
-        let intended = foldHeadingsInScopes(removingProjectedBlocks(from: landing.map(stripped)))
+        let intended = foldHeadingsInScopes(landing)
         // The origin without the moved span, and its ledger.
         let original = Data(ledger.source.utf8)
         var originBytes = Data(original[..<span.lowerBound])
@@ -862,12 +842,6 @@ public enum StoryMarkdownCodec {
             value.children = removingSubtrees(ids, from: block.children)
             return value
         }
-    }
-
-    private static func stripped(_ block: Block) -> Block {
-        var value = block
-        value.children = removingProjectedBlocks(from: block.children)
-        return value
     }
 
     /// Whether two trees have the same content and nesting, ignoring
@@ -1292,7 +1266,7 @@ public enum StoryMarkdownCodec {
         digestID("\(seed):\(ordinal)")
     }
 
-    private static func projectedChildID(_ reference: WorkspaceReference) -> BlockID {
+    private static func childLinkID(_ reference: WorkspaceReference) -> BlockID {
         digestID("arbor-child:\(String(describing: reference.identity))")
     }
 
@@ -1305,18 +1279,6 @@ public enum StoryMarkdownCodec {
         )))
     }
 
-    private static func removingProjectedBlocks(from blocks: [Block]) -> [Block] {
-        blocks.compactMap { block in
-            guard !isProjectedChild(block) else { return nil }
-            var value = block
-            value.children = removingProjectedBlocks(from: block.children)
-            return value
-        }
-    }
-
-    static func isProjectedChild(_ block: Block) -> Bool {
-        block.metadata[projectedChildMetadataKey] == "true"
-    }
 
     /// Blocks retyped or copied into a page in another directory, with their
     /// relative links (link rows, images, links in text) rewritten to name
@@ -1353,17 +1315,6 @@ public enum StoryMarkdownCodec {
             return value
         }
         return blocks.map(rebase)
-    }
-
-    static func materializingProjectedChildren(_ blocks: [Block]) -> [Block] {
-        func materialize(_ block: Block) -> Block {
-            var value = block
-            value.metadata.removeValue(forKey: projectedChildMetadataKey)
-            value.metadata.removeValue(forKey: projectedOrdinalMetadataKey)
-            value.children = block.children.map(materialize)
-            return value
-        }
-        return blocks.map(materialize)
     }
 
     private static func foldHeadings(_ blocks: [Block]) -> [Block] {
@@ -1424,9 +1375,7 @@ public enum StoryMarkdownCodec {
 
     private static func flattenedBlocks(_ blocks: [Block]) -> [Block] {
         var result: [Block] = []
-        walk(blocks) { block, _ in
-            if !isProjectedChild(block) { result.append(block) }
-        }
+        walk(blocks) { block, _ in result.append(block) }
         return result
     }
 }

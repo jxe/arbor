@@ -483,6 +483,28 @@ link rows read "(missing)".
 Checks: `TransferPlanTests` (`movedLinksAreRebased`, `retypedLinksAreRebased`),
 StoryKit `LogicalURLTests`, `tests/unit/logical-url.test.ts`.
 
+## Subpages as a read-only region — 2026-11-01
+
+Implemented, not installed. The heading over a page's unlinked children reads
+`Subpages` (renamed from Children on 2026-10-30, when the
+`<!-- overstory:children -->` marker became ordinary source and authored
+Subpages/Children headings lost special handling). In Story the Subpages are
+no longer document content: `StoryPagePresentation.subpages` builds them as a
+Quagmire `DocumentRegion` that the binding sets after every presentation. Their
+rows look like page links, faded, and can be selected, found, opened, copied
+and dragged into the page, which writes a link; a lone link to one of the
+page's children dropped on them is unlinked (`StoryEditorHost.receiveBlocks(_:inRegion:of:)`).
+They cannot be edited or materialized, so the projected-child metadata,
+materialization and `.mutedBlocks` are gone. Spec 02 §4.1 says so, and the
+shared `page-presentation.json` keeps no Subpages edit vectors.
+
+Not done: story-web and `authorPage` still present the Subpages inside the
+editable document and materialize an edited section (out of the build until
+Web 025). Quagmire's regions are on its `main`, not yet released or pinned.
+
+Checks: `swift/scripts/test-story-editor-local.sh` (120 tests), Quagmire
+`swift test` (503 tests, `DocumentRegionTests`), `tests/unit/page-presentation.test.ts`.
+
 ## Presented headings — 2026-10-12
 
 Implemented, not installed or deployed. Every client shows a page through one

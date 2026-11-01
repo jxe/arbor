@@ -57,7 +57,6 @@ public struct StoryEditorSurface<Footer: View>: View {
             footer
         }
         .accessories(accessories, reveal: accessoryReveal)
-        .mutedBlocks(StoryPagePresentation.isMuted)
         .bulletMarkers([.timeRows])
         // EditorView keeps its key monitor, commands, undo history and document
         // hooks in @State for the document it first appeared with. A new

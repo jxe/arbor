@@ -5,16 +5,16 @@ import Quagmire
 /// Page presentation (directory format §4.1): what a page shows that its
 /// source lacks.
 ///
-/// The editor shows every page through `present`, never through directory
-/// placement alone. It adds a title when the body does not begin with an H1,
-/// and, for a node with children, the children no authored link names at the
-/// page's end, in a presented Subpages section. `authored` is the inverse: the
-/// blocks an edited page writes. The
-/// TypeScript twin is `packages/protocol/src/documents/page-presentation.ts`,
-/// and both run `docs/overstory-spec/conformance/page-presentation.json`.
+/// The editor shows every page through `present`, which adds a title when
+/// the body does not begin with an H1, and `subpages`, the children no
+/// authored link names as a region after the page: shown, never edited, and
+/// never part of its source. `authored` is the inverse of `present`: the
+/// blocks an edited page writes. The TypeScript twin is
+/// `packages/protocol/src/documents/page-presentation.ts`, and both run
+/// `docs/overstory-spec/conformance/page-presentation.json`.
 public enum StoryPagePresentation {
     public enum Heading: String, Sendable {
-        case title, children
+        case title
     }
 
     /// A node's children to place, and where its rows resolve from.
@@ -47,9 +47,8 @@ public enum StoryPagePresentation {
         block.metadata[headingMetadataKey].flatMap(Heading.init(rawValue:))
     }
 
-    /// A presented heading as it was presented: an H1 with its presented text.
-    /// A title in this state is not source. A Subpages heading in this state
-    /// is not source either unless authored content stands under it.
+    /// A presented title as it was presented: an H1 with its presented text,
+    /// which is not source.
     static func isUntouched(_ block: Block) -> Bool {
         guard heading(block) != nil, case let .heading(.h1, text) = block.kind else { return false }
         return String(text.characters) == block.metadata[textMetadataKey]
@@ -57,63 +56,51 @@ public enum StoryPagePresentation {
 
     /// Present authored blocks, or a presented tree the reader has edited, as
     /// the page for the node at `path`.
-    public static func present(_ blocks: [Block], path: String, directory: Directory?) -> [Block] {
+    public static func present(_ blocks: [Block], path: String) -> [Block] {
         var result = authored(blocks)
-        var remainder: [Block] = []
-        if let directory {
-            let placement = StoryMarkdownCodec.placeDirectoryChildren(
-                directory.children, in: result, directory: directory.reference, sourceDirectory: directory.sourceDirectory)
-            result = placement.blocks
-            remainder = placement.remainder
-        }
+        guard let title = presentedTitle(path: path), !beginsWithTitle(result) else { return result }
         var used = Set<BlockID>()
         func collect(_ values: [Block]) { for block in values { used.insert(block.id); collect(block.children) } }
         collect(result)
-        collect(remainder)
-
-        if let title = presentedTitle(path: path), !beginsWithTitle(result) {
-            // The title owns what an authored first H1 would: everything up to the next H1.
-            let end = result.firstIndex { if case .heading(.h1, _) = $0.kind { true } else { false } } ?? result.count
-            let block = Block(
-                id: unusedID("title", in: &used),
-                kind: .heading(level: .h1, text: AttributedString(title)),
-                children: Array(result[..<end]),
-                metadata: [headingMetadataKey: Heading.title.rawValue, textMetadataKey: title])
-            result.replaceSubrange(..<end, with: [block])
-        }
-        if !remainder.isEmpty {
-            // An H1 closes every authored section above it.
-            result.append(Block(
-                id: unusedID("children", in: &used),
-                kind: .heading(level: .h1, text: AttributedString(childrenHeading)),
-                children: remainder,
-                metadata: [headingMetadataKey: Heading.children.rawValue, textMetadataKey: childrenHeading]))
-        }
+        // The title owns what an authored first H1 would: everything up to the next H1.
+        let end = result.firstIndex { if case .heading(.h1, _) = $0.kind { true } else { false } } ?? result.count
+        let block = Block(
+            id: unusedID("title", in: &used),
+            kind: .heading(level: .h1, text: AttributedString(title)),
+            children: Array(result[..<end]),
+            metadata: [headingMetadataKey: Heading.title.rawValue, textMetadataKey: title])
+        result.replaceSubrange(..<end, with: [block])
         return result
     }
 
-    /// Whether a row reads as derived rather than written: a generated child
-    /// link, or the Subpages heading presented over them.
-    public static func isMuted(_ block: Block) -> Bool {
-        StoryMarkdownCodec.isProjectedChild(block) || (heading(block) == .children && isUntouched(block))
+    /// The page's Subpages: its children no link in `blocks` names, as a
+    /// region after the page. Nil when every child is linked.
+    public static func subpages(_ directory: Directory, of blocks: [Block], path: String) -> DocumentRegion? {
+        let remainder = StoryMarkdownCodec.placeDirectoryChildren(
+            directory.children, in: authored(blocks), directory: directory.reference, sourceDirectory: directory.sourceDirectory
+        ).remainder
+        guard !remainder.isEmpty else { return nil }
+        return DocumentRegion(
+            id: StoryMarkdownCodec.digestID("story-subpages:\(path)"),
+            title: AttributedString(childrenHeading),
+            blocks: remainder)
     }
 
-    /// Whether generated links stand in another order than they were placed.
-    private static func isReordered(_ blocks: [Block]) -> Bool {
-        let ordinals = blocks.compactMap { $0.metadata[StoryMarkdownCodec.projectedOrdinalMetadataKey].flatMap(Int.init) }
-        return zip(ordinals, ordinals.dropFirst()).contains { $0 > $1 }
+    /// Whether `block` links one of the directory's own children, so dropped
+    /// on the Subpages it is unlinked: the child returns to them.
+    public static func linksChild(_ block: Block, of directory: Directory) -> Bool {
+        guard case .documentLink = block.kind, block.children.isEmpty else { return false }
+        return StoryMarkdownCodec.placeDirectoryChildren(
+            directory.children, in: [block], directory: directory.reference, sourceDirectory: directory.sourceDirectory
+        ).remainder.count < directory.children.count
     }
 
     /// The authored blocks of a presented page: the inverse of `present`,
     /// whose result serializes to the page's source.
     ///
-    /// A presented heading the reader left alone is not source; what stands
-    /// under a title is written where the title stood. An edited title (new
-    /// text, or another kind of block) is written as it reads. A Subpages
-    /// section the reader edited (renamed, added content under, or
-    /// reordered) is written whole: its heading, then everything under it in
-    /// the order shown, each generated link as an authored link. Generated
-    /// links are otherwise never written.
+    /// A presented title the reader left alone is not source; what stands
+    /// under it is written where the title stood. An edited title (new text,
+    /// or another kind of block) is written as it reads.
     public static func authored(_ blocks: [Block]) -> [Block] {
         func plain(_ block: Block, children: [Block]) -> Block {
             var value = block
@@ -124,7 +111,6 @@ public enum StoryPagePresentation {
         }
         func walk(_ values: [Block]) -> [Block] {
             values.flatMap { block -> [Block] in
-                if StoryMarkdownCodec.isProjectedChild(block) { return [] }
                 let children = walk(block.children)
                 switch heading(block) {
                 case nil:
@@ -133,16 +119,6 @@ public enum StoryPagePresentation {
                     return [value]
                 case .title:
                     return isUntouched(block) ? children : [plain(block, children: children)]
-                case .children:
-                    if isUntouched(block), children.isEmpty, !isReordered(block.children) { return [] }
-                    // An edited section is written whole: every generated
-                    // link becomes authored where it stands.
-                    let written = block.children.flatMap { child in
-                        StoryMarkdownCodec.isProjectedChild(child)
-                            ? StoryMarkdownCodec.materializingProjectedChildren([child])
-                            : walk([child])
-                    }
-                    return [plain(block, children: written)]
                 }
             }
         }
@@ -150,45 +126,25 @@ public enum StoryPagePresentation {
     }
 
     /// A selection as another page receives it: only authored source. An
-    /// untouched presented heading (named by its mark in `document`) gives
-    /// way to what stands under it, and generated child links stay behind.
+    /// untouched presented title (named by its mark in `document`) gives way
+    /// to what stands under it.
     static func transferable(_ roots: [Block], in document: [Block]) -> [Block] {
-        var untouched = Set<BlockID>(), generated = Set<BlockID>()
-        func collect(_ values: [Block], underChildren: Bool) {
-            for block in values {
-                if isUntouched(block) { untouched.insert(block.id) }
-                if underChildren, StoryMarkdownCodec.isProjectedChild(block) { generated.insert(block.id) }
-                collect(block.children, underChildren: heading(block) == .children)
-            }
-        }
-        collect(document, underChildren: false)
-        func walk(_ values: [Block]) -> [Block] {
-            values.flatMap { block -> [Block] in
-                if generated.contains(block.id) { return [] }
-                if untouched.contains(block.id) { return walk(block.children) }
-                var value = block
-                value.children = walk(block.children)
-                return [value]
-            }
-        }
-        return walk(roots)
+        transferable(roots, matching: roots, in: document)
     }
 
     /// `transferable(originals, in:)` applied to `blocks`, which have the
     /// originals' shape but possibly other identities (copies).
     static func transferable(_ blocks: [Block], matching originals: [Block], in document: [Block]) -> [Block] {
-        var untouched = Set<BlockID>(), generated = Set<BlockID>()
-        func collect(_ values: [Block], underChildren: Bool) {
+        var untouched = Set<BlockID>()
+        func collect(_ values: [Block]) {
             for block in values {
                 if isUntouched(block) { untouched.insert(block.id) }
-                if underChildren, StoryMarkdownCodec.isProjectedChild(block) { generated.insert(block.id) }
-                collect(block.children, underChildren: heading(block) == .children)
+                collect(block.children)
             }
         }
-        collect(document, underChildren: false)
+        collect(document)
         func walk(_ values: [Block], _ sources: [Block]) -> [Block] {
             zip(values, sources).flatMap { block, source -> [Block] in
-                if generated.contains(source.id) { return [] }
                 if untouched.contains(source.id) { return walk(block.children, source.children) }
                 var value = block
                 value.children = walk(block.children, source.children)
@@ -199,15 +155,12 @@ public enum StoryPagePresentation {
     }
 
     /// Where a block appended to the page's authored source stands in a
-    /// presented tree: before the presented Subpages heading, and under the
-    /// presented title when that is all that precedes it.
+    /// presented tree: under the presented title when that is all there is.
     static func endOfBody(in blocks: [Block]) -> DropPath {
-        var roots = blocks[...]
-        if let last = roots.last, heading(last) == .children, isUntouched(last) { roots = roots.dropLast() }
-        if roots.count == 1, let title = roots.first, heading(title) == .title, isUntouched(title) {
+        if blocks.count == 1, let title = blocks.first, heading(title) == .title, isUntouched(title) {
             return DropPath(parent: title.id, position: title.children.count)
         }
-        return DropPath(parent: nil, position: roots.count)
+        return DropPath(parent: nil, position: blocks.count)
     }
 
     /// Whether the body's first block is an H1, which is then the page's authored title.
