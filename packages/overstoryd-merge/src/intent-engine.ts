@@ -1,5 +1,5 @@
 import { cloneState, copy, loadState, lookup, own, retainState, same, shareState, since, union, viewState, type RetainedState, type RetainedStates } from "./retained-state.ts";
-import { isPropertyOperation, stableJSONString, type ProvenanceNode } from "@ovst/protocol";
+import { isPropertyOperation, locatePieces, ProvenanceRefusal, stableJSONString, type ProvenanceNode } from "@ovst/protocol";
 import {
   decodeProtocolDirectory,
   decodeProtocolPage,
@@ -775,63 +775,12 @@ class Engine {
   ): [number, number] {
     if (current.length * observed.length > 2_000_000)
       throw new MergeRefusal("limit", "Source lookup work budget exceeded");
-    const selected = slice(observed, ...range);
-    if (!observed.length && current.length)
-      return fail("Empty source anchor has concurrent content");
-    const positions: Array<[number, number]> = [];
-    let offset = 0,
-      covered = 0;
-    for (const p of current) {
-      for (const q of selected) {
-        const shared = intersect(p, q);
-        if (shared) {
-          positions.push([offset + shared[0] - p.start, offset + shared[1] - p.start]);
-          covered += shared[1] - shared[0];
-        }
-      }
-      offset += p.length;
+    try {
+      return locatePieces(current, observed, range);
+    } catch (error) {
+      if (error instanceof ProvenanceRefusal) return fail(error.message);
+      throw error;
     }
-    if (range[0] !== range[1]) {
-      positions.sort((a, b) => a[0] - b[0]);
-      if (
-        covered !== length(selected) ||
-        !positions.length ||
-        positions.at(-1)![1] - positions[0]![0] !== covered
-      )
-        return fail("Selected material was changed or duplicated");
-      return [positions[0]![0], positions.at(-1)![1]];
-    }
-    const left = slice(observed, Math.max(0, range[0] - 1), range[0])[0];
-    const right = slice(
-      observed,
-      range[0],
-      Math.min(length(observed), range[0] + 1)
-    )[0];
-    let l: number | undefined = left ? undefined : 0,
-      r: number | undefined = right ? undefined : length(current);
-    offset = 0;
-    for (const p of current) {
-      if (
-        left &&
-        p.origin === left.origin &&
-        left.start >= p.start &&
-        left.start < p.start + p.length
-      )
-        l = offset + left.start - p.start + 1;
-      if (
-        right &&
-        p.origin === right.origin &&
-        right.start >= p.start &&
-        right.start < p.start + p.length
-      )
-        r = offset + right.start - p.start;
-      offset += p.length;
-    }
-    if (!right && left) r = l;
-    if (!left && right) l = r;
-    if (l === undefined || r === undefined || l > r)
-      return fail("Insertion anchor is unavailable");
-    return [r, r];
   }
   async evolved(
     state: IntentState,

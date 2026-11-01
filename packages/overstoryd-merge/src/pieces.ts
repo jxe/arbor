@@ -1,65 +1,17 @@
 import { MergeRefusal } from "@ovst/merge-protocol";
 import type { Piece } from "./intent-model.ts";
-export const pieceLength = (pieces: Piece[]) =>
-  pieces.reduce((n, p) => n + p.length, 0);
-export function pieceSlice(
-  pieces: Piece[],
-  start: number,
-  end: number,
-): Piece[] {
-  const out: Piece[] = [];
-  let offset = 0;
-  for (const p of pieces) {
-    const a = Math.max(0, start - offset),
-      b = Math.min(p.length, end - offset);
-    if (b > a)
-      out.push({
-        ...p,
-        start: p.start + a,
-        offset: p.offset + a,
-        length: b - a,
-      });
-    offset += p.length;
-  }
-  return out;
-}
+import { intersectPieces, normalizePieces as normalizeShared, piecesLength, replacePieces as replaceShared, slicePieces } from "@ovst/protocol";
+// The piece-list semantics overstoryd's provenance index shares
+// (docs/architecture/overstoryd/provenance-index.md), implemented once.
+export const pieceLength = (pieces: Piece[]) => piecesLength(pieces);
+export const pieceSlice = (pieces: Piece[], start: number, end: number): Piece[] => slicePieces(pieces, start, end);
 /** The origin coordinates `a` and `b` share, if they share any. */
-export function intersect(a: Piece, b: Piece): [number, number] | undefined {
-  if (a.origin !== b.origin) return undefined;
-  const from = Math.max(a.start, b.start),
-    to = Math.min(a.start + a.length, b.start + b.length);
-  return to > from ? [from, to] : undefined;
-}
+export const intersect = (a: Piece, b: Piece): [number, number] | undefined => intersectPieces(a, b);
 /** Merge adjacent pieces that continue one origin and one object; drop empty ones. */
-export function normalizePieces(pieces: Piece[]): Piece[] {
-  const out: Piece[] = [];
-  for (const p of pieces) {
-    if (!p.length) continue;
-    const prior = out.at(-1);
-    if (
-      prior &&
-      prior.origin === p.origin &&
-      prior.start + prior.length === p.start &&
-      prior.object === p.object &&
-      prior.offset + prior.length === p.offset
-    )
-      prior.length += p.length;
-    else out.push({ ...p });
-  }
-  return out;
-}
+export const normalizePieces = (pieces: Piece[]): Piece[] => normalizeShared(pieces);
 /** `pieces` with the byte range `[start, end)` replaced by `inserted`. */
-export const replacePieces = (
-  pieces: Piece[],
-  start: number,
-  end: number,
-  inserted: Piece[] = [],
-): Piece[] =>
-  normalizePieces([
-    ...pieceSlice(pieces, 0, start),
-    ...inserted,
-    ...pieceSlice(pieces, end, pieceLength(pieces)),
-  ]);
+export const replacePieces = (pieces: Piece[], start: number, end: number, inserted: Piece[] = []): Piece[] =>
+  replaceShared(pieces, start, end, inserted);
 /** `pieces` without the origin coordinates any of `without` covers. */
 export function subtractPieces(pieces: Piece[], without: Piece[]): Piece[] {
   if (!without.length) return pieces;

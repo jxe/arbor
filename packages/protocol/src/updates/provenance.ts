@@ -38,39 +38,50 @@ const refuse = (message: string): never => { throw new ProvenanceRefusal(message
 
 export const piecesLength = (pieces: readonly ProvenancePiece[]) => pieces.reduce((n, p) => n + p.length, 0);
 
-export function slicePieces(pieces: readonly ProvenancePiece[], start: number, end: number): ProvenancePiece[] {
-  const out: ProvenancePiece[] = [];
+/** A piece may also say where its bytes are stored (a merge engine's
+ * `object` and `offset`); every operation here keeps that in step. */
+type Stored = { object?: unknown; offset?: number };
+/** `length` bytes of `p` from `a` bytes into it. */
+const part = <P extends ProvenancePiece>(p: P, a: number, length: number): P =>
+  ({ ...p, start: p.start + a, ...((p as Stored).offset !== undefined ? { offset: (p as Stored).offset! + a } : {}), length });
+
+export function slicePieces<P extends ProvenancePiece>(pieces: readonly P[], start: number, end: number): P[] {
+  const out: P[] = [];
   let offset = 0;
   for (const p of pieces) {
     const a = Math.max(0, start - offset), b = Math.min(p.length, end - offset);
-    if (b > a) out.push({ origin: p.origin, start: p.start + a, length: b - a });
+    if (b > a) out.push(part(p, a, b - a));
     offset += p.length;
   }
   return out;
 }
 
-/** Adjacent pieces that continue one origin merge; empty pieces go. The
- * canonical form: two piece lists name the same bytes exactly when their
- * normal forms are equal. */
-export function normalizePieces(pieces: readonly ProvenancePiece[]): ProvenancePiece[] {
-  const out: ProvenancePiece[] = [];
+/** Adjacent pieces that continue one origin (and, when stored, one object)
+ * merge; empty pieces go. The canonical form: two piece lists name the same
+ * bytes exactly when their normal forms are equal. */
+export function normalizePieces<P extends ProvenancePiece>(pieces: readonly P[]): P[] {
+  const out: P[] = [];
   for (const p of pieces) {
     if (!p.length) continue;
-    const prior = out.at(-1);
-    if (prior && prior.origin === p.origin && prior.start + prior.length === p.start) prior.length += p.length;
-    else out.push({ origin: p.origin, start: p.start, length: p.length });
+    const prior = out.at(-1) as (P & Stored) | undefined, stored = p as P & Stored;
+    if (prior && prior.origin === p.origin && prior.start + prior.length === p.start &&
+        prior.object === stored.object && (prior.offset === undefined || prior.offset + prior.length === stored.offset))
+      prior.length += p.length;
+    else out.push({ ...p });
   }
   return out;
 }
 
-export const replacePieces = (pieces: readonly ProvenancePiece[], start: number, end: number, inserted: readonly ProvenancePiece[] = []) =>
+export const replacePieces = <P extends ProvenancePiece>(pieces: readonly P[], start: number, end: number, inserted: readonly P[] = []): P[] =>
   normalizePieces([...slicePieces(pieces, 0, start), ...inserted, ...slicePieces(pieces, end, piecesLength(pieces))]);
 
-const intersect = (a: ProvenancePiece, b: ProvenancePiece): [number, number] | undefined => {
+/** The origin coordinates `a` and `b` share, if they share any. */
+export const intersectPieces = (a: ProvenancePiece, b: ProvenancePiece): [number, number] | undefined => {
   if (a.origin !== b.origin) return undefined;
   const from = Math.max(a.start, b.start), to = Math.min(a.start + a.length, b.start + b.length);
   return to > from ? [from, to] : undefined;
 };
+const intersect = intersectPieces;
 
 /** Where `range` of `observed` is now in `current`, by identity, never by
  * equal bytes. A nonempty range must be present whole and contiguous. An
