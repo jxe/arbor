@@ -8,7 +8,7 @@ import { isCloudPlaceholderError } from "./cloud-placeholders.ts";
 
 type SyncHTTPService = Pick<StorySyncDaemon,
   "events" | "synchronizeNow" | "moveLocalPlacement" | "treeList" | "bootstrapTree" |
-  "objectBytes" | "declinedChanges" | "discardHeldChanges" | "restoreDeclined" | "resendDeclined" | "resolveLocator" | "pauseFolder" | "resumeFolder" | "pendingUpdate">;
+  "objectBytes" | "agents" | "declinedChanges" | "discardHeldChanges" | "restoreDeclined" | "resendDeclined" | "resolveLocator" | "pauseFolder" | "resumeFolder" | "pendingUpdate">;
 
 export function syncHandler(service: SyncHTTPService, options: {
   instanceID: string;
@@ -46,6 +46,27 @@ export function syncHandler(service: SyncHTTPService, options: {
       server.timeout(request, 0);
       await service.synchronizeNow(body.configurationTree as string | undefined);
       return json({ synchronized: true });
+    }
+    if (request.method === "POST" && url.pathname === "/v1/agents/report") {
+      let body: Record<string, unknown>;
+      try {
+        const decoded = await request.json() as unknown;
+        if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) throw new Error("not an object");
+        body = decoded as Record<string, unknown>;
+      } catch {
+        throw new ProtocolError("invalid-request", "An agent report must be a JSON object", 400);
+      }
+      const unknown = Object.keys(body).filter((key) => !["session", "cwd", "agent", "status", "done", "hook"].includes(key));
+      if (unknown.length) throw new ProtocolError("invalid-request", `Unknown agent report fields: ${unknown.join(", ")}`, 400);
+      for (const key of ["session", "agent", "status", "done"]) {
+        if (body[key] !== undefined && typeof body[key] !== "string") throw new ProtocolError("invalid-request", `${key} must be a string`, 400);
+      }
+      if (typeof body.cwd !== "string" || !body.cwd.startsWith("/")) throw new ProtocolError("invalid-request", "cwd must be an absolute path", 400);
+      const result = await service.agents.report(body as unknown as Parameters<typeof service.agents.report>[0]);
+      return json(result ?? { ignored: "not-placed" });
+    }
+    if (request.method === "GET" && url.pathname === "/v1/agents") {
+      return json(service.agents.list());
     }
     if (request.method === "POST" && url.pathname === "/v1/placements/move") {
       const body = await request.json() as { source?: unknown; destination?: unknown; check?: unknown };

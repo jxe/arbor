@@ -500,6 +500,26 @@ request resume sends is the one the last `pending` showed. `request` and
 `base` are null when nothing is pending. Changes already in the change log
 before a pause still publish.
 
+### 4a. Agents in placed folders
+
+```text
+POST /v1/agents/report    { session?, cwd, agent?, status?, done?, hook? }
+GET  /v1/agents
+```
+
+An agent working in a placed folder reports here (`story agent status`,
+`done` and `hook`), and Story Sync shows it in the tree's
+[presence](../overstory-spec/12-presence.md) as an agent of this device's
+account: it opens an agent presence stream on the first report and moves the
+entry's page and cursor to the file the agent last read or edited (`hook`
+carries a Claude Code hook payload). `cwd` names the tree; a report outside
+a placed folder answers `{ "ignored": "not-placed" }`. A session is named by
+`session` (a runner sets it), else by the hook's `session_id`, else it is the
+latest session in the tree. `done` shows its text as the final status and
+leaves; a session with no report for ten minutes leaves. `GET /v1/agents`
+lists the sessions shown now. Reports are best effort and never block the
+agent.
+
 ## 5. Snapshot then observe
 
 All mutable snapshots establish an observation boundary. Clients first read a

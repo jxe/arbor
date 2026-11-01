@@ -148,6 +148,16 @@ export class StorySyncRESTClient {
     return this.request("/v1/trees");
   }
 
+  /** Report an agent's status, result or hook to Story Sync (Agents 001); null when the folder is not placed. */
+  async agentReport(body: { session?: string; cwd: string; agent?: string; status?: string; done?: string; hook?: unknown }): Promise<{ session: string; tree: string } | null> {
+    const result = await this.request<{ session: string; tree: string } | { ignored: string }>("/v1/agents/report", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return "ignored" in result ? null : result;
+  }
+
   /** Verified wire object bytes for a tree placed on this device. */
   async object(tree: string, hash: string): Promise<Uint8Array> {
     const query = new URLSearchParams({ tree });

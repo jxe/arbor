@@ -6,6 +6,7 @@ import { constants as osConstants } from "node:os";
 import { resolveUserPath, STORY_VERSION } from "@ovst/story-sync";
 import { runStorySyncDaemon } from "@ovst/story-sync/cli";
 import { StorySyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
+import { hookReport, installAgentPresence, textReport, uninstallAgentPresence } from "./agent-presence.ts";
 import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@ovst/fs";
 import { listLocalAccounts } from "@ovst/story-sync/state";
 import { addLocalPlacement, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
@@ -109,6 +110,14 @@ Agents
       Check those folders out and keep them syncing, for a harness that starts the agent itself.
   story agent finish [--root <directory>] [--timeout <duration>] [--json]
       Send what is left and stop.
+  story agent status <text>
+  story agent done <text>
+      From an agent in a placed folder: say what it is doing, or what it did; Story shows it beside the agent's cursor.
+  story agent hook [--agent <label>]
+      Read a Claude Code hook's JSON on stdin and show the agent's page and cursor. Never fails the agent.
+  story agent install [--command <path>] [--agent <label>]
+  story agent uninstall
+      Add (or remove) the hooks, the skill and the permission that let Claude Code sessions in placed folders show up in Story.
 
 Browser
   story open [<locator>]
@@ -1762,6 +1771,49 @@ async function deviceCommand(args: string[]): Promise<void> {
   console.log(`Signs in with key: ${record.deviceKey}`);
 }
 
+/** The Story Sync an agent's reports go to: the one serving its folder. */
+async function agentSyncClient(cwd: string): Promise<StorySyncRESTClient> {
+  const cloud = !process.env.STORY_SYNC_URL && !process.env.STORY_HOME ? await cloudSessionForPath(cwd) : null;
+  const origin = process.env.STORY_SYNC_URL ?? cloud?.origin ?? await storySyncOrigin();
+  return new StorySyncRESTClient({ baseURL: origin, ...(cloud ? { dataHome: cloud.dataHome } : {}) });
+}
+
+async function agentTextCommand(kind: "status" | "done", operands: string[]): Promise<void> {
+  const text = operands.join(" ").trim();
+  if (!text) usageError(`story agent ${kind} needs some text`);
+  const cwd = process.cwd();
+  const result = await (await agentSyncClient(cwd)).agentReport(textReport(kind, text, cwd, process.env));
+  if (!result) console.error("This folder is not placed, so Story shows nothing.");
+}
+
+/** A hook must never fail the agent: every problem is swallowed. */
+async function agentHookCommand(operands: string[]): Promise<void> {
+  let agent: string | undefined;
+  for (let index = 0; index < operands.length; index += 1) {
+    if (operands[index] === "--agent" && operands[index + 1] !== undefined) agent = operands[++index];
+  }
+  try {
+    const input = await new Response(Bun.stdin.stream()).text();
+    const body = hookReport(input, process.cwd(), agent, process.env);
+    if (body) await (await agentSyncClient(body.cwd)).agentReport(body);
+  } catch {
+    // Story Sync not running, the folder not placed, a malformed payload: nothing to show.
+  }
+}
+
+async function agentInstallCommand(operands: string[]): Promise<void> {
+  const options: { command?: string; agent?: string } = {};
+  for (let index = 0; index < operands.length; index += 1) {
+    const arg = operands[index]!;
+    if ((arg === "--command" || arg === "--agent") && operands[index + 1] !== undefined) options[arg === "--command" ? "command" : "agent"] = operands[++index];
+    else usageError(`Unknown agent install option: ${arg}`);
+  }
+  const installed = await installAgentPresence(options);
+  console.log(`Added Story's hooks and permission to ${installed.settings}`);
+  console.log(`Added the skill at ${installed.skill}`);
+  console.log("Claude Code sessions in placed folders now show up in Story as agents.");
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   if (command === "__cloud-story-sync") {
@@ -1788,6 +1840,14 @@ async function main(): Promise<void> {
     } else if (action === "run") await runAgent(operands);
     else if (action === "start") await startCloud(operands);
     else if (action === "finish") await finishCloud(operands);
+    else if (action === "status" || action === "done") await agentTextCommand(action, operands);
+    else if (action === "hook") await agentHookCommand(operands);
+    else if (action === "install") await agentInstallCommand(operands);
+    else if (action === "uninstall") {
+      if (operands.length) usage();
+      await uninstallAgentPresence();
+      console.log("Removed Story's hooks, skill and permission from Claude Code's settings.");
+    }
     else usage();
     return;
   }

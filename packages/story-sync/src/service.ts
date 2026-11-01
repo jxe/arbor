@@ -21,6 +21,7 @@ import { EventBus } from "./events.ts";
 import { decodeRequestPath } from "./http.ts";
 import { TreeObjectCache } from "./object-cache.ts";
 import { TreeManager } from "./tree-manager.ts";
+import { AgentSessions } from "./agents.ts";
 import { ProtocolError, Workspace, type WorkspaceOptions } from "./workspace.ts";
 
 export { resolveUserPath } from "@ovst/client";
@@ -137,6 +138,8 @@ export class StorySyncDaemon implements AsyncDisposable {
   private readonly unsubscribeEvents: () => void;
   private readonly files: LocalFileService;
   private readonly objectCache: TreeObjectCache;
+  /** Agents working in placed folders, shown in their trees' presence. */
+  readonly agents: AgentSessions;
 
   private constructor(events: EventBus, trees: TreeManager, options: StorySyncDaemonOptions = {}) {
     this.connections = options.connections ?? localSyncConnections();
@@ -160,6 +163,17 @@ export class StorySyncDaemon implements AsyncDisposable {
       boundariesFor: (workspace) => trees.sharedBoundariesWithin(workspace.root),
       exclusionsFor: (workspace) => trees.excludedMountsWithin(workspace.root),
       clientFor: async (tree) => {
+        const placement = trees.placementFor(tree);
+        return placement ? this.accountClient(placement) : undefined;
+      },
+    });
+    this.agents = new AgentSessions({
+      locate: async (absolutePath) => {
+        const scope = await this.files.resolveScope(absolutePath).catch(() => null);
+        if (!scope || !trees.placementFor(scope.ref.tree)) return null;
+        return { tree: scope.ref.tree, root: scope.workspace.root, path: scope.ref.path };
+      },
+      presence: async (tree) => {
         const placement = trees.placementFor(tree);
         return placement ? this.accountClient(placement) : undefined;
       },
@@ -709,6 +723,7 @@ export class StorySyncDaemon implements AsyncDisposable {
 
   async [Symbol.asyncDispose](): Promise<void> {
     if (this.syncStartupTimer) clearTimeout(this.syncStartupTimer);
+    await this.agents[Symbol.asyncDispose]();
     if (this.syncing) await new Promise<void>((resolve) => this.syncWaiters.push(resolve));
     this.unsubscribeEvents();
     for (const unsubscribe of this.ignoredChanges.values()) unsubscribe();

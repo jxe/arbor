@@ -165,7 +165,25 @@ story agent revoke <bundle-id>
 story agent run [<bundle-string>] [--root <directory>] [--timeout <duration>] [-- <command> [<argument>...]]
 story agent start [<bundle-string>] [--root <directory>] [--timeout <duration>] [--json]
 story agent finish [--root <directory>] [--timeout <duration>] [--json]
+story agent status <text>
+story agent done <text>
+story agent hook [--agent <label>]
+story agent install [--command <path>] [--agent <label>]
+story agent uninstall
 ```
+
+**Showing an agent in Story.** Any agent working in a placed folder can show
+up in Story as an agent of yours, with its page, its cursor and what it says
+it is doing. `story agent install` adds three things to Claude Code's user
+settings: hooks that run `story agent hook` after each read and edit (and when
+a session stops or ends), a skill that teaches the house rules for placed
+folders, and permission to run `story agent`. `story agent uninstall` takes
+exactly those out. From inside the folder, an agent says what it is doing with
+`story agent status "merging duplicates"` and what it did with
+`story agent done "Merged 3 duplicates"`. Outside a placed folder these do
+nothing; `hook` never fails the agent. A runner that starts the agent sets
+`STORY_AGENT_SESSION` (and optionally `STORY_AGENT_LABEL`) so every report
+lands in one session.
 
 An agent bundle is one revocable string that lets an agent on another machine
 work in the folders you choose. Create it on an already configured

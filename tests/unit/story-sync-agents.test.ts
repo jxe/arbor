@@ -1,0 +1,151 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { hashObject, type PresenceEvent, type PresenceUpdate } from "@ovst/protocol";
+import { AgentSessions, lineRange, textRange, type AgentPresenceClient } from "../../packages/story-sync/src/agents.ts";
+
+// Agents 001 phase 7: an agent in a placed folder reports to Story Sync, which
+// shows it in the tree's presence.
+
+let root: string;
+let opened: Array<{ tree: string; agent?: string; signal?: AbortSignal }>;
+let updates: Array<{ id: string; update: PresenceUpdate }>;
+let sessions: AgentSessions;
+
+const client: AgentPresenceClient = {
+  async *presence(tree, options) {
+    opened.push({ tree, ...options });
+    yield { kind: "presence.ready", ready: { self: `pr_${opened.length}`, peers: [] } } satisfies PresenceEvent;
+    await new Promise<void>((resolve) => options.signal?.addEventListener("abort", () => resolve(), { once: true }));
+  },
+  async updatePresence(_tree, id, update) {
+    updates.push({ id, update });
+  },
+};
+
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "agents-"));
+  opened = [];
+  updates = [];
+  sessions = new AgentSessions({
+    locate: async (path) => path.startsWith(root) ? { tree: "tr_notes", root, path: path.slice(root.length) || "/" } : null,
+    presence: async () => client,
+  }, { updateIntervalMs: 0, doneLingerMs: 0 });
+});
+
+afterEach(async () => {
+  await sessions[Symbol.asyncDispose]();
+  await rm(root, { recursive: true, force: true });
+});
+
+async function settle() {
+  await Bun.sleep(20);
+}
+
+describe("agent sessions", () => {
+  test("a report outside a placed tree shows nothing", async () => {
+    expect(await sessions.report({ cwd: "/somewhere/else", status: "hello" })).toBeNull();
+    expect(opened).toEqual([]);
+  });
+
+  test("status joins presence as the named agent and sets its status", async () => {
+    const result = await sessions.report({ cwd: root, agent: "Claude", status: "merging duplicates" });
+    expect(result).toEqual({ session: "cwd:tr_notes", tree: "tr_notes" });
+    await settle();
+    expect(opened.map((open) => [open.tree, open.agent])).toEqual([["tr_notes", "Claude"]]);
+    expect(updates).toEqual([{ id: "pr_1", update: { status: "merging duplicates" } }]);
+  });
+
+  test("a later report without a session joins the latest session in the tree", async () => {
+    await sessions.report({ cwd: root, hook: { session_id: "s1", cwd: root, hook_event_name: "PostToolUse", tool_name: "Grep" }, agent: "Claude" });
+    const result = await sessions.report({ cwd: root, status: "almost there" });
+    expect(result?.session).toBe("s1");
+    expect(opened).toHaveLength(1);
+  });
+
+  test("an edit moves the agent's page and cursor to the edited text", async () => {
+    const file = join(root, "Groceries.md");
+    const bytes = new TextEncoder().encode("# Groceries\n\n- oat milk\n- eggs\n");
+    await writeFile(file, bytes);
+    await sessions.report({
+      cwd: root, agent: "Claude",
+      hook: { session_id: "s1", cwd: root, hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: file, old_string: "- milk", new_string: "- oat milk" } },
+    });
+    await settle();
+    expect(updates[0]!.update).toEqual({ page: { path: "/Groceries.md", stableKey: null } });
+    expect(updates[1]!.update).toEqual({
+      selection: { source: hashObject(bytes) as `sha256:${string}`, anchor: 13, head: 23 },
+      status: "Editing Groceries",
+    });
+  });
+
+  test("a read selects the lines read", async () => {
+    const file = join(root, "Plan.md");
+    await writeFile(file, "one\ntwo\nthree\n");
+    await sessions.report({ cwd: root, hook: { session_id: "s1", cwd: root, hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: file, offset: 2, limit: 1 } } });
+    await settle();
+    expect(updates[1]!.update).toMatchObject({ selection: { anchor: 4, head: 8 }, status: "Reading Plan" });
+  });
+
+  test("done shows the result and then leaves", async () => {
+    await sessions.report({ cwd: root, status: "working" });
+    await sessions.report({ cwd: root, done: "Merged 3 duplicates" });
+    await settle();
+    expect(updates.at(-1)!.update).toEqual({ status: "Merged 3 duplicates" });
+    expect(opened[0]!.signal?.aborted).toBe(true);
+    expect(sessions.list()).toEqual([]);
+  });
+
+  test("SessionEnd leaves", async () => {
+    await sessions.report({ cwd: root, hook: { session_id: "s1", cwd: root, hook_event_name: "PostToolUse", tool_name: "Grep" } });
+    await sessions.report({ cwd: root, hook: { session_id: "s1", cwd: root, hook_event_name: "SessionEnd" } });
+    await settle();
+    expect(sessions.list()).toEqual([]);
+  });
+});
+
+describe("ranges", () => {
+  test("lineRange covers 1-based lines", () => {
+    const bytes = new TextEncoder().encode("a\nbb\nccc");
+    expect(lineRange(bytes)).toEqual({ anchor: 0, head: 8 });
+    expect(lineRange(bytes, 2, 1)).toEqual({ anchor: 2, head: 5 });
+    expect(lineRange(bytes, 3)).toEqual({ anchor: 5, head: 8 });
+  });
+
+  test("textRange finds UTF-8 bytes", () => {
+    const bytes = new TextEncoder().encode("café au lait");
+    expect(textRange(bytes, "au")).toEqual({ anchor: 6, head: 8 });
+    expect(textRange(bytes, "tea")).toBeNull();
+  });
+});
+
+describe("story agent install", () => {
+  test("adds hooks, the skill and the permission, keeps the rest, and uninstall takes exactly them out", async () => {
+    const { installAgentPresence, uninstallAgentPresence } = await import("../../packages/cli/src/agent-presence.ts");
+    const claude = join(root, ".claude");
+    const settingsPath = join(claude, "settings.json");
+    const mine = { hooks: { PostToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "my-linter" }] }] }, permissions: { allow: ["Bash(ls:*)"] }, model: "opus" };
+    await Bun.write(settingsPath, JSON.stringify(mine));
+    await installAgentPresence({ claudeDirectory: claude });
+    await installAgentPresence({ claudeDirectory: claude, agent: "Claude Code" });
+    const installed = await Bun.file(settingsPath).json();
+    expect(installed.model).toBe("opus");
+    expect(installed.permissions.allow).toEqual(["Bash(ls:*)", "Bash(story agent:*)"]);
+    expect(installed.hooks.PostToolUse).toHaveLength(2);
+    expect(installed.hooks.PostToolUse[1].hooks[0].command).toBe('story agent hook --agent "Claude Code"');
+    expect(installed.hooks.SessionEnd).toHaveLength(1);
+    expect(await Bun.file(join(claude, "skills/story-placed-folders/SKILL.md")).text()).toContain("story agent status");
+    await uninstallAgentPresence({ claudeDirectory: claude });
+    expect(await Bun.file(settingsPath).json()).toEqual(mine);
+    expect(await Bun.file(join(claude, "skills/story-placed-folders/SKILL.md")).exists()).toBe(false);
+  });
+
+  test("hook and text reports carry the runner's session and label", async () => {
+    const { hookReport, textReport } = await import("../../packages/cli/src/agent-presence.ts");
+    const environment = { STORY_AGENT_SESSION: "run-1", STORY_AGENT_LABEL: "Claude" };
+    expect(textReport("status", "sorting", "/w", environment)).toEqual({ cwd: "/w", session: "run-1", agent: "Claude", status: "sorting" });
+    expect(hookReport('{"cwd":"/x","tool_name":"Read"}', "/w", undefined, {})).toEqual({ cwd: "/x", hook: { cwd: "/x", tool_name: "Read" } });
+    expect(hookReport("not json", "/w", "Claude", {})).toBeNull();
+  });
+});
