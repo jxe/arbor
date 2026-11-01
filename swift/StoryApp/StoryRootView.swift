@@ -21,7 +21,7 @@ import VisionKit
 
 /// How a host account is named in account lists, whether as the Mac
 /// daemon's overview reports it or as `HostAccountService` lists it.
-private protocol HostAccountPresentable {
+protocol HostAccountPresentable {
     var configurationTree: String { get }
     var handle: String? { get }
     /// The account's host, when known.
@@ -30,7 +30,7 @@ private protocol HostAccountPresentable {
     var accountOrigin: String? { get }
 }
 
-private extension HostAccountPresentable {
+extension HostAccountPresentable {
     var accountSectionID: String { "account:\(configurationTree)" }
 
     var accountDisplayName: String {
@@ -49,11 +49,11 @@ private extension HostAccountPresentable {
 
 #if os(macOS)
 extension LocalHostAccountDescriptor: HostAccountPresentable {
-    fileprivate var accountHost: String? {
+    var accountHost: String? {
         guard let host, !host.isEmpty else { return nil }
         return URL(string: host)?.host() ?? host
     }
-    fileprivate var accountOrigin: String? {
+    var accountOrigin: String? {
         guard let host, !host.isEmpty else { return nil }
         return host.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
@@ -61,8 +61,8 @@ extension LocalHostAccountDescriptor: HostAccountPresentable {
 #endif
 
 extension HostAccount: HostAccountPresentable {
-    fileprivate var accountHost: String? { origin?.host() }
-    fileprivate var accountOrigin: String? { origin?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
+    var accountHost: String? { origin?.host() }
+    var accountOrigin: String? { origin?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
 }
 
 /// Keep the focused editor-command dependency at the toolbar leaf. Reading it

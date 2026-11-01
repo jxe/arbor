@@ -35,8 +35,11 @@ public struct CrossTreePageMove: Sendable, Equatable {
     /// Where a moved node, or a file of one (`/A/Plan.md`, `/A/Plan/_index.md`), lands in the
     /// destination tree; nil for a path that does not move.
     public func destinationPath(of path: String) -> String? {
-        let path = canonicalNodePath(path)
-        if moves(path) { return destinationRoot + path.dropFirst(sourceRoot.count) }
+        // Not canonicalized: that would drop a file's `.md` / `_index.md`.
+        let path = "/" + path.split(separator: "/").joined(separator: "/")
+        if path == sourceRoot || path.hasPrefix(sourceRoot + "/") {
+            return destinationRoot + path.dropFirst(sourceRoot.count)
+        }
         // The page's own sibling body file, `/A/Plan.md` for `/A/Plan`.
         if path == sourceRoot + ".md" { return destinationRoot + ".md" }
         return nil

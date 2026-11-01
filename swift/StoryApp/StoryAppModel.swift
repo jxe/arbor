@@ -4076,8 +4076,12 @@ struct StoryPageMovePreview: Equatable, Sendable {
 extension StoryWorkspaceState {
     /// The title the share sheet shows for a placed tree.
     func placedTreeTitle(_ tree: String) -> String? {
-        localStorySyncOverview?.trees.first { $0.id == tree }.map { $0.canonicalPath ?? $0.name }
-            ?? nativePlacements.first { $0.tree.id == tree }?.tree.canonicalPath
+#if os(macOS)
+        if let placed = localStorySyncOverview?.trees.first(where: { $0.id == tree }) {
+            return placed.canonicalPath ?? placed.name
+        }
+#endif
+        return nativePlacements.first { $0.tree.id == tree }?.tree.canonicalPath
     }
 
     /// Who has access to `tree`, for previewing a move there.
