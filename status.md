@@ -12,6 +12,34 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Agents 001: presence and agent tasks — 2026-11-01
+
+[Agents 001](https://github.com/jxe/arbor/blob/666afa30/plans/features/agents-001-presence-and-a-first-agent.md)
+is **implemented** on main and closed; its plan is deleted. It absorbed Live 001 and CLI 004.
+
+- **Presence** ([spec 12](docs/overstory-spec/12-presence.md), `5804a81e`): one SSE stream per
+  open tree plus a small POST, in overstoryd's memory only (`PresenceHub`). A roster of the whole
+  tree, exact carets sent only between visible peers on one page, "Show me to others" per
+  device, agents as peers with a status line. **Deployed** with main.
+- **Story** (`28c43f7f`, `0ae31a85`): `HostPresenceRunner` beside each host watch; peers drawn
+  with Quagmire's `EditorView.peers` (initials beside their block, an agent's status floating
+  under it, optional row tint behind `StoryTintPresenceRows`). The iPhone shows the roster and
+  peers; Run is Mac only.
+- **Task blocks** (`9db8ef7a`, `6b61202e`, `eacdcff7`): `> [!agent] …` reads as an agent task,
+  made by Turn Into, by typing `! ` at the start of a paragraph, or by a dictation starting
+  "Agent". Run, Stop, Undo Run and Run Again on the callout. A finished task stays checked off
+  as `> [!agent-done]` with its result; each run keeps its snapshot for a day, across Story Sync
+  restarts.
+- **Runs and agents in placed folders** ([agents](docs/architecture/story-sync/agents.md),
+  `55f24813`, `ea597df9`, `9ad8ce3d`): Story Sync runs `claude -p` in the placed folder, holds
+  the tree's publishing while an agent edits so a run publishes as one change, and shows any
+  Claude Code session in a placed folder through `story agent status|done|hook`, installed by
+  `story agent install`. An out-of-date Story Sync shows a toolbar warning instead of being
+  restarted.
+- **Left over:** hand checks are in [chores](plans/chores.md#agents-001-follow-ups); sidebar
+  presence dots and `story sync status --wait` were not built (noted in
+  [Agents 002](plans/features/agents-002-talk-to-the-agent-and-run-from-anywhere.md)).
+
 ## Merge as blocks and elements — 2026-11-01
 
 Prompted by the 2026-10-31 todos conflicts (a Mac waking with a 6½-hour-old page repeated
@@ -79,7 +107,7 @@ Joe reviewed the plans in soon, the ideas and small work, and closed out these:
 - **A clearer split (Joe).** Small work holds only decided tasks, hand checks and soaks; ideas
   hold everything undecided. The agent skill became
   CLI 004 (folded into
-  [Agents 001](plans/features/agents-001-presence-and-a-first-agent.md) on 2026-10-30), and the manual recipes moved
+  [Agents 001](#agents-001-presence-and-agent-tasks--2026-11-01) on 2026-10-30), and the manual recipes moved
   to the [update machine](docs/implementing-sync-services/update-machine.md#checking-by-hand)
   and Apps 005. Schema language 007 is now all of editing collections (its write path, every
   view intent, simple edits and the structured editor), and 002's ownership milestone

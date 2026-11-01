@@ -4,7 +4,7 @@ Feature plans, the things you would notice in Story, are in [`features/`](featur
 their timing, which leads each one's entry here and its file. The rest are filed by when Joe
 wants them: [`soon/`](soon), [`later/`](later) and [`when-needed/`](when-needed), which holds
 plans that wait on a trigger ("when merges bite", "when size hurts") rather than a date. A file
-is named by its topic and number, such as `features/agents-001-presence-and-a-first-agent.md`. When a plan's timing
+is named by its topic and number, such as `features/agents-002-talk-to-the-agent-and-run-from-anywhere.md`. When a plan's timing
 changes, move the file (or, in `features/`, change its timing line) and its paragraph here.
 
 Each plan starts with why and when Joe wants it; the same paragraph is below. Decided small
@@ -17,14 +17,6 @@ its evidence in status.
 ## Features
 
 What you would notice in Story, as opposed to protocol, host or data plumbing.
-
-**[Agents 001: see who's here, and run a first agent task on the Mac](features/agents-001-presence-and-a-first-agent.md).**
-*Soon.* Joe asked on 2026-10-30 for the smoothest way to bring AI into Story: an agent that is a
-collaborator, shown through presence the way a person is, run by Claude Code on his own Mac
-(no API token). This first plan is presence (formerly Live 001: who is in a tree, on which
-page, at which block; light, nothing about cursors sent unless someone shares the page) and a
-first cut: task blocks (`> [!agent] …`) added anywhere, Run on the Mac, and the agent as a
-presence peer with a status line. It absorbs CLI 004's readiness check and agent skill.
 
 **[Agents 002: talk to the agent, and run tasks from the iPhone](features/agents-002-talk-to-the-agent-and-run-from-anywhere.md).**
 *Later.* After Agents 001: the agent asks and Joe answers at its cursor from any device, Run
@@ -192,9 +184,6 @@ yet.
 
 **[Apps 009: code on one host using access held on another](later/apps-009-cross-host-delegation.md).**
 After Apps 008, once apps span hosts. A design sketch; no timing yet.
-
-**[Apps 010: collection rows in native offline replicas](later/apps-010-native-offline-collection-file-projection.md).**
-When browsing collection rows offline on native becomes a real need.
 
 **[Web 025: Story for the web](later/story-web-025-story-web.md)**, with its
 [surface inventory](later/story-web-surfaces.md). For sharing with others: people without the Mac

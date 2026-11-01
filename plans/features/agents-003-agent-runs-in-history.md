@@ -1,7 +1,7 @@
 # Agents 003: agent runs in history
 
 **Timing:** Later, after [overstoryd 007](history-007-document-history-routes-and-restore.md)
-(document history and restore) and [Agents 001](agents-001-presence-and-a-first-agent.md).
+(document history and restore) and [Agents 001](../../status.md#agents-001-presence-and-agent-tasks--2026-11-01).
 Its last phase also waits on [overstoryd 006](../later/history-006-line-provenance.md) (line
 provenance).
 

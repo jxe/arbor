@@ -21,6 +21,17 @@ Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-peop
   --help` in a new Terminal window. The bundled command runs through a link; the menu item
   and the prompt have not been tried.
 
+### Agents 001 follow-ups
+
+Left from Agents 001 ([status](../status.md#agents-001-presence-and-agent-tasks--2026-11-01)).
+
+- [ ] A real task on a day plan, started with Run on the Mac and watched from the iPhone: the
+  agent's mark and bubble move as it reads and edits, the task ends checked off with its
+  result, and Undo Run takes the change back.
+- [ ] The iPhone leaves the roster within a second of going to the background and rejoins on
+  return; a Mac on the same page sees both.
+- [ ] Run the app-hosted Story tests for presence and agent runs with Story quit.
+
 ### Schedule the object collector
 
 Formerly overstoryd 017; the first live run is recorded in

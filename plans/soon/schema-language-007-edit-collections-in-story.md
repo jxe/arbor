@@ -117,9 +117,8 @@ out, rather than have the host refuse the rest (`0e0d9d9`).
    already holds; adding a new placeholder waits for People 001); a line's context menu
    deletes (or removes from the group); a group gets an "Add" line that creates a row there.
 8. **The structured editor**, below.
-9. **Close out.** Record the evidence in `status.md`, delete
-   [Apps 010](../later/apps-010-native-offline-collection-file-projection.md) (this covers it),
-   and delete this plan.
+9. **Close out.** Record the evidence in `status.md` and delete this plan. (It also covers
+   the old Apps 010, native offline collection rows, deleted 2026-11-01.)
 
 ## The structured editor (step 8)
 

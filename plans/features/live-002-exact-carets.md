@@ -1,6 +1,6 @@
 # Live 002: exact carets and selections, for people and agents
 
-**Timing:** Later, after [Agents 001](agents-001-presence-and-a-first-agent.md).
+**Timing:** Later, after [Agents 001](../../status.md#agents-001-presence-and-agent-tasks--2026-11-01).
 
 **Why and when:** Agents 001 shows presence at block level: a person's or agent's mark sits
 on the block holding their caret. Joe asked on 2026-10-30 for exact carets and selections as
@@ -18,7 +18,7 @@ Live 001's phase 6 and part of the agents work.
 - **Effort:** M.
 - **Risk:** MEDIUM: drawing other people's carets inside the editor while text changes under
   them.
-- **Progress:** TODO, waiting on Agents 001.
+- **Progress:** TODO. Agents 001 is done (2026-11-01); only drawing exact ranges is left.
 
 ## What happens after Agents 001
 

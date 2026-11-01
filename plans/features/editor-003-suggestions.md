@@ -1,6 +1,6 @@
 # Editor 003: suggestions, from people and agents
 
-**Timing:** Later, after [Agents 001](agents-001-presence-and-a-first-agent.md). Joe wants
+**Timing:** Later, after [Agents 001](../../status.md#agents-001-presence-and-agent-tasks--2026-11-01). Joe wants
 to see how direct edits feel in daily use first.
 
 **Why and when:** Joe asked on 2026-10-30 for edits that arrive as suggestions you accept or

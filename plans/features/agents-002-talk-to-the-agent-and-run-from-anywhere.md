@@ -1,6 +1,6 @@
 # Agents 002: talk to the agent, and run tasks from the iPhone
 
-**Timing:** Later, after [Agents 001](agents-001-presence-and-a-first-agent.md).
+**Timing:** Later, after [Agents 001](../../status.md#agents-001-presence-and-agent-tasks--2026-11-01).
 
 **Why and when:** the harder half of what Joe described on 2026-10-30 (thread "Bring AI into
 Story smoothly"). Presence for an agent should support more back and forth than presence in
@@ -20,8 +20,10 @@ their own plans, for people and agents alike (Joe, 2026-10-30). Runs in history 
 - **Effort:** M.
 - **Risk:** LOW for the contract additions (in memory, nothing persisted). MEDIUM for Run from
   the iPhone, which starts a process on the Mac from another device.
-- **Progress:** TODO, waiting on Agents 001. (Done early, 2026-11-01: a cloud agent from a bundle
-  shows in presence under the bundle's label.)
+- **Progress:** TODO. Agents 001 is done (2026-11-01). Done early: a cloud agent from a bundle
+  shows in presence under the bundle's label.
+- **Left from Agents 001, not built:** a dot beside each page in the sidebar where someone is,
+  and `story sync status --wait` (agents check readiness with `story sync status`).
 
 ## What happens after Agents 001
 

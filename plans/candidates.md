@@ -76,5 +76,4 @@ Measure before promoting any of these.
 - **Shared runtime protocol decoding.** When a second trusted boundary besides Story Sync
   needs runtime decoding, colocate pure decoders in `@ovst/protocol`.
 - **Provider scalar normalization** and **bounded-placement conformance** belong to the
-  Postgres plans and [Apps 010](later/apps-010-native-offline-collection-file-projection.md)
-  (formerly Native 003) when they start.
+  Postgres plans when they start.
