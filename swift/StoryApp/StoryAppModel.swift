@@ -4053,3 +4053,228 @@ struct PickerTree: Identifiable, Hashable, Sendable {
     let title: String
     let subtitle: String?
 }
+
+// MARK: Moving a page to another tree (Sharing 003)
+
+/// A tree a page can move to from the share sheet: placed on this Mac, writable,
+/// and an ordinary tree of pages.
+struct StoryMoveDestination: Identifiable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let account: String?
+    let folder: URL
+}
+
+/// What a move would carry and what it would leave pointing back.
+struct StoryPageMovePreview: Equatable, Sendable {
+    /// Titles of the pages beneath the moved page, which move with it.
+    var subpages: [String]
+    /// Titles of the pages and files that stay behind which the moved pages link to.
+    var linksLeaving: [String]
+}
+
+extension StoryWorkspaceState {
+    /// The title the share sheet shows for a placed tree.
+    func placedTreeTitle(_ tree: String) -> String? {
+        localStorySyncOverview?.trees.first { $0.id == tree }.map { $0.canonicalPath ?? $0.name }
+            ?? nativePlacements.first { $0.tree.id == tree }?.tree.canonicalPath
+    }
+
+    /// Who has access to `tree`, for previewing a move there.
+    func treeAccess(tree: String) async throws -> NativeTreeAccessPresentation {
+#if os(macOS)
+        try await loadLocalTreeAccess(tree: tree)
+#else
+        guard let placement = nativePlacements.first(where: { $0.tree.id == tree }) else {
+            throw ProtocolValidationError.invalidValue("The tree is not placed on this iPhone")
+        }
+        return try await NativeAccountService(origin: placement.origin, configurationTree: placement.configurationTree).access(tree: tree)
+#endif
+    }
+
+#if os(macOS)
+    /// The trees `node` could move to: placed on this Mac with a folder, writable, ordinary,
+    /// and not a profile or the People directory. Grouped by account like the sidebar's picker.
+    func moveDestinations(for node: WorkspaceNode) async -> [StoryMoveDestination] {
+        if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
+        guard let overview = localStorySyncOverview else { return [] }
+        let accounts = Dictionary(overview.accounts.map { ($0.configurationTree, $0) }, uniquingKeysWith: { first, _ in first })
+        let current = node.reference.tree.rawValue
+        return overview.trees.compactMap { tree -> StoryMoveDestination? in
+            guard tree.id != current,
+                  tree.kind == StoryTreeKind.ordinary,
+                  tree.access == StoryTreeAccess.write.rawValue,
+                  !tree.missing,
+                  let path = tree.path,
+                  !isOwnProfile(tree.id),
+                  tree.id != personalDirectoryTree?.tree.id else { return nil }
+            let account = tree.configurationTree.flatMap { accounts[$0] }?.accountDisplayLabel
+            return StoryMoveDestination(id: tree.id, title: tree.canonicalPath ?? tree.name, account: account,
+                                        folder: URL(filePath: path, directoryHint: .isDirectory))
+        }
+        .sorted { a, b in
+            let accounts = (a.account ?? "").localizedStandardCompare(b.account ?? "")
+            if accounts != .orderedSame { return accounts == .orderedAscending }
+            return a.title.localizedStandardCompare(b.title) == .orderedAscending
+        }
+    }
+
+    func previewPageMove(_ node: WorkspaceNode, to destination: StoryMoveDestination) async throws -> StoryPageMovePreview {
+        let root = try await provider.resolve(node.reference)
+        let move = CrossTreePageMove(sourceTree: root.reference.tree.rawValue, sourceRoot: root.reference.path,
+                                     destinationTree: destination.id, destinationRoot: "/" + Self.lastComponent(root.reference.path))
+        let entries = try await movedEntries(root)
+        var leaving: [String] = []
+        for case let .page(file, _, source, _) in entries {
+            for path in move.linksLeaving(source, sourceDirectory: Self.directory(of: file)) where !leaving.contains(path) {
+                leaving.append(path)
+            }
+        }
+        var titles: [String] = []
+        for path in leaving {
+            let title = (try? await provider.resolve(WorkspaceReference(tree: root.reference.tree, path: path)))?.title
+            titles.append(title ?? Self.lastComponent(path))
+        }
+        let subpages = entries.compactMap { entry -> String? in
+            guard case let .page(_, path, _, title) = entry, path != root.reference.path else { return nil }
+            return title
+        }
+        return StoryPageMovePreview(subpages: subpages, linksLeaving: titles)
+    }
+
+    /// Move `node` and everything beneath it into `destination`'s folder, where
+    /// Story Sync publishes it, then point this tree's links at it, leave a link
+    /// in its parent, and put the old pages in this tree's Trash. Nothing in this
+    /// tree changes unless every file was written.
+    @discardableResult
+    func movePage(_ node: WorkspaceNode, to destination: StoryMoveDestination) async throws -> String {
+        try await editorWorkspace.flushAll()
+        let root = try await provider.resolve(node.reference)
+        guard root.reference.path != "/" else {
+            throw WorkspaceProviderError.invalidAction("A tree's home page can't move to another tree")
+        }
+        let tree = root.reference.tree
+        let name = Self.availableName(Self.lastComponent(root.reference.path), in: destination.folder)
+        let move = CrossTreePageMove(sourceTree: tree.rawValue, sourceRoot: root.reference.path,
+                                     destinationTree: destination.id, destinationRoot: "/" + name)
+        let entries = try await movedEntries(root)
+
+        // 1. Write every file into the destination folder.
+        var written: [URL] = []
+        do {
+            for entry in entries {
+                let (file, bytes): (String, Data) = switch entry {
+                case let .page(file, _, source, _):
+                    (file, Data(move.movedSource(source, sourceDirectory: Self.directory(of: file)).utf8))
+                case let .file(path, data): (path, data)
+                }
+                guard let target = move.destinationPath(of: file) else { continue }
+                let url = destination.folder.appending(path: String(target.dropFirst()))
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try bytes.write(to: url, options: .withoutOverwriting)
+                written.append(url)
+            }
+        } catch {
+            for url in written { try? FileManager.default.removeItem(at: url) }
+            throw error
+        }
+
+        // 2. Point this tree's links at the moved pages, and leave a link in the parent.
+        var sources: [WorkspaceReference] = []
+        if let parent = root.reference.parent { sources.append(parent) }
+        for case let .page(_, path, _, _) in entries {
+            let results = (try? await provider.backlinks(to: WorkspaceReference(tree: tree, path: path))) ?? []
+            sources += results.map(\.reference).filter { !move.moves($0.path) }
+        }
+        var seen = Set<String>()
+        for (index, reference) in sources.enumerated() where seen.insert(reference.path).inserted {
+            await retargetLinks(in: reference, move: move, leaveLinkTitled: index == 0 ? root.title : nil)
+        }
+
+        // 3. The old pages go to this tree's Trash.
+        try await performWithReceipt(.trash(reference: root.reference))
+        return move.destinationLocator ?? destination.id
+    }
+
+    private enum MovedEntry {
+        case page(file: String, path: String, source: String, title: String)
+        case file(path: String, data: Data)
+    }
+
+    /// The pages and files at and beneath `root`, read through the provider.
+    private func movedEntries(_ root: WorkspaceNode) async throws -> [MovedEntry] {
+        var entries: [MovedEntry] = []
+        var queue = [root]
+        while !queue.isEmpty {
+            let node = queue.removeFirst()
+            let path = node.reference.path
+            switch node.surface {
+            case let .markdown(source, _):
+                entries.append(.page(file: markdownLinkFile(nodePath: path, body: node.markdownBody ?? .sibling),
+                                     path: path, source: source, title: node.title))
+            case let .directoryDocument(source, _, stored):
+                if let body = node.markdownBody ?? (stored ? .index : nil) {
+                    entries.append(.page(file: markdownLinkFile(nodePath: path, body: body), path: path, source: source, title: node.title))
+                }
+                queue += try await provider.children(of: node.reference)
+            case .directory:
+                queue += try await provider.children(of: node.reference)
+            case .file:
+                entries.append(.file(path: path, data: try await provider.readFile(node.reference)))
+            case .collection:
+                throw WorkspaceProviderError.invalidAction("\(node.title) holds a collection, which can't move to another tree yet")
+            default:
+                continue
+            }
+        }
+        return entries
+    }
+
+    /// Rewrite `reference`'s links to moved pages; when `title` is given and the page does
+    /// not link to the moved page, add a link to it at the end. Best effort, like link healing.
+    private func retargetLinks(in reference: WorkspaceReference, move: CrossTreePageMove, leaveLinkTitled title: String?) async {
+        guard let node = try? await provider.resolve(reference), node.surface.supportsDocumentSession,
+              let session = try? await provider.openDocument(node.reference) else { return }
+        if let snapshot = try? await session.snapshot() {
+            await retarget(session, snapshot, node: node, move: move, leaveLinkTitled: title)
+        }
+        await session.close()
+    }
+
+    private func retarget(_ session: any WorkspaceDocumentSession, _ snapshot: WorkspaceDocumentSnapshot, node: WorkspaceNode,
+                          move: CrossTreePageMove, leaveLinkTitled title: String?) async {
+        let source = snapshot.source
+        var edits = move.retargetingEdits(source, sourceDirectory: node.sourceDirectory)
+        if let title, !move.linksToRoot(source, sourceDirectory: node.sourceDirectory), let locator = move.destinationLocator {
+            let separator = source.isEmpty || source.hasSuffix("\n\n") ? "" : source.hasSuffix("\n") ? "\n" : "\n\n"
+            let label = title.replacingOccurrences(of: "[", with: "\\[").replacingOccurrences(of: "]", with: "\\]")
+            let end = source.utf8.count
+            edits.append(WorkspaceSourceEdit(utf8Range: end..<end, replacement: "\(separator)- [\(label)](\(locator))\n"))
+        }
+        guard !edits.isEmpty else { return }
+        _ = try? await session.admit(patch: WorkspaceDocumentPatch(baseContentRevision: snapshot.contentRevision, edits: edits))
+        try? await session.flush()
+    }
+
+    private static func lastComponent(_ path: String) -> String {
+        path.split(separator: "/").last.map(String.init) ?? path
+    }
+
+    private static func directory(of file: String) -> String {
+        let parts = file.split(separator: "/").dropLast()
+        return parts.isEmpty ? "/" : "/" + parts.joined(separator: "/")
+    }
+
+    /// `name`, or `name-2`, `name-3`… so that neither `name.md` nor a `name` folder exists in `folder`.
+    private static func availableName(_ name: String, in folder: URL) -> String {
+        func taken(_ candidate: String) -> Bool {
+            FileManager.default.fileExists(atPath: folder.appending(path: candidate + ".md").path)
+                || FileManager.default.fileExists(atPath: folder.appending(path: candidate).path)
+        }
+        var candidate = name
+        var counter = 2
+        while taken(candidate) { candidate = "\(name)-\(counter)"; counter += 1 }
+        return candidate
+    }
+#endif
+}

@@ -3524,6 +3524,11 @@ private struct StorySharePanel: View {
     /// Whether the pushed agent page shows a created code, which needs more height.
     @State private var agentPageShowsCode = false
     @State private var revokingAgent: StoryCloudBundleRecord?
+    /// Trees this page could move to, and the one picked, whose access the sheet previews.
+    @State private var moveDestinations: [StoryMoveDestination] = []
+    @State private var moveTarget: StoryMoveDestination?
+    @State private var moveTargetAccess: NativeTreeAccessPresentation?
+    @State private var movePreview: StoryPageMovePreview?
 #endif
 
     var body: some View {
@@ -3549,7 +3554,16 @@ private struct StorySharePanel: View {
                     if let presentation {
                         switch presentation {
                         case .tracked(let access):
+                            treeSection(access)
+#if os(macOS)
+                            if let moveTarget {
+                                movePreviewSections(moveTarget, from: access)
+                            } else {
+                                trackedTree(access)
+                            }
+#else
                             trackedTree(access)
+#endif
                         case .promotable(let path, let accounts):
                             promotion(path: path, accounts: accounts)
                         }
@@ -3631,14 +3645,159 @@ private struct StorySharePanel: View {
         if agentPage { return agentPageShowsCode ? 580 : 340 }
         switch presentation {
         case .tracked(let access):
+            let tree: CGFloat = 100
+            if moveTarget != nil {
+                let rows = CGFloat(moveTargetAccess?.entries.count ?? 1)
+                let summary = CGFloat(min(6, (movePreview?.subpages.count ?? 0) + (movePreview?.linksLeaving.count ?? 0))) * 20
+                return min(720, max(380, 230 + tree + rows * 52 + summary + messageHeight))
+            }
             let people = access.entries.filter { $0.subject != .everyone }.count
             let rows = people + 1
             let agents: CGFloat = 96 + CGFloat(agentBundles.count) * 44
-            return min(720, max(300, 190 + CGFloat(rows) * 62 + agents + messageHeight))
+            return min(720, max(300, 190 + tree + CGFloat(rows) * 62 + agents + messageHeight))
         case .promotable(_, let accounts):
             return accounts.isEmpty ? 300 + messageHeight : 430 + messageHeight
         case nil:
             return 190 + messageHeight
+        }
+    }
+#endif
+
+    private func treeTitle(_ tree: String) -> String {
+        workspace.placedTreeTitle(tree) ?? "this tree"
+    }
+
+    /// The tree this page is in. On the Mac, picking another tree previews moving the page there.
+    @ViewBuilder
+    private func treeSection(_ access: NativeTreeAccessPresentation) -> some View {
+        Section {
+#if os(macOS)
+            if moveDestinations.isEmpty {
+                LabeledContent("This page is in", value: treeTitle(access.tree))
+            } else {
+                Picker(moveTarget == nil ? "This page is in" : "Move this page to", selection: Binding(
+                    get: { moveTarget?.id ?? access.tree },
+                    set: { id in pickMoveTarget(moveDestinations.first { $0.id == id }) }
+                )) {
+                    Text(treeTitle(access.tree)).tag(access.tree)
+                    Divider()
+                    ForEach(moveDestinations) { destination in
+                        Text(destination.account.map { "\(destination.title)  ·  \($0)" } ?? destination.title)
+                            .tag(destination.id)
+                    }
+                }
+                .disabled(busy)
+            }
+#else
+            LabeledContent("This page is in", value: treeTitle(access.tree))
+#endif
+        } header: {
+            Text("Tree")
+        } footer: {
+#if os(macOS)
+            if moveTarget == nil, !moveDestinations.isEmpty {
+                Text("Pick another tree to move the page there. A link stays in \(treeTitle(access.tree)).")
+            }
+#endif
+        }
+    }
+
+#if os(macOS)
+    private func pickMoveTarget(_ destination: StoryMoveDestination?) {
+        moveTarget = destination
+        moveTargetAccess = nil
+        movePreview = nil
+        message = nil
+        guard let destination, let currentNode else { return }
+        Task {
+            do {
+                async let access = workspace.treeAccess(tree: destination.id)
+                async let preview = workspace.previewPageMove(currentNode, to: destination)
+                let (loadedAccess, loadedPreview) = try await (access, preview)
+                guard moveTarget?.id == destination.id else { return }
+                moveTargetAccess = loadedAccess
+                movePreview = loadedPreview
+            } catch {
+                guard moveTarget?.id == destination.id else { return }
+                message = error.localizedDescription
+            }
+        }
+    }
+
+    /// Who would have access in the picked tree, what moves along, and the Move button.
+    @ViewBuilder
+    private func movePreviewSections(_ target: StoryMoveDestination, from access: NativeTreeAccessPresentation) -> some View {
+        Section {
+            if let targetAccess = moveTargetAccess {
+                ForEach(targetAccess.entries) { entry in
+                    HStack(spacing: 12) {
+                        accessIcon(for: entry)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 4) {
+                                Text(label(for: entry))
+                                if entry.isCurrentUser { Text("(You)").foregroundStyle(.secondary) }
+                            }
+                            Text(detail(for: entry)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer(minLength: 8)
+                        Text(entry.isCurrentUser ? "Full access" : permissionLabel(entry.access)).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
+                if !targetAccess.entries.contains(where: { $0.subject == .everyone }) {
+                    HStack(spacing: 12) {
+                        accessIcon(systemName: "globe", tint: .blue)
+                        Text("Everyone")
+                        Spacer(minLength: 8)
+                        Text("No access").foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
+            } else {
+                ProgressView()
+            }
+        } header: {
+            Text("Who has access to \(target.title)")
+        }
+        Section {
+            if let movePreview {
+                if movePreview.subpages.isEmpty {
+                    Text("The page has no subpages.")
+                } else {
+                    Text("Its \(movePreview.subpages.count == 1 ? "subpage moves" : "\(movePreview.subpages.count) subpages move") with it: \(movePreview.subpages.formatted(.list(type: .and))).")
+                }
+                if !movePreview.linksLeaving.isEmpty {
+                    Label("It links to pages that stay in \(treeTitle(access.tree)), which people in \(target.title) may not be able to open: \(movePreview.linksLeaving.formatted(.list(type: .and))).",
+                          systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                }
+                Text("A link stays in \(treeTitle(access.tree)), and the page's history so far stays there too.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ProgressView()
+            }
+        } footer: {
+            HStack {
+                Spacer()
+                Button("Cancel") { pickMoveTarget(nil) }
+                    .disabled(busy)
+                Button("Move to \(target.title)") { Task { await movePage(to: target) } }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(busy || movePreview == nil || moveTargetAccess == nil)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func movePage(to target: StoryMoveDestination) async {
+        guard let currentNode else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            try await workspace.movePage(currentNode, to: target)
+            dismiss()
+        } catch {
+            message = error.localizedDescription
         }
     }
 #endif
@@ -3679,7 +3838,7 @@ private struct StorySharePanel: View {
                 everyoneRow(in: access)
             }
         } header: {
-            Text("Who has access")
+            Text("Who has access to \(treeTitle(access.tree))")
         } footer: {
             if !access.canEdit {
                 Text("Only an administrator for this host account can change access.")
@@ -3974,6 +4133,9 @@ private struct StorySharePanel: View {
 #if os(macOS)
             if case let .tracked(access) = value {
                 agentBundles = try workspace.agentBundles(tree: access.tree)
+                if currentNode.reference.path != "/" {
+                    moveDestinations = await workspace.moveDestinations(for: currentNode)
+                }
             }
 #endif
             if case let .promotable(path, accounts) = value, let first = accounts.first {
