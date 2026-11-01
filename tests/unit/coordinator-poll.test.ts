@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { encodeProtocolDirectory, hashObject, type CurrentTree, type TreeSnapshot, type UpdateResponse } from "@ovst/protocol";
+import { AuthoredContractError, encodeProtocolDirectory, hashObject, type CurrentTree, type TreeSnapshot, type UpdateResponse } from "@ovst/protocol";
 import { UpdateCoordinator, type UpdateTransport } from "@ovst/working-tree";
 import { ChangeLog, FileControlStore } from "@ovst/working-tree/node";
 import { MemoryWorkingTree } from "../support/memory-working-tree.ts";
@@ -32,6 +32,26 @@ test("a clean tree polls the host only while its watch is not open", async () =>
     coordinator.setWatching(false);
     await Bun.sleep(80);
     expect(descriptors).toBeGreaterThan(before);
+  } finally {
+    coordinator.close();
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("a change this build cannot read stops synchronization with why, instead of retrying as offline", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "story-coordinator-contract-"));
+  const directory = encodeProtocolDirectory({ type: "directory", entries: [] });
+  const initial: TreeSnapshot = { root: hashObject(directory), objects: new Map([[hashObject(directory), directory]]) };
+  const transport: UpdateTransport = {
+    async submitUpdates(): Promise<UpdateResponse> { throw new Error("nothing to submit"); },
+    async descriptor(): Promise<CurrentTree> { throw new AuthoredContractError(); },
+  };
+  const working = new MemoryWorkingTree({ base: { root: initial.root, update: "up_initial", cursor: "up_initial" }, snapshot: initial });
+  const coordinator = new UpdateCoordinator(TREE, new ChangeLog(TREE, stateRoot), new FileControlStore(stateRoot), transport, working);
+  try {
+    const presentation = await coordinator.syncOnce();
+    expect(presentation.state).toBe("stopped");
+    expect(presentation.detail).toContain("Invalid authored update contract");
   } finally {
     coordinator.close();
     await rm(stateRoot, { recursive: true, force: true });

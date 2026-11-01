@@ -1,4 +1,4 @@
-import { applyTransitionPayload, decodeTreeSnapshotJSON, hashObject, ProtocolHTTPError, ProtocolUnsupportedOperation, ProtocolUpdateConflict,
+import { applyTransitionPayload, AuthoredContractError, decodeTreeSnapshotJSON, hashObject, ProtocolHTTPError, ProtocolUnsupportedOperation, ProtocolUpdateConflict,
   type CurrentTree, type TreeSnapshot, type UpdateResponse, type WatchEvent, type ProtocolClient } from "@ovst/protocol";
 import { attemptEncoding, attemptRequest, emptyControl, encodeAttempt, verifyAttempt, UpdateStateError, UpdateValidationError,
   type ControlStore, type UpdateAttempt, type UpdateControl } from "./control.ts";
@@ -647,7 +647,8 @@ export class UpdateCoordinator {
     } else if (error instanceof ProtocolHTTPError && refusal(error.status) && id) {
       // Repeating a request the host refused cannot change the answer.
       await this.hold("rejected", error.message, id);
-    } else if (error instanceof UpdateValidationError || error instanceof UpdateStateError) {
+    } else if (error instanceof UpdateValidationError || error instanceof UpdateStateError || error instanceof AuthoredContractError) {
+      // A stored change this build cannot read stops with why, not offline retrying forever.
       this.dispatch({ type: "validationFailed", reason: this.failure });
     } else {
       this.dispatch({ type: "transportFailed", ...(id ? { id } : {}) });
