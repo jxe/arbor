@@ -20,16 +20,21 @@ their own plans, for people and agents alike (Joe, 2026-10-30). Runs in history 
 - **Effort:** M.
 - **Risk:** LOW for the contract additions (in memory, nothing persisted). MEDIUM for Run from
   the iPhone, which starts a process on the Mac from another device.
-- **Progress:** TODO, waiting on Agents 001.
+- **Progress:** TODO, waiting on Agents 001. (Done early, 2026-11-01: a cloud agent from a bundle
+  shows in presence under the bundle's label.)
 
 ## What happens after Agents 001
 
 - Presence routes, the hub, `HostPresenceRunner`, and the agent peer with a status line.
 - Any Claude Code session in a placed folder reports to Story Sync through `story agent
-  status|done|hook` (a skill, hooks and a permission installed as one plugin), and shows as an
-  agent peer. Run on the Mac has Story Sync start `claude -p` there, with an APFS snapshot for
-  Undo Run and one run at a time per tree.
-- No way for the agent to ask, no Run on the iPhone, and no Codex.
+  status|done|hook` (a skill, hooks and a permission that `story agent install` merges into
+  Claude Code's user settings), and shows as an agent peer. Run on the Mac has Story Sync start
+  `claude -p` there, with an APFS snapshot for Undo Run and one run at a time per tree.
+- A cloud agent started from a bundle (`story agent start`) shows in presence too: start
+  installs the same hooks labelled with the bundle's name, and its instructions tell any agent
+  to report with `status` and `done`.
+- Task blocks are `> [!agent]` quotes drawn as Quagmire callouts with Run, Stop and Undo Run.
+- No way for the agent to ask, no Run on the iPhone, no Run on a cloud agent, and no Codex.
 
 ## Decisions
 
@@ -39,8 +44,9 @@ From Joe, 2026-10-30, except where marked as a recommendation:
    never in history, gone when the stream closes.
 2. **Questions stay between one person's devices** (recommendation). Others who can see the
    tree see that the agent is working and its status, but not its question or the answers.
-3. **Run from the iPhone works only while a Mac that can run tasks is present.** Otherwise Run
-   is greyed out with "Your Mac is asleep". No cloud runner.
+3. **Run from the iPhone works only while a runner is present.** A runner is a Mac that can run
+   tasks, or (Joe, 2026-11-01) a cloud agent started from one of your bundles (phase 5).
+   Otherwise Run is greyed out with "Your Mac is asleep".
 4. **Messages go through presence, not the tree.** Asking a Mac to run a task, answering, and
    stopping are short ephemeral messages between one person's streams, so nothing is written
    to a page to make them happen.
@@ -128,11 +134,32 @@ Mac setting picks the agent; the presence label follows it.
 
 **Verification:** the fake-agent harness with Codex's event shape, then one real task by hand.
 
+## Phase 5: Run on a cloud agent, and one name for agents (Joe, 2026-11-01)
+
+- **A cloud agent is a runner.** A cloud session started with `story agent start` keeps a
+  runner stream on its placed trees, like a Mac with "Run tasks on this Mac" on, labelled with
+  the bundle's name. Its Story Sync runs the task with the machine's Claude Code exactly as the
+  Mac's does (snapshot, one run per tree, block removed on success). Run's menu lists every
+  runner present ("Run on Joe's Mac", "Run on Supplies agent"); with no Mac awake, a cloud
+  runner still makes Run work from the iPhone.
+- **Which cloud sessions stay up** is the open question: today a session ends at `story agent
+  finish`. Decide whether a runner session idles waiting for tasks (and what that costs), or
+  whether Run on a cloud agent starts one on demand, which needs somewhere that can start
+  machines.
+- **One name.** `story agent` holds both cloud bundles (`create`, `list`, `revoke`, `run`,
+  `start`, `finish`) and presence reporting (`status`, `done`, `hook`, `install`). Pick the
+  split before the commands are documented further: for example `story cloud …` for bundles
+  and `story agent …` for reporting, keeping the old spellings as aliases for one release.
+
+**Verification:** a fake-agent cloud session in the CLI sync suite receives a `run`, edits its
+checkout, and the change and the agent's presence reach a second client; by hand, Run on a
+cloud agent from the iPhone with the Mac asleep.
+
 ## Not in this plan
 
-- **Running tasks in the cloud** when no Mac is awake. The runner is a role a device takes on;
-  a host-side runner (perhaps beside the execution sidecar) could take it later without a
-  contract change.
+- **A host-side runner** (perhaps beside the execution sidecar) that needs no cloud session of
+  your own. The runner is a role a device takes on, so it could come later without a contract
+  change.
 - Exact carets: [Live 002](live-002-exact-carets.md). Suggestions: [Editor 003](editor-003-suggestions.md).
 - Runs in history and attribution: [Agents 003](agents-003-agent-runs-in-history.md).
 
