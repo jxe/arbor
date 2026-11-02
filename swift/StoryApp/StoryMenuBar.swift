@@ -114,8 +114,6 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
             menu.addItem(item("Check for Updates…") { updates.check() })
         }
         menu.addItem(.separator())
-        menu.addItem(window("Sync & Accounts…") { $0.showAccounts() })
-        menu.addItem(window("People & Trees…", "d", [.command, .shift]) { $0.showPeople() })
         menu.addItem(item("Settings…", ",") { StoryMacSettingsWindow.show() })
         menu.addItem(.separator())
         let services = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
@@ -238,6 +236,7 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
             "Unfold All Headings", Self.rightArrow, .unfoldAllHeadings, [.command, .option], requires: .canUnfoldAllHeadings
         ))
         menu.addItem(.separator())
+        menu.addItem(window("People & Trees…", "d", [.command, .shift]) { $0.showPeople() })
         menu.addItem(window("Sync Status…") { $0.showSyncStatus() })
         menu.addItem(window("Network Log…") { $0.showNetworkLog() })
         return menu
