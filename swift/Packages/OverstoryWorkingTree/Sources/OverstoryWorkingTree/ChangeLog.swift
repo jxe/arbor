@@ -510,11 +510,13 @@ public struct LocalChange: Codable, Equatable, Sendable {
 
     /// Structural integrity of one record: hash-checked graphs, a wire element
     /// that names this candidate and change, and objects drawn from the candidate.
-    public func validate() throws {
+    /// `graphValidated` says `graph` is a candidate already validated, as an
+    /// authored basis is its parent's candidate, so it is not hashed again.
+    public func validate(graphValidated: Bool = false) throws {
         guard !change.isEmpty, update.change == change, update.candidate == candidate.root else { throw Self.invalid("Wire element does not name its record") }
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count,
               Set(candidate.objects.map(\.hash)).count == candidate.objects.count else { throw Self.invalid("Duplicate snapshot object") }
-        _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
+        if !graphValidated { _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles) }
         _ = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
         let known = Set(graph.objects.map(\.hash)), present = Dictionary(uniqueKeysWithValues: candidate.objects.map { ($0.hash, $0.bytes) })
         // An operation may introduce material that later operations change,
@@ -1088,7 +1090,9 @@ public actor ChangeLog {
     private static func validate(_ records: [LocalChange], tree: String, after retained: [LocalChange] = [], timer: PhaseTimer? = nil) throws {
         var prior = Dictionary(uniqueKeysWithValues: retained.map { ($0.change, $0) })
         for record in records {
-            try record.validate()
+            var graphValidated = false
+            if case let .authored(change) = record.basis, let parent = prior[change] { graphValidated = parent.candidate == record.graph }
+            try record.validate(graphValidated: graphValidated)
             timer?.mark("log-validate-record")
             guard record.tree == tree, prior[record.change] == nil else { throw ProtocolValidationError.invalidValue("Invalid queue scope or duplicate identity") }
             switch record.basis {

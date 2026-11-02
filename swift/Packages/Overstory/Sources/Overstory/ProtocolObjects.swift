@@ -224,7 +224,16 @@ public enum ProtocolObjectCodec {
     }
 
     public static func hash(_ bytes: Data) -> String {
-        "sha256:" + SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        // Hex by table: this runs for every object a save touches, and
+        // String(format:) per byte cost more than the hashing itself.
+        let digits = Array("0123456789abcdef".utf8)
+        var hex = Array("sha256:".utf8)
+        hex.reserveCapacity(71)
+        for byte in SHA256.hash(data: bytes) {
+            hex.append(digits[Int(byte >> 4)])
+            hex.append(digits[Int(byte & 0x0f)])
+        }
+        return String(decoding: hex, as: UTF8.self)
     }
 
     public static func object(_ object: ProtocolObject) throws -> ProtocolObjectEnvelope {

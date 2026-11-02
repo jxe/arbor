@@ -37,6 +37,34 @@ public protocol WorkingTreeStateStore: Sendable {
     /// Every journal record, in a stable order.
     func journalRecords() throws -> [WorkingTreeJournalRecord]
     func removeJournal(token: String) throws
+
+    /// False for a store that keeps nothing, so the tree skips encoding
+    /// what it would write.
+    var keepsWrites: Bool { get }
+}
+
+extension WorkingTreeStateStore {
+    public var keepsWrites: Bool { true }
+}
+
+/// The store of a disposable fork: a view that lives only in memory and is
+/// never reloaded, so nothing it would write is kept, and the fork does no
+/// whole-tree encoding on each change (its search index is built on first
+/// use instead).
+final class DisposableWorkingTreeStore: WorkingTreeStateStore, @unchecked Sendable {
+    var keepsWrites: Bool { false }
+    var hasState: Bool { false }
+    func readState() throws -> Data { throw WorkingTreeError.corruptState("A disposable fork keeps no state") }
+    func writeState(_ data: Data) throws {}
+    var hasControl: Bool { false }
+    func readControl() throws -> Data { throw WorkingTreeError.corruptState("A disposable fork keeps no control") }
+    func writeControl(_ data: Data) throws {}
+    func readIndex() -> Data? { nil }
+    func writeIndex(_ data: Data) throws {}
+    func removeIndexes() throws {}
+    func writeJournal(pageKey: String, id: String, _ data: Data) throws -> String { "" }
+    func journalRecords() throws -> [WorkingTreeJournalRecord] { [] }
+    func removeJournal(token: String) throws {}
 }
 
 /// Dictionary-backed store for working trees that keep nothing on disk. A

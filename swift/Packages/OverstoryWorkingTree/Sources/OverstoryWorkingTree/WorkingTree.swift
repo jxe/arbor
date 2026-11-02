@@ -324,7 +324,7 @@ public actor WorkingTree {
     func fork() throws -> WorkingTree {
         try requireOpen()
         return WorkingTree(
-            store: InMemoryWorkingTreeStore(),
+            store: DisposableWorkingTreeStore(),
             overlay: ForkedObjectOverlay(parent: overlay),
             platform: self,
             faultInjector: NoReplicaFaults(),
@@ -1017,7 +1017,7 @@ public actor WorkingTree {
             retainsPendingAgainstAcceptedBase: retainsPendingAgainstAcceptedBase ? true : nil
         )
         do {
-            let token = try store.writeJournal(pageKey: pageKey, id: intent.id, try Self.encode(intent))
+            let token = store.keepsWrites ? try store.writeJournal(pageKey: pageKey, id: intent.id, try Self.encode(intent)) : ""
             try faultInjector.reached(.afterJournal)
             try finish(intent, journalToken: token, injectFaults: true)
         } catch {
@@ -1073,7 +1073,7 @@ public actor WorkingTree {
                 )
             }
         }
-        try store.writeState(try Self.encode(nextState))
+        if store.keepsWrites { try store.writeState(try Self.encode(nextState)) }
         if injectFaults { try faultInjector.reached(.afterMaterialization) }
         let nextControl: WorkingTreeControl
         if intent.retainsPendingAgainstAcceptedBase == true {
@@ -1113,11 +1113,17 @@ public actor WorkingTree {
                 generation: intent.generation
             )
         }
-        try store.writeControl(try Self.encode(nextControl))
-        if injectFaults { try faultInjector.reached(.afterControl) }
-        let nextIndex = makeIndex(state: nextState, generation: intent.generation)
-        try store.writeIndex(try Self.encode(nextIndex))
-        try store.removeJournal(token: journalToken)
+        // A tree whose store keeps nothing builds its index when first searched.
+        let nextIndex: WorkingTreeSearchIndex
+        if store.keepsWrites {
+            try store.writeControl(try Self.encode(nextControl))
+            if injectFaults { try faultInjector.reached(.afterControl) }
+            nextIndex = makeIndex(state: nextState, generation: intent.generation)
+            try store.writeIndex(try Self.encode(nextIndex))
+            try store.removeJournal(token: journalToken)
+        } else {
+            nextIndex = index
+        }
         state = nextState
         childPositions = nil
         control = nextControl
@@ -1161,7 +1167,7 @@ public actor WorkingTree {
 
     private func rebuildIndex() throws {
         let rebuilt = makeIndex(state: state, generation: control.generation)
-        try store.writeIndex(try Self.encode(rebuilt))
+        if store.keepsWrites { try store.writeIndex(try Self.encode(rebuilt)) }
         index = rebuilt
     }
 
