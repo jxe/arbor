@@ -131,6 +131,8 @@ const decodedDirectories = new Map<string, { directory: ProtocolDirectory; size:
 let decodedDirectoryBytes = 0;
 /** A directory object's contents. Bytes that are not one are invalid
  * material (a candidate can name any object), not an evaluator failure. */
+/** Concurrent reads when prefetching a tree. */
+const PREFETCH_READS = 32;
 const directoryOf = (hash: string, bytes: Uint8Array): ProtocolDirectory => {
   const known = decodedDirectories.get(hash);
   if (known) {
@@ -456,8 +458,35 @@ class Engine {
       changes: {},
       decisions: [],
     };
+    await this.prefetch(root);
     await this.importNode(state, root, "directory", state.root, null, "");
     return state;
+  }
+  /** Read a tree's objects into the cache concurrently, a level at a time,
+   * before importing it in order: on a slow volume each read waits. Absent
+   * or refused objects are left for the import to report. */
+  private async prefetch(root: string): Promise<void> {
+    let level = [root];
+    while (level.length) {
+      const next: string[] = [];
+      for (let i = 0; i < level.length; i += PREFETCH_READS) {
+        await Promise.all(level.slice(i, i + PREFETCH_READS).map(async (hash) => {
+          const bytes = await this.read(hash).catch(() => null);
+          if (!bytes) return;
+          let directory: ProtocolDirectory;
+          try { directory = directoryOf(hash, bytes); } catch { return; }
+          const leaves: string[] = [];
+          for (const entry of directory.entries) {
+            if (entry.directory) next.push(entry.directory);
+            else if (entry.page) leaves.push(entry.page);
+            else if (entry.file && !this.knownLengths?.has(entry.file)) leaves.push(entry.file);
+          }
+          for (let j = 0; j < leaves.length; j += PREFETCH_READS)
+            await Promise.all(leaves.slice(j, j + PREFETCH_READS).map((leaf) => this.read(leaf).catch(() => null)));
+        }));
+      }
+      level = next;
+    }
   }
   /** A state this process recorded; `missing-context` when it holds none. */
   retained(id: string): RetainedState {

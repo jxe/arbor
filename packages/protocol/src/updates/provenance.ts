@@ -414,13 +414,15 @@ export async function readProvenance(hash: ObjectHash, load: (hash: ObjectHash) 
   if (record.kind === "pieces") return refuse("A pieces record is not a node");
   if (record.kind === "tree") return { kind: "tree", node: record.node };
   if (record.kind === "directory") {
+    // Children are read concurrently: on a slow volume each read waits.
+    const children = await Promise.all(record.entries.map(([, child]) => readProvenance(child, load)));
     const entries: Record<string, ProvenanceNode> = {};
-    for (const [name, child] of record.entries) entries[name] = await readProvenance(child, load);
+    record.entries.forEach(([name], i) => { entries[name] = children[i]!; });
     return { kind: "directory", node: record.node, entries };
   }
   const pieces: ProvenancePiece[] = [];
-  for (const chunk of record.chunks) {
-    const r = decodeProvenanceRecord(await load(chunk));
+  for (const bytes of await Promise.all(record.chunks.map((chunk) => load(chunk)))) {
+    const r = decodeProvenanceRecord(bytes);
     if (r.kind !== "pieces") refuse("A file's chunk is not a pieces record");
     for (const [origin, start, length] of (r as { pieces: Pieces }).pieces) pieces.push({ origin, start, length });
   }

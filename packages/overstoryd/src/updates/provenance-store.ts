@@ -9,11 +9,6 @@ import type { ObjectStore } from "@ovst/object-store";
 import { Recent } from "../recent.ts";
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
-/** How far behind a tree's head a backfill asks the merge sidecar again for
- * an answered entry's index, as far back as a question's basis may be.
- * Older answered entries are rebound, as snapshots are. */
-export const PROVENANCE_ANSWER_WINDOW = 128;
-
 export interface ComputedProvenance {
   root: ObjectHash;
   index: ProvenanceNode;
@@ -21,10 +16,6 @@ export interface ComputedProvenance {
   /** Nodes this computation wrote, shared with later ones once stored. */
   nodes: Map<object, ObjectHash>;
 }
-
-/** An answered entry's index, asked again: the root record and the objects
- * it needs, and the root the answer reached. */
-export type AskAgain = (hash: ObjectHash, entry: LogEntry) => Promise<{ provenance: ObjectHash; root: ObjectHash; objects: ReadonlyMap<ObjectHash, Uint8Array> } | null>;
 
 /**
  * The provenance index beside accepted history
@@ -124,21 +115,20 @@ export class ProvenanceStore {
   }
 
   /** Compute every missing index up to `head`, from the nearest earlier entry
-   * that has one: plain, property and snapshot entries here, an answered
-   * entry within `PROVENANCE_ANSWER_WINDOW` of `head` by `askAgain`, an
-   * older one (or one `askAgain` cannot answer) rebound as a snapshot.
-   * Returns how many entries it indexed. Concurrent calls for one head share
+   * that has one: plain, property and snapshot entries from their trace,
+   * an answered entry rebound as a snapshot of its root. Never asks the
+   * merge worker. Returns how many entries it indexed. Concurrent calls for one head share
    * a run. */
-  fill(head: ObjectHash, askAgain?: AskAgain): Promise<number> {
+  fill(head: ObjectHash): Promise<number> {
     let run = this.filling.get(head);
     if (!run) {
-      run = this.fillFrom(head, askAgain).finally(() => this.filling.delete(head));
+      run = this.fillFrom(head).finally(() => this.filling.delete(head));
       this.filling.set(head, run);
     }
     return run;
   }
 
-  private async fillFrom(head: ObjectHash, askAgain?: AskAgain): Promise<number> {
+  private async fillFrom(head: ObjectHash): Promise<number> {
     const chain: Array<{ hash: ObjectHash; entry: LogEntry }> = [];
     let at: ObjectHash | null = head, previous: { index: ProvenanceNode; root: ObjectHash } | null = null;
     while (at) {
@@ -150,16 +140,10 @@ export class ProvenanceStore {
     }
     chain.reverse();
     const load = (hash: ObjectHash) => this.objects.read(hash);
-    for (const [position, { hash, entry }] of chain.entries()) {
-      let index: ProvenanceNode | null = null;
-      if (entry.asked && previous) {
-        const again = chain.length - position <= PROVENANCE_ANSWER_WINDOW && askAgain ? await askAgain(hash, entry).catch(() => null) : null;
-        if (again) {
-          const answered = await readProvenance(again.provenance, (h) => this.objects.load(h, again.objects));
-          index = again.root === entry.root ? answered
-            : await rebindProvenance(answered, again.root, entry.root, entry.change, (h) => this.objects.load(h, again.objects));
-        } else index = await rebindProvenance(previous.index, previous.root, entry.root, entry.change, load);
-      } else index = await entryProvenance(previous, entry, load).catch(async (error) => {
+    for (const { hash, entry } of chain) {
+      let index: ProvenanceNode;
+      if (entry.asked && previous) index = await rebindProvenance(previous.index, previous.root, entry.root, entry.change, load);
+      else index = await entryProvenance(previous, entry, load).catch(async (error) => {
         // A trace the index cannot follow is taken as the snapshot it made.
         if (!previous) throw error;
         return rebindProvenance(previous.index, previous.root, entry.root, entry.change, load);
