@@ -37,6 +37,7 @@ struct StoryWindowCommands {
     var localTrees: [StoryLocalTreeMenuItem]
     var jumpToLocalTree: (String) -> Void
     var showSyncStatus: () -> Void
+    var showNetworkLog: () -> Void
     var reviewChoices: () -> Void
     /// Nil while the open tree has no review model (nothing to review).
     var reviewChoiceCount: Int?

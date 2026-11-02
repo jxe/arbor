@@ -2661,6 +2661,7 @@ struct StoryRootView: View {
             localTrees: localTreeMenuItems,
             jumpToLocalTree: jumpToLocalTree,
             showSyncStatus: showStatusPanel,
+            showNetworkLog: showNetworkLog,
             reviewChoices: showChoiceReview,
             reviewChoiceCount: workspace.conflictReview.map(\.decisions.count),
             showAccounts: showAccountsPanel,
@@ -2815,6 +2816,25 @@ struct StoryRootView: View {
 #endif
     }
 
+    /// From the menu bar, or from a sync panel, which has to close first.
+    private func showNetworkLog() {
+#if os(macOS)
+        if managementPresented {
+            sheetAfterManagementDismiss = .networkLog
+            managementPresented = false
+        } else {
+            presentedSheet = .networkLog
+        }
+#else
+        if accountPresented {
+            accountFollowUpSheet = .networkLog
+            accountPresented = false
+        } else {
+            presentedSheet = .networkLog
+        }
+#endif
+    }
+
     private func showAccountsPanel() {
 #if os(macOS)
         managementPresented = true
@@ -2861,19 +2881,7 @@ struct StoryRootView: View {
                 }
 #endif
             },
-            showNetworkLog: {
-#if os(macOS)
-                sheetAfterManagementDismiss = .networkLog
-                managementPresented = false
-#else
-                if accountPresented {
-                    accountFollowUpSheet = .networkLog
-                    accountPresented = false
-                } else {
-                    presentedSheet = .networkLog
-                }
-#endif
-            }
+            showNetworkLog: showNetworkLog
         )
     }
 

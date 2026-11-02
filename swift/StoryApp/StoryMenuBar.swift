@@ -141,7 +141,6 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(window("Search Contents…", "f", [.command, .shift]) { $0.showSearch() })
         menu.addItem(.separator())
-        menu.addItem(window("Sync Status…") { $0.showSyncStatus() })
         let review = window("Review Choices…", when: { $0.reviewChoiceCount != nil }) { $0.reviewChoices() }
         review.refresh = { [unowned self] item in
             let count = self.commands?.reviewChoiceCount ?? 0
@@ -238,6 +237,9 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         menu.addItem(editor(
             "Unfold All Headings", Self.rightArrow, .unfoldAllHeadings, [.command, .option], requires: .canUnfoldAllHeadings
         ))
+        menu.addItem(.separator())
+        menu.addItem(window("Sync Status…") { $0.showSyncStatus() })
+        menu.addItem(window("Network Log…") { $0.showNetworkLog() })
         return menu
     }
 
