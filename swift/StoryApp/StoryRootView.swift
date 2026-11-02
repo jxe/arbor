@@ -3552,6 +3552,7 @@ private struct StorySharePanel: View {
                             if let moveTarget {
                                 movePreviewSections(moveTarget, from: access)
                             } else {
+                                pageLink(access)
                                 trackedTree(access)
                             }
                         case .promotable(let path, let accounts):
@@ -3660,7 +3661,8 @@ private struct StorySharePanel: View {
             let people = access.entries.filter { $0.subject != .everyone }.count
             let rows = people + 1
             let agents: CGFloat = 20 + CGFloat(agentBundles.count) * 52
-            return min(720, max(300, 190 + tree + CGFloat(rows) * 62 + agents + messageHeight))
+            let link: CGFloat = access.canonical.isEmpty ? 0 : 52
+            return min(720, max(300, 190 + tree + link + CGFloat(rows) * 62 + agents + messageHeight))
         case .promotable(_, let accounts):
             return accounts.isEmpty ? 300 + messageHeight : 430 + messageHeight
         case nil:
@@ -3671,6 +3673,39 @@ private struct StorySharePanel: View {
 
     private func treeTitle(_ tree: String) -> String {
         workspace.placedTreeTitle(tree) ?? "this tree"
+    }
+
+    /// The address to hand out: this page's, with its ID so it survives renames within
+    /// the tree, or the tree's own from its home page or Trash. Click copies it.
+    @ViewBuilder
+    private func pageLink(_ access: NativeTreeAccessPresentation) -> some View {
+        if !access.canonical.isEmpty {
+            let url = shareURL(access)
+            Section {
+                Button {
+                    copyURL(url)
+                } label: {
+                    Label(copiedURL ? "Copied" : url, systemImage: copiedURL ? "checkmark" : "doc.on.doc")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+#if os(macOS)
+                .buttonStyle(.link)
+#else
+                .buttonStyle(.borderless)
+#endif
+                .help("Copy this page's address")
+            }
+        }
+    }
+
+    private func shareURL(_ access: NativeTreeAccessPresentation) -> String {
+        guard let currentNode, workspace.canMoveToAnotherTree(currentNode) else { return access.canonical }
+        let path = currentNode.reference.path.split(separator: "/").map {
+            String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+        }.joined(separator: "/")
+        return buildNetworkLocator(rawPath: "\(access.canonical)/\(path)", stableKey: currentNode.reference.stableKey)
+            ?? access.canonical
     }
 
     /// The tree this page is in. Picking another tree previews moving the page there.
@@ -3969,28 +4004,10 @@ private struct StorySharePanel: View {
                         Text("(You)").foregroundStyle(.secondary)
                     }
                 }
-                if entry.subject == .everyone, entry.access != StoryTreeAccess.noAccess.rawValue, !access.canonical.isEmpty {
-                    // A public tree's address, to hand out: click copies it.
-                    Button {
-                        copyURL(access.canonical)
-                    } label: {
-                        Label(copiedURL ? "Copied" : access.canonical, systemImage: copiedURL ? "checkmark" : "doc.on.doc")
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-#if os(macOS)
-                    .buttonStyle(.link)
-#else
-                    .buttonStyle(.borderless)
-#endif
+                Text(detail(for: entry))
                     .font(.caption)
-                    .help("Copy this tree's address")
-                } else {
-                    Text(detail(for: entry))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             Spacer(minLength: 8)
             if entry.isCurrentUser {

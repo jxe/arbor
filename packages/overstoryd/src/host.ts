@@ -1113,6 +1113,8 @@ export async function serveHost(options: {
               origin: publicOrigin,
               treeCanonicalPath: canonicalPath,
               sourceDirectory: markdownSourceDirectory(logicalPath, null),
+              publicPath,
+              storyDownloads: options.storyDownloads,
               children: collectionRowChildren(prefix, resolution.table.rows, requestLocator.applicationQuery)
                 .sort((left, right) => left.name.localeCompare(right.name)),
             }));
@@ -1134,6 +1136,8 @@ export async function serveHost(options: {
                 origin: publicOrigin,
                 treeCanonicalPath: canonicalPath,
                 sourceDirectory: markdownSourceDirectory(logicalPath, "sibling"),
+                publicPath,
+                storyDownloads: options.storyDownloads,
               }));
             }
             // A tree's raw file: an inert image or text type is shown, and
@@ -1177,6 +1181,8 @@ export async function serveHost(options: {
             treeCanonicalPath: canonicalPath,
             sourceDirectory: markdownSourceDirectory(logicalPath, logical.bodyOrigin ?? null),
             children,
+            publicPath,
+            storyDownloads: options.storyDownloads,
           }));
         }
         return protocolError("not-found", "Route not found", 404);

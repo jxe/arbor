@@ -24,6 +24,46 @@ describe("public Markdown pages", () => {
   });
 });
 
+describe("a public page's link preview and Open in Story bar", () => {
+  const render = (source: string, publicPath: string | undefined = "/~joe/todos/Plan", storyDownloads = {}) => renderPublicMarkdownPage({
+    source, fallbackTitle: "Plan", origin: "https://garden.example.org", treeCanonicalPath: "/~joe/todos", sourceDirectory: "/", publicPath, storyDownloads,
+  });
+  const source = "---\nid: pg_1\n---\n\n# Launch *plan*\n\n> [!agent] A private prompt\n\nThe **first** <paragraph> & more.\n\nThe second.\n";
+
+  test("names the page, its opening text and its keyed address", () => {
+    const html = render(source);
+    expect(html).toContain('<meta property="og:title" content="Launch plan">');
+    expect(html).toContain('<meta property="og:description" content="The first &lt;paragraph&gt; &amp; more.">');
+    expect(html).toContain('<meta property="og:url" content="https://garden.example.org/~joe/todos/Plan;overstory-key=id:pg_1">');
+    expect(html).not.toContain('content="[!agent]');
+  });
+
+  test("shows the page's first picture, or the Story card when it has none", () => {
+    expect(render(source)).toContain('<meta property="og:image" content="https://garden.example.org/.overstory/assets/story-card.png">');
+    expect(render("![Shot](Assets/shot.png)\n")).toContain('<meta property="og:image" content="https://garden.example.org/~joe/todos/Assets/shot.png">');
+    expect(render("Before ![Shot](shot.jpg) after\n")).toContain('content="https://garden.example.org/~joe/todos/shot.jpg"');
+    expect(render("![Vector](shot.svg)\n")).toContain("story-card.png");
+  });
+
+  test("opens in Story at the keyed address, and offers Story when downloads are configured", () => {
+    expect(render(source)).toContain('<a class="open-in-story" href="overstory://garden.example.org/~joe/todos/Plan;overstory-key=id:pg_1">Open in Story</a>');
+    expect(render(source)).not.toContain("Get Story");
+    const offered = render(source, "/~joe/todos/Plan", { mac: "https://example.org/mac", iphone: "https://example.org/iphone" });
+    expect(offered).toContain('href="https://example.org/mac">Get Story</a>');
+    expect(offered).toContain('href="https://example.org/iphone">Get Story</a>');
+  });
+
+  test("a tree's home page uses its plain address", () => {
+    expect(render(source, "/~joe/todos")).toContain('href="overstory://garden.example.org/~joe/todos">Open in Story</a>');
+  });
+
+  test("a page rendered without its public path has neither", () => {
+    const html = page("/", "Text.\n");
+    expect(html).not.toContain("og:title");
+    expect(html).not.toContain("Open in Story");
+  });
+});
+
 describe("presented headings on a public page", () => {
   const children = [{ name: "note", href: "/~joe/todos/dir/note", kind: "document" as const }];
   const render = (source: string, fallbackTitle = "field-notes") => renderPublicMarkdownPage({

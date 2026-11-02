@@ -427,7 +427,8 @@ test("the host validates logical collections itself", async () => {
   const readPage = async () => {
     const page = await fetch(`${running.url}/people`, { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}`, accept: "text/html" } });
     expect(page.status).toBe(200);
-    return page.text();
+    // The restarted host listens on another port, which the page's absolute links name.
+    return (await page.text()).replaceAll(new URL(running.url).host, "host");
   };
   const before = await readPage();
   expect(before).toContain("people/a");

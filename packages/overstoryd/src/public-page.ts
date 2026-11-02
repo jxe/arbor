@@ -1,6 +1,6 @@
 import { buildNetworkLocator, resolveLogicalURL } from "@ovst/protocol/logical-url";
 import type { OverstoryBlock, JSONValue } from "@ovst/protocol";
-import { PRESENTED_CHILDREN_HEADING, beginsWithTitle, markdownDisplayTitle, parseMarkdown } from "@ovst/protocol";
+import { PRESENTED_CHILDREN_HEADING, beginsWithTitle, isPageID, markdownDisplayTitle, markdownStableKey, parseMarkdown } from "@ovst/protocol";
 
 export interface PublicPageChild {
   name: string;
@@ -16,6 +16,9 @@ export interface PublicMarkdownPageOptions {
   /** The tree directory holding the page's Markdown file; its relative links resolve against it. */
   sourceDirectory: string;
   children?: PublicPageChild[];
+  /** The page's own public path. With it the page gets a link preview and an Open in Story bar. */
+  publicPath?: string;
+  storyDownloads?: StoryDownloads;
 }
 
 export function escapeHTML(value: string): string {
@@ -266,7 +269,7 @@ function referencedChildren(blocks: OverstoryBlock[], context: RenderContext): S
 const PUBLIC_STYLES = `
 :root{color-scheme:light;--fg:#37352f;--muted:rgba(55,53,47,.5);--bg:#fff;--hover:rgba(55,53,47,.08);--border:rgba(55,53,47,.12);--strong-border:rgba(55,53,47,.22);--code-fg:#eb5757;--code-bg:rgba(135,131,120,.15);--divider:#e9e9e7;--link:#2383e2}
 @media(prefers-color-scheme:dark){:root{color-scheme:dark;--fg:#dad8d3;--muted:rgba(255,255,255,.46);--bg:#191919;--hover:rgba(255,255,255,.08);--border:rgba(255,255,255,.13);--strong-border:rgba(255,255,255,.24);--code-fg:#ff7369;--code-bg:rgba(255,255,255,.08);--divider:rgba(255,255,255,.13);--link:#529cff}}
-*{box-sizing:border-box}html,body{min-height:100%}body{margin:0;background:var(--bg);color:var(--fg);font:400 16px/24px Inter,ui-sans-serif,system-ui,sans-serif}.public-page{width:708px;max-width:calc(100% - 64px);margin:76px auto 96px}.story-document{overflow-wrap:anywhere}.story-document h1,.story-document h2,.story-document h3,.story-document h4,.story-document h5,.story-document h6{margin:0;padding:0;font-weight:600;line-height:1.2}.story-document h1{font-size:40px;line-height:48px}.story-document h2{margin-top:40px;font-size:24px}.story-document h3{margin-top:30px;font-size:20px}.story-document h4,.story-document h5,.story-document h6{margin-top:24px;font-size:16px}.story-document h1+*,.story-document h2+*,.story-document h3+*{margin-top:8px}.story-document p{margin:4px 0}.story-document a{color:inherit;text-decoration:underline;text-decoration-color:var(--strong-border);text-underline-offset:2px}.story-document a:hover{color:var(--link);text-decoration-color:var(--link)}.story-document strong{font-weight:600}.story-document code{padding:1.5px 4px;border-radius:3px;background:var(--code-bg);color:var(--code-fg);font:400 13.6px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.story-document ul,.story-document ol{margin:1px 0;padding-left:34px}.story-document li{padding:3px 0}.story-document li>ul,.story-document li>ol{margin-top:2px}.check-list{padding-left:0;list-style:none}.check-list li{display:grid;grid-template-columns:24px minmax(0,1fr);align-items:start}.check-list input{width:16px;height:16px;margin:5px 8px 0 0;accent-color:var(--link)}blockquote{margin:4px 0;padding-left:14px;border-left:3px solid var(--fg);font-size:19.2px;line-height:1.45}.code-block{position:relative;margin:8px 0;padding:16px;border-radius:8px;background:var(--code-bg)}.code-block small{position:absolute;top:7px;right:10px;color:var(--muted);font-size:10px}.code-block pre{margin:0;overflow:auto;white-space:pre-wrap}.code-block pre code{padding:0;background:none;color:var(--fg);font:400 14px/21px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}hr{margin:12px 0;border:0;border-top:1px solid var(--divider)}figure{margin:12px 0}figure img{display:block;max-width:100%;border-radius:3px}figcaption{margin-top:5px;color:var(--muted);font-size:13px}.inline-image{max-width:100%;vertical-align:middle}.inline-math,.math-block{font-family:Georgia,"Times New Roman",serif}.inline-math{padding:0 2px}.math-block{margin:8px 0;padding:12px 16px;overflow:auto;border-radius:8px;background:color-mix(in srgb,var(--code-bg) 72%,transparent);text-align:center}details{margin:1px 0}summary{padding:5px 0;cursor:pointer;font-weight:400}.nested-blocks{margin-left:34px}.raw-markdown{margin:8px 0;padding:10px 12px;border:1px dashed var(--strong-border);border-radius:6px;background:var(--code-bg);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.raw-markdown>span{display:block;color:var(--muted);font:10px Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase}.raw-markdown pre{margin:4px 0 0;white-space:pre-wrap}.footnote-reference a{color:var(--link);font-size:.72em;font-weight:600;text-decoration:none}.footnote-definition{display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px;margin-top:8px;color:var(--muted);font-size:14px;line-height:21px}.footnote-definition>span{color:var(--link);font-weight:600;text-align:right}.footnote-definition>div{color:var(--fg)}.child-list{margin-top:8px}.child-page{display:grid;grid-template-columns:24px minmax(0,auto) minmax(0,1fr);align-items:baseline;column-gap:10px;width:100%;padding:5px 0;border-radius:4px;color:var(--fg)!important;text-decoration:none!important}.child-page:hover{background:var(--hover)}.child-page-kind{display:flex;align-items:center;justify-content:flex-end;width:24px;color:var(--muted)}.child-page svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round}.child-page strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.child-page small{min-width:0;overflow:hidden;color:var(--muted);font-size:11px;opacity:0;text-overflow:ellipsis;white-space:nowrap}.child-page:hover small,.child-page:focus small{opacity:1}
+*{box-sizing:border-box}html,body{min-height:100%}body{margin:0;background:var(--bg);color:var(--fg);font:400 16px/24px Inter,ui-sans-serif,system-ui,sans-serif}.public-page{width:708px;max-width:calc(100% - 64px);margin:76px auto 96px}.story-document{overflow-wrap:anywhere}.story-document h1,.story-document h2,.story-document h3,.story-document h4,.story-document h5,.story-document h6{margin:0;padding:0;font-weight:600;line-height:1.2}.story-document h1{font-size:40px;line-height:48px}.story-document h2{margin-top:40px;font-size:24px}.story-document h3{margin-top:30px;font-size:20px}.story-document h4,.story-document h5,.story-document h6{margin-top:24px;font-size:16px}.story-document h1+*,.story-document h2+*,.story-document h3+*{margin-top:8px}.story-document p{margin:4px 0}.story-document a{color:inherit;text-decoration:underline;text-decoration-color:var(--strong-border);text-underline-offset:2px}.story-document a:hover{color:var(--link);text-decoration-color:var(--link)}.story-document strong{font-weight:600}.story-document code{padding:1.5px 4px;border-radius:3px;background:var(--code-bg);color:var(--code-fg);font:400 13.6px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.story-document ul,.story-document ol{margin:1px 0;padding-left:34px}.story-document li{padding:3px 0}.story-document li>ul,.story-document li>ol{margin-top:2px}.check-list{padding-left:0;list-style:none}.check-list li{display:grid;grid-template-columns:24px minmax(0,1fr);align-items:start}.check-list input{width:16px;height:16px;margin:5px 8px 0 0;accent-color:var(--link)}blockquote{margin:4px 0;padding-left:14px;border-left:3px solid var(--fg);font-size:19.2px;line-height:1.45}.code-block{position:relative;margin:8px 0;padding:16px;border-radius:8px;background:var(--code-bg)}.code-block small{position:absolute;top:7px;right:10px;color:var(--muted);font-size:10px}.code-block pre{margin:0;overflow:auto;white-space:pre-wrap}.code-block pre code{padding:0;background:none;color:var(--fg);font:400 14px/21px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}hr{margin:12px 0;border:0;border-top:1px solid var(--divider)}figure{margin:12px 0}figure img{display:block;max-width:100%;border-radius:3px}figcaption{margin-top:5px;color:var(--muted);font-size:13px}.inline-image{max-width:100%;vertical-align:middle}.inline-math,.math-block{font-family:Georgia,"Times New Roman",serif}.inline-math{padding:0 2px}.math-block{margin:8px 0;padding:12px 16px;overflow:auto;border-radius:8px;background:color-mix(in srgb,var(--code-bg) 72%,transparent);text-align:center}details{margin:1px 0}summary{padding:5px 0;cursor:pointer;font-weight:400}.nested-blocks{margin-left:34px}.raw-markdown{margin:8px 0;padding:10px 12px;border:1px dashed var(--strong-border);border-radius:6px;background:var(--code-bg);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.raw-markdown>span{display:block;color:var(--muted);font:10px Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase}.raw-markdown pre{margin:4px 0 0;white-space:pre-wrap}.footnote-reference a{color:var(--link);font-size:.72em;font-weight:600;text-decoration:none}.footnote-definition{display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px;margin-top:8px;color:var(--muted);font-size:14px;line-height:21px}.footnote-definition>span{color:var(--link);font-weight:600;text-align:right}.footnote-definition>div{color:var(--fg)}.child-list{margin-top:8px}.child-page{display:grid;grid-template-columns:24px minmax(0,auto) minmax(0,1fr);align-items:baseline;column-gap:10px;width:100%;padding:5px 0;border-radius:4px;color:var(--fg)!important;text-decoration:none!important}.child-page:hover{background:var(--hover)}.child-page-kind{display:flex;align-items:center;justify-content:flex-end;width:24px;color:var(--muted)}.child-page svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round}.child-page strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.child-page small{min-width:0;overflow:hidden;color:var(--muted);font-size:11px;opacity:0;text-overflow:ellipsis;white-space:nowrap}.child-page:hover small,.child-page:focus small{opacity:1}.story-bar{display:flex;justify-content:flex-end;gap:16px;padding:12px 20px;font-size:14px}.story-bar a{color:var(--muted);text-decoration:none}.story-bar a:hover{color:var(--fg)}.story-bar a.open-in-story{color:var(--link);font-weight:500}.story-bar .on-phone{display:none}@media(pointer:coarse){.story-bar .on-desktop{display:none}.story-bar .on-phone{display:inline}}
 .data-properties{margin:28px 0 0}.data-properties>div{display:grid;grid-template-columns:minmax(120px,1fr) minmax(0,2fr);gap:24px;padding:10px 0;border-top:1px solid var(--border)}.data-properties dt{color:var(--muted);font-size:14px}.data-properties dd{min-width:0;margin:0;overflow-wrap:anywhere}.data-properties pre{margin:0;overflow:auto;white-space:pre-wrap}.data-properties code{padding:0;background:none;color:var(--fg)}
 @media(max-width:760px){.public-page{width:auto;max-width:none;margin:42px 20px 72px}.story-document h1{font-size:34px;line-height:42px}.story-document h2{margin-top:32px}.data-properties>div{grid-template-columns:1fr;gap:3px}}
 `;
@@ -291,7 +294,68 @@ export function renderPublicMarkdownPage(options: PublicMarkdownPageOptions): st
     .join("");
   const childList = projectedChildren ? `<div class="child-list">${projectedChildren}</div>` : "";
   const body = `${renderBlocks(document.blocks, context)}${childList ? `<h1>${escapeHTML(PRESENTED_CHILDREN_HEADING)}</h1>${childList}` : ""}`;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light dark"><title>${escapeHTML(title)}</title><style>${PUBLIC_STYLES}</style></head><body><main class="public-page"><article class="story-document">${beginsWithTitle(document.blocks) ? "" : `<h1>${escapeHTML(title)}</h1>`}${body}</article></main></body></html>`;
+  const id = document.frontmatter.id;
+  // A tree's home page is its address already; any other page's ID keeps its link working through renames.
+  const stableKey = isPageID(id) && options.publicPath !== publicTreePath(options.treeCanonicalPath, "/") ? markdownStableKey(id) : null;
+  const located = options.publicPath === undefined ? null : `${context.host}${buildNetworkLocator(options.publicPath, { stableKey })}`;
+  const preview = located ? linkPreview(title, `${new URL(options.origin).protocol}//${located}`, document.blocks, context) : "";
+  const bar = located ? storyBar(`overstory://${located}`, options.storyDownloads) : "";
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light dark"><title>${escapeHTML(title)}</title>${preview}<style>${PUBLIC_STYLES}</style></head><body>${bar}<main class="public-page"><article class="story-document">${beginsWithTitle(document.blocks) ? "" : `<h1>${escapeHTML(title)}</h1>`}${body}</article></main></body></html>`;
+}
+
+/** The text a link preview shows: the page's first paragraph, cut to about two lines. */
+function previewDescription(blocks: OverstoryBlock[], context: RenderContext): string | null {
+  for (const block of blocks) {
+    if (block.type !== "paragraph" || !block.content?.trim()) continue;
+    const text = renderInline(block.content, context).replace(/<[^>]*>/g, " ")
+      .replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&amp;", "&")
+      .replace(/\s+/g, " ").trim();
+    if (text) return text.length > 200 ? `${text.slice(0, 199).trimEnd()}…` : text;
+  }
+  return null;
+}
+
+/** The page's first picture a link preview can show, as an absolute URL. */
+function previewImage(blocks: OverstoryBlock[], context: RenderContext): string | null {
+  for (const block of blocks) {
+    const raw = block.type === "image" ? String(block.props?.url ?? "") : block.content?.match(/!\[[^\]]*\]\(([^)\s]+)\)/)?.[1];
+    const href = raw ? linkHref(raw, context) : null;
+    if (href && /\.(png|jpe?g|gif|webp)(;|\?|#|$)/i.test(href)) return new URL(href, context.origin).href;
+    const nested = previewImage(block.children, context);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+/** Open Graph and Twitter tags: the page's title, opening text and first picture, or the Story card. */
+function linkPreview(title: string, url: string, blocks: OverstoryBlock[], context: RenderContext): string {
+  const description = previewDescription(blocks, context);
+  const image = previewImage(blocks, context);
+  const cardImage = image ?? new URL(PAGE_ASSETS.card, context.origin).href;
+  return [
+    description ? `<meta name="description" content="${escapeHTML(description)}">` : "",
+    `<meta property="og:type" content="article">`,
+    `<meta property="og:site_name" content="Story">`,
+    `<meta property="og:title" content="${escapeHTML(title)}">`,
+    description ? `<meta property="og:description" content="${escapeHTML(description)}">` : "",
+    `<meta property="og:url" content="${escapeHTML(url)}">`,
+    `<meta property="og:image" content="${escapeHTML(cardImage)}">`,
+    image ? "" : `<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">`,
+    `<meta name="twitter:card" content="summary_large_image">`,
+    `<meta name="twitter:title" content="${escapeHTML(title)}">`,
+    description ? `<meta name="twitter:description" content="${escapeHTML(description)}">` : "",
+    `<meta name="twitter:image" content="${escapeHTML(cardImage)}">`,
+    `<link rel="icon" href="${PAGE_ASSETS.icon}">`,
+    `<link rel="apple-touch-icon" href="${PAGE_ASSETS.icon}">`,
+  ].join("");
+}
+
+/** The bar above a page: Open in Story, and where to get it. A browser without Story does nothing with the link. */
+function storyBar(locator: string, downloads: StoryDownloads = {}): string {
+  const both = downloads.mac && downloads.iphone;
+  const mac = downloads.mac ? `<a${both ? ' class="on-desktop"' : ""} href="${escapeHTML(downloads.mac)}">Get Story</a>` : "";
+  const iphone = downloads.iphone ? `<a${both ? ' class="on-phone"' : ""} href="${escapeHTML(downloads.iphone)}">Get Story</a>` : "";
+  return `<nav class="story-bar">${mac}${iphone}<a class="open-in-story" href="${escapeHTML(locator)}">Open in Story</a></nav>`;
 }
 
 function renderedProperty(value: JSONValue): string {
