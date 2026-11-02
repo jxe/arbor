@@ -237,7 +237,7 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         ))
         menu.addItem(.separator())
         menu.addItem(window("People & Trees…", "d", [.command, .shift]) { $0.showPeople() })
-        menu.addItem(window("Sync Status…") { $0.showSyncStatus() })
+        menu.addItem(window("Sync & Accounts…") { $0.showSyncStatus() })
         menu.addItem(window("Network Log…") { $0.showNetworkLog() })
         return menu
     }

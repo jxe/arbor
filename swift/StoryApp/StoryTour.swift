@@ -43,7 +43,7 @@ enum StoryTour {
         let pairing = page("/Pairing-this-iPhone", "pg_tour_pairing", "Pairing this iPhone", """
         To use Story with your own pages, set up an account in Story on a Mac, then pair this iPhone with it:
 
-        1. On the Mac, open Story and choose Sync & Accounts.
+        1. On the Mac, open Story and choose View > Sync & Accounts…
         2. Choose Pair another device.
         3. On this iPhone, leave the sample pages and scan the code.
         """)

@@ -5234,7 +5234,7 @@ struct StoryIOSLaunchView: View {
                         phase = .scanning
                     }
                 } footer: {
-                    Text("In Story on your Mac, choose Sync & Accounts, then Pair another device.")
+                    Text("In Story on your Mac, choose View > Sync & Accounts…, then Pair another device.")
                 }
                 if accounts.isEmpty {
                     Section {
