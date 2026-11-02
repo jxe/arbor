@@ -252,6 +252,18 @@ Sync's launchd log and Story.app's logs. It runs on Joe's Mac from a checkout
 linked to Railway and only reads, except `--mark`, which starts a new period;
 `--since <time>` reports from a given time instead.
 
+## Comparing public pages with Story
+
+`bun tools/public-page-compare/compare.ts` checks that overstoryd's public pages
+draw blocks as Story's editor does, on a Mac. It renders a kitchen-sink page and
+every ordered pair of adjacent block types in both, writes light and dark PNGs
+to `.local/public-page-compare`, and exits 1 when a gap between two blocks
+differs by a point or more. Run it after changing the page CSS in
+`packages/overstoryd/src/public-page.ts` or spacing and row layout in Quagmire,
+and look at the kitchen-sink images, since only gaps are measured. It uses the
+system font on both sides; `--inter` keeps the page's own font stack. It isn't
+part of any gate: its render test skips itself in ordinary test runs.
+
 ## Disposable browser smoke test
 
 Use fresh directories rather than the checked-in fixture or your real Story data home:
