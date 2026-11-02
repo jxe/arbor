@@ -2437,6 +2437,44 @@ struct MarkdownLinkWritingTests {
     }
 
     @MainActor
+    @Test("A web link to a page in a hosted tree opens in Story; any other web link stays external")
+    func canonicalWebLinksResolveToPages() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = try await provider.openDocument(reference)
+        let binding = try await StoryDocumentBinding.open(reference: reference, session: session)
+        var opened: WorkspaceReference?
+        let host = StoryEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: LinkPreviewService(cacheDirectory: FileManager.default.temporaryDirectory.appending(path: "previews-\(UUID())")),
+            open: { opened = $0 },
+            canonicalTreeAddresses: {
+                [
+                    CanonicalTreeAddress(tree: "tr_sample", url: "https://example.com/~joe/sample"),
+                    CanonicalTreeAddress(tree: "tr_elsewhere", url: "https://example.com/~joe/elsewhere"),
+                ]
+            }
+        )
+
+        let sameTree = try #require(host.resolveReference(
+            from: URL(string: "https://example.com/~joe/sample/Reference")!,
+            in: binding.document
+        ))
+        host.openDocument(sameTree)
+        #expect(opened == WorkspaceReference(tree: "tr_sample", path: "/Reference"))
+
+        let otherTree = try #require(host.resolveReference(
+            from: URL(string: "https://example.com/~joe/elsewhere/x;overstory-key=id:x1")!,
+            in: binding.document
+        ))
+        #expect(host.workspaceReference(for: otherTree) == WorkspaceReference(tree: "tr_elsewhere", path: "/x", stableKey: markdownStableKey("x1")))
+
+        #expect(host.resolveReference(from: URL(string: "https://elsewhere.example/page")!, in: binding.document) == nil)
+        await session.close()
+    }
+
+    @MainActor
     @Test("A moved page's own keyless outbound link is healed from its new directory")
     func movedDocumentOutboundLinks() async throws {
         let tree: TreeID = "tr_move_heal"

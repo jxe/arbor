@@ -593,6 +593,46 @@ public func resolveNodeTarget(sourceDirectory: String, href: String) -> Resolved
     }
 }
 
+/// A tree and the web address it is canonically hosted at, such as `https://example.com/~joe/notes`.
+public struct CanonicalTreeAddress: Sendable, Equatable {
+    public var tree: String
+    public var url: String
+
+    public init(tree: String, url: String) {
+        self.tree = tree
+        self.url = url
+    }
+}
+
+/// The page an `http(s)` URL names, when it lies under one of `trees`' web addresses: what Story's
+/// Copy Link to Page and Share hand out. The deepest matching tree wins, since a tree's address can
+/// sit under another's. Nil for any other URL, which stays an ordinary external link.
+public func resolveCanonicalWebURL(_ href: String, among trees: [CanonicalTreeAddress]) -> ResolvedNodeTarget? {
+    guard let link = parseWebLocator(href) else { return nil }
+    var best: (tree: String, root: String)?
+    for candidate in trees {
+        guard let root = parseWebLocator(candidate.url), root.authority == link.authority,
+              root.path == "/" || link.path == root.path || link.path.hasPrefix(root.path + "/"),
+              root.path.count > (best?.root.count ?? -1) else { continue }
+        best = (candidate.tree, root.path)
+    }
+    guard let best else { return nil }
+    let page = best.root == "/" ? link.path : String(link.path.dropFirst(best.root.count))
+    return ResolvedNodeTarget(tree: best.tree, path: page.isEmpty ? "/" : page, stableKey: link.stableKey)
+}
+
+/// A web URL read as the `overstory://` locator it spells, apart from the scheme.
+private func parseWebLocator(_ href: String) -> (authority: String, path: String, stableKey: String?)? {
+    let raw = href.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let separator = raw.range(of: "://"),
+          ["http", "https"].contains(raw[..<separator.lowerBound].lowercased()),
+          case let .overstory(.dns(authority), path, locator)? = resolveLogicalURL(
+              sourceDirectory: "/", href: overstoryScheme + raw[separator.upperBound...]
+          ),
+          locator.invite == nil, !locator.configuration else { return nil }
+    return (authority.lowercased(), path, locator.stableKey)
+}
+
 /// Rewrite a node link to name `target` (its `path` and `body`), retaining the link's key,
 /// revision, query and content fragment. A relative href is rewritten against `sourceDirectory`;
 /// an `overstory://` locator stays one.

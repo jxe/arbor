@@ -746,6 +746,28 @@ final class StoryWorkspaceState {
 
     /// The second line of a link into another tree, such as "Tree · Private · On this Mac".
     /// Who can see it is left out when this device cannot read the tree's rules.
+    /// Where the open tree and, on the Mac, the trees placed here live on the web, so that a link
+    /// to one of their pages opens in Story.
+    var canonicalTreeAddresses: [CanonicalTreeAddress] {
+        var addresses: [CanonicalTreeAddress] = []
+        if let currentTreeCanonical {
+            addresses.append(CanonicalTreeAddress(tree: home.tree.rawValue, url: currentTreeCanonical.httpURL))
+        }
+#if os(macOS)
+        for tree in localStorySyncOverview?.trees ?? [] where tree.path != nil && !tree.missing {
+            guard let path = tree.canonicalPath,
+                  let endpoint = tree.canonicalEndpoint
+                    ?? localStorySyncOverview?.accounts.first(where: { $0.configurationTree == tree.configurationTree })?.host
+            else { continue }
+            addresses.append(CanonicalTreeAddress(
+                tree: tree.id,
+                url: ProtocolCanonicalDescriptor(path: path, endpoint: endpoint).httpURL
+            ))
+        }
+#endif
+        return addresses
+    }
+
     func treeLinkSubtitle(tree: String) async -> String {
 #if os(iOS)
         let device = UIDevice.current.model
@@ -2928,6 +2950,7 @@ final class StoryAppModel {
             describeTree: { [weak workspace] reference in
                 await workspace?.treeLinkSubtitle(tree: reference.tree.rawValue)
             },
+            canonicalTreeAddresses: { [weak workspace] in workspace?.canonicalTreeAddresses ?? [] },
             voiceRecordings: StoryVoiceRecordings.store,
             voiceRecordingPlayer: StoryVoiceRecordings.player
         )

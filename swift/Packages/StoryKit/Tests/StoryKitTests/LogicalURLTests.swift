@@ -433,4 +433,30 @@ final class LogicalURLTests: XCTestCase {
         XCTAssertNil(buildInviteLocator(account: "https://arb.nxhx.org/~alice", code: ""))
         XCTAssertNil(buildInviteLocator(account: "http://arb.nxhx.org/~alice", code: "abc"))
     }
+
+    func testCanonicalWebURLNamesAPageInItsTree() {
+        let trees = [
+            CanonicalTreeAddress(tree: "tr_root", url: "https://example.com/"),
+            CanonicalTreeAddress(tree: "tr_notes", url: "https://example.com/~joe/notes"),
+            CanonicalTreeAddress(tree: "tr_space", url: "http://127.0.0.1:4400/~joe/my%20notes"),
+        ]
+        func target(_ href: String) -> ResolvedNodeTarget? { resolveCanonicalWebURL(href, among: trees) }
+
+        XCTAssertEqual(target("https://example.com/~joe/notes/Ideas/One"), ResolvedNodeTarget(tree: "tr_notes", path: "/Ideas/One"))
+        XCTAssertEqual(target("https://EXAMPLE.com/~joe/notes"), ResolvedNodeTarget(tree: "tr_notes", path: "/"))
+        XCTAssertEqual(
+            target("https://example.com/~joe/notes/Ideas;overstory-key=id:abc"),
+            ResolvedNodeTarget(tree: "tr_notes", path: "/Ideas", stableKey: markdownStableKey("abc"))
+        )
+        XCTAssertEqual(target("http://127.0.0.1:4400/~joe/my%20notes/A%20page"), ResolvedNodeTarget(tree: "tr_space", path: "/A page"))
+        // Under the root tree, but not under the tree whose name it merely starts with.
+        XCTAssertEqual(target("https://example.com/~joe/notes-old/x"), ResolvedNodeTarget(tree: "tr_root", path: "/~joe/notes-old/x"))
+
+        XCTAssertNil(target("https://elsewhere.example/~joe/notes/Ideas"))
+        XCTAssertNil(target("http://127.0.0.1:4401/~joe/my%20notes/A"))
+        XCTAssertNil(target("overstory://example.com/~joe/notes/Ideas"))
+        XCTAssertNil(target("Ideas.md"))
+        XCTAssertNil(target("https://example.com/~joe/notes;overstory-config"))
+        XCTAssertNil(target("https://example.com/~joe#overstory-invite=abc"))
+    }
 }

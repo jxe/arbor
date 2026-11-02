@@ -175,6 +175,7 @@ public final class StoryEditorHost: EditorHost {
     private let performStructuralAction: @MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?
     private let offerTrashAfterDeletingLink: @MainActor (WorkspaceNode, WorkspaceReference) -> Void
     private let describeTree: (@MainActor (WorkspaceReference) async -> String?)?
+    private let canonicalTreeAddresses: @MainActor () -> [CanonicalTreeAddress]
     private let voiceRecordings: TranscribedVoiceRecordingStore?
     private let voiceRecordingPlayer: VoiceRecordingPlayer?
     private var lookups: [DocumentReference: DocumentLookup] = [:]
@@ -195,9 +196,11 @@ public final class StoryEditorHost: EditorHost {
         performStructuralAction: (@MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?)? = nil,
         offerTrashAfterDeletingLink: @escaping @MainActor (WorkspaceNode, WorkspaceReference) -> Void = { _, _ in },
         describeTree: (@MainActor (WorkspaceReference) async -> String?)? = nil,
+        canonicalTreeAddresses: @escaping @MainActor () -> [CanonicalTreeAddress] = { [] },
         voiceRecordings: TranscribedVoiceRecordingStore? = nil,
         voiceRecordingPlayer: VoiceRecordingPlayer? = nil
     ) {
+        self.canonicalTreeAddresses = canonicalTreeAddresses
         self.voiceRecordings = voiceRecordings
         self.voiceRecordingPlayer = voiceRecordingPlayer
         self.binding = binding
@@ -480,10 +483,12 @@ public final class StoryEditorHost: EditorHost {
     /// A relative link already names its target from this page, so it is kept as written; a
     /// same-tree `overstory://` locator becomes the relative link this page would write for it, naming
     /// the body file known from earlier lookups (or a sibling `x.md` until one is known), and a
-    /// locator into another tree stays one.
+    /// locator into another tree stays one. A web URL under a tree's canonical address opens that
+    /// page here, though the page goes on storing and drawing it as the web link it is.
     public func resolveReference(from url: URL, in _: Document) -> DocumentReference? {
         let href = url.absoluteString
-        guard let target = resolveNodeTarget(sourceDirectory: sourceDirectory, href: href) else { return nil }
+        guard let target = resolveNodeTarget(sourceDirectory: sourceDirectory, href: href)
+            ?? resolveCanonicalWebURL(href, among: canonicalTreeAddresses()) else { return nil }
         guard let tree = target.tree else { return DocumentReference(href) }
         let reference = WorkspaceReference(tree: TreeID(rawValue: tree), path: target.path, stableKey: target.stableKey)
         guard reference.tree == binding.reference.tree else { return StoryDocumentReferenceCodec.encode(reference) }
