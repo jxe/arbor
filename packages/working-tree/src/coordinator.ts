@@ -2,7 +2,7 @@ import { applyTransitionPayload, AuthoredContractError, decodeTreeSnapshotJSON, 
   type CurrentTree, type TreeSnapshot, type UpdateResponse, type WatchEvent, type ProtocolClient } from "@ovst/protocol";
 import { attemptEncoding, attemptRequest, emptyControl, encodeAttempt, verifyAttempt, UpdateStateError, UpdateValidationError,
   type ControlStore, type UpdateAttempt, type UpdateControl } from "./control.ts";
-import { compactTransport, branchPublications, publication, type ChangePublication } from "./publication.ts";
+import { compactTransport, dropIntermediates, branchPublications, publication, type ChangePublication } from "./publication.ts";
 import { equal, type LocalChange } from "./local-change.ts";
 import { reduceUpdate, type AcceptedBase, type AuthorityResult, type HeldReason, type LocalTip, type PreparedRequest,
   type UpdateEffect, type UpdateEvent, type UpdateOptions, type UpdateState } from "./update-machine.ts";
@@ -570,7 +570,8 @@ export class UpdateCoordinator {
       const candidate = records.get(change)?.candidate;
       const previous = updates.at(-1)?.candidate;
       const basis = previous ? [...records.values()].find(record => record.candidate.root === previous)?.candidate : transportBase;
-      return basis && candidate ? compactTransport(update, basis, candidate) : update;
+      if (!candidate) return update;
+      return basis ? compactTransport(update, basis, candidate) : dropIntermediates(update, candidate);
     };
     const groups = this.control.publications ??= [];
     const frozen = new Set(this.control.attempt ? attemptRequest(this.control.attempt).updates.map(update => update.change) : []);

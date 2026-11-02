@@ -104,6 +104,36 @@ struct PublicationTests {
         }
     }
 
+    @Test("A batch of edits to one large file sends only the final file, as a delta")
+    func editBatchPayload() throws {
+        var source = String(repeating: "a", count: 70_000) + "\r\n"
+        let file = try ProtocolObjectCodec.object(.file(Data(source.utf8)))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let base = ProtocolSnapshot(root: root.hash, objects: [file, root])
+        var graph = base, records: [LocalChange] = []
+        // Typing "hello" one character at a time, each its own record.
+        for (index, letter) in "hello".enumerated() {
+            let basis = WorkspaceDocumentSnapshot(reference: .init(tree: "tr_publication", path: "/note"), source: source, contentRevision: "r\(index)")
+            let patch = WorkspaceDocumentPatch(baseContentRevision: basis.contentRevision, edits: [.init(utf8Range: (100 + index)..<(100 + index), replacement: String(letter))])
+            source = try patch.applying(to: source)
+            let record = try LocalChange(change: "c\(index)", tree: "tr_publication", basis: records.last.map { .authored(change: $0.change) } ?? .accepted(.init(root: base.root, update: "up_initial")), graph: graph, sourcePath: "/note.md", intent: .init(basis: basis, patch: patch, source: source))
+            records.append(record); graph = record.candidate
+        }
+        let published = try #require(try LocalChange.publication(records, previous: []))
+        #expect((published.update.trace?.count ?? 0) > 1)
+        #expect(published.update.objects.reduce(0) { $0 + $1.bytes.count } > 4 * 70_000)
+        let compact = try LocalChange.compactTransport(published.update, basis: base, candidate: graph)
+        #expect(compact.objects.isEmpty)
+        #expect(!compact.deltas.isEmpty)
+        let request = try UpdateCoordinator.attempt(tree: "tr_publication", base: .init(root: base.root, update: "up_initial"), request: .init(base: "up_initial", updates: [compact]))
+        #expect(request.body.count < 5_000)
+        let replayed = try ProtocolTransitionReplay.applying(.init(objects: compact.objects, deltas: compact.deltas), to: base, root: compact.candidate)
+        #expect(try replayed.rootFile(named: "note.md") == Data(source.utf8))
+        // Without a basis graph the intermediates still stay home.
+        let dropped = try LocalChange.dropIntermediates(published.update, candidate: graph)
+        #expect(dropped.objects.map(\.hash).sorted() == graph.objects.filter { !base.objects.map(\.hash).contains($0.hash) }.map(\.hash).sorted())
+    }
+
     static func branchFixture(tree: String = "tr_publication") throws -> [LocalChange] {
         let files = try ["A", "B", "C"].map { try ProtocolObjectCodec.object(.file(Data($0.utf8))) }
         let root = try ProtocolObjectCodec.object(.directory(zip(["a.md", "b.md", "c.md"], files).map { .init(name: $0, file: $1.hash) }))

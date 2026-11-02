@@ -579,7 +579,8 @@ public actor UpdateCoordinator {
             let basis = updates.last.map { previous in
                 records.first { $0.candidate.root == previous.candidate }?.candidate
             } ?? transportBase
-            guard let basis, let candidate = byChange[change]?.candidate else { return update }
+            guard let candidate = byChange[change]?.candidate else { return update }
+            guard let basis else { return try LocalChange.dropIntermediates(update, candidate: candidate) }
             return try LocalChange.compactTransport(update, basis: basis, candidate: candidate)
         }
         let frozen = Set((try control.attempt?.request().updates.map(\.change)) ?? [])

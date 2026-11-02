@@ -1,4 +1,4 @@
-import { objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
+import { objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, protocolObjectReferences, type ProtocolObjectKind, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
 import { UpdateValidationError } from "./control.ts";
 import type { LocalChange } from "./local-change.ts";
 
@@ -200,9 +200,43 @@ export function branchPublications(group: ChangePublication, shared: number, bra
 }
 
 
+/** Only the final candidate's new objects travel. The authority regenerates
+ * every intermediate frame's objects by executing the frames (spec 10 §2.2),
+ * so a batch of N edits to one page must not send N whole copies of it.
+ * The value of an added or replaced entry is kept, because execution reads
+ * it rather than producing it. Snapshots and resolutions are left as
+ * they are. */
+export function dropIntermediates(update: CandidateUpdateJSON, candidate: LocalChange["candidate"]): CandidateUpdateJSON {
+  if (!update.trace || update.resolves.length || !update.objects.length) return update;
+  const envelopes = new Map(update.objects.map(object => [object.hash, object.bytes]));
+  const after = decodeTreeSnapshotJSON(candidate).objects, deltas = new Set(update.deltas.map(delta => delta.result));
+  // What the request carries: whole objects and delta results. Anything else
+  // the final root reaches is already the host's, and so is all it reaches.
+  const carried = (hash: string) => { const bytes = envelopes.get(hash); return bytes !== undefined ? decodeBase64(bytes) : deltas.has(hash) ? after.get(hash) : undefined; };
+  // An added or replaced entry's value is the one object an operation
+  // names that execution cannot produce; it travels with what it reaches.
+  const kept = new Set<string>(), stack: Array<{ kind: ProtocolObjectKind; hash: string }> = [{ kind: "directory", hash: update.candidate }];
+  for (const frame of update.trace) for (const operation of frame.operations) {
+    if (operation.kind !== "addEntry" && operation.kind !== "replaceEntry") continue;
+    const value = operation.value as { file?: string; page?: string; directory?: string };
+    if (value.file) stack.push({ kind: "file", hash: value.file });
+    else if (value.page) stack.push({ kind: "page", hash: value.page });
+    else if (value.directory) stack.push({ kind: "directory", hash: value.directory });
+  }
+  for (let next = stack.pop(); next; next = stack.pop()) {
+    if (kept.has(next.hash)) continue;
+    const bytes = carried(next.hash);
+    if (!bytes) continue;
+    kept.add(next.hash);
+    stack.push(...protocolObjectReferences(next.kind, bytes));
+  }
+  return { ...update, objects: update.objects.filter(object => kept.has(object.hash)) };
+}
+
 /** Compress final reachable envelopes against the element's basis graph.
  * Transport matching never establishes semantic provenance. */
 export function compactTransport(update: CandidateUpdateJSON, basis: LocalChange["graph"], candidate: LocalChange["candidate"]): CandidateUpdateJSON {
+  update = dropIntermediates(update, candidate);
   if (!update.objects.length) return update;
   const before = decodeTreeSnapshotJSON(basis).objects, after = decodeTreeSnapshotJSON(candidate).objects;
   const envelopes = new Map(update.objects.map(object => [object.hash, object])), deltas = [...update.deltas], visited = new Set<string>();
