@@ -93,13 +93,16 @@ public struct ProtocolPresencePeer: Codable, Hashable, Sendable, Identifiable {
     public var page: ProtocolPresencePage?
     /// Nil for a person.
     public var agent: ProtocolPresenceAgent?
+    /// What the client says it runs on (`mac`, `ios`); nil when it didn't say.
+    public var device: String?
 
-    public init(id: String, profile: String, name: String? = nil, page: ProtocolPresencePage? = nil, agent: ProtocolPresenceAgent? = nil) {
+    public init(id: String, profile: String, name: String? = nil, page: ProtocolPresencePage? = nil, agent: ProtocolPresenceAgent? = nil, device: String? = nil) {
         self.id = id
         self.profile = profile
         self.name = name
         self.page = page
         self.agent = agent
+        self.device = device
     }
 
     func validated() throws -> Self {

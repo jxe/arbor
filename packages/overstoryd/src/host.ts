@@ -2,7 +2,7 @@ import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { decodePresenceAgentLabel, decodePresenceUpdate, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID } from "@ovst/protocol";
+import { decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID } from "@ovst/protocol";
 import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { AccountChallenge, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeQueryResponse } from "./exec-routes.ts";
@@ -856,6 +856,7 @@ export async function serveHost(options: {
           catch (error) { return protocolError("invalid-request", error instanceof Error ? error.message : String(error), 400); }
           if (agent !== null && !authentication) return protocolError("unauthenticated", "An agent's presence needs an account", 401);
           const visible = url.searchParams.get("visible") !== "false";
+          const device = decodePresenceDevice(url.searchParams.get("device"));
           let name: string | null = null;
           if (authentication) {
             try { name = overstoryd.profileCard(authentication.account.id).displayName ?? null; } catch { name = null; }
@@ -875,7 +876,7 @@ export async function serveHost(options: {
             start(controller) {
               const joined = presence.join(tree.id, {
                 caller: authentication ? { account: authentication.account.id, device: authentication.device } : null,
-                visible, agent, name,
+                visible, agent, name, device,
                 wake: () => { wake?.(); wake = undefined; },
                 close: () => end(),
               });

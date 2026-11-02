@@ -12,6 +12,7 @@ import type {
 import {
   parseSSEStream,
   decodePresenceEvent,
+  type PresenceDevice,
   type PresenceEvent,
   type PresenceID,
   type PresenceUpdate,
@@ -671,12 +672,14 @@ export class ProtocolClient {
    * Join a tree's presence (spec 12): the roster, then peers' changes,
    * cursors and departures. Being subscribed is being present; the stream
    * starts over on reconnect. `agent` opens an agent's stream under the
-   * caller's profile; `visible: false` watches without being listed.
+   * caller's profile; `visible: false` watches without being listed; `device`
+   * says what this client runs on.
    */
-  async *presence(tree: TreeID, options: { visible?: boolean; agent?: string; signal?: AbortSignal; onOpen?: () => void } = {}): AsyncGenerator<PresenceEvent> {
+  async *presence(tree: TreeID, options: { visible?: boolean; agent?: string; device?: PresenceDevice; signal?: AbortSignal; onOpen?: () => void } = {}): AsyncGenerator<PresenceEvent> {
     const query = new URLSearchParams();
     if (options.visible === false) query.set("visible", "false");
     if (options.agent !== undefined) query.set("agent", options.agent);
+    if (options.device !== undefined) query.set("device", options.device);
     const search = query.size ? `?${query}` : "";
     const idle = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;

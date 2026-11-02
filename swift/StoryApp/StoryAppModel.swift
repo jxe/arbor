@@ -2347,7 +2347,7 @@ final class StoryWorkspaceState {
 
     private func startPresence(client: ProtocolClient, tree: String) {
         stopPresence()
-        let presence = HostPresence(client: client, tree: tree, visible: showsMeToOthers) { [weak self] roster in
+        let presence = HostPresence(client: client, tree: tree, visible: showsMeToOthers, device: Self.presenceDevice) { [weak self] roster in
             await MainActor.run { self?.presenceRoster = roster }
         }
         hostPresence = presence
@@ -2356,6 +2356,15 @@ final class StoryWorkspaceState {
             await presence.start()
             if let page, page.tree.rawValue == tree { await presence.setPage(Self.presencePage(page)) }
         }
+    }
+
+    /// What this client tells presence it runs on.
+    nonisolated static var presenceDevice: String {
+#if os(macOS)
+        "mac"
+#else
+        "ios"
+#endif
     }
 
     private func stopPresence() {

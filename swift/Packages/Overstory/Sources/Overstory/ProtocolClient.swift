@@ -531,6 +531,7 @@ public actor ProtocolClient {
         tree: String,
         visible: Bool = true,
         agent: String? = nil,
+        device: String? = nil,
         idleTimeout: Duration = ProtocolClient.watchIdleTimeout,
         onOpen: (@Sendable () async -> Void)? = nil
     ) async throws -> AsyncThrowingStream<ProtocolPresenceEvent, Error> {
@@ -538,6 +539,7 @@ public actor ProtocolClient {
         var query: [String] = []
         if !visible { query.append("visible=false") }
         if let agent { query.append("agent=\(agent.addingPercentEncoding(withAllowedCharacters: allowed)!)") }
+        if let device { query.append("device=\(device.addingPercentEncoding(withAllowedCharacters: allowed)!)") }
         let suffix = query.isEmpty ? "" : "?" + query.joined(separator: "&")
         var request = try await authorizedRequest(path: "/.overstory/trees/\(component(tree))/presence\(suffix)")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")

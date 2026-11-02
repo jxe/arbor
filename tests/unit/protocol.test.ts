@@ -177,6 +177,9 @@ describe("REST v1 protocol fixtures", () => {
     expect(events.map((event) => event.kind)).toEqual(["presence.ready", "presence.peer", "presence.cursor", "presence.peer", "presence.cursor", "presence.leave"]);
     const agent = events[3]!;
     expect(agent.kind === "presence.peer" && agent.peer.agent).toEqual({ label: "Claude", status: "merging duplicates" });
+    const [first, moved] = events;
+    expect(first!.kind === "presence.ready" && first!.ready.peers[0]!.device).toBeNull();
+    expect(moved!.kind === "presence.peer" && moved!.peer.device).toBe("ios");
   });
 
   test("presence-events-invalid.json frames are rejected", async () => {

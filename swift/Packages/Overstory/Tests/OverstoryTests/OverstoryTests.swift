@@ -1150,6 +1150,9 @@ struct ProtocolValueVectorTests {
         guard case .ready(let ready) = events[0] else { Issue.record("first event is not ready"); return }
         #expect(ready.selfID == "pr_me")
         #expect(ready.peers.map(\.name) == ["Ana"])
+        #expect(ready.peers.map(\.device) == [nil])
+        guard case .peer(let moved) = events[1] else { Issue.record("second event is not a peer"); return }
+        #expect(moved.device == "ios")
         guard case .peer(let agent) = events[3] else { Issue.record("fourth event is not a peer"); return }
         #expect(agent.agent == ProtocolPresenceAgent(label: "Claude", status: "merging duplicates"))
         #expect(agent.page == ProtocolPresencePage(path: "/Groceries", stableKey: "id:groceries"))

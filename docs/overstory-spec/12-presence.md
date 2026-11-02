@@ -33,6 +33,7 @@ type PresencePeer = {
   name: string | null;     // the host's display name for the profile, if it has one
   page: PresencePage | null;
   agent: PresenceAgent | null;   // null for a person
+  device: "mac" | "ios" | null;  // what the client says it runs on, if it said
 };
 ```
 
@@ -50,6 +51,12 @@ type PresencePeer = {
    the host holds for the profile, or `null` (for example for a placement
    account whose profile is homed elsewhere). A client derives a stable colour
    from `profile`. A presence ID never reveals a device ID.
+5. **Device kind.** A client may say what it runs on with `device=mac` or
+   `device=ios` when it opens its stream; a host ignores any other value and
+   lists the entry with `device: null`, as it does when the client doesn't say.
+   The kind is a hint for showing the entry and says nothing about which
+   device it is. A client should not rely on it for an agent's entry, and
+   treats a missing member or a kind it doesn't know as `null`.
 
 ## 2. Cursors
 
@@ -68,7 +75,7 @@ cursor when the peer's page changes.
 ## 3. Routes
 
 ```text
-GET  /.overstory/trees/{TreeID}/presence[?visible=false][&agent=<label>]
+GET  /.overstory/trees/{TreeID}/presence[?visible=false][&agent=<label>][&device=<kind>]
 POST /.overstory/trees/{TreeID}/presence/{PresenceID}
 ```
 

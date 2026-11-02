@@ -1,7 +1,7 @@
 // The presence hub (spec 12): every live presence entry, in this process's
 // memory only. A restart or deploy empties it, and clients start over.
 
-import { encodeSSEFrame, type PresenceAgent, type PresenceID, type PresencePage, type PresencePeer, type PresenceSelection, type PresenceUpdate } from "@ovst/protocol";
+import { encodeSSEFrame, type PresenceAgent, type PresenceDevice, type PresenceID, type PresencePage, type PresencePeer, type PresenceSelection, type PresenceUpdate } from "@ovst/protocol";
 import { randomBytes } from "node:crypto";
 
 /** Who opened a presence stream. Only an account's device can be listed. */
@@ -17,6 +17,8 @@ export interface PresenceJoin {
   /** An agent's label: its stream is listed as an agent of the caller's profile. */
   agent: string | null;
   name: string | null;
+  /** What the client says it runs on. Not the caller's device ID. */
+  device: PresenceDevice | null;
   /** Wakes the stream's reader when frames are waiting. */
   wake: () => void;
   /** Ends the stream, as for a consumer too slow to keep up. */
@@ -29,6 +31,7 @@ interface Entry {
   visible: boolean;
   agent: string | null;
   name: string | null;
+  device: PresenceDevice | null;
   page: PresencePage | null;
   selection: PresenceSelection | null;
   status: string | null;
@@ -55,7 +58,7 @@ const POSTS_PER_SECOND = 10;
 
 function peerOf(entry: Entry): PresencePeer {
   const agent: PresenceAgent | null = entry.agent === null ? null : { label: entry.agent, status: entry.status };
-  return { id: entry.id, profile: entry.caller!.account, name: entry.name, page: entry.page, agent };
+  return { id: entry.id, profile: entry.caller!.account, name: entry.name, page: entry.page, agent, device: entry.device };
 }
 
 function samePage(a: PresencePage | null, b: PresencePage | null): boolean {
@@ -74,6 +77,7 @@ export class PresenceHub {
       visible: listed,
       agent: listed ? join.agent : null,
       name: join.name,
+      device: join.device,
       page: null,
       selection: null,
       status: null,

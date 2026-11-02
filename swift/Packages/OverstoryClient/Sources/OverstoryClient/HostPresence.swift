@@ -11,6 +11,8 @@ public actor HostPresence {
     public nonisolated let tree: String
     /// Not visible: watch the roster without joining it ("Show me to others" off).
     public nonisolated let visible: Bool
+    /// What this client runs on (`mac`, `ios`), shown beside its entry.
+    public nonisolated let device: String?
     private nonisolated let onChange: @Sendable (ProtocolPresenceRoster) async -> Void
     private nonisolated let maximumReconnectDelay: Duration
 
@@ -27,12 +29,14 @@ public actor HostPresence {
         client: ProtocolClient,
         tree: String,
         visible: Bool = true,
+        device: String? = nil,
         maximumReconnectDelay: Duration = .seconds(5),
         onChange: @escaping @Sendable (ProtocolPresenceRoster) async -> Void = { _ in }
     ) {
         self.client = client
         self.tree = tree
         self.visible = visible
+        self.device = device
         self.maximumReconnectDelay = maximumReconnectDelay
         self.onChange = onChange
     }
@@ -75,7 +79,7 @@ public actor HostPresence {
     private nonisolated func run() async {
         await runObservationLoop(maximumDelay: maximumReconnectDelay) { connected in
             defer { Task { await self.disconnected() } }
-            let events = try await client.presence(tree: tree, visible: visible)
+            let events = try await client.presence(tree: tree, visible: visible, device: device)
             for try await event in events {
                 connected()
                 try Task.checkCancellation()

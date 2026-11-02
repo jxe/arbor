@@ -4,7 +4,7 @@ event: presence.ready
 data: {"self":"pr_me","peers":[{"id":"pr_ana","profile":"tr_anaprofile","name":"Ana","page":null,"agent":null}]}
 
 event: presence.peer
-data: {"id":"pr_ana","profile":"tr_anaprofile","name":"Ana","page":{"path":"/Groceries","stableKey":null},"agent":null}
+data: {"id":"pr_ana","profile":"tr_anaprofile","name":"Ana","page":{"path":"/Groceries","stableKey":null},"agent":null,"device":"ios"}
 
 event: presence.cursor
 data: {"id":"pr_ana","selection":{"source":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","anchor":12,"head":20}}

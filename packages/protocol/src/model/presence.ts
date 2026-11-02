@@ -26,6 +26,9 @@ export interface PresenceAgent {
   status: string | null;
 }
 
+/** What a client says it runs on; a hint for showing the entry. */
+export type PresenceDevice = "mac" | "ios";
+
 export interface PresencePeer {
   id: PresenceID;
   profile: TreeID;
@@ -33,6 +36,8 @@ export interface PresencePeer {
   page: PresencePage | null;
   /** Null for a person. */
   agent: PresenceAgent | null;
+  /** Null when the client didn't say. */
+  device: PresenceDevice | null;
 }
 
 export interface PresenceReady {
@@ -143,6 +148,11 @@ function decodeAgent(value: unknown): PresenceAgent | null {
   return { label: line(agent.label, "agent.label", PRESENCE_LIMITS.labelCharacters), status: decodePresenceStatus(agent.status) };
 }
 
+/** A device kind from a query parameter or a peer; anything else is no kind. */
+export function decodePresenceDevice(value: unknown): PresenceDevice | null {
+  return value === "mac" || value === "ios" ? value : null;
+}
+
 export function decodePresencePeer(value: unknown): PresencePeer {
   const peer = record(value, "peer");
   if (peer.name !== null && typeof peer.name !== "string") fail("peer.name must be a string or null");
@@ -152,6 +162,7 @@ export function decodePresencePeer(value: unknown): PresencePeer {
     name: peer.name as string | null,
     page: decodePresencePage(peer.page),
     agent: decodeAgent(peer.agent),
+    device: decodePresenceDevice(peer.device),
   };
 }
 

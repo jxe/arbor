@@ -42,7 +42,7 @@ afterAll(async () => {
 });
 
 /** A presence stream whose events a test awaits one at a time. */
-function subscribe(client: ProtocolClient, options: { visible?: boolean; agent?: string } = {}) {
+function subscribe(client: ProtocolClient, options: { visible?: boolean; agent?: string; device?: "mac" | "ios" } = {}) {
   const abort = new AbortController();
   const events = client.presence(community, { ...options, signal: abort.signal });
   const next = async (): Promise<PresenceEvent> => {
@@ -141,6 +141,29 @@ describe("presence", () => {
     await ana.updatePresence(community, agentReady.self!, { status: "merging duplicates" });
     expect(await b.take()).toMatchObject({ kind: "presence.peer", peer: { agent: { label: "Claude", status: "merging duplicates" } } });
     agent.close();
+    b.close();
+  });
+
+  test("a stream's device kind is listed; none or an unknown one is null", async () => {
+    const b = subscribe(ben);
+    await ready(b);
+
+    const mac = subscribe(ana, { device: "mac" });
+    await ready(mac);
+    expect(await b.take()).toMatchObject({ kind: "presence.peer", peer: { profile: anaProfile, device: "mac" } });
+    mac.close();
+    expect((await b.take()).kind).toBe("presence.leave");
+
+    const plain = subscribe(ana);
+    await ready(plain);
+    expect(await b.take()).toMatchObject({ kind: "presence.peer", peer: { device: null } });
+    plain.close();
+    expect((await b.take()).kind).toBe("presence.leave");
+
+    const unknown = subscribe(ana, { device: "toaster" as never });
+    await ready(unknown);
+    expect(await b.take()).toMatchObject({ kind: "presence.peer", peer: { device: null } });
+    unknown.close();
     b.close();
   });
 
