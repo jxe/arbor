@@ -17,7 +17,9 @@ const HOOK_EVENTS = {
   SessionEnd: undefined,
 } as const;
 
-const PERMISSION = "Bash(story agent:*)";
+function isOurPermission(rule: string): boolean {
+  return /^Bash\((.*[/\s])?(story|@ovst\/cli) agent:\*\)$/.test(rule);
+}
 const SKILL_DIRECTORY = "story-placed-folders";
 
 type HookEntry = { matcher?: string; hooks: Array<{ type: "command"; command: string }> };
@@ -75,23 +77,24 @@ function withoutOurHooks(settings: ClaudeSettings): ClaudeSettings {
 export async function installAgentPresence(options: AgentInstallOptions = {}): Promise<{ settings: string; skill: string }> {
   const directory = claudeDirectory(options);
   const settingsPath = join(directory, "settings.json");
-  const command = `${options.command ?? "story"} agent hook --agent ${JSON.stringify(options.agent ?? "Claude")}`;
+  const story = options.command ?? "story";
+  const command = `${story} agent hook --agent ${JSON.stringify(options.agent ?? "Claude")}`;
   const settings = withoutOurHooks(await readSettings(settingsPath));
   const hooks = settings.hooks ?? {};
   for (const [event, matcher] of Object.entries(HOOK_EVENTS)) {
     hooks[event] = [...(hooks[event] ?? []), { ...(matcher ? { matcher } : {}), hooks: [{ type: "command", command }] }];
   }
-  const allow = settings.permissions?.allow ?? [];
+  const allow = (settings.permissions?.allow ?? []).filter((rule) => !isOurPermission(rule));
   const next: ClaudeSettings = {
     ...settings,
     hooks,
-    permissions: { ...settings.permissions, allow: allow.includes(PERMISSION) ? allow : [...allow, PERMISSION] },
+    permissions: { ...settings.permissions, allow: [...allow, `Bash(${story} agent:*)`] },
   };
   await mkdir(directory, { recursive: true });
   await writeFile(settingsPath, `${JSON.stringify(next, null, 2)}\n`);
   const skillPath = join(directory, "skills", SKILL_DIRECTORY, "SKILL.md");
   await mkdir(dirname(skillPath), { recursive: true });
-  await writeFile(skillPath, AGENT_SKILL);
+  await writeFile(skillPath, AGENT_SKILL.replace(/\bstory (agent|sync)\b/g, `${story} $1`));
   return { settings: settingsPath, skill: skillPath };
 }
 
@@ -101,7 +104,7 @@ export async function uninstallAgentPresence(options: AgentInstallOptions = {}):
   const settingsPath = join(directory, "settings.json");
   const settings = withoutOurHooks(await readSettings(settingsPath));
   if (settings.permissions?.allow) {
-    settings.permissions = { ...settings.permissions, allow: settings.permissions.allow.filter((rule) => rule !== PERMISSION) };
+    settings.permissions = { ...settings.permissions, allow: settings.permissions.allow.filter((rule) => !isOurPermission(rule)) };
   }
   if (Object.keys(settings).length || await readFile(settingsPath).then(() => true, () => false)) {
     await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);

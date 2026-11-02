@@ -211,7 +211,14 @@ describe("story agent install", () => {
     // An install through npx is replaced and removed the same way.
     await installAgentPresence({ claudeDirectory: claude, command: "npx @ovst/cli" });
     await installAgentPresence({ claudeDirectory: claude, command: "npx @ovst/cli" });
-    expect((await Bun.file(settingsPath).json()).hooks.SessionEnd).toHaveLength(1);
+    const throughNpx = await Bun.file(settingsPath).json();
+    expect(throughNpx.hooks.SessionEnd).toHaveLength(1);
+    // Its permission and skill name the command that works there, in place of the earlier install's.
+    expect(throughNpx.permissions.allow).toEqual(["Bash(ls:*)", "Bash(npx @ovst/cli agent:*)"]);
+    const skill = await Bun.file(join(claude, "skills/story-placed-folders/SKILL.md")).text();
+    expect(skill).toContain("npx @ovst/cli agent status");
+    expect(skill).toContain("npx @ovst/cli sync status");
+    expect(skill).not.toMatch(/(?<!npx @ovst\/cli )`?story (agent|sync)\b/);
     await uninstallAgentPresence({ claudeDirectory: claude });
     expect(await Bun.file(settingsPath).json()).toEqual(mine);
     expect(await Bun.file(join(claude, "skills/story-placed-folders/SKILL.md")).exists()).toBe(false);

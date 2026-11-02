@@ -25,7 +25,9 @@ one session per agent session:
 `story agent install` writes hooks, the skill and the `Bash(story agent:*)`
 permission into `~/.claude/settings.json` and `~/.claude/skills/`, rather than
 packaging a Claude Code plugin, so it needs no marketplace; reinstalling
-replaces its own entries and uninstalling removes only them.
+replaces its own entries and uninstalling removes only them. All three name the
+command that installed them, so `story agent start` from the npm package writes
+`npx @ovst/cli agent` instead.
 
 ## Runs
 
