@@ -130,3 +130,33 @@ test("a backfill computes missing indexes again the same way, and rebinds an ans
   again.delete(answered); live.delete(answered);
   expect(stableJSONString([...again])).toBe(stableJSONString([...live]));
 });
+
+test("an accepted edit writes its index without creating a file", async () => {
+  const { accepted } = await history();
+  // Pointers are rows; records rode in the entries' journal appends.
+  expect((await readdir(join(dir, "provenance", "v1"))).filter((name) => !name.startsWith("pointers.sqlite3"))).toEqual([]);
+  const loose = (await readdir(join(dir, "objects"), { recursive: true })).filter((name) => /[a-f0-9]{62}$/.test(name));
+  expect(loose).toEqual([]);
+  const found = await indexes();
+  expect([...found.values()].every((index) => index !== null)).toBe(true);
+  expect(note(found.get(acceptedEntries(dir, tree).find((e) => e.id === accepted.id)?.hash ?? ""))).toBeDefined();
+});
+
+test("an entry indexed before pointer rows is still read from its pointer file", async () => {
+  await history();
+  const provenance = new ProvenanceStore(dir, store, () => { throw new Error("unused"); });
+  const [entry] = acceptedEntries(dir, tree).slice(-1);
+  const root = await provenance.pointer(entry!.hash as ObjectHash);
+  expect(root).not.toBeNull();
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const { Database } = await import("bun:sqlite");
+  const db = new Database(join(dir, "provenance", "v1", "pointers.sqlite3"));
+  db.run("DELETE FROM pointers WHERE key = ?", [entry!.hash]);
+  db.close();
+  expect(await provenance.pointer(entry!.hash as ObjectHash)).toBeNull();
+  const path = provenance.path(entry!.hash as ObjectHash);
+  await mkdir(join(path, ".."), { recursive: true });
+  await writeFile(path, `${root}\n`);
+  expect(await provenance.pointer(entry!.hash as ObjectHash)).toBe(root);
+  provenance.close();
+});

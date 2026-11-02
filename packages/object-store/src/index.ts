@@ -14,6 +14,7 @@ import {
 import { Packs, prepareRecords, type PackCandidate, type PackOptions } from "./packs.ts";
 
 export { Encoding, PACK_INDEX, Packs, zstd, type PackCandidate, type PackOptions, type PackRecord, type PackUsage, type PackedLocation } from "./packs.ts";
+export { HashPointers } from "./pointers.ts";
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 
@@ -178,14 +179,37 @@ export class ObjectStore {
   /** Confirm every object reachable from the given roots is present and
    * hash-consistent. With `freshen`, every one found in the store rather than
    * in `proposed` is then freshened: a caller about to commit a reference to
-   * those objects uses this to keep them from a concurrent collector. */
-  async verifyReachable(roots: ObjectHash[], proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map(), options: { freshen?: boolean } = {}): Promise<void> {
+   * those objects uses this to keep them from a concurrent collector.
+   *
+   * `retained` names roots of retained accepted rows: complete, and kept by
+   * the collector, so nothing they reach is read again or freshened. Only
+   * their directories are read, to learn what they reach; a root that shares
+   * most of a retained one costs what it changed, not its size. */
+  async verifyReachable(roots: ObjectHash[], proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map(), options: { freshen?: boolean; retained?: readonly ObjectHash[] } = {}): Promise<void> {
     const seen = new Set<ObjectHash>(), stored = new Set<ObjectHash>();
+    for (const root of options.retained ?? []) await this.reachedDirectories(root, seen);
     for (const root of roots) {
       const { complete } = await this.walk(root, proposed, (hash) => { if (!proposed.has(hash)) stored.add(hash); }, seen);
       if (!complete) throw new Error(`Retained history is missing an object under ${root}`);
     }
     if (options.freshen) await this.freshen(stored);
+  }
+
+  /** Mark what a retained root reaches in `seen` (as `walk` keys it), reading
+   * only its directories: a reached file's bytes are never read. */
+  private async reachedDirectories(root: ObjectHash, seen: Set<string>): Promise<void> {
+    const pending: ObjectHash[] = [root];
+    while (pending.length) {
+      const hash = pending.pop()!, key = `directory:${hash}`;
+      if (seen.has(key)) continue;
+      const bytes = await this.find(hash);
+      if (!bytes) continue; // not stored: the walk reads it, and fails, as usual
+      seen.add(key);
+      for (const edge of protocolObjectReferences("directory", bytes)) {
+        if (edge.kind === "directory") pending.push(edge.hash);
+        else if (isProtocolContentKind(edge.kind)) seen.add(`${edge.kind}:${edge.hash}`);
+      }
+    }
   }
 
   /**
@@ -196,12 +220,13 @@ export class ObjectStore {
    * it first, and the caller must not commit a reference to it.
    */
   async freshen(hashes: Iterable<ObjectHash>): Promise<void> {
-    const notLoose: ObjectHash[] = [];
-    await mapLimit(new Set(hashes), WRITE_CONCURRENCY, async (hash) => {
-      if (!await touch(this.path(hash))) notLoose.push(hash);
+    // A packed or journaled object's index row carries its time, set for all
+    // of them in one transaction; only the rest are loose files to touch.
+    const unpacked = this.packs.freshen(new Set(hashes));
+    const missing: ObjectHash[] = [];
+    await mapLimit(unpacked, WRITE_CONCURRENCY, async (hash) => {
+      if (!await touch(this.path(hash))) missing.push(hash);
     });
-    // A packed object's index row carries its time instead.
-    const missing = notLoose.length ? this.packs.freshen(notLoose) : [];
     if (missing.length) throw new Error(`Stored object vanished: ${missing[0]}`);
   }
 

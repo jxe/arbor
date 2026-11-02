@@ -58,9 +58,15 @@ Directory entries are in UTF-8 name order. A file's pieces are split into chunks
 after each piece whose `sha256(origin + "\0" + start)` begins with five zero bits,
 so an edit rewrites only the chunks it touches.
 
-An entry's index is found by its hash: the file
-`provenance/v1/<hex 0..2>/<hex 2..64>` beside `objects/` holds the hash of its root
-record. overstoryd writes it, with the records, in the same batch as the entry.
+An entry's index is found by its hash: a row in `provenance/v1/pointers.sqlite3`
+beside `objects/` (table `pointers`, `key` the entry's hash, `hash` its root
+record's) names the root record. overstoryd stores the records in the entry's
+own journal append, so they cost no file and no sync of their own, and writes
+the row once they are stored, never synced (`HashPointers` in
+`@ovst/object-store`). An entry indexed before 2026-11-02 may instead have a
+pointer file `provenance/v1/<hex 0..2>/<hex 2..64>` holding the root record's
+hash; readers look for the row first, then the file. The backfill stores its
+records 64 entries to one append.
 Absent means not computed (an entry from before the index): a reader computes it
 from the nearest earlier entry that has one, over the entries between. overstoryd
 does this in the background from startup (`OVERSTORYD_PROVENANCE_FILL=0` turns it

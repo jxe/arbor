@@ -208,3 +208,33 @@ test("provenance records round-trip, share unchanged records, and chunk long pie
   expect(store.size - before).toBeLessThanOrEqual(4);
   expect(() => decodeProvenanceRecord(new TextEncoder().encode('{"kind":"tree","node":"t","format":"overstory-provenance-v1"}'))).toThrow("canonical");
 });
+
+test("a changed file reuses its unchanged chunks and writes exactly what a full encode writes", async () => {
+  // Deterministic pseudo-random edits: inserts, deletes, replacements, at the
+  // start, middle and end, and over an index read back from its records.
+  let seed = 7;
+  const random = (n: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  const store = new Map<string, Uint8Array>();
+  const put = (bytes: Uint8Array) => { const h = hashObject(bytes); store.set(h, bytes); return h as ObjectHash; };
+  const fresh = (bytes: Uint8Array) => hashObject(bytes) as ObjectHash;
+  const file = (pieces: Array<{ origin: string; start: number; length: number }>): ProvenanceNode => ({ kind: "directory", node: "r", entries: { "a.md": { kind: "page", node: "a", pieces } } });
+  let pieces = Array.from({ length: 600 }, (_, i) => ({ origin: `o${i % 37}`, start: i * 3, length: 2 }));
+  let previous = file(pieces), written = new WeakMap<object, ObjectHash>();
+  encodeProvenance(previous, put, written);
+  for (let step = 0; step < 300; step++) {
+    if (step % 50 === 25) { previous = await readProvenance(encodeProvenance(previous, put, new WeakMap()), async (h) => store.get(h)!); written = new WeakMap(); }
+    const at = [0, pieces.length, random(pieces.length + 1)][step % 3]!, remove = Math.min(random(4), pieces.length - at);
+    const insert = Array.from({ length: random(4) }, (_, k) => ({ origin: `n${step}`, start: k * 5, length: 1 + k }));
+    pieces = [...pieces.slice(0, at), ...insert, ...pieces.slice(at + remove)];
+    const next = file(pieces);
+    const before = store.size, written2 = new Set<string>();
+    const incremental = encodeProvenance(next, (bytes) => { written2.add(fresh(bytes)); return put(bytes); }, written, previous);
+    const full = new Set<string>();
+    expect(encodeProvenance(file(pieces), (bytes) => { const h = fresh(bytes); full.add(h); return h; })).toBe(incremental);
+    // Everything the incremental encode references is stored.
+    for (const h of full) expect(store.has(h)).toBe(true);
+    expect(written2.size).toBeLessThanOrEqual(full.size);
+    if (pieces.length > 300 && remove + insert.length > 0) expect(store.size - before).toBeLessThan(8);
+    previous = next;
+  }
+});

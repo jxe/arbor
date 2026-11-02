@@ -46,16 +46,50 @@ iPhone and iPad, with the alternate declared for both in Info.plist.
 App-hosted tests and manual system appearance switching remain unrun to
 preserve the running debug app. No app was installed or released.
 
+## Data-oriented accept path — 2026-11-02
+
+**Implemented** on main, deployed with it. Applying the
+[data-oriented performance skill](.claude/skills/data-oriented-performance/SKILL.md):
+directories are read in one pass over their bytes (no decode to objects and re-encode;
+`decodeProtocolDirectory`, ~10x); a traced edit's plain check runs once per request; a
+merge answer reads and freshens only what it does not share with the head; an answered
+entry's index is not re-encoded. On disk, an accepted edit creates no file: index records
+ride the entry's journal append and its pointer is a row in
+`provenance/v1/pointers.sqlite3` (older entries keep pointer files), and merge workers
+stage scratch under the system temporary directory, not `/data`. On the todos tree's
+content (143 objects), server time per traced edit went from 12.8 to 4.9 ms and per
+merged snapshot from 42 to 32 ms locally; per edit the data volume now sees one fsync and
+no other metadata operation (was ~17 creates, links, mkdirs and unlinks), and a merged
+pair about 45 reads and stats (was ~830 utimes and ~610 opens). Proposal and next steps:
+`/mnt/project-files/overstoryd-redesign/proposal.md` (project files).
+
+Then large, long-edited pages (live: 6-25 ms storing an edit to the 64 KB Console page).
+Storing an edit re-chunked and re-hashed the page's whole provenance piece list, which grows
+with every edit; now only the chunks whose pieces changed are written (a differential test
+checks the records equal a full encode). An edit to a root `_index.md` reads only its
+frontmatter for profile facts. Story and Story Sync batches send only the final candidate's
+objects (Story had sent each in-between version of the page in full, 70-217 KB per batch);
+the host regenerates intermediate frames by executing them. Harness
+`tests/performance/page-edit-cost.ts`, 64 KB page after 1,500 edits: server time per typed
+character 17.4 -> 6.6 ms (accepted-store 10.2 -> 2.2 ms).
+
 ## Performance 004: merges start from the provenance index — 2026-11-02
 
-[Performance 004](plans/soon/performance-004-provenance-index.md) steps 1 to 5 are
-**deployed** (step 4's last part pending deploy). overstoryd keeps each accepted entry's
-[provenance index](docs/architecture/overstoryd/provenance-index.md) (staged, no fsync; a
+[Performance 004](https://github.com/jxe/arbor/blob/4844b1c/plans/soon/performance-004-provenance-index.md) steps 1 to 5 are
+**deployed** and the plan is closed (Joe, 2026-11-02); its leftovers, a canonical contribution
+order and collection merge cost (step 6), are [Performance 008](plans/soon/performance-008-merge-cost-by-edit.md). overstoryd keeps each accepted entry's
+[provenance index](docs/architecture/overstoryd/provenance-index.md) (no fsync of its own; a
 backfill fills gaps without the merge worker). The merge sidecar starts entries from it
 instead of replaying history: a head replays only the entries after its basis, merge answers
 carry their index, and the saved checkpoints (`merge-cache/`, Performance 002) and the
 retryable "rebuilding history" answer are removed. Cold questions on the Oct 28 todos copy:
 591 of 604 as accepted (the rest as full history misses them), median 57 ms.
+
+Then overstoryd's disk cost (`ce775c7`): an accepted update's new objects are appended to an
+object journal under `objects/packs/` with one write and one `fdatasync`, and nothing is
+written before acceptance; packing compresses journaled objects later, and a host start
+re-indexes records a lost index commit left out. On the Oct 28 copy with 4 ms added per
+fsync, a fast-forward went from 27.8 to 14.7 ms (median) and from 9 syncs to 1.
 
 ## Agents 001: presence and agent tasks — 2026-11-01
 
@@ -439,8 +473,7 @@ and deleted. Its text, with each milestone's design, is in git history at
 Before landing, the Swift tests passed on Joe's Mac and the performance
 benchmarks were compared with main: a one-row edit in a 10,000-row
 collection is about 35% slower, because a changed collection is re-encoded
-whole ([Performance 004](plans/soon/performance-004-provenance-index.md)
-step 6). Leftovers: publishing USL 0.3.0 and moving the sites ([done](#plans-and-small-work-trimmed--2026-10-28))
+whole ([Performance 008](plans/soon/performance-008-merge-cost-by-edit.md)). Leftovers: publishing USL 0.3.0 and moving the sites ([done](#plans-and-small-work-trimmed--2026-10-28))
 and the gaps each milestone left ([closed 2026-10-28](#rows-on-the-host-eviction-and-a-collection-scoped-guard--2026-10-28)).
 The USL examples moved to [`packages/usl/examples`](packages/usl/examples).
 
@@ -708,7 +741,7 @@ the phone reported current with unresolved conflicts, its durable attempt and
 hold were cleared, and Joe confirmed it had caught up. The request was not
 discarded, rewritten or regenerated. The first recovery took about five
 minutes, rebuilding about 4,200 entries for the older authored basis, which is
-what [Performance 004](plans/soon/performance-004-provenance-index.md)
+what [Performance 004](https://github.com/jxe/arbor/blob/4844b1c/plans/soon/performance-004-provenance-index.md)
 addresses (it replaced Performance 003 on 2026-10-21).
 
 The live cache directory was listed on 2026-10-24 and the two older readers
@@ -1276,7 +1309,7 @@ measurements before broadening the implementation.
 | Tree configurations (overstoryd 005, schema 22): every hosted tree has one private configuration tree at a derived TreeID holding `access.yaml` and `mounts.yaml`, plus `apps.yaml` for a profile and `devices.yaml` for a person; rules have `admin` and `app`; lending names the lender; accounts are keyed by profile TreeID; the account configuration, `access`, `resource_policy` and `tree_reservations` are gone. The Mac and iPhone apps, CLI and Story Sync speak it | deployed and verified 2026-09-26 at schema 22 by migration 022 (`packages/overstoryd/migrations/022-tree-configurations/README.md` at `66a76f5`) (build `983c59da`; app fixes `35a9b320`) | [spec](docs/overstory-spec/04-accounts-and-devices.md#2-tree-configuration-graph), [decisions and failure cases](docs/architecture/overstoryd/tree-configurations.md) |
 | Device keys and sessions (Security 006 Phases 2 and 3, schema 23): a `devices.yaml` entry may carry `key` (`ed25519:` or `p256:`); a key device signs a host challenge for a session token of at most an hour; a digest device moves to a key once, and its credential stops working in the same commit; pairing and claims accept a key; a person who has lost every administrator device is recovered by an operator-issued recovery pairing (`overstoryd recover`), whose claim leaves only the new key device; the profile-key reset built in Phase 2 was withdrawn on 2026-09-27. TypeScript protocol and overstoryd with shared vectors (`device-keys.json`); the Swift `Overstory` models, signing bytes and client calls pass the same vectors. Clients (Phase 3): Story Sync holds an Ed25519 key and hands local clients sessions through `GET /v1/credential`; the iPhone holds a Secure Enclave P-256 key; new claims and pairings use keys, `story device move-to-key` and both apps move an existing device, identity backups are passphrase-encrypted (version 2; version 1 still restores); client suites and the protocol gate pass. As a home host overstoryd also publishes each profile's key devices at `GET /.overstory/profiles/{ProfileTreeID}/device-keys` (accounts §5.4, Security 007's home role) | host deployed and verified 2026-09-26 at schema 23 by migration 023 (`packages/overstoryd/migrations/023-device-keys/README.md` at `66a76f5`) (build `0621789b`); clients and the device-keys route deployed at `8448a63f` the same day. Joe's Mac and iPhone moved to keys and the route lists both; he checked an encrypted backup and session renewal by hand. Pairing, revoking and recovering with keys were never tried by hand (Joe waived those checks on 2026-09-27). Digest devices are retired on the branch awaiting the [schema-26 cutover](#schema-26-cutover--2026-09-27) | [accounts §5](docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing) |
 | Shared sidecar checkpoints (Performance 002): versioned SQLite stores compressed, content-addressed state records and binary private objects; direct restore preserves state identities, bucket shape and iteration order; interrupted replay checkpoints its verified frontier and protects the newer head while rebuilding an older authored basis | deployed 2026-10-09 ([evidence](#shared-merge-cache-deployed--2026-10-09)); the two earlier formats stopped being read on 2026-10-24 ([evidence](#earlier-merge-cache-formats-retired--2026-10-24)) | [shared checkpoints](https://github.com/jxe/arbor/blob/8ad94558/docs/architecture/overstoryd/merge-cache.md) |
-| Historical catch-up (Performance 003): lazy history working maps avoid full-history copies/scans on exact-basis edits; successful old-basis recovery retains that basis with its head; deterministic complexity and fresh-process replay benchmarks | deployed (on main); measured locally only, 2026-10-09; broader cold-replay targets remain | [evidence](#historical-catch-up-improvements--2026-10-09), [replaced by Performance 004](plans/soon/performance-004-provenance-index.md) |
+| Historical catch-up (Performance 003): lazy history working maps avoid full-history copies/scans on exact-basis edits; successful old-basis recovery retains that basis with its head; deterministic complexity and fresh-process replay benchmarks | deployed (on main); measured locally only, 2026-10-09; broader cold-replay targets remain | [evidence](#historical-catch-up-improvements--2026-10-09), [replaced by Performance 004](https://github.com/jxe/arbor/blob/4844b1c/plans/soon/performance-004-provenance-index.md) |
 | Object packing (overstoryd 001): `ObjectStore` reads, presence checks and freshens fall back from loose files to immutable packs under `objects/packs/` indexed in their own SQLite file (zstd frames of about 1 MiB holding one document's versions in order, an object that large alone; every read hash-checked); overstoryd's `PackMaintenance` packs loose objects older than an hour outside every current tree after acceptances cross a threshold, at startup and when idle, and removes loose files only after reading each packed object back; the collector drops dead packed rows under the same retention and grace rules and rewrites half-empty packs. On a copy of live data (2026-10-09: 22,370 objects, 380 MB raw, 431 MB loose) document frames of 1 MiB took 21.8 MB with 0.58 ms p95 cold single reads; per-version deltas took 40–50 MB | deployed 2026-10-09 at `3514eaf4`, always on; `pack-maintenance.ts` runs one pass by hand | [evidence](#object-packing-deployed--2026-10-09), [checks](#pack-checks-and-notes--2026-10-26) |
 | Merge sidecar cleanup: the reference sidecar keeps each engine state decoded in memory, as frozen, interned values in persistent maps that share whatever an edit did not touch, identified by a digest of its content (the chunked state encodings and lazy history loading are gone); engine decisions convert straight to log decisions; the snapshot tree merge is its own package, `@ovst/tree-merge`, which Story Sync tree recovery now declares. Log entries and the question and answer are unchanged | deployed (on main) | [merge sidecar](docs/architecture/overstoryd/merge-tool.md#retained-state) |
 | Transfer merge extensions (overstoryd 014): identity-verified moves and copies of Markdown bullet-list items, pipe-table body rows and text with relative, fragment or reference links (with a proven binding); same-anchor pairs kept in contribution order; keyed JSON/YAML member moves and copies and top-level TS/JS function declaration moves within one file, each with its commutation proof in `format-rules.ts`, tested in both arrival orders with a failing-proof case (`tests/unit/overstoryd-merge/transfer-extensions.test.ts`). Server-side only; no wire or schema change | deployed (on main), hand checks retired ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)) | [transfers](docs/architecture/overstoryd/merge-tool.md#transfers) |

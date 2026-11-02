@@ -30,8 +30,8 @@ shared.
   history budget, or none, or history kept some other way (row versions in SQLite, for
   example). Decide which before building, and what an old root that can no longer be
   rebuilt answers.
-- **Merges and provenance.** Field-level merge, [Performance 004](../soon/performance-004-provenance-index.md)
-  and chunk-hash skipping all assume objects. Each needs a path that reads SQLite.
+- **Merges and provenance.** Field-level merge, the [provenance index](../../docs/architecture/overstoryd/provenance-index.md)
+  and chunk-hash skipping ([Performance 008](../soon/performance-008-merge-cost-by-edit.md)) all assume objects. Each needs a path that reads SQLite.
 
 ## Decide first
 
