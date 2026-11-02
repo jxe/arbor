@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectStore } from "@ovst/object-store";
 import { encodeLogEntry, LOG_ENTRY_FORMAT, MergeRefusal, type LogEntry, type MergeQuestion } from "@ovst/merge-protocol";
-import { encodeProtocolDirectory, hashObject, type TreeSnapshot } from "@ovst/protocol";
+import { decodeProvenanceRecord, encodeProtocolDirectory, hashObject, type TreeSnapshot } from "@ovst/protocol";
 import { CollectionProjections } from "@ovst/story-sync/state";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { MergeTool } from "../../../packages/overstoryd/src/merge-tool.ts";
@@ -206,8 +206,10 @@ test("unchanged shared outputs need no staging copies and existing objects are n
   const out = JSON.parse(await new Response(child.stdout).text());
   expect(await child.exited).toBe(0);
   expect(out.root).toBe(base.root);
-  expect(out.objects).toEqual([]);
-  expect(await readdir(staging).catch(() => [])).toEqual([]);
+  // Only the answer's provenance index records are staged; no tree objects.
+  const staged = new ObjectStore(staging);
+  for (const hash of out.objects) expect(decodeProvenanceRecord(await staged.read(hash)).format).toBeString();
+  expect(out.provenance).toBeDefined();
   expect((await tool.ask(question, base.objects)).answer.root).toBe(base.root);
   const shard = join(directory, "objects", base.root.slice(7, 9));
   const timestamp = new Date("2020-01-01T00:00:00Z");

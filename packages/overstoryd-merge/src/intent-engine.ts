@@ -1,5 +1,5 @@
 import { cloneState, copy, loadState, lookup, own, retainState, same, shareState, since, union, viewState, type RetainedState, type RetainedStates } from "./retained-state.ts";
-import { isPropertyOperation, locatePieces, ProvenanceRefusal, stableJSONString, type ProvenanceNode } from "@ovst/protocol";
+import { isPropertyOperation, locatePieces, normalizePieces as normalizeIndexPieces, ProvenanceRefusal, stableJSONString, type ProvenanceNode } from "@ovst/protocol";
 import {
   decodeProtocolDirectory,
   decodeProtocolPage,
@@ -4063,6 +4063,25 @@ function overlapGroups<E extends PieceEdit>(edits: E[]): E[][] {
     else groups.push([edit]);
   }
   return groups;
+}
+
+/** The provenance index a recorded state implies: its active nodes' ids and
+ * their pieces' origins (docs/architecture/overstoryd/provenance-index.md).
+ * The inverse of `indexedIntent`. */
+export function stateIndex(retained: RetainedState): ProvenanceNode {
+  const view = viewState(retained);
+  const children = new Map<string, Node[]>();
+  for (const node of Object.values(view.nodes))
+    if (node.active && node.parent !== null) children.set(node.parent, [...children.get(node.parent) ?? [], node]);
+  const visit = (node: Node): ProvenanceNode => {
+    if (node.kind === "tree") return { kind: "tree", node: node.id };
+    if (node.kind === "file" || node.kind === "page")
+      return { kind: node.kind, node: node.id, pieces: normalizeIndexPieces((node.pieces ?? []).map((p) => ({ origin: p.origin, start: p.start, length: p.length }))) };
+    const entries: Record<string, ProvenanceNode> = {};
+    for (const child of children.get(node.id) ?? []) entries[child.name] ??= visit(child);
+    return { kind: "directory", node: node.id, entries };
+  };
+  return visit(view.nodes[view.root]!);
 }
 
 /** The state an accepted entry's provenance index gives (Performance 004

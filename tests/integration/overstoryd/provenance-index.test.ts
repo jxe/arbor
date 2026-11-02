@@ -100,8 +100,9 @@ test("each accepted entry gets its index beside it, and collection keeps its rec
   expect(original).toStartWith("snapshot:");
   // The fast-forward replaced the first three bytes with its own.
   expect(note(plain)).toEqual([[operationIdentity(first.change, "edit"), 0, 3], [original, 3, 2]]);
-  // An answered entry is rebound as a snapshot of its root.
-  expect(note(answered)).toEqual([[`snapshot:${concurrent.change}:/note.md`, 0, 5]]);
+  // An answered entry takes the index its answer carries: the engine's own
+  // lineage, both edits' bytes.
+  expect(note(answered)).toEqual([[operationIdentity(first.change, "edit"), 0, 3], [operationIdentity(concurrent.change, "edit"), 0, 2]]);
   expect((answered as Extract<ProvenanceNode, { kind: "directory" }>).entries["note.md"]!.node).toBe(basis.node);
 
   // Every stored record survives a collection of everything old.
@@ -115,13 +116,17 @@ test("each accepted entry gets its index beside it, and collection keeps its rec
   await start();
 });
 
-test("a backfill computes missing indexes again the same way", async () => {
+test("a backfill computes missing indexes again the same way, and rebinds an answered entry", async () => {
   await stop(); await start(true);
-  await history();
+  const { concurrent } = await history();
   const live = await filled();
   await stop();
   await rm(join(dir, "provenance"), { recursive: true, force: true });
   expect([...(await indexes()).values()].every((index) => index === null)).toBe(true);
   await start(true);
-  expect(stableJSONString([...await filled()])).toBe(stableJSONString([...live]));
+  const again = await filled(), answered = acceptedEntries(dir, tree).at(-1)!.hash;
+  // Without its answer, an answered entry is rebound as a snapshot of its root.
+  expect(note(again.get(answered))).toEqual([[`snapshot:${concurrent.change}:/note.md`, 0, 5]]);
+  again.delete(answered); live.delete(answered);
+  expect(stableJSONString([...again])).toBe(stableJSONString([...live]));
 });

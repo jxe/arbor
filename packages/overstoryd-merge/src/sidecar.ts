@@ -1,4 +1,4 @@
-import { hashObject, isPropertyOperation, pageValueJSON, stableJSONString, type PageValue, validateSourceTrace, type SourceFrame, type SourceOperation } from "@ovst/protocol";
+import { encodeProvenance, hashObject, type ObjectHash, isPropertyOperation, pageValueJSON, stableJSONString, type PageValue, validateSourceTrace, type SourceFrame, type SourceOperation } from "@ovst/protocol";
 import { replayCollectionRows } from "@ovst/collection-schema";
 import {
   decodeLogEntry,
@@ -13,7 +13,7 @@ import {
   type MergeRules,
 } from "@ovst/merge-protocol";
 import { EvaluationFailure, treeDefaultConfig, type CheckpointRequest, type MergeObjects, type TreeDefaultRules } from "./engine-contract.ts";
-import { checkpointIntent, indexedIntent, mergeIntent } from "./intent-engine.ts";
+import { checkpointIntent, indexedIntent, mergeIntent, stateIndex } from "./intent-engine.ts";
 import type { ProvenanceIndexes } from "./provenance.ts";
 import type { Node } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
@@ -108,6 +108,8 @@ export class Sidecar {
   /** Engine states by identity, decoded; each is counted in `memoryBytes`
    * by its estimated size. */
   private recorded = new Map<string, RetainedState>();
+  /** Index records overstoryd holds, so answers skip them. */
+  private readonly heldRecords = new Set<string>();
   private states = new Map<string, Cached>();
   private entries = new Map<string, LogEntry>();
   /** Paths each entry changed from its previous entry's root. Entries are
@@ -225,7 +227,31 @@ export class Sidecar {
       return { root: result.object, objects: await this.export(result.object, []), decisions: [], evidence };
     const { decisions } = await this.cached(result);
     this.rememberSolved(question, { ...result, decisions });
-    return { root: result.object, objects: await this.export(result.object, decisions), decisions, evidence };
+    const objects = await this.export(result.object, decisions);
+    const provenance = await this.exportIndex(result.state);
+    return { root: result.object, objects: [...objects, ...provenance.objects], decisions, evidence, provenance: provenance.root };
+  }
+
+  /** Stage the provenance index of a result's state, so that overstoryd
+   * keeps the engine's own lineage beside the entry it records: the root
+   * record, and the records overstoryd does not hold yet. */
+  private async exportIndex(state: string): Promise<{ root: ObjectHash; objects: string[] }> {
+    const recorded = this.recorded.get(state);
+    if (!recorded) throw new Error(`Unrecorded engine state ${state}`);
+    const records = new Map<ObjectHash, Uint8Array>();
+    const root = encodeProvenance(stateIndex(recorded), (bytes) => {
+      const hash = hashObject(bytes);
+      records.set(hash, bytes);
+      return hash;
+    });
+    if (this.heldRecords.size > 200_000) this.heldRecords.clear();
+    const missing = (await Promise.all([...records].map(async ([hash, bytes]) => {
+      if (this.heldRecords.has(hash)) return null;
+      if (await this.stores.shared.has(hash)) { this.heldRecords.add(hash); return null; }
+      return { hash, bytes };
+    }))).filter((v) => v !== null);
+    await this.stores.staging.stage(missing);
+    return { root, objects: missing.map((v) => v.hash) };
   }
 
   private rememberSolved(question: MergeQuestion, state: Cached): void {

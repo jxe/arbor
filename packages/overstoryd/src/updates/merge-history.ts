@@ -82,7 +82,8 @@ export class MergeHistory {
       }
       if (!provenance && valid.previous) this.provenanceMissing?.(valid.tree, hash);
     }
-    await this.objects.store([...batch, { hash, bytes }]);
+    const carried = provenance?.answered;
+    await this.objects.store([...carried ? batch.filter((o) => !carried.has(o.hash)) : batch, { hash, bytes }]);
     this.entries.set(hash, valid);
     // Its records are staged without fsync: a crash can lose or tear them,
     // and a reader then finds no index and the backfill computes it again.

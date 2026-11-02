@@ -15,6 +15,8 @@ export interface ComputedProvenance {
   records: Map<ObjectHash, Uint8Array>;
   /** Nodes this computation wrote, shared with later ones once stored. */
   nodes: Map<object, ObjectHash>;
+  /** Records an answer carried, which the entry's batch leaves out. */
+  answered?: Set<ObjectHash>;
 }
 
 /**
@@ -75,7 +77,11 @@ export class ProvenanceStore {
     let index: ProvenanceNode;
     if (entry.asked) {
       if (!answered) return null;
-      index = await readProvenance(answered, load);
+      // The answer's records arrive with its objects; they are staged with
+      // the rest of the index, not stored durably with the entry.
+      const read = new Set<ObjectHash>();
+      index = await readProvenance(answered, (hash) => { read.add(hash); return load(hash); });
+      return { ...this.encode(index), answered: read };
     } else if (entry.previous) {
       const previous = await this.index(entry.previous);
       if (!previous) return null;
