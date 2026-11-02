@@ -2,7 +2,7 @@
 // (accounts §1): read from objects alone, so a host and any client reading
 // through the API agree on them.
 
-import { parseMarkdown } from "./documents/markdown.ts";
+import { parseMarkdown, parseMarkdownFrontmatter } from "./documents/markdown.ts";
 import { plainMarkdownTitle } from "./documents/display-title.ts";
 import { parseProfileLocator } from "./model/resource-policy.ts";
 import { decodeProtocolDirectory, loadProtocolContent, protocolContentObject, type ObjectHash } from "./objects.ts";
@@ -98,13 +98,14 @@ export async function readRootProfile(root: ObjectHash, load: (hash: ObjectHash)
   const indexHash = protocolContentObject(index);
   if (!index || !indexHash) return none;
   const file = await loadProtocolContent(index, load);
-  const document = parseMarkdown(new TextDecoder().decode(file));
-  const { frontmatter } = document;
+  // The body only supplies a group's title; a large index is edited often.
+  const source = new TextDecoder().decode(file);
+  const frontmatter = parseMarkdownFrontmatter(source);
   const type = frontmatter.type === "person" || frontmatter.type === "group" ? frontmatter.type : null;
   const members = structuredMembers(frontmatter.members);
   const displayName = validateProfileDisplayName(frontmatter.displayName);
   const headingTitle = type === "group"
-    ? plainMarkdownTitle(document.blocks.find(
+    ? plainMarkdownTitle(parseMarkdown(source).blocks.find(
         (block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1,
       )?.content ?? "") || undefined
     : undefined;
