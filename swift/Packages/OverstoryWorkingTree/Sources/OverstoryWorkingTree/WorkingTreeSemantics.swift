@@ -59,6 +59,20 @@ enum WorkingTreeSemantics {
     static func pageIDValues(in source: String) -> [String] {
         guard let bodyStart = frontmatterRange(in: source) else { return [] }
         let frontmatter = String(source[bodyStart])
+        // Every node's ID is read on each projection and check; front matter
+        // is short and rarely changes, so its answer is remembered.
+        if let known = pageIDMemo.withLock({ $0[frontmatter] }) { return known }
+        let values = pageIDValues(frontmatter: frontmatter)
+        pageIDMemo.withLock { memo in
+            if memo.count >= 20_000 { memo.removeAll() }
+            memo[frontmatter] = values
+        }
+        return values
+    }
+
+    private static let pageIDMemo = LockedValue<[String: [String]]>([:])
+
+    private static func pageIDValues(frontmatter: String) -> [String] {
         guard let regex = pageIDLine else { return [] }
         return regex.matches(in: frontmatter, range: NSRange(frontmatter.startIndex..., in: frontmatter)).compactMap { match in
             guard let range = Range(match.range(at: 1), in: frontmatter) else { return nil }
@@ -145,5 +159,17 @@ enum WorkingTreeSemantics {
         let start = source.index(source.startIndex, offsetBy: 3 + newline.count)
         guard let closing = source.range(of: "\(newline)---", range: start..<source.endIndex) else { return nil }
         return start..<closing.lowerBound
+    }
+}
+
+/// A value behind a lock, for small process-wide memos.
+final class LockedValue<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+    init(_ value: Value) { self.value = value }
+    func withLock<Result>(_ body: (inout Value) -> Result) -> Result {
+        lock.lock()
+        defer { lock.unlock() }
+        return body(&value)
     }
 }

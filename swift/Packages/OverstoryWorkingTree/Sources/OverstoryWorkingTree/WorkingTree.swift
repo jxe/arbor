@@ -20,6 +20,9 @@ public actor WorkingTree {
     /// `WorkingTreeProtocolCodec.snapshot(for: state)`, kept until `state`
     /// changes: a save reads it several times, and building it hashes every page.
     private var snapshotMemo: WorkingTreeSnapshot?
+    /// Entries and directories of the last snapshot built, so the next one
+    /// encodes and hashes only what changed.
+    private let codecMemo = WorkingTreeSnapshotMemo()
     /// Positions in `state.nodes` by parent path, built on first use after a
     /// transaction. Derived metadata written in place keeps positions valid.
     private var childPositions: [String: [Int]]?
@@ -176,7 +179,7 @@ public actor WorkingTree {
     public func currentSnapshot() throws -> WorkingTreeSnapshot {
         try requireOpen()
         if let snapshotMemo { return snapshotMemo }
-        let snapshot = try WorkingTreeProtocolCodec.snapshot(for: state)
+        let snapshot = try WorkingTreeProtocolCodec.snapshot(for: state, memo: codecMemo)
         snapshotMemo = snapshot
         return snapshot
     }
@@ -308,7 +311,7 @@ public actor WorkingTree {
 
     private func replaceWithAccepted(_ replacement: WorkingTreeSystemReplacement, mutation: String) throws {
         let replacementState = try state(from: replacement)
-        let computed = try WorkingTreeProtocolCodec.snapshot(for: replacementState)
+        let computed = try WorkingTreeProtocolCodec.snapshot(for: replacementState, memo: codecMemo)
         guard computed.root == replacement.root else { throw WorkingTreeError.corruptState("System replacement root mismatch") }
         // Collection objects are referenced from the state, not carried in it;
         // the overlay holds them first, and retention keeps what stays reachable.
@@ -1076,7 +1079,7 @@ public actor WorkingTree {
 
     private func finish(_ intent: WorkingTreeMutationIntent, journalToken: String, injectFaults: Bool, snapshot computed: WorkingTreeSnapshot? = nil) throws {
         try Self.validate(intent.state, control: nil)
-        let snapshot = try computed ?? WorkingTreeProtocolCodec.snapshot(for: intent.state)
+        let snapshot = try computed ?? WorkingTreeProtocolCodec.snapshot(for: intent.state, memo: codecMemo)
         try overlay.store(snapshot.inlineObjectsByHash)
         if injectFaults { try faultInjector.reached(.afterObjects) }
         // Bytes the overlay now holds are referenced, not carried, from here on.

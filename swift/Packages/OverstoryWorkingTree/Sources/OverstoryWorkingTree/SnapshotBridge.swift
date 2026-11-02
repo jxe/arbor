@@ -4,6 +4,29 @@ import Foundation
 import UniformTypeIdentifiers
 
 public enum SnapshotBridge {
+    /// Markdown sources by object hash. A projection after a save decodes
+    /// only the pages that changed, and unchanged pages keep the same string
+    /// storage, which makes later comparisons of them immediate.
+    static let decodedSources = DecodedSources()
+
+    final class DecodedSources: @unchecked Sendable {
+        private let lock = NSLock()
+        private var sources: [String: String] = [:]
+        private var size = 0
+        private let maxBytes = 64 * 1024 * 1024
+
+        func source(_ hash: String) -> String? { lock.withLock { sources[hash] } }
+
+        func insert(_ hash: String, _ source: String) {
+            lock.withLock {
+                guard sources[hash] == nil else { return }
+                if size + source.utf8.count > maxBytes { sources.removeAll(); size = 0 }
+                sources[hash] = source
+                size += source.utf8.count
+            }
+        }
+    }
+
     /// Directory references must be present in all modes; sparse file references
     /// may omit payloads, except Markdown source which must remain inline.
     public static func replacement(
@@ -41,10 +64,12 @@ public enum SnapshotBridge {
         }
 
         func markdownSource(_ hash: String) throws -> String {
+            if let known = decodedSources.source(hash) { return known }
             let bytes = try fileBytes(hash)
             guard let decoded = String(data: bytes, encoding: .utf8) else {
                 throw ProtocolValidationError.invalidValue("Markdown is not UTF-8")
             }
+            decodedSources.insert(hash, decoded)
             return decoded
         }
 
@@ -137,19 +162,16 @@ public enum SnapshotBridge {
                     }
                     try visitDirectory(childHash, path: destination, siblingMarkdownSource: siblingSource)
                 case .file, .page:
-                    let bytes = try fileBytes(childHash)
                     if entry.name.hasSuffix(".md") {
                         let logicalName = String(entry.name.dropLast(3))
                         if directoryNames.contains(logicalName) { continue }
-                        guard let decoded = String(data: bytes, encoding: .utf8) else {
-                            throw ProtocolValidationError.invalidValue("Markdown is not UTF-8")
-                        }
+                        let decoded = try markdownSource(childHash)
                         try appendNode(WorkingTreeSystemNode(
                             path: childPath(logicalName, parent: path),
                             content: .markdown(source: decoded)
                         ))
                     } else {
-                        try appendNode(WorkingTreeSystemNode(path: destination, content: .file(ref: .inline(bytes))))
+                        try appendNode(WorkingTreeSystemNode(path: destination, content: .file(ref: .inline(try fileBytes(childHash)))))
                     }
                 case .table, .rows:
                     throw ProtocolValidationError.invalidValue("A directory entry names a collection object")
