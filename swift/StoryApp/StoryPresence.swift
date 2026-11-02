@@ -362,8 +362,9 @@ struct StoryAgentTaskControl: View {
                             // A triangle's mass sits left of its box: nudge it to look centered.
                             .offset(x: 1)
                             .frame(width: 30, height: 30)
-                            // Over the page's own background, so the tint is even across the panel's edge.
-                            .background(Circle().fill(.purple.opacity(0.3)).background(Circle().fill(.background)))
+                            // Translucent: the panel's edge shows through it.
+                            .background(Circle().fill(.purple.opacity(0.3)))
+                            .overlay(Circle().strokeBorder(.purple.opacity(0.55), lineWidth: 1))
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
