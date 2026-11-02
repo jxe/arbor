@@ -896,16 +896,23 @@ public actor WorkingTree {
     }
 
     public func captureSourceBasis(_ reference: WorkspaceReference) throws -> CapturedSourceBasis {
-        let node = try resolve(reference)
-        guard node.kind == .markdown || node.kind == .directory else { throw WorkingTreeError.notDocument(reference) }
-        let document = try documentSnapshot(reference), graph = try localSnapshot()
+        let (document, sourcePath) = try captureSourceDocument(reference)
+        let graph = try localSnapshot()
         let accepted: ProtocolUpdateBase?
         if control.pendingRoot == nil, let root = control.acceptedRoot, let update = control.acceptedUpdate, root == graph.root {
             accepted = ProtocolUpdateBase(root: root, update: update)
         } else { accepted = nil }
+        return CapturedSourceBasis(document: document, graph: graph, accepted: accepted, sourcePath: sourcePath)
+    }
+
+    /// The document `reference` names and the path of its source file,
+    /// without the tree's snapshot.
+    func captureSourceDocument(_ reference: WorkspaceReference) throws -> (document: WorkspaceDocumentSnapshot, sourcePath: String) {
+        let node = try resolve(reference)
+        guard node.kind == .markdown || node.kind == .directory else { throw WorkingTreeError.notDocument(reference) }
         let sourcePath = node.kind == .markdown || node.directoryBodyPlacement == .siblingMarkdown
             ? node.path + ".md" : (node.path == "/" ? "/_index.md" : node.path + "/_index.md")
-        return CapturedSourceBasis(document: document, graph: graph, accepted: accepted, sourcePath: sourcePath)
+        return (try documentSnapshot(reference), sourcePath)
     }
 
     func documentSnapshot(_ reference: WorkspaceReference) throws -> WorkspaceDocumentSnapshot {

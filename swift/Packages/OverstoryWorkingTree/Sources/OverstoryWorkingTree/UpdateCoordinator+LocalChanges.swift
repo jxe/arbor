@@ -319,14 +319,15 @@ extension UpdateCoordinator {
         let retained = try await changeLog().retained()
         timer?.mark("view-retained")
         let base = try await currentLocalView(retained, timer: timer) ?? workingTree
-        let captured: CapturedSourceBasis
+        // The graph is the record's candidate, so only the document is read.
+        let captured: (document: WorkspaceDocumentSnapshot, sourcePath: String)
         if try await base.heads().materializedRoot == record.candidate.root {
-            captured = try await base.captureSourceBasis(reference)
+            captured = try await base.captureSourceDocument(reference)
             timer?.mark("view-capture")
         } else {
             timer?.mark("view-other-fork")
             let tree = try await projectedTree(record.candidate, from: base, includeTrash: false)
-            do { captured = try await tree.captureSourceBasis(reference) }
+            do { captured = try await tree.captureSourceDocument(reference) }
             catch { await tree.close(); throw error }
             await tree.close()
         }
