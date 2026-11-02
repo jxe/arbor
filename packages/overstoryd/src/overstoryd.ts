@@ -2015,8 +2015,11 @@ export class HostDaemon implements AsyncDisposable {
       }
       // These are immutable preflight objects, not accepted state. The accepted
       // transaction below is their only authority; an aborted batch leaves no rows.
-      await this.objects.store(
-        [...objects].map(([hash, bytes]) => ({ hash, bytes }))
+      // They are staged without fsync: each accepted update stores the ones it
+      // names durably, in one publish with its entry, before it commits. A
+      // crash can tear a staged file, which the next staging replaces.
+      await this.objects.stage(
+        [...objects].map(([hash, bytes]) => ({ hash, bytes })), { repair: true }
       );
       markPhase("preflight-store");
     }
