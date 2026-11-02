@@ -299,6 +299,9 @@ export class ObjectStore {
    * verified them, the file is immutable, and every read hash-checks it again.
    * Bounded: forgetting an entry only costs one redundant verification. */
   private readonly durable = new Set<ObjectHash>();
+  /** Hashes this process staged (written or verified, and freshened) and has
+   * not yet made durable. A durable store of one only syncs it. */
+  private readonly staged = new Set<ObjectHash>();
 
   /** Shard directories whose entry in the root this process has synced.
    * Shards are never removed (the collector deletes only object files), so
@@ -327,6 +330,16 @@ export class ObjectStore {
       // stored bytes checked first.
       if (this.durable.has(hash)) {
         if (await touch(path)) return;
+      } else if (durable && this.staged.delete(hash)) {
+        // Staged by this process moments ago, its bytes checked and its time
+        // fresh: only its durability is left.
+        try {
+          await this.sync(path);
+          directories.add(directory);
+          return;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
       } else if (durable && !options.loose && this.packs.has(hash) && !this.packs.freshen([hash]).length) {
         // Packed: its bytes were hash-checked when packed and are on every read.
         return;
@@ -363,7 +376,11 @@ export class ObjectStore {
         });
       }
     });
-    if (!durable) return;
+    if (!durable) {
+      if (this.staged.size > DURABLE_MEMORY) this.staged.clear();
+      for (const hash of unique.keys()) if (!this.durable.has(hash)) this.staged.add(hash);
+      return;
+    }
     // Bytes are on disk before any directory entry is synced, and every entry
     // is synced before this resolves, so a subsequent database commit only
     // names durable objects. A shard whose own entry in the root is not yet
