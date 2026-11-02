@@ -251,5 +251,5 @@ an unknown selection) rather than fixing the byte-range shape.
   [spec extensions](../spec-extensions/README.md).
 - Row ownership is [Schema language 010](../soon/schema-language-010-row-ownership.md).
 - A replica on the device that encodes tables, and any SQLite there (Joe, 2026-10-25). Large
-  collections are [Performance 004](../soon/performance-004-provenance-index.md)'s concern.
+  collections are [Performance 008](performance-008-merge-cost-by-edit.md)'s concern.
 - Derived candidates for Story's text edits: allowed by the spec, not used.

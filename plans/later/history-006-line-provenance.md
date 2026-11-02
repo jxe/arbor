@@ -115,7 +115,7 @@ no Story Sync proxy: editors call overstoryd directly.
 
 ## Algorithm
 
-Read [Performance 004](../soon/performance-004-provenance-index.md)'s provenance index:
+Read the [provenance index](../../docs/architecture/overstoryd/provenance-index.md) ([Performance 004](https://github.com/jxe/arbor/blob/4844b1c/plans/soon/performance-004-provenance-index.md)):
 every acceptance records which update inserted each run of each file's bytes, so a line's
 update is the update of the pieces it holds, exact through moves and merges, with no line
 matching. A line holding pieces from several updates is attributed to the newest of them.

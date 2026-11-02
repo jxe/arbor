@@ -115,12 +115,10 @@ caller, from handles registered in code; this plan makes them run as an activate
 an execution token, from code read out of a tree, and then moves execution into a sidecar.
 The sidecar comes first (Joe, 2026-10-28).
 
-**[Performance 004: a provenance index kept at acceptance](soon/performance-004-provenance-index.md).**
-Joe chose this on 2026-10-21 instead of Performance 003 (fast catch-up from an older basis,
-after the iPhone needed several minutes of history replay on 2026-10-09). Every acceptance
-records which change inserted each run of each file's bytes, so the merge engine reads
-states instead of replaying history, and line provenance becomes a lookup. It starts with a
-spike on the iPhone's catch-up proving the engine can evaluate from the index.
+**[Performance 008: merge cost by edit, not by size](soon/performance-008-merge-cost-by-edit.md).**
+What Performance 004 (merges start from a provenance index; closed 2026-11-02) left: a
+canonical contribution order inside choices, and collection merges and replay that decode
+only the chunks an edit touches instead of whole tables.
 
 **[Clients 002: more identity-preserving coalescing](soon/merge-002-identity-preserving-coalescing.md).**
 Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
@@ -260,8 +258,9 @@ merge work.
 
 Latency, transfer size and storage overhead: take a plan when its stated problem occurs, and
 measure both the benefit and the cost to correctness, recovery and offline use.
-[Performance 004](soon/performance-004-provenance-index.md) and
-[Native 006](when-needed/performance-006-sparse-ios-placement.md) are the plans; the shared
-merge cache and object packing are live, and packing's leftovers are done. Client
+[Performance 008](soon/performance-008-merge-cost-by-edit.md) and
+[Native 006](when-needed/performance-006-sparse-ios-placement.md) are the plans; the
+provenance index ([Performance 004](https://github.com/jxe/arbor/blob/4844b1c/plans/soon/performance-004-provenance-index.md), closed), the object journal and
+object packing are live. Client
 coalescing also reduces wire traffic but stays with merge work. [Performance candidates](candidates.md#speed)
 collects measured leads that are not yet plans.

@@ -48,7 +48,7 @@ Start with a retained choice where later causal operations preserve all distinct
 contributions and remove the original ambiguity. Trace each source identity,
 copy origin, deletion, and placement through the later accepted operations.
 Trace them from what history records, not from the merge engine's retained
-detail ([Performance 004](performance-004-provenance-index.md) decision 6): a
+detail ([Performance 004](https://github.com/jxe/arbor/blob/4844b1c/plans/soon/performance-004-provenance-index.md) decision 6): a
 choice's placement is its range as each log entry records it, and source
 identity is that entry's provenance index.
 Define precisely when they discharge every alternative's outstanding obligation.
