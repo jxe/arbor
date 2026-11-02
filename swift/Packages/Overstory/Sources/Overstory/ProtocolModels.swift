@@ -1309,7 +1309,11 @@ extension ProtocolHTTPError: LocalizedError {
 }
 
 func validateObjectHash(_ value: String) throws {
-    guard value.range(of: #"^sha256:[a-f0-9]{64}$"#, options: .regularExpression) != nil else {
+    // `^sha256:[a-f0-9]{64}$` checked by bytes; a regular expression here was
+    // compiled again for every object of every graph validated.
+    let bytes = value.utf8
+    guard bytes.count == 71, bytes.starts(with: "sha256:".utf8),
+          bytes.dropFirst(7).allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
         throw ProtocolValidationError.invalidHash(value)
     }
 }

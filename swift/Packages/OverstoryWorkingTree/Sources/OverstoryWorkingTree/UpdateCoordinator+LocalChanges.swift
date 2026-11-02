@@ -246,7 +246,7 @@ extension UpdateCoordinator {
     /// Bring `tree`, a fork, to `graph` (its own graph when nil) and, when asked,
     /// install the retained local trash. Node metadata outside the hashes, such
     /// as modification dates, carries over from what `tree` held before.
-    private func prepare(_ tree: WorkingTree, at graph: ProtocolSnapshot?, includeTrash: Bool) async throws {
+    private func prepare(_ tree: WorkingTree, at graph: ProtocolSnapshot?, includeTrash: Bool, timer: PhaseTimer? = nil) async throws {
         let heads = try await tree.heads()
         let target = graph?.root ?? heads.materializedRoot
         if heads.materializedRoot != target || heads.acceptedRoot != target {
@@ -255,11 +255,13 @@ extension UpdateCoordinator {
             try await tree.project(SnapshotBridge.replacement(snapshot: snapshot, tree: await workingTree.treeID(),
                 update: "local-candidate", mode: .sparseFiles))
         }
+        timer?.mark("view-project")
         if includeTrash {
             let trash: WorkingTreeLocalTrash
             if let retained = try await changeLog().retained().last(where: { $0.localTrash != nil })?.localTrash { trash = retained }
             else { trash = try await workingTree.captureLocalTrash() }
             if !trash.nodes.isEmpty { try await tree.installLocalTrash(trash) }
+            timer?.mark("view-trash")
         }
     }
 
@@ -275,7 +277,7 @@ extension UpdateCoordinator {
     /// candidate plus retained local trash, as a fork of the accepted working
     /// tree. It is kept between reads and projected forward in place as the
     /// candidate changes; nil means reads use the working tree itself.
-    private func currentLocalView(_ retained: [LocalChange]) async throws -> WorkingTree? {
+    private func currentLocalView(_ retained: [LocalChange], timer: PhaseTimer? = nil) async throws -> WorkingTree? {
         let navigation = try await localViewState(retained).navigation
         let trashRecord = retained.last(where: { $0.localTrash != nil })
         guard navigation != nil || trashRecord?.localTrash?.nodes.isEmpty == false else {
@@ -284,14 +286,15 @@ extension UpdateCoordinator {
         }
         let key = LocalViewKey(generation: try await workingTree.heads().generation,
                                candidate: navigation?.candidate.root, trash: trashRecord?.change)
+        timer?.mark("view-state")
         if let localView, localView.key == key { return localView.tree }
         // A new accepted state starts again from the working tree; otherwise the
         // previous view moves forward, keeping dates stamped for earlier edits.
         let tree: WorkingTree
         if let localView, localView.key.generation == key.generation { tree = localView.tree }
-        else { tree = try await workingTree.fork() }
+        else { tree = try await workingTree.fork(); timer?.mark("view-fork") }
         localView = nil
-        try await prepare(tree, at: navigation?.candidate, includeTrash: true)
+        try await prepare(tree, at: navigation?.candidate, includeTrash: true, timer: timer)
         localView = (key, tree)
         return tree
     }
@@ -309,15 +312,19 @@ extension UpdateCoordinator {
         )
     }
 
-    private func localSourceView(_ record: LocalChange, reference: WorkspaceReference? = nil) async throws -> CapturedSourceBasis {
+    private func localSourceView(_ record: LocalChange, reference: WorkspaceReference? = nil, timer: PhaseTimer? = nil) async throws -> CapturedSourceBasis {
         guard let reference = reference ?? record.document?.reference else {
             throw ProtocolValidationError.invalidValue("A structural candidate requires a document reference")
         }
-        let base = try await currentLocalView(changeLog().retained()) ?? workingTree
+        let retained = try await changeLog().retained()
+        timer?.mark("view-retained")
+        let base = try await currentLocalView(retained, timer: timer) ?? workingTree
         let captured: CapturedSourceBasis
         if try await base.heads().materializedRoot == record.candidate.root {
             captured = try await base.captureSourceBasis(reference)
+            timer?.mark("view-capture")
         } else {
+            timer?.mark("view-other-fork")
             let tree = try await projectedTree(record.candidate, from: base, includeTrash: false)
             do { captured = try await tree.captureSourceBasis(reference) }
             catch { await tree.close(); throw error }
@@ -432,6 +439,7 @@ extension UpdateCoordinator {
         try intent.validate()
         let queue = try await changeLog()
         let intentBytes = try sortedKeysJSON(intent)
+        timer?.mark("prepare-intent")
         // Exact retries reuse the retained identity: the record remembers a
         // digest of the captured intent rather than the intent's sources.
         let digest = LocalChange.intentDigest(intent)
@@ -442,18 +450,20 @@ extension UpdateCoordinator {
         else {
             let parent = try localPredecessor(intent.basis.contentRevision)
             let view = try await sourceView(for: intent)
+            timer?.mark("prepare-basis")
             if let tip = try await chainTip(), parent != tip.change,
                let onTip = try await rebased(intent, view: view, parent: parent, onto: tip) {
                 record = onTip
             } else {
                 record = try view.prepare(intent: intent, predecessor: parent)
             }
+            timer?.mark("prepare-record")
             preparedSourceIntents[intentBytes] = record
         }
         let merging = try await needsMerge(record)
         timer?.mark("prepare")
         try await queue.retain(record, settled: Set(control.settled), merging: merging, timer: timer)
-        let local = try await localSourceView(record)
+        let local = try await localSourceView(record, timer: timer)
         sourceViews[local.document.contentRevision] = local
         timer?.mark("view")
         await ensureEntered()

@@ -1534,6 +1534,29 @@ private func snapshot(markdown: String) throws -> ProtocolSnapshot {
     return ProtocolSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
 }
 
+/// `note.md` beside `siblings` small pages spread over folders of ten.
+private func benchmarkSnapshot(markdown: String, siblings: Int) throws -> ProtocolSnapshot {
+    var objects: [ProtocolObjectEnvelope] = []
+    let note = try ProtocolObjectCodec.object(.file(Data(markdown.utf8)))
+    objects.append(note)
+    var entries = [ProtocolDirectoryEntry(name: "note.md", file: note.hash)]
+    for folder in stride(from: 0, to: siblings, by: 10) {
+        var children: [ProtocolDirectoryEntry] = []
+        for index in folder..<min(folder + 10, siblings) {
+            let body = "# Page \(index)\n\n" + String(repeating: "Some words on page \(index).\n", count: 40)
+            let file = try ProtocolObjectCodec.object(.file(Data(body.utf8)))
+            objects.append(file)
+            children.append(.init(name: "page-\(index).md", file: file.hash))
+        }
+        let directory = try ProtocolObjectCodec.object(.directory(children.sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }))
+        objects.append(directory)
+        entries.append(.init(name: "folder-\(folder / 10)", directory: directory.hash))
+    }
+    let root = try ProtocolObjectCodec.object(.directory(entries.sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }))
+    objects.append(root)
+    return ProtocolSnapshot(root: root.hash, objects: Dictionary(objects.map { ($0.hash, $0) }, uniquingKeysWith: { a, _ in a }).values.sorted { $0.hash < $1.hash })
+}
+
 private func snapshot(files: [String: String]) throws -> ProtocolSnapshot {
     var objects: [ProtocolObjectEnvelope] = []
     let entries = try files.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }.map { name in
@@ -1827,7 +1850,10 @@ struct SourceSessionPublicationTests {
             for index in 0..<2_000 where lines.joined(separator: "\n").utf8.count < 64 * 1024 {
                 lines.append(index % 12 == 0 ? "\n## Section \(index)\n" : "- [ ] Item \(index): " + String(repeating: "some words about the task ", count: 1 + index % 4))
             }
-            let initial = try snapshot(markdown: lines.joined(separator: "\n") + "\n")
+            // STORY_APPEND_BENCH_SIBLINGS=N adds N small pages in folders
+            // beside the large one, shaped like a real tree.
+            let siblings = Int(ProcessInfo.processInfo.environment["STORY_APPEND_BENCH_SIBLINGS"] ?? "0") ?? 0
+            let initial = try benchmarkSnapshot(markdown: lines.joined(separator: "\n") + "\n", siblings: siblings)
             let tree = try await makeTree(initial, update: "up_initial")
             let transport = SourceModeTransport(initial: initial, peer: initial)
             let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
