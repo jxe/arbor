@@ -363,8 +363,8 @@ struct StoryAgentTaskControl: View {
                             .offset(x: 1)
                             .frame(width: 30, height: 30)
                             // Translucent: the panel's edge shows through it.
-                            .background(Circle().fill(.purple.opacity(0.3)))
-                            .overlay(Circle().strokeBorder(.purple.opacity(0.55), lineWidth: 1))
+                            .background(Circle().fill(.purple.opacity(0.18)))
+                            .overlay(Circle().strokeBorder(.purple.opacity(0.14), lineWidth: 1))
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
