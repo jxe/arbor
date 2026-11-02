@@ -234,8 +234,7 @@ export class MergeTool {
     const parent = join(this.dataRoot, "merge-workers");
     await mkdir(parent, {recursive: true});
     const directory = await mkdtemp(join(parent, "worker-"));
-    worker = new PersistentMergeWorker(command, directory, join(this.dataRoot, "objects"), join(directory, "objects"),
-      join(this.dataRoot, "merge-cache"));
+    worker = new PersistentMergeWorker(command, directory, join(this.dataRoot, "objects"), join(directory, "objects"));
     this.worker = worker;
     this.workerAnswered = false;
     return worker;

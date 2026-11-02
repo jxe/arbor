@@ -4,9 +4,10 @@
  *
  * - `checkpoint`: a snapshot conflicting with the head in K files, answered
  *   warm: one checkpoint with K whole-file choices.
- * - `replay`: a cold sidecar rebuilding an L-entry chain in which every
- *   other entry was authored concurrently (run()'s full path), with and
- *   without a choice left open from the chain's start.
+ * - `replay`: a cold sidecar answering on an L-entry chain in which every
+ *   other entry was authored concurrently, with no stored indexes, so it
+ *   computes each entry's index from the chain's start; with and without a
+ *   choice left open from the chain's start.
  *
  *   bun tests/performance/benchmark-merge-replay.ts
  *   KS=1,16,64 LS=16,64,128 FILES=120 bun tests/performance/benchmark-merge-replay.ts
@@ -57,7 +58,7 @@ function sidecar(): Sidecar {
     shared: { find: async (hash) => objects.get(hash) ?? null, has: async (hash) => objects.has(hash) },
     // overstoryd adopts an answer's objects into its store.
     staging: { find: async (hash) => objects.get(hash) ?? null, stage: async (values) => { for (const v of values) objects.set(v.hash, v.bytes); } },
-  }, Number.MAX_SAFE_INTEGER, undefined, Number.POSITIVE_INFINITY);
+  }, Number.MAX_SAFE_INTEGER);
 }
 
 function writeEntry(entry: Omit<LogEntry, "format">): string {
@@ -177,13 +178,13 @@ for (const open of [false, true])
     const times: number[] = [];
     let replayed = 0;
     for (let index = 0; index < Math.max(1, Math.min(REPEATS, 3)); index++) {
-      // A question on the last entry: the cold sidecar replays the whole chain first.
+      // A question on the last entry: the cold sidecar indexes the whole chain first.
       const cold = sidecar();
       const candidate = await traced((JSON.parse(new TextDecoder().decode(objects.get(last)!)) as LogEntry).root, page(1), "Z ", `z-${open}-${length}-${index}`);
       const started = performance.now();
       remember(await cold.answer({ base: last, head: last, rules: RULES, candidate }));
       times.push(performance.now() - started);
-      replayed = cold.replayed;
+      replayed = cold.indexedCount;
     }
     const ms = median(times);
     console.log(JSON.stringify({ workload: "replay", openChoice: open, files: FILES, entries: replayed, totalMs: round(ms), perEntryMs: round(ms / replayed) }));

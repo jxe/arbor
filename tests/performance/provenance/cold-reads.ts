@@ -14,7 +14,7 @@ if (!root || !tree) throw Error("usage: cold-reads.ts <data-root> <tree> [last-n
 const delay = Number(process.env.DELAY_MS ?? 0);
 const entries = acceptedEntries(root, tree);
 const asked = entries.filter(({ entry }) => entry.previous && entry.asked).slice(-Number(lastArg ?? 40));
-const rows: Array<{ ms: number; index: number; other: number; indexBytes: number; seeded: number; replayed: number }> = [];
+const rows: Array<{ ms: number; index: number; other: number; indexBytes: number; seeded: number; indexed: number }> = [];
 for (const { entry } of asked) {
   const store = new ObjectStore(join(root, "objects"), { cacheBytes: 0 });
   const counts = { index: 0, other: 0, indexBytes: 0 };
@@ -32,9 +32,9 @@ for (const { entry } of asked) {
   }, 512 * 1024 * 1024);
   const t = performance.now();
   try { await sidecar.answer(recordedQuestion(entry)); } catch { continue; }
-  rows.push({ ms: performance.now() - t, ...counts, seeded: sidecar.seededCount, replayed: sidecar.replayed });
+  rows.push({ ms: performance.now() - t, ...counts, seeded: sidecar.seededCount, indexed: sidecar.indexedCount });
 }
 const med = (k: keyof typeof rows[number]) => { const v = rows.map((r) => r[k]).sort((a, b) => a - b); return Math.round(v[v.length >> 1]!); };
 const max = (k: keyof typeof rows[number]) => Math.round(Math.max(...rows.map((r) => r[k])));
 console.log(JSON.stringify({ delay, n: rows.length, ms: med("ms"), msMax: max("ms"), indexReads: med("index"), indexReadsMax: max("index"),
-  indexKB: Math.round(med("indexBytes") / 1024), otherReads: med("other"), otherMax: max("other"), replayed: med("replayed") }));
+  indexKB: Math.round(med("indexBytes") / 1024), otherReads: med("other"), otherMax: max("other"), indexed: med("indexed") }));

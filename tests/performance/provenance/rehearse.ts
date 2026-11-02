@@ -53,7 +53,7 @@ for (const [index, { id, entry }] of entries.entries()) {
   appendFileSync(out, JSON.stringify({ index, ordinal: Number(id), kind: entry.trace === null ? "snapshot" : "traced",
     window: index - 1 - entries.findIndex((e) => e.hash === (entry.asked!.base ?? entry.previous)),
     attempts, slowestAttemptMs: Math.round(slowest), ms: Math.round(performance.now() - t),
-    replayed: sidecar.replayed, seeded: sidecar.seededCount, ...result }) + "\n");
+    indexed: sidecar.indexedCount, seeded: sidecar.seededCount, ...result }) + "\n");
   if (n % 10 === 0) console.error(`${n} questions, ${same} same, ${failed} failed, ${Math.round((performance.now() - started) / 1000)} s`);
 }
 console.error(`done: ${n} questions, ${same} same as accepted, ${failed} failed`);

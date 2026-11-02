@@ -106,7 +106,7 @@ they were is also reported unchanged.
 ## Transport and execution
 
 ```sh
-bun run overstoryd-merge serve --objects /data/objects --staging /data/merge-workers/worker-example/objects --cache /data/merge-cache
+bun run overstoryd-merge serve --objects /data/objects --staging /data/merge-workers/worker-example/objects
 ```
 
 `serve` answers one question per stdin line with one line on stdout, in order: an
@@ -172,34 +172,22 @@ evaluations by hash, least recently used first, up to 16 MB of their encoded byt
 outside `OVERSTORYD_MERGE_CACHE_MB`; each is still read through the evaluation, so the read
 budget counts it as before.
 
-A cold rebuild (after a restart, a crash or a dropped cache) replays each chain from its
-start, and chains only grow: about 10 ms an entry at 120 files (15 ms with a choice
-open), locally. So one question
-replays for at most `OVERSTORYD_MERGE_REPLAY_MS` (default 10 s; with overstoryd's 20-second
-evaluation budget that leaves 15 s of overstoryd's 45-second timeout for the entry that
-overruns the deadline, which is checked only between entries), then answers
-`{"error": {"code": "unavailable"}}` and keeps every state it rebuilt; overstoryd answers a
-retryable 503 and the client's retry continues the rebuild. Every attempt replays at
-least one entry. Without the budget overstoryd's timeout would end the process and lose the
-partial rebuild, and a long enough chain could never be rebuilt. Replay never starts
-partway along a chain: an imported start would lose the retained history a later merge
-reads, including the attribution of the current side of a choice.
+**Starting states from the provenance index.** An entry's state comes from the
+[provenance index](provenance-index.md) overstoryd keeps beside it: the engine imports the
+entry's root under the index's node identities and piece origins, then aligns to the
+decisions the entry records (Performance 004, decision 6). A question's head replays only
+the entries after its basis, from the basis's cached state or the basis's index; any other
+entry replays from a cached state at most 8 entries back, or starts from its own index.
+History is never replayed from a chain's start, so a restart costs about one index import
+per question (median 57 ms on the todos tree), with nothing saved to disk. An entry
+without a readable index has one computed from the nearest earlier one, as overstoryd's
+backfill computes it.
 
-**Saved states.** With `--cache DIR`, the sidecar stores shared computed states in
-compressed SQLite record packs, with binary cache-only objects and small checkpoint
-manifests. It restores persistent buckets and frozen values directly, verifying record
-hashes, semantic state identities and the accepted entry association. Legacy expanded
-JSON saves remain readable and are removed as their replacements commit.
-
-A completed replay saves the head after 32 entries and retains two checkpoints per
-tree. An interrupted replay also checkpoints its verified frontier, so eviction or a
-restart cannot erase its progress. When an older authored basis is rebuilding, the
-already computed head is protected alongside two replay frontiers. Saves run after the
-answer, before the worker reads its next question. Collection and publication serialize
-in SQLite; invalid private state falls back to replay. overstoryd passes `/data/merge-cache`
-and does not read or back it up. A checkpoint is the state replay computed, with all its
-retained history; it is never an imported start. See [shared merge checkpoints](merge-cache.md)
-for the codec, recovery boundaries, benchmarks and regression evidence.
+A head's replay from its basis is the only replay, and it stops at
+`OVERSTORYD_MERGE_REPLAY_MS` (default 10 s, checked between entries): the head then
+starts from its own index instead. Each answer carries the index of the state it reached
+(`provenance`, the root record, with the records overstoryd lacks staged with the answer's
+objects), so merged entries keep the engine's own lineage.
 
 What replay cannot recover is recorded as fact: an entry that migration 018 wrote from
 a schema-18 record has no `asked`, so a concurrent merge in it is aligned to rather than
@@ -523,7 +511,7 @@ overstoryd stages the uncommitted inputs in its `objects/` staging store, in one
 The sidecar receives fixed paths and a minimal environment rather than inherited server
 credentials. Normal and failed jobs remove staging in `finally`. A host crash can leave
 an unaccepted worker directory; overstoryd removes `merge-workers/` at startup, before any
-job runs. `merge-cache/` is the sidecar's and outlives restarts.
+job runs. The sidecar keeps nothing on disk; `merge-cache/` from earlier versions is unused and can be deleted.
 
 Every entry, and every root and alternative it names, is reachable from its tree's head
 entry, so a future object collector keeps exactly what the chains reach; sidecar caches

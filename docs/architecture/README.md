@@ -59,7 +59,7 @@ and the CLI share them ([local state](story-browser/local-state.md)).
 | `fs` | `WorkspaceFS`: logical-node reads, discovery and watching; `materializeTree` ([README](../../packages/fs/README.md)) | protocol, `@parcel/watcher` |
 | `client` | Account bootstrap, pairing and wire, device keys, and the data home they share with the daemon: the profile identity, `placements.yaml`, and the setup lock; it never imports `story-sync` | protocol, fs |
 | `overstoryd` | Access and claims, accounts and profiles, boundaries, the public page, resource effects and execution authority, schema and the SQLite authority, `updates/` (decision, reconcile, graph validation, stores, observations, watch frames, source edits), the merge sidecar adapter and log entries, account-configuration merging, projection, the `overstoryd` CLI ([README](../../packages/overstoryd/README.md)) | protocol, object-store, collection-schema, apps-runtime, merge-protocol |
-| `overstoryd-merge` | The merge sidecar: the question loop and its in-memory cache replayed from log entries, snapshot choices, intent engine and model, format rules, Markdown and web formats, retained states in memory, log decisions and checkpoints, the `overstoryd-merge` CLI ([merge sidecar](overstoryd/merge-tool.md)) | protocol, object-store, merge-protocol, tree-merge, tree-sitter, saxes |
+| `overstoryd-merge` | The merge sidecar: the question loop and its in-memory cache of entry states (started from provenance indexes), snapshot choices, intent engine and model, format rules, Markdown and web formats, retained states in memory, log decisions, the `overstoryd-merge` CLI ([merge sidecar](overstoryd/merge-tool.md)) | protocol, object-store, merge-protocol, tree-merge, tree-sitter, saxes |
 | `merge-protocol` | The contract between overstoryd and a merge sidecar: log entries, the merge question and answer, refusal codes; no merge logic ([writing a sidecar](overstoryd/writing-a-sidecar.md)) ([README](../../packages/merge-protocol/README.md)) | protocol, zod |
 | `tree-merge` | The three-way snapshot tree merge with its Markdown and collection-file rules and model hashes ([README](../../packages/tree-merge/README.md)) | protocol, collection-schema |
 | `collection-schema` | Collection schemas from `schema.usl`: compilation through `usl`, validator, CSV cell conversion, generated declarations, logical names, the bounded schema cache, and the collection-file codec; pure, with no code execution, filesystem, or network ([README](collection-schema/README.md)) | protocol, usl, `csv-parse` |
@@ -90,7 +90,7 @@ Diagnostics that are not gates: `FILES=1000 bun tests/performance/snapshot-accep
 (acceptance latency and per-phase timings through a disposable host) and
 `bun tests/performance/benchmark-merge-tool.ts` (the engine alone, in memory) and
 `bun tests/performance/benchmark-merge-replay.ts` (an in-process sidecar: one checkpoint
-with K conflicting files, and cold replay of chains with concurrent work; it prints a
+with K conflicting files, and a cold question on chains with concurrent work and no stored indexes; it prints a
 digest of every answer, which an engine change that must not change answers keeps). Language-neutral vectors under
 [`docs/overstory-spec/conformance/`](../overstory-spec/conformance/README.md) are the portable part; reference
 API and algorithm fixtures live under [`tests/fixtures/`](../../tests/fixtures/README.md).

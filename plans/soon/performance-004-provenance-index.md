@@ -25,9 +25,8 @@ way until this plan lands.
   two programs must agree exactly on piece semantics: if overstoryd's index ever
   differs from what the engine would have computed, later merges go wrong with no
   error.
-- **State:** Steps 1 to 3 done (2026-11-01, below, on branch
-  `claude/project-thread-uxhic5`, not deployed); open choices settled as
-  decision 6
+- **State:** Steps 1 to 5 done and deployed (2026-11-01/02, below); open
+  choices settled as decision 6. Left: canonical contribution order, step 6.
 - **Depends on:** nothing. History 006 should build on it (see below).
 
 ## What the engine keeps late
@@ -289,6 +288,32 @@ with full history, 6 over the evaluation budget with any state. Median 92 ms
 per cold question, p95 468 ms; no question needed a retry. Answers need not
 carry their index.
 
+**Step 4, rest (2026-11-02).** After a restart the live helper restored a
+checkpoint 75 entries back and replayed through a 12.8 s entry, so the first
+merge took a retry. Joe: why ever replay? Now:
+- The sidecar starts an entry from its index unless a cached state is within
+  8 entries, and a head replays only the entries after its basis, starting
+  the head from its index if that runs past `OVERSTORYD_MERGE_REPLAY_MS`. No
+  "retry to continue", no saved checkpoints (`merge-cache/`, the checkpoint
+  store and its save rules are gone), and an index overstoryd lacks is
+  computed by the sidecar as the backfill computes it.
+- Answers carry their index (`stateIndex`, the inverse of `indexedIntent`),
+  so merged entries keep the engine's lineage; overstoryd stages the carried
+  records instead of storing them with the entry.
+- Index records and pointers are staged without fsync (the index is a
+  cache; fsyncs per fast-forward back from 13.4 to 7.5,
+  `tests/performance/provenance/fsync-count.ts`).
+- A cold question's reads (about 280 index records and 155 tree objects)
+  run concurrently: 1.1 s to 0.18 s at 2 ms a read
+  (`tests/performance/provenance/cold-reads.ts`).
+- Rehearsal with no replay at all on the Oct 28 copy (answered entries'
+  indexes rebound, the worst case): 591 of 604 as accepted, median 57 ms,
+  p95 109 ms. So past entries' indexes need no rebuild.
+- Replay stays only for a head's entries after its basis: with no replay,
+  14 engine tests of moves, nested and hidden decisions after the basis
+  failed, because the index keeps nodes and pieces, not the engine's
+  decision history.
+
 ## Steps
 
 1. **Spike: can the engine evaluate from the index?** On a production copy, take
@@ -322,7 +347,7 @@ carry their index.
    Saved checkpoints become optional; keep the cache only where measurement shows a
    gain.
 5. **Measure and deploy.** The targets above, on the host-class benchmark
-   (`tests/performance/benchmark-catch-up.ts`, `benchmark-history-maps.ts`), then
+   (`tests/performance/provenance/rehearse.ts`, `cold-reads.ts`, `fsync-count.ts`), then
    an actual older-device catch-up after deployment.
 6. **Collections: cost by edit, not by size.** Moved from Schema language 005
    milestone 4 (Joe, 2026-10-24: the merge sidecar is already too slow; combine

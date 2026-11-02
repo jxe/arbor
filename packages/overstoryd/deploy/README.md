@@ -90,8 +90,8 @@ overstoryd reads these variables at start; all are optional.
 | `OVERSTORYD_DATA` | `/data` in the image | Data directory: `overstoryd.sqlite3` plus `objects/`. |
 | `OVERSTORYD_DOMAIN` | from `RAILWAY_PUBLIC_DOMAIN` | Public hostname used to derive the canonical URL; pass `--url` instead for plain HTTP or a nonstandard port. |
 | `OVERSTORYD_OBJECT_CACHE_MB` | 256 | In-memory cache of hash-verified immutable objects, in overstoryd and (passed through) in the merge sidecar. |
-| `OVERSTORYD_MERGE_CACHE_MB` | 512 | The merge sidecar's in-memory cache of replayed states; dropped whole, and rebuilt from log entries, when exceeded. |
-| `OVERSTORYD_MERGE_REPLAY_MS` | 10000 | How long one merge question may spend rebuilding the sidecar's cache before it answers a retryable 503 and keeps its progress for the retry. |
+| `OVERSTORYD_MERGE_CACHE_MB` | 512 | The merge sidecar's in-memory cache of entry states; dropped whole when exceeded, and started again from provenance indexes. |
+| `OVERSTORYD_MERGE_REPLAY_MS` | 10000 | How long one merge question may replay the entries after its basis before the head starts from its provenance index instead. |
 | `OVERSTORYD_RATE_LIMITS` | off | `1` limits unauthenticated session challenges and pairing claims per caller; see [rate limits and proxies](#rate-limits-and-proxies). |
 | `OVERSTORYD_PAGES` | off | `1` accepts page entries in every tree, and a list of tree IDs separated by commas in just those trees. Such a tree also accepts the one update that converts its Markdown files to pages, and its descriptor says `pages`, which is when a writer's Story Sync converts it; health advertises `pages-v1` ([spec 02 §3](../../../docs/overstory-spec/02-directory-format.md#3-properties-markdown-content-and-identity)). |
 | `OVERSTORYD_TRUSTED_PROXY_HOPS` | 0 | How many reverse proxies in front of overstoryd append to `X-Forwarded-For`; see [rate limits and proxies](#rate-limits-and-proxies). |

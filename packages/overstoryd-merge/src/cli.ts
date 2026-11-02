@@ -4,7 +4,6 @@ import { holdsObject, ObjectStore } from "@ovst/object-store";
 import { MergeRefusal } from "@ovst/merge-protocol";
 import { EvaluationFailure } from "./engine-contract.ts";
 import { engineDiagnostics } from "./intent-engine.ts";
-import { savedStatesIn } from "./saved-states.ts";
 import { provenanceIn } from "./provenance.ts";
 import { REPLAY_MILLIS, Sidecar } from "./sidecar.ts";
 
@@ -33,12 +32,12 @@ async function* requests(): AsyncGenerator<string> {
 export async function run(args = process.argv.slice(2), testing: { treeMerge?: ConstructorParameters<typeof Sidecar>[2] } = {}): Promise<void> {
   const mode = args.shift();
   if (mode !== "serve")
-    throw new Error("Usage: overstoryd-merge serve --objects DIR --staging DIR [--cache DIR]");
+    throw new Error("Usage: overstoryd-merge serve --objects DIR --staging DIR");
   const options = new Map<string, string>();
   while (args.length) {
     const key = args.shift()!,
       value = args.shift();
-    if (!["--objects", "--staging", "--cache"].includes(key) || !value || options.has(key))
+    if (!["--objects", "--staging"].includes(key) || !value || options.has(key))
       throw new Error("Invalid merge tool options");
     options.set(key, resolve(value));
   }
@@ -56,7 +55,6 @@ export async function run(args = process.argv.slice(2), testing: { treeMerge?: C
   const sidecar = new Sidecar({
     shared: { find: (hash) => shared.find(hash), has: (hash) => holdsObject(shared, hash) },
     staging: { find: (hash) => staging.find(hash), stage: (values) => staging.stage(values) },
-    ...(options.has("--cache") ? { saved: savedStatesIn(options.get("--cache")!) } : {}),
     // overstoryd keeps entries' provenance indexes beside the shared objects.
     provenance: provenanceIn(join(dirname(options.get("--objects")!), "provenance"), (hash) => shared.find(hash)),
   }, (Number.isFinite(stateMB) && stateMB >= 0 ? stateMB : 512) * 1024 * 1024, testing.treeMerge,
@@ -70,9 +68,8 @@ export async function run(args = process.argv.slice(2), testing: { treeMerge?: C
       response = await sidecar.answer(JSON.parse(line));
     } catch (error) {
       // A refusal is a property of the question; anything else is a failure
-      // to answer it. A time budget (`limit`) or an unfinished rebuild
-      // (`unavailable`) is such a failure, reported with its code so overstoryd
-      // offers a retry.
+      // to answer it. A time budget (`limit`) is such a failure, reported
+      // with its code so overstoryd offers a retry.
       response = error instanceof MergeRefusal
         ? { refusal: { code: error.code, message: error.message } }
         : { error: {
@@ -81,12 +78,8 @@ export async function run(args = process.argv.slice(2), testing: { treeMerge?: C
           } };
     }
     // Diagnostics only: no request content or hashes.
-    process.stderr.write(JSON.stringify({ timings: { "total-ms": performance.now() - started, replayed: sidecar.replayed, restored: sidecar.restored, seeded: sidecar.seededCount, ...engineDiagnostics } }) + "\n");
+    process.stderr.write(JSON.stringify({ timings: { "total-ms": performance.now() - started, replayed: sidecar.replayed, seeded: sidecar.seededCount, indexed: sidecar.indexedCount, ...engineDiagnostics } }) + "\n");
     process.stdout.write(JSON.stringify(response) + "\n");
-    // After answering, so a save never delays an answer or changes one.
-    await sidecar.save().catch((error) => {
-      process.stderr.write(`Saving a state failed: ${error instanceof Error ? error.message : String(error)}\n`);
-    });
   }
 }
 if (import.meta.main)

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { encodeLogEntry, LOG_ENTRY_FORMAT, type LogEntry } from "@ovst/merge-protocol";
+import { decodeLogEntry, encodeLogEntry, LOG_ENTRY_FORMAT, type LogEntry } from "@ovst/merge-protocol";
 import { mergeIntent } from "../../../packages/overstoryd-merge/src/intent-engine.ts";
 import { EvaluationFailure } from "../../../packages/overstoryd-merge/src/engine-contract.ts";
 import { Sidecar } from "../../../packages/overstoryd-merge/src/sidecar.ts";
@@ -104,7 +104,10 @@ test("replay aligns to an entry whose question is refused", async () => {
       { kind: "editSource", key: "first", source: f.ref("/a.md", "xyz", [0, 1]), text: "A" },
     ]),
   });
-  const answer = await sidecar(f).answer(question);
+  const s = sidecar(f), first = decodeLogEntry(f.objects.get(question.head)!).previous!;
+  await s.answer({ ...question, base: first, head: first });
+  const answer = await s.answer(question);
+  expect(s.replayed).toBe(1);
   expect(answer.root).toBe(candidate);
   expect(answer.decisions).toEqual([]);
 });
@@ -113,7 +116,11 @@ test("replay does not align past a failure to evaluate", async () => {
   const f = new Fixture();
   // Asked under a 1 ms budget, on a store too slow to meet it.
   const { question } = entries(f, { asked: { rules: { id: "tree-default", revision: 1, config: { maxMillis: 1 } } } });
-  const failed = sidecar(f, 5).answer(question);
+  // A question on the entry before caches its state, so the head replays
+  // from it (a head without one starts from its index instead).
+  const s = sidecar(f, 5), first = decodeLogEntry(f.objects.get(question.head)!).previous!;
+  await s.answer({ ...question, base: first, head: first });
+  const failed = s.answer(question);
   await expect(failed).rejects.toBeInstanceOf(EvaluationFailure);
   await expect(failed).rejects.toThrow("Evaluation time budget exceeded");
 });
