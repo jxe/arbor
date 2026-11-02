@@ -358,16 +358,19 @@ struct StoryAgentTaskControl: View {
                     } label: {
                         Image(systemName: "play.fill")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.primary)
+                            // A triangle's mass sits left of its box: nudge it to look centered.
+                            .offset(x: 1)
                             .frame(width: 30, height: 30)
-                            .background(Circle().fill(.purple))
+                            // Over the page's own background, so the tint is even across the panel's edge.
+                            .background(Circle().fill(.purple.opacity(0.3)).background(Circle().fill(.background)))
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    // On the Mac the circle hangs half off the panel's right edge (its 12pt
-                    // padding away), taking only a line's height and no width from the text.
-                    .frame(width: 0, height: 20)
-                    .offset(x: 12)
+                    // On the Mac a quarter of the circle hangs off the panel's right edge
+                    // (its 12pt padding away); it takes a line's height and 12pt from the text.
+                    .frame(width: 12, height: 20)
+                    .offset(x: 10.5)
                     .help("Run this task with Claude Code in this tree's folder")
                     .accessibilityLabel("Run with Claude")
                 }
