@@ -43,19 +43,21 @@ public struct DirectoryObjectStore: ObjectOverlay {
         return try verifyObject(try Data(contentsOf: url), hash: hash)
     }
 
+    /// Each new object is written to a temporary file, fsynced and renamed
+    /// into place; the directory is fsynced once for the whole batch, before
+    /// this returns. A present object is not read back: its name is its hash,
+    /// and every read verifies the bytes against it.
     public func store(_ objects: [String: Data]) throws {
+        var wrote = false
         for (hash, bytes) in objects {
             _ = try verifyObject(bytes, hash: hash)
             let url = objectURL(hash: hash)
-            if FileManager.default.fileExists(atPath: url.path) {
-                let existing = try Data(contentsOf: url)
-                guard existing == bytes else {
-                    throw ObjectStoreError.hashMismatch(expected: hash, actual: ProtocolObjectCodec.hash(existing))
-                }
-            } else {
-                try atomicWrite(bytes, to: url)
-            }
+            if FileManager.default.fileExists(atPath: url.path) { continue }
+            if !wrote { try Self.createPrivateDirectory(directory) }
+            try writeFile(bytes, to: url)
+            wrote = true
         }
+        if wrote { try syncDirectory(directory) }
     }
 
     public func hashes() throws -> Set<String> {
@@ -72,8 +74,7 @@ public struct DirectoryObjectStore: ObjectOverlay {
         try syncDirectory(directory)
     }
 
-    private func atomicWrite(_ data: Data, to destination: URL) throws {
-        try Self.createPrivateDirectory(destination.deletingLastPathComponent())
+    private func writeFile(_ data: Data, to destination: URL) throws {
         let temporary = destination.deletingLastPathComponent().appending(path: ".\(UUID().uuidString).tmp")
         guard FileManager.default.createFile(
             atPath: temporary.path,
@@ -88,7 +89,6 @@ public struct DirectoryObjectStore: ObjectOverlay {
             if Darwin.rename(temporary.path, destination.path) != 0 {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
-            try syncDirectory(destination.deletingLastPathComponent())
         } catch {
             try? FileManager.default.removeItem(at: temporary)
             throw error

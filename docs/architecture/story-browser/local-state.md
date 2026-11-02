@@ -141,14 +141,21 @@ The recovery store earlier builds kept under
 
 Each working tree keeps its change log at `sync/change-log.json` with its
 objects under `sync/change-log-objects/`, separate from update control and
-from editor recovery. The complete journal is written to a private temporary
-file, fsynced, renamed, and its directory fsynced before a write returns;
+from editor recovery. TypeScript writes the complete journal to a private
+temporary file, fsyncs it, renames it and fsyncs its directory before a write
+returns. Swift (schema 5) keeps JSON Lines, a header line and then one record
+per line: a new edit stores the objects it introduces (each file fsynced, the
+directory fsynced once) and then appends its line with one fsync, so an edit's
+cost does not grow with the retained records. Removing records rewrites the
+file atomically as above. A last line without its newline was never
+acknowledged; it is dropped on load and the next write rewrites the file.
 Swift locks concurrent writers and TypeScript serializes within the owning
 process. One process must own a state directory; cross-process ownership is
 not enforced. Opening a corrupt journal fails without rewriting it.
 
-The journal is schema 4: each record keeps the protocol element verbatim, one
-frame per record, with a capture summary; both stacks refuse any other schema.
+Each record keeps the protocol element verbatim, one frame per record, with a
+capture summary. TypeScript reads and writes schema 4 (one JSON document);
+Swift reads schema 4 and rewrites it as schema 5 on the next write.
 A record may also carry `transfer`: the
 destination document (reference, path and basis revision) of a Move to
 Document, whose one frame moves source out of the record's `document` and into

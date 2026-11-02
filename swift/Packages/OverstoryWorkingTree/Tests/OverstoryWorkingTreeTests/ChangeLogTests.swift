@@ -442,3 +442,40 @@ extension ChangeLogTests {
         }
     }
 }
+
+extension ChangeLogTests {
+    @Test("Each retain appends one line; restarts, torn tails and schema 4 journals still load")
+    func appendOnlyJournal() async throws {
+        let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+        let all = try records(f), path = root.appending(path: "sync/change-log.json")
+        let queue = try await ChangeLog(tree: f.tree, stateRoot: root)
+        for record in all { try await queue.retain(record) }
+        func lines() throws -> [Substring] { String(decoding: try Data(contentsOf: path), as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false).map { $0 } }
+        var text = try lines()
+        #expect(text.count == all.count + 2)
+        #expect(text.first?.contains("\"schema\":5") == true)
+        #expect(text.last == "")
+        #expect(try await ChangeLog(tree: f.tree, stateRoot: root).retained() == all)
+
+        // A line whose fsync never returned was never acknowledged: dropped
+        // on load, and the next retain rewrites the journal without it.
+        let handle = try FileHandle(forWritingTo: path)
+        try handle.seekToEnd(); try handle.write(contentsOf: Data("{\"change\":\"half".utf8)); try handle.close()
+        let reopened = try await ChangeLog(tree: f.tree, stateRoot: root)
+        #expect(try await reopened.retained() == all)
+        try await reopened.retain(all[0])
+        text = try lines()
+        #expect(text.count == all.count + 2)
+        #expect(!text.contains { $0.contains("half") })
+
+        // Schema 4 kept every record in one document; it loads, and the
+        // first retain rewrites it as schema 5.
+        let records = text.dropFirst().dropLast().joined(separator: ",")
+        try Data("{\"records\":[\(records)],\"schema\":4,\"tree\":\"\(f.tree)\"}".utf8).write(to: path)
+        let legacy = try await ChangeLog(tree: f.tree, stateRoot: root)
+        #expect(try await legacy.retained() == all)
+        try await legacy.retain(all[0])
+        #expect(try lines().first?.contains("\"schema\":5") == true)
+        #expect(try await ChangeLog(tree: f.tree, stateRoot: root).retained() == all)
+    }
+}
