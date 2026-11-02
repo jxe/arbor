@@ -29,6 +29,16 @@ no other metadata operation (was ~17 creates, links, mkdirs and unlinks), and a 
 pair about 45 reads and stats (was ~830 utimes and ~610 opens). Proposal and next steps:
 `/mnt/project-files/overstoryd-redesign/proposal.md` (project files).
 
+Then large, long-edited pages (live: 6-25 ms storing an edit to the 64 KB Console page).
+Storing an edit re-chunked and re-hashed the page's whole provenance piece list, which grows
+with every edit; now only the chunks whose pieces changed are written (a differential test
+checks the records equal a full encode). An edit to a root `_index.md` reads only its
+frontmatter for profile facts. Story and Story Sync batches send only the final candidate's
+objects (Story had sent each in-between version of the page in full, 70-217 KB per batch);
+the host regenerates intermediate frames by executing them. Harness
+`tests/performance/page-edit-cost.ts`, 64 KB page after 1,500 edits: server time per typed
+character 17.4 -> 6.6 ms (accepted-store 10.2 -> 2.2 ms).
+
 ## Performance 004: merges start from the provenance index — 2026-11-02
 
 [Performance 004](https://github.com/jxe/arbor/blob/4844b1c/plans/soon/performance-004-provenance-index.md) steps 1 to 5 are
