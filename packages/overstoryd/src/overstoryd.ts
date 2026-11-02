@@ -3130,6 +3130,7 @@ export class HostDaemon implements AsyncDisposable {
     await this.mergeTool[Symbol.asyncDispose]();
     this.wireSchemas.clear();
     this.objects.packs.close();
+    this.history.provenance?.close();
     this.db.close();
     this.observationListeners.clear();
   }

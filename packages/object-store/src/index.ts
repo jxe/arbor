@@ -14,6 +14,7 @@ import {
 import { Packs, prepareRecords, type PackCandidate, type PackOptions } from "./packs.ts";
 
 export { Encoding, PACK_INDEX, Packs, zstd, type PackCandidate, type PackOptions, type PackRecord, type PackUsage, type PackedLocation } from "./packs.ts";
+export { HashPointers } from "./pointers.ts";
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 

@@ -102,10 +102,11 @@ export async function collectObjects(dataRoot: string, options: CollectOptions =
   try {
     assertCurrentHostSchema(db);
     progress("walking retained history");
-    // Index records stay as long as their entries (the pointer files of
-    // collected entries are left; they name nothing a reader can reach).
+    // Index records stay as long as their entries (the pointers of collected
+    // entries are left; they name nothing a reader can reach).
     const provenance = new ProvenanceStore(root, store, () => { throw new Error("The collector reads no entries for provenance"); });
-    retained = await retainedObjects(db, store, provenance);
+    try { retained = await retainedObjects(db, store, provenance); }
+    finally { provenance.close(); }
   } finally {
     db.close();
   }
