@@ -64,6 +64,44 @@ describe("a public page's link preview and Open in Story bar", () => {
   });
 });
 
+describe("public blocks drawn as Story draws them", () => {
+  const body = (source: string) => page("/", source);
+
+  test("an agent task is a callout without its marker, and a finished one is struck through", () => {
+    const open = body("> [!agent] Do the thing\n");
+    expect(open).toContain('<div class="callout-panel">');
+    expect(open).toContain('<span class="row-text">Do the thing</span>');
+    expect(open).not.toContain("[!agent]");
+    const done = body("> [!agent-done] Did it\n");
+    expect(done).toContain('<div class="callout-panel done">');
+    expect(done).toContain('<span class="row-text finished">Did it</span>');
+    expect(body("> Plain\n")).toContain('<div class="quote"><blockquote>Plain</blockquote></div>');
+  });
+
+  test("lists use Story's marker column, with explicit numbers and struck-through finished to-dos", () => {
+    expect(body("- One\n")).toContain('<span class="marker bullet"></span><span class="row-text">One</span>');
+    expect(body("1. A\n2. B\n")).toContain('<span class="marker number">2.</span>');
+    expect(body("- [x] Done\n")).toContain('<span class="row-text finished">Done</span>');
+  });
+
+  test("only the first H1 is the page title, carrying its emoji as the icon", () => {
+    const html = body("# 📠 Console\n\n# Later\n");
+    expect(html).toContain('<span class="page-icon">📠</span><span class="page-title-text">Console</span>');
+    expect(html).toContain("<h1>Later</h1>");
+  });
+
+  test("a link row carries its emoji as the icon", () => {
+    expect(body("[📁 Reference](Reference.md)\n")).toContain('<span class="child-page-emoji">📁</span>');
+  });
+
+  test("a code block's language sits above the code, and an image shows no caption", () => {
+    expect(body("```swift\nlet a = 1\n```\n")).toContain('<div class="code-panel"><small>swift</small><pre>');
+    const image = body("![Alt](a.png)\n");
+    expect(image).toContain('alt="Alt"');
+    expect(image).not.toContain("figcaption");
+  });
+});
+
 describe("presented headings on a public page", () => {
   const children = [{ name: "note", href: "/~joe/todos/dir/note", kind: "document" as const }];
   const render = (source: string, fallbackTitle = "field-notes") => renderPublicMarkdownPage({
@@ -71,8 +109,8 @@ describe("presented headings on a public page", () => {
   });
 
   test("a body without a leading H1 opens with the name, hyphens shown as spaces", () => {
-    expect(render("Text.\n")).toContain("<h1>field notes</h1>");
-    expect(render("# Authored\n")).not.toContain("<h1>field notes</h1>");
+    expect(render("Text.\n")).toContain('<span class="page-title-text">field notes</span>');
+    expect(render("# Authored\n")).not.toContain("field notes</span>");
   });
 
   test("unlinked children close the page under Subpages", () => {
