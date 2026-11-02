@@ -170,13 +170,15 @@ deliberately, once, after a deploy or migration.
 
 overstoryd runs SQLite in WAL mode with `PRAGMA synchronous = NORMAL`. A process
 crash loses nothing. An OS crash or power loss can lose the most recent
-commits but cannot corrupt the database. Objects are fsynced before the commit
-that names them, so a lost commit leaves only unreferenced objects, never a
-reference to missing bytes. Back up with an application-consistent copy
+commits but cannot corrupt the database. Objects are synced (appended to the
+object journal under `objects/packs/`) before the commit that names them, so a
+lost commit leaves only unreferenced objects, never a reference to missing
+bytes; a journal record whose index row was lost is indexed again at startup. Back up with an application-consistent copy
 (`VACUUM INTO`) plus a tar of `objects/`, as the [migration procedure](../migrations/README.md) does.
 `objects/packs/index.sqlite3` is a SQLite database too: copy it with
 `VACUUM INTO` (or `.backup`) and take its packs after it, since a pack is
-written and synced before any index row names it.
+written and synced before any index row names it (a journal may hold records
+past what the copied index names; the host indexes them as it starts).
 
 ### Packed objects
 

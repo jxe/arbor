@@ -500,9 +500,10 @@ commit accepted state inside this process.
 
 ## Objects, authority and failure
 
-`@ovst/object-store` provides immutable, hash-sharded storage. Reads verify hashes.
-Durable writes flush files and atomically link them into place; disposable staging uses
-atomic publication without fsync. The sidecar reads shared storage first, then staging,
+`@ovst/object-store` provides immutable, hash-addressed storage. Reads verify hashes.
+Durable writes append to overstoryd's object journal and sync it once; disposable staging
+publishes loose files atomically without fsync. The sidecar reads shared storage (loose
+files, packs and journals, through `ObjectStore`) first, then staging,
 then its own memory. Corrupt shared bytes fail validation. Question JSON contains no
 object-store filesystem paths.
 

@@ -399,7 +399,12 @@ test("health checks only the database while integrity audits history in one shar
   await first;
   const integrity = await fetch(`${running.url}/.overstory/integrity`);
   expect(integrity.status).toBe(200);
-  expect(await integrity.json()).toEqual({ status: "ok", packs: { packs: 0, bytes: 0, objects: 0, objectBytes: 0 } });
+  // Bootstrap's accepted objects, in the host's one journal.
+  const body = await integrity.json() as { status: string; packs: { packs: number; bytes: number; objects: number; objectBytes: number } };
+  expect(body.status).toBe("ok");
+  expect(body.packs.packs).toBe(1);
+  expect(body.packs.objects).toBeGreaterThan(0);
+  expect(body.packs.bytes).toBe(body.packs.objectBytes + 36 * body.packs.objects);
 });
 
 test("the host validates logical collections itself", async () => {

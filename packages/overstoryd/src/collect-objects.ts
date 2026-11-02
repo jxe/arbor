@@ -56,7 +56,8 @@ export interface CollectReport {
   young: Tally;
   /** Unreferenced and old: deleted, or in a dry run, deletable. */
   deleted: Tally;
-  /** Candidates freshened by a concurrent writer and put back. */
+  /** Candidates freshened by a concurrent writer and put back (loose) or
+   * left (packed). */
   kept: number;
   /** Optional pins (replay inputs) that were never stored. */
   absent: number;
@@ -126,9 +127,16 @@ export async function collectObjects(dataRoot: string, options: CollectOptions =
     else candidates.push({ hash, path, bytes: info.size });
   }
   progress(`${scanned.objects} objects scanned; ${candidates.length} unreferenced and older than the grace period`);
-  await options.beforeRemoval?.(candidates.map((c) => c.hash));
 
-  let kept = 0;
+  // Packed objects (accepted objects are appended to journals, which are
+  // packs): the same definition and grace period, by index row, each row
+  // dropped only if still unused since the cutoff.
+  const packedResult = await store.packs.collect(retained.live, cutoff, remove,
+    (dead) => options.beforeRemoval?.([...candidates.map((c) => c.hash), ...dead]) ?? Promise.resolve());
+  const packed = { deleted: { objects: packedResult.objects, bytes: packedResult.bytes }, young: packedResult.young, kept: packedResult.kept, rewritten: packedResult.rewritten, stored: store.packs.usage() };
+  if (packedResult.objects) progress(`${remove ? "dropped" : "would drop"} ${packedResult.objects} packed objects; ${packedResult.rewritten} packs rewritten`);
+
+  let kept = packedResult.freshened;
   for (const candidate of candidates) {
     if (!remove) { deleted.objects++; deleted.bytes += candidate.bytes; continue; }
     const aside = `${candidate.path}.${crypto.randomUUID()}.collect`;
@@ -145,11 +153,6 @@ export async function collectObjects(dataRoot: string, options: CollectOptions =
     deleted.objects++; deleted.bytes += info.size;
   }
   if (remove) progress(`deleted ${deleted.objects} objects, ${deleted.bytes} bytes`);
-
-  // Packed objects: the same definition and grace period, by index row.
-  const packedResult = await store.packs.collect(retained.live, cutoff, remove);
-  const packed = { deleted: { objects: packedResult.objects, bytes: packedResult.bytes }, young: packedResult.young, kept: packedResult.kept, rewritten: packedResult.rewritten, stored: store.packs.usage() };
-  if (packedResult.objects) progress(`${remove ? "dropped" : "would drop"} ${packedResult.objects} packed objects; ${packedResult.rewritten} packs rewritten`);
 
   return {
     mode: remove ? "delete" : "dry-run",

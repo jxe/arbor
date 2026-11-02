@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, writeFile, stat, utimes } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectStore } from "@ovst/object-store";
@@ -211,15 +211,11 @@ test("unchanged shared outputs need no staging copies and existing objects are n
   for (const hash of out.objects) expect(decodeProvenanceRecord(await staged.read(hash)).format).toBeString();
   expect(out.provenance).toBeDefined();
   expect((await tool.ask(question, base.objects)).answer.root).toBe(base.root);
-  const shard = join(directory, "objects", base.root.slice(7, 9));
-  const timestamp = new Date("2020-01-01T00:00:00Z");
-  await utimes(shard, timestamp, timestamp);
+  // Storing an existing object again writes and syncs nothing.
+  const before = { ...store.writes };
   await store.store([{ hash: base.root, bytes: base.objects.get(base.root)! }]);
-  expect((await stat(shard)).mtimeMs).toBe(timestamp.getTime());
-  await writeFile(store.path(base.root), "corrupt");
-  // Bytes this process made durable are not read again; a store that has not
-  // verified them (another process) checks them before trusting them.
-  await expect(new ObjectStore(join(directory, "objects")).store([{ hash: base.root, bytes: base.objects.get(base.root)! }])).rejects.toThrow("hash mismatch");
+  expect(store.writes.written).toBe(before.written);
+  expect(store.writes.fsyncs).toBe(before.fsyncs);
 });
 
 test("one persistent stdin worker processes concurrent submissions in FIFO order", async () => {

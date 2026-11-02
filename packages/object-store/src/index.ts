@@ -17,19 +17,11 @@ export { Encoding, PACK_INDEX, Packs, zstd, type PackCandidate, type PackOptions
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 
-async function syncPath(path: string): Promise<void> {
-  const handle = await open(path, "r");
-  try {
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-}
-
 /**
  * Shared content-addressed object store plus the one graph walk every
- * reachability, snapshot, and delta question is phrased in. Objects are
- * immutable files sharded by hash; a `proposed` map lets callers reason about
+ * reachability, snapshot, and delta question is phrased in. Durable objects
+ * are appended to a journal and later packed (see `Packs`); scratch objects
+ * are immutable loose files sharded by hash; a `proposed` map lets callers reason about
  * a candidate graph before any of its objects are durable.
  */
 export class ObjectStore {
@@ -48,8 +40,9 @@ export class ObjectStore {
     this.packs = new Packs(root);
   }
 
-  /** Objects packed out of their loose files (see `Packs`). Reads and
-   * presence checks fall back to them; writes are always loose. */
+  /** Objects packed out of their loose files, and the journal durable
+   * writes append to (see `Packs`). Reads and presence checks fall back to
+   * them. */
   readonly packs: Packs;
 
   path(hash: ObjectHash): string {
@@ -271,91 +264,53 @@ export class ObjectStore {
     let bytes = 0;
     for (const c of candidates) {
       await unlink(this.path(c.hash)).catch((error) => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; });
-      this.durable.delete(c.hash);
       bytes += c.bytes.byteLength;
     }
     const packBytes = id === null ? 0 : (this.packs.index()!.query("SELECT bytes FROM packs WHERE id = ?").get(id) as { bytes: number }).bytes;
     return { packed: candidates.length, bytes, packBytes };
   }
 
-  /** Durably publish objects; an object already present must be byte-identical. */
+  /**
+   * Durably publish objects. New ones are appended to this store's journal
+   * (see `Packs.append`): one write and one sync for the whole call, and no
+   * file or directory to create. One already packed is freshened, as git
+   * does, so the collector treats it as new; its bytes were hash-checked
+   * when packed and are on every read. A loose copy of an object (staged, or
+   * stored before journals) is left as it is: the journal holds the durable
+   * copy, and the collector keeps whichever one is used.
+   */
   async store(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>): Promise<void> {
-    await this.publish(objects, true);
+    const unique = this.checked(objects);
+    for (const [hash, bytes] of unique) this.remember(hash, bytes);
+    const missing = new Set(this.packs.freshen(unique.keys()));
+    if (!missing.size) return;
+    const before = this.packs.syncs;
+    this.writes.written += await this.packs.append([...missing].map((hash) => ({ hash, bytes: unique.get(hash)! })));
+    this.writes.fsyncs += this.packs.syncs - before;
   }
 
-  /** Publish complete scratch objects atomically, without promising survival of
-   * a host crash. Only for disposable worker staging and caches; accepted
-   * storage uses store. `repair` replaces an existing file whose bytes do not
-   * match its hash (scratch data a crash tore) instead of failing. */
+  /** Index journal records a crash left unindexed. A host runs this once as
+   * it starts, before it reads; the first `store` also runs it. */
+  recover(): number {
+    return this.packs.recover();
+  }
+
+  /** Publish complete scratch objects as loose files, atomically and without
+   * any fsync, so without promising survival of a host crash. Only for
+   * disposable worker staging and caches; accepted storage uses store. An
+   * existing object is freshened, its bytes checked first. `repair` replaces
+   * an existing file whose bytes do not match its hash (scratch data a crash
+   * tore) instead of failing. */
   async stage(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>, options: { repair?: boolean } = {}): Promise<void> {
-    await this.publish(objects, false, options);
-  }
-
-  /** Cumulative write-side counters for diagnostics; callers diff snapshots. */
-  readonly writes: ObjectWriteCounters = { objects: 0, written: 0, fsyncs: 0 };
-
-  /** Hashes this process has already made durable. Re-storing one only
-   * freshens its time: its bytes were hash-checked when this process wrote or
-   * verified them, the file is immutable, and every read hash-checks it again.
-   * Bounded: forgetting an entry only costs one redundant verification. */
-  private readonly durable = new Set<ObjectHash>();
-  /** Hashes this process staged (written or verified, and freshened) and has
-   * not yet made durable. A durable store of one only syncs it. */
-  private readonly staged = new Set<ObjectHash>();
-
-  /** Shard directories whose entry in the root this process has synced.
-   * Shards are never removed (the collector deletes only object files), so
-   * one root sync per shard per process covers a shard made by any writer,
-   * including one another batch created and has not yet synced. */
-  private readonly durableShards = new Set<string>();
-  private rootEntryDurable = false;
-
-  private async publish(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>, durable: boolean, options: { loose?: boolean; repair?: boolean } = {}): Promise<void> {
-    const unique = new Map<ObjectHash, Uint8Array>();
-    for (const object of objects) {
-      if (hashObject(object.bytes) !== object.hash) throw new Error(`Object hash mismatch: ${object.hash}`);
-      unique.set(object.hash, object.bytes);
-    }
-    this.writes.objects += unique.size;
-    if (durable) for (const [hash, bytes] of unique) this.remember(hash, bytes);
-    // Directories whose entries changed or whose files were only staged
-    // before; each is synced once after every file in it is complete.
-    const directories = new Set<string>();
-    await mapLimit(unique, WRITE_CONCURRENCY, async ([hash, bytes]) => {
+    await mapLimit(this.checked(objects), WRITE_CONCURRENCY, async ([hash, bytes]) => {
       const path = this.path(hash);
-      const directory = dirname(path);
-      // An existing object is freshened, as git does, so a collector treats
-      // it as new; one that vanishes in between is written again. One this
-      // process already made durable is only freshened; any other has its
-      // stored bytes checked first.
-      if (this.durable.has(hash)) {
-        if (await touch(path)) return;
-      } else if (durable && this.staged.delete(hash)) {
-        // Staged by this process moments ago, its bytes checked and its time
-        // fresh: only its durability is left.
-        try {
-          await this.sync(path);
-          directories.add(directory);
-          return;
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        }
-      } else if (durable && !options.loose && this.packs.has(hash) && !this.packs.freshen([hash]).length) {
-        // Packed: its bytes were hash-checked when packed and are on every read.
-        return;
-      } else if (await this.verifyExisting(path, hash, !durable && options.repair) && await touch(path)) {
-        // An existing object may have been published as scratch data. Complete
-        // file and directory durability without rewriting identical bytes.
-        if (durable) { await this.sync(path); directories.add(directory); }
-        return;
-      }
-      await mkdir(directory, { recursive: true });
+      if (await this.verifyExisting(path, hash, options.repair) && await touch(path)) return;
+      await mkdir(dirname(path), { recursive: true });
       const temporary = `${path}.${crypto.randomUUID()}.tmp`;
       try {
         const file = await open(temporary, "wx", 0o600);
         try {
           await file.writeFile(bytes);
-          if (durable) { this.writes.fsyncs++; await file.sync(); }
         } finally {
           await file.close();
         }
@@ -367,39 +322,27 @@ export class ObjectStore {
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
           if (!await this.verifyExisting(path, hash)) throw new Error(`Stored object vanished: ${hash}`);
-          if (durable) await this.sync(path);
         }
-        if (durable) directories.add(directory);
       } finally {
         await unlink(temporary).catch((error) => {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         });
       }
     });
-    if (!durable) {
-      if (this.staged.size > DURABLE_MEMORY) this.staged.clear();
-      for (const hash of unique.keys()) if (!this.durable.has(hash)) this.staged.add(hash);
-      return;
+  }
+
+  /** Cumulative write-side counters for diagnostics; callers diff snapshots. */
+  readonly writes: ObjectWriteCounters = { objects: 0, written: 0, fsyncs: 0 };
+
+  /** Objects deduplicated by hash, each checked against its hash. */
+  private checked(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>): Map<ObjectHash, Uint8Array> {
+    const unique = new Map<ObjectHash, Uint8Array>();
+    for (const object of objects) {
+      if (hashObject(object.bytes) !== object.hash) throw new Error(`Object hash mismatch: ${object.hash}`);
+      unique.set(object.hash, object.bytes);
     }
-    // Bytes are on disk before any directory entry is synced, and every entry
-    // is synced before this resolves, so a subsequent database commit only
-    // names durable objects. A shard whose own entry in the root is not yet
-    // known durable (new, or first seen by this process) also flushes the root.
-    await mapLimit(directories, WRITE_CONCURRENCY, (directory) => this.sync(directory));
-    // The root's own entry in its parent is synced the same way, once.
-    const shards = [...directories].filter((directory) => !this.durableShards.has(directory));
-    if (shards.length) {
-      await this.sync(this.root);
-      if (!this.rootEntryDurable) { await this.sync(dirname(this.root)); this.rootEntryDurable = true; }
-      for (const shard of shards) this.durableShards.add(shard);
-    }
-    for (const hash of unique.keys()) this.durable.add(hash);
-    if (this.durable.size > DURABLE_MEMORY) {
-      for (const hash of this.durable) {
-        if (this.durable.size <= DURABLE_MEMORY / 2) break;
-        this.durable.delete(hash);
-      }
-    }
+    this.writes.objects += unique.size;
+    return unique;
   }
 
   private async verifyExisting(path: string, hash: ObjectHash, repair = false): Promise<boolean> {
@@ -416,11 +359,6 @@ export class ObjectStore {
       return false;
     }
     return true;
-  }
-
-  private async sync(path: string): Promise<void> {
-    this.writes.fsyncs++;
-    await syncPath(path);
   }
 }
 
@@ -445,7 +383,6 @@ export interface ObjectWriteCounters {
 }
 
 const WRITE_CONCURRENCY = 32;
-const DURABLE_MEMORY = 200_000;
 
 /** Set a file's times to now; false when it does not exist. */
 async function touch(path: string): Promise<boolean> {

@@ -47,14 +47,23 @@ function snapshot(candidate: string, omit: string[] = []): CandidateUpdate {
 async function submit(update: CandidateUpdate, basis = base) {
   return (await client.submitUpdates(tree, { base: basis, updates: [update] })).results[0]!.update;
 }
-const held = (hash: string) => access(store.path(hash)).then(() => true, () => false);
+/** Whether the store holds `hash`, loose or packed (accepted objects are
+ * in the host's journal). */
+const held = async (hash: string) => (await new ObjectStore(join(dir, "objects")).find(hash)) !== null;
+const loose = (hash: string) => access(store.path(hash)).then(() => true, () => false);
 
-/** Every stored file, set `days` into the past. */
+/** Every stored object, loose or packed, last used `days` ago. */
 async function age(days = 2) {
   const past = new Date(Date.now() - days * DAY);
-  for (const shard of await readdir(join(dir, "objects")))
+  for (const shard of await readdir(join(dir, "objects"))) {
+    if (shard === "packs") continue;
     for (const name of await readdir(join(dir, "objects", shard))) await utimes(join(dir, "objects", shard, name), past, past);
+  }
+  const index = new Database(join(dir, "objects", "packs", "index.sqlite3"));
+  try { index.run("UPDATE packed_objects SET used_at = ?", [past.getTime()]); } finally { index.close(); }
 }
+/** Loose and packed tallies together. */
+const both = (report: Awaited<ReturnType<typeof collectObjects>>) => report.deleted.objects + report.packed.deleted.objects;
 
 beforeEach(async () => {
   dir = await mkdtemp(`${tmpdir()}/story-object-collection-`); await start();
@@ -99,13 +108,14 @@ test("collection deletes only old unreferenced objects and leaves an intact, rep
 
   const dry = await collectObjects(dir, { graceMs: DAY });
   expect(dry.mode).toBe("dry-run");
-  expect(dry.deleted.objects).toBeGreaterThanOrEqual(2);
+  expect(both(dry)).toBeGreaterThanOrEqual(2);
   expect(await held(junk.hash)).toBe(true);
 
   const report = await collectObjects(dir, { delete: true, graceMs: DAY });
   expect(report.deleted).toEqual(dry.deleted);
+  expect(report.packed.deleted).toEqual(dry.packed.deleted);
   expect(report.scanned.objects).toBe(report.live.objects + report.young.objects + report.deleted.objects);
-  expect(report.young.objects).toBe(1);
+  expect(report.young.objects + report.packed.young).toBe(1);
   expect(await held(junk.hash)).toBe(false);
   expect(await held(junkDirectory.hash)).toBe(false);
   expect(await held(young.hash)).toBe(true);
@@ -118,7 +128,7 @@ test("collection deletes only old unreferenced objects and leaves an intact, rep
   await restart();
   await running.overstoryd.verifyIntegrity();
   for (const { id, root: at, page } of pages) expect(await client.conflicts(tree, id, at)).toEqual(page);
-  expect((await collectObjects(dir, { delete: true, graceMs: DAY })).deleted.objects).toBe(0);
+  expect(both(await collectObjects(dir, { delete: true, graceMs: DAY }))).toBe(0);
 });
 
 test("an update accepted during collection keeps the old objects it names", async () => {
@@ -148,6 +158,8 @@ test("an update accepted during collection keeps the old objects it names", asyn
 
 test("a run that was interrupted after setting an object aside puts it back", async () => {
   const { entry } = acceptedEntries(dir, tree).at(-1)!;
+  // A loose copy, as objects stored before journals are.
+  await store.stage([{ hash: entry.root, bytes: (await store.read(entry.root)) }]);
   const path = store.path(entry.root);
   await rename(path, `${path}.${crypto.randomUUID()}.collect`);
   const report = await collectObjects(dir, { delete: true, graceMs: 0 });
@@ -168,9 +180,11 @@ test("packed history reads, verifies, accepts and collects like loose history", 
   const report = (await packing.run())!;
   db.close();
   expect(report.packed).toBeGreaterThan(0);
-  // The current tree stays loose; older versions and log entries are packed.
+  // The current tree stays in the journal; older versions and log entries
+  // are packed into compressed frames.
   expect(report.hot).toBeGreaterThan(0);
-  expect(await held(dead.hash)).toBe(false);
+  expect(store.packs.journaled().map((j) => j.hash)).not.toContain(dead.hash);
+  expect(await loose(dead.hash)).toBe(false);
   expect(await store.read(dead.hash)).toEqual(dead.bytes);
   await restart();
   await running.overstoryd.verifyIntegrity();
@@ -179,15 +193,16 @@ test("packed history reads, verifies, accepts and collects like loose history", 
   base = (await submit(snapshot(root))).id;
   await running.overstoryd.verifyIntegrity();
   // Collection drops the packed dead object only, and history stays intact.
+  const before = new ObjectStore(join(dir, "objects")).packs.usage();
   const collected = await collectObjects(dir, { delete: true, graceMs: 0 });
   expect(collected.packed.deleted.objects).toBe(1);
   expect(collected.packed.stored).toEqual(new ObjectStore(join(dir, "objects")).packs.usage());
-  expect(collected.packed.stored.objects).toBe(report.packed - 1);
+  expect(collected.packed.stored.objects).toBe(before.objects - 1);
   await expect(new ObjectStore(join(dir, "objects")).read(dead.hash)).rejects.toThrow();
   await restart();
   expect((await running.overstoryd.verifyIntegrity()).packs).toEqual(collected.packed.stored);
   // A damaged pack fails the audit even when no read has touched it.
-  const name = (await readdir(join(dir, "objects", "packs"))).find((n) => n.endsWith(".pack"))!;
+  const name = (await readdir(join(dir, "objects", "packs"))).find((n) => n.endsWith(".pack") && !n.startsWith("journal-"))!;
   const bytes = await Bun.file(join(dir, "objects", "packs", name)).bytes();
   bytes[bytes.length - 1] = bytes[bytes.length - 1]! ^ 0xff;
   await Bun.write(join(dir, "objects", "packs", name), bytes);

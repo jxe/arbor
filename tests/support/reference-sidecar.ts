@@ -14,6 +14,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { ObjectStore } from "@ovst/object-store";
 import { compareProtocolNames, decodeProtocolDirectory, encodeProtocolDirectory, type ProtocolDirectoryEntry } from "@ovst/protocol";
 
 const args = process.argv.slice(2), option = (name: string) => args[args.indexOf(name) + 1]!;
@@ -21,18 +22,20 @@ const shared = option("--objects"), staging = option("--staging");
 const sha = (bytes: Uint8Array) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 const file = (root: string, hash: string) => join(root, hash.slice(7, 9), hash.slice(9));
 
-// The object store: shared objects first, then this question's staging.
+// The object store: shared objects first (loose, packed, or in a journal,
+// so read through the store), then this question's staging (loose files).
+const sharedStore = new ObjectStore(shared);
 async function get(hash: string): Promise<Uint8Array> {
-  for (const root of [shared, staging]) {
-    const bytes = await readFile(file(root, hash)).then((b) => new Uint8Array(b), () => null);
-    if (bytes && sha(bytes) === hash) return bytes;
-  }
+  const found = await sharedStore.find(hash);
+  if (found) return found;
+  const bytes = await readFile(file(staging, hash)).then((b) => new Uint8Array(b), () => null);
+  if (bytes && sha(bytes) === hash) return bytes;
   throw new Error(`Missing object ${hash}`);
 }
 const written: string[] = [];
 async function put(bytes: Uint8Array): Promise<string> {
   const hash = sha(bytes);
-  if (!(await readFile(file(shared, hash)).then(() => true, () => false))) {
+  if (!(await sharedStore.find(hash))) {
     await mkdir(join(staging, hash.slice(7, 9)), { recursive: true });
     await writeFile(file(staging, hash), bytes);
     if (!written.includes(hash)) written.push(hash);

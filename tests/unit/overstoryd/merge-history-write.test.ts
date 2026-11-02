@@ -24,10 +24,8 @@ test("an entry and the objects it names are published durably together", async (
   }, named);
   expect(conflicted).toBe(false);
   for (const { hash: object, bytes } of named) expect(await objects.read(object)).toEqual(bytes);
-  // One publish: three files, their shard directories, the root once, and the
-  // root's entry in its parent once for this process.
-  const shards = new Set([...named.map((o) => o.hash), hash].map((h) => h.slice(7, 9)));
-  expect(objects.writes.fsyncs).toBe(3 + shards.size + 2);
+  // One publish: one journal append of all three, synced once.
+  expect(objects.writes).toMatchObject({ written: 3, fsyncs: 1 });
   // The cached entry is the one its stored bytes decode to.
   expect(await history.entry(hash)).toEqual(decodeLogEntry(await objects.read(hash)));
 });

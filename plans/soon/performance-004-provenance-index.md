@@ -309,6 +309,13 @@ merge took a retry. Joe: why ever replay? Now:
 - Rehearsal with no replay at all on the Oct 28 copy (answered entries'
   indexes rebound, the worst case): 591 of 604 as accepted, median 57 ms,
   p95 109 ms. So past entries' indexes need no rebuild.
+- overstoryd writes nothing for a request before acceptance, and an accepted
+  update's new objects are appended to one object journal (a growing pack):
+  one write and one `fdatasync` per fast-forward instead of 7 to 9 file and
+  directory syncs (the deployed 64aa8f7 only moved that cost from preflight
+  to acceptance in production). Packing compresses journaled objects as it
+  did loose ones; recovery re-indexes records a lost index commit left out.
+  Locally, with 4 ms added per fsync: accepted-store about 18 to 8 ms.
 - Replay stays only for a head's entries after its basis: with no replay,
   14 engine tests of moves, nested and hidden decisions after the basis
   failed, because the index keeps nodes and pieces, not the engine's

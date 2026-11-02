@@ -458,6 +458,9 @@ export class HostDaemon implements AsyncDisposable {
     const databasePath = join(dataRoot, "overstoryd.sqlite3");
     const db = openHostDatabase(databasePath);
     const overstoryd = new HostDaemon(dataRoot, db, mergeTool);
+    // Accepted objects a crash left in the journal but not in its index.
+    const recovered = overstoryd.objects.recover();
+    if (recovered) console.info(`Object journal: ${recovered} objects indexed again`);
     for (const [name, value] of Object.entries(options) as Array<[keyof HostDaemonOptions, number | boolean | undefined]>) {
       if (value !== undefined) (overstoryd as unknown as Record<keyof HostDaemonOptions, number | boolean>)[name] = value;
     }
@@ -2013,14 +2016,9 @@ export class HostDaemon implements AsyncDisposable {
         preflight.prefix.push(await this.candidate(treeID, update, []));
         root = update.candidate;
       }
-      // These are immutable preflight objects, not accepted state. The accepted
-      // transaction below is their only authority; an aborted batch leaves no rows.
-      // They are staged without fsync: each accepted update stores the ones it
-      // names durably, in one publish with its entry, before it commits. A
-      // crash can tear a staged file, which the next staging replaces.
-      await this.objects.stage(
-        [...objects].map(([hash, bytes]) => ({ hash, bytes })), { repair: true }
-      );
+      // These are immutable preflight objects, not accepted state; nothing is
+      // written for them here. Each accepted update stores the ones it names
+      // durably, in one publish with its entry, before it commits.
       markPhase("preflight-store");
     }
     const proposed = new Map<ObjectHash, Uint8Array>();
@@ -3131,6 +3129,7 @@ export class HostDaemon implements AsyncDisposable {
     await this.packing[Symbol.asyncDispose]();
     await this.mergeTool[Symbol.asyncDispose]();
     this.wireSchemas.clear();
+    this.objects.packs.close();
     this.db.close();
     this.observationListeners.clear();
   }
