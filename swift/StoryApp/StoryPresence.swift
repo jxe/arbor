@@ -357,9 +357,17 @@ struct StoryAgentTaskControl: View {
                         Task { await workspace.runAgentTask(task, on: reference) }
                     } label: {
                         Image(systemName: "play.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 30, height: 30)
+                            .background(Circle().fill(.purple))
+                            .contentShape(Circle())
                     }
-                    .controlSize(.regular)
-                    .buttonBorderShape(.circle)
+                    .buttonStyle(.plain)
+                    // On the Mac the circle hangs half off the panel's right edge (its 12pt
+                    // padding away), taking only a line's height and no width from the text.
+                    .frame(width: 0, height: 20)
+                    .offset(x: 12)
                     .help("Run this task with Claude Code in this tree's folder")
                     .accessibilityLabel("Run with Claude")
                 }
