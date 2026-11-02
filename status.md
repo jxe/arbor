@@ -12,11 +12,28 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Data-oriented accept path — 2026-11-02
+
+**Implemented** on main, deployed with it. Applying the
+[data-oriented performance skill](.claude/skills/data-oriented-performance/SKILL.md):
+directories are read in one pass over their bytes (no decode to objects and re-encode;
+`decodeProtocolDirectory`, ~10x); a traced edit's plain check runs once per request; a
+merge answer reads and freshens only what it does not share with the head; an answered
+entry's index is not re-encoded. On disk, an accepted edit creates no file: index records
+ride the entry's journal append and its pointer is a row in
+`provenance/v1/pointers.sqlite3` (older entries keep pointer files), and merge workers
+stage scratch under the system temporary directory, not `/data`. On the todos tree's
+content (143 objects), server time per traced edit went from 12.8 to 4.9 ms and per
+merged snapshot from 42 to 32 ms locally; per edit the data volume now sees one fsync and
+no other metadata operation (was ~17 creates, links, mkdirs and unlinks), and a merged
+pair about 45 reads and stats (was ~830 utimes and ~610 opens). Proposal and next steps:
+`/mnt/project-files/overstoryd-redesign/proposal.md` (project files).
+
 ## Performance 004: merges start from the provenance index — 2026-11-02
 
 [Performance 004](plans/soon/performance-004-provenance-index.md) steps 1 to 5 are
 **deployed** (step 4's last part pending deploy). overstoryd keeps each accepted entry's
-[provenance index](docs/architecture/overstoryd/provenance-index.md) (staged, no fsync; a
+[provenance index](docs/architecture/overstoryd/provenance-index.md) (no fsync of its own; a
 backfill fills gaps without the merge worker). The merge sidecar starts entries from it
 instead of replaying history: a head replays only the entries after its basis, merge answers
 carry their index, and the saved checkpoints (`merge-cache/`, Performance 002) and the
