@@ -60,7 +60,9 @@ The share sheet's Tree section, the destination preview and Move are in `StorySh
 1. reads the page and everything beneath it through the open tree's provider,
 2. writes them into the destination's placed folder (Story Sync publishes them), rewriting links that leave the moved set; nothing in the old tree changes unless every file was written,
 3. retargets the old tree's links to the moved pages (backlinks plus the parent), adding a link at the end of the parent page when it didn't already link to the page,
-4. trashes the old pages.
+4. trashes the old pages, and the sheet then shows the parent page, because the open page is now the Trash copy.
+
+A page in Trash can't move, and a move is refused when the destination already holds one of its page IDs: two pages with one ID stop Story opening that tree (2026-11-02, when moving the Trash copy of an already moved page published a second copy to Shared).
 
 **Hand check (Joe):** move a disposable page with one subpage and one link to a private page into a writable tree. The new tree shows the pages, the old parent has a link that opens them, another page's link to them still opens, the iPhone shows both trees after sync, and the old pages are in Trash. Then New Tree… with "Everyone can view", and its public URL shows a page moved there.
 

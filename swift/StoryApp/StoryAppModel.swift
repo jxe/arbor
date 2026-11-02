@@ -4162,9 +4162,17 @@ extension StoryWorkspaceState {
 #endif
     }
 
+    /// Whether a page can leave its tree: not the home page, and not one in Trash,
+    /// which is what remains of a page already moved or thrown away.
+    func canMoveToAnotherTree(_ node: WorkspaceNode) -> Bool {
+        let path = node.reference.path
+        return path != "/" && path != "/Trash" && !path.hasPrefix("/Trash/")
+    }
+
     /// The trees `node` could move to: placed on this device, writable, ordinary,
     /// and not a profile or the People directory. Grouped by account like the sidebar's picker.
     func moveDestinations(for node: WorkspaceNode) async -> [StoryMoveDestination] {
+        guard canMoveToAnotherTree(node) else { return [] }
         let current = node.reference.tree.rawValue
 #if os(macOS)
         if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
@@ -4239,6 +4247,10 @@ extension StoryWorkspaceState {
         guard root.reference.path != "/" else {
             throw WorkspaceProviderError.invalidAction("A tree's home page can't move to another tree")
         }
+        // A stale reference resolves by its page ID to the copy a finished move left in Trash.
+        guard canMoveToAnotherTree(root) else {
+            throw WorkspaceProviderError.invalidAction("\(root.title) is in Trash. Restore it before moving it to another tree.")
+        }
         let tree = root.reference.tree
         let entries = try await movedEntries(root)
 
@@ -4307,6 +4319,13 @@ extension StoryWorkspaceState {
         guard let folder = destination.folder else {
             throw ProtocolValidationError.invalidValue("\(destination.title) is not placed in a folder on this Mac")
         }
+        // A second copy of a page ID would stop the destination tree opening.
+        let existingIDs = await Task.detached { Self.pageIDs(under: folder) }.value
+        for case let .page(_, _, source, title) in entries {
+            if let id = CrossTreePageMove.pageID(in: source), existingIDs.contains(id) {
+                throw Self.alreadyInDestination(title, destination)
+            }
+        }
         let name = Self.availableName(Self.lastComponent(root.reference.path), in: folder)
         let move = CrossTreePageMove(sourceTree: root.reference.tree.rawValue, sourceRoot: root.reference.path,
                                      destinationTree: destination.id, destinationRoot: "/" + name)
@@ -4333,6 +4352,17 @@ extension StoryWorkspaceState {
             throw error
         }
         return move
+    }
+
+    /// The page IDs of the Markdown files in `folder`, at any depth.
+    private nonisolated static func pageIDs(under folder: URL) -> Set<String> {
+        var ids = Set<String>()
+        let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+        while let url = files?.nextObject() as? URL {
+            guard url.pathExtension == "md", let source = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            if let id = CrossTreePageMove.pageID(in: source) { ids.insert(id) }
+        }
+        return ids
     }
 
     /// `name`, or `name-2`, `name-3`… so that neither `name.md` nor a `name` folder exists in `folder`.
@@ -4362,6 +4392,12 @@ extension StoryWorkspaceState {
         // Start from the host's latest, so the new pages land on what is there now.
         _ = try await coordinator.syncOnce()
         let destinationTree = TreeID(rawValue: destination.id)
+        for case let .page(_, _, source, title) in entries {
+            guard let id = CrossTreePageMove.pageID(in: source) else { continue }
+            let key = markdownStableKey(id)
+            let existing = try? await target.resolve(WorkspaceReference(tree: destinationTree, path: "/", stableKey: key))
+            if existing?.reference.stableKey == key { throw Self.alreadyInDestination(title, destination) }
+        }
         var name = Self.lastComponent(root.reference.path)
         var counter = 2
         while (try? await target.resolve(WorkspaceReference(tree: destinationTree, path: "/" + name))) != nil {
@@ -4456,6 +4492,10 @@ extension StoryWorkspaceState {
         guard !edits.isEmpty else { return }
         _ = try? await session.admit(patch: WorkspaceDocumentPatch(baseContentRevision: snapshot.contentRevision, edits: edits))
         try? await session.flush()
+    }
+
+    private static func alreadyInDestination(_ title: String, _ destination: StoryMoveDestination) -> Error {
+        ProtocolValidationError.invalidValue("\(destination.title) already has \(title). Nothing was moved.")
     }
 
     private static func lastComponent(_ path: String) -> String {

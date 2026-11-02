@@ -1489,7 +1489,7 @@ struct StoryRootView: View {
             }, onDisconnect: onDisconnect)
         }
         .sheet(isPresented: $sharePresented) {
-            StorySharePanel(workspace: workspace, currentNode: model.node)
+            StorySharePanel(workspace: workspace, currentNode: model.node, showPage: { await model.navigate(to: $0) })
         }
         .sheet(isPresented: $placementPresented) {
             IOSPlaceTreePanel(workspace: workspace)
@@ -1504,7 +1504,7 @@ struct StoryRootView: View {
                 .padding(.trailing, 56)
                 .allowsHitTesting(false)
                 .popover(isPresented: $sharePresented, arrowEdge: .top) {
-                    StorySharePanel(workspace: workspace, currentNode: model.node)
+                    StorySharePanel(workspace: workspace, currentNode: model.node, showPage: { await model.navigate(to: $0) })
                         .onExitCommand { sharePresented = false }
                         .background(MacPopoverKeyWindow())
                 }
@@ -3505,6 +3505,7 @@ private struct StorySharePanel: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: StoryWorkspaceState
     let currentNode: WorkspaceNode?
+    let showPage: @MainActor (WorkspaceReference) async -> Void
     @State private var presentation: StorySharePresentation?
     @State private var loading = true
     @State private var busy = false
@@ -3676,7 +3677,7 @@ private struct StorySharePanel: View {
     @ViewBuilder
     private func treeSection(_ access: NativeTreeAccessPresentation) -> some View {
         Section {
-            if currentNode?.reference.path == "/" || (moveDestinations.isEmpty && !Self.offersNewTree) {
+            if currentNode.map(workspace.canMoveToAnotherTree) != true || (moveDestinations.isEmpty && !Self.offersNewTree) {
                 LabeledContent("This page is in", value: treeTitle(access.tree))
             } else {
                 Picker(moveTarget == nil ? "This page is in" : "Move this page to", selection: Binding(
@@ -3825,6 +3826,8 @@ private struct StorySharePanel: View {
         do {
             try await workspace.movePage(currentNode, to: target)
             dismiss()
+            // The open page is now the copy in Trash; show the page that keeps a link to the moved one.
+            if let parent = currentNode.reference.parent { await showPage(parent) }
         } catch {
             message = error.localizedDescription
         }
@@ -4177,9 +4180,7 @@ private struct StorySharePanel: View {
 #if os(macOS)
                 agentBundles = try workspace.agentBundles(tree: access.tree)
 #endif
-                if currentNode.reference.path != "/" {
-                    moveDestinations = await workspace.moveDestinations(for: currentNode)
-                }
+                moveDestinations = await workspace.moveDestinations(for: currentNode)
             }
             if case let .promotable(path, accounts) = value, let first = accounts.first {
                 selectedAccountID = first.id

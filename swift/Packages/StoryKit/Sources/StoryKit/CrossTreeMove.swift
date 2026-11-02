@@ -26,6 +26,12 @@ public struct CrossTreePageMove: Sendable, Equatable {
         self.destinationRoot = canonicalNodePath(destinationRoot)
     }
 
+    /// The page ID in a moved page's source. The page keeps it in the destination,
+    /// where no other page may hold it.
+    public static func pageID(in source: String) -> String? {
+        InMemoryWorkspaceProvider.frontmatterID(in: source)
+    }
+
     /// Whether the node at `path` in the source tree moves.
     public func moves(_ path: String) -> Bool {
         let path = canonicalNodePath(path)

@@ -9,6 +9,11 @@ final class CrossTreeMoveTests: XCTestCase {
         destinationRoot: "/Plan"
     )
 
+    func testAMovedPagesIDIsReadFromItsFrontmatter() {
+        XCTAssertEqual(CrossTreePageMove.pageID(in: "---\nid: pg_1\n---\n\n# Plan\n"), "pg_1")
+        XCTAssertNil(CrossTreePageMove.pageID(in: "# Plan\n\nid: pg_1\n"))
+    }
+
     func testPathsUnderThePageMoveAndOthersStay() {
         XCTAssertTrue(move.moves("/Work/Plan"))
         XCTAssertTrue(move.moves("/Work/Plan/Agenda"))
