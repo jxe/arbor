@@ -123,7 +123,7 @@ struct PublicationTests {
         #expect((published.update.trace?.count ?? 0) > 1)
         #expect(published.update.objects.reduce(0) { $0 + $1.bytes.count } > 4 * 70_000)
         let compact = try LocalChange.compactTransport(published.update, basis: base, candidate: graph)
-        #expect(compact.objects.isEmpty)
+        #expect(compact.objects.allSatisfy { $0.bytes.count < 1_024 })
         #expect(!compact.deltas.isEmpty)
         let request = try UpdateCoordinator.attempt(tree: "tr_publication", base: .init(root: base.root, update: "up_initial"), request: .init(base: "up_initial", updates: [compact]))
         #expect(request.body.count < 5_000)

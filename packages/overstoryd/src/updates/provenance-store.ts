@@ -86,7 +86,7 @@ export class ProvenanceStore {
    * backfill computes it later). `proposed` holds objects not yet stored. */
   async prepare(entry: LogEntry, answered: ObjectHash | undefined, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<ComputedProvenance | null> {
     const load = (hash: ObjectHash) => this.objects.load(hash, proposed);
-    let index: ProvenanceNode;
+    let index: ProvenanceNode, before: ProvenanceNode | undefined;
     if (entry.asked) {
       if (!answered) return null;
       // The answer's records arrive with its objects and are stored with
@@ -99,20 +99,23 @@ export class ProvenanceStore {
       const previous = await this.index(entry.previous);
       if (!previous) return null;
       const prior = { index: previous, root: (await this.entryOf(entry.previous)).root };
+      before = previous;
       // A trace the index cannot follow is taken as the snapshot it made.
       index = await entryProvenance(prior, entry, load)
         .catch(() => rebindProvenance(prior.index, prior.root, entry.root, entry.change, load));
     } else index = await entryProvenance(null, entry, load);
-    return this.encode(index);
+    return this.encode(index, before);
   }
 
-  private encode(index: ProvenanceNode): ComputedProvenance {
+  /** `previous`, the index this one advanced, lets a changed file write
+   * only the chunks its edit changed. */
+  private encode(index: ProvenanceNode, previous?: ProvenanceNode): ComputedProvenance {
     const records = new Map<ObjectHash, Uint8Array>(), nodes = new Map<object, ObjectHash>();
     const root = encodeProvenance(index, (bytes) => {
       const hash = hashObject(bytes);
       records.set(hash, bytes);
       return hash;
-    }, { get: (node) => this.written.get(node) ?? nodes.get(node), set: (node, hash) => nodes.set(node, hash) });
+    }, { get: (node) => this.written.get(node) ?? nodes.get(node), set: (node, hash) => nodes.set(node, hash) }, previous);
     return { root, index, records, nodes };
   }
 
@@ -172,7 +175,7 @@ export class ProvenanceStore {
       });
       // Records are stored durably in batches, one journal append and one
       // sync per batch, and pointed to once stored.
-      batch.push([hash, this.encode(index)]);
+      batch.push([hash, this.encode(index, previous?.index)]);
       if (batch.length >= FILL_BATCH) await flush();
       previous = { index, root: entry.root };
     }

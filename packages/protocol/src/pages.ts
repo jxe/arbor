@@ -183,14 +183,18 @@ export function decodeProtocolPage(bytes: Uint8Array): ProtocolPage {
     body: record.body as Uint8Array,
   };
   const canonical = encodeProtocolPage(page);
-  if (canonical.length !== bytes.length || canonical.some((byte, index) => byte !== bytes[index])) throw new Error("Page object is not canonical CBOR");
+  if (!sameBytes(canonical, bytes)) throw new Error("Page object is not canonical CBOR");
   return page;
 }
 
 export function samePage(left: ProtocolPage, right: ProtocolPage): boolean {
-  const a = encodeProtocolPage(left), b = encodeProtocolPage(right);
-  return a.length === b.length && a.every((byte, index) => byte === b[index]);
+  return sameBytes(encodeProtocolPage(left), encodeProtocolPage(right));
 }
+
+/** Byte equality in one native compare, not a callback per byte (a page
+ * body is often tens of kilobytes). */
+const sameBytes = (a: Uint8Array, b: Uint8Array) =>
+  a.length === b.length && Buffer.from(a.buffer, a.byteOffset, a.length).equals(Buffer.from(b.buffer, b.byteOffset, b.length));
 
 /** A property's value, or undefined when the page has none of that name. */
 export function pageProperty(page: ProtocolPage, name: string): PageValue | undefined {

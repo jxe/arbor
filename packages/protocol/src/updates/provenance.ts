@@ -370,28 +370,85 @@ export function chunkPieces(pieces: readonly ProvenancePiece[]): ProvenancePiece
   return chunks;
 }
 
+/** Where a page or file node's piece list was cut, and each chunk's record:
+ * `ends[i]` is the piece index chunk i ends before. A working form kept with
+ * the node it describes (and dropped with it), so the next index's version
+ * of that file re-chunks only the pieces its edit changed. */
+const layouts = new WeakMap<object, { ends: number[]; hashes: ObjectHash[] }>();
+const samePiece = (a: ProvenancePiece, b: ProvenancePiece) => a.origin === b.origin && a.start === b.start && a.length === b.length;
+const isBoundary = (p: ProvenancePiece) => (parseInt(hashObject(recordEncoder.encode(`${p.origin}\0${p.start}`)).slice(7, 9), 16) & 0xf8) === 0;
+
+/** `pieces` chunked as `chunkPieces` would, with each chunk's record hash from
+ * `write`, reusing `previous`'s chunks wherever its pieces are unchanged.
+ * Content-defined cuts depend only on each piece, so a chunk of unchanged
+ * pieces that also follows an unchanged cut is the same record. */
+function chunkRecords(pieces: readonly ProvenancePiece[], previous: { pieces: readonly ProvenancePiece[]; layout: { ends: number[]; hashes: ObjectHash[] } } | undefined,
+  write: (pieces: readonly ProvenancePiece[]) => ObjectHash): { ends: number[]; hashes: ObjectHash[] } {
+  const ends: number[] = [], hashes: ObjectHash[] = [];
+  let from = 0, to = pieces.length;
+  const suffix: { ends: number[]; hashes: ObjectHash[] } = { ends: [], hashes: [] };
+  if (previous) {
+    const old = previous.pieces, { ends: oldEnds, hashes: oldHashes } = previous.layout;
+    let prefix = 0;
+    const limit = Math.min(old.length, pieces.length);
+    while (prefix < limit && samePiece(old[prefix]!, pieces[prefix]!)) prefix++;
+    let tail = 0;
+    while (tail < limit - prefix && samePiece(old[old.length - 1 - tail]!, pieces[pieces.length - 1 - tail]!)) tail++;
+    // Leading chunks wholly unchanged; the last chunk may end without a cut.
+    let i = 0;
+    for (; i < oldEnds.length - 1 && oldEnds[i]! <= prefix; i++) { ends.push(oldEnds[i]!); hashes.push(oldHashes[i]!); }
+    from = ends.at(-1) ?? 0;
+    // Trailing chunks whose cut before them is also unchanged.
+    const shift = pieces.length - old.length;
+    let j = i;
+    while (j < oldEnds.length && !(j > 0 && oldEnds[j - 1]! - 1 >= old.length - tail)) j++;
+    if (j < oldEnds.length) {
+      to = oldEnds[j - 1]! + shift;
+      for (let k = j; k < oldEnds.length; k++) { suffix.ends.push(oldEnds[k]! + shift); suffix.hashes.push(oldHashes[k]!); }
+    }
+  }
+  // Between them, cut as `chunkPieces` does. With a reused tail the piece
+  // before it is an unchanged cut, so the last chunk here ends at `to`.
+  let start = from;
+  for (let index = from; index < to; index++)
+    if (isBoundary(pieces[index]!)) { ends.push(index + 1); hashes.push(write(pieces.slice(start, index + 1))); start = index + 1; }
+  if (start < to) { ends.push(to); hashes.push(write(pieces.slice(start, to))); }
+  ends.push(...suffix.ends); hashes.push(...suffix.hashes);
+  return { ends, hashes };
+}
+
 /** Write `index` as records with `put`, returning its root record's hash.
  * `written` remembers nodes already written (an index shares every node its
- * edit did not change), so pass one per writer to write only what changed. */
+ * edit did not change), so pass one per writer to write only what changed.
+ * `previous`, the index this one was made from, lets a changed file reuse
+ * the records of its unchanged pieces. */
 export function encodeProvenance(
   index: ProvenanceNode, put: (bytes: Uint8Array) => ObjectHash,
   written: { get(node: object): ObjectHash | undefined; set(node: object, hash: ObjectHash): unknown } = new WeakMap(),
+  previous?: ProvenanceNode,
 ): ObjectHash {
   const write = (record: ProvenanceRecord) => put(recordEncoder.encode(canonicalJSON(record)));
-  const visit = (node: ProvenanceNode): ObjectHash => {
+  const format = PROVENANCE_RECORD_FORMAT;
+  const writePieces = (pieces: readonly ProvenancePiece[]) => write({ format, kind: "pieces", pieces: pieces.map((p) => [p.origin, p.start, p.length]) });
+  const visit = (node: ProvenanceNode, prior: ProvenanceNode | undefined): ObjectHash => {
     const known = written.get(node);
     if (known) return known;
-    const format = PROVENANCE_RECORD_FORMAT;
-    const hash = node.kind === "tree" ? write({ format, node: node.node, kind: "tree" })
-      : node.kind === "directory"
-      ? write({ format, node: node.node, kind: "directory",
-          entries: Object.keys(node.entries).sort(compareUTF8).map((name) => [name, visit(node.entries[name]!)] as [string, ObjectHash]) })
-      : write({ format, node: node.node, kind: node.kind,
-          chunks: chunkPieces(node.pieces).map((chunk) => write({ format, kind: "pieces", pieces: chunk.map((p) => [p.origin, p.start, p.length]) })) });
+    let hash: ObjectHash;
+    if (node.kind === "tree") hash = write({ format, node: node.node, kind: "tree" });
+    else if (node.kind === "directory") {
+      const before = prior?.kind === "directory" ? prior.entries : undefined;
+      hash = write({ format, node: node.node, kind: "directory",
+        entries: Object.keys(node.entries).sort(compareUTF8).map((name) => [name, visit(node.entries[name]!, before?.[name])] as [string, ObjectHash]) });
+    } else {
+      const layout = prior && (prior.kind === "file" || prior.kind === "page") ? layouts.get(prior) : undefined;
+      const chunked = chunkRecords(node.pieces, layout && { pieces: (prior as { pieces: ProvenancePiece[] }).pieces, layout }, writePieces);
+      layouts.set(node, chunked);
+      hash = write({ format, node: node.node, kind: node.kind, chunks: chunked.hashes });
+    }
     written.set(node, hash);
     return hash;
   };
-  return visit(index);
+  return visit(index, previous);
 }
 const compareUTF8 = (a: string, b: string) => Buffer.compare(Buffer.from(a), Buffer.from(b));
 
@@ -430,11 +487,15 @@ async function readNode(hash: ObjectHash, load: (hash: ObjectHash) => Promise<Ui
     record.entries.forEach(([name], i) => { entries[name] = children[i]!; });
     return { kind: "directory", node: record.node, entries };
   }
-  const pieces: ProvenancePiece[] = [];
+  const pieces: ProvenancePiece[] = [], ends: number[] = [];
   for (const bytes of await Promise.all(record.chunks.map((chunk) => load(chunk)))) {
     const r = decodeProvenanceRecord(bytes);
     if (r.kind !== "pieces") refuse("A file's chunk is not a pieces record");
     for (const [origin, start, length] of (r as { pieces: Pieces }).pieces) pieces.push({ origin, start, length });
+    ends.push(pieces.length);
   }
-  return { kind: record.kind, node: record.node, pieces: normalizePieces(pieces) };
+  const node = { kind: record.kind, node: record.node, pieces: normalizePieces(pieces) };
+  // Records as written are already normal; anything else is re-chunked in full.
+  if (node.pieces.length === pieces.length) layouts.set(node, { ends, hashes: record.chunks });
+  return node;
 }
