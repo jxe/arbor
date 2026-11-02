@@ -4354,11 +4354,12 @@ extension StoryWorkspaceState {
         return move
     }
 
-    /// The page IDs of the Markdown files in `folder`, at any depth.
+    /// The page IDs of the Markdown files in `folder`, at any depth, leaving out its Trash.
     private nonisolated static func pageIDs(under folder: URL) -> Set<String> {
         var ids = Set<String>()
         let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
         while let url = files?.nextObject() as? URL {
+            if url.lastPathComponent == "Trash", url.deletingLastPathComponent().path == folder.path { files?.skipDescendants() }
             guard url.pathExtension == "md", let source = try? String(contentsOf: url, encoding: .utf8) else { continue }
             if let id = CrossTreePageMove.pageID(in: source) { ids.insert(id) }
         }
@@ -4396,7 +4397,9 @@ extension StoryWorkspaceState {
             guard let id = CrossTreePageMove.pageID(in: source) else { continue }
             let key = markdownStableKey(id)
             let existing = try? await target.resolve(WorkspaceReference(tree: destinationTree, path: "/", stableKey: key))
-            if existing?.reference.stableKey == key { throw Self.alreadyInDestination(title, destination) }
+            if let existing, existing.reference.stableKey == key, !existing.reference.path.hasPrefix("/Trash/") {
+                throw Self.alreadyInDestination(title, destination)
+            }
         }
         var name = Self.lastComponent(root.reference.path)
         var counter = 2

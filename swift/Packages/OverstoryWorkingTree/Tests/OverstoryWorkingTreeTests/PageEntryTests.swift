@@ -81,3 +81,58 @@ struct PageEntryTests {
         #expect(page.setting("status", to: .string("done")).properties.map(\.name) == ["title", "status"])
     }
 }
+
+@Suite("Page IDs held more than once")
+struct DuplicatePageIDTests {
+    let tree = TreeID(rawValue: "tr_duplicates")
+
+    func opened(_ pages: [(path: String, id: String)]) async throws -> WorkingTree {
+        let workingTree = try await WorkingTree.inMemory(tree: tree)
+        let nodes = pages.map { WorkingTreeNode(path: $0.path, pageID: $0.id, kind: .markdown, source: "---\nid: \($0.id)\n---\n\n# Page\n") }
+        let state = WorkingTreeState(tree: tree.rawValue, nodes: [WorkingTreeNode(path: "/", kind: .directory)] + nodes)
+        try await workingTree.initializeFromSystem(WorkingTreeSystemReplacement(
+            root: try WorkingTreeProtocolCodec.snapshot(for: state).root,
+            update: "up_1",
+            nodes: [WorkingTreeSystemNode(path: "/", content: .directory())] + nodes.map {
+                WorkingTreeSystemNode(path: $0.path, pageID: $0.pageID, content: .markdown(source: $0.source!))
+            }
+        ))
+        return workingTree
+    }
+
+    func keyed(_ path: String, _ id: String) -> WorkspaceReference {
+        WorkspaceReference(tree: tree, path: path, stableKey: markdownStableKey(id))
+    }
+
+    @Test("A tree with a duplicated ID opens, and only those pages report it")
+    func duplicateOpens() async throws {
+        let workingTree = try await opened([(path: "/a", id: "pg_same"), (path: "/b", id: "pg_same"), (path: "/c", id: "pg_other")])
+        #expect(try await workingTree.resolve(keyed("/c", "pg_other")).path == "/c")
+        #expect(try await workingTree.children(of: .init(tree: tree, path: "/")).count == 3)
+        await #expect(throws: WorkingTreeError.duplicatePageID(paths: ["/a", "/b"])) {
+            _ = try await workingTree.resolve(keyed("/a", "pg_same"))
+        }
+        // Another page can still change.
+        _ = try await workingTree.createMarkdown(parent: .init(tree: tree, path: "/"), name: "d", source: "# D\n")
+        await workingTree.close()
+    }
+
+    @Test("A live page and its copy in Trash each answer to their own path")
+    func movedBackOverTrash() async throws {
+        let workingTree = try await opened([(path: "/page", id: "pg_moved")])
+        let trashed = try await workingTree.trash(keyed("/page", "pg_moved"))
+        #expect(trashed.path == "/Trash/page")
+        // The stale reference finds the Trash copy until a live page holds the ID.
+        #expect(try await workingTree.resolve(keyed("/page", "pg_moved")).path == "/Trash/page")
+
+        let back = try await workingTree.createMarkdown(parent: .init(tree: tree, path: "/"), name: "back", source: "---\nid: pg_moved\n---\n\n# Back\n")
+        #expect(back.path == "/back")
+        #expect(try await workingTree.resolve(keyed("/page", "pg_moved")).path == "/back")
+        #expect(try await workingTree.resolve(keyed("/Trash/page", "pg_moved")).path == "/Trash/page")
+
+        await #expect(throws: WorkingTreeError.collision("/back")) {
+            _ = try await workingTree.restore(keyed("/Trash/page", "pg_moved"))
+        }
+        await workingTree.close()
+    }
+}

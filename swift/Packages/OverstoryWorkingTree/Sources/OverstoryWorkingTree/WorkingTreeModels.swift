@@ -9,6 +9,7 @@ public enum WorkingTreeError: Error, Equatable, Sendable {
     case notDirectory(WorkspaceReference)
     case notDocument(WorkspaceReference)
     case collision(String)
+    case duplicatePageID(paths: [String])
     case readOnly(WorkspaceReference)
     case staleRevision(expected: String, actual: String)
     case pageIDChanged(expected: String, actual: String?)
@@ -27,6 +28,7 @@ extension WorkingTreeError: LocalizedError {
         case let .notDirectory(reference): "\(reference.path) is not a folder."
         case let .notDocument(reference): "\(reference.path) is not a document."
         case let .collision(value): "An item already exists at \(value)."
+        case let .duplicatePageID(paths): "\(paths.formatted(.list(type: .and))) have the same page ID, so Story can't tell them apart. Delete one, or give it a different id in its file."
         case let .readOnly(reference): "\(reference.path) is read-only."
         case .staleRevision: "The document changed before this edit could be applied."
         case .pageIDChanged: "The document identity changed before this edit could be applied."

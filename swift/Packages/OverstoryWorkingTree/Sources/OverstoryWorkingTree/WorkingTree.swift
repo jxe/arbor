@@ -465,11 +465,21 @@ public actor WorkingTree {
     func resolve(_ reference: WorkspaceReference) throws -> WorkingTreeNode {
         try requireOpen()
         guard reference.tree.rawValue == state.tree else { throw WorkingTreeError.notFound(reference) }
-        if let pageID = markdownID(fromStableKey: reference.stableKey),
-           let node = state.nodes.first(where: { $0.pageID == pageID }) { return node }
         let path = try WorkingTreeSemantics.normalizePath(reference.path)
+        if let pageID = markdownID(fromStableKey: reference.stableKey) {
+            let owners = state.nodes.filter { $0.pageID == pageID }
+            // A copy in Trash answers only to its own path while a live page holds the ID.
+            if Self.isTrashed(path), let trashed = owners.first(where: { $0.path == path }) { return trashed }
+            let live = owners.filter { !Self.isTrashed($0.path) }
+            if live.count > 1 { throw WorkingTreeError.duplicatePageID(paths: live.map(\.path)) }
+            if let node = live.first ?? owners.first { return node }
+        }
         guard let node = state.nodes.first(where: { $0.path == path }) else { throw WorkingTreeError.notFound(reference) }
         return node
+    }
+
+    private static func isTrashed(_ path: String) -> Bool {
+        path == "/Trash" || path.hasPrefix("/Trash/")
     }
 
     func children(of reference: WorkspaceReference) throws -> [WorkingTreeNode] {
@@ -652,7 +662,7 @@ public actor WorkingTree {
         try transact(mutation: "create-markdown", pageKey: pageID) { next in
             try prepareParentForChildren(parentNode, in: &next)
             try refuseCollision(path, in: next)
-            guard !next.nodes.contains(where: { $0.pageID == pageID }) else { throw WorkingTreeError.collision("PageID \(pageID)") }
+            guard !next.nodes.contains(where: { $0.pageID == pageID && !Self.isTrashed($0.path) }) else { throw WorkingTreeError.collision("PageID \(pageID)") }
             created = WorkingTreeNode(path: path, pageID: pageID, kind: .markdown, source: acceptedSource)
             next.nodes.append(created)
         }
@@ -823,6 +833,13 @@ public actor WorkingTree {
         var result: WorkingTreeNode!
         try transact(mutation: "restore", pageKey: node.pageID ?? "_tree") { next in
             try refuseCollision(destination, in: next)
+            // A page moved back to this tree while its old copy stayed in Trash holds the ID now.
+            let restoring = next.nodes.filter { $0.path == node.path || WorkingTreeSemantics.isDescendant($0.path, of: node.path) }
+            for pageID in restoring.compactMap(\.pageID) {
+                if let live = next.nodes.first(where: { $0.pageID == pageID && !Self.isTrashed($0.path) }) {
+                    throw WorkingTreeError.collision(live.path)
+                }
+            }
             for index in next.nodes.indices where next.nodes[index].path == node.path || WorkingTreeSemantics.isDescendant(next.nodes[index].path, of: node.path) {
                 let current = next.nodes[index].path
                 let fallback = WorkingTreeSemantics.replacingPrefix(current, from: node.path, to: destination)
@@ -920,7 +937,7 @@ public actor WorkingTree {
                 throw WorkingTreeError.notFound(reference)
             }
             if original.pageID == nil, let admittedID {
-                guard !next.nodes.contains(where: { $0.pageID == admittedID }) else {
+                guard !next.nodes.contains(where: { $0.pageID == admittedID && !Self.isTrashed($0.path) }) else {
                     throw WorkingTreeError.collision("PageID \(admittedID)")
                 }
                 next.nodes[position].pageID = admittedID
@@ -1015,16 +1032,16 @@ public actor WorkingTree {
         changedAt: Date,
         incoming: Bool
     ) {
+        // Several nodes can hold a page ID (a copy in Trash, or a duplicate from elsewhere).
         let previousByPageID = Dictionary(
-            uniqueKeysWithValues: previous.nodes.compactMap { node in
-                node.pageID.map { ($0, node) }
-            }
+            previous.nodes.compactMap { node in node.pageID.map { ($0, node) } },
+            uniquingKeysWith: { first, _ in first }
         )
         let previousByPath = Dictionary(uniqueKeysWithValues: previous.nodes.map { ($0.path, $0) })
         for index in next.nodes.indices {
             let candidate = next.nodes[index]
-            let old = candidate.pageID.flatMap { previousByPageID[$0] }
-                ?? previousByPath[candidate.path]
+            let samePage = previousByPath[candidate.path].flatMap { $0.pageID == candidate.pageID ? $0 : nil }
+            let old = samePage ?? candidate.pageID.flatMap { previousByPageID[$0] } ?? previousByPath[candidate.path]
             // A date the change itself carries (the host's accepted time) stands.
             // Local mutations start with a copy of the old node, including its
             // date. Only incoming replacements carry an authoritative new date.
@@ -1186,8 +1203,6 @@ public actor WorkingTree {
         guard state.nodes.contains(where: { $0.path == "/" && $0.kind == .directory }) else {
             throw WorkingTreeError.corruptState("Missing root directory")
         }
-        let pageIDs = state.nodes.compactMap(\.pageID)
-        guard Set(pageIDs).count == pageIDs.count else { throw WorkingTreeError.corruptState("Duplicate PageID") }
         let directories = Set(state.nodes.lazy.filter { $0.kind == .directory }.map(\.path))
         let parents = Set(state.nodes.lazy.compactMap { WorkingTreeSemantics.parent(of: $0.path) })
         for node in state.nodes {
