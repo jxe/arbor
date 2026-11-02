@@ -101,10 +101,13 @@ export class MergeTool {
   }
 
   /** Ask the sidecar one question. `inputs` are objects the question needs
-   * that durable storage may lack; they are staged for it. */
+   * that durable storage may lack; they are staged for it. `retained` names
+   * roots of retained accepted rows (the tree's head): what an answer shares
+   * with them is complete and kept, so it is neither read nor freshened. */
   async ask(
     question: MergeQuestion,
-    inputs: ReadonlyMap<ObjectHash, Uint8Array>
+    inputs: ReadonlyMap<ObjectHash, Uint8Array>,
+    retained: readonly ObjectHash[] = [],
   ): Promise<{ answer: MergeAnswer; objects: Map<ObjectHash, Uint8Array> }> {
     if (this.closing) throw new MergeWorkerError("Merge tool is closing", "unavailable");
     if (this.waiting.length >= 64)
@@ -116,7 +119,7 @@ export class MergeTool {
     try {
       if (this.closing) throw new MergeWorkerError("Merge tool is closing", "unavailable");
       try { this.options.onTiming?.("queue-wait", performance.now() - queuedAt); } catch { /* diagnostic only */ }
-      const job = this.askJob(question, inputs);
+      const job = this.askJob(question, inputs, retained);
       this.jobs.add(job);
       try { return await job; } finally { this.jobs.delete(job); }
     } finally {
@@ -142,7 +145,8 @@ export class MergeTool {
 
   private async askJob(
     question: MergeQuestion,
-    inputs: ReadonlyMap<ObjectHash, Uint8Array>
+    inputs: ReadonlyMap<ObjectHash, Uint8Array>,
+    retained: readonly ObjectHash[],
   ): Promise<{ answer: MergeAnswer; objects: Map<ObjectHash, Uint8Array> }> {
     let phaseStart = performance.now();
     const mark = (phase: string) => {
@@ -201,7 +205,7 @@ export class MergeTool {
       // shared store is freshened, so a concurrent object collection cannot
       // take it before the accepted row names it.
       const available = new Map([...inputs, ...objects]);
-      await this.shared.verifyReachable(answerRoots(answer.root, answer.decisions), available, { freshen: true });
+      await this.shared.verifyReachable(answerRoots(answer.root, answer.decisions), available, { freshen: true, retained });
       for (const d of answer.decisions)
         if (rawAlternatives(d)) for (const hash of [...d.alternatives.map((a) => a.object), ...(d.at ? [d.at] : [])]) {
           await this.shared.load(hash, available);

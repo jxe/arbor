@@ -2000,7 +2000,7 @@ export class HostDaemon implements AsyncDisposable {
             if (!plain) {
               const candidate = await this.candidate(treeID, update, await this.history.resolutionKeys(treeID, update.resolves));
               const question: MergeQuestion = { base: baseEntry, head: baseEntry, ...(preflight.prefix.length ? { validate: true, prefix: [...preflight.prefix] } : {}), candidate, rules: this.rules() };
-              const asked = await this.askMerge(question, objects);
+              const asked = await this.askMerge(question, objects, base.root);
               markPhase("preflight-evaluate");
               if (index === 0) prepared = { question, ...asked };
             }
@@ -2091,9 +2091,9 @@ export class HostDaemon implements AsyncDisposable {
 
   /** A client update's question to the merge sidecar; a question it refuses
    * as unsupported is an unsupported operation (422) wherever it is asked. */
-  private async askMerge(question: MergeQuestion, objects: ReadonlyMap<ObjectHash, Uint8Array>) {
+  private async askMerge(question: MergeQuestion, objects: ReadonlyMap<ObjectHash, Uint8Array>, retained: ObjectHash) {
     try {
-      return await this.mergeTool.ask(question, objects);
+      return await this.mergeTool.ask(question, objects, [retained]);
     } catch (error) {
       if (error instanceof MergeRefusal && error.code === "unsupported") throw new UpdateProtocolError("unsupported-operation", error.message);
       throw error;
@@ -2116,6 +2116,9 @@ export class HostDaemon implements AsyncDisposable {
   /** Whether overstoryd can accept a traced update on `root` without a question:
    * a plain trace it reproduces exactly, touching nothing an open decision
    * concerns. A miss is logged with its reason and goes to the sidecar. */
+  /** Each trace's plain check, kept while its request holds the trace. */
+  private readonly plainTraces = new WeakMap<object, Awaited<ReturnType<typeof checkPlainTrace>>>();
+
   private async fastForward(
     root: ObjectHash,
     update: CandidateUpdate,
@@ -2129,7 +2132,13 @@ export class HostDaemon implements AsyncDisposable {
     };
     if (!update.trace?.length) return miss("no frames");
     if (update.trace[0]!.before !== root) return miss("trace is not authored on the head");
-    const checked = await checkPlainTrace(update.trace, (hash) => this.objects.load(hash, objects), replayCollectionRows);
+    // A trace is replayed once per request: its preflight's result is carried
+    // to acceptance. It depends only on the trace and the objects it names.
+    let checked = this.plainTraces.get(update.trace);
+    if (!checked) {
+      checked = await checkPlainTrace(update.trace, (hash) => this.objects.load(hash, objects), replayCollectionRows);
+      this.plainTraces.set(update.trace, checked);
+    }
     if (!checked.plain) return miss(checked.reason);
     const concerned = open.find((d) => !d.path || checked.touched.some((path) => pathWithin(path, `/${d.path!.join("/")}`)));
     if (concerned) return miss("an open decision concerns the update");
@@ -2313,7 +2322,7 @@ export class HostDaemon implements AsyncDisposable {
           rules: this.rules(),
         };
         const reuse = prepared && stableJSONString(prepared.question) === stableJSONString(question);
-        const { answer, objects } = reuse ? prepared! : await this.askMerge(question, proposed);
+        const { answer, objects } = reuse ? prepared! : await this.askMerge(question, proposed, current.root);
         for (const [hash, bytes] of objects) proposed.set(hash, bytes);
         markPhase("evaluate");
         root = answer.root;
@@ -2762,7 +2771,7 @@ export class HostDaemon implements AsyncDisposable {
           base: head.hash, head: head.hash,
           candidate: { root, change, trace: null, resolves: [] },
           rules: { ...rules, config: { ...(rules.config as object), conflictProjection: "incoming" } },
-        }, staged);
+        }, staged, [head.entry.root]);
         if (answer.root !== root) throw new ServerFaultError("The merge sidecar did not accept overstoryd's own root");
         for (const [hash, bytes] of objects) staged.set(hash, bytes);
         decisions = answer.decisions;

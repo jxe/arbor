@@ -72,7 +72,7 @@ export class ProvenanceStore {
     const root = await this.pointer(entry);
     if (!root) return null;
     try {
-      const index = await readProvenance(root, (hash) => this.objects.read(hash));
+      const index = await readProvenance(root, (hash) => this.objects.read(hash), (node, hash) => this.written.set(node, hash));
       this.indexes.set(entry, index);
       return index;
     } catch {
@@ -89,9 +89,12 @@ export class ProvenanceStore {
     let index: ProvenanceNode;
     if (entry.asked) {
       if (!answered) return null;
-      // The answer's records arrive with its objects and are stored with them.
-      index = await readProvenance(answered, load);
-      return this.encode(index);
+      // The answer's records arrive with its objects and are stored with
+      // them, so nothing is encoded or hashed again: each node read is
+      // remembered with its record, for later entries to share.
+      const nodes = new Map<object, ObjectHash>();
+      index = await readProvenance(answered, load, (node, hash) => nodes.set(node, hash));
+      return { root: answered, index, records: new Map(), nodes };
     } else if (entry.previous) {
       const previous = await this.index(entry.previous);
       if (!previous) return null;

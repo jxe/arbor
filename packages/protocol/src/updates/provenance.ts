@@ -408,14 +408,24 @@ export function decodeProvenanceRecord(bytes: Uint8Array): ProvenanceRecord {
   return value;
 }
 
-/** Read the whole index whose root record is `hash`. */
-export async function readProvenance(hash: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<ProvenanceNode> {
+/** Read the whole index whose root record is `hash`. `read` is told each
+ * node with the record it was read from, so a writer that remembers it (as
+ * `encodeProvenance`'s `written`) never encodes or hashes that node again. */
+export async function readProvenance(
+  hash: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>, read?: (node: ProvenanceNode, hash: ObjectHash) => void,
+): Promise<ProvenanceNode> {
+  const node = await readNode(hash, load, read);
+  read?.(node, hash);
+  return node;
+}
+
+async function readNode(hash: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>, read?: (node: ProvenanceNode, hash: ObjectHash) => void): Promise<ProvenanceNode> {
   const record = decodeProvenanceRecord(await load(hash));
   if (record.kind === "pieces") return refuse("A pieces record is not a node");
   if (record.kind === "tree") return { kind: "tree", node: record.node };
   if (record.kind === "directory") {
     // Children are read concurrently: on a slow volume each read waits.
-    const children = await Promise.all(record.entries.map(([, child]) => readProvenance(child, load)));
+    const children = await Promise.all(record.entries.map(([, child]) => readProvenance(child, load, read)));
     const entries: Record<string, ProvenanceNode> = {};
     record.entries.forEach(([name], i) => { entries[name] = children[i]!; });
     return { kind: "directory", node: record.node, entries };
