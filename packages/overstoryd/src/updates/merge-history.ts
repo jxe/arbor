@@ -82,10 +82,12 @@ export class MergeHistory {
       }
       if (!provenance && valid.previous) this.provenanceMissing?.(valid.tree, hash);
     }
-    await this.objects.store([...batch, ...[...provenance?.records ?? []].map(([hash, bytes]) => ({ hash, bytes })), { hash, bytes }]);
+    await this.objects.store([...batch, { hash, bytes }]);
     this.entries.set(hash, valid);
-    if (provenance) await this.provenance!.publish(hash, provenance).catch((error) =>
-      console.warn(`Provenance pointer not written for ${hash}: ${error instanceof Error ? error.message : String(error)}`));
+    // Its records are staged without fsync: a crash can lose or tear them,
+    // and a reader then finds no index and the backfill computes it again.
+    if (provenance) await this.provenance!.stage(provenance).then(() => this.provenance!.publish(hash, provenance!)).catch((error) =>
+      console.warn(`Provenance index not written for ${hash}: ${error instanceof Error ? error.message : String(error)}`));
     return { hash, conflicted: valid.decisions.length > 0 };
   }
 

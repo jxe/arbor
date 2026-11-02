@@ -284,9 +284,11 @@ export class ObjectStore {
   }
 
   /** Publish complete scratch objects atomically, without promising survival of
-   * a host crash. Only for disposable worker staging; accepted storage uses store. */
-  async stage(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>): Promise<void> {
-    await this.publish(objects, false);
+   * a host crash. Only for disposable worker staging and caches; accepted
+   * storage uses store. `repair` replaces an existing file whose bytes do not
+   * match its hash (scratch data a crash tore) instead of failing. */
+  async stage(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>, options: { repair?: boolean } = {}): Promise<void> {
+    await this.publish(objects, false, options);
   }
 
   /** Cumulative write-side counters for diagnostics; callers diff snapshots. */
@@ -305,7 +307,7 @@ export class ObjectStore {
   private readonly durableShards = new Set<string>();
   private rootEntryDurable = false;
 
-  private async publish(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>, durable: boolean, options: { loose?: boolean } = {}): Promise<void> {
+  private async publish(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>, durable: boolean, options: { loose?: boolean; repair?: boolean } = {}): Promise<void> {
     const unique = new Map<ObjectHash, Uint8Array>();
     for (const object of objects) {
       if (hashObject(object.bytes) !== object.hash) throw new Error(`Object hash mismatch: ${object.hash}`);
@@ -328,7 +330,7 @@ export class ObjectStore {
       } else if (durable && !options.loose && this.packs.has(hash) && !this.packs.freshen([hash]).length) {
         // Packed: its bytes were hash-checked when packed and are on every read.
         return;
-      } else if (await this.verifyExisting(path, hash) && await touch(path)) {
+      } else if (await this.verifyExisting(path, hash, !durable && options.repair) && await touch(path)) {
         // An existing object may have been published as scratch data. Complete
         // file and directory durability without rewriting identical bytes.
         if (durable) { await this.sync(path); directories.add(directory); }
@@ -383,7 +385,7 @@ export class ObjectStore {
     }
   }
 
-  private async verifyExisting(path: string, hash: ObjectHash): Promise<boolean> {
+  private async verifyExisting(path: string, hash: ObjectHash, repair = false): Promise<boolean> {
     let existing: Uint8Array;
     try {
       existing = new Uint8Array(await readFile(path));
@@ -391,7 +393,11 @@ export class ObjectStore {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
       throw error;
     }
-    if (hashObject(existing) !== hash) throw new Error(`Stored object hash mismatch: ${hash}`);
+    if (hashObject(existing) !== hash) {
+      if (!repair) throw new Error(`Stored object hash mismatch: ${hash}`);
+      await unlink(path).catch((error) => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; });
+      return false;
+    }
     return true;
   }
 

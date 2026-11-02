@@ -169,3 +169,14 @@ test("a verified walk freshens only stored objects, and freshening a vanished ob
   expect(await holdsObject(store, proposed.hash)).toBe(false);
   await expect(store.freshen([proposed.hash])).rejects.toThrow("Stored object vanished");
 });
+
+test("a repairing stage replaces a torn scratch file; any other publish refuses it", async () => {
+  const store = new ObjectStore(join(directory, "objects"));
+  const a = object("cache record");
+  await store.stage([a]);
+  await writeFile(store.path(a.hash), "");
+  await expect(store.stage([a])).rejects.toThrow("hash mismatch");
+  await store.stage([a], { repair: true });
+  expect(await store.read(a.hash)).toEqual(a.bytes);
+  expect(store.writes.fsyncs).toBe(0);
+});

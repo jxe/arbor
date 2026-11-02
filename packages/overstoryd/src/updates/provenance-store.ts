@@ -106,8 +106,14 @@ export class ProvenanceStore {
     return { root, index, records, nodes };
   }
 
+  /** Store an index's records. The index is a cache, so they are staged:
+   * written atomically but not fsynced, which matters on a slow volume. */
+  async stage(computed: ComputedProvenance): Promise<void> {
+    await this.objects.stage([...computed.records].map(([hash, bytes]) => ({ hash, bytes })), { repair: true });
+  }
+
   /** Record an entry's index once its records are stored: its pointer,
-   * written atomically. */
+   * written atomically and not fsynced. */
   async publish(entry: ObjectHash, computed: ComputedProvenance): Promise<void> {
     for (const [node, hash] of computed.nodes) this.written.set(node, hash);
     this.indexes.set(entry, computed.index);
@@ -159,7 +165,7 @@ export class ProvenanceStore {
         return rebindProvenance(previous.index, previous.root, entry.root, entry.change, load);
       });
       const computed = this.encode(index);
-      await this.objects.store([...computed.records].map(([hash, bytes]) => ({ hash, bytes })));
+      await this.stage(computed);
       await this.publish(hash, computed);
       previous = { index, root: entry.root };
     }
