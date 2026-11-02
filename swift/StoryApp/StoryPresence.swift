@@ -71,9 +71,9 @@ struct StoryPresenceStatus: View {
     }
 }
 
-/// The toolbar's presence and account control: your avatar, your agents beside
-/// it as sparkles, then everyone else on this page, stacked with the leading one
-/// on top, and a count of those elsewhere in the tree. Each person carries a badge
+/// The toolbar's presence and account control: your agents as sparkles, your
+/// avatar, then everyone else on this page, stacked with the leading one on top,
+/// and a count of those elsewhere in the tree. Each person carries a badge
 /// for what they're on, Mac or iPhone; sync shows only when it isn't finished, as
 /// the badge on your avatar. It lists who's here, the sync state and Sync &
 /// Accounts…; Show Me to Others is in Settings. The Mac always shows it, just
@@ -157,9 +157,13 @@ struct StoryPresenceAccountMenu: View {
         let me = workspace.directory.first { workspace.isOwnProfile($0.id) }
         let mine = here.filter { $0.agent != nil && workspace.isOwnProfile($0.profile) }
         let others = here.filter { !($0.agent != nil && workspace.isOwnProfile($0.profile)) }
-        let shown = Array(mine.prefix(2)) + Array(others.prefix(3))
+        let agents = Array(mine.prefix(2))
         return HStack(spacing: 5) {
             HStack(spacing: fanned ? 2 : -15) {
+                // Each sits over the next, so no neighbor covers its badge.
+                ForEach(Array(agents.enumerated()), id: \.element.id) { index, peer in
+                    StoryPresenceMark(peer: peer, workspace: workspace).zIndex(Double(1 + agents.count - index))
+                }
                 if showsMe {
                     StoryToolbarAvatar(
                         person: me,
@@ -180,8 +184,7 @@ struct StoryPresenceAccountMenu: View {
                         .help(StoryPresenceDeviceBadge.label(me?.title ?? "You", on: StoryWorkspaceState.presenceDevice))
                         .zIndex(1)
                 }
-                // Each sits over the next, so no neighbor covers its badge.
-                ForEach(Array(shown.enumerated()), id: \.element.id) { index, peer in
+                ForEach(Array(others.prefix(3).enumerated()), id: \.element.id) { index, peer in
                     StoryPresenceMark(peer: peer, workspace: workspace).zIndex(Double(-index))
                 }
             }
