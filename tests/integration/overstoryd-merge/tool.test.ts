@@ -7,7 +7,7 @@ import { encodeLogEntry, LOG_ENTRY_FORMAT, MergeRefusal, type LogEntry, type Mer
 import { decodeProvenanceRecord, encodeProtocolDirectory, hashObject, type TreeSnapshot } from "@ovst/protocol";
 import { CollectionProjections } from "@ovst/story-sync/state";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
-import { MergeTool } from "../../../packages/overstoryd/src/merge-tool.ts";
+import { MergeTool, mergeStagingRoot } from "../../../packages/overstoryd/src/merge-tool.ts";
 import { mergeProtocolTrees } from "@ovst/tree-merge";
 import { initialPersonConfig, snapshotTreeConfig } from "@ovst/protocol";
 import fixtures from "../../fixtures/overstoryd/merge.json";
@@ -19,8 +19,8 @@ afterEach(async () => { await tool[Symbol.asyncDispose](); await rm(directory, {
 const lineWorker = (body: string) => `for await (const _ of console) { ${body} }`;
 /** Every job removed its staged objects; only empty worker directories remain. */
 async function expectNoStaging() {
-  for (const worker of await readdir(join(directory, "merge-workers")).catch(() => [] as string[]))
-    expect(await readdir(join(directory, "merge-workers", worker))).toEqual([]);
+  for (const worker of await readdir(join(mergeStagingRoot(directory))).catch(() => [] as string[]))
+    expect(await readdir(join(mergeStagingRoot(directory), worker))).toEqual([]);
 }
 const encoded = (s: string) => new TextEncoder().encode(s);
 function snapshot(source: string, name = "note.md"): TreeSnapshot {
@@ -232,9 +232,9 @@ test("one persistent stdin worker processes concurrent submissions in FIFO order
   expect(completed).toEqual([0,1,2,3,4,5]);
   expect(results.map(result => result.answer.root)).toEqual(questions.map(({question}) => question.candidate.root));
   expect((await readFile(log,"utf8")).trim().split("\n")).toHaveLength(1);
-  const workers = await readdir(join(directory,"merge-workers"));
+  const workers = await readdir(join(mergeStagingRoot(directory)));
   expect(workers).toHaveLength(1);
-  expect(await readdir(join(directory,"merge-workers",workers[0]!))).toEqual([]);
+  expect(await readdir(join(mergeStagingRoot(directory),workers[0]!))).toEqual([]);
 });
 
 test("persistent jobs cannot borrow discarded staging and a failed job releases the queue", async () => {
@@ -263,7 +263,7 @@ test.each(["exit", "timeout"])("persistent worker %s is reaped and the queued su
   await expect(failed).rejects.toThrow(mode === "exit" ? "exited" : "timed out");
   expect((await next).answer.root).toBe(question.candidate.root);
   expect((await readFile(marker,"utf8")).trim().split("\n")).toHaveLength(2);
-  expect(await readdir(join(directory,"merge-workers"))).toHaveLength(1);
+  expect(await readdir(join(mergeStagingRoot(directory)))).toHaveLength(1);
 });
 
 test("the single-worker queue is bounded and shutdown rejects waiting work", async () => {
@@ -277,7 +277,7 @@ test("the single-worker queue is bounded and shutdown rejects waiting work", asy
   const results = await Promise.all(pending);
   expect(results[0]).toBe("completed");
   expect(results.slice(1)).toEqual(Array(64).fill("Merge tool is closing"));
-  expect(await readdir(join(directory,"merge-workers"))).toEqual([]);
+  expect(await readdir(join(mergeStagingRoot(directory))).catch(() => [])).toEqual([]);
   await expect(sequential.ask(question,inputs)).rejects.toThrow("closing");
 });
 
@@ -329,4 +329,15 @@ test("a refusal or an error line keeps the worker and its cache; malformed outpu
   expect(await ask()).toBeInstanceOf(MergeRefusal);
   expect((await readFile(starts,"utf8")).trim().split("\n")).toHaveLength(2);
   await expectNoStaging();
+});
+
+test("workers stage their scratch off the data volume", async () => {
+  const root = mergeStagingRoot(directory);
+  expect(root.startsWith(directory)).toBe(false);
+  expect(mergeStagingRoot(directory)).toBe(root);
+  expect(mergeStagingRoot(`${directory}-other`)).not.toBe(root);
+  const base = snapshot("base"), { question, inputs } = await prepare(base, base, snapshot("scratch"));
+  await tool.ask(question, inputs);
+  expect(await readdir(root)).toHaveLength(1);
+  expect(await readdir(directory)).not.toContain("merge-workers");
 });

@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, rm, rmdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { hashObject, type ObjectHash } from "@ovst/protocol";
+import { hashObject, sha256, type ObjectHash } from "@ovst/protocol";
 import { absentFrom, ObjectStore } from "@ovst/object-store";
 import { MergeRefusal, parseAnswer, rawAlternatives, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
 import { PersistentMergeWorker } from "./merge-worker.ts";
@@ -28,6 +29,15 @@ export interface MergeToolOptions {
   evaluationMillis?: number;
   /** Presentation policy; source choices remain coupled when the format requires it. */
   contentChoices?: "source" | "file";
+  /** Where workers' scratch directories go. Scratch never needs to survive,
+   * so it stays off the data volume: `OVERSTORYD_MERGE_STAGING`, else a
+   * directory for this data root under the system temporary directory. */
+  stagingRoot?: string;
+}
+
+/** Workers' scratch for `dataRoot`, which is never on its volume. */
+export function mergeStagingRoot(dataRoot: string, configured = process.env.OVERSTORYD_MERGE_STAGING): string {
+  return configured || join(tmpdir(), `overstoryd-merge-${sha256(new TextEncoder().encode(resolve(dataRoot))).slice(0, 16)}`);
 }
 
 /** The merge sidecar evaluated the question and failed: a budget, an invalid
@@ -62,11 +72,14 @@ export class MergeTool {
   private nextStartAt = 0;
   /** Remove worker directories left by an earlier process. Each job removes
    * its own staging when it settles, so anything present at startup belonged
-   * to a process that died mid-job; nothing accepted lives there. */
+   * to a process that died mid-job; nothing accepted lives there. Earlier
+   * versions staged under `<data>/merge-workers`, which goes too. */
   async clearStaleJobs(): Promise<void> {
     if (this.active || this.worker) throw new Error("Stale job cleanup runs before any job");
+    await rm(this.stagingRoot, { recursive: true, force: true });
     await rm(join(this.dataRoot, "merge-workers"), { recursive: true, force: true });
   }
+  private get stagingRoot(): string { return this.options.stagingRoot ?? mergeStagingRoot(this.dataRoot); }
   get contentChoices(): "source" | "file" { return this.options.contentChoices ?? "source"; }
   get evaluationMillis(): number { return this.options.evaluationMillis ?? Math.min(20_000, this.options.timeoutMs ?? WORKER_TIMEOUT_MS); }
 
@@ -117,6 +130,7 @@ export class MergeTool {
     this.closing = true;
     await Promise.allSettled([...this.jobs]);
     if (this.worker) await this.retire(this.worker);
+    await rmdir(this.stagingRoot).catch(() => { /* absent, or another worker's */ });
   }
 
   /** Stop a worker and remove its directory; it is no longer the live one. */
@@ -231,7 +245,7 @@ export class MergeTool {
       ? [process.env.OVERSTORYD_MERGE_EXECUTABLE]
       : [process.execPath, fileURLToPath(new URL("../../overstoryd-merge/src/cli.ts", import.meta.url))]);
     if (!command.length) throw new Error("Empty merge command");
-    const parent = join(this.dataRoot, "merge-workers");
+    const parent = this.stagingRoot;
     await mkdir(parent, {recursive: true});
     const directory = await mkdtemp(join(parent, "worker-"));
     worker = new PersistentMergeWorker(command, directory, join(this.dataRoot, "objects"), join(directory, "objects"));

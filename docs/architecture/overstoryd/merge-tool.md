@@ -106,7 +106,7 @@ they were is also reported unchanged.
 ## Transport and execution
 
 ```sh
-bun run overstoryd-merge serve --objects /data/objects --staging /data/merge-workers/worker-example/objects
+bun run overstoryd-merge serve --objects /data/objects --staging /tmp/overstoryd-merge-<data root digest>/worker-example/objects
 ```
 
 `serve` answers one question per stdin line with one line on stdout, in order: an
@@ -507,11 +507,16 @@ files, packs and journals, through `ObjectStore`) first, then staging,
 then its own memory. Corrupt shared bytes fail validation. Question JSON contains no
 object-store filesystem paths.
 
-The sidecar owns a unique `/data/merge-workers/worker-*` directory. For each job
-overstoryd stages the uncommitted inputs in its `objects/` staging store, in one publish.
+The sidecar owns a unique `worker-*` directory under the staging root, which is
+scratch and so is kept off the data volume: `OVERSTORYD_MERGE_STAGING`, else
+`overstoryd-merge-<digest of the data root>` under the system temporary directory
+(`mergeStagingRoot`). On Railway's volume each staged object was a file creation
+the request waited for. For each job overstoryd stages the uncommitted inputs in its
+`objects/` staging store, in one publish.
 The sidecar receives fixed paths and a minimal environment rather than inherited server
 credentials. Normal and failed jobs remove staging in `finally`. A host crash can leave
-an unaccepted worker directory; overstoryd removes `merge-workers/` at startup, before any
+an unaccepted worker directory; overstoryd removes the staging root, and the
+`<data>/merge-workers` that earlier versions used, at startup, before any
 job runs. The sidecar keeps nothing on disk; `merge-cache/` from earlier versions is unused and can be deleted.
 
 Every entry, and every root and alternative it names, is reachable from its tree's head
