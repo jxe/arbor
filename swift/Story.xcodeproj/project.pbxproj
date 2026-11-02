@@ -463,7 +463,7 @@
 		17BE8B39E81FDB4DE146193A /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "PageS Doorway StoryPath";
+				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "PageS Doorway StoryPath StoryPathWhite StoryPathAutomatic";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = StoryApp/Story.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
@@ -641,7 +641,7 @@
 		A52BA58663741C732CE6D70E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "PageS Doorway StoryPath";
+				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "PageS Doorway StoryPath StoryPathWhite StoryPathAutomatic";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = StoryApp/Story.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";

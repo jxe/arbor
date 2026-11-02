@@ -12,6 +12,40 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Story Path (White) icon — 2026-11-02
+
+Story's device-local App Icon settings now offer Story Path (White) beside
+Story Path (Black), Page S, and Doorway. The white edition preserves the cream
+paper and folded corner, with a white path/background and soft edge shadows.
+The black primary icon and legacy alternate name remain unchanged. The new
+master and imagegen prompt are documented in
+[IconPreviews](swift/StoryApp/IconPreviews/README.md); the rendition script
+generates its Mac runtime image and macOS/iOS app-icon assets.
+
+Validation: all 28 new app-icon slots have the expected dimensions and platform
+corner alpha; the new runtime image loads at 1024px with transparent corners
+from the compiled Mac catalog. macOS app/test-bundle and iOS Simulator app
+builds passed, with existing compiler warnings. The built iPhone and iPad
+Info.plist declarations include StoryPathWhite. The affected dependency-pin
+test passed. The affected Markdown link and whitespace checks
+passed. App-hosted tests and manual icon switching were not run because the
+debug Story app was left running. No installed app or live data was changed.
+
+**Automatic appearance follow-up:** Settings now has a Follow System Appearance
+toggle for Story Path. On Mac it observes the app's effective appearance,
+updates the running Dock icon, and persists the automatic choice across
+launches. On iOS it selects one alternate icon with white Any and black Dark
+renditions; the Home Screen appearance setting controls switching even while
+Story is closed. Picking a manual icon disables automatic selection. The
+existing black default is unchanged. The icon tests cover automatic artwork
+resolution and manual choices; the existing bundle/declaration checks also
+include the automatic icon. macOS app/test-bundle and iOS Simulator app builds,
+the dependency-pin test, and affected Markdown link/whitespace checks passed.
+The compiled iOS catalog contains both white and Dark black renditions for
+iPhone and iPad, with the alternate declared for both in Info.plist.
+App-hosted tests and manual system appearance switching remain unrun to
+preserve the running debug app. No app was installed or released.
+
 ## Performance 004: merges start from the provenance index — 2026-11-02
 
 [Performance 004](plans/soon/performance-004-provenance-index.md) steps 1 to 5 are
