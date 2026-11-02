@@ -71,29 +71,33 @@ struct StoryPresenceStatus: View {
     }
 }
 
-/// The toolbar's presence and account button: your avatar, your agents beside
-/// it as sparkles, then everyone else on this page and a count of those
-/// elsewhere in the tree. Each person carries a badge for what they're on, Mac
-/// or iPhone; sync shows only when it isn't finished, as the badge on your
-/// avatar. Its menu lists who's here, the sync state and Sync & Accounts…;
-/// Show Me to Others is in Settings. The Mac always shows it, just before the
-/// microphone; the iPhone only while someone else is on the page.
+/// The toolbar's presence and account control: your avatar, your agents beside
+/// it as sparkles, then everyone else on this page, stacked with the leading one
+/// on top, and a count of those elsewhere in the tree. Each person carries a badge
+/// for what they're on, Mac or iPhone; sync shows only when it isn't finished, as
+/// the badge on your avatar. It lists who's here, the sync state and Sync &
+/// Accounts…; Show Me to Others is in Settings. The Mac always shows it, just
+/// before the microphone, fans the stack out under the pointer and lists in a
+/// menu. The iPhone shows it only while someone else is on the page, lists in a
+/// popover, and leaves your avatar out when everyone here is you.
 struct StoryPresenceAccountMenu: View {
     let workspace: StoryWorkspaceState
     let reference: WorkspaceReference
     let status: StorySyncStatus
     let openAccounts: () -> Void
+#if os(macOS)
+    @State private var fanned = false
+#else
+    @State private var listing = false
+#endif
 
     var body: some View {
-        let me = workspace.directory.first { workspace.isOwnProfile($0.id) }
         let here = workspace.presencePeers(on: reference)
         let hereIDs = Set(here.map(\.id))
-        let mine = here.filter { $0.agent != nil && workspace.isOwnProfile($0.profile) }
-        let others = here.filter { !($0.agent != nil && workspace.isOwnProfile($0.profile)) }
-        let shown = Array(mine.prefix(2)) + Array(others.prefix(3))
         let elsewhere = workspace.presenceRoster.peers.values
             .filter { !hereIDs.contains($0.id) }
             .sorted { ($0.name ?? "", $0.id) < ($1.name ?? "", $1.id) }
+#if os(macOS)
         Menu {
             if here.isEmpty && elsewhere.isEmpty { Text("No one else is here") }
             if !here.isEmpty {
@@ -104,7 +108,7 @@ struct StoryPresenceAccountMenu: View {
             if !elsewhere.isEmpty {
                 Section("Elsewhere") {
                     ForEach(elsewhere) { peer in
-                        Text(Self.line(for: peer, page: peer.page.map { $0.path.split(separator: "/").last.map(String.init) ?? "Home" } ?? "No page"))
+                        Text(Self.line(for: peer, page: Self.pageName(for: peer)))
                     }
                 }
             }
@@ -115,45 +119,180 @@ struct StoryPresenceAccountMenu: View {
             Text(status.label)
             Button("Sync & Accounts…", action: openAccounts)
         } label: {
-            HStack(spacing: -4) {
-                StoryToolbarAvatar(
-                    person: me,
-                    workspace: workspace,
-                    fallbackName: me?.title,
-                    tint: me.map { StoryPresenceBadge.color(profile: $0.id) } ?? .accentColor)
-                    .opacity(workspace.showsMeToOthers ? 1 : 0.45)
-                    .overlay(alignment: .bottomTrailing) {
-                        if status != .synchronized {
-                            StorySyncToolbarIndicator(status: status)
-                                .frame(width: 11, height: 11)
-                                .background(.bar, in: Circle())
-                                .offset(x: 3, y: 3)
-                        } else {
-                            StoryPresenceDeviceBadge(device: StoryWorkspaceState.presenceDevice)
-                        }
-                    }
-                    .zIndex(1)
-                // Each sits over the next, so no neighbor covers its badge.
-                ForEach(Array(shown.enumerated()), id: \.element.id) { index, peer in
-                    mark(for: peer).zIndex(Double(-index))
-                }
-                if !elsewhere.isEmpty {
-                    Text("+\(elsewhere.count)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 8)
-                }
-            }
-            .contentShape(.rect)
+            row(here: here, elsewhereCount: elsewhere.count, showsMe: true, fanned: fanned)
         }
+        // A plain button keeps the label live, so it can fan out and each avatar has its tooltip.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
+        .onHover { fanned = $0 }
         .help("Who's here and accounts — \(status.accessibilityDescription)")
         .accessibilityLabel("Who's here and accounts. \(status.accessibilityDescription)")
+#else
+        Button { listing = true } label: {
+            row(
+                here: here,
+                elsewhereCount: elsewhere.count,
+                showsMe: here.contains { !workspace.isOwnProfile($0.profile) },
+                fanned: false)
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel("Who's here and accounts. \(status.accessibilityDescription)")
+        .popover(isPresented: $listing) {
+            StoryPresenceList(
+                workspace: workspace,
+                here: here,
+                elsewhere: elsewhere,
+                status: status,
+                dismiss: { listing = false },
+                openAccounts: openAccounts)
+                .presentationCompactAdaptation(.popover)
+        }
+#endif
+    }
+
+    private func row(here: [ProtocolPresencePeer], elsewhereCount: Int, showsMe: Bool, fanned: Bool) -> some View {
+        let me = workspace.directory.first { workspace.isOwnProfile($0.id) }
+        let mine = here.filter { $0.agent != nil && workspace.isOwnProfile($0.profile) }
+        let others = here.filter { !($0.agent != nil && workspace.isOwnProfile($0.profile)) }
+        let shown = Array(mine.prefix(2)) + Array(others.prefix(3))
+        return HStack(spacing: 5) {
+            HStack(spacing: fanned ? 2 : -15) {
+                if showsMe {
+                    StoryToolbarAvatar(
+                        person: me,
+                        workspace: workspace,
+                        fallbackName: me?.title,
+                        tint: me.map { StoryPresenceBadge.color(profile: $0.id) } ?? .accentColor)
+                        .opacity(workspace.showsMeToOthers ? 1 : 0.45)
+                        .overlay(alignment: .bottomTrailing) {
+                            if status != .synchronized {
+                                StorySyncToolbarIndicator(status: status)
+                                    .frame(width: 11, height: 11)
+                                    .background(.bar, in: Circle())
+                                    .offset(x: 3, y: 3)
+                            } else {
+                                StoryPresenceDeviceBadge(device: StoryWorkspaceState.presenceDevice)
+                            }
+                        }
+                        .help(StoryPresenceDeviceBadge.label(me?.title ?? "You", on: StoryWorkspaceState.presenceDevice))
+                        .zIndex(1)
+                }
+                // Each sits over the next, so no neighbor covers its badge.
+                ForEach(Array(shown.enumerated()), id: \.element.id) { index, peer in
+                    StoryPresenceMark(peer: peer, workspace: workspace).zIndex(Double(-index))
+                }
+            }
+            .animation(.snappy(duration: 0.2), value: fanned)
+            if elsewhereCount > 0 {
+                Text("+\(elsewhereCount)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .contentShape(.rect)
+    }
+
+    static func pageName(for peer: ProtocolPresencePeer) -> String {
+        peer.page.map { $0.path.split(separator: "/").last.map(String.init) ?? "Home" } ?? "No page"
+    }
+
+    private static func line(for peer: ProtocolPresencePeer, page: String?) -> String {
+        let status = peer.agent?.status.map { " (\($0))" } ?? ""
+        guard let page else { return StoryPresenceBadge.label(for: peer) + status }
+        return "\(StoryPresenceBadge.label(for: peer)): \(page)\(status)"
+    }
+}
+
+#if os(iOS)
+/// What a tap on the iPhone's presence row opens: who's here with what they're
+/// on or doing, those elsewhere with their page, and everything else the Mac's
+/// menu has.
+private struct StoryPresenceList: View {
+    let workspace: StoryWorkspaceState
+    let here: [ProtocolPresencePeer]
+    let elsewhere: [ProtocolPresencePeer]
+    let status: StorySyncStatus
+    let dismiss: () -> Void
+    let openAccounts: () -> Void
+    @State private var opensAccounts = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                section("On This Page", peers: here) { Self.detail(for: $0) }
+                section("Elsewhere", peers: elsewhere) { peer in
+                    [StoryPresenceAccountMenu.pageName(for: peer), Self.detail(for: peer)]
+                        .compactMap(\.self)
+                        .joined(separator: " · ")
+                }
+                if !workspace.showsMeToOthers {
+                    Text("You're hidden from others")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Divider()
+                Text(status.label)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("Sync & Accounts…") {
+                    opensAccounts = true
+                    dismiss()
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(width: 300)
+        .frame(maxHeight: 440)
+        // The sheet can't come up until the popover has gone.
+        .onDisappear {
+            if opensAccounts { openAccounts() }
+        }
     }
 
     @ViewBuilder
-    private func mark(for peer: ProtocolPresencePeer) -> some View {
+    private func section(_ title: String, peers: [ProtocolPresencePeer], detail: @escaping (ProtocolPresencePeer) -> String?) -> some View {
+        if !peers.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(peers) { peer in
+                    HStack(spacing: 10) {
+                        StoryPresenceMark(peer: peer, workspace: workspace)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(StoryPresenceBadge.label(for: peer))
+                            if let detail = detail(peer) {
+                                Text(detail)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+    }
+
+    /// An agent's status, or the device a person is on.
+    private static func detail(for peer: ProtocolPresencePeer) -> String? {
+        if peer.agent != nil { return peer.agent?.status }
+        return StoryPresenceDeviceBadge.name(for: peer.device)
+    }
+}
+#endif
+
+/// Someone on the page: an agent's sparkle, or a person's avatar with their device.
+struct StoryPresenceMark: View {
+    let peer: ProtocolPresencePeer
+    let workspace: StoryWorkspaceState
+
+    var body: some View {
         if peer.agent != nil {
             StoryToolbarAgentMark(peer: peer)
         } else {
@@ -165,13 +304,8 @@ struct StoryPresenceAccountMenu: View {
                 .overlay(alignment: .bottomTrailing) {
                     StoryPresenceDeviceBadge(device: peer.device)
                 }
+                .help(StoryPresenceDeviceBadge.label(StoryPresenceBadge.label(for: peer), on: peer.device))
         }
-    }
-
-    private static func line(for peer: ProtocolPresencePeer, page: String?) -> String {
-        let status = peer.agent?.status.map { " (\($0))" } ?? ""
-        guard let page else { return StoryPresenceBadge.label(for: peer) + status }
-        return "\(StoryPresenceBadge.label(for: peer)): \(page)\(status)"
     }
 }
 
@@ -198,6 +332,19 @@ struct StoryPresenceDeviceBadge: View {
         case "ios": "iphone"
         default: nil
         }
+    }
+
+    static func name(for device: String?) -> String? {
+        switch device {
+        case "mac": "Mac"
+        case "ios": "iPhone"
+        default: nil
+        }
+    }
+
+    /// "Ana on iPhone", or just "Ana" when the device isn't known.
+    static func label(_ person: String, on device: String?) -> String {
+        name(for: device).map { "\(person) on \($0)" } ?? person
     }
 }
 
