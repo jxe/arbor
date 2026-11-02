@@ -399,7 +399,8 @@ extension UpdateCoordinator {
     /// returned snapshot is the change's candidate view of the document.
     public func appendSourceIntent(_ intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
-        let task = afterEarlierAppends { try await self.retainSourceIntent(intent) }
+        let timer = PhaseTimer()
+        let task = afterEarlierAppends { try await self.retainSourceIntent(intent, timer: timer) }
         let log = Self.changeLogLog
         log.notice("append begin edits=\(intent.patch.edits.count) bytes=\(intent.source.utf8.count)")
         // The journal rewrite is client-side latency the editor waits on; report
@@ -408,6 +409,7 @@ extension UpdateCoordinator {
         do {
             let result = try await task.value
             note.durationMs = Date().timeIntervalSince(note.at) * 1000
+            note.phases = timer.phases
             // Journal size only; never read the journal back on this path.
             if let size = try? FileManager.default.attributesOfItem(atPath: files.changeLogURL.path)[.size] as? Int {
                 note.bytesOut = size
@@ -424,7 +426,8 @@ extension UpdateCoordinator {
         }
     }
 
-    private func retainSourceIntent(_ intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
+    private func retainSourceIntent(_ intent: WorkspaceDocumentIntent, timer: PhaseTimer? = nil) async throws -> WorkspaceDocumentSnapshot {
+        timer?.mark("wait")
         try requireOpen()
         try intent.validate()
         let queue = try await changeLog()
@@ -447,12 +450,16 @@ extension UpdateCoordinator {
             }
             preparedSourceIntents[intentBytes] = record
         }
-        try await queue.retain(record, settled: Set(control.settled), merging: try await needsMerge(record))
+        let merging = try await needsMerge(record)
+        timer?.mark("prepare")
+        try await queue.retain(record, settled: Set(control.settled), merging: merging, timer: timer)
         let local = try await localSourceView(record)
         sourceViews[local.document.contentRevision] = local
+        timer?.mark("view")
         await ensureEntered()
         await publishTip()
         await workingTree.invalidateDocumentViews()
+        timer?.mark("publish")
         return local.document
     }
 

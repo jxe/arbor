@@ -1815,6 +1815,51 @@ struct SourceSessionPublicationTests {
         }
     }
 
+    /// Benchmark, run on request: `STORY_APPEND_BENCH=1 swift test --filter appendCost`.
+    /// Typing into a 64 KB page, one character per append, with nothing
+    /// published, so the change log keeps growing as it does while offline or
+    /// between batches. Prints the median append and its phases.
+    @Test("Append cost on a large page")
+    func appendCost() async throws {
+        guard ProcessInfo.processInfo.environment["STORY_APPEND_BENCH"] != nil else { return }
+        try await withTemporaryRoot { root in
+            var lines: [String] = []
+            for index in 0..<2_000 where lines.joined(separator: "\n").utf8.count < 64 * 1024 {
+                lines.append(index % 12 == 0 ? "\n## Section \(index)\n" : "- [ ] Item \(index): " + String(repeating: "some words about the task ", count: 1 + index % 4))
+            }
+            let initial = try snapshot(markdown: lines.joined(separator: "\n") + "\n")
+            let tree = try await makeTree(initial, update: "up_initial")
+            let transport = SourceModeTransport(initial: initial, peer: initial)
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let log = ProtocolNetworkLog(directory: root.appending(path: "network"))
+            ProtocolNetworkLog.install(log)
+            defer { ProtocolNetworkLog.install(nil) }
+            var basis = try await coordinator.sourceSnapshot(.init(tree: treeID, path: "/note"))
+            var durations: [Double] = []
+            let count = Int(ProcessInfo.processInfo.environment["STORY_APPEND_BENCH_N"] ?? "60") ?? 60
+            for index in 0..<count {
+                let at = 2_000 + index, source = String(basis.source.utf8.prefix(at))! + "x" + String(basis.source.utf8.dropFirst(at))!
+                let intent = try WorkspaceDocumentIntent(basis: basis, patch: .init(baseContentRevision: basis.contentRevision,
+                    edits: [.init(utf8Range: at..<at, replacement: "x", expected: "")]), source: source)
+                let started = Date()
+                basis = try await coordinator.appendSourceIntent(intent)
+                durations.append(Date().timeIntervalSince(started) * 1000)
+            }
+            let notes = log.entries().filter { $0.name == "change-log-append" }
+            var phases: [String: [Double]] = [:]
+            for note in notes {
+                let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(note)) as? [String: Any]
+                for (name, value) in json?["phases"] as? [String: Double] ?? [:] { phases[name, default: []].append(value) }
+            }
+            func median(_ values: [Double]) -> Double { let sorted = values.sorted(); return sorted.isEmpty ? 0 : sorted[sorted.count / 2] }
+            let journal = try FileManager.default.attributesOfItem(atPath: root.appending(path: "sync/change-log.json").path)[.size] as? Int ?? 0
+            print("append-cost appends=\(count) median=\(median(durations)) ms p90=\(durations.sorted()[count * 9 / 10]) ms journal=\(journal) bytes")
+            print("append-cost phases " + phases.keys.sorted().map { "\($0)=\(median(phases[$0]!))" }.joined(separator: " "))
+            #expect(try await coordinator.sourceSnapshot(.init(tree: treeID, path: "/note")).source == basis.source)
+            await coordinator.close(); await tree.close()
+        }
+    }
+
     @Test("Concurrent append retries retain one identity")
     func concurrentRetry() async throws {
         try await withTemporaryRoot { root in

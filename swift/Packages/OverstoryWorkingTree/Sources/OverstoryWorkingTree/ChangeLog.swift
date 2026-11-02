@@ -653,12 +653,23 @@ private struct StoredLocalChange: Codable {
     var transfer: SourceTransferCapture?
 }
 
-/// Schema 4 stores hashes and the wire element with its frame chain.
+/// Schema 4 stored hashes and the wire element with its frame chain as one
+/// JSON document, rewritten on every edit. It is still read, and the first
+/// rewrite turns it into schema 5.
 private struct ChangeLogJournal: Codable {
-    static let currentSchema = 4
-    var schema = currentSchema
+    static let version = 4
+    var schema = ChangeLogJournal.version
     var tree: String
     var records: [StoredLocalChange]
+}
+
+/// Schema 5: JSON Lines. A header line, then one record per line, so a new
+/// edit is one appended line and one fsync rather than a rewrite of every
+/// retained record. Only removals rewrite the file.
+private struct ChangeLogHeader: Codable {
+    static let currentSchema = 5
+    var schema = currentSchema
+    var tree: String
 }
 
 private struct ChangeLogFingerprint: Equatable {
@@ -678,6 +689,9 @@ public actor ChangeLog {
     private var records: [LocalChange]
     private var fingerprint: ChangeLogFingerprint?
     private var objectCache: [String: Data] = [:]
+    /// Whether the journal on disk is schema 5 and ends with a complete line,
+    /// so a retain may append to it. Otherwise the next retain rewrites it.
+    private var appendable = false
 
     public init(
         tree: String,
@@ -706,6 +720,10 @@ public actor ChangeLog {
         try await retain([record], settled: settled, merging: merging)
     }
 
+    func retain(_ record: LocalChange, settled: Set<String>?, merging: Bool, timer: PhaseTimer?) async throws {
+        try await retain([record], settled: settled, merging: merging, timer: timer)
+    }
+
     /// One durable boundary for a batch of records. With `settled`, each new
     /// record must extend the one chain of unsettled records: its basis is the
     /// newest of them (any basis when none is unsettled). The one exception is
@@ -714,6 +732,10 @@ public actor ChangeLog {
     /// earlier build that already holds sibling branches is not checked; its
     /// branches publish one after another.
     public func retain(_ batch: [LocalChange], settled: Set<String>? = nil, merging: Bool = false) async throws {
+        try await retain(batch, settled: settled, merging: merging, timer: nil)
+    }
+
+    func retain(_ batch: [LocalChange], settled: Set<String>?, merging: Bool, timer: PhaseTimer?) async throws {
         while true {
             // Resolve platform objects before locking. Actor reentrancy must
             // never leave another call synchronously waiting on our own flock.
@@ -735,10 +757,12 @@ public actor ChangeLog {
                         known[record.change] = record
                     }
                 }
+                timer?.mark("log-lock")
                 // Retained records were validated when they were loaded or retained.
                 try Self.validate(added, tree: tree, after: records)
                 if let settled, !merging { try Self.requireOneChain(added, after: records, settled: settled) }
-                try persist(records + added)
+                timer?.mark("log-validate")
+                if appendable { try append(added, timer: timer) } else { try persist(records + added); timer?.mark("log-rewrite") }
                 files.unlockChangeLog(descriptor)
                 return
             } catch {
@@ -861,9 +885,9 @@ public actor ChangeLog {
     }
 
     private func load(settled: Set<String> = []) async throws -> (records: [LocalChange], objects: [String: Data]) {
-        guard let data = try files.readChangeLogData() else { return ([], [:]) }
-        let journal = try JSONDecoder().decode(ChangeLogJournal.self, from: data)
-        guard journal.schema == ChangeLogJournal.currentSchema, journal.tree == tree else {
+        guard let data = try files.readChangeLogData() else { appendable = false; return ([], [:]) }
+        let journal = try decodeJournal(data)
+        guard journal.tree == tree else {
             throw ProtocolValidationError.invalidValue("Invalid source journal schema or tree")
         }
         if !journal.records.isEmpty, journal.records.allSatisfy({ settled.contains($0.change) }) {
@@ -890,6 +914,41 @@ public actor ChangeLog {
         fingerprint = try currentFingerprint()
     }
 
+    /// Retain `added` after the current records: store only the objects they
+    /// introduce, then append one line each with one fsync. Nothing is
+    /// removed, so nothing is collected and no other record is re-encoded.
+    private func append(_ added: [LocalChange], timer: PhaseTimer?) throws {
+        var presented: [String: Data] = [:]
+        for record in added {
+            for object in record.localTrash?.objects ?? [] { presented[object.hash] = object.bytes }
+            for object in record.update.objects { presented[object.hash] = object.bytes }
+            let basis = Set(record.graph.objects.map(\.hash))
+            for object in record.candidate.objects where !basis.contains(object.hash) { presented[object.hash] = object.bytes }
+            if platform == nil {
+                for object in record.graph.objects + record.candidate.objects { presented[object.hash] = object.bytes }
+            }
+        }
+        // Objects are durable before the line that names them.
+        try objects.store(presented)
+        timer?.mark("log-objects")
+        var lines = Data()
+        for record in added { lines.append(try sortedKeysJSON(stored(record))); lines.append(0x0A) }
+        timer?.mark("log-encode")
+        do { try files.appendChangeLog(lines) } catch {
+            // A failed append may have left part of a line: rewrite next time.
+            appendable = false
+            throw error
+        }
+        for record in added {
+            for object in record.graph.objects + record.candidate.objects + record.update.objects + (record.localTrash?.objects ?? []) {
+                objectCache[object.hash] = object.bytes
+            }
+        }
+        records += added
+        fingerprint = try currentFingerprint()
+        timer?.mark("log-append")
+    }
+
     private func persist(_ next: [LocalChange]) throws {
         var bytes = objectCache
         var presented: [String: Data] = [:]
@@ -913,7 +972,7 @@ public actor ChangeLog {
         }
         try objects.store(presented)
         let stored = next.map(stored)
-        try files.writeChangeLog(ChangeLogJournal(tree: tree, records: stored))
+        try writeJournal(stored)
         let retained = Set(stored.flatMap { $0.graph.objects + $0.candidate.objects + $0.updateObjects + ($0.localTrash?.objects ?? []) })
         try objects.retain(reachableFrom: [], files: retained)
         records = next
@@ -929,7 +988,34 @@ public actor ChangeLog {
     }
 
     private func writeJournal(_ records: [StoredLocalChange]) throws {
-        try files.writeChangeLog(ChangeLogJournal(tree: tree, records: records))
+        var data = try sortedKeysJSON(ChangeLogHeader(tree: tree))
+        data.append(0x0A)
+        for record in records { data.append(try sortedKeysJSON(record)); data.append(0x0A) }
+        try files.writeChangeLog(data)
+        appendable = true
+    }
+
+    /// Schema 5 lines, or a schema 4 document. A last line without its
+    /// newline was never acknowledged (its fsync had not returned), so it is
+    /// dropped, and the next retain rewrites the file without it.
+    private func decodeJournal(_ data: Data) throws -> (tree: String, records: [StoredLocalChange]) {
+        let decoder = JSONDecoder()
+        var lines = data.split(separator: 0x0A, omittingEmptySubsequences: false)
+        // A schema 4 document also has `schema` and `tree` keys, on one line.
+        if lines.count > 1, let first = lines.first, let header = try? decoder.decode(ChangeLogHeader.self, from: Data(first)),
+           header.schema == ChangeLogHeader.currentSchema {
+            let complete = lines.last?.isEmpty == true
+            lines.removeFirst(); lines.removeLast()
+            let records = try lines.map { try decoder.decode(StoredLocalChange.self, from: Data($0)) }
+            appendable = complete
+            return (header.tree, records)
+        }
+        let journal = try decoder.decode(ChangeLogJournal.self, from: data)
+        guard journal.schema == ChangeLogJournal.version else {
+            throw ProtocolValidationError.invalidValue("Invalid source journal schema or tree")
+        }
+        appendable = false
+        return (journal.tree, journal.records)
     }
 
     private func stored(_ record: LocalChange) -> StoredLocalChange {
