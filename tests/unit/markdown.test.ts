@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { parseMarkdownFrontmatter } from "../../packages/protocol/src/documents/markdown.ts";
 import {
   blockFingerprint,
   documentIcon,
@@ -139,4 +140,12 @@ describe("footnotes and LaTeX", () => {
     document.blocks[0]!.content = "Changed.";
     expect(serializeMarkdown(document, document.blocks)).toBe("[^one]: Changed.\n\n[^two]: Second.\n");
   });
+});
+
+describe("parseMarkdownFrontmatter", () => {
+  for (const source of ["", "---", "---\n", "---\n---", "---\n---\n", "---\r\na: 1\r\n---\r\nb\r\n", "---\na: 1\n", "x\n---\n", "  ---  \na: 1\n ---\nbody",
+    "---\ra: 1\r---\rbody", "---\n\n---\n\n", "--- \n---\n", "---\na b: 1\n---\nbody", "---\ntype: group\n---\n\n# Title\n"])
+    test(`reads what parseMarkdown reads: ${JSON.stringify(source)}`, () => {
+      expect(parseMarkdownFrontmatter(source)).toEqual(parseMarkdown(source).frontmatter);
+    });
 });
