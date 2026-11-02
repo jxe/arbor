@@ -2716,13 +2716,15 @@ struct StoryRootView: View {
     }
 
     /// The page's public address: its tree's canonical location and the page's
-    /// path within it. Nil for a tree with no canonical location.
+    /// path within it, with the page's ID so it survives renames within the tree.
+    /// Nil for a tree with no canonical location.
     private var pageLink: URL? {
         guard let node = model.node, let canonical = workspace.currentTreeCanonical,
               node.reference.tree == workspace.home.tree else { return nil }
         let page = node.reference.path == "/" ? "" : node.reference.path
         let path = canonical.path == "/" ? (page.isEmpty ? "/" : page) : canonical.path + page
-        return URL(string: ProtocolCanonicalDescriptor(path: path, endpoint: canonical.endpoint).httpURL)
+        let address = ProtocolCanonicalDescriptor(path: path, endpoint: canonical.endpoint).httpURL
+        return URL(string: buildNetworkLocator(rawPath: address, stableKey: node.reference.stableKey) ?? address)
     }
 
     private var voiceRecordingCommandLabel: String {
