@@ -40,7 +40,7 @@ function claudeDirectory(options: AgentInstallOptions): string {
 }
 
 function isOurs(command: string): boolean {
-  return /(^|[/\s])story agent hook\b/.test(command);
+  return /(^|[/\s])(story|@ovst\/cli) agent hook\b/.test(command);
 }
 
 async function readSettings(path: string): Promise<ClaudeSettings> {

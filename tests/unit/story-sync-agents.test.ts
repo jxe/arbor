@@ -208,6 +208,10 @@ describe("story agent install", () => {
     expect(installed.hooks.PostToolUse[1].hooks[0].command).toBe('story agent hook --agent "Claude Code"');
     expect(installed.hooks.SessionEnd).toHaveLength(1);
     expect(await Bun.file(join(claude, "skills/story-placed-folders/SKILL.md")).text()).toContain("story agent status");
+    // An install through npx is replaced and removed the same way.
+    await installAgentPresence({ claudeDirectory: claude, command: "npx @ovst/cli" });
+    await installAgentPresence({ claudeDirectory: claude, command: "npx @ovst/cli" });
+    expect((await Bun.file(settingsPath).json()).hooks.SessionEnd).toHaveLength(1);
     await uninstallAgentPresence({ claudeDirectory: claude });
     expect(await Bun.file(settingsPath).json()).toEqual(mine);
     expect(await Bun.file(join(claude, "skills/story-placed-folders/SKILL.md")).exists()).toBe(false);

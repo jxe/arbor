@@ -198,7 +198,8 @@ describe("plural-account CLI place", () => {
     expect(startedResult.instructions).toContain('Story shows you to them as "Integration agent bundle"');
     expect(startedResult.instructions).toContain("agent status");
     const claudeSettings = JSON.parse(await readFile(join(sandbox, "claude", "settings.json"), "utf8"));
-    expect(claudeSettings.hooks.PostToolUse[0].hooks[0].command).toBe('story agent hook --agent "Integration agent bundle"');
+    const invocation = process.env.STORY_TEST_CLI_EXECUTABLE ? "npx @ovst/cli" : "story";
+    expect(claudeSettings.hooks.PostToolUse[0].hooks[0].command).toBe(`${invocation} agent hook --agent "Integration agent bundle"`);
     expect(await cloudStatus(firstRoot)).toMatchObject({
       ready: true,
       context: { kind: "cloud" },
