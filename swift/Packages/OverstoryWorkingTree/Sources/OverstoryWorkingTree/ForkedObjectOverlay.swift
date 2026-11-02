@@ -23,6 +23,8 @@ final class ForkedObjectOverlay: ObjectOverlay, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         for (hash, bytes) in objects {
+            // Bytes equal to ones already verified need no second hashing.
+            if let existing = self.objects[hash], existing == bytes { continue }
             _ = try verifyObject(bytes, hash: hash)
             if let existing = self.objects[hash] {
                 guard existing == bytes else { throw ObjectStoreError.hashMismatch(expected: hash, actual: ProtocolObjectCodec.hash(existing)) }

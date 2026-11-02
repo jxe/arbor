@@ -16,7 +16,10 @@ public actor WorkingTree {
     private let platform: any ObjectStore
     private let faultInjector: any WorkingTreeFaultInjector
     private let clock: Clock
-    private var state: WorkingTreeState
+    private var state: WorkingTreeState { didSet { snapshotMemo = nil } }
+    /// `WorkingTreeProtocolCodec.snapshot(for: state)`, kept until `state`
+    /// changes: a save reads it several times, and building it hashes every page.
+    private var snapshotMemo: WorkingTreeSnapshot?
     /// Positions in `state.nodes` by parent path, built on first use after a
     /// transaction. Derived metadata written in place keeps positions valid.
     private var childPositions: [String: [Int]]?
@@ -172,7 +175,10 @@ public actor WorkingTree {
 
     public func currentSnapshot() throws -> WorkingTreeSnapshot {
         try requireOpen()
-        return try WorkingTreeProtocolCodec.snapshot(for: state)
+        if let snapshotMemo { return snapshotMemo }
+        let snapshot = try WorkingTreeProtocolCodec.snapshot(for: state)
+        snapshotMemo = snapshot
+        return snapshot
     }
 
     /// Local source views changed without changing the accepted projection.
@@ -312,7 +318,8 @@ public actor WorkingTree {
             pageKey: "_system",
             accepted: (replacement.root, replacement.update, replacement.cursor),
             recordsModificationDates: mutation != "initialize-from-system",
-            changedAt: replacement.acceptedAt
+            changedAt: replacement.acceptedAt,
+            snapshot: computed
         ) { next in
             next = replacementState
         }
@@ -889,16 +896,23 @@ public actor WorkingTree {
     }
 
     public func captureSourceBasis(_ reference: WorkspaceReference) throws -> CapturedSourceBasis {
-        let node = try resolve(reference)
-        guard node.kind == .markdown || node.kind == .directory else { throw WorkingTreeError.notDocument(reference) }
-        let document = try documentSnapshot(reference), graph = try localSnapshot()
+        let (document, sourcePath) = try captureSourceDocument(reference)
+        let graph = try localSnapshot()
         let accepted: ProtocolUpdateBase?
         if control.pendingRoot == nil, let root = control.acceptedRoot, let update = control.acceptedUpdate, root == graph.root {
             accepted = ProtocolUpdateBase(root: root, update: update)
         } else { accepted = nil }
+        return CapturedSourceBasis(document: document, graph: graph, accepted: accepted, sourcePath: sourcePath)
+    }
+
+    /// The document `reference` names and the path of its source file,
+    /// without the tree's snapshot.
+    func captureSourceDocument(_ reference: WorkspaceReference) throws -> (document: WorkspaceDocumentSnapshot, sourcePath: String) {
+        let node = try resolve(reference)
+        guard node.kind == .markdown || node.kind == .directory else { throw WorkingTreeError.notDocument(reference) }
         let sourcePath = node.kind == .markdown || node.directoryBodyPlacement == .siblingMarkdown
             ? node.path + ".md" : (node.path == "/" ? "/_index.md" : node.path + "/_index.md")
-        return CapturedSourceBasis(document: document, graph: graph, accepted: accepted, sourcePath: sourcePath)
+        return (try documentSnapshot(reference), sourcePath)
     }
 
     func documentSnapshot(_ reference: WorkspaceReference) throws -> WorkspaceDocumentSnapshot {
@@ -994,6 +1008,7 @@ public actor WorkingTree {
         retainsPendingAgainstAcceptedBase: Bool = false,
         recordsModificationDates: Bool = true,
         changedAt: Date? = nil,
+        snapshot: WorkingTreeSnapshot? = nil,
         change: (inout WorkingTreeState) throws -> Void
     ) throws {
         try requireOpen()
@@ -1019,7 +1034,9 @@ public actor WorkingTree {
         do {
             let token = store.keepsWrites ? try store.writeJournal(pageKey: pageKey, id: intent.id, try Self.encode(intent)) : ""
             try faultInjector.reached(.afterJournal)
-            try finish(intent, journalToken: token, injectFaults: true)
+            // Dates are outside the hashes, so a snapshot of the state before
+            // they were stamped is the snapshot of `next`.
+            try finish(intent, journalToken: token, injectFaults: true, snapshot: snapshot)
         } catch {
             terminal = true
             throw error
@@ -1057,15 +1074,16 @@ public actor WorkingTree {
         }
     }
 
-    private func finish(_ intent: WorkingTreeMutationIntent, journalToken: String, injectFaults: Bool) throws {
+    private func finish(_ intent: WorkingTreeMutationIntent, journalToken: String, injectFaults: Bool, snapshot computed: WorkingTreeSnapshot? = nil) throws {
         try Self.validate(intent.state, control: nil)
-        let snapshot = try WorkingTreeProtocolCodec.snapshot(for: intent.state)
+        let snapshot = try computed ?? WorkingTreeProtocolCodec.snapshot(for: intent.state)
         try overlay.store(snapshot.inlineObjectsByHash)
         if injectFaults { try faultInjector.reached(.afterObjects) }
         // Bytes the overlay now holds are referenced, not carried, from here on.
-        var nextState = intent.state
+        var nextState = intent.state, referenced = false
         for position in nextState.nodes.indices {
             if case let .inline(bytes)? = nextState.nodes[position].ref {
+                referenced = true
                 nextState.nodes[position].ref = .hash(
                     ContentRef.inline(bytes).objectHash,
                     size: bytes.count,
@@ -1125,10 +1143,17 @@ public actor WorkingTree {
             nextIndex = index
         }
         state = nextState
+        // Without inline bytes turned into references, the snapshot built
+        // above is exactly the new state's.
+        if !referenced { snapshotMemo = snapshot }
         childPositions = nil
         control = nextControl
         index = nextIndex
-        if intent.acceptedRoot != nil { retainOverlay(nextControl, state: nextState) }
+        // A disposable fork collects its in-memory overlay now and then, not
+        // on every projection: collection walks every directory.
+        if intent.acceptedRoot != nil, store.keepsWrites || intent.generation % 32 == 0 {
+            retainOverlay(nextControl, state: nextState)
+        }
         for continuation in changeObservers.values { continuation.yield(nextControl.generation) }
     }
 
