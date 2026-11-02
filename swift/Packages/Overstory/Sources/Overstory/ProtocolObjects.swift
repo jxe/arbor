@@ -489,6 +489,12 @@ public enum ProtocolSnapshotBundleCodec {
 }
 
 public enum ProtocolObjectGraph {
+    /// Objects this process has already hashed and decoded. Bytes equal to
+    /// bytes checked before have the same hash and decode the same way, so a
+    /// graph that differs from one checked earlier by a page and its folders
+    /// costs only those objects: a save on a large tree no longer re-hashes
+    /// and re-decodes every object each time it is validated.
+    static let verified = VerifiedObjects()
     /// How much of a graph a snapshot must carry.
     ///
     /// - `complete`: every hash reachable from the root has an object.
@@ -514,9 +520,11 @@ public enum ProtocolObjectGraph {
             if let existing = bytesByHash[envelope.hash], existing != envelope.bytes {
                 throw ProtocolValidationError.invalidValue("Duplicate hash has different bytes")
             }
-            let actual = ProtocolObjectCodec.hash(envelope.bytes)
-            guard actual == envelope.hash else {
-                throw ProtocolValidationError.objectHashMismatch(expected: envelope.hash, actual: actual)
+            if !verified.holds(envelope.hash, envelope.bytes) {
+                let actual = ProtocolObjectCodec.hash(envelope.bytes)
+                guard actual == envelope.hash else {
+                    throw ProtocolValidationError.objectHashMismatch(expected: envelope.hash, actual: actual)
+                }
             }
             bytesByHash[envelope.hash] = envelope.bytes
         }
@@ -532,7 +540,12 @@ public enum ProtocolObjectGraph {
                 if mode == .sparseFiles && (kind == .file || kind == .page) { visited.insert(hash); return }
                 throw ProtocolValidationError.incompleteGraph(hash)
             }
-            let object = try ProtocolObjectCodec.decode(bytes, kind: kind)
+            let object: ProtocolObject
+            if let known = verified.object(hash, kind: kind) { object = known }
+            else {
+                object = try ProtocolObjectCodec.decode(bytes, kind: kind)
+                verified.insert(hash, bytes, kind: kind, object: object)
+            }
             objects[hash] = object
             visiting.insert(hash)
             for child in object.references { try visit(child.hash, kind: child.kind) }
@@ -609,5 +622,40 @@ public extension ProtocolSnapshot {
         let actual = ProtocolObjectCodec.hash(envelope.bytes)
         guard actual == hash else { throw ProtocolValidationError.objectHashMismatch(expected: hash, actual: actual) }
         return envelope.bytes
+    }
+}
+
+/// A bounded memo for `ProtocolObjectGraph.validate`. It never vouches for
+/// bytes it has not seen: a lookup matches only identical bytes. It forgets
+/// everything when it grows past its bounds.
+final class VerifiedObjects: @unchecked Sendable {
+    private struct Entry {
+        var bytes: Data
+        var decoded: [ProtocolObjectKind: ProtocolObject]
+    }
+    private let lock = NSLock()
+    private var entries: [String: Entry] = [:]
+    private var size = 0
+    private let maxCount = 50_000, maxBytes = 128 * 1024 * 1024
+
+    func holds(_ hash: String, _ bytes: Data) -> Bool {
+        lock.withLock { entries[hash].map { $0.bytes == bytes } ?? false }
+    }
+
+    /// The decoded object, for bytes `holds` has just matched.
+    func object(_ hash: String, kind: ProtocolObjectKind) -> ProtocolObject? {
+        lock.withLock { entries[hash]?.decoded[kind] }
+    }
+
+    /// Record `bytes`, which the caller has checked against `hash`.
+    func insert(_ hash: String, _ bytes: Data, kind: ProtocolObjectKind, object: ProtocolObject) {
+        lock.withLock {
+            if entries[hash] == nil {
+                if entries.count >= maxCount || size + bytes.count > maxBytes { entries.removeAll(); size = 0 }
+                entries[hash] = Entry(bytes: bytes, decoded: [:])
+                size += bytes.count
+            }
+            entries[hash]?.decoded[kind] = object
+        }
     }
 }
