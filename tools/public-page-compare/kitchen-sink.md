@@ -58,7 +58,7 @@ print(code)
 ▸ A toggle
   Inside the toggle.
 
-[A page link](Other.md)
+[A page link](kitchen-sink.md)
 
 Text with a footnote[^1] and math $x^2$.
 
