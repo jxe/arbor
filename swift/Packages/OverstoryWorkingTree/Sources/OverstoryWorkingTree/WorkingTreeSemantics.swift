@@ -27,13 +27,29 @@ enum WorkingTreeSemantics {
         }
     }
 
-    static func parent(of path: String) -> String? {
-        guard path != "/" else { return nil }
-        let parts = path.split(separator: "/")
-        return parts.count == 1 ? "/" : "/" + parts.dropLast().joined(separator: "/")
+    // A normalized path (leading "/", no empty segment, no trailing "/")
+    // splits at its last "/" without splitting every segment; anything else
+    // takes the segment-by-segment reading.
+    private static func isNormalized(_ path: String) -> Bool {
+        path.hasPrefix("/") && !path.hasSuffix("/") && !path.contains("//")
     }
 
-    static func name(of path: String) -> String { path == "/" ? "/" : String(path.split(separator: "/").last!) }
+    static func parent(of path: String) -> String? {
+        guard path != "/" else { return nil }
+        guard isNormalized(path), let slash = path.utf8.lastIndex(of: UInt8(ascii: "/")) else {
+            let parts = path.split(separator: "/")
+            return parts.count <= 1 ? "/" : "/" + parts.dropLast().joined(separator: "/")
+        }
+        return slash == path.utf8.startIndex ? "/" : String(path[..<slash])
+    }
+
+    static func name(of path: String) -> String {
+        guard path != "/" else { return "/" }
+        guard isNormalized(path), let slash = path.utf8.lastIndex(of: UInt8(ascii: "/")) else {
+            return String(path.split(separator: "/").last!)
+        }
+        return String(path[path.utf8.index(after: slash)...])
+    }
 
     static func child(_ name: String, of parent: String) -> String {
         parent == "/" ? "/\(name)" : "\(parent)/\(name)"

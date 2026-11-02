@@ -84,10 +84,11 @@ enum WorkingTreeProtocolCodec {
             if let source = node.source, node.directoryBodyPlacement != .siblingMarkdown {
                 entries.append(markdown("_index.md", source: source, in: path))
             }
+            // Each name once, not twice per comparison.
             let children = (childrenByParent[path] ?? [])
-                .sorted { WorkingTreeSemantics.compareUTF8(WorkingTreeSemantics.name(of: $0.path), WorkingTreeSemantics.name(of: $1.path)) }
-            for child in children {
-                let name = WorkingTreeSemantics.name(of: child.path)
+                .map { (name: WorkingTreeSemantics.name(of: $0.path), node: $0) }
+                .sorted { WorkingTreeSemantics.compareUTF8($0.name, $1.name) }
+            for (name, child) in children {
                 switch child.kind {
                 case .directory:
                     entries.append(ProtocolDirectoryEntry(name: name, directory: try buildDirectory(at: child.path)))

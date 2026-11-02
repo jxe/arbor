@@ -374,6 +374,14 @@ public actor WorkingTree {
 
     func state(from replacement: WorkingTreeSystemReplacement) throws -> WorkingTreeState {
         guard !replacement.update.isEmpty else { throw WorkingTreeError.corruptState("System update ID is empty") }
+        // Earlier file references by path, built once rather than searched per file.
+        var priorFiles: [String: ContentRef]?
+        func priorRef(_ path: String) -> ContentRef? {
+            if priorFiles == nil {
+                priorFiles = Dictionary(state.nodes.compactMap { node in node.ref.map { (node.path, $0) } }, uniquingKeysWith: { first, _ in first })
+            }
+            return priorFiles?[path]
+        }
         let nodes = replacement.nodes.map { node -> WorkingTreeNode in
             switch node.content {
             case let .directory(source):
@@ -393,7 +401,7 @@ public actor WorkingTree {
             case let .file(ref, mediaType):
                 var reference = ref
                 if case let .hash(hash, size, type) = ref, size == nil,
-                   let previous = state.nodes.first(where: { $0.path == node.path && $0.ref?.objectHash == hash })?.ref {
+                   let previous = priorRef(node.path), previous.objectHash == hash {
                     reference = .hash(hash, size: previous.size, mediaType: type ?? previous.mediaType)
                 }
                 return WorkingTreeNode(path: node.path, pageID: node.pageID, kind: .file, ref: reference, mediaType: mediaType ?? reference.mediaType, metadata: node.metadata)
@@ -1078,7 +1086,7 @@ public actor WorkingTree {
     }
 
     private func finish(_ intent: WorkingTreeMutationIntent, journalToken: String, injectFaults: Bool, snapshot computed: WorkingTreeSnapshot? = nil) throws {
-        try Self.validate(intent.state, control: nil)
+        try Self.validate(intent.state, control: nil, checked: state)
         let snapshot = try computed ?? WorkingTreeProtocolCodec.snapshot(for: intent.state, memo: codecMemo)
         try overlay.store(snapshot.inlineObjectsByHash)
         if injectFaults { try faultInjector.reached(.afterObjects) }
@@ -1223,7 +1231,10 @@ public actor WorkingTree {
         if terminal { throw WorkingTreeError.closed }
     }
 
-    private static func validate(_ state: WorkingTreeState, control: WorkingTreeControl?) throws {
+    /// `checked` is a state already validated: a node equal to its node at the
+    /// same path passed the checks of the node alone and only has its place
+    /// in the tree checked again.
+    private static func validate(_ state: WorkingTreeState, control: WorkingTreeControl?, checked: WorkingTreeState? = nil) throws {
         guard state.schema == WorkingTreeState.currentSchema, !state.tree.isEmpty else {
             throw WorkingTreeError.corruptState("Unsupported working tree state")
         }
@@ -1239,7 +1250,17 @@ public actor WorkingTree {
         }
         let directories = Set(state.nodes.lazy.filter { $0.kind == .directory }.map(\.path))
         let parents = Set(state.nodes.lazy.compactMap { WorkingTreeSemantics.parent(of: $0.path) })
+        let known = checked.map { Dictionary($0.nodes.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first }) }
         for node in state.nodes {
+            if let old = known?[node.path], old == node {
+                if node.path != "/", let parent = WorkingTreeSemantics.parent(of: node.path), !directories.contains(parent) {
+                    throw WorkingTreeError.corruptState("Missing parent directory for \(node.path)")
+                }
+                if node.kind == .boundary, parents.contains(node.path) {
+                    throw WorkingTreeError.corruptState("Nested tree boundary has local children")
+                }
+                continue
+            }
             guard try WorkingTreeSemantics.normalizePath(node.path) == node.path else { throw WorkingTreeError.corruptState("Noncanonical path") }
             if node.path != "/" { try WorkingTreeSemantics.validateName(WorkingTreeSemantics.name(of: node.path)) }
             if node.path != "/", let parent = WorkingTreeSemantics.parent(of: node.path) {
