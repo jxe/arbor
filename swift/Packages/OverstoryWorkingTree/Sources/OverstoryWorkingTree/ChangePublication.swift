@@ -110,7 +110,8 @@ extension LocalChange {
             pieces = next
             root = frame.after
         }
-        guard let moved, root == last.candidate.root else { return nil }
+        // A run that ends where it began keeps its frames; there is no move to state.
+        guard let moved, root == last.candidate.root, pieces != [0..<bytes.count] else { return nil }
         let finalBytes = rendered(pieces)
         let final = try object(finalBytes)
         guard last.candidate.objects.contains(where: { $0.hash == final.hash && $0.bytes == final.bytes }) else { return nil }
