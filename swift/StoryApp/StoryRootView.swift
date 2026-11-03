@@ -3052,10 +3052,11 @@ struct StoryRootView: View {
                     )
                     .frame(minHeight: 32)
                     .padding(.trailing, 6)
-                    // Shown, disabled, on a launch preview too, so the toolbar
-                    // does not shift when editing turns on.
+                    // Shown, disabled, on a launch preview and while the
+                    // confirmed tree reopens it, so the toolbar does not shift
+                    // when editing turns on.
                     if let presentation = model.pagePresentation(for: location),
-                       presentation.node.isWritable || workspace.launchPhase.isPreviewing,
+                       presentation.node.isWritable || workspace.launchPhase.isPreviewing || model.isLoading,
                        presentation.editorLease != nil {
                         StoryVoiceRecordingToolbarButton(
                             session: recordingSession,

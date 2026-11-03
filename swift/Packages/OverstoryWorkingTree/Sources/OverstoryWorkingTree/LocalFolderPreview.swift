@@ -18,8 +18,18 @@ public enum LocalFolderPreview {
     /// The update ID recorded for a preview. It is never sent anywhere.
     public static let update = "local-folder-preview"
 
-    public static func workingTree(tree: TreeID, folder: URL) async throws -> WorkingTree {
-        let nodes = try nodes(in: folder)
+    /// `dates` are the host's page dates as last reported, by body entry
+    /// path; they date the pages they name, so the preview's sidebar matches
+    /// the confirmed tree's, and file times date the rest.
+    public static func workingTree(tree: TreeID, folder: URL, dates: [String: Date] = [:]) async throws -> WorkingTree {
+        var nodes = try nodes(in: folder)
+        if !dates.isEmpty {
+            for index in nodes.indices {
+                if let entry = nodes[index].bodyEntryPath, let date = dates[entry] {
+                    nodes[index].metadata.modifiedAt = date
+                }
+            }
+        }
         let workingTree = try await WorkingTree.inMemory(tree: tree)
         try await workingTree.initializeFromPreview(nodes)
         return workingTree
@@ -60,10 +70,17 @@ public enum LocalFolderPreview {
                 }
             }
             let directoryNames = Set(directories.map(\.lastPathComponent))
-            let index = files.first { $0.lastPathComponent == "_index.md" }.flatMap(markdown)
+            let indexURL = files.first { $0.lastPathComponent == "_index.md" }
+            let index = indexURL.flatMap(markdown)
             let source = index ?? siblingMarkdownSource
+            // A directory page is dated by its body file, as a leaf page is.
+            let bodyURL = index != nil ? indexURL : siblingMarkdownSource != nil
+                ? directory.deletingLastPathComponent().appending(path: directory.lastPathComponent + ".md")
+                : nil
+            let bodyModified = bodyURL.flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
             nodes.append(WorkingTreeSystemNode(
                 path: path,
+                metadata: EntryMetadata(modifiedAt: bodyModified),
                 content: .directory(source: source),
                 directoryBodyPlacement: index == nil && siblingMarkdownSource != nil ? .siblingMarkdown : nil,
                 shadowedSiblingMarkdownSource: index != nil ? siblingMarkdownSource : nil

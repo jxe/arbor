@@ -1229,7 +1229,56 @@ public final class StoryEditorHost: EditorHost {
     }
 
     public func linkPreview(for url: URL) async -> LinkPreview? {
-        await linkPreviewService.preview(for: url)
+        if let known = Self.knownLinkPreviews[url] { return known }
+        let preview = await linkPreviewService.preview(for: url)
+        if let preview { Self.knownLinkPreviews[url] = preview }
+        return preview
+    }
+
+    /// Previews this process has already loaded, so an editor opened again
+    /// (as when the confirmed tree replaces its launch preview) shows them in
+    /// its first frame.
+    private static var knownLinkPreviews: [URL: LinkPreview] = [:]
+
+    public func cachedLinkPreview(for url: URL) -> LinkPreview? {
+        Self.knownLinkPreviews[url]
+    }
+
+    /// Resolves the page links in `document` and loads its external links'
+    /// previews before it is shown, waiting at most `limit`, so its first
+    /// frame shows titles rather than raw labels. Whatever is still loading
+    /// after that arrives as it would have.
+    public func prefetchLinks(in document: Document, limit: Duration = .milliseconds(150)) async {
+        var pending: [Task<Void, Never>] = []
+        var urls: Set<URL> = []
+        func walk(_ blocks: [Block]) {
+            for block in blocks {
+                if case .documentLink(_, let reference) = block.kind,
+                   lookupDocument(reference) == .pending,
+                   let task = lookupTasks[reference] {
+                    pending.append(task)
+                }
+                for run in block.text.runs {
+                    if let url = run.link, let scheme = url.scheme?.lowercased(),
+                       scheme == "http" || scheme == "https", Self.knownLinkPreviews[url] == nil {
+                        urls.insert(url)
+                    }
+                }
+                walk(block.children)
+            }
+        }
+        walk(document.children)
+        for url in urls {
+            pending.append(Task { @MainActor [weak self] in _ = await self?.linkPreview(for: url) })
+        }
+        guard !pending.isEmpty else { return }
+        let waiting = pending
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { for task in waiting { await task.value } }
+            group.addTask { try? await Task.sleep(for: limit) }
+            await group.next()
+            group.cancelAll()
+        }
     }
 
     public func blockActions(in _: Document) -> [EditorBlockAction] {

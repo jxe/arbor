@@ -291,7 +291,13 @@ final class StoryWorkspaceState {
     /// meanwhile share it.
     private var overviewEventRefreshTask: Task<Void, Never>?
     private static let overviewEventCoalescing: Duration = .milliseconds(150)
-    private(set) var localStorySyncOverview: LocalStorySyncOverview?
+    private(set) var localStorySyncOverview: LocalStorySyncOverview? {
+        didSet {
+            if let localStorySyncOverview {
+                Self.rememberOwnProfiles(localStorySyncOverview.accounts.compactMap { $0.profileTree })
+            }
+        }
+    }
     private(set) var localStorySyncOverviewIsRefreshing = false
     private(set) var localStorySyncOverviewError: String?
     private(set) var localHostDevicesByConfigurationTree: [String: [LocalStorySyncDevicePresentation]] = [:]
@@ -332,7 +338,11 @@ final class StoryWorkspaceState {
     private let suppliedAccountService: (any HostAccountService)?
     /// The accounts `accountService` last listed, for account lookups by
     /// origin that should not read the store each time.
-    private(set) var knownAccounts: [HostAccount] = []
+    private(set) var knownAccounts: [HostAccount] = [] {
+        didSet {
+            if !knownAccounts.isEmpty { Self.rememberOwnProfiles(knownAccounts.compactMap { $0.profileTree }) }
+        }
+    }
 
     /// Where this device keeps its identity and account credentials, chosen
     /// once per platform: the iPhone's keychain, or the Mac's data home
@@ -740,10 +750,23 @@ final class StoryWorkspaceState {
     func isOwnProfile(_ tree: String) -> Bool {
         if knownAccounts.contains(where: { $0.profileTree == tree }) { return true }
 #if os(macOS)
-        return localStorySyncOverview?.accounts.contains { $0.profileTree == tree } == true
+        if localStorySyncOverview?.accounts.contains(where: { $0.profileTree == tree }) == true { return true }
+        // Before this launch has heard from Story Sync, the profiles of the
+        // accounts it last reported, so your own avatar shows at once.
+        return knownAccounts.isEmpty && localStorySyncOverview == nil && Self.rememberedOwnProfiles.contains(tree)
 #else
-        return false
+        return knownAccounts.isEmpty && Self.rememberedOwnProfiles.contains(tree)
 #endif
+    }
+
+    private static let ownProfilesKey = "StoryOwnProfileTrees"
+    private static var rememberedOwnProfiles = Set(UserDefaults.standard.stringArray(forKey: ownProfilesKey) ?? [])
+
+    private static func rememberOwnProfiles(_ trees: [String]) {
+        let next = Set(trees)
+        guard !next.isEmpty, next != rememberedOwnProfiles else { return }
+        rememberedOwnProfiles = next
+        UserDefaults.standard.set(next.sorted(), forKey: ownProfilesKey)
     }
 
     /// The second line of a link into another tree, such as "Tree · Private · On this Mac".
@@ -1387,11 +1410,15 @@ final class StoryWorkspaceState {
     /// seeds nor blocks this client's direct host update coordinator.
     /// `page`, a path within the tree, is opened instead of its home page.
     func openPlacedTree(_ treeID: String, page: String? = nil) async throws {
+        var timing = StoryLaunchTiming.Stopwatch()
         try await editorWorkspace.flushAll()
         try await closeOpenTree()
+        timing.mark("close")
         let runtime = try await ensureStorySync()
+        timing.mark("story-sync")
         let client = runtime.client
         let bootstrap = try await client.bootstrap(tree: treeID)
+        timing.mark("bootstrap")
         let placed = bootstrap.tree
         guard placed.osPath != nil else {
             throw ProtocolValidationError.invalidValue("\(placed.name) is not placed on this Mac")
@@ -1431,6 +1458,7 @@ final class StoryWorkspaceState {
             mode: .sparseFiles
         )
         try await workingTree.initializeFromSystem(replacement)
+        timing.mark("build")
         // This tree is rebuilt on every launch. The dates its host reported
         // last date the sidebar at once, and the host's answer refreshes them
         // after the tree is open. Without any (a first open) wait briefly for
@@ -1450,6 +1478,7 @@ final class StoryWorkspaceState {
             }
         }
 
+        timing.mark("dates")
         let stateRoot = StorySupportDirectories.workingTrees
             .appending(path: StorySupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory)
         let (coordinator, nextProvider) = try synchronizedProvider(
@@ -1478,6 +1507,8 @@ final class StoryWorkspaceState {
             // locations: keep every window's navigation and reload in place.
             preservingNavigation: launchPhase.isPreviewing && home == nextHome
         )
+        timing.mark("switch")
+        timing.record("tree-open", detail: treeID)
         launchPhase = .ready
         openPlacedTreeID = treeID
         try await installSyncCoordinator(coordinator, client: protocolClient, tree: descriptor)
@@ -1707,7 +1738,10 @@ final class StoryWorkspaceState {
         if let record, !launchPhase.isPreviewing, let osPath = record.osPath,
            FileManager.default.fileExists(atPath: osPath) {
             let tree = TreeID(rawValue: record.tree.id)
-            if let preview = try? await LocalFolderPreview.workingTree(tree: tree, folder: URL(filePath: osPath)) {
+            var timing = StoryLaunchTiming.Stopwatch()
+            let dates = StoryEntryDateCache.load(tree: record.tree.id)?.dates ?? [:]
+            if let preview = try? await LocalFolderPreview.workingTree(tree: tree, folder: URL(filePath: osPath), dates: dates) {
+                timing.mark("scan")
                 await switchProvider(
                     WorkingTreeProvider(
                         workingTree: preview,
@@ -1719,6 +1753,8 @@ final class StoryWorkspaceState {
                     canonical: record.tree.canonical
                 )
                 launchPhase = .confirming(record.displayName)
+                timing.mark("switch")
+                timing.record("launch-preview", detail: record.tree.id)
             }
         }
         do {
@@ -2898,9 +2934,11 @@ final class StoryAppModel {
             self.editorLease = nil
             editorHost = nil
         }
+        var timing = StoryLaunchTiming.Stopwatch()
         do {
             let requestedLocation = currentLocation
             let resolved = try await workspace.provider.resolve(requestedLocation)
+            timing.mark("resolve")
             let sidebarBase: WorkspaceLocation = switch resolved.surface {
             case .directory, .directoryDocument, .collection:
                 resolved.location
@@ -2911,6 +2949,7 @@ final class StoryAppModel {
                 in: try await workspace.provider.children(of: sidebarBase),
                 parent: resolved
             )
+            timing.mark("children")
             guard requestID == loadRequestID, observedWorkspaceGeneration == workspace.generation else { return }
             tabs.replaceCurrent(with: resolved.location)
             node = resolved
@@ -2921,6 +2960,7 @@ final class StoryAppModel {
             // tree changes nothing on screen; the view blocks input meanwhile.
             if resolved.surface.supportsDocumentSession {
                 let lease = try await workspace.editorWorkspace.lease(resolved.reference)
+                timing.mark("open-document")
                 guard requestID == loadRequestID else {
                     await workspace.editorWorkspace.release(lease)
                     return
@@ -2928,14 +2968,23 @@ final class StoryAppModel {
                 if case .directoryDocument = resolved.surface {
                     lease.binding.projectDirectoryChildren(loadedChildren, in: resolved)
                 }
-                editorLease = lease
                 let host = makeEditorHost(binding: lease.binding, sourceDirectory: resolved.sourceDirectory)
                 host.seedLookups(carriedLookups)
+                // Its links' titles and previews, briefly, so the page's first
+                // frame does not show their raw labels.
+                await host.prefetchLinks(in: lease.binding.document)
+                timing.mark("links")
+                guard requestID == loadRequestID else {
+                    await workspace.editorWorkspace.release(lease)
+                    return
+                }
+                editorLease = lease
                 editorHost = host
             }
             errorMessage = nil
             titleRenameProposal = nil
             isLoading = false
+            timing.record("page-open", detail: "\(resolved.reference.tree.rawValue)\(resolved.reference.path) · \(workspace.launchPhase)")
             Task { await self.loadBacklinks() }
             pageIndexIsStale = true
             Task { await self.search(self.lastSearchQuery) }
@@ -3440,8 +3489,12 @@ final class StoryAppModel {
             pageIndexResults = []
             pageIndexLoaded = false
             // What the sidebar already lists from this tree stays until the
-            // index replaces it, so the list does not blank out meanwhile.
+            // index replaces it, so the list does not blank out meanwhile; at
+            // launch that is the list it showed last time.
             searchResults = searchResults.filter { $0.reference.tree == tree }
+            if searchResults.isEmpty, let saved = StorySidebarCache.load(tree: tree.rawValue) {
+                searchResults = sidebarResults(matching: lastSearchQuery, in: saved)
+            }
         }
         pageIndexRequestID += 1
         let requestID = pageIndexRequestID
@@ -3452,6 +3505,7 @@ final class StoryAppModel {
             guard requestID == pageIndexRequestID, tree == pageIndexTree, tree == currentReference.tree else { return }
             pageIndexResults = sidebarRetentions.applying(to: results, providerRefresh: true)
             pageIndexLoaded = true
+            StorySidebarCache.save(pageIndexResults, tree: tree.rawValue)
             // Queries typed while the index loaded filtered the previous one.
             searchResults = sidebarResults(matching: lastSearchQuery, in: pageIndexResults)
         }
@@ -4583,5 +4637,76 @@ enum StoryEntryDateCache {
         guard let data = try? JSONEncoder().encode(record) else { return }
         try? FileManager.default.createDirectory(at: StorySupportDirectories.entryDates, withIntermediateDirectories: true)
         try? data.write(to: url(tree: tree), options: .atomic)
+    }
+}
+
+/// The sidebar's page list as last loaded for each tree, kept on this device so
+/// a launch shows it at once instead of an empty sidebar while the index loads.
+@MainActor
+enum StorySidebarCache {
+    private static var lastSaved: [String: [WorkspaceSearchResult]] = [:]
+
+    static func url(tree: String) -> URL {
+        StorySupportDirectories.sidebarLists
+            .appending(path: StorySupportDirectories.workingTreeKey(tree) + ".json")
+    }
+
+    static func load(tree: String) -> [WorkspaceSearchResult]? {
+        guard let data = try? Data(contentsOf: url(tree: tree)),
+              let results = try? JSONDecoder().decode([WorkspaceSearchResult].self, from: data),
+              !results.isEmpty else { return nil }
+        lastSaved[tree] = results
+        return results
+    }
+
+    static func save(_ results: [WorkspaceSearchResult], tree: String) {
+        guard lastSaved[tree] != results else { return }
+        lastSaved[tree] = results
+        guard let data = try? JSONEncoder().encode(results) else { return }
+        try? FileManager.default.createDirectory(at: StorySupportDirectories.sidebarLists, withIntermediateDirectories: true)
+        try? data.write(to: url(tree: tree), options: .atomic)
+    }
+}
+
+/// Launch and page-open timings, written as notes to Story's network log
+/// (Sync Status, and the JSON Lines files under Logs) so a slow step can be
+/// found from a real launch.
+enum StoryLaunchTiming {
+    /// When this process started.
+    static let start: Date = {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return Date() }
+        let started = info.kp_proc.p_starttime
+        return Date(timeIntervalSince1970: Double(started.tv_sec) + Double(started.tv_usec) / 1e6)
+    }()
+
+    struct Stopwatch {
+        private let began = ContinuousClock.now
+        private var last = ContinuousClock.now
+        private var phases: [String: Double] = [:]
+
+        init() {}
+
+        mutating func mark(_ phase: String) {
+            let now = ContinuousClock.now
+            phases[phase] = Self.milliseconds(now - last)
+            last = now
+        }
+
+        func record(_ name: String, detail: String? = nil) {
+            var note = ProtocolNetworkLogEntry(kind: .note, name: name)
+            note.durationMs = Self.milliseconds(ContinuousClock.now - began)
+            var phases = phases
+            phases["since-launch"] = Date().timeIntervalSince(StoryLaunchTiming.start) * 1_000
+            note.phases = phases
+            note.detail = detail
+            ProtocolNetworkLog.current?.record(note)
+        }
+
+        private static func milliseconds(_ duration: Duration) -> Double {
+            Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15
+        }
     }
 }
