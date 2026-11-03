@@ -2987,7 +2987,7 @@ final class StoryAppModel {
             errorMessage = nil
             titleRenameProposal = nil
             isLoading = false
-            timing.record("page-open", extraFrom: editorLease?.binding, sessionOpenMs: workspace.editorWorkspace.lastSessionOpenMs, detail: "\(resolved.reference.tree.rawValue)\(resolved.reference.path) · \(workspace.launchPhase)")
+            timing.record("page-open", extraFrom: editorLease?.binding, sessionTiming: workspace.editorWorkspace.lastSessionOpenTiming, detail: "\(resolved.reference.tree.rawValue)\(resolved.reference.path) · \(workspace.launchPhase)")
             Task { await self.loadBacklinks() }
             pageIndexIsStale = true
             Task { await self.search(self.lastSearchQuery) }
@@ -4707,9 +4707,9 @@ enum StoryLaunchTiming {
             last = now
         }
 
-        @MainActor func record(_ name: String, extraFrom binding: StoryDocumentBinding?, sessionOpenMs: Double, detail: String? = nil) {
+        @MainActor func record(_ name: String, extraFrom binding: StoryDocumentBinding?, sessionTiming: [String: Double], detail: String? = nil) {
             var extra = binding?.openTiming ?? [:]
-            extra["doc-session"] = sessionOpenMs
+            extra.merge(sessionTiming) { _, session in session }
             record(name, detail: detail, extra: extra)
         }
 

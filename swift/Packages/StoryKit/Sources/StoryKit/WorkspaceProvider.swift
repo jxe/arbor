@@ -495,6 +495,9 @@ public protocol WorkspaceProvider: Sendable {
     func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceStoredAsset
     func readFile(_ reference: WorkspaceReference) async throws -> Data
     func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession
+    /// Open a document on a node this provider has just resolved, without
+    /// resolving it again. Providers whose resolve is costly implement it.
+    func openDocument(resolved node: WorkspaceNode) async throws -> any WorkspaceDocumentSession
     /// A collection folder's checked schema and its rows, laid out as data files
     /// lay them out, for `presentView`. Throws `WorkspaceCollectionError` when the
     /// folder holds no logical collection or can't be read here.
@@ -539,6 +542,10 @@ public enum WorkspaceCollectionError: LocalizedError, Equatable, Sendable {
 
 public extension WorkspaceProvider {
     func capabilities() async -> WorkspaceProviderCapabilities { .full }
+
+    func openDocument(resolved node: WorkspaceNode) async throws -> any WorkspaceDocumentSession {
+        try await openDocument(node.reference)
+    }
 
     func collectionRows(_ reference: WorkspaceReference) async throws -> WorkspaceCollectionRows {
         throw WorkspaceCollectionError.notCollection
