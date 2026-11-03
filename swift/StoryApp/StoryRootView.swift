@@ -3313,6 +3313,9 @@ struct StoryRootView: View {
                         guard location == model.currentLocation else { return }
                         workspace.setPresenceSelection(lease.binding.presenceSelection())
                     }
+                    .onAppear {
+                        if location == model.currentLocation { model.editorAppeared() }
+                    }
                     .onChange(of: lease.binding.editorState.editingBlock) { _, _ in
                         guard location == model.currentLocation else { return }
                         workspace.setPresenceSelection(lease.binding.presenceSelection())
