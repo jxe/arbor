@@ -365,6 +365,7 @@ final class StoryWorkspaceState {
         provider suppliedProvider: InMemoryWorkspaceProvider? = nil,
         accountService suppliedAccountService: (any HostAccountService)? = nil
     ) {
+        StoryLaunchTiming.milestone("workspace-init")
         self.suppliedAccountService = suppliedAccountService
         self.linkPreviewService = LinkPreviewService(
             cacheDirectory: StorySupportDirectories.linkPreviews
@@ -1470,12 +1471,7 @@ final class StoryWorkspaceState {
         }
         let dates = refreshEntryDates(workingTree, tree: treeID, client: protocolClient)
         if cachedDates == nil {
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await dates.value }
-                group.addTask { try? await Task.sleep(for: .seconds(2)) }
-                await group.next()
-                group.cancelAll()
-            }
+            await awaitTasks([dates], atMost: .seconds(2))
         }
 
         timing.mark("dates")
@@ -1720,6 +1716,7 @@ final class StoryWorkspaceState {
     func restoreLocalWorkspaceIfAvailable() async {
         guard !attemptedWorkspaceRestore else { return }
         attemptedWorkspaceRestore = true
+        StoryLaunchTiming.milestone("restore-start")
         // An unreadable placement list or selection opens like a fresh
         // installation; each is read, and may fail, on its own.
         do {
@@ -1754,7 +1751,7 @@ final class StoryWorkspaceState {
                 )
                 launchPhase = .confirming(record.displayName)
                 timing.mark("switch")
-                timing.record("launch-preview", detail: record.tree.id)
+                timing.record("launch-preview", detail: record.tree.id, extra: StoryLaunchTiming.milestones)
             }
         }
         do {
@@ -4682,6 +4679,15 @@ enum StoryLaunchTiming {
         return Date(timeIntervalSince1970: Double(started.tv_sec) + Double(started.tv_usec) / 1e6)
     }()
 
+    /// Moments of this launch, in milliseconds since the process started,
+    /// reported with the launch preview's note.
+    @MainActor private(set) static var milestones: [String: Double] = [:]
+
+    @MainActor static func milestone(_ name: String) {
+        guard milestones[name] == nil else { return }
+        milestones[name] = Date().timeIntervalSince(start) * 1_000
+    }
+
     struct Stopwatch {
         private let began = ContinuousClock.now
         private var last = ContinuousClock.now
@@ -4695,10 +4701,10 @@ enum StoryLaunchTiming {
             last = now
         }
 
-        func record(_ name: String, detail: String? = nil) {
+        func record(_ name: String, detail: String? = nil, extra: [String: Double] = [:]) {
             var note = ProtocolNetworkLogEntry(kind: .note, name: name)
             note.durationMs = Self.milliseconds(ContinuousClock.now - began)
-            var phases = phases
+            var phases = phases.merging(extra) { current, _ in current }
             phases["since-launch"] = Date().timeIntervalSince(StoryLaunchTiming.start) * 1_000
             note.phases = phases
             note.detail = detail

@@ -11,6 +11,7 @@ struct StoryApplication: App {
     @State private var workspace = StoryWorkspaceState()
 
     init() {
+        StoryLaunchTiming.milestone("app-init")
         ProtocolNetworkLog.install(ProtocolNetworkLog(directory: StorySupportDirectories.networkLogs))
 #if os(macOS)
         StoryMenuBar.shared.updates = updates

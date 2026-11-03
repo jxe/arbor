@@ -1342,6 +1342,7 @@ struct StoryRootView: View {
     var body: some View {
         platformNavigation
         .onAppear {
+            StoryLaunchTiming.milestone("window-appear")
             model.openWindowAction = { [openWindow] location, asTab, selecting in
                 var request = StoryWindowRequest(location: location, selecting: selecting)
 #if os(macOS)

@@ -1272,13 +1272,7 @@ public final class StoryEditorHost: EditorHost {
             pending.append(Task { @MainActor [weak self] in _ = await self?.linkPreview(for: url) })
         }
         guard !pending.isEmpty else { return }
-        let waiting = pending
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { for task in waiting { await task.value } }
-            group.addTask { try? await Task.sleep(for: limit) }
-            await group.next()
-            group.cancelAll()
-        }
+        await awaitTasks(pending, atMost: limit)
     }
 
     public func blockActions(in _: Document) -> [EditorBlockAction] {
@@ -1378,5 +1372,36 @@ public final class StoryEditorHost: EditorHost {
             }
         }
         return nodes
+    }
+}
+
+/// Waits until `tasks` have all finished or `limit` has passed, whichever is
+/// first, and then returns without waiting on the rest, which keep running.
+/// (A task group cannot do this: it waits for every child on exit, and a
+/// child awaiting another task's value does not stop when cancelled.)
+@MainActor
+public func awaitTasks(_ tasks: [Task<Void, Never>], atMost limit: Duration) async {
+    guard !tasks.isEmpty else { return }
+    let gate = WaitGate()
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        gate.continuation = continuation
+        Task { @MainActor in
+            for task in tasks { await task.value }
+            gate.open()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: limit)
+            gate.open()
+        }
+    }
+}
+
+@MainActor
+private final class WaitGate {
+    var continuation: CheckedContinuation<Void, Never>?
+
+    func open() {
+        continuation?.resume()
+        continuation = nil
     }
 }
