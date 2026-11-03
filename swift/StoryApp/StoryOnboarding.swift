@@ -18,9 +18,12 @@ struct StoryMacLaunchView: View {
     init(workspace: StoryWorkspaceState, windowRequest: UUID? = nil) {
         self.workspace = workspace
         self.windowRequest = windowRequest
-        // A window opened beside one already showing a tree skips onboarding.
+        // A window opened beside one already showing a tree skips onboarding,
+        // and so does launch with a placed tree: the window shows that tree's
+        // folder at once instead of a welcome screen while Story Sync starts.
         _ready = State(initialValue: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-            || workspace.launchPhase.showsTree)
+            || workspace.launchPhase.showsTree
+            || (try? NativePlacementStore.selected()) != nil)
     }
 
     var body: some View {

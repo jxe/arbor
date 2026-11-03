@@ -2720,6 +2720,9 @@ final class StoryAppModel {
     private var pageIndexTree: TreeID?
     private var pageIndexResults: [WorkspaceSearchResult] = []
     private var pageIndexIsStale = true
+    /// Whether the sidebar's page index has loaded for the current tree, so an
+    /// empty list means no pages rather than not loaded yet.
+    private(set) var pageIndexLoaded = false
     private var pageIndexSyncBasis: [String?] = []
     private var pageIndexRequestID = 0
     private var sidebarRetentions = StorySidebarRetentions()
@@ -2840,6 +2843,9 @@ final class StoryAppModel {
         lastSearchQuery = ""
         pageIndexTree = nil
         pageIndexResults = []
+        pageIndexLoaded = false
+        // The sidebar's index loads beside the page instead of after it.
+        Task { await self.search(self.lastSearchQuery) }
         await load()
     }
 
@@ -2869,6 +2875,12 @@ final class StoryAppModel {
         let requestID = loadRequestID
         isLoading = true
         linkedPageTrashPrompt = nil
+        // Reopening the same page (the confirmed tree replacing its launch
+        // preview) keeps the link titles already resolved, so its links do
+        // not fall back to their labels while they resolve again.
+        let previousHost = editorHost.flatMap { node?.location == currentLocation ? $0 : nil }
+            ?? retainedPagePresentations[PagePresentationKey(tabID: selectedTabID, location: currentLocation)]?.editorHost
+        let carriedLookups = previousHost?.resolvedLookups ?? [:]
         if let editorLease {
             Self.cancelMoveRequests(of: editorHost)
             await workspace.editorWorkspace.release(editorLease)
@@ -2893,11 +2905,6 @@ final class StoryAppModel {
             node = resolved
             workspace.recordVisit(resolved)
             children = loadedChildren
-            if searchResults.isEmpty {
-                searchResults = loadedChildren.map {
-                    WorkspaceSearchResult(reference: $0.reference, title: $0.title)
-                }
-            }
             sidebarLocation = sidebarBase
             // A launch preview shows pages in the editor too, so confirming the
             // tree changes nothing on screen; the view blocks input meanwhile.
@@ -2911,7 +2918,9 @@ final class StoryAppModel {
                     lease.binding.projectDirectoryChildren(loadedChildren, in: resolved)
                 }
                 editorLease = lease
-                editorHost = makeEditorHost(binding: lease.binding, sourceDirectory: resolved.sourceDirectory)
+                let host = makeEditorHost(binding: lease.binding, sourceDirectory: resolved.sourceDirectory)
+                host.seedLookups(carriedLookups)
+                editorHost = host
             }
             errorMessage = nil
             titleRenameProposal = nil
@@ -3337,6 +3346,7 @@ final class StoryAppModel {
             searchResults = []
             pageIndexTree = nil
             pageIndexResults = []
+            pageIndexLoaded = false
             return true
         } catch {
             errorMessage = error.localizedDescription
@@ -3417,7 +3427,10 @@ final class StoryAppModel {
         } else {
             pageIndexTree = tree
             pageIndexResults = []
-            searchResults = []
+            pageIndexLoaded = false
+            // What the sidebar already lists from this tree stays until the
+            // index replaces it, so the list does not blank out meanwhile.
+            searchResults = searchResults.filter { $0.reference.tree == tree }
         }
         pageIndexRequestID += 1
         let requestID = pageIndexRequestID
@@ -3427,6 +3440,7 @@ final class StoryAppModel {
             let results = try await workspace.provider.search("", in: tree)
             guard requestID == pageIndexRequestID, tree == pageIndexTree, tree == currentReference.tree else { return }
             pageIndexResults = sidebarRetentions.applying(to: results, providerRefresh: true)
+            pageIndexLoaded = true
             // Queries typed while the index loaded filtered the previous one.
             searchResults = sidebarResults(matching: lastSearchQuery, in: pageIndexResults)
         }

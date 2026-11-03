@@ -422,23 +422,43 @@ public final class StoryEditorHost: EditorHost {
             return lookup
         }
         lookups[reference] = .pending
-        if lookupTasks[reference] == nil {
-            lookupTasks[reference] = Task { @MainActor [weak self] in
-                guard let self else { return }
-                do {
-                    let node = try await provider.resolve(decoded)
-                    if node.reference.tree == binding.reference.tree { knownBodies[node.reference.path] = node.markdownBody }
-                    lookups[reference] = .present(.init(
-                        title: node.title,
-                        capabilities: documentCapabilities(for: node)
-                    ))
-                } catch {
-                    lookups[reference] = .missing
-                }
-                lookupTasks[reference] = nil
-            }
-        }
+        resolveLookup(reference, decoded)
         return .pending
+    }
+
+    private func resolveLookup(_ reference: DocumentReference, _ decoded: WorkspaceReference) {
+        guard lookupTasks[reference] == nil else { return }
+        lookupTasks[reference] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let node = try await provider.resolve(decoded)
+                if node.reference.tree == binding.reference.tree { knownBodies[node.reference.path] = node.markdownBody }
+                lookups[reference] = .present(.init(
+                    title: node.title,
+                    capabilities: documentCapabilities(for: node)
+                ))
+            } catch {
+                lookups[reference] = .missing
+            }
+            lookupTasks[reference] = nil
+        }
+    }
+
+    /// The links this host has resolved, for a host that replaces it on the same page.
+    public var resolvedLookups: [DocumentReference: DocumentLookup] {
+        lookups.filter { if case .present = $0.value { true } else { false } }
+    }
+
+    /// Starts from links another host resolved on the same page, so they keep
+    /// their titles instead of falling back to their labels. Each one in this
+    /// tree is resolved again from this host's provider in the background.
+    public func seedLookups(_ seeded: [DocumentReference: DocumentLookup]) {
+        for (reference, lookup) in seeded where lookups[reference] == nil {
+            lookups[reference] = lookup
+            guard let decoded = workspaceReference(for: reference),
+                  decoded.tree == binding.reference.tree else { continue }
+            resolveLookup(reference, decoded)
+        }
     }
 
     public func didDeleteDocumentLink(reference: DocumentReference, label _: String, from _: Document) {

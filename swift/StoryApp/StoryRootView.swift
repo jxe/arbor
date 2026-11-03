@@ -2211,7 +2211,8 @@ struct StoryRootView: View {
             .contentMargins(.top, 0, for: .scrollContent)
 #endif
             .overlay {
-                if model.searchResults.isEmpty, workspace.launchPhase.showsTree {
+                if model.searchResults.isEmpty, workspace.launchPhase.showsTree,
+                   model.pageIndexLoaded || !sidebarSearchText.isEmpty {
                     ContentUnavailableView.search(text: sidebarSearchText)
                         .allowsHitTesting(false)
                 }
@@ -3051,15 +3052,17 @@ struct StoryRootView: View {
                     )
                     .frame(minHeight: 32)
                     .padding(.trailing, 6)
+                    // Shown, disabled, on a launch preview too, so the toolbar
+                    // does not shift when editing turns on.
                     if let presentation = model.pagePresentation(for: location),
-                       presentation.node.isWritable,
+                       presentation.node.isWritable || workspace.launchPhase.isPreviewing,
                        presentation.editorLease != nil {
                         StoryVoiceRecordingToolbarButton(
                             session: recordingSession,
                             model: model,
                             workspace: workspace
                         )
-                        .disabled(location != model.currentLocation)
+                        .disabled(location != model.currentLocation || !presentation.node.isWritable)
                         .frame(width: 32, height: 32)
                         .mutedMacToolbarHover()
                     }
