@@ -613,6 +613,8 @@ final class StoryWorkspaceState {
             guard let metadata = try? await client.entryMetadata(tree: tree) else { return }
             let dates = metadata.entries.compactMapValues { $0.modifiedAt.map { Date(timeIntervalSince1970: $0 / 1_000) } }
             try? await workingTree.applyEntryDates(dates, update: metadata.update)
+            let record = StoryEntryDateCache.Record(update: metadata.update, dates: dates)
+            await MainActor.run { StoryEntryDateCache.save(record, tree: tree) }
         }
     }
 
@@ -1429,14 +1431,23 @@ final class StoryWorkspaceState {
             mode: .sparseFiles
         )
         try await workingTree.initializeFromSystem(replacement)
-        // This tree is rebuilt on every launch: wait briefly for its dates so
-        // the sidebar does not open undated, but never block on the network.
+        // This tree is rebuilt on every launch. The dates its host reported
+        // last date the sidebar at once, and the host's answer refreshes them
+        // after the tree is open. Without any (a first open) wait briefly for
+        // that answer so the sidebar does not open undated, but never block
+        // on the network.
+        let cachedDates = StoryEntryDateCache.load(tree: treeID)
+        if let cachedDates {
+            try? await workingTree.applyEntryDates(cachedDates.dates, update: cachedDates.update)
+        }
         let dates = refreshEntryDates(workingTree, tree: treeID, client: protocolClient)
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await dates.value }
-            group.addTask { try? await Task.sleep(for: .seconds(2)) }
-            await group.next()
-            group.cancelAll()
+        if cachedDates == nil {
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await dates.value }
+                group.addTask { try? await Task.sleep(for: .seconds(2)) }
+                await group.next()
+                group.cancelAll()
+            }
         }
 
         let stateRoot = StorySupportDirectories.workingTrees
@@ -4545,5 +4556,32 @@ extension StoryWorkspaceState {
     private static func directory(of file: String) -> String {
         let parts = file.split(separator: "/").dropLast()
         return parts.isEmpty ? "/" : "/" + parts.joined(separator: "/")
+    }
+}
+
+/// The page dates a tree's host last reported, kept on this device so the next
+/// launch can show them before the host answers. Only a display cache: a
+/// missing or unreadable file just means waiting for the host.
+@MainActor
+enum StoryEntryDateCache {
+    nonisolated struct Record: Codable, Equatable, Sendable {
+        var update: String
+        var dates: [String: Date]
+    }
+
+    static func url(tree: String) -> URL {
+        StorySupportDirectories.entryDates
+            .appending(path: StorySupportDirectories.workingTreeKey(tree) + ".json")
+    }
+
+    static func load(tree: String) -> Record? {
+        guard let data = try? Data(contentsOf: url(tree: tree)) else { return nil }
+        return try? JSONDecoder().decode(Record.self, from: data)
+    }
+
+    static func save(_ record: Record, tree: String) {
+        guard let data = try? JSONEncoder().encode(record) else { return }
+        try? FileManager.default.createDirectory(at: StorySupportDirectories.entryDates, withIntermediateDirectories: true)
+        try? data.write(to: url(tree: tree), options: .atomic)
     }
 }
