@@ -426,6 +426,7 @@ final class StoryWorkspaceState {
     }
 
     func place(tree: ProtocolTreeDescriptor, from origin: URL, configurationTree: String? = nil, remember: Bool = true) async throws {
+        var timing = StoryLaunchTiming.Stopwatch()
         _ = try tree.validated()
         // Every placement names its account; its device key opens the sessions.
         guard let configurationTree else {
@@ -439,7 +440,9 @@ final class StoryWorkspaceState {
         let store = KeychainDeviceCredentialStore()
         // A tree on one of the account's placement hosts syncs with this
         // device's session there, which its home device key opens (accounts §1.3).
+        timing.mark("close")
         let home = try await store.accounts().first { $0.configurationTree == configurationTree }
+        timing.mark("accounts")
         let placementOrigin = Self.placementOrigin(endpoint: origin.absoluteString, home: home?.origin.absoluteString)
         let credentialProvider = placementOrigin.map {
             AccountStoredCredentialProvider.shared(configurationTree: configurationTree, origin: $0, store: store)
@@ -459,6 +462,7 @@ final class StoryWorkspaceState {
             transport: transport,
             platform: platform
         )
+        timing.mark("working-tree")
         refreshEntryDates(workingTree, tree: tree.id, client: client)
         let (coordinator, nextProvider) = try synchronizedProvider(
             workingTree: workingTree,
@@ -477,7 +481,10 @@ final class StoryWorkspaceState {
             detail: "Offline replica · \(tree.canonicalPath ?? tree.id)",
             canonical: tree.canonical
         )
+        timing.mark("switch")
         try await installSyncCoordinator(coordinator, client: client, tree: tree)
+        timing.mark("sync-install")
+        timing.record("tree-open", detail: "\(tree.id) · device", extra: StoryLaunchTiming.milestones)
     }
 
     /// Open the durable working tree at `replicaRoot`, or place it afresh from
@@ -572,9 +579,13 @@ final class StoryWorkspaceState {
 
 #if os(iOS)
     func restoreNativePlacementIfAvailable() async -> Bool {
+        StoryLaunchTiming.milestone("restore-start")
         do {
-            nativePlacements = try await nativePlacementStore.loadAll()
-            guard let record = try await nativePlacementStore.load() else { return false }
+            // Read here rather than through the store's actor, whose answer
+            // would wait behind the first frame (as it did on the Mac).
+            nativePlacements = try NativePlacementStore.all()
+            guard let record = try NativePlacementStore.selected() else { return false }
+            StoryLaunchTiming.milestone("placements-loaded")
             try await place(tree: record.tree, from: record.origin, configurationTree: record.configurationTree, remember: false)
             return true
         } catch {
