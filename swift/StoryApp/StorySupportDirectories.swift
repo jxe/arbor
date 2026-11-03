@@ -111,9 +111,12 @@ actor NativePlacementStore {
         } ?? collection.placements.first
     }
 
-    func loadAll() throws -> [NativePlacementRecord] {
+    func loadAll() throws -> [NativePlacementRecord] { try Self.all(at: url) }
+
+    /// Every placement, read synchronously (see `selected(at:)`).
+    nonisolated static func all(at url: URL = StorySupportDirectories.nativePlacement) throws -> [NativePlacementRecord] {
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
-        return try Self.loadCollection(at: url).placements
+        return try loadCollection(at: url).placements
     }
 
     func save(_ record: NativePlacementRecord) throws {

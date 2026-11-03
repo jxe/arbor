@@ -1410,15 +1410,21 @@ final class StoryWorkspaceState {
     /// The folder client has independent pending/conflict state; it neither
     /// seeds nor blocks this client's direct host update coordinator.
     /// `page`, a path within the tree, is opened instead of its home page.
-    func openPlacedTree(_ treeID: String, page: String? = nil) async throws {
+    ///
+    /// `fetching` is this tree's bootstrap already under way (launch starts
+    /// it before showing the preview, so the request overlaps the first frame).
+    func openPlacedTree(_ treeID: String, page: String? = nil, fetching early: Task<TreeBootstrap, any Error>? = nil) async throws {
         var timing = StoryLaunchTiming.Stopwatch()
+        let earlyBootstrap = try await early?.value
+        if early != nil { timing.mark("early-bootstrap") }
         try await editorWorkspace.flushAll()
         try await closeOpenTree()
         timing.mark("close")
         let runtime = try await ensureStorySync()
         timing.mark("story-sync")
         let client = runtime.client
-        let bootstrap = try await client.bootstrap(tree: treeID)
+        let bootstrap: TreeBootstrap
+        if let earlyBootstrap { bootstrap = earlyBootstrap } else { bootstrap = try await client.bootstrap(tree: treeID) }
         timing.mark("bootstrap")
         let placed = bootstrap.tree
         guard placed.osPath != nil else {
@@ -1720,21 +1726,31 @@ final class StoryWorkspaceState {
         attemptedWorkspaceRestore = true
         StoryLaunchTiming.milestone("restore-start")
         // An unreadable placement list or selection opens like a fresh
-        // installation; each is read, and may fail, on its own.
+        // installation; each is read, and may fail, on its own. Both are a
+        // small file read here, on the main thread: awaiting the store's
+        // actor instead waited behind the window's first frame (~0.3 s).
         do {
-            nativePlacements = try await nativePlacementStore.loadAll()
+            nativePlacements = try NativePlacementStore.all()
         } catch {
             Self.recordDiagnostic("placement-restore", error)
             nativePlacements = []
         }
         let record: NativePlacementRecord?
         do {
-            record = try await nativePlacementStore.load()
+            record = try NativePlacementStore.selected()
         } catch {
             Self.recordDiagnostic("placement-restore", error)
             record = nil
         }
         StoryLaunchTiming.milestone("placements-loaded")
+        // Attach to Story Sync and ask for the tree's bootstrap now, while the
+        // preview is scanned and drawn, rather than after.
+        let earlyBootstrap: Task<TreeBootstrap, any Error>? = record.map { record in
+            Task { @MainActor in
+                let runtime = try await self.ensureStorySync()
+                return try await runtime.client.bootstrap(tree: record.tree.id)
+            }
+        }
         if let record, !launchPhase.isPreviewing, let osPath = record.osPath,
            FileManager.default.fileExists(atPath: osPath) {
             let tree = TreeID(rawValue: record.tree.id)
@@ -1760,7 +1776,7 @@ final class StoryWorkspaceState {
         do {
             if let record {
                 if !launchPhase.isPreviewing { launchPhase = .restoring(record.displayName) }
-                try await openPlacedTree(record.tree.id)
+                try await openPlacedTree(record.tree.id, fetching: earlyBootstrap)
             } else {
                 launchPhase = .empty(nil)
                 try await ensureStorySync()
