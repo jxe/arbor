@@ -219,6 +219,21 @@ final class StoryWorkspaceState {
     private(set) var home: WorkspaceReference
     private(set) var launchLocation: WorkspaceLocation
     private(set) var generation = 0
+    /// The home page and its children, read while the tree opened, for the
+    /// first page open to take instead of reading them again behind the first
+    /// frame (iPhone launch). Taken once, for the generation that read them.
+    @ObservationIgnored private var warmedHome: (generation: Int, node: WorkspaceNode, children: [WorkspaceNode])?
+
+    func takeWarmedPage(at location: WorkspaceLocation) -> (node: WorkspaceNode, children: [WorkspaceNode])? {
+        guard let warmed = warmedHome else { return nil }
+        warmedHome = nil
+        // The window asks for the home by path; the node also carries its page key.
+        guard warmed.generation == generation, case let .reference(asked) = location,
+              asked.tree == warmed.node.reference.tree, asked.path == warmed.node.reference.path,
+              asked.stableKey == nil || asked.stableKey == warmed.node.reference.stableKey else { return nil }
+        return (warmed.node, warmed.children)
+    }
+
     /// Bumped when the provider is replaced by one presenting the same tree at
     /// the same locations (preview → confirmed working tree): windows reload
     /// their pages in place instead of resetting navigation.
@@ -489,10 +504,14 @@ final class StoryWorkspaceState {
         // is drawn, keeps the page's own open from paying for it behind the
         // first frame.
         let homeReference = WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/")
-        _ = try? await nextProvider.resolve(homeReference)
-        timing.mark("warm-resolve")
-        _ = try? await nextProvider.children(of: homeReference)
-        timing.mark("warm-children")
+        let readGeneration = generation
+        if let node = try? await nextProvider.resolve(homeReference) {
+            timing.mark("warm-resolve")
+            if let children = try? await nextProvider.children(of: node.reference) {
+                warmedHome = (readGeneration, node, children)
+            }
+            timing.mark("warm-children")
+        }
         timing.record("tree-open", detail: "\(tree.id) · device", extra: StoryLaunchTiming.milestones)
     }
 
@@ -2982,18 +3001,20 @@ final class StoryAppModel {
         var timing = StoryLaunchTiming.Stopwatch()
         do {
             let requestedLocation = currentLocation
-            let resolved = try await workspace.provider.resolve(requestedLocation)
-            timing.mark("resolve")
+            let warmed = workspace.takeWarmedPage(at: requestedLocation)
+            let resolved: WorkspaceNode
+            if let warmed { resolved = warmed.node } else { resolved = try await workspace.provider.resolve(requestedLocation) }
+            timing.mark(warmed == nil ? "resolve" : "resolve-warmed")
             let sidebarBase: WorkspaceLocation = switch resolved.surface {
             case .directory, .directoryDocument, .collection:
                 resolved.location
             default:
                 resolved.location.parent ?? workspace.launchLocation
             }
-            let loadedChildren = nestedProfileTitles(
-                in: try await workspace.provider.children(of: sidebarBase),
-                parent: resolved
-            )
+            let listedChildren: [WorkspaceNode]
+            if let warmed, sidebarBase == resolved.location { listedChildren = warmed.children }
+            else { listedChildren = try await workspace.provider.children(of: sidebarBase) }
+            let loadedChildren = nestedProfileTitles(in: listedChildren, parent: resolved)
             timing.mark("children")
             guard requestID == loadRequestID, observedWorkspaceGeneration == workspace.generation else { return }
             tabs.replaceCurrent(with: resolved.location)
