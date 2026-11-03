@@ -102,9 +102,12 @@ export function runPrompt(run: Pick<AgentRun, "page" | "task">, section: string 
 /** A task block's lines in a Markdown page: `> [!agent] text`, with any `> ` continuation lines. */
 export function findTaskBlock(source: string, task: string): { start: number; end: number; section: string | null } | null {
   const lines = source.split("\n");
-  // The task arrives as the editor's plain text; the file may hold escapes and
-  // emphasis delimiters, so both sides are compared without them.
-  const plain = (value: string) => value.replace(/[\\*_~`]/g, "").replace(/\s+/g, " ").trim();
+  // The task arrives as the editor's plain text; the file may hold link
+  // markup, escapes and emphasis delimiters, so both sides are compared without them.
+  const plain = (value: string) => value
+    .replace(/!?\[((?:\\.|[^\]\\])*)\]\([^)\s]*\)/g, "$1")
+    .replace(/<((?:https?|mailto):[^>\s]*)>/g, "$1")
+    .replace(/[\\*_~`]/g, "").replace(/\s+/g, " ").trim();
   const wanted = plain(task);
   let section: string | null = null;
   for (let index = 0; index < lines.length; index += 1) {
@@ -349,7 +352,7 @@ export class AgentRuns {
       "--output-format", "stream-json", "--verbose",
       "--session-id", run.session,
       "--permission-mode", "acceptEdits",
-      "--allowedTools", "Read,Edit,MultiEdit,Write,Glob,Grep,Bash(story agent:*),Bash(story sync status:*)",
+      "--allowedTools", "Read,Edit,MultiEdit,Write,Glob,Grep,WebFetch,WebSearch,Bash(story agent:*),Bash(story sync status:*)",
       "--append-system-prompt", AGENT_SKILL,
     ];
     let finalText: string | null = null;

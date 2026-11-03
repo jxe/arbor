@@ -1318,7 +1318,7 @@ public enum StoryMarkdownCodec {
             }
 
             if character == "[",
-               let middle = source.range(of: "](", range: next..<source.endIndex),
+               let middle = linkTextEnd(in: source, after: next),
                let close = source[middle.upperBound...].firstIndex(of: ")"),
                let url = URL(string: String(source[middle.upperBound..<close])) {
                 var piece = parseInline(String(source[next..<middle.lowerBound]))
@@ -1334,6 +1334,35 @@ public enum StoryMarkdownCodec {
         }
         flush()
         return result
+    }
+
+    /// The `](` that ends a link's text opened just before `start`: the `]`
+    /// matching that `[`, counting nested brackets and skipping escapes, when
+    /// `(` follows it. Nil otherwise, so a bracket that opens no link (such as
+    /// `[!agent]`) stays text instead of swallowing a later link.
+    private static func linkTextEnd(in source: String, after start: String.Index) -> Range<String.Index>? {
+        var depth = 0
+        var index = start
+        while index < source.endIndex {
+            switch source[index] {
+            case "\\":
+                index = source.index(after: index)
+                if index == source.endIndex { return nil }
+            case "[":
+                depth += 1
+            case "]":
+                if depth == 0 {
+                    let after = source.index(after: index)
+                    guard after < source.endIndex, source[after] == "(" else { return nil }
+                    return index..<source.index(after: after)
+                }
+                depth -= 1
+            default:
+                break
+            }
+            index = source.index(after: index)
+        }
+        return nil
     }
 
     private static func escapeInline(_ value: String) -> String {

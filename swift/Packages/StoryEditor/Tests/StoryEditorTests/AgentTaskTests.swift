@@ -20,6 +20,22 @@ struct AgentTaskTests {
         #expect(StoryMarkdownCodec.serializeBlocks(StoryMarkdownCodec.parseBlocks("> an ordinary quote\n")).trimmingCharacters(in: .newlines) == "> an ordinary quote")
     }
 
+    @Test("a task holding a link still opens as a task, with only the link linked")
+    func taskWithLink() throws {
+        let source = "> [!agent] images from [https://example.com/a](https://example.com/a) and [two](https://example.com/b)\n"
+        let block = try #require(StoryMarkdownCodec.parseBlocks(source).first)
+        #expect(StoryAgentTask.isMarked(block))
+        #expect(StoryAgentTask.task(in: block) == "images from https://example.com/a and two")
+        guard case let .quote(text) = block.kind else { Issue.record("not a quote"); return }
+        let links = text.runs.compactMap { run in run.link.map { (String(text[run.range].characters), $0.absoluteString) } }
+        #expect(links.map(\.0) == ["https://example.com/a", "two"])
+        #expect(links.map(\.1) == ["https://example.com/a", "https://example.com/b"])
+        // Brackets that open no link stay text; nested and escaped ones keep the link whole.
+        #expect(String(StoryMarkdownCodec.parseInline("[note] see [docs](https://example.com)").characters) == "[note] see docs")
+        #expect(String(StoryMarkdownCodec.parseInline("[a [b] c](https://example.com)").characters) == "a [b] c")
+        #expect(String(StoryMarkdownCodec.parseInline("[a \\] b](https://example.com)").characters) == "a ] b")
+    }
+
     @Test("Turn Into makes a task of a block's text, and the task's source changes")
     func turnInto() throws {
         let source = "- sort this list\n"

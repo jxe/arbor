@@ -155,6 +155,9 @@ describe("task blocks", () => {
     expect(findTaskBlock("> an ordinary quote\n", "an ordinary quote")).toBeNull();
     // As Story's editor writes an edited one: escaped punctuation, matched by its plain text.
     expect(findTaskBlock("> \\[!agent\\] sort *these*\\_now\n", "sort these_now")).toEqual({ start: 0, end: 1, section: null });
+    // Story writes a typed URL as a link; the task's plain text holds only the URL.
+    const linked = "> [!agent] images from [https://example.com/a](https://example.com/a) and <https://example.com/b>\n";
+    expect(markTaskDone(linked, "images from https://example.com/a and https://example.com/b")).toBe(linked.replace("[!agent]", "[!agent-done]"));
   });
 
   test("the prompt names the page, the section and the task", () => {
