@@ -134,6 +134,55 @@ public enum WorkspaceSourceArrangement {
     }
 }
 
+extension WorkspaceSourceArrangement {
+    /// Where `apply` puts each byte when `moves` (no edits) rearrange one
+    /// source of `length` bytes: the result as ranges of the source, in order.
+    /// It follows `apply`'s placement exactly; callers that need certainty
+    /// still compare its rendering with `apply`'s bytes.
+    public static func arrangedRanges(length: Int, moves: [WorkspaceSourceMove]) throws -> [Range<Int>] {
+        enum Slot: Hashable { case stationary(Int), before(Int), after(Int) }
+        var slots: [Slot: Int] = [:]
+        for (index, move) in moves.enumerated() {
+            guard !move.source.isEmpty, !move.anchor.isEmpty, move.source.upperBound <= length, move.anchor.upperBound <= length,
+                  move.source.lowerBound >= 0, move.anchor.lowerBound >= 0 else { throw Failure.invalid("move range") }
+            if moves[..<index].contains(where: { $0.source.overlaps(move.source) }) { throw Failure.invalid("moves overlap") }
+            let slot: Slot
+            if let chained = moves[..<index].firstIndex(where: { $0.source == move.anchor }) {
+                slot = move.side == .before ? .before(chained) : .after(chained)
+            } else {
+                if move.anchor.overlaps(move.source) { throw Failure.invalid("move destination is inside its source") }
+                if moves.contains(where: { $0.source.overlaps(move.anchor) }) { throw Failure.unsupported("anchor is moved material other than an earlier move's whole source") }
+                slot = .stationary(move.side == .before ? move.anchor.lowerBound : move.anchor.upperBound)
+            }
+            guard slots[slot] == nil else { throw Failure.unsupported("two moves land at one place") }
+            slots[slot] = index
+        }
+        var out: [Range<Int>] = [], rendered = Set<Int>()
+        func append(_ range: Range<Int>) {
+            guard !range.isEmpty else { return }
+            if let last = out.last, last.upperBound == range.lowerBound { out[out.count - 1] = last.lowerBound..<range.upperBound } else { out.append(range) }
+        }
+        func slot(_ key: Slot) throws { if let index = slots[key] { try payload(index) } }
+        func payload(_ index: Int) throws {
+            guard rendered.insert(index).inserted else { throw Failure.invalid("move rendered twice") }
+            try slot(.before(index)); append(moves[index].source); try slot(.after(index))
+        }
+        let cuts = moves.map(\.source).sorted { $0.lowerBound < $1.lowerBound }
+        let landings = slots.keys.compactMap { key -> Int? in if case let .stationary(p) = key { p } else { nil } }.sorted()
+        var cursor = 0, cut = 0, landing = 0
+        while true {
+            let next = min(cut < cuts.count ? cuts[cut].lowerBound : .max, landing < landings.count ? landings[landing] : .max, length)
+            append(cursor..<next)
+            cursor = next
+            if landing < landings.count, landings[landing] == cursor { try slot(.stationary(cursor)); landing += 1; continue }
+            if cut < cuts.count, cuts[cut].lowerBound == cursor { cursor = cuts[cut].upperBound; cut += 1; continue }
+            break
+        }
+        guard landing == landings.count, rendered.count == moves.count else { throw Failure.invalid("a move does not land") }
+        return out
+    }
+}
+
 /// One change that moves exact source from one document into another in the
 /// same tree: Move to Document. Every range is stated in the basis of the
 /// document it names; a move's source is always in the origin, and its

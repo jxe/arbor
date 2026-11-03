@@ -558,6 +558,44 @@ struct UpdateCoordinatorTests {
         }
     }
 
+    /// A held Option-arrow on a page (its moves address the body) and on a
+    /// block with children (several adjacent spans per step) still publishes
+    /// one move, as a drag to the same place would.
+    @Test("Move bursts on pages and of several spans publish one move", arguments: [false, true])
+    func moveBurstShapes(asPage: Bool) async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_move_shapes"
+            let text = "A\n\nB\n\nC\n\nD\n\nE\n\n"
+            let initial = asPage ? try pageSnapshot(markdown: text) : try snapshot(markdown: text)
+            let transport = acceptingTransport(tree: tree, initial: initial)
+            let workingTree = try await placeWorkingTree(tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"), at: root.appending(path: "replica"), transport: transport)
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root.appending(path: "sync"), publicationDelay: .milliseconds(200), pollInterval: .milliseconds(20))
+            let session = try await noteSession(workingTree, coordinator, tree: tree)
+            // A and B move together, as two spans, down past C and then D.
+            for offset in [0, 3] {
+                let basis = try await session.snapshot()
+                let patch = WorkspaceDocumentPatch(baseContentRevision: basis.contentRevision, edits: [], moves: [
+                    .init(source: offset..<(offset + 3), anchor: (offset + 6)..<(offset + 9), side: .after),
+                    .init(source: (offset + 3)..<(offset + 6), anchor: offset..<(offset + 3), side: .after),
+                ])
+                _ = try await session.admit(intent: .init(basis: basis, patch: patch, source: patch.applying(to: basis.source)))
+                try await Task.sleep(for: .milliseconds(80))
+            }
+            #expect(try await session.snapshot().source == "C\n\nD\n\nA\n\nB\n\nE\n\n")
+            try await waitUntil { let sent = await transport.requests.count; return await coordinator.syncState.kind == "current" && sent > 0 }
+            let requests = await transport.requests
+            #expect(requests.count == 1)
+            let update = try #require(try requests.first?.decodedRequest().updates.first)
+            #expect(update.trace?.count == 1)
+            #expect(update.trace?.first?.operations.count == 1)
+            let operation = try #require(update.trace?.first?.operations.first)
+            #expect(operation.kind == "moveSource")
+            let object = initial.objects.first { $0.hash != initial.root }!.hash
+            #expect(operation.fields["source"] == .object(["material": .object(["kind": .string("basis"), "path": .string("/note.md"), "object": .string(object)]), "range": .array([.integer(0), .integer(6)])]))
+            await coordinator.close()
+        }
+    }
+
     @Test("Captured activity holds publication across slow admission and overlapping sessions")
     func sourceActivityWaitsForDrain() async throws {
         try await withTemporaryRoot { root in
@@ -1555,6 +1593,13 @@ private func benchmarkSnapshot(markdown: String, siblings: Int) throws -> Protoc
     let root = try ProtocolObjectCodec.object(.directory(entries.sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }))
     objects.append(root)
     return ProtocolSnapshot(root: root.hash, objects: Dictionary(objects.map { ($0.hash, $0) }, uniquingKeysWith: { a, _ in a }).values.sorted { $0.hash < $1.hash })
+}
+
+/// `note.md` stored as a page object, as in a tree converted to pages.
+private func pageSnapshot(markdown: String) throws -> ProtocolSnapshot {
+    let page = try ProtocolObjectCodec.object(.page(try #require(ProtocolPage.parse(Data(markdown.utf8)))))
+    let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", page: page.hash)]))
+    return ProtocolSnapshot(root: root.hash, objects: [page, root].sorted { $0.hash < $1.hash })
 }
 
 private func snapshot(files: [String: String]) throws -> ProtocolSnapshot {

@@ -1119,13 +1119,18 @@ extension LocalChange {
 
     /// The file or page object at an absolute `path` in `snapshot`, when there is one.
     static func file(at path: String, in snapshot: ProtocolSnapshot) throws -> String? {
+        try entry(at: path, in: snapshot).flatMap { $0.file ?? $0.page }
+    }
+
+    /// The directory entry at an absolute `path` in `snapshot`, when there is one.
+    static func entry(at path: String, in snapshot: ProtocolSnapshot) throws -> ProtocolDirectoryEntry? {
         let objects = Dictionary(snapshot.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
         var hash = snapshot.root
         let parts = path.split(separator: "/").map(String.init)
         for (index, part) in parts.enumerated() {
             guard let bytes = objects[hash], case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: .directory),
                   let entry = entries.first(where: { $0.name == part }) else { return nil }
-            if index == parts.count - 1 { return entry.file ?? entry.page }
+            if index == parts.count - 1 { return entry }
             guard let directory = entry.directory else { return nil }
             hash = directory
         }

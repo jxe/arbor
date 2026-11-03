@@ -17,15 +17,19 @@ extension LocalChange {
         return trace.allSatisfy { !$0.operations.isEmpty && $0.operations.allSatisfy { $0.kind == "moveSource" } }
     }
 
-    /// Compose repeated relocation of the same original span. Coordinates are
-    /// transported through explicit moves, never recovered by matching text.
-    /// Mixed edits, copies, multiple selections and operation-result references
+    /// Compose repeated relocation of the same original span: a held
+    /// Option-arrow publishes as the one move a drag to the same place would.
+    /// A frame may move several adjacent spans together (a block with its
+    /// children). Coordinates are transported through the explicit moves,
+    /// never recovered by matching text, and the composed move is checked by
+    /// executing it. A page's moves address its body (spec 10 §4.1). Mixed
+    /// edits, copies, separate selections and operation-result references
     /// keep their original frames in the general publication compiler.
     static func movePublication(_ records: [LocalChange]) throws -> ChangePublication? {
         guard let first = records.first, let last = records.last,
               records.allSatisfy(\.isMoveSequence) else { return nil }
         let frames = records.flatMap { $0.update.trace ?? [] }
-        guard frames.count > 1, frames.allSatisfy({ $0.operations.count == 1 }) else { return nil }
+        guard frames.count > 1 || frames.first.map({ $0.operations.count > 1 }) == true else { return nil }
         struct Reference {
             var path: String
             var object: String
@@ -42,62 +46,96 @@ extension LocalChange {
                   start >= 0, end > start else { return nil }
             return Reference(path: path, object: object, range: start..<end)
         }
-        guard let original = ref(frames[0].operations[0].fields["source"]),
-              let bytes = first.graph.objects.first(where: { $0.hash == original.object })?.bytes,
-              original.range.upperBound <= bytes.count else { return nil }
+        guard let opening = ref(frames[0].operations[0].fields["source"]),
+              let stored = first.graph.objects.first(where: { $0.hash == opening.object })?.bytes else { return nil }
+        let path = opening.path
+        let page: ProtocolPage?
+        if try LocalChange.entry(at: path, in: first.graph)?.page == opening.object {
+            guard case let .page(decoded) = try ProtocolObjectCodec.decode(stored, kind: .page) else { return nil }
+            page = decoded
+        } else { page = nil }
+        let bytes = page?.body ?? stored
+        func object(_ content: Data) throws -> ProtocolObjectEnvelope {
+            guard let page else { return ProtocolObjectEnvelope(hash: ProtocolObjectCodec.hash(content), bytes: content) }
+            return try ProtocolObjectCodec.object(.page(ProtocolPage(id: page.id, properties: page.properties, body: content)))
+        }
+        // The current content as ranges of the original bytes.
         var pieces = [0..<bytes.count]
         func selection(_ range: Range<Int>, in pieces: [Range<Int>]) -> [Range<Int>] {
             var offset = 0, result: [Range<Int>] = []
             for piece in pieces {
                 let a = max(range.lowerBound, offset), b = min(range.upperBound, offset + piece.count)
-                if a < b { result.append((piece.lowerBound + a - offset)..<(piece.lowerBound + b - offset)) }
+                if a < b {
+                    let next = (piece.lowerBound + a - offset)..<(piece.lowerBound + b - offset)
+                    if let prior = result.last, prior.upperBound == next.lowerBound { result[result.count - 1] = prior.lowerBound..<next.upperBound }
+                    else { result.append(next) }
+                }
                 offset += piece.count
             }
             return result
         }
-        func contiguous(_ ranges: [Range<Int>]) -> Range<Int>? {
-            guard let first = ranges.first, let last = ranges.last,
-                  zip(ranges, ranges.dropFirst()).allSatisfy({ $0.upperBound == $1.lowerBound }) else { return nil }
-            return first.lowerBound..<last.upperBound
-        }
         func rendered(_ pieces: [Range<Int>]) -> Data { pieces.reduce(into: Data()) { $0.append(bytes[$1]) } }
-        var anchor: Range<Int>?, side: WorkspaceSourceMove.Side?
+        func contiguous(_ ranges: [Range<Int>]) -> Range<Int>? { ranges.count == 1 ? ranges[0] : nil }
+        var moved: Range<Int>?
+        var anchors: [(range: Range<Int>, side: WorkspaceSourceMove.Side)] = []
         var root = first.graph.root
         for frame in frames {
-            let operation = frame.operations[0]
-            guard frame.before == root,
-                  let source = ref(operation.fields["source"]), let target = ref(operation.fields["at"]),
-                  source.path == original.path, target.path == original.path, target.object == source.object,
-                  source.range.upperBound <= bytes.count, target.range.upperBound <= bytes.count,
-                  ProtocolObjectCodec.hash(rendered(pieces)) == source.object,
-                  contiguous(selection(source.range, in: pieces)) == original.range,
-                  let mappedAnchor = contiguous(selection(target.range, in: pieces)),
-                  !mappedAnchor.overlaps(original.range),
-                  case let .string(sideValue)? = operation.fields["side"],
-                  let placement = WorkspaceSourceMove.Side(rawValue: sideValue) else { return nil }
-            let at = placement == .before ? target.range.lowerBound : target.range.upperBound
-            guard at <= source.range.lowerBound || at >= source.range.upperBound else { return nil }
-            let moved = selection(source.range, in: pieces)
-            let rest = selection(0..<source.range.lowerBound, in: pieces) + selection(source.range.upperBound..<bytes.count, in: pieces)
-            let destination = at >= source.range.upperBound ? at - source.range.count : at
-            pieces = selection(0..<destination, in: rest) + moved + selection(destination..<(bytes.count - source.range.count), in: rest)
-            anchor = mappedAnchor; side = placement; root = frame.after
+            guard frame.before == root else { return nil }
+            let current = rendered(pieces)
+            let currentObject = try object(current).hash
+            var moves: [WorkspaceSourceMove] = []
+            for operation in frame.operations {
+                guard let source = ref(operation.fields["source"]), let target = ref(operation.fields["at"]),
+                      source.path == path, target.path == path, source.object == currentObject, target.object == currentObject,
+                      source.range.upperBound <= current.count, target.range.upperBound <= current.count,
+                      case let .string(sideValue)? = operation.fields["side"],
+                      let side = WorkspaceSourceMove.Side(rawValue: sideValue) else { return nil }
+                moves.append(.init(source: source.range, anchor: target.range, side: side))
+            }
+            // The frame moves one span of the original, the same one each time.
+            let sources = moves.map(\.source).sorted { $0.lowerBound < $1.lowerBound }
+            guard zip(sources, sources.dropFirst()).allSatisfy({ $0.upperBound == $1.lowerBound }),
+                  let span = contiguous(selection(sources.first!.lowerBound..<sources.last!.upperBound, in: pieces)),
+                  moved == nil || moved == span else { return nil }
+            moved = span
+            // Where the frame put it, by the anchors that are not moved material.
+            anchors = moves.filter { move in !moves.contains { $0.source == move.anchor } }.compactMap { move in
+                contiguous(selection(move.anchor, in: pieces)).map { ($0, move.side) }
+            }
+            let arranged = try WorkspaceSourceArrangement.arrangedRanges(length: current.count, moves: moves)
+            let next = arranged.flatMap { selection($0, in: pieces) }
+            guard rendered(next) == (try WorkspaceSourceArrangement.apply(files: [path: current], moves: moves.map {
+                .init(source: .init(file: path, range: $0.source), anchor: .init(file: path, range: $0.anchor), side: $0.side)
+            }, edits: [])[path]) else { return nil }
+            pieces = next
+            root = frame.after
         }
-        guard let anchor, let side, root == last.candidate.root else { return nil }
+        guard let moved, root == last.candidate.root else { return nil }
         let finalBytes = rendered(pieces)
-        let finalHash = ProtocolObjectCodec.hash(finalBytes)
-        guard last.candidate.objects.contains(where: { $0.hash == finalHash && $0.bytes == finalBytes }),
-              try WorkspaceSourceArrangement.apply(files: [original.path: bytes], moves: [
-                .init(source: .init(file: original.path, range: original.range), anchor: .init(file: original.path, range: anchor), side: side)
-              ], edits: [])[original.path] == finalBytes else { return nil }
+        let final = try object(finalBytes)
+        guard last.candidate.objects.contains(where: { $0.hash == final.hash && $0.bytes == final.bytes }) else { return nil }
+        // One move of the original span, beside the last anchor the editor
+        // named, or else beside its new neighbour; whichever executes to the
+        // final bytes.
+        var candidates = anchors.filter { !$0.range.overlaps(moved) }
+        if let index = pieces.firstIndex(of: moved) ?? pieces.firstIndex(where: { $0.contains(moved.lowerBound) && $0.upperBound >= moved.upperBound }) {
+            if index > 0, let before = pieces[index - 1].last { candidates.append((before..<(before + 1), .after)) }
+            if index + 1 < pieces.count, let after = pieces[index + 1].first { candidates.append((after..<(after + 1), .before)) }
+        }
+        let move = candidates.first { candidate in
+            (try? WorkspaceSourceArrangement.apply(files: [path: bytes], moves: [
+                .init(source: .init(file: path, range: moved), anchor: .init(file: path, range: candidate.range), side: candidate.side)
+            ], edits: [])[path]) == finalBytes
+        }
+        guard let move else { return nil }
         func reference(_ range: Range<Int>) -> ProtocolSemanticValue {
-            .object(["material": .object(["kind": .string("basis"), "path": .string(original.path), "object": .string(original.object)]),
+            .object(["material": .object(["kind": .string("basis"), "path": .string(path), "object": .string(opening.object)]),
                      "range": .array([.integer(range.lowerBound), .integer(range.upperBound)])])
         }
         let changes = records.map(\.change)
         let identity = "moves-" + ProtocolObjectCodec.hash(try sortedKeysJSON(changes)).replacingOccurrences(of: "sha256:", with: "")
         let operation = try ProtocolSourceOperation(["key": .string("move"), "kind": .string("moveSource"),
-            "source": reference(original.range), "at": reference(anchor), "side": .string(side.rawValue)])
+            "source": reference(moved), "at": reference(move.range), "side": .string(move.side.rawValue)])
         let known = Set(first.graph.objects.map(\.hash))
         let update = ProtocolCandidateUpdate(candidate: root, change: identity,
             trace: [ProtocolTraceFrame(before: first.graph.root, after: root, operations: [operation])],
