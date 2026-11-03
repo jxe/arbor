@@ -230,6 +230,9 @@ final class StoryWorkspaceState {
         var node: WorkspaceNode
         var children: [WorkspaceNode]
         var lease: StoryEditorLease?
+        /// Its links' titles, resolved while it opened (previews go to the
+        /// shared preview memo).
+        var lookups: [DocumentReference: DocumentLookup] = [:]
     }
 
     func takeWarmedPage(at location: WorkspaceLocation) -> WarmedPage? {
@@ -526,8 +529,22 @@ final class StoryWorkspaceState {
                     ? try? await editorWorkspace.lease(node.reference)
                     : nil
                 timing.mark("warm-document")
+                // And its links' titles and previews, which the page would
+                // otherwise wait on (up to 150 ms) behind the first frame.
+                var lookups: [DocumentReference: DocumentLookup] = [:]
+                if let lease {
+                    let host = StoryEditorHost(
+                        binding: lease.binding,
+                        provider: nextProvider,
+                        linkPreviewService: linkPreviewService,
+                        sourceDirectory: node.sourceDirectory
+                    )
+                    await host.prefetchLinks(in: lease.binding.document)
+                    lookups = host.resolvedLookups
+                }
+                timing.mark("warm-links")
                 if generation == readGeneration {
-                    warmedHome = WarmedPage(generation: readGeneration, node: node, children: children, lease: lease)
+                    warmedHome = WarmedPage(generation: readGeneration, node: node, children: children, lease: lease, lookups: lookups)
                 } else if let lease {
                     await editorWorkspace.release(lease)
                 }
@@ -3077,7 +3094,7 @@ final class StoryAppModel {
                     lease.binding.projectDirectoryChildren(loadedChildren, in: resolved)
                 }
                 let host = makeEditorHost(binding: lease.binding, sourceDirectory: resolved.sourceDirectory)
-                host.seedLookups(carriedLookups)
+                host.seedLookups(carriedLookups.merging(warmed?.lookups ?? [:]) { carried, _ in carried })
                 // Its links' titles and previews, briefly, so the page's first
                 // frame does not show their raw labels.
                 await host.prefetchLinks(in: lease.binding.document)
