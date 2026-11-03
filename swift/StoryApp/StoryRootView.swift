@@ -5170,6 +5170,7 @@ struct StoryIOSLaunchView: View {
         .task {
             guard !started else { return }
             started = true
+            StoryLaunchTiming.milestone("window-appear")
             if accountAdditionComplete != nil {
                 phase = .scanning
                 return
