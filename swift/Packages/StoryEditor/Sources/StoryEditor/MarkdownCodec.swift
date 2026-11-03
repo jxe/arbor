@@ -923,12 +923,12 @@ public enum StoryMarkdownCodec {
         return result
     }
 
-    private struct SourceLine {
+    struct SourceLine {
         var content: String
         var raw: String
     }
 
-    private static func sourceLines(_ source: String) -> [SourceLine] {
+    static func sourceLines(_ source: String) -> [SourceLine] {
         var result: [SourceLine] = []
         forEachSourceLine(source) { result.append($0); return true }
         return result
@@ -1213,7 +1213,7 @@ public enum StoryMarkdownCodec {
         return result
     }
 
-    private static func parseInline(_ source: String) -> AttributedString {
+    static func parseInline(_ source: String) -> AttributedString {
         var result = AttributedString()
         var cursor = source.startIndex
 

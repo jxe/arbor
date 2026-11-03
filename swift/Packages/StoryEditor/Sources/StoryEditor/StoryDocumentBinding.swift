@@ -111,22 +111,44 @@ public final class StoryDocumentBinding {
     /// Open the document as its session serves it. A working tree serves its
     /// newest unsettled change, so edits that were durable before a restart
     /// reopen exactly as they were left.
-    public static func open(reference: WorkspaceReference, session: any WorkspaceDocumentSession) async throws -> StoryDocumentBinding {
+    /// `reusing` is an earlier binding of the same page, such as the launch
+    /// preview's: blocks whose Markdown is unchanged take its parse instead of
+    /// being parsed again.
+    public static func open(
+        reference: WorkspaceReference,
+        session: any WorkspaceDocumentSession,
+        reusing earlier: StoryDocumentBinding? = nil
+    ) async throws -> StoryDocumentBinding {
+        let clock = ContinuousClock()
+        var mark = clock.now
+        func lap() -> Double {
+            let now = clock.now, elapsed = now - mark
+            mark = now
+            return Double(elapsed.components.seconds) * 1_000 + Double(elapsed.components.attoseconds) / 1e15
+        }
         let snapshot = try await session.snapshot()
-        let binding = StoryDocumentBinding(session: session, snapshot: snapshot)
+        let snapshotTime = lap()
+        let binding = StoryDocumentBinding(session: session, snapshot: snapshot, reusing: earlier?.ledger.parsedKinds ?? [:])
+        let parseTime = lap()
         binding.trace("opened source=\(EditorSourceID.of(snapshot.source))")
         await binding.observeAuthoritativeUpdates()
+        binding.openTiming = ["doc-snapshot": snapshotTime, "doc-parse": parseTime, "doc-observe": lap(),
+                              "doc-reused-parse": earlier == nil ? 0 : 1]
         return binding
     }
 
-    private init(session: any WorkspaceDocumentSession, snapshot: WorkspaceDocumentSnapshot) {
+    /// How long each step of opening this binding took, in milliseconds.
+    public private(set) var openTiming: [String: Double] = [:]
+
+    private init(session: any WorkspaceDocumentSession, snapshot: WorkspaceDocumentSnapshot, reusing cachedKinds: [Data: BlockKind] = [:]) {
         self.reference = snapshot.reference
         self.session = session
         self.source = EditorSource(session: session, basis: snapshot)
         let opened = StoryMarkdownCodec.open(
             source: snapshot.source,
             revision: snapshot.contentRevision,
-            identitySeed: String(describing: snapshot.reference.identity)
+            identitySeed: String(describing: snapshot.reference.identity),
+            reusing: cachedKinds
         )
         self.ledger = opened.ledger
         let document = Document(

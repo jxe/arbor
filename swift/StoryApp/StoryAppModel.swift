@@ -1732,6 +1732,7 @@ final class StoryWorkspaceState {
             Self.recordDiagnostic("placement-restore", error)
             record = nil
         }
+        StoryLaunchTiming.milestone("placements-loaded")
         if let record, !launchPhase.isPreviewing, let osPath = record.osPath,
            FileManager.default.fileExists(atPath: osPath) {
             let tree = TreeID(rawValue: record.tree.id)
@@ -2925,6 +2926,9 @@ final class StoryAppModel {
         let previousHost = editorHost.flatMap { node?.location == currentLocation ? $0 : nil }
             ?? retainedPagePresentations[PagePresentationKey(tabID: selectedTabID, location: currentLocation)]?.editorHost
         let carriedLookups = previousHost?.resolvedLookups ?? [:]
+        // Its document too, so unchanged blocks are not parsed a second time.
+        let previousBinding = (node?.location == currentLocation ? editorLease : nil)?.binding
+            ?? retainedPagePresentations[PagePresentationKey(tabID: selectedTabID, location: currentLocation)]?.editorLease?.binding
         if let editorLease {
             Self.cancelMoveRequests(of: editorHost)
             await workspace.editorWorkspace.release(editorLease)
@@ -2956,7 +2960,7 @@ final class StoryAppModel {
             // A launch preview shows pages in the editor too, so confirming the
             // tree changes nothing on screen; the view blocks input meanwhile.
             if resolved.surface.supportsDocumentSession {
-                let lease = try await workspace.editorWorkspace.lease(resolved.reference)
+                let lease = try await workspace.editorWorkspace.lease(resolved.reference, reusing: previousBinding)
                 timing.mark("open-document")
                 guard requestID == loadRequestID else {
                     await workspace.editorWorkspace.release(lease)
@@ -2981,7 +2985,7 @@ final class StoryAppModel {
             errorMessage = nil
             titleRenameProposal = nil
             isLoading = false
-            timing.record("page-open", detail: "\(resolved.reference.tree.rawValue)\(resolved.reference.path) · \(workspace.launchPhase)")
+            timing.record("page-open", extraFrom: editorLease?.binding, sessionOpenMs: workspace.editorWorkspace.lastSessionOpenMs, detail: "\(resolved.reference.tree.rawValue)\(resolved.reference.path) · \(workspace.launchPhase)")
             Task { await self.loadBacklinks() }
             pageIndexIsStale = true
             Task { await self.search(self.lastSearchQuery) }
@@ -4699,6 +4703,12 @@ enum StoryLaunchTiming {
             let now = ContinuousClock.now
             phases[phase] = Self.milliseconds(now - last)
             last = now
+        }
+
+        @MainActor func record(_ name: String, extraFrom binding: StoryDocumentBinding?, sessionOpenMs: Double, detail: String? = nil) {
+            var extra = binding?.openTiming ?? [:]
+            extra["doc-session"] = sessionOpenMs
+            record(name, detail: detail, extra: extra)
         }
 
         func record(_ name: String, detail: String? = nil, extra: [String: Double] = [:]) {

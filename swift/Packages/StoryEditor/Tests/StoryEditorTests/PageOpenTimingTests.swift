@@ -31,6 +31,14 @@ func measurePageOpen() throws {
         func walk(_ blocks: [Block]) { for block in blocks { count += 1; _ = block.text; walk(block.children) } }
         walk(document.children)
         let walkTime = ms(start)
+        start = CFAbsoluteTimeGetCurrent()
+        let sourceLines = StoryMarkdownCodec.sourceLines(source)
+        let linesTime = ms(start)
+        // Inline parsing alone, over every line's text: an upper bound on its share of the codec.
+        start = CFAbsoluteTimeGetCurrent()
+        for line in sourceLines where !line.content.isEmpty { _ = StoryMarkdownCodec.parseInline(line.content) }
+        let inline = ms(start)
+        lines.append(String(format: "OPEN DETAIL run=%d lines=%d source_lines_ms=%.1f inline_all_lines_ms=%.1f", run, sourceLines.count, linesTime, inline))
         cachedKinds = reopened.ledger.parsedKinds
         lines.append(String(format: "OPEN TIMING run=%d bytes=%d blocks=%d codec_ms=%.1f codec_reusing_parse_ms=%.1f present_ms=%.1f document_ms=%.1f walk_ms=%.1f",
                             run, source.utf8.count, count, codec, codecReusing, present, documentInit, walkTime))
