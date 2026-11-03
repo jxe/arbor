@@ -2760,6 +2760,25 @@ struct StorySidebarRetentions {
 @MainActor
 @Observable
 final class StoryAppModel {
+    /// From a page open's end to its editor's first frame, for the
+    /// `editor-drawn` timing note; nil once recorded.
+    @ObservationIgnored private var pageDrawTiming: StoryLaunchTiming.Stopwatch?
+
+    /// The current page's editor appeared. Its first frame is drawn at the
+    /// end of this run loop pass, so the note is written on the next one.
+    func editorAppeared() {
+        guard var timing = pageDrawTiming else { return }
+        pageDrawTiming = nil
+        timing.mark("appear")
+        let detail = "\(currentLocation.path) · \(workspace.launchPhase)"
+        let appeared = timing
+        DispatchQueue.main.async {
+            var drawn = appeared
+            drawn.mark("drawn")
+            drawn.record("editor-drawn", detail: detail)
+        }
+    }
+
     // Stored under the app's earlier name; renaming the key would forget saved names.
     private static let manuallyNamedPagesDefaultsKey = "Canopy.manuallyNamedPages"
     private static let dismissedTitleRenamesDefaultsKey = "Story.dismissedTitleRenames"
@@ -3050,6 +3069,7 @@ final class StoryAppModel {
             errorMessage = nil
             titleRenameProposal = nil
             isLoading = false
+            pageDrawTiming = StoryLaunchTiming.Stopwatch()
             timing.record("page-open", extraFrom: editorLease?.binding, sessionTiming: workspace.editorWorkspace.lastSessionOpenTiming, detail: "\(resolved.reference.tree.rawValue)\(resolved.reference.path) · \(workspace.launchPhase)")
             Task { await self.loadBacklinks() }
             pageIndexIsStale = true
