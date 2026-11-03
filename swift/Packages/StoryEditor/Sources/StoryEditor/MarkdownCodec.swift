@@ -1215,6 +1215,14 @@ public enum StoryMarkdownCodec {
 
     static func parseInline(_ source: String) -> AttributedString {
         var result = AttributedString()
+        // Plain text gathers here and joins `result` as one run: appending an
+        // AttributedString per character made opening a large page slow.
+        var plain = ""
+        func flush() {
+            guard !plain.isEmpty else { return }
+            result.append(AttributedString(plain))
+            plain = ""
+        }
         var cursor = source.startIndex
 
         func closing(_ delimiter: String, after start: String.Index) -> Range<String.Index>? {
@@ -1222,9 +1230,17 @@ public enum StoryMarkdownCodec {
         }
 
         while cursor < source.endIndex {
+            let character = source[cursor]
             let next = source.index(after: cursor)
-            if source[cursor] == "\\", next < source.endIndex {
-                result.append(AttributedString(String(source[next])))
+            // Only these characters can begin an escape, emphasis, code or a link.
+            guard character == "\\" || character == "*" || character == "_" || character == "~"
+                    || character == "`" || character == "[" else {
+                plain.append(character)
+                cursor = next
+                continue
+            }
+            if character == "\\", next < source.endIndex {
+                plain.append(source[next])
                 cursor = source.index(after: next)
                 continue
             }
@@ -1247,34 +1263,38 @@ public enum StoryMarkdownCodec {
                 if let close = closing(delimiter, after: contentStart), close.lowerBound > contentStart {
                     var piece = parseInline(String(source[contentStart..<close.lowerBound]))
                     attribute(&piece)
+                    flush()
                     result.append(piece)
                     cursor = close.upperBound
                     continue
                 }
             }
 
-            if source[cursor] == "`", let close = closing("`", after: next), close.lowerBound > next {
+            if character == "`", let close = closing("`", after: next), close.lowerBound > next {
                 var piece = AttributedString(String(source[next..<close.lowerBound]).replacingOccurrences(of: "\\`", with: "`"))
                 piece[InlineAttributes.CodeAttribute.self] = true
+                flush()
                 result.append(piece)
                 cursor = close.upperBound
                 continue
             }
 
-            if source[cursor] == "[",
+            if character == "[",
                let middle = source.range(of: "](", range: next..<source.endIndex),
                let close = source[middle.upperBound...].firstIndex(of: ")"),
                let url = URL(string: String(source[middle.upperBound..<close])) {
                 var piece = parseInline(String(source[next..<middle.lowerBound]))
                 piece.link = url
+                flush()
                 result.append(piece)
                 cursor = source.index(after: close)
                 continue
             }
 
-            result.append(AttributedString(String(source[cursor])))
+            plain.append(character)
             cursor = next
         }
+        flush()
         return result
     }
 
