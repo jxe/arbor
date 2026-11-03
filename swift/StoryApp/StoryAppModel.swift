@@ -3097,7 +3097,9 @@ final class StoryAppModel {
                 host.seedLookups(carriedLookups.merging(warmed?.lookups ?? [:]) { carried, _ in carried })
                 // Its links' titles and previews, briefly, so the page's first
                 // frame does not show their raw labels.
-                await host.prefetchLinks(in: lease.binding.document)
+                // A page warmed at launch already waited for its links; waiting
+                // again here would only wait behind the first frame.
+                if warmed?.lease == nil { await host.prefetchLinks(in: lease.binding.document) }
                 timing.mark("links")
                 guard requestID == loadRequestID else {
                     await workspace.editorWorkspace.release(lease)
