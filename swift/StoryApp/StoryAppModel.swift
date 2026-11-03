@@ -1431,6 +1431,7 @@ final class StoryWorkspaceState {
         // or one of its placement hosts (accounts §1.3). The account's host
         // is the origin only for a tree without a canonical endpoint.
         let homeHost = try await client.accounts().first { $0.configurationTree == configurationTree }?.host
+        timing.mark("accounts")
         guard let rawOrigin = placed.canonical?.endpoint ?? homeHost, let origin = URL(string: rawOrigin) else {
             throw ProtocolValidationError.invalidValue("\(placed.name) has no host origin")
         }
@@ -1451,6 +1452,7 @@ final class StoryWorkspaceState {
         let transport = ProtocolReplicaTransport(client: protocolClient)
         let platform = DaemonObjectStore(client: client, tree: treeID)
         let workingTree = try await WorkingTree.inMemory(tree: TreeID(rawValue: treeID), platform: platform)
+        timing.mark("working-tree")
         let replacement = try SnapshotBridge.replacement(
             snapshot: bootstrap.spine,
             tree: TreeID(rawValue: treeID),

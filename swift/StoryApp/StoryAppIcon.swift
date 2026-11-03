@@ -40,6 +40,8 @@ final class StoryAppIconSelection {
 #if os(macOS)
     private(set) var selected = StoryAppIcon(rawValue: UserDefaults.standard.string(forKey: "story.appIcon") ?? "") ?? .storyPath
     @ObservationIgnored private var appearanceObservation: NSKeyValueObservation?
+    /// Whether this run set an icon other than the app's own.
+    @ObservationIgnored private var replacedIcon = false
 #else
     var selected: StoryAppIcon {
         StoryAppIcon(rawValue: UIApplication.shared.alternateIconName ?? "StoryPath") ?? .storyPath
@@ -55,6 +57,7 @@ final class StoryAppIconSelection {
             return
         }
         NSApp.applicationIconImage = image
+        replacedIcon = true
         selected = icon
         UserDefaults.standard.set(icon.rawValue, forKey: "story.appIcon")
 #else
@@ -85,8 +88,15 @@ final class StoryAppIconSelection {
                 }
             }
         }
-        if let image = NSImage(named: selected.artwork(dark: isDarkAppearance).imageName) {
+        let artwork = selected.artwork(dark: isDarkAppearance)
+        // The app's own icon is already showing: drawing it again cost about
+        // 60 ms of launch. Only a change back to it resets the image.
+        if artwork == .storyPath {
+            if replacedIcon { NSApp.applicationIconImage = nil }
+            replacedIcon = false
+        } else if let image = NSImage(named: artwork.imageName) {
             NSApp.applicationIconImage = image
+            replacedIcon = true
         }
     }
 #endif
