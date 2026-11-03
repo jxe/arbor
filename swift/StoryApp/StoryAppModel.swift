@@ -484,6 +484,15 @@ final class StoryWorkspaceState {
         timing.mark("switch")
         try await installSyncCoordinator(coordinator, client: client, tree: tree)
         timing.mark("sync-install")
+        // The first read builds the coordinator's local view (any edits not
+        // yet accepted, laid over the tree). Doing it here, before the page
+        // is drawn, keeps the page's own open from paying for it behind the
+        // first frame.
+        let homeReference = WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/")
+        _ = try? await nextProvider.resolve(homeReference)
+        timing.mark("warm-resolve")
+        _ = try? await nextProvider.children(of: homeReference)
+        timing.mark("warm-children")
         timing.record("tree-open", detail: "\(tree.id) · device", extra: StoryLaunchTiming.milestones)
     }
 

@@ -3325,7 +3325,7 @@ struct StoryRootView: View {
                         }
                     }
                 } else {
-                    ProgressView()
+                    StoryDelayedProgressView()
                 }
             } else {
                 WorkspaceSurfaceView(node: node, workspace: workspace)
@@ -3333,7 +3333,7 @@ struct StoryRootView: View {
         } else if location == model.currentLocation, let message = model.errorMessage {
             ContentUnavailableView("Unable to open", systemImage: "exclamationmark.triangle", description: Text(message))
         } else {
-            ProgressView()
+            StoryDelayedProgressView()
         }
     }
 
@@ -5204,7 +5204,7 @@ struct StoryIOSLaunchView: View {
     private var onboarding: some View {
         switch phase {
         case .restoring:
-            ProgressView("Opening Story…")
+            StoryDelayedProgressView("Opening Story…")
         case .accounts:
             accountList
         case .scanning:
@@ -6709,3 +6709,30 @@ private struct StoryWindowTabbing: NSViewRepresentable {
     }
 }
 #endif
+
+/// A spinner that appears only once a wait has gone on long enough to
+/// notice. A page usually opens in a few tenths of a second, and a spinner
+/// that flashes for that long reads as a slow app.
+struct StoryDelayedProgressView: View {
+    var title: String?
+    var delay: Duration = .milliseconds(600)
+    @State private var shown = false
+
+    init(_ title: String? = nil, delay: Duration = .milliseconds(600)) {
+        self.title = title
+        self.delay = delay
+    }
+
+    var body: some View {
+        ZStack {
+            Color.clear
+            if shown {
+                if let title { ProgressView(title) } else { ProgressView() }
+            }
+        }
+        .task {
+            try? await Task.sleep(for: delay)
+            shown = true
+        }
+    }
+}
