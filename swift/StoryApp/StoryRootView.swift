@@ -601,6 +601,10 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
         private weak var rowItem: NSToolbarItem?
         private weak var observedSidebar: NSView?
         private var pendingPasses = 0
+        /// Looks for the row's item while the toolbar has not made it yet:
+        /// scheduled, not chained on the main queue, so launch is not starved.
+        private var searchScheduled = false
+        private var searchAttempts = 0
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -632,6 +636,12 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
                 observers.append(center.addObserver(forName: name, object: window, queue: nil, using: resizeOnNotification))
             }
             if let sidebar = splitView?.arrangedSubviews.first { observeFrame(of: sidebar) }
+            // The row's item appears when the toolbar adds it.
+            observers.append(center.addObserver(forName: NSToolbar.willAddItemNotification, object: nil, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    DispatchQueue.main.async { [weak self] in self?.resize() }
+                }
+            })
             resize()
             // The toolbar item may not exist until the toolbar's first pass.
             settle()
@@ -651,6 +661,19 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
         private func settle() {
             pendingPasses = 3
             DispatchQueue.main.async { [weak self] in self?.nextPass() }
+        }
+
+        /// Try again shortly, a bounded number of times. Retrying on every
+        /// main-queue turn spun for a quarter second at launch.
+        private func searchForRow() {
+            guard !searchScheduled, searchAttempts < 100 else { return }
+            searchScheduled = true
+            searchAttempts += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
+                guard let self else { return }
+                self.searchScheduled = false
+                self.resize()
+            }
         }
 
         private func nextPass() {
@@ -690,9 +713,10 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
                 return
             }
             guard let item = rowItem(in: window, sidebar: sidebar), let view = item.view else {
-                if pendingPasses == 0 { settle() }
+                searchForRow()
                 return
             }
+            searchAttempts = 0
             if item.isHidden { item.isHidden = false }
             // The row spans the search field below it: it ends 10pt in from
             // the sidebar's edge, and in full screen starts 10pt in. Measured
