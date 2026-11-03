@@ -1435,15 +1435,21 @@ final class StoryWorkspaceState {
         }
         // The tree's host is its canonical endpoint: the account's home host,
         // or one of its placement hosts (accounts §1.3). The account's host
-        // is the origin only for a tree without a canonical endpoint.
-        let homeHost = try await client.accounts().first { $0.configurationTree == configurationTree }?.host
+        // is the origin only for a tree without a canonical endpoint, the one
+        // case that asks Story Sync for the account list.
+        let endpoint = placed.canonical?.endpoint
+        let homeHost = endpoint == nil
+            ? try await client.accounts().first { $0.configurationTree == configurationTree }?.host
+            : nil
         timing.mark("accounts")
-        guard let rawOrigin = placed.canonical?.endpoint ?? homeHost, let origin = URL(string: rawOrigin) else {
+        guard let rawOrigin = endpoint ?? homeHost, let origin = URL(string: rawOrigin) else {
             throw ProtocolValidationError.invalidValue("\(placed.name) has no host origin")
         }
-        // A placement host has its own session, which the daemon opens there
-        // with the same device key; the home session never goes to it.
-        let placementOrigin = Self.placementOrigin(endpoint: rawOrigin, home: homeHost)
+        // Credentials are asked for by the endpoint's origin. Story Sync
+        // answers with the home session when that is the account's home host
+        // and the placement host's session otherwise (`/v1/credential`), so
+        // the app need not know which it is.
+        let placementOrigin = endpoint == nil ? nil : originString(origin)
         let descriptor = try ProtocolTreeDescriptor(
             id: placed.id,
             kind: placed.kind,
