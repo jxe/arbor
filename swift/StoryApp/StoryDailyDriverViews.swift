@@ -1618,41 +1618,35 @@ struct StoryLaunchEmptyView: View {
     }
 }
 
-/// A thin bar above a launch preview: the tree is shown from its folder and
-/// becomes editable once its accepted state is confirmed.
-struct StoryLaunchConfirmationBar: View {
+/// The launch preview's status, in the toolbar beside the page path so the
+/// page does not move: the tree is shown from its folder and becomes editable
+/// once its accepted state is confirmed.
+struct StoryLaunchToolbarStatus: View {
     let phase: StoryLaunchPhase
     let retry: () -> Void
 
     var body: some View {
         switch phase {
         case .confirming:
-            bar {
+            HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
-                Text("Connecting… Editing turns on once this tree is up to date.")
+                Text("Connecting…")
             }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .help("Editing turns on once this tree is up to date.")
         case let .unconfirmed(_, message):
-            bar {
+            HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
-                Text("Read-only: \(message)").lineLimit(2).textSelection(.enabled)
-                Spacer(minLength: 8)
+                Text("Read-only")
                 Button("Try Again", action: retry).controlSize(.small)
             }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .help(message)
         default:
             EmptyView()
         }
-    }
-
-    private func bar(@ViewBuilder content: () -> some View) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) { content() }
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16).padding(.vertical, 6)
-            Divider()
-        }
-        .transition(.opacity)
     }
 }
 #endif

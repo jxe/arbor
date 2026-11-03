@@ -1612,16 +1612,11 @@ struct StoryRootView: View {
                     retry: message == nil ? nil : { Task { await workspace.retryRestore() } }
                 )
             case .confirming, .unconfirmed, .ready:
-                VStack(spacing: 0) {
-                    StoryLaunchConfirmationBar(phase: workspace.launchPhase) {
-                        Task { await workspace.retryRestore() }
-                    }
-                    // Desktop history belongs to BrowserTabController. Mirroring
-                    // it into a NavigationStack inside NavigationSplitView lets
-                    // SwiftUI write an empty path during destination resolution,
-                    // erasing the page we just pushed.
-                    pageFrame(for: model.currentLocation)
-                }
+                // Desktop history belongs to BrowserTabController. Mirroring
+                // it into a NavigationStack inside NavigationSplitView lets
+                // SwiftUI write an empty path during destination resolution,
+                // erasing the page we just pushed.
+                pageFrame(for: model.currentLocation)
             }
         }
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
@@ -2992,6 +2987,15 @@ struct StoryRootView: View {
                 detailPathHeading(for: location)
             }
             .sharedBackgroundVisibility(.hidden)
+            if workspace.launchPhase.isPreviewing {
+                ToolbarItem(placement: .navigation) {
+                    StoryLaunchToolbarStatus(phase: workspace.launchPhase) {
+                        Task { await workspace.retryRestore() }
+                    }
+                    .padding(.leading, 8)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
             // With the title removed nothing else fills the middle, so the
             // actions would sit beside the path instead of at the trailing edge.
             ToolbarSpacer(.flexible)
