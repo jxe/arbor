@@ -222,16 +222,27 @@ final class StoryWorkspaceState {
     /// The home page and its children, read while the tree opened, for the
     /// first page open to take instead of reading them again behind the first
     /// frame (iPhone launch). Taken once, for the generation that read them.
-    @ObservationIgnored private var warmedHome: (generation: Int, node: WorkspaceNode, children: [WorkspaceNode])?
+    @ObservationIgnored private var warmedHome: WarmedPage?
 
-    func takeWarmedPage(at location: WorkspaceLocation) -> (node: WorkspaceNode, children: [WorkspaceNode])? {
+    /// A page read, and its document opened, before any window asked for it.
+    struct WarmedPage {
+        var generation: Int
+        var node: WorkspaceNode
+        var children: [WorkspaceNode]
+        var lease: StoryEditorLease?
+    }
+
+    func takeWarmedPage(at location: WorkspaceLocation) -> WarmedPage? {
         guard let warmed = warmedHome else { return nil }
         warmedHome = nil
         // The window asks for the home by path; the node also carries its page key.
         guard warmed.generation == generation, case let .reference(asked) = location,
               asked.tree == warmed.node.reference.tree, asked.path == warmed.node.reference.path,
-              asked.stableKey == nil || asked.stableKey == warmed.node.reference.stableKey else { return nil }
-        return (warmed.node, warmed.children)
+              asked.stableKey == nil || asked.stableKey == warmed.node.reference.stableKey else {
+            if let lease = warmed.lease { Task { await editorWorkspace.release(lease) } }
+            return nil
+        }
+        return warmed
     }
 
     /// Bumped when the provider is replaced by one presenting the same tree at
@@ -508,9 +519,19 @@ final class StoryWorkspaceState {
         if let node = try? await nextProvider.resolve(homeReference) {
             timing.mark("warm-resolve")
             if let children = try? await nextProvider.children(of: node.reference) {
-                warmedHome = (readGeneration, node, children)
+                timing.mark("warm-children")
+                // Its document too (read and parsed), so the first frame
+                // already shows the page rather than waiting on it.
+                let lease = node.surface.supportsDocumentSession
+                    ? try? await editorWorkspace.lease(node.reference)
+                    : nil
+                timing.mark("warm-document")
+                if generation == readGeneration {
+                    warmedHome = WarmedPage(generation: readGeneration, node: node, children: children, lease: lease)
+                } else if let lease {
+                    await editorWorkspace.release(lease)
+                }
             }
-            timing.mark("warm-children")
         }
         timing.record("tree-open", detail: "\(tree.id) · device", extra: StoryLaunchTiming.milestones)
     }
@@ -3044,7 +3065,9 @@ final class StoryAppModel {
             // A launch preview shows pages in the editor too, so confirming the
             // tree changes nothing on screen; the view blocks input meanwhile.
             if resolved.surface.supportsDocumentSession {
-                let lease = try await workspace.editorWorkspace.lease(resolved.reference, reusing: previousBinding)
+                let lease: StoryEditorLease
+                if let warmedLease = warmed?.lease { lease = warmedLease }
+                else { lease = try await workspace.editorWorkspace.lease(resolved.reference, reusing: previousBinding) }
                 timing.mark("open-document")
                 guard requestID == loadRequestID else {
                     await workspace.editorWorkspace.release(lease)
