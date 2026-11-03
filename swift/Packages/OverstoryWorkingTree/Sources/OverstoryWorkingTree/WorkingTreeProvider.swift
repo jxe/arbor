@@ -144,7 +144,10 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
     }
 
     public func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession {
-        let node = try await resolve(reference)
+        try await openDocument(resolved: try await resolve(reference))
+    }
+
+    public func openDocument(resolved node: WorkspaceNode) async throws -> any WorkspaceDocumentSession {
         guard node.surface.supportsDocumentSession else { throw WorkspaceProviderError.notDocument(node.reference) }
         return WorkingTreeDocumentSession(
             workingTree: workingTree,

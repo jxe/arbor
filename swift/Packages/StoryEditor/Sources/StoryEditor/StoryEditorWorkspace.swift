@@ -36,8 +36,9 @@ public final class StoryEditorWorkspace {
         }
     }
 
-    /// How long the last `lease` took to open its document session, in milliseconds.
-    public private(set) var lastSessionOpenMs: Double = 0
+    /// How long the last `lease` took to open its document session, in
+    /// milliseconds: `doc-session` in all, and its resolve and open parts.
+    public private(set) var lastSessionOpenTiming: [String: Double] = [:]
 
     public init(provider: any WorkspaceProvider) {
         self.provider = provider
@@ -50,7 +51,8 @@ public final class StoryEditorWorkspace {
         let began = ContinuousClock.now
         let workspaceLease = try await coordinator.leaseDocument(reference)
         let elapsed = ContinuousClock.now - began
-        lastSessionOpenMs = Double(elapsed.components.seconds) * 1_000 + Double(elapsed.components.attoseconds) / 1e15
+        lastSessionOpenTiming = workspaceLease.timing
+        lastSessionOpenTiming["doc-session"] = Double(elapsed.components.seconds) * 1_000 + Double(elapsed.components.attoseconds) / 1e15
         let id = UUID()
         if var entry = entries[workspaceLease.identity] {
             entry.workspaceLeases[id] = workspaceLease

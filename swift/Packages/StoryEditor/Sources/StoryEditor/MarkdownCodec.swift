@@ -936,19 +936,30 @@ public enum StoryMarkdownCodec {
 
     /// Visits the source's lines in order until `body` returns false.
     private static func forEachSourceLine(_ source: String, _ body: (SourceLine) -> Bool) {
-        var raw = ""
-        for character in source {
-            raw.append(character)
-            guard character.unicodeScalars.contains(where: { $0.value == 0x0A }) else { continue }
-            var contentScalars = Array(raw.unicodeScalars)
-            if contentScalars.last?.value == 0x0A { contentScalars.removeLast() }
-            if contentScalars.last?.value == 0x0D { contentScalars.removeLast() }
-            let content = String(String.UnicodeScalarView(contentScalars))
-            guard body(SourceLine(content: content, raw: raw)) else { return }
-            raw = ""
+        // Lines end at each LF byte, which is always the end of a grapheme
+        // (a CR before it is dropped from `content`), so splitting the UTF-8
+        // matches walking Characters at a fraction of the cost.
+        let utf8 = source.utf8
+        var start = utf8.startIndex
+        var index = start
+        while index < utf8.endIndex {
+            if utf8[index] == 0x0A {
+                let next = utf8.index(after: index)
+                var contentEnd = index
+                if contentEnd > start, utf8[utf8.index(before: contentEnd)] == 0x0D {
+                    contentEnd = utf8.index(before: contentEnd)
+                }
+                let line = SourceLine(content: String(source[start..<contentEnd]), raw: String(source[start..<next]))
+                guard body(line) else { return }
+                start = next
+                index = next
+            } else {
+                index = utf8.index(after: index)
+            }
         }
-        if !raw.isEmpty {
-            _ = body(SourceLine(content: raw, raw: raw))
+        if start < utf8.endIndex {
+            let rest = String(source[start...])
+            _ = body(SourceLine(content: rest, raw: rest))
         }
     }
 
@@ -980,8 +991,36 @@ public enum StoryMarkdownCodec {
             || leadingTrimmed.hasPrefix("▸ ")
             || leadingTrimmed.hasPrefix("> ") || trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")
             || trimmed.hasPrefix("<") || trimmed.hasPrefix("$$") || trimmed.hasPrefix("[^_")
-            || leadingTrimmed.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil
+            || numberedMarkerEnd(leadingTrimmed) != nil
             || trimmed == "---" || trimmed == "***" || trimmed == "___"
+    }
+
+    /// Where the text after a leading `^\d+\.\s` list marker starts, if
+    /// `value` begins with one. A hand-written match: a regular expression
+    /// per line was a large share of parsing a long page. Foundation's `\d`
+    /// accepts exactly what `Character.isNumber` does, `一` and `½` included.
+    static func numberedMarkerEnd(_ value: String) -> String.Index? {
+        var index = value.startIndex
+        while index < value.endIndex, value[index].isNumber { index = value.index(after: index) }
+        guard index > value.startIndex, index < value.endIndex, value[index] == "." else { return nil }
+        index = value.index(after: index)
+        guard index < value.endIndex, value[index].isWhitespace else { return nil }
+        return value.index(after: index)
+    }
+
+    /// A leading `^#{1,6}(?:\s+|$)` heading marker: its level and where the
+    /// heading's text starts.
+    static func headingMarker(_ value: String) -> (level: Int, textStart: String.Index)? {
+        var index = value.startIndex
+        var level = 0
+        while index < value.endIndex, value[index] == "#" {
+            level += 1
+            index = value.index(after: index)
+        }
+        guard (1...6).contains(level) else { return nil }
+        guard index == value.endIndex || value[index].isWhitespace else { return nil }
+        while index < value.endIndex, value[index].isWhitespace { index = value.index(after: index) }
+        return (level, index)
     }
 
     private static func parseBlock(_ lines: [SourceLine], id: BlockID) -> Block {
@@ -1000,9 +1039,8 @@ public enum StoryMarkdownCodec {
         // heading (`# ` becomes `#` after the trim above). Treating it as a
         // paragraph makes an accepted save visibly turn the heading back into
         // a literal marker when the authoritative snapshot is observed.
-        if let match = trimmed.range(of: #"^#{1,6}(?:\s+|$)"#, options: .regularExpression) {
-            let level = trimmed[..<match.upperBound].filter { $0 == "#" }.count
-            return .heading(level: level, text: parseInline(String(trimmed[match.upperBound...])), id: id)
+        if let (level, textStart) = headingMarker(trimmed) {
+            return .heading(level: level, text: parseInline(String(trimmed[textStart...])), id: id)
         }
         if trimmed.hasPrefix("```" ) || trimmed.hasPrefix("~~~") {
             let language = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
@@ -1020,8 +1058,8 @@ public enum StoryMarkdownCodec {
         if leadingTrimmed.hasPrefix("- ") || leadingTrimmed.hasPrefix("* ") {
             return .bullet(text: parseInline(String(leadingTrimmed.dropFirst(2))), id: id)
         }
-        if let match = leadingTrimmed.range(of: #"^\d+\.\s"#, options: .regularExpression) {
-            return .numbered(text: parseInline(String(leadingTrimmed[match.upperBound...])), id: id)
+        if let textStart = numberedMarkerEnd(leadingTrimmed) {
+            return .numbered(text: parseInline(String(leadingTrimmed[textStart...])), id: id)
         }
         if leadingTrimmed.hasPrefix("> ") {
             // Each line after the first followed a hard break.
