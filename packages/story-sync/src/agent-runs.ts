@@ -36,6 +36,8 @@ export interface AgentRun {
   changed: string[];
   /** Whether Undo Run can still take it back. */
   undoable: boolean;
+  /** Permission rules for the tools the run was refused, less any allowed since. */
+  blocked: string[];
   startedAt: number | null;
   finishedAt: number | null;
 }
@@ -67,10 +69,88 @@ export interface AgentRunsOptions {
   argumentsFor?: (run: AgentRun, prompt: string, session: string) => string[];
   /** How long a snapshot is kept for Undo Run. */
   snapshotMs?: number;
+  /** The person's extra grants, passed with `--settings`; default: `agent-settings.json` beside the state directory. */
+  settingsPath?: string;
 }
 
 /** Names never snapshotted or restored: Story Sync's own state and VCS metadata. */
 const SKIPPED = new Set([".state", ".git", ".DS_Store"]);
+
+/** What every run may use. More comes from the person's own settings, never from the tree. */
+export const RUN_TOOLS = [
+  "Read", "Edit", "MultiEdit", "Write", "Glob", "Grep", "WebFetch", "WebSearch", "Task",
+  "Bash(story agent:*)", "Bash(story sync status:*)",
+  "Bash(ls:*)", "Bash(rg:*)", "Bash(git log:*)", "Bash(git diff:*)", "Bash(git status:*)", "Bash(git show:*)",
+  // Connectors, read tools only: Undo Run cannot take back what a write tool does.
+  ...["read_file_content", "download_file_content", "get_file_metadata", "search_files", "list_recent_files"].map((tool) => `mcp__claude_ai_Google_Drive__${tool}`),
+  ...["fetch", "search", "get-comments", "query-data-sources", "query-multiple-data-sources", "list-page-backlinks"].map((tool) => `mcp__claude_ai_Notion__notion-${tool}`),
+];
+
+/** The flags that turn those read-only commands into running or writing something else. */
+export const RUN_REFUSED_TOOLS = ["Bash(rg *--pre*)", "Bash(rg *--hostname-bin*)", "Bash(git *--output*)", "Bash(git *--ext-diff*)"];
+
+/** Tools no rule can help: a headless run has no one to ask. */
+const NEVER_OFFERED = new Set(["AskUserQuestion", "EnterPlanMode", "ExitPlanMode"]);
+/** Commands whose second word says what they do. */
+const SUBCOMMANDS = new Set(["git", "gh", "npm", "bun", "pnpm", "yarn", "story", "cargo", "swift", "brew"]);
+
+/** The arguments a run gives Claude Code. Settings come from the person only, so a synced `.claude/` grants nothing. */
+export function runArguments(prompt: string, session: string, settingsPath: string | null): string[] {
+  return [
+    "-p", prompt,
+    "--output-format", "stream-json", "--verbose",
+    "--session-id", session,
+    "--permission-mode", "acceptEdits",
+    "--setting-sources", "user",
+    ...(settingsPath ? ["--settings", settingsPath] : []),
+    "--allowedTools", RUN_TOOLS.join(","),
+    "--disallowedTools", RUN_REFUSED_TOOLS.join(","),
+    "--append-system-prompt", AGENT_SKILL,
+  ];
+}
+
+/** The rule that would allow a refused call, or null where none can be read from it. A connector tool's rule names that tool, not its server. */
+export function permissionRule(tool: string, input: unknown): string | null {
+  if (tool !== "Bash") return tool;
+  const command = (input as { command?: unknown } | null)?.command;
+  if (typeof command !== "string") return null;
+  const words = command.split(/&&|\|\||[;|&\n]/, 1)[0]!.trim().split(/\s+/).filter((word) => !/^\w+=/.test(word));
+  const [word, next] = words;
+  if (!word || !/^[\w./-]+$/.test(word)) return null;
+  return next && SUBCOMMANDS.has(word) && /^[a-z][\w-]*$/.test(next) ? `Bash(${word} ${next}:*)` : `Bash(${word}:*)`;
+}
+
+/** The rules worth offering for a run's `permission_denials`: each once, without what a run already has. */
+export function blockedRules(denials: unknown): string[] {
+  if (!Array.isArray(denials)) return [];
+  const rules = denials.map((denial: { tool_name?: unknown; tool_input?: unknown } | null) =>
+    typeof denial?.tool_name === "string" && !NEVER_OFFERED.has(denial.tool_name) ? permissionRule(denial.tool_name, denial.tool_input) : null);
+  return [...new Set(rules)].filter((rule): rule is string => rule !== null && !RUN_TOOLS.includes(rule));
+}
+
+/** The `permissions.allow` rules in a settings file; none if it is missing or unreadable. */
+export function allowedRules(path: string): string[] {
+  try {
+    const allow = (JSON.parse(readFileSync(path, "utf8")) as { permissions?: { allow?: unknown } }).permissions?.allow;
+    return Array.isArray(allow) ? allow.filter((rule): rule is string => typeof rule === "string") : [];
+  } catch { return []; }
+}
+
+/** Add a rule to a settings file's `permissions.allow`, keeping all else in it. */
+export async function addAllowRule(path: string, rule: string): Promise<void> {
+  const text = await readFile(path, "utf8").catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
+  const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+  let settings: unknown = {};
+  if (text !== null) {
+    try { settings = JSON.parse(text); } catch { throw new AgentRunError("bad-settings", `${path} is not valid JSON, so Story left it alone.`); }
+  }
+  const permissions = isObject(settings) ? settings.permissions ?? {} : null;
+  const allow = isObject(permissions) ? permissions.allow ?? [] : null;
+  if (!isObject(settings) || !isObject(permissions) || !Array.isArray(allow)) throw new AgentRunError("bad-settings", `${path} does not have the shape of Claude Code settings, so Story left it alone.`);
+  if (allow.includes(rule)) return;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({ ...settings, permissions: { ...permissions, allow: [...allow, rule] } }, null, 2)}\n`);
+}
 
 /** Where Claude Code usually lives; Story Sync runs without the person's shell PATH. */
 export function findClaude(environment: NodeJS.ProcessEnv = process.env): string | null {
@@ -188,6 +268,10 @@ export class AgentRuns {
     this.load();
   }
 
+  private get settingsPath(): string {
+    return this.options.settingsPath ?? join(dirname(this.host.stateDirectory), "agent-settings.json");
+  }
+
   private get savedPath(): string {
     return join(this.host.stateDirectory, "agent-runs", "runs.json");
   }
@@ -200,6 +284,7 @@ export class AgentRuns {
     for (const entry of saved) {
       const run: RunRecord = {
         ...entry, after: entry.after ? new Map(entry.after) : undefined, stopRequested: false,
+        blocked: entry.blocked ?? [],
         // A run cut off by the restart did not finish.
         ...(entry.state === "queued" || entry.state === "running" ? { state: "failed" as const, result: "Story Sync restarted during the run" } : {}),
       };
@@ -238,7 +323,8 @@ export class AgentRuns {
   }
 
   list(): AgentRun[] {
-    return [...this.runs.values()].map((run) => this.view(run));
+    const allowed = allowedRules(this.settingsPath);
+    return [...this.runs.values()].map((run) => this.view(run, allowed));
   }
 
   get(id: string): AgentRun | undefined {
@@ -255,7 +341,7 @@ export class AgentRuns {
     const id = `run_${crypto.randomUUID().replaceAll("-", "")}`;
     const run: RunRecord = {
       id, tree: request.tree, page: request.page, task: request.task.trim(), state: "queued", result: null,
-      changed: [], undoable: false, startedAt: null, finishedAt: null, folder,
+      changed: [], undoable: false, blocked: [], startedAt: null, finishedAt: null, folder,
       session: crypto.randomUUID(), stopRequested: false,
     };
     this.runs.set(id, run);
@@ -271,6 +357,14 @@ export class AgentRuns {
     run.stopRequested = true;
     if (run.state === "queued") { run.state = "stopped"; run.finishedAt = Date.now(); }
     run.process?.kill("SIGTERM");
+    return this.view(run);
+  }
+
+  /** Let future runs use a tool this run was refused. Only a refused rule, so this route cannot grant anything else. */
+  async allow(id: string, rule: string): Promise<AgentRun> {
+    const run = this.require(id);
+    if (!run.blocked.includes(rule)) throw new AgentRunError("not-blocked", "This run was not refused that tool.");
+    await addAllowRule(this.settingsPath, rule);
     return this.view(run);
   }
 
@@ -312,9 +406,9 @@ export class AgentRuns {
     return run;
   }
 
-  private view(run: RunRecord): AgentRun {
-    const { id, tree, page, task, state, result, changed, undoable, startedAt, finishedAt } = run;
-    return { id, tree, page, task, state, result, changed: [...changed], undoable, startedAt, finishedAt };
+  private view(run: RunRecord, allowed = allowedRules(this.settingsPath)): AgentRun {
+    const { id, tree, page, task, state, result, changed, undoable, blocked, startedAt, finishedAt } = run;
+    return { id, tree, page, task, state, result, changed: [...changed], undoable, blocked: blocked.filter((rule) => !allowed.includes(rule)), startedAt, finishedAt };
   }
 
   private async execute(run: RunRecord, command: string): Promise<void> {
@@ -347,14 +441,8 @@ export class AgentRuns {
     }
 
     const prompt = runPrompt(run, section);
-    const args = this.options.argumentsFor?.(run, prompt, run.session) ?? [
-      "-p", prompt,
-      "--output-format", "stream-json", "--verbose",
-      "--session-id", run.session,
-      "--permission-mode", "acceptEdits",
-      "--allowedTools", "Read,Edit,MultiEdit,Write,Glob,Grep,WebFetch,WebSearch,Bash(story agent:*),Bash(story sync status:*)",
-      "--append-system-prompt", AGENT_SKILL,
-    ];
+    const args = this.options.argumentsFor?.(run, prompt, run.session)
+      ?? runArguments(prompt, run.session, existsSync(this.settingsPath) ? this.settingsPath : null);
     let finalText: string | null = null;
     // Tool reports still in flight when the agent exits land before its result.
     const reports: Array<Promise<unknown>> = [];
@@ -371,7 +459,7 @@ export class AgentRuns {
       // The agent's own tool calls show where it is, whether or not its hooks are installed.
       const pending = new Map<string, { name: string; input: unknown }>();
       createInterface({ input: child.stdout! }).on("line", (line) => {
-        let message: { type?: string; message?: { content?: unknown }; result?: unknown };
+        let message: { type?: string; message?: { content?: unknown }; result?: unknown; permission_denials?: unknown };
         try { message = JSON.parse(line); } catch { return; }
         const content = Array.isArray(message.message?.content) ? message.message!.content as Array<Record<string, unknown>> : [];
         for (const part of content) {
@@ -383,6 +471,7 @@ export class AgentRuns {
           }
         }
         if (message.type === "result" && typeof message.result === "string") finalText = message.result;
+        if (message.type === "result") run.blocked = blockedRules(message.permission_denials);
       });
       child.on("error", (error) => resolve({ code: null, error: error.message }));
       child.on("close", (code) => resolve({ code, ...(code === 0 ? {} : { error: stderr.trim().split("\n").pop() || `exited with ${code}` }) }));
@@ -460,7 +549,7 @@ function isDirectory(path: string): boolean {
 }
 
 export class AgentRunError extends Error {
-  constructor(readonly code: "not-placed" | "no-agent" | "not-found" | "not-undoable", message: string) {
+  constructor(readonly code: "not-placed" | "no-agent" | "not-found" | "not-undoable" | "not-blocked" | "bad-settings", message: string) {
     super(message);
   }
 }

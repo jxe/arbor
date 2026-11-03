@@ -454,8 +454,8 @@ struct StoryOutdatedSyncWarning: View {
 }
 #endif
 
-/// The line under an agent task's text: the finished run's result on a done
-/// task, or why the last Run didn't start.
+/// The lines under an agent task's text: the finished run's result on a done
+/// task, or why the last Run didn't start, then any tools the run was refused.
 struct StoryAgentTaskDetail: View {
     let workspace: StoryWorkspaceState
     let reference: WorkspaceReference
@@ -469,6 +469,18 @@ struct StoryAgentTaskDetail: View {
             Text(result).font(.caption).foregroundStyle(.secondary).lineLimit(2).help(result)
         } else if !done, let error = workspace.agentRunError(task: task, on: reference) {
             Label(error, systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        }
+        if let run, !run.isActive, let blocked = run.blocked, !blocked.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(blocked, id: \.self) { rule in
+                    HStack(spacing: 4) {
+                        Text("Claude wanted \(rule) ·").foregroundStyle(.secondary).lineLimit(1).help(rule)
+                        Button("Allow always") { Task { await workspace.allowAgentTool(rule, for: run) } }
+                            .buttonStyle(.link)
+                    }
+                    .font(.caption)
+                }
+            }
         }
 #endif
     }

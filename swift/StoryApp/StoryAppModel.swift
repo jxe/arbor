@@ -2653,6 +2653,17 @@ final class StoryWorkspaceState {
         }
     }
 
+    func allowAgentTool(_ rule: String, for run: StoryAgentRun) async {
+        guard let client = storySyncClient else { return }
+        do {
+            _ = try await client.allowAgentTool(run.id, rule: rule)
+            // Every run refused this tool drops it, not only this one.
+            for run in try await client.agentRuns() { record(run) }
+        } catch {
+            agentRunError = "Couldn't allow \(rule): \(error.localizedDescription)"
+        }
+    }
+
     func dismissAgentRun(_ run: StoryAgentRun) {
         agentRuns[Self.agentRunKey(tree: run.tree, page: run.page, task: run.task)] = nil
     }

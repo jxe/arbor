@@ -3,7 +3,7 @@ import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { PresenceEvent, PresenceUpdate } from "@ovst/protocol";
-import { AgentRuns, findTaskBlock, markTaskDone, runPrompt, type AgentRun } from "../../packages/story-sync/src/agent-runs.ts";
+import { addAllowRule, AgentRuns, blockedRules, findTaskBlock, markTaskDone, permissionRule, RUN_TOOLS, runArguments, runPrompt, type AgentRun } from "../../packages/story-sync/src/agent-runs.ts";
 import { AgentSessions, type AgentPresenceClient } from "../../packages/story-sync/src/agents.ts";
 
 // Agents 001 phase 8: Run starts the person's agent in the placed folder,
@@ -38,7 +38,7 @@ const text = await Bun.file(page).text();
 await Bun.write(page, text.replace("- milk\\n- milk\\n", "- milk\\n"));
 emit({ type: "assistant", message: { content: [{ type: "tool_use", id: "t2", name: "Edit", input: { file_path: page, old_string: "- milk\\n- milk", new_string: "- milk" } }] } });
 emit({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t2" }] } });
-emit({ type: "result", result: "Merged the duplicate milk.\\nAnything else?" });
+emit({ type: "result", result: "Merged the duplicate milk.\\nAnything else?", permission_denials: process.env.FAKE_DENIED ? [{ tool_name: process.env.FAKE_DENIED, tool_input: {} }] : [] });
 `;
 
 beforeEach(async () => {
@@ -138,6 +138,84 @@ describe("agent runs", () => {
 
   test("a tree that is not placed here cannot run", async () => {
     await expect(runs.start({ tree: "tr_elsewhere", page: "/x.md", task: "anything" })).rejects.toThrow("not placed");
+  });
+});
+
+describe("what a run was refused", () => {
+  test("a refused call becomes the rule that would allow it", () => {
+    expect(permissionRule("WebFetch", { url: "https://example.com" })).toBe("WebFetch");
+    expect(permissionRule("mcp__claude_ai_Google_Drive__create_file", {})).toBe("mcp__claude_ai_Google_Drive__create_file");
+    expect(permissionRule("Bash", { command: "curl -s https://example.com | jq ." })).toBe("Bash(curl:*)");
+    expect(permissionRule("Bash", { command: "git push origin main" })).toBe("Bash(git push:*)");
+    expect(permissionRule("Bash", { command: "FOO=1 npm run build && rm x" })).toBe("Bash(npm run:*)");
+    // Never all of Bash, whatever the command looks like.
+    expect(permissionRule("Bash", { command: "$(evil) now" })).toBeNull();
+    expect(permissionRule("Bash", {})).toBeNull();
+  });
+
+  test("each rule once, without what a run already has or what no rule can help", () => {
+    expect(blockedRules([
+      { tool_name: "NotebookEdit", tool_input: { path: "a" } },
+      { tool_name: "NotebookEdit", tool_input: { path: "b" } },
+      { tool_name: "WebFetch", tool_input: { url: "a" } },
+      { tool_name: "AskUserQuestion", tool_input: {} },
+      // A read-only command's refused flag: its rule is one a run already has.
+      { tool_name: "Bash", tool_input: { command: "rg --pre sh x" } },
+      { tool_name: "Bash", tool_input: { command: "curl x" } },
+      null,
+    ])).toEqual(["NotebookEdit", "Bash(curl:*)"]);
+    expect(blockedRules(undefined)).toEqual([]);
+    expect(blockedRules([{ tool_name: "mcp__claude_ai_Notion__notion-update-page", tool_input: {} }])).toEqual(["mcp__claude_ai_Notion__notion-update-page"]);
+  });
+
+  test("runs read settings from the person only, and refuse the flags that make a read-only command run things", () => {
+    const args = runArguments("the task", "session", "/settings.json");
+    expect(args[args.indexOf("--setting-sources") + 1]).toBe("user");
+    expect(args[args.indexOf("--settings") + 1]).toBe("/settings.json");
+    expect(args[args.indexOf("--disallowedTools") + 1]).toContain("Bash(rg *--pre*)");
+    expect(runArguments("the task", "session", null)).not.toContain("--settings");
+    // Connectors: read tools only, never a whole server.
+    const connectors = RUN_TOOLS.filter((tool) => tool.startsWith("mcp__"));
+    expect(connectors.length).toBeGreaterThan(0);
+    for (const tool of connectors) {
+      expect(tool).toMatch(/^mcp__\w+__[\w-]+$/);
+      expect(tool).not.toMatch(/create|update|delete|trash|share|copy|move/);
+    }
+  });
+
+  test("allowing a rule keeps the file's other content and adds it once", async () => {
+    const path = join(sandbox, "nested", "agent-settings.json");
+    await addAllowRule(path, "WebFetch");
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ permissions: { allow: ["WebFetch"] } });
+    await writeFile(path, JSON.stringify({ model: "x", permissions: { deny: ["Bash"], allow: ["Read"] } }));
+    await addAllowRule(path, "WebFetch");
+    await addAllowRule(path, "WebFetch");
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ model: "x", permissions: { deny: ["Bash"], allow: ["Read", "WebFetch"] } });
+  });
+
+  test("a settings file Story cannot read is left alone", async () => {
+    const path = join(sandbox, "agent-settings.json");
+    await writeFile(path, "{ not json");
+    await expect(addAllowRule(path, "WebFetch")).rejects.toThrow("left it alone");
+    expect(await readFile(path, "utf8")).toBe("{ not json");
+    await writeFile(path, JSON.stringify({ permissions: { allow: "WebFetch" } }));
+    await expect(addAllowRule(path, "WebFetch")).rejects.toThrow("left it alone");
+  });
+
+  test("a run shows what it was refused until it is allowed, and only that can be allowed", async () => {
+    process.env.FAKE_DENIED = "mcp__claude_ai_Google_Drive__create_file";
+    try {
+      const rule = process.env.FAKE_DENIED;
+      const { id } = await runs.start({ tree: "tr_notes", page: "/Groceries.md", task: "merge the duplicates" });
+      const run = await settled(id);
+      expect(run.blocked).toEqual([rule]);
+      await expect(runs.allow(id, "Bash(rm:*)")).rejects.toThrow("not refused");
+      expect((await runs.allow(id, rule)).blocked).toEqual([]);
+      expect(runs.list()[0]!.blocked).toEqual([]);
+      expect(JSON.parse(await readFile(join(sandbox, "agent-settings.json"), "utf8")).permissions.allow).toEqual([rule]);
+    } finally {
+      delete process.env.FAKE_DENIED;
+    }
   });
 });
 

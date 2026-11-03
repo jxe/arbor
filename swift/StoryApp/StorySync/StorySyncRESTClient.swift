@@ -369,6 +369,11 @@ actor StorySyncRESTClient {
         try await agentPost("/v1/agents/runs/\(id)/undo", body: [:])
     }
 
+    /// Let future runs use a tool this run was refused.
+    func allowAgentTool(_ id: String, rule: String) async throws -> StoryAgentRun {
+        try await agentPost("/v1/agents/runs/\(id)/allow", body: ["rule": rule])
+    }
+
     private func agentPost<T: Decodable>(_ path: String, body: [String: String]) async throws -> T {
         var request = URLRequest(url: url(path))
         request.httpMethod = "POST"
@@ -441,6 +446,8 @@ struct StoryAgentRun: Decodable, Equatable, Sendable, Identifiable {
     var result: String?
     var changed: [String]
     var undoable: Bool
+    /// Rules for the tools the run was refused; an older Story Sync sends none.
+    var blocked: [String]?
 
     var isActive: Bool { state == .queued || state == .running }
 }

@@ -525,6 +525,7 @@ POST /v1/agents/runs              { tree, page, task }   → 202 AgentRun
 GET  /v1/agents/runs[/{RunID}]
 POST /v1/agents/runs/{RunID}/stop
 POST /v1/agents/runs/{RunID}/undo                         → { restored, skipped }
+POST /v1/agents/runs/{RunID}/allow { rule }               → AgentRun
 ```
 
 A run is a task block's Run button: Story Sync starts the person's own Claude

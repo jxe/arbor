@@ -84,7 +84,7 @@ export function syncHandler(service: SyncHTTPService, options: {
           }
           return json(await service.runs.start({ tree: body.tree, page: body.page, task: body.task }), 202);
         }
-        const match = /^\/v1\/agents\/runs\/(run_[0-9a-f]+)(?:\/(stop|undo))?$/.exec(url.pathname);
+        const match = /^\/v1\/agents\/runs\/(run_[0-9a-f]+)(?:\/(stop|undo|allow))?$/.exec(url.pathname);
         if (match && request.method === "GET" && !match[2]) {
           const run = service.runs.get(match[1]!);
           if (!run) throw new ProtocolError("not-found", "No such run", 404);
@@ -92,6 +92,11 @@ export function syncHandler(service: SyncHTTPService, options: {
         }
         if (match && request.method === "POST" && match[2] === "stop") return json(service.runs.stop(match[1]!));
         if (match && request.method === "POST" && match[2] === "undo") return json(await service.runs.undo(match[1]!));
+        if (match && request.method === "POST" && match[2] === "allow") {
+          const body = await request.json().catch(() => null) as { rule?: unknown } | null;
+          if (typeof body?.rule !== "string") throw new ProtocolError("invalid-request", "Allowing a tool needs its rule", 400);
+          return json(await service.runs.allow(match[1]!, body.rule));
+        }
         throw new ProtocolError("not-found", "No such run route", 404);
       } catch (error) {
         if (!(error instanceof AgentRunError)) throw error;
