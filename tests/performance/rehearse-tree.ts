@@ -2,7 +2,7 @@
  * concurrent snapshot pairs (merge sidecar), then a cold restart and more
  * edits.   ARBOR=<checkout> bun rehearse.ts <dataRoot> <todos dir> <phase>
  * phase: traced | pairs | all */
-import { readdir, readFile, mkdtemp } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 const ARBOR = process.env.ARBOR!;
 const { serveHost } = await import(`${ARBOR}/packages/overstoryd/src/index.ts`);
@@ -32,7 +32,7 @@ const tree = (await client.account()).account.community.id;
 const head = await client.descriptor(tree);
 for (const [h, b] of (await client.snapshot(tree, head.tree.root)).objects) { objects.set(h, b); sent.add(h); }
 const existing = P.decodeProtocolDirectory(objects.get(head.tree.root)!);
-const todosRoot = P.decodeProtocolDirectory(objects.get(await build(todos, ""))!);
+const todosRoot = P.decodeProtocolDirectory(objects.get(await build(todos!, ""))!);
 const merged = [...existing.entries, ...todosRoot.entries.filter((t: any) => !existing.entries.some((e: any) => e.name === t.name))]
   .sort((a: any, b: any) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
 let root = put(P.encodeProtocolDirectory({ type: "directory", entries: merged })), update = head.tree.update;
