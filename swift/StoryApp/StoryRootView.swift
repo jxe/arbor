@@ -1312,6 +1312,9 @@ struct StoryRootView: View {
     @State private var topOverscrollProgress: CGFloat = 0
     @State private var topOverscrollArmed = false
     @State private var sidebarDismissDragSuppressesTap = false
+    /// Set once a drag has been judged sideways. From then on the page
+    /// follows the finger's x wherever the finger wanders up or down.
+    @State private var sidebarDragTracksFinger = false
 #endif
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
@@ -1631,7 +1634,10 @@ struct StoryRootView: View {
                 sidebarHaptic.prepare()
                 return
             }
-            guard sidebarDrawer.progress > 0, sidebarDrawer.progress < 1 else { return }
+            // A cancelled drag never reaches onEnded.
+            let tracked = sidebarDragTracksFinger
+            sidebarDragTracksFinger = false
+            guard tracked || (sidebarDrawer.progress > 0 && sidebarDrawer.progress < 1) else { return }
             settleIOSSidebar(open: sidebarDrawer.progress > 0.5)
         }
         .onChange(of: sidebarRestsOpen) { sidebarHaptic.impactOccurred() }
@@ -1687,19 +1693,25 @@ struct StoryRootView: View {
         DragGesture(minimumDistance: 8, coordinateSpace: .global)
             .updating($sidebarDragInProgress) { _, inProgress, _ in inProgress = true }
             .onChanged { value in
-                guard sidebarDrawer.progress < 1,
-                      value.startLocation.x <= IOSSidebarDrawer.edgeWidth,
-                      value.translation.width > 0,
-                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                if !sidebarDragTracksFinger {
+                    // Judged once, at the start: an edge drag that is
+                    // mostly sideways opens the sidebar.
+                    guard sidebarDrawer.progress < 1,
+                          value.startLocation.x <= IOSSidebarDrawer.edgeWidth,
+                          value.translation.width > 0,
+                          abs(value.translation.width) > abs(value.translation.height) else { return }
+                    sidebarDragTracksFinger = true
+                }
                 var transaction = Transaction()
                 transaction.animation = nil
                 withTransaction(transaction) {
-                    sidebarDrawer.progress = min(1, value.translation.width / sidebarDrawerWidth)
+                    sidebarDrawer.progress = min(1, max(0, value.translation.width / sidebarDrawerWidth))
                 }
             }
             .onEnded { value in
+                guard sidebarDragTracksFinger else { return }
+                sidebarDragTracksFinger = false
                 // Whatever the drag became, never leave the page partway.
-                guard sidebarDrawer.progress > 0, sidebarDrawer.progress < 1 else { return }
                 let shouldOpen = value.translation.width > IOSSidebarDrawer.commitDistance
                     || value.predictedEndTranslation.width > IOSSidebarDrawer.commitProjectedDistance
                 settleIOSSidebar(open: shouldOpen)
@@ -1710,16 +1722,22 @@ struct StoryRootView: View {
         DragGesture(minimumDistance: 18, coordinateSpace: .global)
             .updating($sidebarDragInProgress) { _, inProgress, _ in inProgress = true }
             .onChanged { value in
-                guard value.translation.width < 0,
-                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                if !sidebarDragTracksFinger {
+                    // Judged once, at the start: a mostly sideways drag to
+                    // the left slides the page back.
+                    guard value.translation.width < 0,
+                          abs(value.translation.width) > abs(value.translation.height) else { return }
+                    sidebarDragTracksFinger = true
+                }
                 sidebarDismissDragSuppressesTap = true
                 var transaction = Transaction()
                 transaction.animation = nil
                 withTransaction(transaction) {
-                    sidebarDrawer.progress = max(0, 1 + value.translation.width / sidebarDrawerWidth)
+                    sidebarDrawer.progress = min(1, max(0, 1 + value.translation.width / sidebarDrawerWidth))
                 }
             }
             .onEnded { value in
+                sidebarDragTracksFinger = false
                 let shouldClose = value.translation.width < -IOSSidebarDrawer.commitDistance
                     || value.predictedEndTranslation.width < -IOSSidebarDrawer.commitProjectedDistance
                 settleIOSSidebar(open: !shouldClose)
