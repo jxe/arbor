@@ -22,14 +22,15 @@ set -eu
 #
 # Needs: a clean main, the Developer ID certificate and the story-notary
 # keychain profile (swift/scripts/release-mac.sh), Xcode signed in to the team
-# (swift/scripts/release-ios.sh), `gh` and `npm` logged in, dmgbuild installed
+# (swift/scripts/release-ios.sh), `gh` logged in, dmgbuild installed
 # (swift/scripts/make-dmg.sh). With an App Store
 # Connect API key named in ~/.appstoreconnect/story.env (STORY_ASC_KEY_ID and
 # STORY_ASC_ISSUER_ID), the uploaded build is also added to the TestFlight group
 # STORY_TESTFLIGHT_GROUP (default Friends) and submitted for beta review;
-# without it, do that by hand. npm publishes right after "Publish?", asking for a
-# one-time password if the login needs one, so the waits that follow (GitHub,
-# Apple) need no one at the keyboard.
+# without it, do that by hand. npm publishes from GitHub Actions
+# (.github/workflows/publish-npm.yml) through npm's trusted publishing, with no
+# token or one-time password, so nothing here needs anyone at the keyboard after
+# "Publish?".
 # Every step prints its number and the time since the start.
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repository_root"
@@ -69,9 +70,8 @@ fi
 if wants npm && npm view "@ovst/cli@$version" version >/dev/null 2>&1; then
   echo "error: @ovst/cli $version is already on npm" >&2; exit 1
 fi
-if wants mac; then gh auth status >/dev/null 2>&1 || { echo "error: gh is not logged in" >&2; exit 1; }; fi
+if wants mac || wants npm; then gh auth status >/dev/null 2>&1 || { echo "error: gh is not logged in" >&2; exit 1; }; fi
 if wants mac; then python3 -c 'import dmgbuild' 2>/dev/null || { echo "error: dmgbuild is not installed; run python3 -m pip install dmgbuild" >&2; exit 1; }; fi
-if wants npm; then npm whoami >/dev/null 2>&1 || { echo "error: npm is not logged in; run npm login" >&2; exit 1; }; fi
 
 # The apps build against the pinned Quagmire release. If Quagmire's main has
 # moved past the pin, release it and move both pins (and the editor's lock) to it.
@@ -179,10 +179,6 @@ if wants mac; then
   # A name that never changes, for a download link that never changes.
   cp "dist/mac/Story-$version.dmg" dist/mac/Story.dmg
 fi
-if wants npm; then
-  step "Building the story command package"
-  bun run build:cli:package
-fi
 if [ -n "$ios_archive" ]; then
   step "Finishing the iPhone archive"
   archive_status=0
@@ -200,47 +196,26 @@ echo "Ready to publish $version (build $build): $parts"
 { wants mac || wants ios; } && echo "  - built with Quagmire $target"
 wants mac && echo "  - push main and $tag (deploys the host); GitHub release with Story-$version.dmg, Story.dmg, appcast.xml"
 wants ios && echo "  - upload the iPhone app to App Store Connect, then add it to its TestFlight group"
-wants npm && echo "  - npm publish @ovst/cli@$version and its four platform builds (@ovst/cli-darwin-arm64 and so on)"
-usl_version=$(node -p 'require("./packages/usl/package.json").version')
-publish_usl=
-if wants npm && ! npm view "@ovst/usl@$usl_version" version >/dev/null 2>&1; then
-  publish_usl=1
-  echo "  - npm publish @ovst/usl@$usl_version (its own version, from packages/usl/package.json)"
-fi
+wants npm && echo "  - from GitHub Actions, npm publish @ovst/cli@$version, its four platform builds and any new @ovst/usl"
 printf 'Publish? Type yes: '
 read answer
 [ "$answer" = "yes" ] || { echo "Nothing published. The builds are in dist/."; exit 1; }
 
-# Publishes a package directory unless its version is already on npm. When npm
-# wants a one-time password (none with a token that bypasses two-factor), it asks
-# for one, reuses it for the next packages, and asks again once it expires.
-npm_otp=
-publish_npm() {
-  directory=$1
-  shift
-  package=$(node -p "const p = require('./$directory/package.json'); p.name + '@' + p.version")
-  if npm view "$package" version >/dev/null 2>&1; then echo "$package is already on npm"; return 0; fi
-  for attempt in 1 2 3 4; do
-    if output=$(cd "$directory" && npm publish ${npm_otp:+--otp="$npm_otp"} "$@" 2>&1); then echo "Published $package"; return 0; fi
-    # A staged version waits for npm's review; publishing it again is a conflict.
-    if printf '%s' "$output" | grep -q E409; then echo "$package is staged on npm"; return 0; fi
-    printf '%s' "$output" | grep -q EOTP || { printf '%s\n' "$output" | tail -n 5; break; }
-    printf 'npm one-time password for %s: ' "$package"
-    read npm_otp
-  done
-  echo "error: $package was not published" >&2
-  return 1
-}
-if wants npm; then
-  step "Publishing the story command"
-  # The platform builds first, so @ovst/cli never names an optional dependency npm cannot find.
-  for platform in dist/npm-cli-*/; do publish_npm "${platform%/}"; done
-  publish_npm dist/npm-cli
-  if [ -n "$publish_usl" ]; then publish_npm packages/usl --access public; fi
-fi
-
 step "Pushing main"
 git push origin main
+npm_run=
+if wants npm; then
+  step "Starting the npm publish on GitHub Actions"
+  previous_run=$(gh run list --workflow publish-npm.yml --limit 1 --json databaseId --jq '.[0].databaseId // 0')
+  gh workflow run publish-npm.yml --ref main -f commit="$(git rev-parse HEAD)"
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    sleep 5
+    npm_run=$(gh run list --workflow publish-npm.yml --limit 1 --json databaseId --jq '.[0].databaseId // 0')
+    [ "$npm_run" != "$previous_run" ] && break
+    npm_run=
+  done
+  [ -n "$npm_run" ] || echo "warning: could not find the npm publish run; see https://github.com/jxe/arbor/actions/workflows/publish-npm.yml" >&2
+fi
 if wants mac; then
   step "Publishing the GitHub release"
   git tag -a "$tag" -m "Story $version"
@@ -269,6 +244,11 @@ if wants ios; then
     testflight_failed=1
   fi
 fi
+npm_failed=
+if [ -n "$npm_run" ]; then
+  step "Waiting for the npm publish"
+  gh run watch "$npm_run" --exit-status >/dev/null || npm_failed=1
+fi
 elapsed=$(( $(date +%s) - started ))
 echo
 printf 'Released %s in %d:%02d.\n' "$version" $((elapsed / 60)) $((elapsed % 60))
@@ -276,6 +256,10 @@ wants mac && echo "  Mac: https://github.com/jxe/arbor/releases/tag/$tag  (stabl
 if wants ios; then
   if [ "${testflight_failed:-}" = "1" ]; then echo "  iPhone: add build $build to its group in App Store Connect > TestFlight once it has processed."
   else echo "  iPhone: build $build is in its TestFlight group."; fi
+fi
+if [ -n "$npm_failed" ]; then
+  echo "error: the npm publish failed; see gh run view $npm_run --log-failed, then rerun tools/release.sh $version --only npm" >&2
+  exit 1
 fi
 wants npm && echo "  npm: a staged version appears once npm's review finishes; then npx @ovst/cli@$version --version"
 exit 0
