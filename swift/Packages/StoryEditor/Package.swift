@@ -9,7 +9,7 @@ let package = Package(
         .package(path: "../StoryKit"),
         .package(path: "../OverstoryWorkingTree"),
         .package(path: "../Overstory"),
-        .package(url: "https://github.com/jxe/quagmire.git", exact: "0.14.0")
+        .package(url: "https://github.com/jxe/quagmire.git", exact: "0.15.0")
     ],
     targets: [
         .target(
