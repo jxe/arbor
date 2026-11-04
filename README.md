@@ -14,7 +14,7 @@ a host, a local sync daemon and CLI, the native browser, and the headless
 data runtime. Executable-document presentation, hosted agents, and portable
 deployment remain work in progress or specification only.
 
-For the longer argument, read [A universal dynamic material](docs/getting-started/intro.md).
+For the longer argument, read [Time to reinvent the web](docs/getting-started/intro.md).
 For the exact current boundary, see [status.md](status.md).
 
 ## How it fits together
