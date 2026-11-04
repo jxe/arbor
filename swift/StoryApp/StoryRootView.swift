@@ -1299,11 +1299,10 @@ struct StoryRootView: View {
     @State private var sheetAfterManagementDismiss: StoryPresentedSheet?
 #endif
 #if os(iOS)
-    @State private var sidebarRevealProgress: CGFloat = 0
+    /// How far the page is slid aside. Only `IOSSidebarSlide` reads it in a
+    /// body, so a drag frame redraws the slide, not this whole view.
+    @State private var sidebarDrawer = IOSSidebarDrawer()
     @State private var sidebarDrawerWidth: CGFloat = 360
-    /// The safe area around the page, so its rounded card reaches the
-    /// screen's edges rather than stopping at the status bar.
-    @State private var sidebarPageSafeArea = EdgeInsets()
     /// Where the sidebar last came to rest; a change plays a haptic.
     @State private var sidebarRestsOpen = false
     /// True while a sidebar drag is under way. A drag SwiftUI cancels never
@@ -1605,14 +1604,37 @@ struct StoryRootView: View {
     private var platformNavigation: some View {
 #if os(iOS)
         // The sidebar lies underneath; the page slides right to uncover it.
-        ZStack(alignment: .leading) {
-            iosSidebarUnderlay
-            iosSlidingPage
-        }
+        IOSSidebarSlide(
+            drawer: sidebarDrawer,
+            drawerWidth: sidebarDrawerWidth,
+            showsHandle: showsSidebarHandle,
+            edgeGestureEnabled: model.navigationPath.isEmpty,
+            openGesture: openSidebarEdgeGesture,
+            closeGesture: closeSidebarDragGesture,
+            close: closeIOSSidebar,
+            toggle: {
+                if sidebarDrawer.progress > 0.5 { closeIOSSidebar() } else { openIOSSidebar() }
+            },
+            sidebar: { sidebarContent },
+            page: {
+                NavigationStack(path: navigationPathBinding) {
+                    pageFrame(for: model.navigationRoot)
+                        .navigationDestination(for: WorkspaceLocation.self) { location in
+                            pageFrame(for: location)
+                        }
+                }
+                .id(model.selectedTabID)
+            }
+        )
         .onChange(of: sidebarDragInProgress) { _, dragging in
-            guard !dragging, sidebarRevealProgress > 0, sidebarRevealProgress < 1 else { return }
-            settleIOSSidebar(open: sidebarRevealProgress > 0.5)
+            if dragging {
+                sidebarHaptic.prepare()
+                return
+            }
+            guard sidebarDrawer.progress > 0, sidebarDrawer.progress < 1 else { return }
+            settleIOSSidebar(open: sidebarDrawer.progress > 0.5)
         }
+        .onChange(of: sidebarRestsOpen) { sidebarHaptic.impactOccurred() }
         .background {
             GeometryReader { geometry in
                 // The page keeps a strip showing, wide enough to tap to close.
@@ -1622,7 +1644,6 @@ struct StoryRootView: View {
                     .onChange(of: drawerWidth) { _, width in sidebarDrawerWidth = width }
             }
         }
-        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.8), trigger: sidebarRestsOpen)
 #else
         NavigationSplitView(columnVisibility: sidebarVisibility) {
             sidebarContent
@@ -1658,143 +1679,29 @@ struct StoryRootView: View {
     }
 
 #if os(iOS)
-    /// Drag thresholds of the sidebar drawer, in points.
-    private enum SidebarDrawerGesture {
-        /// How near the leading edge a drag must start to open the drawer.
-        static let edgeWidth: CGFloat = 22
-        /// A drag this far, or projected this far, opens or closes the drawer.
-        static let commitDistance: CGFloat = 96
-        static let commitProjectedDistance: CGFloat = 170
-        static let settleDuration: TimeInterval = 0.28
-        /// The page's corners once it is aside, near the screen's own.
-        static let pageCornerRadius: CGFloat = 50
-        /// How dark the sidebar starts, before the page has moved.
-        static let lightSidebarShade: Double = 0.28
-        static let darkSidebarShade: Double = 0.55
-    }
-
-    /// The page's corners round quickly as it starts to move, so it reads
-    /// as a card being slid away.
-    private var sidebarPageCornerRadius: CGFloat {
-        SidebarDrawerGesture.pageCornerRadius * min(1, sidebarRevealProgress * 4)
-    }
-
-    /// The sidebar, resting still under the page.
-    private var iosSidebarUnderlay: some View {
-        VStack(spacing: 0) {
-            sidebarContent
-        }
-        .frame(width: sidebarDrawerWidth)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        // The surface spans the screen, so it also shows past the page's
-        // rounded corners.
-        .modifier(StorySidebarSurface())
-        // The sidebar starts in the page's shade and brightens as the page
-        // slides away.
-        .overlay {
-            if sidebarRevealProgress < 1 {
-                Color.black
-                    .opacity(
-                        (colorScheme == .dark
-                            ? SidebarDrawerGesture.darkSidebarShade
-                            : SidebarDrawerGesture.lightSidebarShade)
-                        * (1 - sidebarRevealProgress)
-                    )
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-            }
-        }
-        .simultaneousGesture(closeSidebarDragGesture)
-        .allowsHitTesting(sidebarRevealProgress > 0)
-        .ignoresSafeArea(.keyboard)
-    }
-
-    /// The page, which slides right to uncover the sidebar. While it is
-    /// aside, a tap or a leftward drag on it slides it back.
-    private var iosSlidingPage: some View {
-        NavigationStack(path: navigationPathBinding) {
-            pageFrame(for: model.navigationRoot)
-                .navigationDestination(for: WorkspaceLocation.self) { location in
-                    pageFrame(for: location)
-                }
-        }
-        .id(model.selectedTabID)
-        .onGeometryChange(for: EdgeInsets.self, of: { $0.safeAreaInsets }) { insets in
-            sidebarPageSafeArea = insets
-        }
-        .overlay(alignment: .leading) {
-            if model.navigationPath.isEmpty {
-                Color.clear
-                    .frame(width: SidebarDrawerGesture.edgeWidth)
-                    .frame(maxHeight: .infinity)
-                    .contentShape(.rect)
-                    .highPriorityGesture(openSidebarEdgeGesture)
-            }
-        }
-        .overlay {
-            if sidebarRevealProgress > 0 {
-                Color.black.opacity(0.08 * sidebarRevealProgress)
-                    .ignoresSafeArea()
-                    .contentShape(.rect)
-                    .onTapGesture { closeIOSSidebar() }
-                    .gesture(closeSidebarDragGesture)
-            }
-        }
-        // Aside, the page is a rounded card. At rest the shape reaches far
-        // past the screen, so nothing is clipped.
-        .clipShape(IOSPageCardShape(
-            cornerRadius: sidebarPageCornerRadius,
-            outset: sidebarRevealProgress > 0 ? sidebarPageSafeArea : IOSPageCardShape.unbounded
-        ))
-        // The handle is part of the page's edge, so it travels with it.
-        .overlay(alignment: .bottomLeading) {
-            if showsSidebarHandle {
-                IOSSidebarTab(isOpen: sidebarRevealProgress > 0.5) {
-                    if sidebarRevealProgress > 0.5 { closeIOSSidebar() } else { openIOSSidebar() }
-                }
-                .highPriorityGesture(openSidebarEdgeGesture)
-                .padding(.bottom, 28)
-                .ignoresSafeArea(.keyboard)
-            }
-        }
-        .background {
-            IOSPageCardShape(cornerRadius: sidebarPageCornerRadius, outset: sidebarPageSafeArea)
-                .fill(Color(uiColor: .systemBackground))
-                .shadow(
-                    color: .black.opacity((colorScheme == .dark ? 0.6 : 0.18) * sidebarRevealProgress),
-                    radius: 18, x: -2, y: 0
-                )
-        }
-        // A faint lit edge, so in dark mode the page reads as resting on top.
-        .overlay {
-            if colorScheme == .dark, sidebarRevealProgress > 0 {
-                IOSPageCardShape(cornerRadius: sidebarPageCornerRadius, outset: sidebarPageSafeArea)
-                    .stroke(Color.white.opacity(0.16 * sidebarRevealProgress), lineWidth: 1)
-                    .allowsHitTesting(false)
-            }
-        }
-        .offset(x: sidebarDrawerWidth * sidebarRevealProgress)
+    private var sidebarHaptic: UIImpactFeedbackGenerator {
+        IOSSidebarDrawer.haptic
     }
 
     private var openSidebarEdgeGesture: some Gesture {
-        DragGesture(minimumDistance: 18, coordinateSpace: .global)
+        DragGesture(minimumDistance: 8, coordinateSpace: .global)
             .updating($sidebarDragInProgress) { _, inProgress, _ in inProgress = true }
             .onChanged { value in
-                guard sidebarRevealProgress < 1,
-                      value.startLocation.x <= SidebarDrawerGesture.edgeWidth,
+                guard sidebarDrawer.progress < 1,
+                      value.startLocation.x <= IOSSidebarDrawer.edgeWidth,
                       value.translation.width > 0,
                       abs(value.translation.width) > abs(value.translation.height) else { return }
                 var transaction = Transaction()
                 transaction.animation = nil
                 withTransaction(transaction) {
-                    sidebarRevealProgress = min(1, value.translation.width / sidebarDrawerWidth)
+                    sidebarDrawer.progress = min(1, value.translation.width / sidebarDrawerWidth)
                 }
             }
             .onEnded { value in
                 // Whatever the drag became, never leave the page partway.
-                guard sidebarRevealProgress > 0, sidebarRevealProgress < 1 else { return }
-                let shouldOpen = value.translation.width > SidebarDrawerGesture.commitDistance
-                    || value.predictedEndTranslation.width > SidebarDrawerGesture.commitProjectedDistance
+                guard sidebarDrawer.progress > 0, sidebarDrawer.progress < 1 else { return }
+                let shouldOpen = value.translation.width > IOSSidebarDrawer.commitDistance
+                    || value.predictedEndTranslation.width > IOSSidebarDrawer.commitProjectedDistance
                 settleIOSSidebar(open: shouldOpen)
             }
     }
@@ -1809,12 +1716,12 @@ struct StoryRootView: View {
                 var transaction = Transaction()
                 transaction.animation = nil
                 withTransaction(transaction) {
-                    sidebarRevealProgress = max(0, 1 + value.translation.width / sidebarDrawerWidth)
+                    sidebarDrawer.progress = max(0, 1 + value.translation.width / sidebarDrawerWidth)
                 }
             }
             .onEnded { value in
-                let shouldClose = value.translation.width < -SidebarDrawerGesture.commitDistance
-                    || value.predictedEndTranslation.width < -SidebarDrawerGesture.commitProjectedDistance
+                let shouldClose = value.translation.width < -IOSSidebarDrawer.commitDistance
+                    || value.predictedEndTranslation.width < -IOSSidebarDrawer.commitProjectedDistance
                 settleIOSSidebar(open: !shouldClose)
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(180))
@@ -1825,23 +1732,23 @@ struct StoryRootView: View {
 
     private func settleIOSSidebar(open: Bool) {
         sidebarSearchFocused = false
-        withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
-            sidebarRevealProgress = open ? 1 : 0
+        withAnimation(.snappy(duration: IOSSidebarDrawer.settleDuration)) {
+            sidebarDrawer.progress = open ? 1 : 0
         }
         sidebarRestsOpen = open
     }
 
     private func openIOSSidebar() {
-        withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
-            sidebarRevealProgress = 1
+        withAnimation(.snappy(duration: IOSSidebarDrawer.settleDuration)) {
+            sidebarDrawer.progress = 1
         }
         sidebarRestsOpen = true
     }
 
     private func closeIOSSidebar() {
         sidebarSearchFocused = false
-        withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
-            sidebarRevealProgress = 0
+        withAnimation(.snappy(duration: IOSSidebarDrawer.settleDuration)) {
+            sidebarDrawer.progress = 0
         }
         sidebarRestsOpen = false
     }
@@ -5520,6 +5427,153 @@ struct StoryIOSLaunchView: View {
 #endif
 
 #if os(iOS)
+/// How far the iOS page is slid aside, from 0 (covering the sidebar) to 1.
+/// A reference, so the root view can write it from gestures without
+/// reading it, and only `IOSSidebarSlide` redraws as it changes.
+@Observable
+final class IOSSidebarDrawer {
+    var progress: CGFloat = 0
+
+    /// How near the leading edge a drag must start to open the drawer.
+    static let edgeWidth: CGFloat = 22
+    /// A drag this far, or projected this far, opens or closes the drawer.
+    static let commitDistance: CGFloat = 96
+    static let commitProjectedDistance: CGFloat = 170
+    static let settleDuration: TimeInterval = 0.28
+    /// How dark the sidebar starts, before the page has moved.
+    static let lightSidebarShade: Double = 0.28
+    static let darkSidebarShade: Double = 0.55
+    /// Played when the sidebar comes to rest open or closed.
+    @MainActor static let haptic = UIImpactFeedbackGenerator(style: .medium)
+
+    /// The screen's own corner radius, so the page as a card keeps the
+    /// screen's curve. UIKit has no public accessor; 55 matches recent
+    /// iPhones when it is missing.
+    @MainActor static let screenCornerRadius: CGFloat = {
+        let key = ["_display", "Corner", "Radius"].joined()
+        if let radius = UIScreen.main.value(forKey: key) as? CGFloat, radius > 0 {
+            return radius
+        }
+        return 55
+    }()
+}
+
+/// The sidebar resting under the page, and the page as a card that slides
+/// right to uncover it. While the page is aside, a tap or a leftward drag on
+/// it slides it back.
+private struct IOSSidebarSlide<Sidebar: View, Page: View, OpenGesture: Gesture, CloseGesture: Gesture>: View {
+    let drawer: IOSSidebarDrawer
+    let drawerWidth: CGFloat
+    let showsHandle: Bool
+    let edgeGestureEnabled: Bool
+    let openGesture: OpenGesture
+    let closeGesture: CloseGesture
+    let close: () -> Void
+    let toggle: () -> Void
+    @ViewBuilder let sidebar: () -> Sidebar
+    @ViewBuilder let page: () -> Page
+
+    @Environment(\.colorScheme) private var colorScheme
+    /// The safe area around the page, so its card reaches the screen's
+    /// edges rather than stopping at the status bar.
+    @State private var pageSafeArea = EdgeInsets()
+
+    private var progress: CGFloat { drawer.progress }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            sidebarUnderlay
+            slidingPage
+        }
+    }
+
+    private var sidebarUnderlay: some View {
+        VStack(spacing: 0) {
+            sidebar()
+        }
+        .frame(width: drawerWidth)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        // The surface spans the screen, so it also shows past the page's
+        // rounded corners.
+        .modifier(StorySidebarSurface())
+        // The sidebar starts in the page's shade and brightens as the page
+        // slides away.
+        .overlay {
+            Color.black
+                .opacity(
+                    (colorScheme == .dark
+                        ? IOSSidebarDrawer.darkSidebarShade
+                        : IOSSidebarDrawer.lightSidebarShade)
+                    * (1 - progress)
+                )
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        }
+        .simultaneousGesture(closeGesture)
+        .allowsHitTesting(progress > 0)
+        .ignoresSafeArea(.keyboard)
+    }
+
+    private var cardShape: IOSPageCardShape {
+        IOSPageCardShape(cornerRadius: IOSSidebarDrawer.screenCornerRadius, outset: pageSafeArea)
+    }
+
+    private var slidingPage: some View {
+        page()
+            .onGeometryChange(for: EdgeInsets.self, of: { $0.safeAreaInsets }) { insets in
+                pageSafeArea = insets
+            }
+            .overlay(alignment: .leading) {
+                if edgeGestureEnabled {
+                    Color.clear
+                        .frame(width: IOSSidebarDrawer.edgeWidth)
+                        .frame(maxHeight: .infinity)
+                        .contentShape(.rect)
+                        .highPriorityGesture(openGesture)
+                }
+            }
+            .overlay {
+                if progress > 0 {
+                    Color.black.opacity(0.08 * progress)
+                        .ignoresSafeArea()
+                        .contentShape(.rect)
+                        .onTapGesture(perform: close)
+                        .gesture(closeGesture)
+                }
+            }
+            // Aside, the page is a card with the screen's own corners. At
+            // rest the shape reaches far past the screen, so nothing is
+            // clipped and the editor draws without a mask.
+            .clipShape(progress > 0 ? cardShape : IOSPageCardShape(cornerRadius: 0, outset: IOSPageCardShape.unbounded))
+            // The handle is part of the page's edge, so it travels with it.
+            .overlay(alignment: .bottomLeading) {
+                if showsHandle {
+                    IOSSidebarTab(isOpen: progress > 0.5, toggle: toggle)
+                        .highPriorityGesture(openGesture)
+                        .padding(.bottom, 28)
+                        .ignoresSafeArea(.keyboard)
+                }
+            }
+            .background {
+                cardShape
+                    .fill(Color(uiColor: .systemBackground))
+                    .shadow(
+                        color: .black.opacity((colorScheme == .dark ? 0.6 : 0.18) * progress),
+                        radius: 18, x: -2, y: 0
+                    )
+            }
+            // A faint lit edge, so in dark mode the page reads as resting on top.
+            .overlay {
+                if colorScheme == .dark, progress > 0 {
+                    cardShape
+                        .stroke(Color.white.opacity(0.16 * progress), lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+            }
+            .offset(x: drawerWidth * progress)
+    }
+}
+
 /// The page's outline while the sidebar shows: a rounded rectangle grown
 /// past the view's bounds by `outset`, so it covers the safe areas the page
 /// draws into.
