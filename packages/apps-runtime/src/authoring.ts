@@ -416,6 +416,11 @@ export function publicError(code: string, message: string): PublicMutationError 
   return new PublicMutationError(code, message);
 }
 
+/** The symbolic row a planner callback receives, for code that builds plans itself (the endpoint spike). */
+export function symbolicRow(relation: string): NodeSetHandle {
+  return rowScope(relation);
+}
+
 export function relationNameOf(relation: NodeSetHandle): string {
   return (relation as unknown as { [RELATION]: string })[RELATION];
 }

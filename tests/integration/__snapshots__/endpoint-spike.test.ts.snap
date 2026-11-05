@@ -1,0 +1,604 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`endpoint spike a JSON endpoint traces one plan and answers what the old list query answered: listData plan 1`] = `
+{
+  "cardinality": "maybe",
+  "relation": "List",
+  "select": {
+    "about": "field",
+    "contributors": {
+      "list": "field",
+      "person": {
+        "handle": "field",
+        "id": "field",
+        "name": "field",
+        "portrait": "field",
+      },
+    },
+    "id": "field",
+    "items~appyh5": {
+      "list": "field",
+      "practice": {
+        "about": "field",
+        "authors~cmoew4": {
+          "handle": "field",
+          "id": "field",
+          "name": "field",
+          "portrait": "field",
+        },
+        "id": "field",
+        "name": "field",
+        "tags~15rqdt8": {
+          "color": "field",
+          "id": "field",
+          "list": "field",
+          "name": "field",
+        },
+      },
+    },
+    "kind": "field",
+    "name": "field",
+    "openToEdits": "field",
+    "owner": {
+      "handle": "field",
+      "id": "field",
+      "name": "field",
+      "portrait": "field",
+    },
+    "reactions": {
+      "list": "field",
+      "person": {
+        "id": "field",
+      },
+    },
+    "tags~1mln431": {
+      "color": "field",
+      "id": "field",
+      "list": "field",
+      "name": "field",
+    },
+    "visibility": "field",
+  },
+}
+`;
+
+exports[`endpoint spike a JSON endpoint traces one plan and answers what the old list query answered: listData output 1`] = `
+{
+  "about": "Practices for showing up for one another.",
+  "contributors": [
+    {
+      "handle": "bo",
+      "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "Bo Berg",
+      "portrait": "https://example.test/bo.jpg",
+    },
+  ],
+  "id": "10000000-0000-4000-8000-000000000001",
+  "items": [
+    {
+      "practice": {
+        "about": "Neighbors share practical help and resources.",
+        "authors": [
+          {
+            "handle": "ada",
+            "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "name": "Ada Adebayo",
+            "portrait": null,
+          },
+        ],
+        "id": "00000000-0000-4000-8000-000000000001",
+        "name": "Mutual aid",
+        "tags": [
+          {
+            "color": "#ef4444",
+            "id": "care",
+            "name": "Care",
+          },
+        ],
+      },
+    },
+    {
+      "practice": {
+        "about": "A turn-taking practice for careful group attention.",
+        "authors": [
+          {
+            "handle": "bo",
+            "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "name": "Bo Berg",
+            "portrait": "https://example.test/bo.jpg",
+          },
+        ],
+        "id": "00000000-0000-4000-8000-000000000002",
+        "name": "Listening circles",
+        "tags": [],
+      },
+    },
+  ],
+  "kind": "Tagged",
+  "name": "Community care",
+  "openToEdits": true,
+  "owner": {
+    "handle": "ada",
+    "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "name": "Ada Adebayo",
+    "portrait": null,
+  },
+  "reacted": false,
+  "reactions": 2,
+  "tags": [
+    {
+      "color": "#ef4444",
+      "id": "care",
+      "name": "Care",
+    },
+    {
+      "color": null,
+      "id": "local",
+      "name": "Local",
+    },
+  ],
+  "visibility": "Public",
+}
+`;
+
+exports[`endpoint spike a view endpoint widens once when a branch the trace skipped reads new fields: ListPage view 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        "Community care",
+      ],
+      "props": {
+        "style": "title",
+      },
+      "type": "Text",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            "a list by",
+          ],
+          "props": {
+            "style": "secondary",
+          },
+          "type": "Text",
+        },
+        {
+          "children": [
+            "Ada Adebayo",
+          ],
+          "props": {
+            "href": "Profile?id=tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "key": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          },
+          "type": "Link",
+        },
+        {
+          "children": [
+            "Bo Berg",
+          ],
+          "props": {
+            "href": "Profile?id=tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "key": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+          },
+          "type": "Link",
+        },
+      ],
+      "props": {},
+      "type": "Row",
+    },
+    {
+      "children": [],
+      "props": {
+        "source": "Practices for showing up for one another.",
+      },
+      "type": "Markdown",
+    },
+    {
+      "children": [
+        "Edit",
+      ],
+      "props": {
+        "href": "List?id=10000000-0000-4000-8000-000000000001&edit",
+      },
+      "type": "Link",
+    },
+    {
+      "children": [
+        "👍 ",
+        2,
+      ],
+      "props": {
+        "action": {
+          "input": {
+            "listId": "10000000-0000-4000-8000-000000000001",
+          },
+          "mutation": "toggleListReaction",
+        },
+      },
+      "type": "Button",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "children": [
+                "Mutual aid",
+              ],
+              "props": {
+                "href": "Practice?id=00000000-0000-4000-8000-000000000001",
+                "style": "heading",
+              },
+              "type": "Link",
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    "by",
+                  ],
+                  "props": {
+                    "style": "secondary",
+                  },
+                  "type": "Text",
+                },
+                {
+                  "children": [
+                    "Ada Adebayo",
+                  ],
+                  "props": {
+                    "href": "Profile?id=tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "key": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  },
+                  "type": "Link",
+                },
+              ],
+              "props": {},
+              "type": "Row",
+            },
+            {
+              "children": [],
+              "props": {
+                "lines": 6,
+                "source": "Neighbors share practical help and resources.",
+              },
+              "type": "Markdown",
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    "Care",
+                  ],
+                  "props": {
+                    "color": "#ef4444",
+                    "key": "care",
+                  },
+                  "type": "Badge",
+                },
+              ],
+              "props": {},
+              "type": "Row",
+            },
+          ],
+          "props": {
+            "key": "00000000-0000-4000-8000-000000000001",
+          },
+          "type": "Column",
+        },
+        {
+          "children": [
+            {
+              "children": [
+                "Listening circles",
+              ],
+              "props": {
+                "href": "Practice?id=00000000-0000-4000-8000-000000000002",
+                "style": "heading",
+              },
+              "type": "Link",
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    "by",
+                  ],
+                  "props": {
+                    "style": "secondary",
+                  },
+                  "type": "Text",
+                },
+                {
+                  "children": [
+                    "Bo Berg",
+                  ],
+                  "props": {
+                    "href": "Profile?id=tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "key": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  },
+                  "type": "Link",
+                },
+              ],
+              "props": {},
+              "type": "Row",
+            },
+            {
+              "children": [],
+              "props": {
+                "lines": 6,
+                "source": "A turn-taking practice for careful group attention.",
+              },
+              "type": "Markdown",
+            },
+            {
+              "children": [],
+              "props": {},
+              "type": "Row",
+            },
+          ],
+          "props": {
+            "key": "00000000-0000-4000-8000-000000000002",
+          },
+          "type": "Column",
+        },
+      ],
+      "props": {},
+      "type": "Grid",
+    },
+  ],
+  "props": {},
+  "type": "Column",
+}
+`;
+
+exports[`endpoint spike a second root inside a row runs as its own plan: practiceData plans 1`] = `
+[
+  {
+    "cardinality": "maybe",
+    "relation": "Practice",
+    "select": {
+      "about": "field",
+      "authors~cmoew4": {
+        "handle": "field",
+        "id": "field",
+        "name": "field",
+        "portrait": "field",
+      },
+      "id": "field",
+      "name": "field",
+    },
+  },
+  {
+    "cardinality": "many",
+    "relation": "List",
+    "select": {
+      "id": "field",
+      "items#count": "count",
+      "name": "field",
+      "owner": {
+        "handle": "field",
+        "id": "field",
+        "name": "field",
+        "portrait": "field",
+      },
+      "reactions#count": "count",
+    },
+  },
+]
+`;
+
+exports[`endpoint spike a second root inside a row runs as its own plan: practiceData output 1`] = `
+{
+  "about": "A turn-taking practice for careful group attention.",
+  "authors": [
+    {
+      "handle": "bo",
+      "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "Bo Berg",
+      "portrait": "https://example.test/bo.jpg",
+    },
+  ],
+  "id": "00000000-0000-4000-8000-000000000002",
+  "lists": [
+    {
+      "id": "10000000-0000-4000-8000-000000000001",
+      "name": "Community care",
+      "owner": {
+        "handle": "ada",
+        "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "name": "Ada Adebayo",
+        "portrait": null,
+      },
+      "practices": 2,
+      "reactions": 2,
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000003",
+      "name": "Ways to listen",
+      "owner": {
+        "handle": "bo",
+        "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "Bo Berg",
+        "portrait": "https://example.test/bo.jpg",
+      },
+      "practices": 1,
+      "reactions": 1,
+    },
+  ],
+  "name": "Listening circles",
+}
+`;
+
+exports[`endpoint spike a second root inside a row runs as its own plan: PracticePage view 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        "Listening circles",
+      ],
+      "props": {
+        "style": "title",
+      },
+      "type": "Text",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            "by",
+          ],
+          "props": {
+            "style": "secondary",
+          },
+          "type": "Text",
+        },
+        {
+          "children": [
+            "Bo Berg",
+          ],
+          "props": {
+            "href": "Profile?id=tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "key": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+          },
+          "type": "Link",
+        },
+      ],
+      "props": {},
+      "type": "Row",
+    },
+    {
+      "children": [],
+      "props": {
+        "source": "A turn-taking practice for careful group attention.",
+      },
+      "type": "Markdown",
+    },
+    {
+      "children": [
+        "On these lists",
+      ],
+      "props": {
+        "style": "heading",
+      },
+      "type": "Text",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            "Community care",
+          ],
+          "props": {
+            "href": "List?id=10000000-0000-4000-8000-000000000001",
+          },
+          "type": "Link",
+        },
+        {
+          "children": [
+            2,
+            " practices · 👍 ",
+            2,
+          ],
+          "props": {
+            "style": "secondary",
+          },
+          "type": "Text",
+        },
+      ],
+      "props": {
+        "key": "10000000-0000-4000-8000-000000000001",
+      },
+      "type": "Row",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            "Ways to listen",
+          ],
+          "props": {
+            "href": "List?id=10000000-0000-4000-8000-000000000003",
+          },
+          "type": "Link",
+        },
+        {
+          "children": [
+            1,
+            " practices · 👍 ",
+            1,
+          ],
+          "props": {
+            "style": "secondary",
+          },
+          "type": "Text",
+        },
+      ],
+      "props": {
+        "key": "10000000-0000-4000-8000-000000000003",
+      },
+      "type": "Row",
+    },
+  ],
+  "props": {},
+  "type": "Column",
+}
+`;
+
+exports[`endpoint spike search trims in JS before narrowing on the host, and an empty search reads nothing: PracticeSearch view 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        "Matching practices",
+      ],
+      "props": {
+        "style": "heading",
+      },
+      "type": "Text",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "children": [
+                "Neighborhood walks",
+              ],
+              "props": {
+                "href": "Practice?id=00000000-0000-4000-8000-000000000003",
+              },
+              "type": "Link",
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    "by",
+                  ],
+                  "props": {
+                    "style": "secondary",
+                  },
+                  "type": "Text",
+                },
+              ],
+              "props": {},
+              "type": "Row",
+            },
+          ],
+          "props": {
+            "key": "00000000-0000-4000-8000-000000000003",
+          },
+          "type": "Column",
+        },
+      ],
+      "props": {},
+      "type": "Grid",
+    },
+  ],
+  "props": {},
+  "type": "Column",
+}
+`;
