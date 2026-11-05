@@ -77,6 +77,12 @@ wants the Railway template first, so nobody makes an identity and then gives up 
 host is founded by a generated code, logs a founder link, and Story's invitation flow claims it
 and makes the claimer the community's administrator.
 
+**[Filesystem 027: the whole namespace on disk](features/filesystem-027-the-whole-namespace-on-disk.md).**
+*Not soon.* The AFS half of the global namespace: every tree you can read is a path under
+`~/Overstory/<host>/…`, fetched when opened, through a File Provider extension on the Mac (and
+the Files app on the iPhone). Builds on visitor sessions and read-only placements (2026-11-05).
+Joe filed it on 2026-11-05 "in features and not to do anytime soon".
+
 **[Security 012: get back into an account with the admin's help](features/security-012-get-back-in-with-the-admins-help.md).**
 *Later.* A person who has lost every device gets back in through the host's administrator, as the
 spec has it; Joe wants that to be as easy as possible for both. The administrator makes a
@@ -156,6 +162,11 @@ of allowances. Markdown merges as blocks and JSON, YAML, TOML and CSV as element
 2026-11-01 ([status](../status.md#merge-as-blocks-and-elements--2026-11-01)). Left: JSONL,
 XML/HTML/CSS and code as elements, choices named by the blocks they cover, then the menu of
 cases that still go to review, which was overstoryd 014 until Joe folded it in on 2026-11-01.
+
+**[Names 001: your own domain names your profile](soon/names-001-your-own-domain-names-your-profile.md).**
+Joe, 2026-11-05: a person points a domain they own at their profile, as Bluesky handles do (a
+DNS TXT record or a `.well-known` file, checked against the profile's own front matter), so
+`alice.com` names her wherever she is hosted and rules written with it survive a move.
 
 ## Later
 
