@@ -9,7 +9,7 @@ import { StorySyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
 import { agentLabel, hasClaudeCode, hookReport, installAgentPresence, textReport, uninstallAgentPresence } from "./agent-presence.ts";
 import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@ovst/fs";
 import { listLocalAccounts } from "@ovst/story-sync/state";
-import { addLocalPlacement, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
+import { accountProtocolClient, addLocalPlacement, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
 import type { Document } from "yaml";
 import { STORY_SYNC_PORT, storyDaemonSupervisor } from "./daemon.ts";
 import { compiledExecutable, storyCommand } from "./package-runtime.ts";
@@ -93,6 +93,8 @@ const USAGE = `Usage:
 Folders
   story place [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
   story place <canonical-url> <local-path>
+  story place --read-only <canonical-url> <local-path>
+      Follow a tree you can read at any host, without an account there; edits in the folder are never sent.
       Put a local folder at a URL, or check a URL out to a local folder.
       (the URL may be on the home host or under a placement root, such as https://<placement-host>/~<handle>/<name>)
   story mv [--dry-run] <placed-local-root> <new-local-path>
@@ -275,12 +277,15 @@ function accessOperations(value: string): CliAudienceOperation[] {
   });
 }
 
-function placeArguments(args: string[]): { operands: string[]; audience: CliAudienceOperation[] } {
+function placeArguments(args: string[]): { operands: string[]; audience: CliAudienceOperation[]; readOnly: boolean } {
   const operands: string[] = [];
   const audience: CliAudienceOperation[] = [];
+  let readOnly = false;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
-    if (arg === "--access" || arg.startsWith("--access=")) {
+    if (arg === "--read-only") {
+      readOnly = true;
+    } else if (arg === "--access" || arg.startsWith("--access=")) {
       const inline = arg.startsWith("--access=") ? arg.slice("--access=".length) : undefined;
       const value = inline ?? args[index + 1];
       if (value === undefined || (!inline && value.startsWith("-"))) {
@@ -296,7 +301,7 @@ function placeArguments(args: string[]): { operands: string[]; audience: CliAudi
       operands.push(arg);
     }
   }
-  return { operands, audience };
+  return { operands, audience, readOnly };
 }
 
 function accessSubject(subject: string, target: CanonicalTarget): { kind: "everyone" } | { kind: "profile"; locator: string } {
@@ -853,10 +858,15 @@ async function placeLocal(
 }
 
 async function placeCommand(args: string[]): Promise<void> {
-  const { operands, audience } = placeArguments(args);
+  const { operands, audience, readOnly } = placeArguments(args);
   if (operands.length !== 2) usage();
   const [first, second] = operands as [string, string];
   const firstIsURL = CANONICAL_INPUT.test(first);
+  if (readOnly) {
+    if (!firstIsURL || audience.length) throw new Error("story place --read-only takes a canonical URL and a local path, and no audience options");
+    await placeReadOnly(first, second);
+    return;
+  }
   if (!firstIsURL) {
     await placeLocal(first, second, audience);
     return;
@@ -889,6 +899,44 @@ async function placeCommand(args: string[]): Promise<void> {
     await service.synchronizeNow(selected.configuration.configurationTree);
     await waitForLocalPlacement(client, descriptor.id, selected.configuration.configurationTree, destination);
     console.log(`${canonicalOverstoryLocator(descriptor.canonical)} ↔ ${destination} (${descriptor.access})`);
+  });
+}
+
+/**
+ * Follow a tree this profile can read, at any host, into a local folder that
+ * never publishes (placements.yaml `access: read`). Story Sync reads it with
+ * the account there if the profile has one, else a visitor session
+ * (accounts §5.6), else as anyone.
+ */
+async function placeReadOnly(url: string, path: string): Promise<void> {
+  const target = canonicalTarget(url);
+  const requestedDestination = resolve(path);
+  await mkdir(dirname(requestedDestination), { recursive: true });
+  const destination = await realpath(requestedDestination).catch(async () =>
+    join(await realpath(dirname(requestedDestination)), basename(requestedDestination))
+  );
+  const records = await HostAccountStore.list();
+  const home = records.length === 1 ? records[0]! : records.find((record) => record.origin === target.endpoint);
+  if (!home) throw new Error(records.length ? "Several accounts are claimed here; none is at that host to choose by" : "No profile is claimed on this device; run `story me create` first");
+  await withStorySync(dirname(destination), async (client, service) => {
+    const selected = await accountProtocolClient({ configurationTree: home.configurationTree, origin: target.endpoint }, { timeoutMs: 60_000 });
+    const remote = await selected.client.resolve(target.canonicalPath);
+    const descriptor = remote.enclosingTree;
+    if (!descriptor?.canonical) throw new Error("Server resolution omitted its canonical tree");
+    if (descriptor.canonical.path !== target.canonicalPath) {
+      throw new Error(`${canonicalHTTPURL(descriptor.canonical)} is the tree at that address, not ${target.supplied}`);
+    }
+    await addLocalPlacement({
+      configurationTree: home.configurationTree,
+      path: destination,
+      tree: descriptor.id,
+      ...(target.endpoint !== home.origin ? { host: target.endpoint } : {}),
+      readOnly: true,
+    });
+    await service.synchronizeNow(home.configurationTree);
+    await waitForLocalPlacement(client, descriptor.id, home.configurationTree, destination);
+    const how = selected.visitor ? "as a visitor" : selected.authenticated ? "with your account there" : "as anyone";
+    console.log(`${canonicalOverstoryLocator(descriptor.canonical)} → ${destination} (read only, ${how})`);
   });
 }
 

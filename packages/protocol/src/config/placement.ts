@@ -17,6 +17,8 @@ export interface SharedTreePlacement {
   update?: string;
   cursor?: string;
   replica?: boolean;
+  /** A read-only placement (`access: read` in placements.yaml): it follows the tree and never publishes. */
+  readOnly?: true;
 }
 
 export type TreePlacement = SharedTreePlacement;

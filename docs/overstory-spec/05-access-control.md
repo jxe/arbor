@@ -47,6 +47,13 @@ read there (§3.3). The pinned TreeID is the subject and its merge key. A link s
 valid presented secret's digest. `me` and `members` name the profile whose
 `apps.yaml` holds a rule (§1.1) and are invalid in `access.yaml`.
 
+A visitor ([accounts §5.6](04-accounts-and-devices.md#56-visitor-sessions))
+is the profile only as its home host names it: a profile subject matches it
+when it is a locator at that home host pinned to the visitor's TreeID, and a
+group matches it through such a member locator, or as a group that home host
+holds whose copy lists it. Whatever a matching rule allows, a visitor only
+reads.
+
 `admin` names the tree's **administrators**. It may be granted only to a
 person or group profile, in a rule with no `app` and no `within`; a group
 administers through its current members, the same one-level membership check

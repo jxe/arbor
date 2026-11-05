@@ -19,9 +19,11 @@ tr_config_b:
 
 There is no top-level wrapper or format version. Grouping by configuration
 `TreeID`, rather than origin, permits several accounts at one host and
-survives a host-domain change. A value may later widen to a mapping such as
-`{ tree: tr_notes, projection: ... }` when a placement-specific option is
-needed. An Overstory-managed working tree that keeps its own state on disk (iOS)
+survives a host-domain change. A value widens to a mapping when a
+placement-specific option is needed: the reference daemon's are `host`, for a
+tree at another host, and `access: read`, for a read-only placement that
+follows a tree it never publishes to
+([the data home](../architecture/story-sync/data-home.md#placementsyaml)). An Overstory-managed working tree that keeps its own state on disk (iOS)
 is still a real local path, normally beneath private state, and follows the
 same one-path-to-one-tree rule. A working tree that borrows a placed folder's
 object store instead of holding one (the Mac app opening a folder the daemon

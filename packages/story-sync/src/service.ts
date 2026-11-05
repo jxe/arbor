@@ -692,7 +692,13 @@ export class StorySyncDaemon implements AsyncDisposable {
             const remoteTrees = await listed;
             this.listings.set(accountKey, remoteTrees);
             const folder = await this.folderFor(placement, workspace);
-            const remote = remoteTrees.find((tree) => tree.id === placement.tree);
+            let remote = remoteTrees.find((tree) => tree.id === placement.tree);
+            if (!remote && placement.readOnly) {
+              // A tree mounted nowhere is not listed to a reader; read it by ID.
+              // A read-only placement never activates a tree.
+              remote = (await client.descriptor(placement.tree).catch(() => null))?.tree;
+              if (!remote) throw new ProtocolError("not-found", `${placement.tree} is not readable at ${placement.endpoint}`, 404);
+            }
             if (!remote) {
               // A reserved tree is activated with the folder's whole content.
               const initial = await this.withWorkspaceIO(
@@ -714,7 +720,7 @@ export class StorySyncDaemon implements AsyncDisposable {
               this.trees.setSyncState(placement.tree, "idle");
               continue;
             }
-            const access = remote.access;
+            const access = placement.readOnly ? "read" : remote.access;
             // The host decides a tree's canonical path; a mount or rename moves it.
             const canonicalPath = remote.canonical?.path;
             if (placement.access !== access || (placement.kind !== "tree-configuration" && placement.canonicalPath !== canonicalPath)) {

@@ -62,6 +62,7 @@ story open https://garden.example/~joe/notes
 ```text
 story place [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
 story place <canonical-url> <local-path>
+story place --read-only <canonical-url> <local-path>
 ```
 
 The local-first form creates or updates a hosted tree declaration and places
@@ -106,6 +107,20 @@ story place ./orchard https://orchard.example/~joe
 story place ./research https://orchard.example/~joe/research
 # On another device paired at your home host:
 story place https://orchard.example/~joe/research ~/Documents/research
+```
+
+With `--read-only`, the URL may be at any host, including one where your
+profile has no account: the folder follows the tree and never sends your
+edits. Story Sync reads it with your account there if you have one, else as a
+visitor whom that host checks against the device keys your home host
+publishes ([accounts §5.6](../overstory-spec/04-accounts-and-devices.md#56-visitor-sessions)),
+else as anyone. A visitor reads what the host's rules grant your profile by
+its URL at your home host (such as `https://garden.example/~joe`), plus
+whatever is public.
+
+```sh
+# railton.example shares its essays with https://garden.example/~joe:
+story place --read-only https://railton.example/~railton/essays ~/Reading/railton
 ```
 
 ### `story mv`

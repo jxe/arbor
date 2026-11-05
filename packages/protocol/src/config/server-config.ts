@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sha256 } from "../index.ts";
-import { deviceKeyFromSeed, openDeviceSession } from "./device-key.ts";
+import { deviceKeyFromSeed, openDeviceSession, openVisitorSession } from "./device-key.ts";
 import { storyDataRoot, overstoryPrivateRoot, prepareStoryDataRoot } from "./private-state.ts";
 
 const SERVICE = "org.arbor.community-account";
@@ -74,7 +74,7 @@ const credentialReads = new Map<string, { record: HostAccountRecord; secret: str
  * and on disk at `sessionPath`, and reused until close to expiry. Concurrent
  * callers share one challenge and one session.
  */
-async function openCachedSession(key: string, sessionPath: string, origin: string, profileTree: string, deviceID: string, seed: string): Promise<string> {
+async function openCachedSession(key: string, sessionPath: string, origin: string, profileTree: string, deviceID: string, seed: string, homeHost?: string): Promise<string> {
   const usable = (value?: CachedSession) => value && sessionUsable(value) ? value : undefined;
   let cached = usable(sessions.get(key));
   if (!cached) {
@@ -93,7 +93,9 @@ async function openCachedSession(key: string, sessionPath: string, origin: strin
   if (!opening) {
     opening = (async () => {
       const openedAt = Date.now();
-      const opened = await openDeviceSession(origin, profileTree, deviceID, seed);
+      const opened = homeHost
+        ? await openVisitorSession(origin, profileTree, deviceID, seed, homeHost)
+        : await openDeviceSession(origin, profileTree, deviceID, seed);
       const value = { token: opened.token, expiresAt: opened.expiresAt, openedAt };
       sessions.set(key, value);
       const temporary = `${sessionPath}.${crypto.randomUUID()}.tmp`;
@@ -430,5 +432,59 @@ export class HostPlacementStore {
       }
     }
     return records.sort((a, b) => a.configurationTree.localeCompare(b.configurationTree) || a.origin.localeCompare(b.origin));
+  }
+}
+
+/** How long a host that refused a visitor session is read anonymously before asking again. */
+const VISITOR_REFUSAL_MS = 5 * 60_000;
+const visitorRefusals = new Map<string, number>();
+
+/**
+ * A visitor session (accounts §5.6) this device holds at a host where its
+ * profile has no account: opened with the home connection's device key, which
+ * the host checks against the keys the home host publishes. It reads what that
+ * host's rules grant the profile and never writes. A host that refuses one,
+ * such as a host older than visitor sessions, is read anonymously for a while.
+ */
+export class HostVisitorStore {
+  readonly origin: string;
+  constructor(readonly configurationTree: string, origin: string) {
+    if (!/^tr_[a-z2-7]+$/.test(configurationTree)) throw new Error("Visitor store requires a configuration TreeID");
+    this.origin = new URL(origin).origin;
+    if (this.origin !== origin) throw new Error("Visitor store requires a canonical origin");
+  }
+
+  private get directory(): string {
+    return join(overstoryPrivateRoot(), "accounts", this.configurationTree, "visitors", `host-${sha256(this.origin).slice(0, 24)}`);
+  }
+
+  private get sessionPath(): string {
+    return join(this.directory, "session.json");
+  }
+
+  /** A visitor session's token, or null without a home connection here, at the home host itself, or after a refusal. */
+  async token(): Promise<string | null> {
+    const home = await new HostAccountStore(this.configurationTree).safe();
+    if (!home || home.origin === this.origin) return null;
+    const refused = visitorRefusals.get(this.directory);
+    if (refused !== undefined && Date.now() - refused < VISITOR_REFUSAL_MS) return null;
+    const key = await new HostAccountStore(this.configurationTree).deviceKeySeed();
+    if (!key) return null;
+    await mkdir(this.directory, { recursive: true, mode: 0o700 });
+    try {
+      const token = await openCachedSession(this.directory, this.sessionPath, this.origin, home.profileTree, key.deviceID, key.seed, home.origin);
+      visitorRefusals.delete(this.directory);
+      return token;
+    } catch {
+      visitorRefusals.set(this.directory, Date.now());
+      return null;
+    }
+  }
+
+  /** After the host refused this session: forget it, so the next `token` opens another. True when there was one. */
+  async forgetSession(): Promise<boolean> {
+    const held = sessions.delete(this.directory);
+    const saved = await rm(this.sessionPath).then(() => true, () => false);
+    return held || saved;
   }
 }

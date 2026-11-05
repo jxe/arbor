@@ -59,11 +59,12 @@ test("a 401 from the home host forgets the home's session and keeps the placemen
   expect(await exists(placementSession)).toBe(true);
 });
 
-test("a host with no placement connection has no session to forget, and never gets the home's credential", async () => {
+test("a host with no placement connection and no visitor session has no session to forget, and never gets the home's credential", async () => {
   const { homeSession } = await dataHome();
   const stranger = "https://stranger.example";
   expect(await forgetPlacementSession(placement(stranger))).toBe(false);
   expect(await exists(homeSession)).toBe(true);
+  // It is asked for a visitor session (accounts §5.6), which it cannot open here, so it is read as anyone.
   const anonymous = await accountProtocolClient({ configurationTree: cfg, origin: stranger });
   expect(anonymous).toMatchObject({ origin: stranger, authenticated: false });
   expect(anonymous.token).toBeUndefined();

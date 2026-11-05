@@ -1,5 +1,5 @@
 import { accountProtocolClient, type AccountSelector, type AccountProtocolClient } from "@ovst/client";
-import { HostAccountStore, HostPlacementStore } from "@ovst/protocol";
+import { HostAccountStore, HostPlacementStore, HostVisitorStore } from "@ovst/protocol";
 import { type SharedTreePlacement } from "./state/index.ts";
 
 /** The sync engine selects connections; it never administers accounts. */
@@ -10,7 +10,8 @@ export interface SyncConnections {
    * After a 401 from the placement's endpoint, forget the session this device
    * holds there, so the next request opens another; true when there was one to
    * forget. It is the home account's session when the endpoint is the home
-   * host, else the placement account's there, and never the other.
+   * host, else the placement account's there or, without one, the visitor
+   * session there, and never another.
    */
   forgetSession(placement: SharedTreePlacement): Promise<boolean>;
 }
@@ -35,7 +36,7 @@ export async function forgetPlacementSession(placement: SharedTreePlacement): Pr
   const record = await home.safe();
   if (record && record.origin !== placement.endpoint) {
     const connection = new HostPlacementStore(placement.configurationTree, placement.endpoint);
-    if (!await connection.safe()) return false;
+    if (!await connection.safe()) return new HostVisitorStore(placement.configurationTree, placement.endpoint).forgetSession();
     await connection.forgetSession();
     return true;
   }

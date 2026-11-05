@@ -3,6 +3,7 @@ import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError
 import { PackMaintenance } from "./pack-maintenance.ts";
 import { PlacementDeviceKeys, type DeviceKeyCopy, type ListedDevice } from "./placement.ts";
 import { RemoteGroups } from "./remote-groups.ts";
+import { VisitorSessions, type VisitorAuthentication } from "./visitors.ts";
 import { LocatorPins } from "./locator-pins.ts";
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
@@ -27,6 +28,7 @@ import {
   subjectProfile,
   parseProfileLocator,
   isProfileLocator,
+  isHomeHostOrigin,
   generateOverstoryID,
   isGeneratedOverstoryID,
   isPersonProfileTreeID,
@@ -394,6 +396,10 @@ export class HostDaemon implements AsyncDisposable {
   private readonly transitions = new Recent<TransitionPayload>(TRANSITION_CACHE_ENTRIES);
   /** Placement accounts' copies of their home hosts' device keys. */
   private readonly deviceKeys: PlacementDeviceKeys;
+  /** Visitors' copies of their home hosts' device keys, by home host and profile together (accounts §5.6). */
+  private readonly visitorKeys: PlacementDeviceKeys;
+  /** Open visitor sessions, in memory only. */
+  private readonly visitors = new VisitorSessions();
   private deviceKeyTimer: ReturnType<typeof setTimeout> | undefined;
   /** Copies of the groups other hosts hold that this host's rules name. */
   private readonly remoteGroups: RemoteGroups;
@@ -433,11 +439,24 @@ export class HostDaemon implements AsyncDisposable {
       rootProfileType: (tree) => this.rootProfileType(tree.id),
       isRemoteGroupMember: (group, homeHost, profileTree) => this.readsGroupsAt(homeHost) && this.remoteGroups.isMember(group, homeHost, profileTree),
       pinnedProfile: (tree, locator) => this.locatorPins.pinned(tree, locator),
+      groupMemberLocators: (group) => this.rootProfile(group.id).members.flatMap((member) =>
+        member.profile && isProfileLocator(member.profile) ? [member.profile] : []),
     }, this.accounts);
     this.execution = new ExecutionAuthority((context, grant, path, operation) => this.access.executionAllows(context, grant, path, operation));
     this.deviceKeys = new PlacementDeviceKeys(
       () => ({ lifetimeMs: this.deviceKeyLifetimeMs, refetchMs: this.deviceKeyRefetchMs, staleMs: this.deviceKeyStaleMs }),
       (profileTree, copy) => this.revokeUnlisted(profileTree, copy),
+    );
+    // A visitor's copy is keyed `<homeHost> <profileTree>`, so one home host
+    // can never answer for a profile another names as its home.
+    this.visitorKeys = new PlacementDeviceKeys(
+      () => ({ lifetimeMs: this.deviceKeyLifetimeMs, refetchMs: this.deviceKeyRefetchMs, staleMs: this.deviceKeyStaleMs }),
+      (key, copy) => {
+        const [homeHost, profileTree] = key.split(" ") as [string, string];
+        this.visitors.endUnlisted(profileTree, homeHost, (device) => copy.devices.get(device)?.key);
+      },
+      undefined,
+      (key) => key.split(" ")[1]!,
     );
     // A change in what a remote group matches is an authorization change:
     // watches and executions check again.
@@ -1076,8 +1095,12 @@ export class HostDaemon implements AsyncDisposable {
   /** One refresh pass over the placement accounts with open sessions. */
   async refreshDeviceKeys(): Promise<void> {
     if (this.disposed) return;
-    await Promise.all(this.accounts.placementAccountsWithSessions(Date.now()).map(({ id, homeHost }) =>
-      this.deviceKeys.fetch(id, homeHost).catch(() => undefined)));
+    await Promise.all([
+      ...this.accounts.placementAccountsWithSessions(Date.now()).map(({ id, homeHost }) =>
+        this.deviceKeys.fetch(id, homeHost).catch(() => undefined)),
+      ...this.visitors.openProfiles().map(({ profileTree, homeHost }) =>
+        this.visitorKeys.fetch(`${homeHost} ${profileTree}`, homeHost).catch(() => undefined)),
+    ]);
   }
 
   /**
@@ -1099,12 +1122,16 @@ export class HostDaemon implements AsyncDisposable {
     return { profileTree, devices };
   }
 
-  async createDeviceSessionChallenge(input: { origin: string; profileTree?: string; device: string }): Promise<DeviceSessionChallenge> {
+  async createDeviceSessionChallenge(input: { origin: string; profileTree?: string; device: string; homeHost?: string }): Promise<DeviceSessionChallenge> {
     // Without a profile, the device's own account says whose it is: only a
     // home host binds a device before its first session.
     const profileTree = input.profileTree ?? this.accounts.device(input.device)?.account;
     if (!profileTree) throw new NotFoundError("No such key device");
-    await this.keyDevice(profileTree, input.device);
+    // A profile with an account here opens an ordinary session, whatever
+    // the device asked for; only a profile without one may visit.
+    const homeHost = input.homeHost !== undefined && !this.accounts.enabledAccount(profileTree) ? input.homeHost : undefined;
+    if (homeHost !== undefined) await this.visitorDevice(input.origin, profileTree, homeHost, input.device);
+    else await this.keyDevice(profileTree, input.device);
     const issuedAt = Date.now();
     const challenge: DeviceSessionChallenge = {
       version: 1,
@@ -1116,6 +1143,7 @@ export class HostDaemon implements AsyncDisposable {
       nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
       issuedAt,
       expiresAt: issuedAt + 2 * 60 * 1000,
+      ...(homeHost !== undefined ? { homeHost } : {}),
     };
     this.accounts.insertChallenge("device-session", challenge.id, stableJSONString(validateDeviceSessionChallenge(challenge)), challenge.expiresAt, issuedAt);
     return challenge;
@@ -1130,6 +1158,7 @@ export class HostDaemon implements AsyncDisposable {
   async openDeviceSession(input: { origin: string; challenge: unknown; signature: string }): Promise<DeviceSession> {
     const challenge = validateDeviceSessionChallenge(input.challenge);
     if (challenge.origin !== input.origin) throw new Error("Device session challenge names another host");
+    if (challenge.homeHost !== undefined) return this.openVisitorSession(challenge, input.signature);
     const { account, key } = await this.keyDevice(challenge.profileTree, challenge.device);
     if (!verifyDeviceSignature(key, deviceSessionChallengeBytes(challenge), input.signature)) {
       throw new PermissionDeniedError("Device session signature is invalid");
@@ -1156,6 +1185,55 @@ export class HostDaemon implements AsyncDisposable {
       this.accounts.insertSession(sha256(token), challenge.device, now, expiresAt);
     })();
     return { token, device: challenge.device, expiresAt };
+  }
+
+  /**
+   * A visitor's device (accounts §5.6): a profile with no account here,
+   * listed by the keys `homeHost` publishes for it. The home host must be one
+   * this host reads other hosts at, and not this host itself.
+   */
+  private async visitorDevice(origin: string, profileTree: string, homeHost: string, device: string): Promise<ListedDevice> {
+    if (!isHomeHostOrigin(homeHost) || !this.readsGroupsAt(homeHost) || homeHost === origin) {
+      throw new PermissionDeniedError(`A visitor's home host must be another host's HTTPS origin, not ${homeHost}`);
+    }
+    if (this.accounts.account(profileTree)) throw new NotFoundError("No such key device");
+    const listed = await this.visitorKeys.device(`${homeHost} ${profileTree}`, homeHost, device);
+    if (!listed) throw new NotFoundError("No such key device");
+    return listed;
+  }
+
+  /** Exchange a visitor's signed challenge for a visitor session, held in memory only. */
+  private async openVisitorSession(challenge: DeviceSessionChallenge, signature: string): Promise<DeviceSession> {
+    const homeHost = challenge.homeHost!;
+    const { key } = await this.visitorDevice(challenge.origin, challenge.profileTree, homeHost, challenge.device);
+    if (!verifyDeviceSignature(key, deviceSessionChallengeBytes(challenge), signature)) {
+      throw new PermissionDeniedError("Device session signature is invalid");
+    }
+    const now = Date.now();
+    const expiresAt = Math.min(now + this.sessionLifetimeMs, this.visitorKeys.servesUntil(`${homeHost} ${challenge.profileTree}`) ?? now);
+    if (expiresAt <= now) throw new HomeHostUnavailableError(homeHost, `The profile's home host ${homeHost} cannot be read for its device keys`);
+    if (!this.accounts.consumeChallenge("device-session", challenge.id, stableJSONString(challenge), now)) {
+      throw new Error("Device session challenge is invalid, expired, or already used");
+    }
+    const token = this.visitors.open({ profileTree: challenge.profileTree, homeHost, device: challenge.device, key, expiresAt });
+    return { token, device: challenge.device, expiresAt };
+  }
+
+  /** The visitor a token names, while its session lasts. */
+  authenticateVisitor(token: string | undefined): VisitorAuthentication | null {
+    const visitor = this.visitors.authenticate(token);
+    // A visitor the community has since reserved reads as its account.
+    return visitor && !this.accounts.enabledAccount(visitor.profileTree) ? visitor : null;
+  }
+
+  /** Whether a visitor's session still holds: unexpired, and its device still listed at its home. */
+  visitorIsActive(visitor: VisitorAuthentication): boolean {
+    return this.visitors.active(visitor) && !this.accounts.enabledAccount(visitor.profileTree);
+  }
+
+  /** A visitor's whole-tree access: `read` or none, never more (accounts §5.6). */
+  visitorAccessLevel(visitor: VisitorAuthentication, tree: string | HostTree, linkDigest?: string): "read" | null {
+    return this.access.visitorCanRead(visitor, tree, linkDigest) ? "read" : null;
   }
 
   accountByHandle(handle: string): HostAccount | null {

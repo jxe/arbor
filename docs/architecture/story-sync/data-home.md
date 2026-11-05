@@ -78,10 +78,26 @@ tr_<configuration>:
   /Users/joe/Orchard:
     tree: tr_<research>
     host: https://orchard.example
+  /Users/joe/Reading/railton:
+    tree: tr_<essays>
+    host: https://railton.example
+    access: read
 ```
 
+`access: read` makes a **read-only placement**: the folder follows a tree the
+profile may only read, at any host, and Story Sync never publishes its edits
+(they wait, shown as a conflict) however much the host would allow. Its `host`
+needs no placement connection: Story Sync reads it with the profile's account
+there if it has one, else a visitor session
+([accounts §5.6](../../overstory-spec/04-accounts-and-devices.md#56-visitor-sessions))
+opened with this device's key and cached under
+`accounts/<ConfigurationTreeID>/visitors/`, else as anyone; a host that refuses
+a visitor session is read as anyone for five minutes before it is asked again.
+A read-only placement never activates a tree, and reads one its host does not
+list by its TreeID. `story place --read-only <url> <path>` writes it.
+
 `host` is an exact origin, HTTPS or loopback HTTP; the mapping allows no
-other field, and `{tree: tr_<id>}` alone means the home host as the bare
+other field than `tree`, `host` and `access`, and `{tree: tr_<id>}` alone means the home host as the bare
 TreeID does. Files written before placement hosts are valid and read the
 same, and writers keep the bare form for every home placement, so a data home
 that never places on another host never sees the mapping. A path and a TreeID

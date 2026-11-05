@@ -433,12 +433,22 @@ export async function serveHost(options: {
       const url = new URL(request.url);
       // The one authentication of this request; routes below reuse it.
       const authentication = overstoryd.authenticateToken(token);
+      // A visitor (accounts §5.6) has no account: every route reads it as
+      // anonymous except the tree reads, which ask what it may read.
+      const visitor = authentication || execution ? null : overstoryd.authenticateVisitor(token);
       // A presented token that authenticates nothing (an expired session, a
       // deleted device) is refused, never read as anonymous: a 404 for a
       // private tree would hide the reason and clients refresh only on 401.
-      if (token && !execution && !authentication) return protocolError("unauthenticated", "The session is not valid", 401);
+      if (token && !execution && !authentication && !visitor) return protocolError("unauthenticated", "The session is not valid", 401);
       const account = authentication?.account ?? (execution?.caller ? overstoryd.account(execution.caller) : null);
       const link = linkDigest(request);
+      /** The caller's whole-tree access: a visitor's is at most `read`. */
+      const levelOf = (tree: HostTree): ReadWriteAccess | null => visitor
+        ? overstoryd.visitorAccessLevel(visitor, tree, link)
+        : overstoryd.accessLevel(account, tree, link);
+      /** A visitor's stream holds while its session does and it may still read the tree. */
+      const visitorReads = (treeID: string): boolean =>
+        !!visitor && overstoryd.visitorIsActive(visitor) && overstoryd.visitorAccessLevel(visitor, treeID, link) !== null;
       /** The tree a route segment names, with the caller's access; an unreadable tree is not found. */
       /** A route segment's tree reference, refused with 403 when it names a
        * placement account's profile configuration, which its home host holds. */
@@ -451,7 +461,7 @@ export async function serveHost(options: {
       const readableTree = (segment: string): { tree: HostTree; level: ReadWriteAccess } => {
         const reference = hostedReference(segment);
         const tree = overstoryd.get(reference.id);
-        const level = tree ? overstoryd.accessLevel(account, tree, link) : null;
+        const level = tree ? levelOf(tree) : null;
         if (!tree || !level) throw new NotFoundError("Tree not found");
         return { tree, level };
       };
@@ -559,11 +569,12 @@ export async function serveHost(options: {
           return json(await overstoryd.publishedDeviceKeys(publishedKeys[1]!), 200, { "cache-control": "no-cache" });
         }
         if (url.pathname === "/.overstory/device-sessions/challenges" && request.method === "POST") {
-          const body = await bodyFields(request) as { profileTree?: unknown; device?: unknown };
+          const body = await bodyFields(request) as { profileTree?: unknown; device?: unknown; homeHost?: unknown };
           // The profile may be left out at a device's home host, which knows whose device it is (accounts §5.1).
           if ((body.profileTree !== undefined && typeof body.profileTree !== "string") || typeof body.device !== "string") throw new Error("A session challenge names a DeviceID, and a profile TreeID unless this is the device's home host");
           if (challenges && !challenges.allow(`${callerAddress(request, server)}:session:${body.profileTree ?? body.device}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
-          return json(await overstoryd.createDeviceSessionChallenge({ origin: publicOrigin, profileTree: body.profileTree, device: body.device }), 201);
+          if (body.homeHost !== undefined && (typeof body.homeHost !== "string" || typeof body.profileTree !== "string")) throw new Error("A visitor's session challenge names its profile TreeID and its home host's origin");
+          return json(await overstoryd.createDeviceSessionChallenge({ origin: publicOrigin, profileTree: body.profileTree, device: body.device, ...(typeof body.homeHost === "string" ? { homeHost: body.homeHost } : {}) }), 201);
         }
         if (url.pathname === "/.overstory/device-sessions" && request.method === "POST") {
           const body = await bodyFields(request) as { challenge?: unknown; signature?: unknown };
@@ -647,7 +658,7 @@ export async function serveHost(options: {
               .filter((tree) => tree.kind === "tree-configuration" ? tree.governs === account?.id
                 : tree.canonicalPath !== null || (account !== null && overstoryd.canAdminister(account, tree)))
               .flatMap((tree) => {
-                const level = overstoryd.accessLevel(account, tree, link);
+                const level = levelOf(tree);
                 return level ? [descriptorWithUpdate(publicOrigin, overstoryd, tree, level)] : [];
               }),
             });
@@ -745,7 +756,7 @@ export async function serveHost(options: {
         }
         if (wellKnown !== null && request.method === "GET") {
           const resolved = overstoryd.resolve(wellKnown);
-          const level = resolved ? overstoryd.accessLevel(account, resolved.tree, link) : null;
+          const level = resolved ? levelOf(resolved.tree) : null;
           if (!resolved || !level) return notFound();
           const enclosingTree = descriptorWithUpdate(publicOrigin, overstoryd, resolved.tree, level);
           return json({
@@ -867,10 +878,12 @@ export async function serveHost(options: {
           server.timeout(request, 0);
           const encoder = new TextEncoder();
           const readable = cachedAuthorization(overstoryd, () => {
+            if (visitor) return visitorReads(tree.id);
             const active = !authentication || overstoryd.authenticationIsActive(authentication);
             return active && overstoryd.canRead(account, tree.id, link);
           });
-          const authorized = (epoch?: string) => (!authentication || overstoryd.authenticationIsCurrent(authentication)) && readable(epoch);
+          const authorized = (epoch?: string) => (!authentication || overstoryd.authenticationIsCurrent(authentication))
+            && (!visitor || overstoryd.visitorIsActive(visitor)) && readable(epoch);
           let closed = false;
           let wake: (() => void) | undefined;
           let end = () => {};
@@ -957,6 +970,7 @@ export async function serveHost(options: {
           // reconnect is refused as any request is (401 or 404).
           let end = (_resyncReason?: string) => {};
           const readable = cachedAuthorization(overstoryd, () => {
+            if (visitor) return visitorReads(tree.id);
             const active = !authentication || overstoryd.authenticationIsActive(authentication);
             // By ID: a recheck reads the tree as it is now.
             return active && overstoryd.execution.run(execution, () => overstoryd.canRead(account, tree.id, link));
@@ -964,7 +978,8 @@ export async function serveHost(options: {
           // Execution token validity and session expiry change with time,
           // not database state, so they are never cached.
           const authorized = (epoch?: string) => (!execution || overstoryd.execution.valid(execution))
-            && (!authentication || overstoryd.authenticationIsCurrent(authentication)) && readable(epoch);
+            && (!authentication || overstoryd.authenticationIsCurrent(authentication))
+            && (!visitor || overstoryd.visitorIsActive(visitor)) && readable(epoch);
           return new Response(new ReadableStream<Uint8Array>({
             start(controller) {
               end = (resyncReason?: string) => {
@@ -1042,7 +1057,7 @@ export async function serveHost(options: {
         if (object && request.method === "GET") {
           const treeID = hostedReference(object[1]!).id;
           const hash = object[2] as ObjectHash;
-          if (!overstoryd.isReadableObject(treeID, account, link)) return protocolError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
+          if (visitor ? !visitorReads(treeID) : !overstoryd.isReadableObject(treeID, account, link)) return protocolError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
           const bytes = await overstoryd.retainedObject(hash);
           if (!bytes) return protocolError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
           return new Response(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, {

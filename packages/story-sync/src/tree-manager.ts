@@ -707,6 +707,8 @@ export class TreeManager implements AsyncDisposable {
     const root = this.known.get(placement.tree);
     if (!root?.placement || root.placement.path !== placement.path) throw new Error(`Unknown configured placement: ${placement.tree}`);
     const canonicalPath = placement.canonicalPath;
+    // A read-only placement reads, whatever the host would allow.
+    if (root.placement.readOnly) placement = { ...placement, access: "read" };
     root.placement = {
       ...root.placement, ref: placement.ref, update: placement.update, cursor: placement.cursor, conflicted: placement.conflicted, access: placement.access,
       canonicalPath, canonical: canonicalPath ? `overstory://${new URL(root.placement.endpoint).host}${canonicalPath}` : undefined,

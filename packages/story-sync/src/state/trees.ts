@@ -129,9 +129,11 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
       });
       continue;
     }
-    const { host, ...placed } = placement;
+    const { host, readOnly, ...placed } = placement;
     const endpoint = host ?? configuration.host;
-    if (endpoint !== configuration.host && !await new HostPlacementStore(placement.configurationTree, endpoint).safe()) {
+    // A read-only placement may follow a tree at any host: through a
+    // placement connection there, a visitor session, or anonymously.
+    if (!readOnly && endpoint !== configuration.host && !await new HostPlacementStore(placement.configurationTree, endpoint).safe()) {
       placementsValid = false;
       diagnostics.push({
         code: "unknown-placement-host",
@@ -148,6 +150,8 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
       access: "write",
       endpoint,
       ...sync,
+      // Whatever the host would let this profile do, a read-only placement only reads.
+      ...(readOnly ? { access: "read" as const, readOnly } : {}),
     });
   }
   const source = JSON.stringify({ accounts: pluralConfigurations, placements: local.source });

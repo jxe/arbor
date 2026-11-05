@@ -45,6 +45,12 @@ export interface ResourcePolicyContext {
   /** The profile whose `apps.yaml` holds the rules, for `me` and `members`. */
   ownerProfile?: string;
   callerProfile: string | null;
+  /**
+   * Set for a visitor (accounts §5.6): the origin of the home host whose
+   * published keys vouched for the caller. A profile subject then matches
+   * the caller only when it is a locator at that origin.
+   */
+  callerHomeHost?: string;
   app?: string;
   linkDigest?: string;
   /** `homeHost` is the origin of a locator subject's host, for a group this
@@ -269,6 +275,11 @@ export function ruleMatches(
   if ("link" in rule.who) return rule.who.link === context.linkDigest;
   if (context.callerProfile === null) return false;
   const subject = subjectProfile(rule.who.profile, context);
+  if (subject && context.callerHomeHost !== undefined && subject.homeHost !== context.callerHomeHost) {
+    // A visitor is vouched for only by its home host: a TreeID subject (a
+    // profile this host holds) or a locator at another host is not it.
+    return context.isGroupMember?.(subject.tree, context.callerProfile, subject.homeHost) === true;
+  }
   return !!subject && (subject.tree === context.callerProfile ||
     context.isGroupMember?.(subject.tree, context.callerProfile, subject.homeHost) === true);
 }

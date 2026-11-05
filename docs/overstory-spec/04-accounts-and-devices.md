@@ -1,7 +1,7 @@
 # Accounts and devices
 *Part of the [Overstory spec](README.md): profile identity, host accounts, each hosted tree's private tree configuration, devices, and how a hosted tree is declared, activated and mounted.*
 
-*Owns: profile documents, self-certifying person identity, host account claims, the tree configuration graph and YAML, device pairing, tree declaration, activation and mounting, and the `tree-config-v1` write and merge rules. References: [locators](03-locators.md) for the host-defined canonical URLs, [access control](05-access-control.md) for subjects, rules, and credentials, and the [data model](01-tree-operations.md) for synchronization. Filesystem placements and private identity keys are deliberately local rather than part of this portable graph.*
+*Owns: profile documents, self-certifying person identity, host account claims, visitor sessions, the tree configuration graph and YAML, device pairing, tree declaration, activation and mounting, and the `tree-config-v1` write and merge rules. References: [locators](03-locators.md) for the host-defined canonical URLs, [access control](05-access-control.md) for subjects, rules, and credentials, and the [data model](01-tree-operations.md) for synchronization. Filesystem placements and private identity keys are deliberately local rather than part of this portable graph.*
 
 ## 1. Profiles and host accounts
 
@@ -820,6 +820,45 @@ device, and deleting it from `devices.yaml` ends the link. The link reaches
 everything the account can, not only the tree it names; the tree is what is
 checked out. [conformance/agent-code.json](conformance/agent-code.json) pins
 the derivation and the link's form.
+
+### 5.6 Visitor sessions
+
+A profile may read at a host where it has no account. A **visitor** asks
+for a session challenge (§5.1) naming its profile, its device, and its home
+host's origin as `homeHost`:
+
+```json
+{ "profileTree": "tr_…", "device": "dv_…", "homeHost": "https://home.example" }
+```
+
+The host reads that home host's published device keys (§5.4) for the
+profile, with the same lifetime, grace, refresh and early-refetch rules a
+placement host keeps, and issues a challenge only for a device they list.
+The challenge carries the same `homeHost`, so the device signs it too. The
+host refuses a `homeHost` that is itself, or that is not HTTPS (a loopback
+host may name a loopback home). A profile that has an enabled account at the
+host, home or placement, gets an ordinary challenge without `homeHost`, and
+the client accepts it: its session is then the account's.
+
+A visitor session is a bearer token like any other, for at most an hour and
+no longer than the copy it was opened from serves. It holds no account: the
+host stores nothing about the visitor and may keep visitor sessions in
+memory only, so a restart ends them and the client opens another after the
+`401`. A refresh that no longer lists the device, or lists it with another
+key, ends its sessions and watches as it does a placement account's.
+
+A visitor is vouched for only by the home host it named, so it is the
+profile only as that host's locators name it. It reads a tree when a rule
+(or an `admin` entry) names the profile by a locator at that home host
+pinned to its TreeID, when a group does so through a member entry naming it
+by such a locator, or when the group is held at that home host and its copy
+lists the profile ([access control §1](05-access-control.md#1-subjects-and-rules));
+`everyone` and a presented link reach it as they reach anyone. A bare TreeID
+subject names a profile the host holds, so it never matches a visitor. A
+visitor only reads, watches and fetches objects: every other route treats it
+as no account at all, and it never sees a tree configuration. Writing, and
+being someone at a host, still need the community to reserve the profile
+(§1.3).
 
 ## 6. Declaring, activating and mounting a tree
 

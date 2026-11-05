@@ -12,6 +12,28 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Visitor sessions and read-only placements — 2026-11-05
+
+**Implemented** on main, deployed with it (overstoryd). A profile can now read at a host
+where it has no account. A device asks for a session challenge naming its home host;
+the host checks the device against the keys that home host publishes and opens a
+**visitor session** ([accounts §5.6](docs/overstory-spec/04-accounts-and-devices.md#56-visitor-sessions)),
+kept in memory only. A visitor reads (descriptors, snapshots, objects, watches, listings)
+what the host's rules grant its profile by a locator at that home host, through a group
+that names it so, or what anyone can read; it never writes, and every other route treats
+it as no account. Story Sync gained **read-only placements**: `access: read` in
+`placements.yaml`, written by `story place --read-only <url> <path>`, follows a tree at any
+host, with the account there if there is one, else a visitor session, else anonymously,
+and never publishes the folder's edits.
+
+Validation: unit tests for visitor matching (`tests/unit/overstoryd/tree-access.test.ts`);
+two local hosts for sessions, scoping by home host, revocation and rule removal
+(`tests/integration/overstoryd/visitor-sessions.test.ts`); and Story Sync plus the CLI
+following a shared and a public tree at a host where the profile has no account, with
+the owner's edits arriving and local edits never sent
+(`tests/integration/story-sync-read-only-placement.test.ts`). Story.app has no UI for it
+yet; not hand-checked on Joe's Mac.
+
 ## Story Path (White) icon — 2026-11-02
 
 Story's device-local App Icon settings now offer Story Path (White) beside
