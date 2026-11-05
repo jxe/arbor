@@ -799,6 +799,54 @@ describe("membership does not administer the host", () => {
     }
   });
 
+  test("a host founded by code makes the first claimer of its founder invitation the administrator", async () => {
+    const founderCode = "founderfounderfounderf";
+    const host = await serveHost({
+      dataRoot: join(sandbox, "code-founded-host"),
+      publicOrigin: "http://127.0.0.1:0",
+      hostname: "127.0.0.1",
+      port: 0,
+      community: { handle: "commons", name: "Commons", firstWriter: { handle: "founder", inviteCode: founderCode } },
+    });
+    try {
+      const community = host.overstoryd.community();
+      const health = async () => await (await fetch(`${host.url}/.overstory/health`)).json() as { founding?: boolean };
+      // Before the claim nobody's profile is named, and the host says it is founding.
+      expect(host.overstoryd.founding()).toBe(true);
+      expect(host.overstoryd.unclaimedFounderHandle()).toBe("founder");
+      expect(await health()).toMatchObject({ status: "ok", founding: true });
+      expect(host.overstoryd.ruleProfiles(community.id)).toEqual([community.id]);
+
+      const founderIdentity = testProfileIdentity();
+      await expect(claimAccount(host, founderIdentity, "founder", "wrongwrongwrongwrongwr")).rejects.toThrow();
+      const founder = await claimAccount(host, founderIdentity, "founder", founderCode);
+      const founderAccount = host.overstoryd.account(founderIdentity.profileTree)!;
+      expect(host.overstoryd.canAdminister(founderAccount, community)).toBe(true);
+      expect((await readTreeConfig(founder, community.id, "group")).values.access).toEqual([
+        { who: { profile: founderIdentity.profileTree }, allow: ["admin"] },
+        { who: "everyone", allow: ["read"] },
+      ]);
+      expect(host.overstoryd.founding()).toBe(false);
+      expect(host.overstoryd.unclaimedFounderHandle()).toBeNull();
+      expect((await health()).founding).toBeUndefined();
+      expect(host.overstoryd.communityMembers()).toContainEqual({ profile: `overstory://${founderIdentity.profileTree}/`, handle: "founder" });
+
+      // A later invitation makes a member who administers nothing.
+      const inviteCode = "secondsecondsecondseco";
+      const invitation = await communityWith(founder, community.id, (source) =>
+        source.replace("members:\n", `members:\n  - handle: "second"\n    inviteDigest: "sha256:${sha256(inviteCode)}"\n`));
+      await founder.submitUpdate(community.id, invitation.head.tree.update, invitation.candidate);
+      const secondIdentity = testProfileIdentity();
+      await claimAccount(host, secondIdentity, "second", inviteCode);
+      const secondAccount = host.overstoryd.account(secondIdentity.profileTree)!;
+      expect(host.overstoryd.canAdminister(secondAccount, community)).toBe(false);
+      expect(host.overstoryd.ruleProfiles(community.id)).toEqual([founderIdentity.profileTree]);
+    } finally {
+      host.server.stop(true);
+      await host.overstoryd[Symbol.asyncDispose]();
+    }
+  });
+
   test("bootstrap accounts that all write the community are named one by one, not through the group", async () => {
     const host = await serveHost({
       dataRoot: join(sandbox, "accounts-host"),

@@ -170,6 +170,23 @@ stored locators and anything it publishes. A
 host founder supplies the same public TreeID as bootstrap configuration, so
 founding removes only that out-of-band handoff and does not waive proof.
 
+**Founding by code.** A host may instead be founded with no profile at all: its
+bootstrap configuration names the founder's handle and an invitation code, and
+the community starts with that one pending invitation and no administrator
+profile. (Its configuration grants `admin` to the community group, which has
+no member who could act on it yet; a host may record the same state another
+way.) While a community is founding, the first invitation claimed, whether as
+an account here or as a placement (§1.4), also makes its claimer the
+community's administrator: the host rewrites the community's `access.yaml` so
+that it grants `admin` to the claimer's profile and no longer to the group, and
+the community is founding no more. Nobody can make another invitation in the
+meantime, so that claim is the founder's. The founder link is an ordinary
+invitation link and reaches the founder through the host's operator, outside
+the protocol; a host shows it only to its operator. While founding, a host's
+`health` answers `"founding": true`
+([locators §5](03-locators.md#5-finding-trees)), so a client can tell the
+founder that the community is theirs before they claim it.
+
 The challenge request contains `profileTree`, `configurationTree` (the
 profile's derived configuration TreeID, §2.1), and an optional `account` URL
 or invitation code. A host refuses a `configurationTree` other than the

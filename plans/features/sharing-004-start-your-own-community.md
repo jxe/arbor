@@ -1,6 +1,6 @@
 # Sharing 004: Start your own community from a Railway template
 
-**Timing:** Later.
+**Timing:** Built 2026-11-05 (Joe: "bang out the railway template (w. image)"), then set aside until Joe publishes it.
 
 **Why and when:** Joe wants a newcomer to choose between two ways in: ask a friend like Joe for an account on their host, or run their own overstoryd. Today the second takes the CLI (`story me create`), copying a TreeID into Railway variables, and the deploy README. Joe, 2026-11-04: don't make it *quite* that easy. If Story starts the flow, people will make an identity and then give up at Railway. So the flow starts at the Railway template, and Story comes in only at the end, through the invitation link it already handles. This does not make running a host easy. Domains, updates and backups stay the owner's job (Joe, 2026-10-28: "running a host may stay hard for now").
 
@@ -8,6 +8,8 @@
 
 ## Status
 
+- **State**: steps 1, 2, 4 and 5 built on main 2026-11-05; step 3's image and template definition too. Built differently from the decisions below in two places: `access.yaml` can't be empty of administrators (the protocol's invariant), so a code-founded community grants `admin` to its group, which has no member yet, and the founder's claim replaces that rule; and the host says `founding: true` from `GET /.overstory/health` rather than the claim challenge, because Story words its join screen before it asks for a challenge. The first-screen line links to the deploy README's "Start your own community" section, so the template's link can change without an app release.
+- **Left, for Joe**: make the `ghcr.io/jxe/overstoryd` package public after the first image publishes (a release tag, or running Publish host image by hand), create the template in Railway's dashboard as the deploy README's "The template (maintainers)" says, and put its link in that README. Then the rehearsal in step 3 from a fresh Railway account, and the "Old hosts, new apps" question below.
 - **Effort**: M
 - **Risk**: LOW. A new host founded by code is only as safe as its founder code. The code sits in Railway variables and deploy logs, which only the project's owner can see, and the first claim uses it up.
 - **Depends on**: nothing
@@ -43,6 +45,6 @@ Read from source on 2026-11-04. Nothing here was run.
 
 ## Open
 
-- **Image or repository.** Joe isn't sure (2026-11-04). Recommended: a published, versioned image. A template that builds `jxe/arbor` needs the repository public, and every redeploy builds whatever is on its branch at that moment, so owners can't choose when to update and a broken main reaches every self-hosted host. An image on GHCR, tagged by `tools/release.sh` with each Story release, keeps hosts on a version that matches an app release, and updating is changing the tag and redeploying. The cost is one more release step. Decide before step 3.
+- ~~**Image or repository.**~~ Image (Joe, 2026-11-05): `.github/workflows/publish-host-image.yml` publishes `ghcr.io/jxe/overstoryd:<version>` and `:latest` from each release tag; the template uses `:latest`, and a service keeps what it pulled until redeployed. Was: Joe isn't sure (2026-11-04). Recommended: a published, versioned image. A template that builds `jxe/arbor` needs the repository public, and every redeploy builds whatever is on its branch at that moment, so owners can't choose when to update and a broken main reaches every self-hosted host. An image on GHCR, tagged by `tools/release.sh` with each Story release, keeps hosts on a version that matches an app release, and updating is changing the tag and redeploying. The cost is one more release step. Decide before step 3.
 - **Old hosts, new apps.** Self-hosted hosts will lag behind Story releases. Health already advertises capabilities. Decide what Story says when a host is too old for it, before the template is public.
 - **Other hosting.** Fly and the docker-compose VPS recipe could get the same founder-code path later. Railway only for now.

@@ -194,7 +194,7 @@ fi
 echo
 echo "Ready to publish $version (build $build): $parts"
 { wants mac || wants ios; } && echo "  - built with Quagmire $target"
-wants mac && echo "  - push main and $tag (deploys the host); GitHub release with Story-$version.dmg, Story.dmg, appcast.xml"
+wants mac && echo "  - push main and $tag (deploys the host); GitHub release with Story-$version.dmg, Story.dmg, appcast.xml; the tag publishes the host image ghcr.io/jxe/overstoryd:$version (and :latest) from GitHub Actions"
 wants ios && echo "  - upload the iPhone app to App Store Connect, then add it to its TestFlight group"
 wants npm && echo "  - from GitHub Actions, npm publish @ovst/cli@$version, its four platform builds and any new @ovst/usl"
 printf 'Publish? Type yes: '

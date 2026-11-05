@@ -328,7 +328,10 @@ GET /.well-known/overstory[/{path}]
 server's own database is consistent; poll it freely. It may add `features`, the
 optional protocol features the host serves, such as `"pages-v1"`
 ([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity));
-a host that lists none serves none. `integrity` audits every
+a host that lists none serves none. It adds `"founding": true` while the
+community was founded by code and nobody has claimed it yet
+([accounts §1.2](04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)).
+`integrity` audits every
 object reachable from retained history and can take minutes on a large server;
 concurrent requests share one audit, and it is for operators, not polling.
 

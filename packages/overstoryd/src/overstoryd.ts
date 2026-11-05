@@ -157,9 +157,13 @@ export interface HostBootstrap {
   handle: string;
   name: string;
   accounts: HostBootstrapAccount[];
+  /** The founder: a handle reserved for their Profile TreeID, or for an
+   * invitation code (`inviteCode`), whose first claim makes the claimer the
+   * community's administrator (accounts §1.2). Exactly one of the two. */
   firstWriter?: {
     handle: string;
-    profileTree: string;
+    profileTree?: string;
+    inviteCode?: string;
     name?: string;
   };
 }
@@ -283,7 +287,7 @@ function directSnapshot(source: string): TreeSnapshot {
 function profileSource(
   kind: "person" | "group",
   name: string,
-  members: Array<{ profile?: string; handle?: string }> = [],
+  members: Array<{ profile?: string; handle?: string; inviteDigest?: string }> = [],
   displayName: string | undefined = name,
 ): string {
   return [
@@ -295,6 +299,7 @@ function profileSource(
           "  -",
           ...(member.profile ? [`    profile: ${JSON.stringify(member.profile)}`] : []),
           ...(member.handle ? [`    handle: ${JSON.stringify(member.handle)}`] : []),
+          ...(member.inviteDigest ? [`    inviteDigest: ${JSON.stringify(member.inviteDigest)}`] : []),
         ])]
       : []),
     "---",
@@ -479,6 +484,7 @@ export class HostDaemon implements AsyncDisposable {
         throw error;
       }
     }
+    await overstoryd.resumeFounding();
     overstoryd.scheduleDeviceKeyRefresh();
     overstoryd.scheduleRemoteGroupRefresh();
     void overstoryd.refreshRemoteGroups();
@@ -530,9 +536,13 @@ export class HostDaemon implements AsyncDisposable {
     if (config.firstWriter && !HANDLE.test(config.firstWriter.handle)) {
       throw new Error(`Invalid first-writer handle: ${config.firstWriter.handle}`);
     }
-    if (config.firstWriter && !isPersonProfileTreeID(config.firstWriter.profileTree)) {
+    if (config.firstWriter && (config.firstWriter.profileTree === undefined) === (config.firstWriter.inviteCode === undefined)) {
+      throw new Error("A founder is reserved for a profile or for an invitation code, not both");
+    }
+    if (config.firstWriter?.profileTree !== undefined && !isPersonProfileTreeID(config.firstWriter.profileTree)) {
       throw new Error("First-writer profile must be a self-certifying person Profile TreeID");
     }
+    const founderDigest = config.firstWriter?.inviteCode !== undefined ? inviteCodeDigest(config.firstWriter.inviteCode) : undefined;
     const preparedAccounts = config.accounts.map((account) => {
       const profileTree = account.profileTree ?? generateOverstoryID("tr");
       if (!isGeneratedOverstoryID(profileTree, "tr") && !isPersonProfileTreeID(profileTree)) throw new Error(`Invalid profile TreeID for ~${account.handle}`);
@@ -540,12 +550,16 @@ export class HostDaemon implements AsyncDisposable {
       parseDeviceKey(account.device.key);
       return { account, profileTree, deviceID: account.device.id };
     });
-    const members: Array<{ profile?: string; handle: string }> = [
+    const members: Array<{ profile?: string; handle: string; inviteDigest?: string }> = [
       ...preparedAccounts.map(({ account, profileTree }) => ({
         profile: `overstory://${profileTree}/`,
         handle: account.handle,
       })),
-      ...(config.firstWriter ? [{ profile: `overstory://${config.firstWriter.profileTree}/`, handle: config.firstWriter.handle }] : []),
+      ...(config.firstWriter
+        ? [founderDigest
+          ? { handle: config.firstWriter.handle, inviteDigest: founderDigest }
+          : { profile: `overstory://${config.firstWriter.profileTree}/`, handle: config.firstWriter.handle }]
+        : []),
     ];
     const community = await this.insertTree(directSnapshot(profileSource("group", config.name, members)), { root: true });
     // The host's administrators are named one by one: the founder, whose
@@ -553,9 +567,12 @@ export class HostDaemon implements AsyncDisposable {
     // opt out of writing the community. Membership confers no administration,
     // so a person who joins later is a member and nothing more. Only a
     // bootstrap that names nobody falls back to the group, which a
-    // configuration needs for its one required administrator.
+    // configuration needs for its one required administrator. A community
+    // founded by code is one: its group has no member who could act on that
+    // until the founder claims, and the claim replaces the rule with the
+    // founder's profile (`finishFounding`).
     const writers = preparedAccounts.filter(({ account }) => account.communityWriter !== false).map(({ profileTree }) => profileTree);
-    const named = [...new Set([...(config.firstWriter ? [config.firstWriter.profileTree] : []), ...writers])];
+    const named = [...new Set([...(config.firstWriter?.profileTree ? [config.firstWriter.profileTree] : []), ...writers])];
     const communityAdmins = named.length ? named : [community.id];
     const communityConfig = await this.prepareConfig(community.id, "group", snapshotTreeConfig({
       access: [...communityAdmins.map((profile) => ({ who: { profile }, allow: ["admin" as const] })), { who: "everyone", allow: ["read"] }],
@@ -567,6 +584,7 @@ export class HostDaemon implements AsyncDisposable {
       this.db.run("INSERT INTO meta (key, value) VALUES ('community_handle', ?)", [config.handle]);
       if (config.firstWriter) {
         this.db.run("INSERT INTO meta (key, value) VALUES ('first_writer_handle', ?)", [config.firstWriter.handle]);
+        if (founderDigest) this.db.run("INSERT INTO meta (key, value) VALUES ('founding', ?)", [config.firstWriter.handle]);
       }
       this.insertConfig(communityConfig, now, null);
     })();
@@ -1179,6 +1197,42 @@ export class HostDaemon implements AsyncDisposable {
     return row?.value ?? null;
   }
 
+  /** Whether the community was founded by code and its founder has not
+   * claimed it yet: the first invitation claimed makes its claimer the
+   * administrator (accounts §1.2). */
+  founding(): boolean {
+    return this.foundingHandle() !== null;
+  }
+
+  private foundingHandle(): string | null {
+    const row = this.db.query("SELECT value FROM meta WHERE key = 'founding'").get() as { value: string } | null;
+    return row?.value ?? null;
+  }
+
+  /** Name the founder, who just claimed the community's founder invitation,
+   * as its administrator in place of the group's placeholder rule, and end
+   * the founding. Separate from the claim's transaction; a start that finds a
+   * claimed founder and a founding still recorded finishes it
+   * (`resumeFounding`). Until then the group's rule makes its one member, the
+   * founder, its administrator anyway. */
+  private async finishFounding(profileTree: string): Promise<void> {
+    const community = this.community();
+    const accepted = await this.advanceConfig(community.id, "founder", (values) => ({
+      ...values,
+      access: [
+        { who: { profile: profileTree }, allow: ["admin"] },
+        ...values.access.filter((rule) => !(typeof rule.who === "object" && "profile" in rule.who && rule.who.profile === community.id && rule.allow.includes("admin"))),
+      ],
+    }), () => this.db.run("DELETE FROM meta WHERE key = 'founding'"));
+    this.notifyAccepted(accepted);
+  }
+
+  private async resumeFounding(): Promise<void> {
+    const handle = this.foundingHandle();
+    const account = handle ? this.accountByHandle(handle) : null;
+    if (account) await this.finishFounding(account.id);
+  }
+
   setCommunityHost(host: string, allowTestPortChange = false): void {
     this.accounts.setCommunityHost(host, allowTestPortChange);
   }
@@ -1678,6 +1732,7 @@ export class HostDaemon implements AsyncDisposable {
     })();
     this.notifyAccepted(this.currentUpdate(input.configurationTree)!);
     if (invitation) this.notifyAccepted(this.currentUpdate(invitation.tree)!);
+    if (invitation && this.foundingHandle() === input.handle) await this.finishFounding(input.profileTree);
     return { account: this.account(input.profileTree)!, configuration: this.get(input.configurationTree)! };
   }
 
@@ -1777,8 +1832,10 @@ export class HostDaemon implements AsyncDisposable {
         throw new Error("Account challenge was already consumed or expired");
       }
       this.advanceParent(prepared, Date.now(), `invite:${reservation.handle}`);
+      if (this.unclaimedFounderHandle() === reservation.handle) this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
     })();
     this.notifyAccepted(this.currentUpdate(community.id)!);
+    if (this.foundingHandle() === reservation.handle) await this.finishFounding(input.profileTree);
     return this.account(input.profileTree)!;
   }
 

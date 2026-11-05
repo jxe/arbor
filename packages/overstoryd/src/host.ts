@@ -358,7 +358,7 @@ export async function serveHost(options: {
   community?: {
     handle: string;
     name: string;
-    firstWriter?: { handle: string; profileTree: string; name?: string };
+    firstWriter?: { handle: string; profileTree?: string; inviteCode?: string; name?: string };
   };
   accounts?: HostBootstrapAccount[];
   port?: number;
@@ -521,7 +521,10 @@ export async function serveHost(options: {
           try {
             overstoryd.verifyDatabase();
             const pages = overstoryd.pages === true || (Array.isArray(overstoryd.pages) && overstoryd.pages.length > 0);
-            return json({ status: "ok", ...(pages ? { features: ["pages-v1"] } : {}) });
+            // `founding`: the community was founded by code and nobody has
+            // claimed it yet, so an invitation claim here makes its claimer
+            // the administrator (accounts §1.2). Story words its join screen by it.
+            return json({ status: "ok", ...(pages ? { features: ["pages-v1"] } : {}), ...(overstoryd.founding() ? { founding: true } : {}) });
           } catch (error) {
             console.error("overstoryd database check failed", error);
             return protocolError("internal-error", "Host database check failed", 503, true);

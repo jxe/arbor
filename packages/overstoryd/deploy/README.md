@@ -11,6 +11,68 @@ The quickest realistic trial is one Railway service with one persistent volume a
 
 For multi-machine synchronization, outage, and conflict testing rather than a single-user trial, use the deliberately small [hcloud sync lab](hcloud-sync-lab.md): one disposable community VM, three client VMs, Tailscale, and no infrastructure framework. Its checked-in `bun run lab:hcloud` runner supports preflight, resumable provisioning, evidence collection, and exact-ID teardown.
 
+## Start your own community
+
+Story is joined by invitation. If nobody you know runs a host, you can run your own on
+[Railway](https://railway.com) and invite people to it.
+
+1. **Deploy the template.** *(Template link goes here once it is published.)* Railway asks for two
+   names: your community's handle (`OVERSTORYD_COMMUNITY_HANDLE`, such as `garden`) and yours
+   (`OVERSTORYD_FIRST_WRITER_HANDLE`, such as `alice`). Each is lowercase letters, digits and
+   hyphens. The template generates the founder code itself, attaches a volume at `/data` and
+   gives the service a Railway domain.
+2. **Find your founder link.** When the deploy finishes, open the service's **Deploy Logs**. The
+   host prints:
+
+   ```text
+   Your community is ready. Open this founder link in Story to claim it and become its administrator:
+
+     https://garden-production.up.railway.app/~alice#overstory-invite=…
+   ```
+
+   Only you can see these logs. The link is printed at every start until it is used.
+3. **Open it in Story.** Paste the link into Story's first screen on a Mac (or open it in a
+   browser and choose Open in Story). Story says your community is ready, creates your
+   identity, and claims the account; you become the community's administrator. If you already
+   use Story somewhere else, the link adds this community to your existing identity instead.
+4. **Invite people** from Story's share sheet, as on any host.
+
+After the claim the host ignores `OVERSTORYD_FOUNDER_CODE`, and you can delete the variable.
+
+What stays your job:
+
+- **Keep the domain.** Your host's address is in every link to it, so moving to another domain
+  later breaks them. If you want your own domain, add it (and `OVERSTORYD_DOMAIN`) before you
+  invite anyone.
+- **Backups.** Turn on volume backups for `/data` in Railway.
+- **Updates.** The service keeps the image it pulled. Redeploy to take the newest Story release's
+  host, or pin a version by changing the image tag (`ghcr.io/jxe/overstoryd:0.1.8`).
+- **Cost.** Railway's Hobby plan; see [railway.com/pricing](https://railway.com/pricing). A small
+  community uses little of it.
+
+### The template (maintainers)
+
+The template is defined in Railway's dashboard (Templates, New Template), not in this
+repository. Its one service:
+
+- **Source:** the Docker image `ghcr.io/jxe/overstoryd:latest`, which
+  `.github/workflows/publish-host-image.yml` publishes from each release tag (`v*`) as
+  `:<version>` and `:latest`. The package must be public on GitHub (Packages, overstoryd,
+  Package settings, Change visibility) for Railway to pull it.
+- **Volume:** mounted at `/data`.
+- **Networking:** a generated Railway domain, port 4318 (or leave `PORT` to Railway).
+- **Health check:** `/.overstory/health`.
+- **Variables:**
+
+  ```text
+  OVERSTORYD_COMMUNITY_HANDLE      (required, the person fills it in)
+  OVERSTORYD_FIRST_WRITER_HANDLE   (required, the person fills it in)
+  OVERSTORYD_FOUNDER_CODE=${{secret(22, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")}}
+  ```
+
+A founder code is 22 base64url characters. The host refuses to start with any other shape, or
+with both a founder code and `OVERSTORYD_FIRST_WRITER_PROFILE`.
+
 ## Railway
 
 The repository already contains `packages/overstoryd/deploy/Dockerfile.overstoryd` and `railway.toml`. Railway builds that image with the same pinned Bun 1.4.2 as the workspace, checks `/`, supplies `PORT`, and restarts a failed process. overstoryd refuses to initialize on Railway until both a public domain and persistent volume exist, preventing accidental canonical `localhost` URLs or ephemeral overstoryd state.

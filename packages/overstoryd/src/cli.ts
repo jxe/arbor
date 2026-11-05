@@ -18,8 +18,11 @@ only the named self-certifying profile may claim. The data directory defaults
 to ./<community>. serve runs an existing community; it is the default command.
 An unattended serve of an empty directory (Railway, Compose) creates the
 community from OVERSTORYD_COMMUNITY_HANDLE, OVERSTORYD_FIRST_WRITER_HANDLE, and
-OVERSTORYD_FIRST_WRITER_PROFILE, or from OVERSTORYD_ACCOUNTS_JSON: accounts, each with
-its first key device's DeviceID and key.
+either OVERSTORYD_FIRST_WRITER_PROFILE or OVERSTORYD_FOUNDER_CODE, or from
+OVERSTORYD_ACCOUNTS_JSON: accounts, each with its first key device's DeviceID and key.
+A founder code (22 base64url characters, as the Railway template generates) reserves
+the founder's handle as an invitation: serve logs the founder link at every start until
+it is claimed, and its claimer becomes the community's administrator.
 recover is the operator's help for a person who has lost every administrator
 device: it prints a one-day recovery pairing code for their account, which they
 claim from a new device as an ordinary pairing. That device becomes the
@@ -199,20 +202,27 @@ export async function serveCommunity(args: string[]): Promise<void> {
     : [];
   const envCommunity = process.env.OVERSTORYD_COMMUNITY_HANDLE;
   const envFounderHandle = process.env.OVERSTORYD_FIRST_WRITER_HANDLE;
-  const envFounderProfile = process.env.OVERSTORYD_FIRST_WRITER_PROFILE;
-  let firstWriter: { handle: string; profileTree: string } | undefined;
+  const envFounderProfile = process.env.OVERSTORYD_FIRST_WRITER_PROFILE?.trim() || undefined;
+  const envFounderCode = process.env.OVERSTORYD_FOUNDER_CODE?.trim() || undefined;
+  let firstWriter: { handle: string; profileTree?: string; inviteCode?: string } | undefined;
   if (!existingHost) {
     if (!envCommunity) {
       throw new Error(
         `No community at ${dataRoot}. Create one with \`overstoryd init <community> --founder <handle>=<TreeID> --data ${dataRoot}\`, `
-        + "or set OVERSTORYD_COMMUNITY_HANDLE with OVERSTORYD_FIRST_WRITER_HANDLE and OVERSTORYD_FIRST_WRITER_PROFILE for an unattended start.",
+        + "or set OVERSTORYD_COMMUNITY_HANDLE with OVERSTORYD_FIRST_WRITER_HANDLE and OVERSTORYD_FIRST_WRITER_PROFILE (or OVERSTORYD_FOUNDER_CODE) for an unattended start.",
       );
     }
     if (!accounts.length) {
-      if (!envFounderHandle || !envFounderProfile) {
-        throw new Error("An unattended new community requires OVERSTORYD_FIRST_WRITER_HANDLE and OVERSTORYD_FIRST_WRITER_PROFILE (or OVERSTORYD_ACCOUNTS_JSON)");
+      if (!envFounderHandle || (!envFounderProfile && !envFounderCode)) {
+        throw new Error("An unattended new community requires OVERSTORYD_FIRST_WRITER_HANDLE and OVERSTORYD_FIRST_WRITER_PROFILE or OVERSTORYD_FOUNDER_CODE (or OVERSTORYD_ACCOUNTS_JSON)");
       }
-      firstWriter = { handle: envFounderHandle, profileTree: envFounderProfile };
+      if (envFounderProfile && envFounderCode) {
+        throw new Error("Set OVERSTORYD_FIRST_WRITER_PROFILE or OVERSTORYD_FOUNDER_CODE, not both");
+      }
+      if (envFounderCode && !/^[A-Za-z0-9_-]{22}$/.test(envFounderCode)) {
+        throw new Error("OVERSTORYD_FOUNDER_CODE must be 22 base64url characters (A-Z, a-z, 0-9, - and _)");
+      }
+      firstWriter = envFounderCode ? { handle: envFounderHandle, inviteCode: envFounderCode } : { handle: envFounderHandle, profileTree: envFounderProfile };
     }
   }
   const communityHandle = envCommunity ?? "community";
@@ -250,7 +260,17 @@ export async function serveCommunity(args: string[]): Promise<void> {
     if (new URL(publicOrigin).port === "0") {
       throw new Error("A community whose founder account is still unclaimed needs a stable nonzero --port or an explicit --url");
     }
-    console.log(`Founder account ${running.url}/~${unclaimed} is reserved and unclaimed; open it in Story and claim it with the founder's profile.`);
+    if (running.overstoryd.founding()) {
+      const code = process.env.OVERSTORYD_FOUNDER_CODE?.trim();
+      // Only the host's owner sees its logs; the link is the founder's way in.
+      console.log(code
+        ? `Your community is ready. Open this founder link in Story to claim it and become its administrator:\n\n  ${running.url}/~${unclaimed}#overstory-invite=${code}\n`
+        : `Founder account ${running.url}/~${unclaimed} is waiting for its founder, but OVERSTORYD_FOUNDER_CODE is no longer set; set it back to the code the community was founded with.`);
+    } else {
+      console.log(`Founder account ${running.url}/~${unclaimed} is reserved and unclaimed; open it in Story and claim it with the founder's profile.`);
+    }
+  } else if (process.env.OVERSTORYD_FOUNDER_CODE && existingHost) {
+    console.log("The founder has claimed this community; OVERSTORYD_FOUNDER_CODE is no longer used and can be deleted.");
   }
   const shutdown = async () => {
     running.server.stop(true);
