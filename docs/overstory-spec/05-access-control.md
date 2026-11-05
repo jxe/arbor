@@ -51,8 +51,10 @@ A visitor ([accounts §5.6](04-accounts-and-devices.md#56-visitor-sessions))
 is the profile only as its home host names it: a profile subject matches it
 when it is a locator at that home host pinned to the visitor's TreeID, and a
 group matches it through such a member locator, or as a group that home host
-holds whose copy lists it. Whatever a matching rule allows, a visitor only
-reads.
+holds whose copy lists it. A domain locator
+([locators §1.1](03-locators.md#11-domain-locators)) is at the home host its
+records named when last confirmed, so it matches a visitor vouched for by
+that host. Whatever a matching rule allows, a visitor only reads.
 
 `admin` names the tree's **administrators**. It may be granted only to a
 person or group profile, in a rule with no `app` and no `within`; a group

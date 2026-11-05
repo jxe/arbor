@@ -67,6 +67,60 @@ TreeID. A new person-profile TreeID is
 self-certifying as defined by [accounts §1.1](04-accounts-and-devices.md#11-beginning-a-person-identity);
 ordinary and group-profile TreeIDs remain opaque identifiers.
 
+### 1.1 Domain locators
+
+A person may name their profile by a DNS name they control, so that
+`https://alice.example` (or `overstory://alice.example`) names them wherever
+their profile is homed. A profile locator with no path is a **domain
+locator**. Its authority is a DNS name of at least two labels, never an IP
+address; a loopback authority (`127.0.0.1`, `localhost`, `[::1]`, with a port)
+is accepted for local test hosts. Its canonical spelling is its origin, with a
+lowercase host and no implied port.
+
+A domain names a profile only when both directions agree:
+
+1. **The domain names the profile** by its locator at its home host, in a DNS
+   TXT record at `_overstory.<domain>`:
+
+   ```text
+   _overstory.alice.example.  TXT  "profile=https://garden.example/~alice"
+   ```
+
+   or in a JSON file at `https://<domain>/.well-known/overstory-profile`,
+   fetched without following redirects:
+
+   ```json
+   { "profile": "https://garden.example/~alice" }
+   ```
+
+   A record's locator must be a locator at a home host, never another
+   domain. TXT records not beginning `profile=` are ignored. When both forms
+   are published, every `profile=` record and the file must name the same
+   locator; records that disagree, or a malformed one, name nobody. A
+   loopback domain has only the file. When neither can be read, or one cannot
+   and the other names nothing, the lookup is an outage, not an answer.
+2. **The profile names the domain.** The named locator resolves (as any
+   profile locator does) to a person-profile TreeID whose root front matter is
+   `type: person` and lists the domain, as written, in `domains`
+   ([accounts §1](04-accounts-and-devices.md#1-profiles-and-host-accounts)),
+   read anonymously at the home host.
+
+The first stops a profile from claiming a domain it does not control; the
+second stops a domain from claiming a profile that does not want it. A domain
+locator is accepted wherever a profile locator names a person: a rule's
+subject and a group's member. A host pins it to the TreeID it resolved to, as
+above, and resolves it again on the same schedule; the **home host** the
+domain names is remembered with the resolution. When the person moves home
+hosts and updates the record, the pin keeps the same TreeID, so every rule and
+membership written with the domain keeps naming them. A resolution that names
+another TreeID, or none, makes the entry match nobody, as for any pin.
+
+A domain names a person, never a group. A community reservation and an
+invitation accepted as a placement
+([accounts §1.3–1.4](04-accounts-and-devices.md#13-placement-accounts))
+still name the profile by its locator at its home host, since a placement
+account records that home host.
+
 Every successfully resolved node locator yields the same information:
 
 ```text

@@ -167,6 +167,9 @@ cases that still go to review, which was overstoryd 014 until Joe folded it in o
 Joe, 2026-11-05: a person points a domain they own at their profile, as Bluesky handles do (a
 DNS TXT record or a `.well-known` file, checked against the profile's own front matter), so
 `alice.com` names her wherever she is hosted and rules written with it survive a move.
+Steps 1-4 (spec, resolver, overstoryd, `story me domain`) on main 2026-11-05
+([status](../status.md#domain-locators-your-own-domain-names-your-profile--2026-11-05)); left:
+showing and accepting domains in Story, and a hand check on one of Joe's domains.
 
 ## Later
 

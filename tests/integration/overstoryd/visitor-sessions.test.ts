@@ -188,6 +188,31 @@ describe("visitor sessions (accounts §5.6)", () => {
     await expect(visitor.descriptor(elsewhere)).rejects.toThrow("not-found");
   });
 
+  test("a rule naming her by her own domain reaches her as a visitor, once her profile names the domain back", async () => {
+    // Dana's "domain" is a loopback host serving the well-known file (locators §1.1).
+    const domain = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) =>
+      new URL(request.url).pathname === "/.well-known/overstory-profile" ? Response.json({ profile: `${home}/~dana` }) : new Response("", { status: 404 }) });
+    try {
+      const name = `127.0.0.1:${domain.port}`;
+      const share = async (label: string) => hostTree(owner, await snapshotOf({ "_index.md": `# ${label}\n` }), {
+        access: [{ who: { profile: `http://${name}` }, allow: ["read"] }],
+      });
+      // Until her profile lists the domain, the domain names nobody.
+      await expect(share("Too soon")).rejects.toThrow("names it back");
+      const macAtA = await homeSession(a.url, dana.profileTree, macID, mac);
+      const profile = await macAtA.descriptor(dana.profileTree);
+      await macAtA.submitUpdate(dana.profileTree, profile.tree.update,
+        await snapshotOf({ "_index.md": `---\ntype: person\ndisplayName: Dana\ndomains: ["${name}"]\n---\n` }));
+      const byDomain = await share("By domain");
+      const visitor = new ProtocolClient(b.url, (await openVisitorSession(b.url, dana.profileTree, macID, mac.seed, home)).token);
+      expect((await visitor.descriptor(byDomain)).tree.access).toBe("read");
+      // Vouched for by B itself, not her home, she is not the domain's profile.
+      await expect(openVisitorSession(b.url, dana.profileTree, macID, mac.seed, new URL(b.url).origin)).rejects.toThrow();
+    } finally {
+      domain.stop(true);
+    }
+  });
+
   test("a visitor's watch ends when the rule goes, and its session when A stops listing the device", async () => {
     const phoneVisitor = new ProtocolClient(b.url, (await openVisitorSession(b.url, dana.profileTree, phoneID, phone.seed, home)).token);
     const watching = (async () => {

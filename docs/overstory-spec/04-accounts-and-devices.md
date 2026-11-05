@@ -42,6 +42,17 @@ When a group omits `displayName`, directory presentation uses the plain text of
 its first authored H1 as the group name. This fallback remains presentation
 only and does not add or imply a `displayName` field.
 
+A person profile may also list the domains it answers to, as lowercase DNS
+names (a loopback test host with its port):
+
+```yaml
+domains: [alice.example]
+```
+
+A domain names the profile only when the domain's own records name it back
+([locators §1.1](03-locators.md#11-domain-locators)); the list alone grants
+nothing, and a malformed entry is ignored.
+
 A **host account** is host state: the host's record that one profile
 `TreeID` is claimed there, with the DeviceIDs that profile's devices have
 used there. It has no authored tree of its own; the person's devices and app
@@ -852,7 +863,9 @@ profile only as that host's locators name it. It reads a tree when a rule
 (or an `admin` entry) names the profile by a locator at that home host
 pinned to its TreeID, when a group does so through a member entry naming it
 by such a locator, or when the group is held at that home host and its copy
-lists the profile ([access control §1](05-access-control.md#1-subjects-and-rules));
+lists the profile ([access control §1](05-access-control.md#1-subjects-and-rules)).
+A domain locator ([locators §1.1](03-locators.md#11-domain-locators)) is at
+the home host its records named when the host last confirmed them.
 `everyone` and a presented link reach it as they reach anyone. A bare TreeID
 subject names a profile the host holds, so it never matches a visitor. A
 visitor only reads, watches and fetches objects: every other route treats it

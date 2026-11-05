@@ -142,6 +142,17 @@
           "read"
         ]
       }
+    },
+    {
+      "name": "profile named by a domain locator",
+      "rule": {
+        "who": {
+          "profile": "https://alice.example"
+        },
+        "allow": [
+          "read"
+        ]
+      }
     }
   ],
   "invalid": [
@@ -317,10 +328,10 @@
       }
     },
     {
-      "name": "locator naming only a host",
+      "name": "domain locator naming an IP address",
       "rule": {
         "who": {
-          "profile": "https://club.example"
+          "profile": "https://192.0.2.1"
         },
         "allow": [
           "read"
@@ -328,10 +339,10 @@
       }
     },
     {
-      "name": "locator naming the host root",
+      "name": "domain locator naming a single-label host",
       "rule": {
         "who": {
-          "profile": "https://club.example/"
+          "profile": "https://club/"
         },
         "allow": [
           "read"
@@ -679,6 +690,24 @@
       "input": "overstory://club.example/~club#overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4",
       "locator": "https://club.example/~club",
       "origin": "https://club.example"
+    },
+    {
+      "input": "https://Alice.Example/",
+      "locator": "https://alice.example",
+      "origin": "https://alice.example",
+      "domain": "alice.example"
+    },
+    {
+      "input": "overstory://alice.example",
+      "locator": "https://alice.example",
+      "origin": "https://alice.example",
+      "domain": "alice.example"
+    },
+    {
+      "input": "http://127.0.0.1:4000",
+      "locator": "http://127.0.0.1:4000",
+      "origin": "http://127.0.0.1:4000",
+      "domain": "127.0.0.1:4000"
     }
   ]
 }

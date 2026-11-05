@@ -51,6 +51,7 @@ struct ResourcePolicyTests {
             let parsed = try #require(ProfileLocator(input), "\(input)")
             #expect(parsed.locator == vector["locator"] as? String, "\(input)")
             #expect(parsed.origin == vector["origin"] as? String, "\(input)")
+            #expect(parsed.domain == vector["domain"] as? String, "\(input)")
         }
         for vector in fixture["validFiles"] ?? [] {
             #expect(throws: Never.self, "\(vector["name"]!)") { try validateFile(vector) }

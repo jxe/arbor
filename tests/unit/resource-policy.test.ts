@@ -20,7 +20,7 @@ describe("resource policy contract", () => {
       expect(() => parseResourceRule(v.rule), v.name).toThrow();
   });
   test("shared locator vectors: a profile locator's canonical spelling and origin", () => {
-    for (const v of fixtures.locators) expect(parseProfileLocator(v.input), v.input).toEqual({ locator: v.locator, origin: v.origin });
+    for (const v of fixtures.locators) expect(parseProfileLocator(v.input), v.input).toEqual({ locator: v.locator, origin: v.origin, ...("domain" in v ? { domain: v.domain } : {}) });
   });
   test("shared file vectors: merge keys", () => {
     // JSON is YAML, so an apps.yaml vector is its own source.
@@ -48,7 +48,7 @@ describe("resource policy contract", () => {
     // overstory:// is spelled as the HTTP locator it resolves through; loopback hosts may be plain HTTP.
     expect(parseResourceRule({ ...remote, who: { profile: "overstory://club.example/~club/" } }).who).toEqual({ profile: "https://club.example/~club" });
     expect(parseResourceRule({ ...remote, who: { profile: "http://127.0.0.1:4000/~club" } }).who).toEqual({ profile: "http://127.0.0.1:4000/~club" });
-    for (const profile of ["http://club.example/~club", "https://club.example/", "https://club.example", "https://club.example/~club?x=1", "https://club.example/~club#top", "club.example/~club", "overstory://tr_club/", 3]) {
+    for (const profile of ["http://club.example/~club", "https://192.0.2.1", "https://club", "https://club.example/~club?x=1", "https://club.example/~club#top", "club.example/~club", "overstory://tr_club/", 3]) {
       expect(() => parseResourceRule({ ...remote, who: { profile } }), String(profile)).toThrow("Invalid rule subject");
     }
     expect(() => parseResourceRule({ ...remote, who: { profile: "https://club.example/~club", homeHost: "https://club.example" } })).toThrow("Invalid rule subject");

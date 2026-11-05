@@ -1,6 +1,5 @@
 import {
   operationAllowed,
-  parseProfileLocator,
   parseResourceRules,
   ruleMatches,
   rulesAllow,
@@ -33,6 +32,10 @@ export interface AccessHost {
   groupMemberLocators(group: HostTree): string[];
   /** The TreeID a profile locator `tree`'s configuration names is pinned to, or null when it names nobody now. */
   pinnedProfile(tree: string, locator: string): string | null;
+  /** The origin of the home host a locator's profile is read at: its own
+   * origin, or for a domain locator the one its records name now (null when
+   * not confirmed). */
+  locatorHome(locator: string): string | null;
 }
 
 /**
@@ -74,7 +77,10 @@ export class AccessControl {
 
   /** How `tree`'s configuration names profiles: its locators by their pins. */
   private pins(tree: string) {
-    return { pinnedProfile: (locator: string) => this.host.pinnedProfile(tree, locator) };
+    return {
+      pinnedProfile: (locator: string) => this.host.pinnedProfile(tree, locator),
+      locatorHome: (locator: string) => this.host.locatorHome(locator),
+    };
   }
 
   /** The profiles an `admin` rule of the tree names, TreeIDs or locators. */
@@ -238,8 +244,8 @@ export class AccessControl {
 
   /**
    * A visitor's one-level group membership. A group this host holds counts
-   * it when a member entry names it by a locator at its home host pinned to
-   * its profile; a group another host holds counts it only when that host is
+   * it when a member entry names it by a locator at its home host (or a
+   * domain delegating there) pinned to its profile; a group another host holds counts it only when that host is
    * the visitor's home and its copy lists the profile.
    */
   private isVisitorGroupMember(visitor: VisitorAuthentication, groupID: string, profile: string, homeHost?: string): boolean {
@@ -247,7 +253,7 @@ export class AccessControl {
     const held = this.host.tree(groupID);
     if (held) {
       return this.host.rootProfileType(held) === "group"
-        && this.host.groupMemberLocators(held).some((locator) => parseProfileLocator(locator)?.origin === visitor.homeHost
+        && this.host.groupMemberLocators(held).some((locator) => this.host.locatorHome(locator) === visitor.homeHost
           && this.host.pinnedProfile(groupID, locator) === profile);
     }
     return homeHost === visitor.homeHost && this.host.isRemoteGroupMember(groupID, homeHost, profile);

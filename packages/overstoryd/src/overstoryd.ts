@@ -439,6 +439,7 @@ export class HostDaemon implements AsyncDisposable {
       rootProfileType: (tree) => this.rootProfileType(tree.id),
       isRemoteGroupMember: (group, homeHost, profileTree) => this.readsGroupsAt(homeHost) && this.remoteGroups.isMember(group, homeHost, profileTree),
       pinnedProfile: (tree, locator) => this.locatorPins.pinned(tree, locator),
+      locatorHome: (locator) => this.locatorPins.home(locator),
       groupMemberLocators: (group) => this.rootProfile(group.id).members.flatMap((member) =>
         member.profile && isProfileLocator(member.profile) ? [member.profile] : []),
     }, this.accounts);
@@ -1083,7 +1084,8 @@ export class HostDaemon implements AsyncDisposable {
       for (const rule of JSON.parse(row.rules_json) as Array<{ who?: unknown }>) {
         const who = rule.who as { profile?: unknown } | undefined;
         const locator = who && typeof who === "object" ? parseProfileLocator(who.profile) : null;
-        if (!locator || !this.readsGroupsAt(locator.origin)) continue;
+        // A domain names a person, never a group (locators §1.1).
+        if (!locator || locator.domain || !this.readsGroupsAt(locator.origin)) continue;
         const group = this.locatorPins.pinned(row.tree, locator.locator);
         if (!group || this.get(group)) continue;
         named.set(`${locator.origin} ${group}`, { group, homeHost: locator.origin });
@@ -1856,7 +1858,7 @@ export class HostDaemon implements AsyncDisposable {
   private checkPlacementLocator(profile: string, origin: string, inviteDigest: string | null): void {
     if (!inviteDigest) throw new Error("Accepting an invitation as a placement requires its code");
     const locator = isProfileLocator(profile) ? parseProfileLocator(profile) : null;
-    if (!locator) throw new Error("A placement names the profile by its locator at its home host");
+    if (!locator || locator.domain) throw new Error("A placement names the profile by its locator at its home host");
     if (locator.origin === origin) throw new Error("A profile homed at this host claims its account here instead");
   }
 
@@ -3113,7 +3115,11 @@ export class HostDaemon implements AsyncDisposable {
       reservation.locator ? [{ handle, locator: reservation.locator }] : []);
     const accounts: PreparedPlacementAccount[] = [];
     for (const { handle, locator } of reservations) {
-      const homeHost = parseProfileLocator(locator)!.origin;
+      const parsed = parseProfileLocator(locator)!;
+      // A placement account is homed at a host, which a domain only points at
+      // for now: it can move, and the account's home host cannot.
+      if (parsed.domain) throw new Error(`A reservation names its profile by its locator at its home host, not by the domain ${parsed.domain}`);
+      const homeHost = parsed.origin;
       const profileTree = pins.get(locator) ?? this.locatorPins.pinned(community, locator);
       if (!profileTree) throw new ServerFaultError(`${locator} has no pin after resolving it`);
       const existing = this.accounts.account(profileTree);

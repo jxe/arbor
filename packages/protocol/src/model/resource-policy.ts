@@ -59,6 +59,10 @@ export interface ResourcePolicyContext {
   /** The TreeID a locator subject is pinned to, or null when it has no pin
    * or its host now names another profile; such a subject matches nobody. */
   pinnedProfile?: (locator: string) => string | null;
+  /** For a domain locator (locators §1.1), the origin of the home host its
+   * records currently name, when they are confirmed; a domain subject has no
+   * home host without it. */
+  locatorHome?: (locator: string) => string | null;
 }
 const treeID = /^tr_[a-z2-7]+$/;
 const hash = /^sha256:[a-f0-9]{64}$/;
@@ -80,8 +84,12 @@ export function isHomeHostOrigin(value: string): boolean {
  * `locator` is its canonical spelling, the subject's merge key and pin key
  * (`overstory://` becomes the HTTP locator it resolves through); `origin` is
  * where the profile is read. Null for anything else, a TreeID included.
+ *
+ * A locator with no path is a **domain locator** (locators §1.1): the domain
+ * names a profile through its own records, so `domain` is set and `origin`
+ * is the domain's, not the profile's home host.
  */
-export function parseProfileLocator(input: unknown): { locator: string; origin: string } | null {
+export function parseProfileLocator(input: unknown): { locator: string; origin: string; domain?: string } | null {
   if (typeof input !== "string") return null;
   // A join link names the account it invites to: its `#overstory-invite=`
   // code is a secret, never part of the canonical spelling or the pin key.
@@ -102,7 +110,13 @@ export function parseProfileLocator(input: unknown): { locator: string; origin: 
   const port = url.port && url.port !== (scheme === "https:" ? "443" : "80") ? `:${url.port}` : "";
   const origin = `${scheme}//${url.hostname.toLowerCase()}${port}`;
   const path = url.pathname.replace(/\/+$/, "");
-  if (!path || path === "/" || /[\x00-\x1f\x7f]/.test(path) || path.split("/").slice(1).some((part) => !part || part === "." || part === "..")) return null;
+  if (!path) {
+    // A domain locator names a DNS name (or, for local hosts, a loopback
+    // address), never another IP address.
+    if (!loopback && (/^[\d.]+$/.test(url.hostname) || url.hostname.includes(":") || !url.hostname.includes("."))) return null;
+    return { locator: origin, origin, domain: `${url.hostname.toLowerCase()}${port}` };
+  }
+  if (path === "/" || /[\x00-\x1f\x7f]/.test(path) || path.split("/").slice(1).some((part) => !part || part === "." || part === "..")) return null;
   return { locator: `${origin}${path}`, origin };
 }
 
@@ -235,11 +249,15 @@ export function ruleLocators(rules: readonly Pick<ResourceAccessRule, "who">[]):
  * A profile subject as a TreeID and, for a locator, the host it is read at:
  * a TreeID names itself; a locator names its pin, or nothing when it has none.
  */
-export function subjectProfile(profile: string, context: Pick<ResourcePolicyContext, "pinnedProfile">): { tree: string; homeHost?: string } | null {
+export function subjectProfile(profile: string, context: Pick<ResourcePolicyContext, "pinnedProfile" | "locatorHome">): { tree: string; homeHost?: string } | null {
   const locator = parseProfileLocator(profile);
   if (!locator) return { tree: profile };
   const pinned = context.pinnedProfile?.(locator.locator) ?? null;
-  return pinned ? { tree: pinned, homeHost: locator.origin } : null;
+  if (!pinned) return null;
+  if (!locator.domain) return { tree: pinned, homeHost: locator.origin };
+  // A domain names a profile homed wherever its records point now.
+  const home = context.locatorHome?.(locator.locator) ?? null;
+  return home ? { tree: pinned, homeHost: home } : { tree: pinned };
 }
 export function scopeContains(scope: string, path: string): boolean {
   resourcePath(scope);

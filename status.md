@@ -12,6 +12,30 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Domain locators: your own domain names your profile — 2026-11-05
+
+**Implemented** on main, deployed with it (overstoryd); Names 001 steps 1-4. A person can
+name their profile by a domain they control
+([locators §1.1](docs/overstory-spec/03-locators.md#11-domain-locators)): `https://alice.example`
+is a profile locator wherever a rule or a group member names a person. The domain names her
+locator at her home host in a DNS TXT record (`_overstory.alice.example`,
+`profile=<locator>`) or a `/.well-known/overstory-profile` file, and her profile's root front
+matter lists the domain back in `domains`. overstoryd resolves both directions, pins the
+TreeID as for any locator, and remembers the home host the records name, so a visitor from
+that host matches and a move to another host (with the record updated) keeps every rule.
+Community reservations and placement invitations still take the home locator. `story me
+domain <domain>` writes the front matter and prints both records; `--check` resolves each
+listed domain as a host would.
+
+Validation: records, both-way checks and pins across a move
+(`tests/unit/overstoryd/domain-locators.test.ts`); visitor matching by a domain's home host
+(`tests/unit/overstoryd/tree-access.test.ts`); two local hosts with a loopback "domain"
+serving the well-known file, refused until the profile names it back, then read by Dana's
+visitor session (`tests/integration/overstoryd/visitor-sessions.test.ts`); conformance
+locator vectors for domains (TypeScript; the Swift parser was changed to match but its tests
+have not been run off the Mac). Not tried against a real DNS name. Story shows and accepts
+domains nowhere yet (Names 001 step 5).
+
 ## Visitor sessions and read-only placements — 2026-11-05
 
 **Implemented** on main, deployed with it (overstoryd). A profile can now read at a host

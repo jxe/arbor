@@ -334,6 +334,7 @@ story open https://garden.example/~joe/notes
 story me
 story me create [<profile-folder>] [--name <display-name>]
 story me set [--name <display-name>] [--avatar <relative-path>] [--description <text>]
+story me domain [<domain>] [--remove <domain>] [--check]
 story me backup <file>
 story me restore <file> [<profile-folder>]
 story me accounts
@@ -359,6 +360,19 @@ bootstrap.
 preserving its body and unknown keys. The avatar path must name an existing
 PNG, JPEG, GIF, or WebP file inside the profile folder. These fields are
 presentation only; the Profile TreeID remains the identity.
+
+`story me domain alice.example` names your profile by a domain you control
+(locators §1.1): it adds the domain to the profile root's `domains` front
+matter and prints the two records either of which finishes the claim, a DNS
+TXT record at `_overstory.alice.example` reading
+`profile=<your locator at your home host>`, or a file at
+`https://alice.example/.well-known/overstory-profile` holding
+`{"profile": "<your locator>"}`. Once the record is up and Story Sync has
+published the profile, `https://alice.example` names you in access rules and
+group members on any host, and keeps naming you if you move home hosts and
+update the record. `story me domain --check` resolves each listed domain both
+ways, as a host would, and exits non-zero when one does not name your profile;
+`--remove` takes a domain out of the front matter (remove its record too).
 
 `story me backup` writes a versioned backup of the same private key to a newly
 created owner-readable file. It asks for a passphrase of at least four

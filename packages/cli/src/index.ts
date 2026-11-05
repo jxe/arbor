@@ -13,7 +13,8 @@ import { accountProtocolClient, addLocalPlacement, backupIsEncrypted, connectPla
 import type { Document } from "yaml";
 import { STORY_SYNC_PORT, storyDaemonSupervisor } from "./daemon.ts";
 import { compiledExecutable, storyCommand } from "./package-runtime.ts";
-import { validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@ovst/overstoryd";
+import { domainProfileResolver, validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@ovst/overstoryd";
+import { DOMAIN_PROFILE_PATH, domainTXTName, parseMarkdown, parseProfileLocator, profileDomains, resolveDomainDelegation, treeConfigurationID } from "@ovst/protocol";
 import {
   cloudPlacementPath,
   cloudSessionDirectory,
@@ -128,6 +129,8 @@ Identity
   story me
   story me create [<profile-folder>] [--name <display-name>]
   story me set [--name <display-name>] [--avatar <relative-path>] [--description <text>]
+  story me domain [<domain>] [--remove <domain>] [--check]
+      Name your profile by a domain you control: add it to your profile, print the record to publish, and check both directions.
   story me backup <file>
   story me restore <file> [<profile-folder>]
   story me accounts
@@ -1815,6 +1818,90 @@ async function accountsCommand(args: string[]): Promise<void> {
   }
 }
 
+/** A domain as `domains` front matter writes it, or null: a DNS name (with a port only for a loopback test host). */
+function domainName(input: string): string | null {
+  const value = input.trim().replace(/^(https?|overstory):\/\//, "").replace(/\/+$/, "").toLowerCase();
+  const parsed = parseProfileLocator(`https://${value}`);
+  return parsed?.domain === value ? value : null;
+}
+
+/**
+ * `story me domain` (locators §1.1): with a domain, list it in the profile's
+ * front matter; with `--remove`, take it out; with `--check`, resolve each
+ * listed domain both ways, as a host would. Prints the records to publish,
+ * which name the profile by its locator at its home host.
+ */
+async function domainCommand(store: ProfileIdentityStore, operands: string[]): Promise<void> {
+  let add: string | undefined;
+  let remove: string | undefined;
+  let check = false;
+  for (let index = 0; index < operands.length; index += 1) {
+    const operand = operands[index]!;
+    if (operand === "--check") check = true;
+    else if (operand === "--remove" && operands[index + 1] && !remove) remove = operands[++index];
+    else if (!operand.startsWith("-") && !add) add = operand;
+    else usage();
+  }
+  if (add && remove) usage();
+  const status = await store.status();
+  if (!status) throw new Error("No person identity exists; run `story me create`");
+  const home = (await HostAccountStore.list()).find((candidate) => candidate.configurationTree === treeConfigurationID(status.profileTree));
+  const read = async () => profileDomains(parseMarkdown(await readFile(join(status.profilePath, "_index.md"), "utf8")).frontmatter);
+  let domains = await read();
+  const named = add ?? remove;
+  if (named !== undefined) {
+    const domain = domainName(named);
+    if (!domain) usageError(`Not a domain name: ${named}`);
+    const next = add ? [...new Set([...domains, domain])] : domains.filter((candidate) => candidate !== domain);
+    if (remove && next.length === domains.length) throw new Error(`Your profile does not list ${domain}`);
+    await store.updateProfile({ domains: next.length ? next : null });
+    domains = next;
+    console.log(add ? `Your profile now names ${domain}.` : `Your profile no longer names ${domain}; remove its record too.`);
+  }
+  if (!domains.length) {
+    if (named === undefined) console.log("Your profile names no domain. Add one with `story me domain <domain>`.");
+    return;
+  }
+  if (!check) {
+    if (named === undefined) console.log(`Your profile names ${domains.join(", ")}.`);
+    if (!home) {
+      console.log("Connect a home account first: the records name your profile by its locator there.");
+      return;
+    }
+    for (const domain of add ? [domainName(add)!] : domains) {
+      console.log(`\n${domain}: publish either record, then let Story Sync publish your profile and run \`story me domain --check\`.`);
+      console.log(`  DNS TXT   ${domainTXTName(domain)}  "profile=${home.account}"`);
+      console.log(`  or HTTPS  https://${domain}${DOMAIN_PROFILE_PATH}  {"profile": "${home.account}"}`);
+    }
+    return;
+  }
+  const resolve = domainProfileResolver();
+  let failed = false;
+  for (const domain of domains) {
+    const locator = parseProfileLocator(`https://${domain}`)!.locator;
+    try {
+      const named = await resolve(locator, domain);
+      if (named?.profile === status.profileTree) {
+        console.log(`${domain}: names your profile, homed at ${named.home}`);
+        continue;
+      }
+      failed = true;
+      if (named) {
+        console.log(`${domain}: names another profile (${named.profile})`);
+        continue;
+      }
+      const delegated = await resolveDomainDelegation(locator);
+      console.log(!delegated
+        ? `${domain}: its records name no profile (or disagree)`
+        : `${domain}: its records name ${delegated}, but the profile there does not list ${domain} yet; let Story Sync publish your profile, which must be publicly readable`);
+    } catch (error) {
+      failed = true;
+      console.log(`${domain}: cannot be read now: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  if (failed) process.exitCode = 1;
+}
+
 /** `story me device` prints this installation's device for one home account. */
 async function deviceCommand(args: string[]): Promise<void> {
   let configurationTree: string | undefined;
@@ -2007,6 +2094,10 @@ async function main(): Promise<void> {
     }
     if (action === "accounts") {
       await accountsCommand(operands);
+      return;
+    }
+    if (action === "domain") {
+      await domainCommand(store, operands);
       return;
     }
     if (action === "device") {

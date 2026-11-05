@@ -1,7 +1,8 @@
 import type { Database } from "bun:sqlite";
-import { parseProfileLocator } from "@ovst/protocol";
+import { defaultDomainLookups, isPersonProfileTreeID, parseProfileLocator, profileDomains, resolveDomainDelegation, type DomainLookups } from "@ovst/protocol";
 import { HomeHostUnavailableError } from "./errors.ts";
 import { otherHost, refusedByHost } from "./other-host.ts";
+import { fetchRootFrontmatter } from "./remote-groups.ts";
 
 /**
  * How this host keeps its pins honest (locators §1): each pinned locator is
@@ -43,10 +44,40 @@ export const resolveProfileLocator: ProfileLocatorResolver = async (locator, ori
   return typeof tree === "string" && TREE_ID.test(tree) && resolution?.ref?.path === "/" ? tree : null;
 };
 
-/** What a locator's host said last, in memory: the TreeID (or null), and
- * when it last answered at all. */
+/**
+ * What a domain locator (locators §1.1) names now: the profile its records'
+ * home locator resolves to and the origin of that home host, when the two
+ * directions agree. Null when they do not; throws on an outage.
+ */
+export type DomainProfileResolver = (locator: string, domain: string) => Promise<{ profile: string; home: string } | null>;
+
+/**
+ * Resolve a domain locator both ways: the domain's records name a home
+ * locator, that locator resolves to a person's profile at its home host, and
+ * the profile's root front matter lists the domain in `domains`.
+ */
+export function domainProfileResolver(
+  resolve: ProfileLocatorResolver = resolveProfileLocator,
+  lookups: DomainLookups = defaultDomainLookups,
+  frontmatter: (origin: string, tree: string) => Promise<Record<string, unknown> | null> = fetchRootFrontmatter,
+): DomainProfileResolver {
+  return async (locator, domain) => {
+    const home = await resolveDomainDelegation(locator, lookups);
+    if (!home) return null;
+    const origin = parseProfileLocator(home)!.origin;
+    const profile = await resolve(home, origin);
+    if (!profile || !isPersonProfileTreeID(profile)) return null;
+    const root = await frontmatter(origin, profile);
+    return root?.type === "person" && profileDomains(root).includes(domain) ? { profile, home: origin } : null;
+  };
+}
+
+/** What a locator's host said last, in memory: the TreeID (or null), when
+ * it last answered at all, and for a domain locator the home host its
+ * records named. */
 interface Resolution {
   profile: string | null;
+  home?: string;
   confirmedAt: number;
 }
 
@@ -70,7 +101,27 @@ export class LocatorPins {
     private readonly lifetimes: () => LocatorPinLifetimes,
     private readonly onChanged: () => void,
     private readonly resolve: ProfileLocatorResolver = resolveProfileLocator,
+    private readonly resolveDomain: DomainProfileResolver = domainProfileResolver(resolve),
   ) {}
+
+  /** One locator's profile now: at its host, or through its domain's records. */
+  private async lookup(parsed: { locator: string; origin: string; domain?: string }): Promise<{ profile: string | null; home?: string }> {
+    if (!parsed.domain) return { profile: await this.resolve(parsed.locator, parsed.origin) };
+    const named = await this.resolveDomain(parsed.locator, parsed.domain);
+    return named ?? { profile: null };
+  }
+
+  /**
+   * The origin of the home host a locator's profile is read at: its own
+   * origin, or for a domain locator the home host its records named when this
+   * host last confirmed them, or null when it has not.
+   */
+  home(locator: string): string | null {
+    const parsed = parseProfileLocator(locator);
+    if (!parsed) return null;
+    if (!parsed.domain) return parsed.origin;
+    return this.resolutions.get(parsed.locator)?.home ?? null;
+  }
 
   /** The TreeID `locator` names for `tree`, or null (see the class). */
   pinned(tree: string, locator: string): string | null {
@@ -109,14 +160,19 @@ export class LocatorPins {
       if (this.pinned(tree, locator)) continue;
       const parsed = parseProfileLocator(locator);
       if (!parsed) throw new Error(`Not a profile locator: ${locator}`);
-      let profile: string | null;
+      let named: { profile: string | null; home?: string };
       try {
-        profile = await this.resolve(parsed.locator, parsed.origin);
+        named = await this.lookup(parsed);
       } catch (error) {
         throw new HomeHostUnavailableError(parsed.origin, `${locator} cannot be resolved: ${error instanceof Error ? error.message : String(error)}`);
       }
-      if (!profile) throw new Error(`${parsed.origin} does not name a readable profile at ${locator}; the profile must be publicly readable there`);
-      this.resolutions.set(parsed.locator, { profile, confirmedAt: Date.now() });
+      const profile = named.profile;
+      if (!profile) {
+        throw new Error(parsed.domain
+          ? `${parsed.domain} does not name a profile that names it back; its records must name the profile's locator, and the profile's front matter must list the domain`
+          : `${parsed.origin} does not name a readable profile at ${locator}; the profile must be publicly readable there`);
+      }
+      this.resolutions.set(parsed.locator, { ...named, profile, confirmedAt: Date.now() });
       fresh.set(parsed.locator, profile);
     }
     return fresh;
@@ -147,10 +203,11 @@ export class LocatorPins {
     if (this.snapshot() !== before) this.onChanged();
   }
 
-  /** What every pin names now, for noticing a change. */
+  /** What every pin names now, and where, for noticing a change. */
   private snapshot(): string {
     const rows = this.db.query("SELECT tree_id, locator, profile_tree FROM profile_locator_pins ORDER BY tree_id, locator").all() as Array<{ tree_id: string; locator: string; profile_tree: string }>;
-    return rows.map((row) => `${row.tree_id} ${row.locator} ${this.honours(row.locator, row.profile_tree) ? row.profile_tree : "-"}`).join("\n");
+    // A domain's home host is part of what it names: visitors match by it.
+    return rows.map((row) => `${row.tree_id} ${row.locator} ${this.honours(row.locator, row.profile_tree) ? row.profile_tree : "-"} ${this.resolutions.get(row.locator)?.home ?? ""}`).join("\n");
   }
 
   private check(locator: string): Promise<void> {
@@ -165,9 +222,9 @@ export class LocatorPins {
     if (!parsed) return Promise.resolve();
     const pending = (async () => {
       try {
-        const profile = await this.resolve(parsed.locator, parsed.origin);
+        const named = await this.lookup(parsed);
         this.failures.delete(locator);
-        this.resolutions.set(locator, { profile, confirmedAt: Date.now() });
+        this.resolutions.set(locator, { ...named, confirmedAt: Date.now() });
       } catch {
         this.failures.set(locator, Date.now());
       }

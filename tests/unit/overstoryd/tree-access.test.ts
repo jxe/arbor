@@ -36,7 +36,10 @@ const host: AccessHost = {
   isRemoteGroupMember: (group, homeHost, profile) => remoteGroups.get(`${homeHost} ${group}`)?.includes(profile) ?? false,
   pinnedProfile: (tree, locator) => pins.get(`${tree} ${locator}`) ?? null,
   groupMemberLocators: (group) => memberLocators.get(group.id) ?? [],
+  locatorHome: (locator) => domainHomes.get(locator) ?? (/^https?:\/\/[^/]+\/./.test(locator) ? new URL(locator).origin : null),
 };
+/** Where each domain locator's records point now (locators §1.1). */
+const domainHomes = new Map<string, string>();
 /** The profile locators each group held here names among its members. */
 const memberLocators = new Map<string, string[]>();
 /** The TreeIDs this host pinned the locators each tree's configuration names to. */
@@ -176,6 +179,28 @@ describe("visitors (accounts §5.6)", () => {
     configure("tr_trip", [{ who: { profile: "tr_joe" }, allow: ["admin"] }, { who: { profile: `${FAR}/~faraway` }, allow: ["read"] }]);
     expect(access.visitorCanRead(visitor("tr_alice", FAR), "tr_trip")).toBe(true);
     expect(access.visitorCanRead(visitor("tr_alice", HOME), "tr_trip")).toBe(false);
+  });
+
+  test("a domain subject counts a visitor homed where the domain points now", () => {
+    pins.set("tr_trip https://dana.example", "tr_dana");
+    configure("tr_trip", [{ who: { profile: "tr_joe" }, allow: ["admin"] }, { who: { profile: "https://dana.example" }, allow: ["read"] }]);
+    // Unconfirmed, the domain names no home host, so no visitor.
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_trip")).toBe(false);
+    domainHomes.set("https://dana.example", HOME);
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_trip")).toBe(true);
+    expect(access.visitorCanRead(visitor("tr_dana", FAR), "tr_trip")).toBe(false);
+    // Dana moves to FAR: the pin keeps her TreeID, and the rule follows her.
+    domainHomes.set("https://dana.example", FAR);
+    expect(access.visitorCanRead(visitor("tr_dana", FAR), "tr_trip")).toBe(true);
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_trip")).toBe(false);
+    // A group held here can name her by her domain too.
+    memberLocators.set("tr_club", ["https://dana.example"]);
+    pins.set("tr_club https://dana.example", "tr_dana");
+    configure("tr_catalog", [{ who: { profile: "tr_joe" }, allow: ["admin"] }, { who: { profile: "tr_club" }, allow: ["read"] }]);
+    expect(access.visitorCanRead(visitor("tr_dana", FAR), "tr_catalog")).toBe(true);
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_catalog")).toBe(false);
+    memberLocators.delete("tr_club");
+    domainHomes.clear();
   });
 });
 
