@@ -1,6 +1,6 @@
 # Sharing 003: move a page to another tree from the share sheet
 
-**Timing:** Now. Mac built 2026-11-01 (Joe: "just build it"); the iPhone is next.
+**Timing:** Now. Mac and iPhone built 2026-11-01 (Joe: "just build it"); both on main. Left: New Tree… on the iPhone (step 5 below) and Joe's hand check.
 
 **Why and when:** on 2026-11-01 Joe wanted a public "Shared" tree and a way to move pages from his todos tree into it while keeping them linked from todos. His usual audiences are public, private and work (MAI, a group-owned tree), but trees are their own thing and don't map one-to-one onto audiences. He wants moving and sharing combined in the share sheet: the sheet names the tree a page is in and who has access to that tree, and picking another tree moves the page there. Mockup Joe approved: [Story share sheet sketch](https://claude.ai/artifact/2Mcuwup5SH9RHbCKZ7XTDV) (version 5).
 
@@ -68,7 +68,7 @@ A page in Trash can't move, and a move is refused when the destination already h
 
 ## iPhone
 
-*Built on branch `claude/project-thread-eyd0mt` (2026-11-01, Joe: "build the iphone version on a branch"), steps 1–4 and 6; step 5 (New Tree… on the iPhone) not yet. Not tried on a device.*
+*Built 2026-11-01 (Joe: "build the iphone version on a branch") and on main since: steps 1–4 and 6 (`moveDestinations` in `StoryAppModel.swift` reads `nativePlacements` on the iPhone). Step 5, New Tree… on the iPhone, is not built. Not yet tried on a device.*
 
 The iPhone opens one tree at a time, from a working tree the app keeps itself (`place(tree:from:configurationTree:)`, replicas under `StorySupportDirectories.workingTrees`); there is no Story Sync and no folder to write into. Its share sheet already reads a tree's access through `NativeAccountService`. So a move on the iPhone writes through a second working tree instead of a folder:
 

@@ -64,12 +64,15 @@ through `@ovst/client`, with Story Sync out of the path. The rest of the CLI's h
 moving the same way is recorded there as a follow-up.
 
 **[Sharing 003: move a page to another tree from the share sheet](features/sharing-003-move-pages-between-trees.md).**
-*Later.* Joe wants a public tree and to move pages into it from todos while keeping them linked
+*Now.* Built on the Mac and the iPhone (on main since 2026-11-01). Left: New Tree… on the
+iPhone, and Joe's hand check. Joe wants a public tree and to move pages into it from todos while keeping them linked
 there (2026-11-01). The share sheet names the page's tree and who has access to that tree;
 picking another tree previews its access and moves the page, leaving a link where it was.
 
 **[Sharing 004: start your own community from a Railway template](features/sharing-004-start-your-own-community.md).**
-*Later.* A newcomer can ask a friend for an invitation or run their own host. Joe (2026-11-04)
+*Built, then set aside.* Founding by code, the host image, the template's definition and Story's
+wording are on main (2026-11-05). Left: Joe publishes the image and the template, a rehearsal
+from a fresh Railway account, and what Story says to a host too old for it. A newcomer can ask a friend for an invitation or run their own host. Joe (2026-11-04)
 wants the Railway template first, so nobody makes an identity and then gives up at Railway: the
 host is founded by a generated code, logs a founder link, and Story's invitation flow claims it
 and makes the claimer the community's administrator.
@@ -137,8 +140,8 @@ using shared examples and the host merge engine to prove the result.
 The tree holds a page's properties and content, and each placement writes its front matter;
 formatting stops traveling between devices, which Joe accepted on 2026-10-28. Steps 1 to 5
 are on main ([status](../status.md#pages-as-logical-nodes-built--2026-10-28)) and the host
-converted Joe's todos tree on 2026-11-01. Left: the hand check, a release, converting the
-other trees, and step 6's cleanup.
+converted Joe's todos tree on 2026-11-01, and it has shipped in Story 0.1.6 and 0.1.7. Left: the
+hand check, converting the other trees, and step 6's cleanup.
 
 **[overstoryd 015: explain automatic resolutions and clear reconciled choices](soon/merge-015-resolve-reconciled-choices.md).**
 Joe encountered a whole-tree conflict after moving blocks into a new page. Later

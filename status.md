@@ -151,7 +151,7 @@ files sync as page objects (id, ordered properties, exact body), property edits 
 field, and conflict review offers property choices. Swift passed every package test and the Mac and
 iOS builds on Joe's Mac. No tree is converted: a host takes page entries only for the trees
 `OVERSTORYD_PAGES` names ("1" for all), and Story Sync converts a tree only when its descriptor
-says `pages: true`. Next: release, back up the host, hand-check one tree, then convert the rest
+says `pages: true`. Next (released in 0.1.6): back up the host, hand-check one tree, then convert the rest
 once every writer runs the new Story.
 
 ## Plans and small work trimmed — 2026-10-28

@@ -12,11 +12,12 @@ It was an item in [candidates](../candidates.md).
 - **Risk:** HIGH. It changes spec 02's round trip and how merge and access see front matter.
 - **State:** steps 1 to 5 built in both stacks and merged to main (2026-10-28), Swift tested on
   Joe's Mac. On 2026-11-01 the host's `OVERSTORYD_PAGES` named Joe's todos tree alone, and it
-  was converted (update 14803). Left: hand-check it, release, then the rest below. How it
+  was converted (update 14803). Released in Story 0.1.6 (2026-11-02) and 0.1.7 (2026-11-04).
+  Left: hand-check it, then the rest below. How it
   works: hosts take pages only where `OVERSTORYD_PAGES` says (`1`, or a
   list of tree IDs), which makes those trees' descriptors say `pages`, advertises `pages-v1`
   and checks conversions; a writer's Story Sync then converts each such tree it places. Next,
-  per Joe: release, back up the host, convert one tree only his devices sync and check it by
+  per Joe (release done): back up the host, convert one tree only his devices sync and check it by
   hand, then wait for Oliver's Story to update before converting the rest (with a new backup).
 
 ### Decided while building (2026-10-28)
