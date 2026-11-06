@@ -158,12 +158,11 @@ idle-based publication baseline, extend simplification beyond repeated moves of
 one unchanged span. Implement each case in the Swift and TypeScript clients,
 using shared examples and the host merge engine to prove the result.
 
-**[Filesystem 026: pages as logical nodes, written to disk by each placement](soon/filesystem-026-pages-as-logical-nodes.md).**
-The tree holds a page's properties and content, and each placement writes its front matter;
-formatting stops traveling between devices, which Joe accepted on 2026-10-28. Steps 1 to 5
-are on main ([status](../status.md#pages-as-logical-nodes-built--2026-10-28)) and the host
-converted Joe's todos tree on 2026-11-01, and it has shipped in Story 0.1.6 and 0.1.7. Left: the
-hand check, converting the other trees, and step 6's cleanup.
+**[Filesystem 026: page provenance, and dropping Markdown file entries](soon/filesystem-026-page-provenance-and-cleanup.md).**
+Pages are logical nodes, written to disk by each placement: built, released in 0.1.6 and
+converted on Joe's todos tree ([status](../status.md#pages-as-logical-nodes-built--2026-10-28)).
+Left: provenance for page bodies, the front-matter merge cases it closes, and removing the
+`.md` file-entry path once every tree is converted.
 
 **[overstoryd 015: explain automatic resolutions and clear reconciled choices](soon/merge-015-resolve-reconciled-choices.md).**
 Joe encountered a whole-tree conflict after moving blocks into a new page. Later

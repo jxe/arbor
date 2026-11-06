@@ -17,7 +17,7 @@ Today the canonical table and rows objects are what overstoryd stores and retain
 SQLite materialization beside them is a disposable cache. This plan turns that round. The
 SQLite file becomes overstoryd's working form of a collection, and replaying a row-only
 update applies it to SQLite instead of rebuilding chunk objects. That matches what
-[Filesystem 026](../soon/filesystem-026-pages-as-logical-nodes.md) settled for pages: a
+[Filesystem 026](../../status.md#pages-as-logical-nodes-built--2026-10-28) settled for pages: a
 host may store any logically equivalent form, and only the hashed canonical encoding is
 shared.
 

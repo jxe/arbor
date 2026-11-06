@@ -58,6 +58,14 @@ Built on the Mac and iPhone ([status](../status.md#move-a-page-to-another-tree--
 - [ ] **iPhone:** move a page into a tree the iPhone has placed; the Mac shows it in the new
   tree after sync, with the link in the old parent.
 
+### Filesystem 026: pages as logical nodes
+
+Released in Story 0.1.6; Joe's todos tree converted 2026-11-01
+([status](../status.md#pages-as-logical-nodes-built--2026-10-28)).
+
+- [ ] **Todos tree as pages:** edit front matter on a todos page on the Mac and the iPhone (add
+  and change a property, edit the body), and check both see it and nothing conflicts.
+
 ## Releases and publishing
 
 ### Sharing 004: Railway template
@@ -82,6 +90,10 @@ data or something outside the repository.
   live run is recorded in [status](../status.md#known-gaps). A bound on `document_versions`,
   which holds most retained bytes, is part of
   [overstoryd 007](features/history-007-document-history-routes-and-restore.md).
+- [ ] **Convert the other trees to pages** once every writer (Oliver included) runs Story
+  0.1.6 or later: back up the host, then set `OVERSTORYD_PAGES=1` on Railway; each owner's
+  Story Sync converts their trees. Gates [Filesystem 026](soon/filesystem-026-page-provenance-and-cleanup.md)'s
+  cleanup.
 
 ## Soaks
 

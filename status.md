@@ -246,8 +246,14 @@ files sync as page objects (id, ordered properties, exact body), property edits 
 field, and conflict review offers property choices. Swift passed every package test and the Mac and
 iOS builds on Joe's Mac. No tree is converted: a host takes page entries only for the trees
 `OVERSTORYD_PAGES` names ("1" for all), and Story Sync converts a tree only when its descriptor
-says `pages: true`. Next (released in 0.1.6): back up the host, hand-check one tree, then convert the rest
-once every writer runs the new Story.
+says `pages: true`. Conversion is an ordinary snapshot (no command); a Markdown file's model hash
+is that of the page it reads as, so a conversion meets concurrent edits cleanly.
+
+**Released** in Story 0.1.6 (2026-11-02) and 0.1.7 (2026-11-04). **Deployed** for one tree: on
+2026-11-01 the host's `OVERSTORYD_PAGES` named Joe's todos tree alone, and it was converted
+(update 14803). Its hand check and converting the other trees are in
+[Joe's to-do](plans/joe.md); the cleanup left is
+[Filesystem 026](plans/soon/filesystem-026-page-provenance-and-cleanup.md).
 
 ## Plans and small work trimmed — 2026-10-28
 
@@ -274,7 +280,7 @@ Joe reviewed the plans in soon, the ideas and small work, and closed out these:
   claimed-member removal moved to People 001's forks and identity recovery to Security 010;
   the operator-free recovery item and the merge-semantics question were dropped.
   Then, from Joe's answers: pages as logical nodes became
-  [Filesystem 026](plans/soon/filesystem-026-pages-as-logical-nodes.md); endpoint movement
+  [Filesystem 026](#pages-as-logical-nodes-built--2026-10-28); endpoint movement
   went to Security 010; determinism was answered in spec 07 §4 (queries get no clock,
   randomness or I/O); consent shows declared prefixes, as spec 07 §6 already says; host
   administration stays an idea (it may stay hard for now).
