@@ -35,7 +35,7 @@ their own plans, for people and agents alike (Joe, 2026-10-30). Runs in history 
   installs the same hooks labelled with the bundle's name, and its instructions tell any agent
   to report with `status` and `done`.
 - Task blocks are `> [!agent]` quotes drawn as Quagmire callouts with Run, Stop and Undo Run.
-- No way for the agent to ask, no Run on the iPhone, no Run on a cloud agent, and no Codex.
+- No way for the agent to ask, no Run on the iPhone, no Run in a cloud session, and no Codex.
 
 ## Decisions
 
@@ -46,8 +46,8 @@ From Joe, 2026-10-30, except where marked as a recommendation:
 2. **Questions stay between one person's devices** (recommendation). Others who can see the
    tree see that the agent is working and its status, but not its question or the answers.
 3. **Run from the iPhone works only while a runner is present.** A runner is a Mac that can run
-   tasks, or (Joe, 2026-11-01) a cloud agent started from one of your bundles (phase 5).
-   Otherwise Run is greyed out with "Your Mac is asleep".
+   tasks. With a cloud scheduled task set up (phase 5), Run works with no runner at all;
+   otherwise Run is greyed out with "Your Mac is asleep".
 4. **Messages go through presence, not the tree.** Asking a Mac to run a task, answering, and
    stopping are short ephemeral messages between one person's streams, so nothing is written
    to a page to make them happen.
@@ -135,26 +135,64 @@ Mac setting picks the agent; the presence label follows it.
 
 **Verification:** the fake-agent harness with Codex's event shape, then one real task by hand.
 
-## Phase 5: Run on a cloud agent, and one name for agents (Joe, 2026-11-01)
+## Phase 5: Run in a Claude Code cloud session, and one name for agents
 
-- **A cloud agent is a runner.** A cloud session started with `story agent start` keeps a
-  runner stream on its placed trees, like a Mac with "Run tasks on this Mac" on, labelled with
-  the bundle's name. Its Story Sync runs the task with the machine's Claude Code exactly as the
-  Mac's does (snapshot, one run per tree, block removed on success). Run's menu lists every
-  runner present ("Run on Joe's Mac", "Run on Supplies agent"); with no Mac awake, a cloud
-  runner still makes Run work from the iPhone.
-- **Which cloud sessions stay up** is the open question: today a session ends at `story agent
-  finish`. Decide whether a runner session idles waiting for tasks (and what that costs), or
-  whether Run on a cloud agent starts one on demand, which needs somewhere that can start
-  machines.
+Run on the iPhone starts a fresh Claude Code cloud session on Joe's subscription through a
+scheduled task's API trigger (research 2026-11-01 and 2026-11-06, [docs](https://code.claude.com/docs/en/routines)).
+Nothing idles waiting for tasks and nothing on the Mac needs to be awake. This phase does not
+depend on phases 1 to 3 (no presence messages), so it can be built first.
+
+**What already exists.** A bundle or one-tree agent link (`story agent create`, or Share →
+Use with an agent… on the Mac) checks trees out on any machine with `story agent start`,
+and `finish` proves the work reached the host. `start` installs the hooks, so the session
+shows in presence as Joe's agent. Story Sync holds publishing while the agent edits.
+
+**The scheduled task.** One per person, made once on claude.ai (no schedule, API trigger only):
+
+- **Environment:** network access Custom with the host's domain plus the default package list
+  (npm); `STORY_CLOUD_BUNDLE` as an environment variable holding a bundle for the trees Run
+  may touch; setup script `npm i -g @ovst/cli && story agent install`, so the hooks and skill
+  are in Claude Code's settings before the session starts. Check whether a task with no
+  repository can use a non-default environment; if not, give it a tiny repository.
+- **Saved prompt:** the fire text arrives wrapped as untrusted `<routine-fire-payload>` data, so
+  the saved prompt must say to carry out the Story task it describes: `story agent start
+  --task …` with the payload's tree, page and task, do the task in the checked-out folder,
+  `story agent done "<result>"`, then `story agent finish`. The fire text is never approval,
+  so the skill's "ask before something you can't undo" holds (and waits, until phase 2).
+- **Fire token:** shown once on claude.ai; Joe pastes the fire URL and token into the iPhone's
+  Settings. Story keeps them in the Keychain (synced, so a Mac could fire too). A leaked token
+  can start sessions that edit the bundle's trees, the same reach as a leaked bundle; Regenerate
+  on claude.ai revokes it. Holding it on the host instead needs a secret store and a relay
+  route there, so not in the first cut.
+
+**To build:**
+
+1. **`story agent start --task <page>:<task text>`** (or a `story agent task` subcommand) gives
+   an outside agent the bookkeeping Run has on the Mac (`AgentRuns`) without Story Sync starting
+   `claude -p`: the run is recorded against the block, `done` marks it `> [!agent-done]` with
+   the result, and a failed or abandoned session leaves it unchanged with a note. Tests in the
+   CLI sync suite with the fake agent.
+2. **iPhone Run.** With a fire URL and token in Settings, Run POSTs `{text}` with the tree's
+   canonical URL, the page path, the block's stable key and its text (beta header
+   `experimental-cc-routine-2026-04-01`). The block shows "Starting in the cloud…" (on the
+   phone only) until the agent joins the page's presence, then the usual bubble; the response's
+   session URL is kept so the block menu can open the session. Errors (401, 30 fires an hour per
+   task) show on the block. No Mac and no runner stream are involved.
+3. **Undo Run** for a cloud run: the snapshot dies with the machine, so there is none until
+   history restore ([overstoryd 007](history-007-document-history-routes-and-restore.md) step 6).
+   Say so in the block menu rather than offer a button that can't work.
 - **One name.** `story agent` holds both cloud bundles (`create`, `list`, `revoke`, `run`,
   `start`, `finish`) and presence reporting (`status`, `done`, `hook`, `install`). Pick the
   split before the commands are documented further: for example `story cloud …` for bundles
   and `story agent …` for reporting, keeping the old spellings as aliases for one release.
 
-**Verification:** a fake-agent cloud session in the CLI sync suite receives a `run`, edits its
-checkout, and the change and the agent's presence reach a second client; by hand, Run on a
-cloud agent from the iPhone with the Mac asleep.
+**Verification:** the fake-agent CLI test for `--task` (block marked done, failure leaves it);
+an iOS unit test for the fire request; then by hand, Run from the iPhone with the Mac asleep
+(in [Joe's to-do](../joe.md) when built). Waits on an `@ovst/cli` release with `--task`.
+
+**Size:** S to M: the CLI bookkeeping is a reuse of `AgentRuns`' marking; the phone side is a
+Settings pane, a Keychain entry and one request. Startup is a cold cloud machine plus `npm i`,
+so expect a minute or two before the agent appears.
 
 ## Phase 6: show work in progress, when the agent chooses (Joe, 2026-11-01)
 
@@ -168,7 +206,7 @@ Since Agents 001, Story Sync holds a tree's publishing while an agent edits it: 
 
 A task block can have blocks indented under it, like sub-bullets: the task line is the headline, the blocks under it are the details. Run sends the agent the task with all its children, and a finished run removes the task together with them. In Markdown the children are the quote's own nested content or the indented blocks that follow; settle which when this is built, so Story and `findTaskBlock` agree. (Shift-Return line breaks inside a task came first, in Agents 001's follow-ups.)
 
-Also open from the same day: which way of running from the iPhone is smoothest (Mac runner, an always-on runner on a setup-token, a routine's API trigger, or handing a prompt to the Claude iPhone app) needs research before phase 3 or 5 picks one.
+Settled 2026-11-06: phase 5 runs from the iPhone through a scheduled task's API trigger; phase 3's Mac runner stays for running on the Mac's own Claude Code.
 
 ## Not in this plan
 

@@ -45,7 +45,8 @@ the page or the reader. Absorbs Apps 001 and 003; an HTML renderer comes later.
 **[Agents 002: talk to the agent, and run tasks from the iPhone](features/agents-002-talk-to-the-agent-and-run-from-anywhere.md).**
 *Later.* After Agents 001: the agent asks and Joe answers at its cursor from any device, Run
 works from the iPhone while the Mac is awake (through presence messages between one person's
-devices), and Codex as a second runner. The conversation vanishes like presence.
+devices) or, with no Mac, in a Claude Code cloud session started by a scheduled task's API
+trigger, and Codex as a second runner. The conversation vanishes like presence.
 
 **[Live 002: exact carets and selections](features/live-002-exact-carets.md).**
 *Later.* After Agents 001: a Quagmire release that reports and draws exact carets and
