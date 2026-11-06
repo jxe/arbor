@@ -119,7 +119,7 @@ Read the [provenance index](../../docs/architecture/overstoryd/provenance-index.
 every acceptance records which update inserted each run of each file's bytes, so a line's
 update is the update of the pieces it holds, exact through moves and merges, with no line
 matching. A line holding pieces from several updates is attributed to the newest of them.
-Settle the details against the index as built (it is being built in its own thread).
+Settle the details against the index as built (deployed 2026-11-02).
 
 **Fallback, for versions from before the index.** Line matching over `document_versions`,
 as this plan first had it (text in git history before 2026-11-01): newest version first,

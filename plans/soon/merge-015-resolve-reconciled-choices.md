@@ -33,14 +33,10 @@ linked choices are all loaded (whole-tree, file, range and coupled groups, since
 
 ## Remaining work
 
-### 0. A portable explanation (moved)
-
-Steps 2 and 3 record why the host resolved something and show it in clients. The
-shape of that explanation, a merge note, and the three merge outcomes in the spec
-are [Editor 003 part 3](../features/editor-003-suggestions.md#part-3-merge-notes)
-since 2026-11-01 (Joe), and rule revisions are
-[overstoryd 017](merge-017-more-formats-and-open-cases.md#before-taking-a-case)'s. Step 2
-needs the note shape settled there.
+The explanation steps 2 and 3 record and show is a merge note, whose shape is
+[Editor 003 part 3](../features/editor-003-suggestions.md#part-3-merge-notes)'s (Joe,
+2026-11-01); step 2 needs it settled there. Rule revisions are
+[overstoryd 017](merge-017-more-formats-and-open-cases.md#before-taking-a-case)'s.
 
 ### 1. Establish the automatic rule with a regression matrix
 
@@ -81,9 +77,8 @@ exist. Distinguish a proven automatic reconciliation from a plausible combined
 result requiring a person's choice. Allow inspection of current text alongside
 captured text, with explicit additions, removals, moves, and hidden material.
 
-“Keep current contents” covers file/range choices and dependency groups since
-2026-11-01 (`5fe7157d`): one guarded resolution of the whole group with the pinned
-current root, listing lines a version holds that the page lacks. Never substitute an
+“Keep current contents” exists for every conflict group
+([status](../../status.md#merge-as-blocks-and-elements--2026-11-01)). Never substitute an
 old selected alternative for current contents. Pin previews
 to the accepted state and reject stale submission; retain drafts across restart
 and uncertain acknowledgement. Include Swift and TypeScript client APIs and the

@@ -20,8 +20,7 @@ their own plans, for people and agents alike (Joe, 2026-10-30). Runs in history 
 - **Effort:** M.
 - **Risk:** LOW for the contract additions (in memory, nothing persisted). MEDIUM for Run from
   the iPhone, which starts a process on the Mac from another device.
-- **Progress:** TODO. Agents 001 is done (2026-11-01). Done early: a cloud agent from a bundle
-  shows in presence under the bundle's label.
+- **Progress:** TODO.
 - **Left from Agents 001, not built:** a dot beside each page in the sidebar where someone is,
   and `story sync status --wait` (agents check readiness with `story sync status`).
 
