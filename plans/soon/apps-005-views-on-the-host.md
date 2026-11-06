@@ -89,7 +89,9 @@ Mutations stay as they are, and a view refers to one as an action value.
 ## 2. The wire format and the spec
 
 - Spec 07 §4 and §12.1: a view request names a view and its input, and answers data or a
-  view tree, with the same live replacement stream queries use now.
+  view tree, with the same live replacement stream queries use now. Requests name views and
+  mutations with the spec's `HandleRef` (`tree, path, name, version`), replacing
+  `@ovst/protocol`'s `QueryHandleRef` (`module`, `export`).
   - A view tree is `{type, props, children, key}`, plus action values naming a mutation and
     its input.
   - A device that runs the view itself asks for the plan's results instead. Decide that

@@ -199,8 +199,8 @@ Declared and authored views are one kind:
   same plan, authority, live behavior and result form.
 - A client draws either wherever a view can appear, including on a page that presents a
   collection.
-- A declared view is addressed by its schema's tree and logical path and the entry's
-  `label`.
+- Both are named the same way ([§12.1](#121-evaluate-and-stream-named-queries)): a tree,
+  the logical path of a module or a schema, and an export or a `label`.
 
 ## 5. Mutations
 
@@ -392,18 +392,18 @@ hosting activated for the source tree, returns `422 unsupported-operation`.
 ```ts
 type QueryCursor = string;
 
-type QueryHandleRef = {
+/**
+ * Names a view or a mutation: a name in a file in a tree. For an authored
+ * handle, `path` is its module and `name` its export. For a declared view
+ * (§4.1), `path` is a schema and `name` a `~views` label. `version` is the
+ * module's code version or the schema's fingerprint. The host tells which kind
+ * it is from the file at `path`.
+ */
+type HandleRef = {
   tree: TreeID;
-  module: LogicalPath;
-  export: string;
+  path: LogicalPath;
+  name: string;
   version: Hash;
-};
-
-/** A schema's `~views` entry, served as the built-in list view (§4.1). */
-type DeclaredViewRef = {
-  tree: TreeID;
-  schema: LogicalPath;
-  view: string;
 };
 
 type QueriesRequest = {
@@ -414,7 +414,7 @@ type QueriesRequest = {
   };
   queries: Array<{
     id: string;
-    handle: QueryHandleRef | DeclaredViewRef;
+    handle: HandleRef;
     input: unknown;
     knownOutputHash?: Hash;
   }>;
@@ -533,7 +533,7 @@ type MutateRequest = {
   input: unknown;
 };
 
-type MutationHandleRef = QueryHandleRef;
+type MutationHandleRef = HandleRef;
 
 type MutationResultReceipt<Result = unknown> = {
   mutationID: string;

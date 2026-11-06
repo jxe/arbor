@@ -9,7 +9,7 @@ The spec already describes the target:
   makes a `~views` entry a **declared view**: the built-in list view with that entry's
   settings.
 - [§12.1](../../docs/overstory-spec/07-executable-documents.md#121-evaluate-and-stream-named-queries)
-  lets a request name one (`DeclaredViewRef`).
+  names both kinds with one `HandleRef` (tree, path, name, version).
 - [Schema language §8](../../docs/overstory-spec/11-schema-language.md#8-views) points there.
 
 ## Status
@@ -45,7 +45,7 @@ doesn't use.
 
 ## 2. Served like any view
 
-- The sidecar and the query route answer a `DeclaredViewRef`.
+- The sidecar and the query route answer a `HandleRef` whose path is a schema.
 - They use the same authority, live replacement stream and output hash as an authored view.
 - No code activation is needed, because the built-in view is host code. Reads follow the
   caller's access now, and the tree's rules once Apps 010 lands.
