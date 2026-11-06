@@ -57,7 +57,7 @@ From Joe, 2026-10-30 and 2026-11-06, except where marked as a recommendation:
    `run` as a presence message (a Mac; later a host runner or a Codex machine); it is offered
    only while online. A *webhook runner* is a URL and a secret the device POSTs the run request
    to (a claude.ai scheduled task, GitHub Actions, your own server); it is always offered.
-5. **Each person picks.** Settings has a Runners list, synced across the person's devices; Run
+5. **Each person picks.** Settings has a Runners list, kept in the configuration tree; Run
    uses the default runner and a long-press picks another. With no runner available, Run is
    greyed out and says why ("Your Mac is asleep").
 6. **Messages go through presence, not the tree.** Asking a present runner to run a task,
@@ -142,9 +142,14 @@ the block; a second client sees the agent with the run's id.
 
 - **Runners in Settings** on the Mac and iPhone: each entry has a label, a kind (present or
   webhook), and is default or not. Present runners appear by themselves while online; webhook
-  runners are added by hand. Recommendation: the list lives in the account's private settings
-  so every device sees it, and webhook secrets live in the Keychain (synced by iCloud); settle
-  where account-private settings live when this is built.
+  runners are added by hand.
+- **The list lives in the configuration tree** (Joe, 2026-11-06; spec 04 §7) as `runners.yaml`,
+  so every device of the account sees it. `tree-config-v1`'s closed file set gains it: entries
+  keyed by a runner ID, each with its label, kind, URL (for a webhook), default flag, and the
+  `DeviceID` of its bundle from `devices.yaml`. Revoking that device removes the runner, and
+  removing the runner revokes the device, in one accepted root. No secret is written there:
+  the webhook's secret stays in the Keychain (synced by iCloud), and the bundle's credential
+  stays where it was handed out.
 - **The Mac as a runner.** With "Run tasks on this Mac" on (default on), the Mac keeps a runner
   stream on every tree placed on it, not only the open one, and runs `run` messages as phase 2
   does. If two Macs are runners, the most recently active is the default.
@@ -161,9 +166,9 @@ stream on each placed tree costs the Mac and the host.
   <secret>`. The runner's answer may carry `{ "url": … }`, which the block menu opens ("Open
   session"). Errors show on the block.
 - **Access.** A webhook runner usually starts on a machine with nothing placed.
-  Recommendation: adding one mints a bundle for it (on a device that can create bundles) and
-  the request carries its agent link, so the remote side needs no stored secret of ours;
-  removing the runner revokes the bundle.
+  Adding one mints a bundle for it (on a device that can create bundles) and the request
+  carries its agent link, so the remote side needs no stored secret of ours; removing the
+  runner revokes the bundle (Joe, 2026-11-06).
 - **The claude.ai preset.** A scheduled task with only an API trigger: the request goes as
   `{"text": …}` with the beta header `experimental-cc-routine-2026-04-01`. Fire text arrives
   wrapped as untrusted `<routine-fire-payload>`, so the saved prompt opts in: "Run the Story
