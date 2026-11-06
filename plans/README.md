@@ -37,6 +37,11 @@ A plan holds only work that is left, so it shrinks as it is built (Joe, 2026-11-
 
 What you would notice in Story, as opposed to protocol, host or data plumbing.
 
+**[Apps 011: widgets in Story](features/apps-011-widgets-in-story.md).**
+*Soon, after Apps 005.* Small apps embedded in pages by a link to a `.tsx`, written as views
+in TSX and drawn natively in SwiftUI (no web view, no React), with state owned by the app,
+the page or the reader. Absorbs Apps 001 and 003; an HTML renderer comes later.
+
 **[Agents 002: talk to the agent, and run tasks from the iPhone](features/agents-002-talk-to-the-agent-and-run-from-anywhere.md).**
 *Later.* After Agents 001: the agent asks and Joe answers at its cursor from any device, Run
 works from the iPhone while the Mac is awake (through presence messages between one person's
@@ -140,11 +145,17 @@ Rows only their authors edit, as access policy (`who: {property: authors}`, one
 `unless`/`when` predicate), with device updates authorized by effect. Formerly 002's
 milestone 5; Joe moved it to soon on 2026-10-28.
 
-**[Apps 005: activation authority and sources from trees](soon/apps-005-activation-authority-and-sources-from-trees.md).**
+**[Apps 005: views on the host](soon/apps-005-views-on-the-host.md).**
 Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
-lending models against real code. They run in a sidecar (2026-10-28) as their caller, from
-handles registered in code; this plan makes them run as an activated app under an execution
-token, from code read out of a tree, and turns them on in the host.
+lending models against real code. Views (functions over rows that return JSX or data, traced
+into plans) replace queries and USL `~views`, with arrangements as data; the sidecar runs
+them from trees, and they are turned on in the host, still as their caller. First of the
+three apps plans Joe split on 2026-11-06.
+
+**[Apps 010: activation and lending](soon/apps-010-activation-and-lending.md).**
+After Apps 005: code runs as an activated app under an execution token with lenders, not as
+its caller; revocation; first-run consent in Story writes `apps.yaml`. Decide first what code
+gets without asking.
 
 **[Performance 008: merge cost by edit, not by size](soon/performance-008-merge-cost-by-edit.md).**
 What Performance 004 (merges start from a provenance index; closed 2026-11-02) left: a
@@ -199,21 +210,12 @@ authority together is what exercises the permissions and lending models.
 Part of the lending test: an app approved at a profile's home host should work on its
 placement hosts too. After Apps 005.
 
-**[Apps 003: compile and typecheck executable documents](later/apps-003-development-compiler-and-editor-tooling.md).**
-Later, for testing Overstory as a web framework: one compiler and typechecker for
-executable documents everywhere, which the Supplies site needs. After the queries and
-mutations work.
-
 **[Performance 007: keep collections in SQLite on the host](later/performance-007-sqlite-collection-storage.md).**
 Joe, 2026-10-28: overstoryd should work with a collection's SQLite file instead of keeping
 the equivalent table objects, producing canonical objects on demand. The history model
 for SQLite collections (less, none, or kept another way) comes first. After Apps 005.
 
-**[Apps 001: the Supplies executable site](later/apps-001-supplies-executable-site.md).**
-Later, the web-framework test itself: the Supplies site running locally and on overstoryd,
-then deployed to a third-party host such as Vercel. After Apps 003, 005 and 006.
-
-**[Apps 002: hosted agents](later/apps-002-overstoryd-hosted-agents.md).** After the Supplies site:
+**[Apps 002: hosted agents](later/apps-002-overstoryd-hosted-agents.md).** After Apps 011:
 authored agents hosted beside an app, calling its own query and mutation handles. No timing
 yet.
 
