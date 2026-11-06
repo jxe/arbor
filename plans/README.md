@@ -206,6 +206,11 @@ ownership.
 Part of the same push, after Apps 005: the authoring API that declares author and user
 authority together is what exercises the permissions and lending models.
 
+**[Apps 012: one kind of view](later/apps-012-one-kind-of-view.md).**
+Joe, 2026-11-06: a schema's `~views` entry is the built-in list view with its settings (spec
+07 §4.1), so overstoryd serves declared and authored views alike and Story draws both the
+same way. Not needed now; after Apps 005.
+
 **[Apps 008: app approvals and lending on placement hosts](later/apps-008-app-approvals-on-placement-hosts.md).**
 Part of the lending test: an app approved at a profile's home host should work on its
 placement hosts too. After Apps 005.

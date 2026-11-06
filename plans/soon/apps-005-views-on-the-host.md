@@ -157,9 +157,9 @@ Not here:
 - Widgets in Story and the HTML renderer
   ([Apps 011](../features/apps-011-widgets-in-story.md)).
 - Durable workflows ([Apps 006](../later/apps-006-durable-authoring.md)).
-- Making USL `~views` and code views one concept. A `~views` entry would be the built-in
-  list view (Story.app's current renderer) with those settings, and overstoryd would treat
-  both the same way. Joe agreed on 2026-11-06 but said it doesn't need doing now.
+- Serving and drawing USL `~views` as declared views
+  ([Apps 012](../later/apps-012-one-kind-of-view.md)). Step 2's spec and wire changes are
+  written so the two kinds of view stay one.
 - Approvals on placement hosts (Apps 008).
 
 Never widen authority to get a fixture passing.

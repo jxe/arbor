@@ -221,6 +221,10 @@ twice at one level of precedence is an error.
 
 ## 8. Views
 
+Each entry of `~views` is a **declared view**: the built-in list view of
+[executable documents §4.1](07-executable-documents.md#41-views) with that entry's
+settings, served and drawn as any other view is.
+
 `~views` takes a list of objects, each a default arrangement in tab order: a
 unique `label` string, a `line` (the fields shown for each row), a `group`
 field, and a `sort` field (`created` and `modified` included). Items of a

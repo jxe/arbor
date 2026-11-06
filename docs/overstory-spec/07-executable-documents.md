@@ -135,9 +135,9 @@ of the module in which their `node(path)` was authored. An unbound, ambiguous,
 stale, or differently resolved handle is inactive rather than being redirected
 to a same-named table in the currently open database.
 
-The return shape selects node/store facts and specified aggregates rather than
-running arbitrary presentation code over loaded results. The callback constructs
-the plan once at compilation and is not called per node. A backing-coupled query
+The plan selects node/store facts and specified aggregates. A [view](#41-views)'s
+other code runs over the plan's authorized results and can read nothing the plan did
+not select. The plan is constructed once, not per node. A backing-coupled query
 uses a separately declared escape hatch and carries that fact in its handle and
 consent statement.
 
@@ -171,6 +171,36 @@ materialize a reviewed node query into SQLite and serve its last completely
 applied state offline. This specification does not define general cross-server
 query discovery, delegated authorization, or server-to-server routing
 ([deferred 2](README.md#deferred)).
+
+### 4.1 Views
+
+A **view** is a function over typed node sources that returns data or a view tree
+([§10](#10-rendering-actions-and-live-data)).
+
+Its **shape** compiles to the plan of §4. The shape is which sources the view reads,
+which relationships it follows, which fields it selects, and how each read is narrowed
+(filtered, ordered, limited). The view's other code runs over that plan's authorized
+results, on the host for data and on the client for a view tree. That code covers
+values, filtering and sorting, and layout. Narrowing that keeps private nodes or rows
+from being disclosed belongs to the plan and never to that code.
+
+A view that takes a row or node is part of the view that calls it, and its reads join
+the caller's plan. A view exported with an input schema is **addressable**: a link, an
+embed or a [request](#121-evaluate-and-stream-named-queries) can name it. Views are
+replacing the select-object queries above ([Apps 005](../../plans/soon/apps-005-views-on-the-host.md)).
+
+A schema's `~views` ([schema language §8](11-schema-language.md#8-views)) are
+**declared views**. Each one is the built-in list view applied to its model with that
+entry's line, group and sort. Its result is the entry's lines and groups as schema
+language §8 defines them. A client may draw that result with its own native list.
+
+Declared and authored views are one kind:
+- A host serves either through [§12.1](#121-evaluate-and-stream-named-queries), with the
+  same plan, authority, live behavior and result form.
+- A client draws either wherever a view can appear, including on a page that presents a
+  collection.
+- A declared view is addressed by its schema's tree and logical path and the entry's
+  `label`.
 
 ## 5. Mutations
 
@@ -369,6 +399,13 @@ type QueryHandleRef = {
   version: Hash;
 };
 
+/** A schema's `~views` entry, served as the built-in list view (§4.1). */
+type DeclaredViewRef = {
+  tree: TreeID;
+  schema: LogicalPath;
+  view: string;
+};
+
 type QueriesRequest = {
   document: {
     tree: TreeID;
@@ -377,7 +414,7 @@ type QueriesRequest = {
   };
   queries: Array<{
     id: string;
-    handle: QueryHandleRef;
+    handle: QueryHandleRef | DeclaredViewRef;
     input: unknown;
     knownOutputHash?: Hash;
   }>;
