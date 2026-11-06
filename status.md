@@ -298,7 +298,7 @@ Joe reviewed the plans in soon, the ideas and small work, and closed out these:
   host-supplied "By host" grouping (communities already show as groups through their
   `Community` ties). Pages that present other collections and groups that are other trees
   became [spec extensions](plans/spec-extensions/README.md). Ideas and small work were renamed
-  [candidates](plans/candidates.md) and [chores](plans/chores.md).
+  [candidates](plans/candidates.md) and [chores](plans/joe.md) (Joe's to-do since 2026-11-06).
 
 ## Queries and mutations run in a sidecar — 2026-10-28
 
