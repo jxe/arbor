@@ -92,7 +92,7 @@ A sketch for the forks below.
 
 ## Part 3: merge notes
 
-Joe deferred merge notes ([overstoryd 017](../soon/merge-017-blocks-and-elements.md)
+Joe deferred merge notes ([overstoryd 017](../soon/merge-017-more-formats-and-open-cases.md)
 step 6) to this plan on 2026-11-01: a note is the host's own small suggestion about a merged
 result, so it should share the suggestion UI rather than get one of its own. The same day this
 part became the one home for explaining automatic merge outcomes: overstoryd 015's step 0 and
@@ -101,7 +101,7 @@ part became the one home for explaining automatic merge outcomes: overstoryd 015
 
 - **The three outcomes in the spec.** Add the three constraints (lose nothing, keep the
   syntax, keep the meaning as far as possible) and three outcomes (merge, merge with a note,
-  review) from [overstoryd 017](../soon/merge-017-blocks-and-elements.md#what-a-good-merge-does)
+  review) from [overstoryd 017](../soon/merge-017-more-formats-and-open-cases.md#what-a-good-merge-does)
   to [source intent §7](../../docs/overstory-spec/10-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution)
   as what any merge tool may do. The spec permits all three and requires only the first two
   constraints for an automatic outcome; how eagerly a tool merges is its own choice.

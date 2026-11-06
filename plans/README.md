@@ -171,7 +171,7 @@ and its cards showed only older alternatives. overstoryd should clear choices it
 prove reconciled, and Story should explain the current result and make explicit
 resolution easy. Joe moved it to soon on 2026-10-28.
 
-**[overstoryd 017: merge as blocks and elements, and the cases still open](soon/merge-017-blocks-and-elements.md).**
+**[overstoryd 017: more formats as elements, choices named by block, and the cases still open](soon/merge-017-more-formats-and-open-cases.md).**
 After the 2026-10-31 todos conflicts, Joe asked for one merge model instead of a growing list
 of allowances. Markdown merges as blocks and JSON, YAML, TOML and CSV as elements since
 2026-11-01 ([status](../status.md#merge-as-blocks-and-elements--2026-11-01)). Left: JSONL,
@@ -270,7 +270,7 @@ proofs and release boundaries differ, and they share examples rather than duplic
 Editor intent, client publication, host merging and conflict review. [Native 008](when-needed/merge-008-copies-with-changes-and-compound-undo.md)
 supplies truthful command evidence; [Clients 002](soon/merge-002-identity-preserving-coalescing.md)
 can simplify that evidence after it exists, and must not invent missing copy or move identity;
-[overstoryd 017](soon/merge-017-blocks-and-elements.md) must support an emitted
+[overstoryd 017](soon/merge-017-more-formats-and-open-cases.md) must support an emitted
 operation form before a client that emits it is installed; [overstoryd 015](soon/merge-015-resolve-reconciled-choices.md)
 clears choices later work has reconciled; [Editor 003 part 3](features/editor-003-suggestions.md#part-3-merge-notes)
 gives every automatic outcome its explanation (merge notes), which 015's authority resolutions

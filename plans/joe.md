@@ -66,6 +66,13 @@ Released in Story 0.1.6; Joe's todos tree converted 2026-11-01
 - [ ] **Todos tree as pages:** edit front matter on a todos page on the Mac and the iPhone (add
   and change a property, edit the body), and check both see it and nothing conflicts.
 
+### Keep current contents
+
+Built 2026-11-01 ([status](../status.md#merge-as-blocks-and-elements--2026-11-01)).
+
+- [ ] On the next real conflict on a page, try **Keep current contents**: it lists only the
+  lines a version holds that the page lacks, and keeping them clears the choice.
+
 ## Releases and publishing
 
 ### Sharing 004: Railway template

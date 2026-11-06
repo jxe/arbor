@@ -39,7 +39,7 @@ Steps 2 and 3 record why the host resolved something and show it in clients. The
 shape of that explanation, a merge note, and the three merge outcomes in the spec
 are [Editor 003 part 3](../features/editor-003-suggestions.md#part-3-merge-notes)
 since 2026-11-01 (Joe), and rule revisions are
-[overstoryd 017](merge-017-blocks-and-elements.md#before-taking-a-case)'s. Step 2
+[overstoryd 017](merge-017-more-formats-and-open-cases.md#before-taking-a-case)'s. Step 2
 needs the note shape settled there.
 
 ### 1. Establish the automatic rule with a regression matrix
