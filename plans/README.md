@@ -127,7 +127,7 @@ from soon to when needed on 2026-10-24.
 
 ## Soon
 
-**[Schema language 007: edit collections in Story, on the Mac and iPhone](soon/schema-language-007-edit-collections-in-story.md).**
+**[Schema language 007: edit rows in Story's collection view, and the structured editor](soon/schema-language-007-editing-in-the-collection-view.md).**
 Joe wants collections edited natively in Story, the People directory first. The write path is
 done and in daily use: Story sends row operations through the host on every device, queued
 while offline, and the host derives the result (spec 10 §2.2). Left: the queue's loose ends,

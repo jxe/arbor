@@ -1,11 +1,14 @@
-# Schema language 007: edit collections in Story, on the Mac and iPhone
+# Schema language 007: edit rows in Story's collection view, and the structured editor
 
 **Why and when:** Joe wants collections edited natively in Story, on the Mac and iPhone: the
 People directory first, then games, excellences and Supplies. Joe, 2026-10-24: once Schema
 language 006 showed a collection read-only
 ([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)), editing goes in soon.
-This plan is the whole editing side: the write path (done but for loose ends), every view
-intent as row operations, simple edits in 006's view, and then the structured editor.
+The write path is built and in daily use: Story sends row operations through the host on
+every device, queued while offline
+([status](../../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)). Left:
+the queue's loose ends, every view intent as row operations, simple edits in 006's view, and
+then the structured editor.
 Schema language 002, which presented collections the way People needs, closed on
 2026-10-28; this plan took its former milestones 3a, the inverse of 3, and 4.
 
@@ -17,10 +20,8 @@ Schema language 002, which presented collections the way People needs, closed on
 
 - **Effort:** L: steps 5–7 are M; the structured editor (8) is most of it.
 - **Risk:** MEDIUM, then HIGH for step 8, a new kind of editing surface in Story and Quagmire.
-- **State:** IN PROGRESS. Part 1 (steps 0–4) is done and in daily use by the People directory,
-  which writes all its rows through it
-  ([status](../../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)). Try
-  edits on the games sandbox tree, which holds supplies-remake's live data.
+- **State:** IN PROGRESS. Steps are numbered from 5; 0 to 4 were the write path. Try edits on
+  the games sandbox tree, which holds supplies-remake's live data.
 - **Unblocks:** [People 001](../features/people-001-groups-sharing-and-go-to.md) phase 2;
   [Schema language 008](../later/schema-language-008-port-excellences-and-supplies.md).
 
@@ -71,35 +72,6 @@ Settled with Joe on 2026-10-15 (the editor):
 
 ## Steps
 
-### Part 1, the write path (done)
-
-0. **Read on the iPhone.** 006's view on iOS, from the tree's own objects, offline; fix what
-   looks wrong at phone width. **Done** (Joe, 2026-10-25).
-1. **Derived candidates in TS and overstoryd.** The contract (`candidate: Hash | null`, each
-   frame root optional and checked when stated),
-   request identity (a derived candidate's `candidate` is null in the digest and in the next
-   element's `base`), and the result's `candidate` and reconciliation from the preceding result's
-   root (spec 01 §2.4). overstoryd executes a derived trace with the code that checks a stated
-   one. Vectors in `protocol-authored-updates.json` and the request-identity cases: rows only,
-   text derived, a string of derived elements, a derived frame stating `before` (checked), a
-   stated root the execution doesn't match (refused), an operation that doesn't apply on its basis (refused), a retry deriving the same root.
-2. ~~Story Sync sends derived row changes.~~ Dropped (Joe, 2026-10-25): Story Sync encodes tables
-   in TS and keeps stating roots for row changes, so its queue is unchanged.
-3. **Swift on the wire.** `RowOperation` and derived candidates in Overstory's authored
-   contract and request digest, passing the shared vectors; the result's `candidate`.
-4. **A row queue in `UpdateCoordinator`.** Built 2026-10-25 (`UpdateCoordinator+Rows.swift`,
-   `WorkspaceProvider.appendRowEdits`). Edits (StoryKit `RowEdit`s) wait durably in
-   `sync/row-changes.json`, independent of the change log's stated chain. One request at a
-   time carries every pending batch as one derived element with one frame (a later frame or
-   element couldn't name the collection object it builds on), based on the tree's accepted
-   update; the host merges it like any concurrent change. Its body is fixed for exact retries.
-   Batches stay shown (`applyRowEdits` over the rows, one edit at a time) until the tree
-   installs the result, the reported head or anything later; edits made meanwhile go in the
-   next request. A refusal drops the batch and keeps its reason (`refusedRowEdits`);
-   `base-not-retained` rebuilds on the current base. An edit the current rows no longer allow
-(another device made the same row meanwhile) is left out of the request, as the view leaves it
-out, rather than have the host refuse the rest (`0e0d9d9`).
-
 ### Part 2, editing
 
 5. **The row queue's loose ends.** Show a refused edit in the UI, and a field decision (the
@@ -117,8 +89,6 @@ out, rather than have the host refuse the rest (`0e0d9d9`).
    already holds; adding a new placeholder waits for People 001); a line's context menu
    deletes (or removes from the group); a group gets an "Add" line that creates a row there.
 8. **The structured editor**, below.
-9. **Close out.** Record the evidence in `status.md` and delete this plan. (It also covers
-   the old Apps 010, native offline collection rows, deleted 2026-11-01.)
 
 ## The structured editor (step 8)
 

@@ -478,8 +478,8 @@ git history at `ac1a7de`.
 ## People directory, tree picker and USL summaries — 2026-10-25
 
 Implemented and installed on Joe's Mac (main `6ebe9ea`); Joe 2026-10-25: "this will do for now".
-[People 001](plans/features/people-001-groups-sharing-and-go-to.md) phase 1 ("As built" there) and
-[Schema language 007](plans/soon/schema-language-007-edit-collections-in-story.md)'s row queue, which it
+[People 001](plans/features/people-001-groups-sharing-and-go-to.md) phase 1 and
+[Schema language 007](plans/soon/schema-language-007-editing-in-the-collection-view.md)'s row queue, which it
 writes through.
 
 - **Rows from Story go through the host.** Story sends row edits as derived candidates
@@ -525,7 +525,7 @@ Plan Schema language 006 is done and deleted; its text is in git history at `58e
   `bun run test:affected` passes. At `58e23a6` the packages, the TS tests and the Mac and iOS
   builds passed; the app-hosted tests didn't run, as Joe's debug Story was open (small work).
 
-Next: [Schema language 007](plans/soon/schema-language-007-edit-collections-in-story.md), editing rows
+Next: [Schema language 007](plans/soon/schema-language-007-editing-in-the-collection-view.md), editing rows
 in Story on the Mac and iPhone.
 
 ## Earlier merge-cache formats retired — 2026-10-24

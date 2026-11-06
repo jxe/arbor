@@ -15,5 +15,5 @@ it may edit.
 **Settled.** Groups stay group profile trees on hosts, because sharing needs them there
 ([People 001](../features/people-001-groups-sharing-and-go-to.md)). Today the directory's
 `Tie` rows (kind `Group` or `Community`) show the groups, read-only. The drag itself is
-[Schema language 007](../soon/schema-language-007-edit-collections-in-story.md)'s editor.
+[Schema language 007](../soon/schema-language-007-editing-in-the-collection-view.md)'s editor.
 Formerly part of Schema language 002's milestone 2, moved here on 2026-10-28.
