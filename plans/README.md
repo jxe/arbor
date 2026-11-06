@@ -163,13 +163,11 @@ of allowances. Markdown merges as blocks and JSON, YAML, TOML and CSV as element
 XML/HTML/CSS and code as elements, choices named by the blocks they cover, then the menu of
 cases that still go to review, which was overstoryd 014 until Joe folded it in on 2026-11-01.
 
-**[Names 001: your own domain names your profile](soon/names-001-your-own-domain-names-your-profile.md).**
-Joe, 2026-11-05: a person points a domain they own at their profile, as Bluesky handles do (a
-DNS TXT record or a `.well-known` file, checked against the profile's own front matter), so
-`alice.com` names her wherever she is hosted and rules written with it survive a move.
-Steps 1-4 (spec, resolver, overstoryd, `story me domain`) on main 2026-11-05
-([status](../status.md#domain-locators-your-own-domain-names-your-profile--2026-11-05)); left:
-custom domains served by a host for trees' URLs (decided 2026-11-06: a CNAME, not client rewriting), showing and accepting domains in Story, and a hand check on one of Joe's domains.
+**[Names 001: your trees at your own domain, and domains in Story](soon/names-001-your-trees-at-your-own-domain.md).**
+A domain can already name a person (TXT record or `.well-known`, checked against the profile's
+`domains`; [status](../status.md#domain-locators-your-own-domain-names-your-profile--2026-11-05)).
+Left (Joe, 2026-11-06): a host serves a person's trees at their domain through a CNAME, with one
+canonical URL per tree, and Story shows and accepts domains.
 
 ## Later
 
