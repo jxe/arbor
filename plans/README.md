@@ -169,7 +169,7 @@ DNS TXT record or a `.well-known` file, checked against the profile's own front 
 `alice.com` names her wherever she is hosted and rules written with it survive a move.
 Steps 1-4 (spec, resolver, overstoryd, `story me domain`) on main 2026-11-05
 ([status](../status.md#domain-locators-your-own-domain-names-your-profile--2026-11-05)); left:
-showing and accepting domains in Story, and a hand check on one of Joe's domains.
+custom domains served by a host for trees' URLs (decided 2026-11-06: a CNAME, not client rewriting), showing and accepting domains in Story, and a hand check on one of Joe's domains.
 
 ## Later
 
