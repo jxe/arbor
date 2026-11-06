@@ -5,7 +5,7 @@ The execution sidecar runs authored queries and mutations for overstoryd, the wa
 question at a time, and everything else it touches is something that already exists.
 That means the collection materializations overstoryd keeps, and the ordinary Overstory
 API. This page is the whole boundary, decided with Joe on 2026-10-28 and built in
-[Apps 005](../../../plans/soon/apps-005-source-resolution-and-sidecar.md) step 4. The
+Apps 005 (its sidecar step, now removed from that plan). The
 types are in [`@ovst/exec-protocol`](../../../packages/exec-protocol/src/index.ts); the
 sidecar is [`@ovst/overstoryd-exec`](../../../packages/overstoryd-exec/src/sidecar.ts). It
 is not deployed: the deployed host passes no `collections`. Portable contracts are in

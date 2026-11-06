@@ -1,7 +1,7 @@
 # Performance 007: keep collections in SQLite on the host
 
 **Why and when:** Joe, 2026-10-28, while settling the execution sidecar
-([Apps 005](../soon/apps-005-source-resolution-and-sidecar.md)): it is more efficient for
+([Apps 005](../soon/apps-005-activation-authority-and-sources-from-trees.md)): it is more efficient for
 overstoryd to work with a collection's SQLite file than to keep the equivalent table and
 rows objects around. Later, after the sidecar.
 

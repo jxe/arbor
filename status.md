@@ -248,7 +248,7 @@ Joe reviewed the plans in soon, the ideas and small work, and closed out these:
 ## Queries and mutations run in a sidecar — 2026-10-28
 
 Implemented; not deployed (the deployed host passes no `collections`, so its query and
-mutate routes still answer `unsupported-operation`). [Apps 005](plans/soon/apps-005-source-resolution-and-sidecar.md)
+mutate routes still answer `unsupported-operation`). [Apps 005](plans/soon/apps-005-activation-authority-and-sources-from-trees.md)
 step 4, the boundary Joe settled the same day ([the execution sidecar](docs/architecture/overstoryd/execution-sidecar.md)).
 
 - **overstoryd runs no authored code.** `@ovst/apps-runtime` left its dependency closure.
@@ -1391,7 +1391,7 @@ measurements before broadening the implementation.
 |---|---|---|---|
 | Story editing and review | implemented, not installed | Copies with changes, paste and inline provenance, compound undo, and interactive acceptance of the implemented review UI | [Native 008](plans/when-needed/merge-008-copies-with-changes-and-compound-undo.md), release gate retired 2026-10-26 |
 | Markdown source-transfer policy | deployed | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order. Also deployed: list items, table rows and contextual links, same-anchor ordering, keyed JSON/YAML members and TS/JS function declaration moves ([transfers](docs/architecture/overstoryd/merge-tool.md#transfers)); their hand checks were retired ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)). Swift/Python declaration moves, structured moves between files, cross-document fragment and reference links and richer list hosts still require review | [overstoryd 017](plans/soon/merge-017-blocks-and-elements.md#cases-still-open) |
-| Resource policy providers | deployed | Provider-specific enforcement, source resolution, activation consent, the execution sidecar, observation and soak | [Apps 005](plans/soon/apps-005-source-resolution-and-sidecar.md) |
+| Resource policy providers | deployed | Provider-specific enforcement, source resolution, activation consent, the execution sidecar, observation and soak | [Apps 005](plans/soon/apps-005-activation-authority-and-sources-from-trees.md) |
 | Working-tree client transition | installed | None: the soaks were recorded from daily use ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)) | |
 | Story for the web | not mounted | The browser editor is out of the build until it is rebuilt as a working-tree client over the same machines as the Mac app | [Web 025](plans/later/story-web-025-story-web.md) |
 | Executable documents | core only | MDX/TSX compilation, generated typing, editor integration, React presentation, activation, Story presentation, overstoryd hosting | [Apps 001, 003, 005 and 006](plans/README.md) |
@@ -1467,7 +1467,7 @@ review of overstoryd for legacy and redundant surface, and the fixes it led to:
   ok, `/.overstory/integrity` ok (once), the authored manifest (112 files over 3
   placements) unchanged, a file-system round trip (5328/5329).
 - **Left as they are.** The execution-token and app-runtime routes (dormant
-  until [Apps 005](plans/soon/apps-005-source-resolution-and-sidecar.md));
+  until [Apps 005](plans/soon/apps-005-activation-authority-and-sources-from-trees.md));
   `document_versions`, whose history columns nothing reads yet ([overstoryd
   007](plans/features/history-007-document-history-routes-and-restore.md)); the
   well-known resolution's `historical` and `stableKey`, and the error

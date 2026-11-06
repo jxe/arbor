@@ -123,12 +123,11 @@ Rows only their authors edit, as access policy (`who: {property: authors}`, one
 `unless`/`when` predicate), with device updates authorized by effect. Formerly 002's
 milestone 5; Joe moved it to soon on 2026-10-28.
 
-**[Apps 005: source resolution, execution authority and the sidecar](soon/apps-005-source-resolution-and-sidecar.md).**
+**[Apps 005: activation authority and sources from trees](soon/apps-005-activation-authority-and-sources-from-trees.md).**
 Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
-lending models against real code. Schema language 005 runs them inside overstoryd as their
-caller, from handles registered in code; this plan makes them run as an activated app under
-an execution token, from code read out of a tree, and then moves execution into a sidecar.
-The sidecar comes first (Joe, 2026-10-28).
+lending models against real code. They run in a sidecar (2026-10-28) as their caller, from
+handles registered in code; this plan makes them run as an activated app under an execution
+token, from code read out of a tree, and turns them on in the host.
 
 **[Performance 008: merge cost by edit, not by size](soon/performance-008-merge-cost-by-edit.md).**
 What Performance 004 (merges start from a provenance index; closed 2026-11-02) left: a

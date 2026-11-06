@@ -1,18 +1,16 @@
-# Apps 005: Source resolution, execution authority and the sidecar
+# Apps 005: Activation authority and sources from trees
 
-**Why and when:** Joe wants queries and mutations running on hosts fairly soon, to test the permissions and lending models against real code; he moved it to soon on 2026-10-28. Schema language 005 (2026-10-24) got them running; this plan makes them run as an app, under the authority an activation grants, from code resolved out of a tree, and then decides where that code runs.
+**Why and when:** Joe wants queries and mutations running on hosts fairly soon, to test the permissions and lending models against real code; he moved it to soon on 2026-10-28. Schema language 005 (2026-10-24) got them running; they now run in a separate sidecar (2026-10-28); this plan makes them run as an app, under the authority an activation grants, from code resolved out of a tree, and turns them on in the host.
 
 ## Status
 
-**IN PROGRESS · L effort · high authority-boundary risk.** Step 4 (the sidecar) is done
-(2026-10-28); steps 1 to 3 are left. Rewritten 2026-10-24 after
-Schema language 005 milestone 6 ([status](../../status.md#collections-that-sync--2026-10-24))
-put named queries and mutations inside overstoryd. The earlier version (replanned at
-`d55f4142`, 2026-09-21) assumed no query evaluator would ever load in overstoryd; its
-detailed sidecar steps are in git history and are summarized under step 4.
-Read [DEVELOPMENT.md](../../DEVELOPMENT.md), `status.md`, current source and tests
-before relying on this plan. No live-data, installed-app or public-host changes are
-authorized by it.
+**IN PROGRESS · L effort · high authority-boundary risk.** The sidecar step is done
+(2026-10-28, [status](../../status.md#queries-and-mutations-run-in-a-sidecar--2026-10-28))
+and was removed from this plan on 2026-11-06; its design is
+[the execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md) and earlier
+versions of this plan are in git history. Read [DEVELOPMENT.md](../../DEVELOPMENT.md),
+`status.md`, current source and tests before relying on this plan. No live-data,
+installed-app or public-host changes are authorized by it.
 
 ## What exists now
 
@@ -31,30 +29,22 @@ authorized by it.
   tokens, `app` rules and lending (Apps 004, deployed on schema 13) are not used.
 - **Not in production.** `packages/overstoryd/src/cli.ts` passes no `collections`, so
   the deployed host answers both routes with `unsupported-operation`.
-- **In a sidecar.** Since 2026-10-28 (step 4) queries and mutations run in
+- **In a sidecar.** Since 2026-10-28 queries and mutations run in
   `@ovst/overstoryd-exec`, a separate process, behind
   [the execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md) boundary.
 
-## Joe's decision (2026-10-28): the sidecar first
-
-The original plan required a separate sidecar process so that no evaluator, compiler or
-authored JavaScript loads in overstoryd; Schema language 005 put the evaluator in process for
-handles the operator registers. Joe chose to extract `HostCollections`' execution into the
-sidecar before adding authority: step 4 comes first, then steps 1 to 3 on the sidecar. Slower
-to the lending test, with a clean boundary from the start.
-
-The boundary was settled with Joe the same day and is written up in
-[the execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md). overstoryd
-keeps the SQLite materializations, issues tokens and holds client query streams. The
-sidecar runs the code, reads the materializations, uses the standard API with a token that
-lasts for one question, and commits a mutation itself as a guarded, row-only update with
-its own receipts. A mutation's trial still runs in a rolled-back transaction on the
-materialization, and overstoryd watches `pragma data_version` to catch a sidecar that
-commits to it.
+The sidecar boundary (Joe, 2026-10-28): overstoryd keeps the SQLite materializations,
+issues tokens and holds client query streams; the sidecar runs the code, reads the
+materializations, uses the standard API with a token that lasts for one question, and commits
+a mutation itself as a guarded, row-only update with its own receipts. A mutation's trial runs
+in a rolled-back transaction on the materialization, and overstoryd watches
+`pragma data_version` to catch a sidecar that commits to it.
 
 ## 1. Activation and execution authority
 
-Make a query or mutation run as an app, not simply as its caller.
+Make a query or mutation run as an app, not simply as its caller: each question's token
+comes from the activation, with its lenders, instead of the caller's own authority
+(`HostCollections.mutate`).
 
 - An **activation** is private host configuration (in the tree configuration graph,
   spec 04 §2) binding a handle's module, export and version to a tree, its lenders,
@@ -89,7 +79,8 @@ the real materializations, not mocked grants.
 
 ## 2. Resolve sources from trees
 
-Replace registration in code with handles read from trees.
+Replace the sidecar's `--handles` module with handles read from trees; the handshake and
+questions already name handles by module, export and version.
 
 - An activation names a handle by tree, logical path, export and pinned version; the
   host loads that module from retained objects at the pinned root, with each imported
@@ -113,7 +104,8 @@ each behave as above.
 
 ## 3. Turn it on in the host
 
-- `cli.ts` reads activations and passes `collections`; with none, the routes keep
+- `cli.ts` reads activations and passes `collections`, including how the deployed image
+  starts the sidecar (`collections.command`); with none, the routes keep
   answering `unsupported-operation` and nothing else changes.
 - Packaging: the deployed image carries apps-runtime only when apps are enabled, or
   always (the sidecar comes first); record which.
@@ -127,19 +119,6 @@ each behave as above.
 
 **Verify:** `bun run test:affected`, `bun run test:protocol`, and one hand check with
 Joe on a disposable host: an activated Supplies query and mutation, then revocation.
-
-## 4. The execution sidecar (first, Joe 2026-10-28) — done
-
-Built on 2026-10-28 ([status](../../status.md#queries-and-mutations-run-in-a-sidecar--2026-10-28)):
-[the execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md) describes
-it, `@ovst/overstoryd-exec` runs the code, and overstoryd no longer depends on
-`@ovst/apps-runtime`. Steps 1 to 3 now build on it:
-
-- Step 1 issues each question's token from the activation, with its lenders, instead of
-  the caller's own authority (`HostCollections.mutate`).
-- Step 2 replaces the sidecar's `--handles` module with handles read from trees; the
-  handshake and questions already name handles by module, export and version.
-- Step 3 decides how the deployed image starts the sidecar (`collections.command`).
 
 ## Completion
 
