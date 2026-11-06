@@ -4,7 +4,7 @@
 
 ## Status
 
-**PLANNED · M–L effort · high authority-boundary risk.** It needs Apps 005 steps 4–5, which
+**PLANNED · M–L effort · high authority-boundary risk.** It needs Apps 005 steps 3–4, which
 load code from trees and turn it on in the host. Widgets from other people
 ([Apps 011](../features/apps-011-widgets-in-story.md)) wait on this plan. Joe's own
 widgets don't.

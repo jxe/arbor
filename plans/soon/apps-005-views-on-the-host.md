@@ -31,7 +31,7 @@ relying on this plan. It authorizes no live-data, installed-app or public-host c
   - The boundary is [the execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md).
 - **Queries are select objects.** Authors write `query.many/one/maybe` with
   `where/orderBy/take/select` (spec 07 §4 and spec 08). React components read them with
-  `useQuery`. USL `~views` (spec 11 §8) describes default arrangements, and Story's
+  `useQuery`. USL `~views` (spec 11 §8) lays out Story's
   presented collections use them (`PresentedView.swift`, `packages/usl/src/present.ts`),
   as do People 001 and the games and excellences schemas.
 - **Handles are registered in code.** The sidecar's `--handles` module lists handle objects
@@ -72,6 +72,10 @@ Mutations stay as they are, and a view refers to one as an action value.
   - **Narrowing callbacks get a row type without JS string methods**, so using JS where SQL
     is needed fails to typecheck.
   - **Lift `key` out of an intrinsic view's props.**
+- A view lays out its rows in code: what each line shows, grouping and sort are plain JS.
+  There is no separate arrangement model (Joe, 2026-11-06, for the first cut). A reader's
+  choice of sort or grouping is a `keep` control the view reads (Apps 011). USL `~views`
+  stays as it is and keeps driving Story's built-in collection lists.
 - Access is narrowing, never JS. A view can't read past the authority it runs with (here
   the caller's, and an activation's in Apps 010). An `if` that hides a private row
   doesn't count as protecting it.
@@ -82,27 +86,7 @@ Mutations stay as they are, and a view refers to one as an action value.
 - A branch the trace skipped widens once.
 - A forged input can't read a row the narrowing excludes.
 
-## 2. Arrangements replace USL views
-
-An **arrangement** is a row of a built-in Arrangement model, layered app default < page <
-reader. A view reads its arrangement.
-- An arrangement's vocabulary is today's `~views` vocabulary: `line`, `group`, `sort`, paths,
-  `~bullet`, `~summary`, `~latest`, `~count`, `rows:`. Only where it is stored changes.
-- Page and reader rows are ordinary page and personal data. Their rules are in Apps 011,
-  and this plan only needs the model.
-- **Decide first:** where an app's default arrangement is written. One option is `seed`
-  Arrangement rows in the schema. The other is the view's own code.
-- USL loses `~views`, and `re Person` loses the views it takes. Spec 11 §8 moves into the
-  Arrangement model's definition.
-- Story's presented collections (`PresentedView.swift`, `present.ts`) read arrangements
-  instead. Move People 001's directory and the games and excellences schemas in the same
-  change, so nothing loses its presentation.
-
-**Verify:** `tests/unit/presented-views.test.ts` and the StoryKit `USLTests` pass over
-arrangements. The games sandbox and the People directory look the same on the Mac before
-and after.
-
-## 3. The wire format and the spec
+## 2. The wire format and the spec
 
 - Spec 07 §4 and §12.1: a view request names a view and its input, and answers data or a
   view tree, with the same live replacement stream queries use now.
@@ -112,11 +96,10 @@ and after.
     form here, because Apps 011 needs it.
 - Spec 08: `overstory/react` gives way to the view API (`view`, tables, JSX runtime, action
   values). Leave widget-only parts (controls, `keep`, `mine`, `setup`) to Apps 011.
-- Spec 11: arrangements, as in step 2.
 - [Executable documents §8](../../docs/overstory-spec/07-executable-documents.md#8-host-and-server-boundaries)
   and the execution-sidecar doc: questions name views as well as mutations.
 
-## 4. Load views and mutations from trees
+## 3. Load views and mutations from trees
 
 Replace the sidecar's `--handles` module with modules read from trees. The handshake and
 questions already name handles by module, export and version.
@@ -147,7 +130,7 @@ is out of scope.
 - A schema change, a binding change, helper context and a nested-tree escape attempt each
   behave as above.
 
-## 5. Turn it on in the host
+## 4. Turn it on in the host
 
 - `cli.ts` reads activations and passes `collections`, including how the deployed image
   starts the sidecar (`collections.command`). With no activations, the routes keep

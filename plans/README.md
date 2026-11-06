@@ -148,7 +148,7 @@ milestone 5; Joe moved it to soon on 2026-10-28.
 **[Apps 005: views on the host](soon/apps-005-views-on-the-host.md).**
 Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
 lending models against real code. Views (functions over rows that return JSX or data, traced
-into plans) replace queries and USL `~views`, with arrangements as data; the sidecar runs
+into plans, laying out rows in code) replace queries; the sidecar runs
 them from trees, and they are turned on in the host, still as their caller. First of the
 three apps plans Joe split on 2026-11-06.
 

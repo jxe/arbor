@@ -46,8 +46,10 @@ discussion. Where it says *query* or *endpoint*, read *view*
 - **Row actions come from mutations.** `mutation.for(Model, "delete"|"move"|"edit"|"create")`
   lets any list of that model offer them. Without one, a list falls back to plain row edits
   through `POST /updates` when the reader can write.
-- **Arrangements** (Apps 005 step 2) are layered app default < page < reader. Story lets a
-  page author and a reader change their layer.
+- **No arrangement model in the first cut** (Joe, 2026-11-06). A widget lays out its rows
+  in code. A reader's choice of sort or grouping is a `keep` control (a picker) that the
+  view reads, kept in personal data per placement. A layout shared by everyone reading a
+  page is dropped for now; if it matters, it comes back as a `page model` the view reads.
 - **Views run locally on a placed tree when they can,** and on the host otherwise.
 - **The UI language becomes its own package, like USL:**
   - The component model and vocabulary.
@@ -79,19 +81,18 @@ discussion. Where it says *query* or *endpoint*, read *view*
   - The old tree stays on screen until the new run is ready.
   - Story waits up to about 100 ms so all of a run's streams are at one tree version.
 - Views on a placed tree are planned and run against Story Sync's local SQLite. Otherwise
-  Story asks the host for the plan's results (the form Apps 005 step 3 decides).
+  Story asks the host for the plan's results (the form Apps 005 step 2 decides).
 
 ## 3. The SwiftUI renderer
 
 - Draw the vocabulary on the Mac and on the iPhone.
 - Controls bind to named fields. Actions run mutations and show pending and error states.
-- Lists of a model offer its row actions and arrangements.
+- Lists of a model offer its row actions.
 - Snapshot-test the conformance fixtures on both platforms.
 
 ## 4. Embedding, placement and state
 
-- A lone `.tsx` link on a page draws the widget in place, with a menu for settings and
-  arrangement.
+- A lone `.tsx` link on a page draws the widget in place, with a menu for its settings.
 - Placement identity, `page model` with `setup()`, `personal model` with `mine()`, and
   `keep`, as decided above.
 - Personal rows live under the reader's own tree and sync like any collection.
