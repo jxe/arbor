@@ -82,19 +82,17 @@ People 001 phase 4 owns the iPhone's other link opens.
 through `@ovst/client`, with Story Sync out of the path. The rest of the CLI's host edits
 moving the same way is recorded there as a follow-up.
 
-**[Sharing 003: move a page to another tree from the share sheet](features/sharing-003-move-pages-between-trees.md).**
-*Now.* Built on the Mac and the iPhone (on main since 2026-11-01). Left: New Tree… on the
-iPhone, and Joe's hand check. Joe wants a public tree and to move pages into it from todos while keeping them linked
-there (2026-11-01). The share sheet names the page's tree and who has access to that tree;
-picking another tree previews its access and moves the page, leaving a link where it was.
+**[Sharing 003: New Tree… on the iPhone](features/sharing-003-new-tree-on-the-iphone.md).**
+*Now.* Moving a page to another tree from the share sheet is built on the Mac and the iPhone
+([status](../status.md#move-a-page-to-another-tree--2026-11-01)); the iPhone's tree menu still
+lacks New Tree…, which needs an administrator device. Three open questions for Joe: one-off
+shares, where the MAI tree lives, and Undo for a move.
 
-**[Sharing 004: start your own community from a Railway template](features/sharing-004-start-your-own-community.md).**
-*Built, then set aside.* Founding by code, the host image, the template's definition and Story's
-wording are on main (2026-11-05). Left: Joe publishes the image and the template, a rehearsal
-from a fresh Railway account, and what Story says to a host too old for it. A newcomer can ask a friend for an invitation or run their own host. Joe (2026-11-04)
-wants the Railway template first, so nobody makes an identity and then gives up at Railway: the
-host is founded by a generated code, logs a founder link, and Story's invitation flow claims it
-and makes the claimer the community's administrator.
+**[Sharing 004: what Story says to a host older than it](features/sharing-004-hosts-older-than-the-app.md).**
+*Before the template is public.* Starting your own community from a Railway template is built
+([status](../status.md#start-your-own-community-from-a-railway-template--2026-11-05)) and
+waits on Joe publishing it. Self-hosted hosts will lag behind Story releases, so Story should
+say plainly when a host is too old for it.
 
 **[Filesystem 027: the whole namespace on disk](features/filesystem-027-the-whole-namespace-on-disk.md).**
 *Not soon.* The AFS half of the global namespace: every tree you can read is a path under

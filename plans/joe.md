@@ -46,6 +46,31 @@ Built 2026-11-05 and deployed ([visitor sessions](../status.md#visitor-sessions-
 - [ ] **Your domain names your profile:** `story me domain <one of your domains>`, publish the
   TXT record it prints, let Story Sync publish the profile, then `story me domain --check`.
 
+### Sharing 003: moving pages between trees
+
+Built on the Mac and iPhone ([status](../status.md#move-a-page-to-another-tree--2026-11-01)).
+
+- [ ] **Mac:** move a disposable page with one subpage and one link to a private page into a
+  writable tree. The new tree shows the pages, the old parent has a link that opens them,
+  another page's link to them still opens, the iPhone shows both trees after sync, and the
+  old pages are in Trash. Then New Tree… with "Everyone can view", and its public URL shows a
+  page moved there.
+- [ ] **iPhone:** move a page into a tree the iPhone has placed; the Mac shows it in the new
+  tree after sync, with the link in the old parent.
+
+## Releases and publishing
+
+### Sharing 004: Railway template
+
+Built 2026-11-05 ([status](../status.md#start-your-own-community-from-a-railway-template--2026-11-05)).
+
+- [ ] Make the `ghcr.io/jxe/overstoryd` package public after the first image publishes (a
+  release tag, or running Publish host image by hand).
+- [ ] Create the template in Railway's dashboard as the deploy README's "The template
+  (maintainers)" says, and put its link in that README (or give it to a session to add).
+- [ ] Rehearse from a fresh Railway account: deploy, find the founder link in the logs, open it
+  in Story on a Mac with no identity, invite a second person, and restart the service.
+
 ## Go-aheads
 
 Steps a session has ready but must not take without Joe's word, because they change live

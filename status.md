@@ -58,6 +58,31 @@ the owner's edits arriving and local edits never sent
 (`tests/integration/story-sync-read-only-placement.test.ts`). Story.app has no UI for it
 yet; not hand-checked on Joe's Mac.
 
+## Start your own community from a Railway template — 2026-11-05
+
+**Implemented** on main (`e99919e`), deployed with it (overstoryd); Sharing 004 steps 1, 2, 4
+and 5, and step 3's image and template definition. Not yet published or rehearsed.
+
+- **Founding by code** ([accounts §1.2](docs/overstory-spec/04-accounts-and-devices.md)):
+  `OVERSTORYD_FOUNDER_CODE` takes the place of `OVERSTORYD_FIRST_WRITER_PROFILE` (`cli.ts`, one
+  or the other). On first start the host reserves the founder's handle as an ordinary
+  invitation and logs the full founder link at every start until it is claimed, then logs that
+  the variable can be deleted. `access.yaml` can't be empty of administrators, so a
+  code-founded community grants `admin` to its (still empty) group, and the first claim
+  replaces that rule with the claimer's profile, in the same transaction.
+- **Founder wording:** `GET /.overstory/health` says `founding: true` while the community has no
+  administrator (not the claim challenge, because Story words its join screen before it asks
+  for one), and Story then says "Your community on <host> is ready". The first screen has "No
+  invitation? Start your own community", linking to the deploy README's "Start your own
+  community" section, so the template's link can change without an app release.
+- **Image and template:** `.github/workflows/publish-host-image.yml` publishes
+  `ghcr.io/jxe/overstoryd:<version>` and `:latest` from each release tag; the template's
+  definition (variables, `/data` volume, generated domain, `secret()` founder code) is in the
+  deploy README's "The template (maintainers)".
+- **Left:** publishing the image and the template and a rehearsal from a fresh Railway account
+  are in [Joe's to-do](plans/joe.md#sharing-004-railway-template); what Story says to a host too
+  old for it is [Sharing 004](plans/features/sharing-004-hosts-older-than-the-app.md).
+
 ## Story Path (White) icon — 2026-11-02
 
 Story's device-local App Icon settings now offer Story Path (White) beside
@@ -136,6 +161,30 @@ object journal under `objects/packs/` with one write and one `fdatasync`, and no
 written before acceptance; packing compresses journaled objects later, and a host start
 re-indexes records a lost index commit left out. On the Oct 28 copy with 4 ms added per
 fsync, a fast-forward went from 27.8 to 14.7 ms (median) and from 9 syncs to 1.
+
+## Move a page to another tree — 2026-11-01
+
+**Implemented** on main (Mac and iPhone, both in by the `8aa8848` merge of 2026-11-02); Sharing
+003 steps 1–4 and 6 on both, New Tree… on the Mac. Not hand-checked.
+
+- **The share sheet** (`StorySharePanel`, `swift/StoryApp/StoryRootView.swift`) names the tree
+  the page is in ("This page is in [Todos ▾]") and who has access to that tree. Picking another
+  tree previews the move: the destination's people, the subpages that move along, and links to
+  pages its readers can't open. Nothing moves until "Move to <tree>".
+- **The tree menu** lists trees on this device the account can write, minus profiles, account
+  configuration and the People directory, grouped by account, current tree first. New Tree…
+  (Mac) makes a tree in `~/Documents/<name>` at `<account URL>/<slug>` with a name, account and
+  visibility, then previews moving into it.
+- **A move** (`StoryWorkspaceState` "Moving a page to another tree", `StoryAppModel.swift`;
+  link rewriting in StoryKit's `CrossTreePageMove`, tested in `CrossTreeMoveTests`) writes the
+  page and its subpages at the destination's top level (`<name>` or `<name>-2`), rewriting links
+  that leave the moved set as `overstory://<old tree>/…`; only then retargets the old tree's
+  links, adds a link to the parent if it had none, and trashes the old pages. A page in Trash
+  can't move, and a move is refused when the destination already holds one of its page IDs
+  (2026-11-02). On the iPhone the destination is a second working tree opened for the length
+  of the move (`moveDestinations` reads `nativePlacements`); both hosts must be reachable.
+- **Left:** New Tree… on the iPhone is [Sharing 003](plans/features/sharing-003-new-tree-on-the-iphone.md);
+  the hand checks are in [Joe's to-do](plans/joe.md#sharing-003-moving-pages-between-trees).
 
 ## Agents 001: presence and agent tasks — 2026-11-01
 

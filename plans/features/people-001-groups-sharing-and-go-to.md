@@ -125,7 +125,7 @@ of those plans is listed in each of them.
 - **The person picker** (hand-built; from the dropped phase 3). One field that finds a person
   or group: your contacts first, then host communities, members of groups shared with you, an
   exact `~handle@host` or `tr_…`, then "Add as a placeholder and invite". It serves "+" and
-  New Group here, a tree's access list in [Sharing 003](sharing-003-move-pages-between-trees.md)'s
+  New Group here, a tree's access list in [Sharing 003](../../status.md#move-a-page-to-another-tree--2026-11-01)'s
   share sheet, and `Person` fields in collections (007's chip picker uses it).
 - Retire `StoryDirectoryView`'s hand-built sections and the Members sheet for groups; keep the
   sheet for host communities.
@@ -137,7 +137,7 @@ of those plans is listed in each of them.
 
 Phase 3 was a hand-built share sheet that matched the people you pick against your groups
 ("Make a group of these…"). Joe dropped it on 2026-11-01 once
-[Sharing 003](sharing-003-move-pages-between-trees.md) made sharing a choice of tree, so a
+[Sharing 003](../../status.md#move-a-page-to-another-tree--2026-11-01) made sharing a choice of tree, so a
 page's audience is its tree's. Its person search moved to phase 2's person picker. Its text is
 in git history before that date. Phase 4 keeps its number.
 
