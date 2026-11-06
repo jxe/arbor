@@ -42,11 +42,12 @@ What you would notice in Story, as opposed to protocol, host or data plumbing.
 in TSX and drawn natively in SwiftUI (no web view, no React), with state owned by the app,
 the page or the reader. Absorbs Apps 001 and 003; an HTML renderer comes later.
 
-**[Agents 002: talk to the agent, and run tasks from the iPhone](features/agents-002-talk-to-the-agent-and-run-from-anywhere.md).**
-*Later.* After Agents 001: the agent asks and Joe answers at its cursor from any device, Run
-works from the iPhone while the Mac is awake (through presence messages between one person's
-devices) or, with no Mac, in a Claude Code cloud session started by a scheduled task's API
-trigger, and Codex as a second runner. The conversation vanishes like presence.
+**[Agents 002: talk to the agent, and run tasks from anywhere](features/agents-002-talk-to-the-agent-and-run-from-anywhere.md).**
+*Later.* After Agents 001: Run sends a task to a *runner* the person chooses (Joe, 2026-11-06):
+a present runner such as their Mac, reached through presence messages, or a webhook runner
+such as a claude.ai scheduled task, GitHub Actions or their own server; whatever runs it uses
+`story agent start --task`, so every run looks the same. Then the agent asks and Joe answers at
+its cursor from any device, and Codex. The conversation vanishes like presence.
 
 **[Live 002: exact carets and selections](features/live-002-exact-carets.md).**
 *Later.* After Agents 001: a Quagmire release that reports and draws exact carets and
