@@ -95,7 +95,7 @@ Every HTTP route an Overstory host exposes, and the section that defines it.
 | `POST /.overstory/trees/{TreeID}/updates` | [updates §2.1](01-tree-operations.md#21-the-update-request) |
 | `GET /.overstory/trees/{TreeID}/watch` | [watching §1.1.3](01-tree-operations.md#113-watching) |
 | `GET /.overstory/trees/{TreeID}/presence`, `POST /.overstory/trees/{TreeID}/presence/{PresenceID}` | [presence §3](12-presence.md#3-routes) |
-| `QUERY /.overstory/trees/{TreeID}/queries` | [executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-named-queries) |
+| `QUERY /.overstory/trees/{TreeID}/views` | [executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-views) |
 | `POST /.overstory/trees/{TreeID}/mutate` | [executable documents §12.2](07-executable-documents.md#122-execute-named-mutations) |
 | `GET /.overstory/trees/{TreeID}/access` | [access control §4](05-access-control.md#4-reading-access) |
 | `POST /.overstory/account-challenges`, `PUT /.overstory/accounts` | [accounts §1.1–1.3](04-accounts-and-devices.md#11-beginning-a-person-identity) |

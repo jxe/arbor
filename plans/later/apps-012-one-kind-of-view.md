@@ -8,7 +8,7 @@ The spec already describes the target:
 - [Executable documents §4.1](../../docs/overstory-spec/07-executable-documents.md#41-views)
   makes a `~views` entry a **declared view**: the built-in list view with that entry's
   settings.
-- [§12.1](../../docs/overstory-spec/07-executable-documents.md#121-evaluate-and-stream-named-queries)
+- [§12.1](../../docs/overstory-spec/07-executable-documents.md#121-evaluate-and-stream-views)
   names both kinds with one `HandleRef` (tree, path, name, version).
 - [Schema language §8](../../docs/overstory-spec/11-schema-language.md#8-views) points there.
 

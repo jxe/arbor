@@ -145,7 +145,7 @@ Live behavior is intrinsic to a query. A one-shot caller evaluates its current
 value once; a subscribing caller maintains that same value as a stream of
 authorized complete query-result states, never raw driver changes, with the
 no-gap, deduplication, and coalescing guarantees of
-[§12.1](#121-evaluate-and-stream-named-queries).
+[§12.1](#121-evaluate-and-stream-views).
 
 A live dependency plan is a set of (provider, observation cursor, precision
 scope) entries: the narrowest proved nodes, child membership, property/content
@@ -186,7 +186,7 @@ from being disclosed belongs to the plan and never to that code.
 
 A view that takes a row or node is part of the view that calls it, and its reads join
 the caller's plan. A view exported with an input schema is **addressable**: a link, an
-embed or a [request](#121-evaluate-and-stream-named-queries) can name it. Views are
+embed or a [request](#121-evaluate-and-stream-views) can name it. Views are
 replacing the select-object queries above ([Apps 005](../../plans/soon/apps-005-views-on-the-host.md)).
 
 A schema's `~views` ([schema language §8](11-schema-language.md#8-views)) are
@@ -195,11 +195,11 @@ entry's line, group and sort. Its result is the entry's lines and groups as sche
 language §8 defines them. A client may draw that result with its own native list.
 
 Declared and authored views are one kind:
-- A host serves either through [§12.1](#121-evaluate-and-stream-named-queries), with the
+- A host serves either through [§12.1](#121-evaluate-and-stream-views), with the
   same plan, authority, live behavior and result form.
 - A client draws either wherever a view can appear, including on a page that presents a
   collection.
-- Both are named the same way ([§12.1](#121-evaluate-and-stream-named-queries)): a tree,
+- Both are named the same way ([§12.1](#121-evaluate-and-stream-views)): a tree,
   the logical path of a module or a schema, and an export or a `label`.
 
 ## 5. Mutations
@@ -348,7 +348,7 @@ Anonymous, Overstory-user, and tree-principal executions are separate cache and 
 
 The host resolves the requested Overstory path, loads one coherent executable-document version, passes its query string, evaluates mounted query reads, server-renders the component tree, and embeds only validated results plus public handle metadata. Hydration reuses those values.
 
-Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [protocol](#121-evaluate-and-stream-named-queries) and its separate named-mutation operation.
+Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [protocol](#121-evaluate-and-stream-views) and its separate named-mutation operation.
 
 Mutation handles are callable as form actions as well as typed imperative handles. The [authoring API](08-authoring-api.md#4-actions-and-forms)'s action adapter validates form input through the handle's schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. For a single-domain action, successful return commits its transaction and throwing rolls it back. Workflow actions expose pending, blocked, failed, or completed state; failure does not erase committed steps.
 
@@ -375,10 +375,10 @@ execute reviewed transactional intent. Neither operation is accepted-tree
 synchronization, even when a mutation also advances an Overstory-canonical data
 tree.
 
-### 12.1 Evaluate and stream named queries
+### 12.1 Evaluate and stream views
 
 ```text
-QUERY /.overstory/trees/{SourceTreeID}/queries
+QUERY /.overstory/trees/{SourceTreeID}/views
 Content-Type: application/json
 Accept: text/event-stream
 ```
@@ -390,7 +390,7 @@ query graph. A server without an executable-document runtime, or without
 hosting activated for the source tree, returns `422 unsupported-operation`.
 
 ```ts
-type QueryCursor = string;
+type ViewCursor = string;
 
 /**
  * Names a view or a mutation: a name in a file in a tree. For an authored
@@ -406,13 +406,13 @@ type HandleRef = {
   version: Hash;
 };
 
-type QueriesRequest = {
+type ViewsRequest = {
   document: {
     tree: TreeID;
     path: LogicalPath;
     version: Hash;
   };
-  queries: Array<{
+  views: Array<{
     id: string;
     handle: HandleRef;
     input: unknown;
@@ -421,7 +421,7 @@ type QueriesRequest = {
 };
 ```
 
-`document.tree` must equal the route `SourceTreeID`. The query array is nonempty
+`document.tree` must equal the route `SourceTreeID`. The `views` array is nonempty
 and its IDs are nonempty and unique within this request. A handle from another
 tree is allowed only when it is an imported reviewed handle in this document's
 manifest. The host verifies the coherent document version, reviewed handle
@@ -452,11 +452,11 @@ type PublicQueryError = {
   retryable: boolean;
 };
 
-type QueryEvent =
+type ViewEvent =
   | {
       type: "result";
       id: string;
-      observedThrough: QueryCursor;
+      observedThrough: ViewCursor;
       outputHash: Hash;
       value: unknown;
       error?: never;
@@ -464,16 +464,16 @@ type QueryEvent =
   | {
       type: "result";
       id: string;
-      observedThrough: QueryCursor;
+      observedThrough: ViewCursor;
       error: PublicQueryError;
       outputHash?: never;
       value?: never;
     }
   | {
       type: "ready";
-      queries: Array<{
+      views: Array<{
         id: string;
-        observedThrough: QueryCursor;
+        observedThrough: ViewCursor;
         outputHash?: Hash;
       }>;
     }
@@ -538,7 +538,7 @@ type MutationHandleRef = HandleRef;
 type MutationResultReceipt<Result = unknown> = {
   mutationID: string;
   requestDigest: Hash;
-  observedThrough: QueryCursor;
+  observedThrough: ViewCursor;
   affected?: {
     tree: TreeID;
     update: string;
@@ -588,7 +588,7 @@ clients correlate them idempotently and treat the query result as authoritative.
 The four operations share authentication, semantic digests, receipts,
 observation brokers, SSE framing, and tree-scoped authorization, but not
 transaction or replay domains: `updates` and `mutate` have different conflict
-domains, and `watch` has retained replay identity while `queries` deliberately
+domains, and `watch` has retained replay identity while `views` deliberately
 has none. An accepted update requires authority covering its actual effects; a named mutation
 requires coverage of its declared author/user capabilities. Consolidation
 is shared machinery, not one polymorphic endpoint.

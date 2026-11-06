@@ -132,11 +132,11 @@ manifest that binds the handle to `(tr_…, /practices, schema fingerprint)` and
 records its read prefix ([handles](07-executable-documents.md#3-modules-and-named-handles),
 [queries](07-executable-documents.md#4-queries), [compilation](07-executable-documents.md#7-compilation-and-hosting)).
 A visitor's browser receives the server-rendered page with the query's result
-embedded, then opens `QUERY /.overstory/trees/tr_…/queries` naming the document
-version and the handle. The stream sends `result` and `ready`. When Joe edits
+embedded, then opens `QUERY /.overstory/trees/tr_…/views` naming the document
+version and the view. The stream sends `result` and `ready`. When Joe edits
 the CSV, the tree advances, the provider reports which rows changed, the host
 re-evaluates, and a new `result` with a new `outputHash` follows
-([executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-named-queries), [authoring API](08-authoring-api.md)).
+([executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-views), [authoring API](08-authoring-api.md)).
 
 ## 8. Run a mutation
 
