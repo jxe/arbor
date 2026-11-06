@@ -7,12 +7,31 @@ plans that wait on a trigger ("when merges bite", "when size hurts") rather than
 is named by its topic and number, such as `features/agents-002-talk-to-the-agent-and-run-from-anywhere.md`. When a plan's timing
 changes, move the file (or, in `features/`, change its timing line) and its paragraph here.
 
-Each plan starts with why and when Joe wants it; the same paragraph is below. Decided small
-tasks, hand checks and soaks are [chores](chores.md); undecided work is in
+Each plan starts with why and when Joe wants it; the same paragraph is below. Things only
+Joe can do (hand checks on his devices, releases and publishing, go-aheads for live data,
+soaks) are in [Joe's to-do](joe.md); undecided work is in
 [candidates](candidates.md); proposed additions to the spec are
 [spec extensions](spec-extensions/README.md), one file each. Current behavior is in
-[status](../status.md). Plans carry no priorities. Delete a plan once done, after recording
-its evidence in status.
+[status](../status.md). Plans carry no priorities.
+
+## When work is done
+
+A plan holds only work that is left, so it shrinks as it is built (Joe, 2026-11-06):
+
+- **Remove finished steps** in the same commit that finishes them, or as soon as a session
+  notices. Record what was built in [status](../status.md) (what, where, how it was checked),
+  then delete the step, along with any background, decisions or "as built" notes that only
+  served it. Don't strike steps through or mark them done in place.
+- **Retitle the plan to what is left.** Rename the file (keep its topic and number), its
+  heading, and its paragraph here, so the title names the remaining work, not the original
+  goal.
+- **Move Joe's items to [Joe's to-do](joe.md):** hand checks, tries on his Mac or iPhone,
+  releases, publishing, and go-aheads for live data. A plan doesn't keep them, even as
+  "left for Joe".
+- **Delete the plan** once nothing else is left: after its evidence is in status and its
+  Joe items are in the to-do file. Remove its paragraph here and fix links to it.
+- **Small decided tasks** a session can do without Joe go in the plan they came from, or are
+  done on the spot. There is no separate list for them.
 
 ## Features
 
@@ -206,7 +225,7 @@ After Apps 008, once apps span hosts. A design sketch; no timing yet.
 
 **[Web 025: Story for the web](later/story-web-025-story-web.md)**, with its
 [surface inventory](later/story-web-surfaces.md). For sharing with others: people without the Mac
-or iPhone app need a way to read and edit a tree. After the Native 022 soak closeout.
+or iPhone app need a way to read and edit a tree.
 
 **[Security 004: access links without leaking secrets](later/security-004-access-link-secrets.md).**
 When Joe shares by link, alongside Web 025: an access link must not leak its secret into

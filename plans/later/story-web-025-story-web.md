@@ -1,6 +1,6 @@
 # Web 025: Story for the web: one browser editor for `story open` and overstoryd
 
-**Why and when:** for sharing with others: people without the Mac or iPhone app need a way to read and edit a tree. After the Native 022 soak closeout; Joe wants [Filesystem 024](../features/filesystem-024-open-plain-folders-on-the-mac.md) first, though nothing here depends on it.
+**Why and when:** for sharing with others: people without the Mac or iPhone app need a way to read and edit a tree. Joe wants [Filesystem 024](../features/filesystem-024-open-plain-folders-on-the-mac.md) first, though nothing here depends on it.
 
 > **Executor instructions**: Build Story for the web as one browser bundle that is the TypeScript twin of the native app: the same working tree, change log and update machine as the Mac app ([the update machine](../../docs/implementing-sync-services/update-machine.md)), the same information architecture and vocabulary, served by two hosts. The **local host** is Story Sync on loopback, opened by `story open`. The **overstoryd host** is a host serving the bundle at a tree's canonical URL for a browser that holds a paired device credential. Nobody edits through the daemon; the browser publishes to overstoryd itself. Port surfaces, not chrome: no menu bar, sheets, gestures, audio or camera. Clean breaks over shims. Nothing live (Railway, `~/.story`, the iPhone) flips without Joe's go-ahead.
 >
@@ -12,7 +12,7 @@
 
 - **Effort**: XL, split into three projects with a soak between each
 - **Risk**: MEDIUM (B1), MEDIUM (B2: new overstoryd surface and browser credential), LOW (B3)
-- **Depends on**: historical Native 022 (implemented and live); Native 022 soak closeout in [chores](../chores.md)
+- **Depends on**: historical Native 022 (implemented and live)
 - **Supersedes**: Web 023 (completed plan, deleted; see git history) (its library and endpoint-removal steps are folded into B1 and B2 below), Web 008 (completed plan, deleted; see git history) (its parity targets are restated per surface in [surfaces.md](story-web-surfaces.md)), and the shell items of Web 005 (completed plan, deleted; see git history) (its remaining editor-depth items become the B3 backlog at the end of this plan). Moved to `_done/web/` on 2026-09-19.
 - **Written at**: 2026-09-19, native reference `swift/StoryApp` and `swift/Packages/StoryEditor` at HEAD
 

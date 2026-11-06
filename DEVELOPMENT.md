@@ -98,9 +98,13 @@ Keep the local Xcode workspace in place for ongoing coordinated development.
   evidence lands in `status.md` or `docs/`; git history is the record.
   Numbers are stable identifiers within a plan directory, not an order.
   Each plan opens with why and when Joe wants it, repeated in
-  `plans/README.md`, and carries no priority label. Decided small tasks,
-  hand checks and soaks go in `plans/chores.md`, not their own plan;
-  undecided work goes in `plans/candidates.md`, and proposed spec additions
+  `plans/README.md`, and carries no priority label. When steps of a plan
+  are finished, record them in `status.md`, delete them from the plan, and
+  retitle the plan (file name, heading, README paragraph) to the work that
+  is left. Things only Joe can do (hand checks on his devices, releases,
+  publishing, go-aheads for live data, soaks) go in `plans/joe.md`, not in
+  a plan; a plan left with only those is deleted once they are there.
+  Undecided work goes in `plans/candidates.md`, and proposed spec additions
   in `plans/spec-extensions/`, one file each.
 - `tests/fixtures/` owns reference-implementation fixtures, as opposed to
   the portable vectors under `docs/overstory-spec/conformance/`.

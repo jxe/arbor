@@ -1,10 +1,10 @@
 # Candidates
 
 Work nobody has decided on yet, whether or how: features, fixes and measurements that might
-be worth doing. Nothing here is committed. Decided small tasks are [chores](chores.md); proposed
+be worth doing. Nothing here is committed. Things only Joe can do are in [Joe's to-do](joe.md); proposed
 additions to the spec are [spec extensions](spec-extensions/README.md). Before promoting a
 candidate, check current source and tests: an old audit finding does not prove a current gap.
-When one is decided, write a plan (or add it to [chores](chores.md)) and delete it here.
+When one is decided, write a plan (or add it to the plan it belongs to) and delete it here.
 
 ## Product design needed
 
