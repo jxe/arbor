@@ -3140,12 +3140,18 @@ struct StoryRootView: View {
             let color = StoryPresenceBadge.color(for: peer)
             let initials = StoryPresenceBadge.initials(for: peer)
             let label = StoryPresenceBadge.label(for: peer)
+            // Their profile photo, the same for a person and their agents (the agent adds a sparkle).
+            let avatar = AnyView(StoryToolbarAvatar(
+                person: workspace.directory.first { $0.id == peer.profile }, workspace: workspace,
+                fallbackName: peer.name, tint: color, size: 18, outlined: false))
             if let status = peer.agent?.status {
-                return EditorPeer(id: peer.id, block: caret.block, color: color, initials: initials, label: label, isAgent: true) {
+                return EditorPeer(id: peer.id, block: caret.block, color: color, initials: initials, label: label,
+                                  isAgent: true, avatar: avatar) {
                     StoryPresenceStatus(peer: peer, status: status)
                 }
             }
-            return EditorPeer(id: peer.id, block: caret.block, color: color, initials: initials, label: label, isAgent: peer.agent != nil)
+            return EditorPeer(id: peer.id, block: caret.block, color: color, initials: initials, label: label,
+                              isAgent: peer.agent != nil, avatar: avatar)
         }
     }
 

@@ -66,7 +66,15 @@ struct StoryPresenceStatus: View {
         .font(.callout)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 10).fill(StoryPresenceBadge.color(for: peer).opacity(0.12)))
+        // It floats over the page below its block, so it is a solid card with a shadow.
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(StoryPresenceBadge.color(for: peer).opacity(0.10))
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.background))
+                .shadow(color: .black.opacity(0.14), radius: 6, y: 2)
+        }
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .strokeBorder(StoryPresenceBadge.color(for: peer).opacity(0.25), lineWidth: 0.5))
         .accessibilityElement(children: .combine)
     }
 }
@@ -358,6 +366,8 @@ struct StoryToolbarAvatar: View {
     let fallbackName: String?
     var tint: Color = .accentColor
     var size: CGFloat = 24
+    /// A ring in the background color, which sets it apart in a stack.
+    var outlined = true
     @State private var image: Image?
 
     var body: some View {
@@ -377,7 +387,7 @@ struct StoryToolbarAvatar: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay(Circle().strokeBorder(.background, lineWidth: 1.5))
+        .overlay { if outlined { Circle().strokeBorder(.background, lineWidth: 1.5) } }
         .task(id: person?.entry.avatar?.hash) {
             guard let person, let avatar = person.entry.avatar else { image = nil; return }
             guard let data = try? await AvatarCache().data(for: avatar, fetch: {
@@ -508,34 +518,20 @@ struct StoryAgentTaskControl: View {
             } else {
                 switch run?.state {
                 case .queued?, .running?:
-                    ProgressView().controlSize(.small)
-                    Button("Stop") { if let run { Task { await workspace.stopAgentRun(run) } } }
+                    // The agent's bubble says what it's doing; the row offers only Stop, where Run was.
+                    circleButton("stop.fill", size: 11, nudge: 0, help: "Stop this run", label: "Stop") {
+                        if let run { Task { await workspace.stopAgentRun(run) } }
+                    }
                 case .failed?, .stopped?:
                     Image(systemName: "exclamationmark.circle").foregroundStyle(.red)
                         .help(run?.result ?? "The run did not finish")
                     Button("Run Again") { Task { await workspace.runAgentTask(task, on: reference) } }
                 case .finished?, .undone?, nil:
-                    Button {
+                    // A triangle's mass sits left of its box: nudge it to look centered.
+                    circleButton("play.fill", size: 14, nudge: 1, help: "Run this task with Claude Code in this tree's folder",
+                                 label: "Run with Claude") {
                         Task { await workspace.runAgentTask(task, on: reference) }
-                    } label: {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            // A triangle's mass sits left of its box: nudge it to look centered.
-                            .offset(x: 1)
-                            .frame(width: 30, height: 30)
-                            // Translucent: the panel's edge shows through it.
-                            .background(Circle().fill(.purple.opacity(0.18)))
-                            .overlay(Circle().strokeBorder(.purple.opacity(0.14), lineWidth: 1))
-                            .contentShape(Circle())
                     }
-                    .buttonStyle(.plain)
-                    // On the Mac a quarter of the circle hangs off the panel's right edge
-                    // (its 12pt padding away); it takes a line's height and 12pt from the text.
-                    .frame(width: 12, height: 20)
-                    .offset(x: 10.5)
-                    .help("Run this task with Claude Code in this tree's folder")
-                    .accessibilityLabel("Run with Claude")
                 }
             }
         }
@@ -550,4 +546,29 @@ struct StoryAgentTaskControl: View {
         }
 #endif
     }
+
+#if os(macOS)
+    /// Run and Stop: a round button at the panel's trailing edge.
+    private func circleButton(_ symbol: String, size: CGFloat, nudge: CGFloat, help: String, label: String,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(.primary)
+                .offset(x: nudge)
+                .frame(width: 30, height: 30)
+                // Translucent: the panel's edge shows through it.
+                .background(Circle().fill(.purple.opacity(0.18)))
+                .overlay(Circle().strokeBorder(.purple.opacity(0.14), lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        // On the Mac a quarter of the circle hangs off the panel's right edge
+        // (its 12pt padding away); it takes a line's height and 12pt from the text.
+        .frame(width: 12, height: 20)
+        .offset(x: 10.5)
+        .help(help)
+        .accessibilityLabel(label)
+    }
+#endif
 }
