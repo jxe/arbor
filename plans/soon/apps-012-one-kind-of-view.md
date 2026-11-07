@@ -17,7 +17,7 @@ The spec already describes the target:
 **PLANNED · M effort · low risk.**
 - Needs Apps 005's views and route.
 - Coordinates with
-  [Schema language 007](../later/schema-language-007-editing-in-the-collection-view.md)
+  [Schema language 007](../features/schema-language-007-editing-in-the-collection-view.md)
   (editing in the collection view) and
   [People 001](../features/people-001-groups-sharing-and-go-to.md), both of which draw
   declared views.
@@ -77,5 +77,5 @@ the plan when only Joe's items are left.
 
 Not here:
 - Page-shared layouts for authored views. These were dropped from the first cut of
-  [Apps 011](../features/apps-011-widgets-in-story.md).
+  [Apps 011](apps-011-widgets-in-story.md).
 - An arrangement model.

@@ -31,7 +31,7 @@ shared.
   example). Decide which before building, and what an old root that can no longer be
   rebuilt answers.
 - **Merges and provenance.** Field-level merge, the [provenance index](../../docs/architecture/overstoryd/provenance-index.md)
-  and chunk-hash skipping ([Performance 008](performance-008-merge-cost-by-edit.md)) all assume objects. Each needs a path that reads SQLite.
+  and chunk-hash skipping ([Performance 008](../when-needed/performance-008-merge-cost-by-edit.md)) all assume objects. Each needs a path that reads SQLite.
 
 ## Decide first
 

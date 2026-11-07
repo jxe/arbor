@@ -1,11 +1,12 @@
 # Plans
 
-Feature plans, the things you would notice in Story, are in [`features/`](features) whatever
-their timing, which leads each one's entry here and its file. The rest are filed by when Joe
+Feature plans, the things you would notice in Story, are in [`features/`](features) until Joe
+puts them in soon; their timing leads each one's entry here and its file. The rest are filed by when Joe
 wants them: [`soon/`](soon), [`later/`](later) and [`when-needed/`](when-needed), which holds
 plans that wait on a trigger ("when merges bite", "when size hurts") rather than a date. A file
-is named by its topic and number, such as `features/agents-002-talk-to-the-agent-and-run-from-anywhere.md`. When a plan's timing
-changes, move the file (or, in `features/`, change its timing line) and its paragraph here.
+is named by its topic and number, such as `soon/agents-002-talk-to-the-agent-and-run-from-anywhere.md`. When a plan's timing
+changes, move the file (or, between later and when needed in `features/`, change its timing
+line) and its paragraph here. Everything Joe wants soon is in `soon/`, features included.
 
 Each plan starts with why and when Joe wants it; the same paragraph is below. Things only
 Joe can do (hand checks on his devices, releases and publishing, go-aheads for live data,
@@ -37,17 +38,13 @@ A plan holds only work that is left, so it shrinks as it is built (Joe, 2026-11-
 
 What you would notice in Story, as opposed to protocol, host or data plumbing.
 
-**[Apps 011: widgets in Story](features/apps-011-widgets-in-story.md).**
-*Soon, after Apps 005.* Small apps embedded in pages by a link to a `.tsx`, written as views
-in TSX and drawn natively in SwiftUI (no web view, no React), with state owned by the app,
-the page or the reader. Absorbs Apps 001 and 003; an HTML renderer comes later.
-
-**[Agents 002: talk to the agent, and run tasks from anywhere](features/agents-002-talk-to-the-agent-and-run-from-anywhere.md).**
-*Soon* (Joe, 2026-11-07). After Agents 001: Run sends a task to a *runner* the person chooses (Joe, 2026-11-06):
-a present runner such as their Mac, reached through presence messages, or a webhook runner
-such as a claude.ai scheduled task, GitHub Actions or their own server; whatever runs it uses
-`story agent start --task`, so every run looks the same. Then the agent asks and Joe answers at
-its cursor from any device, and Codex. The conversation vanishes like presence.
+**[Schema language 007: edit rows in Story's collection view, and the structured editor](features/schema-language-007-editing-in-the-collection-view.md).**
+*Later* (out of soon, 2026-11-07). Joe wants collections edited natively in Story, the People directory first. The write path is
+done and in daily use: Story sends row operations through the host on every device, queued
+while offline, and the host derives the result (spec 10 §2.2). Left: the queue's loose ends,
+every view intent as row operations, simple edits in the view, then the structured editor
+(groups, chips, bullets, drag, inline Markdown). The editing half of the split Joe made on
+2026-10-28.
 
 **[Live 002: exact carets and selections](features/live-002-exact-carets.md).**
 *Later.* After Agents 001: a Quagmire release that reports and draws exact carets and
@@ -83,23 +80,11 @@ pair with a Mac. Join from the iPhone with the same link, then add a Mac by scan
 the Mac shows. After Release 001. It owns what an invitation link does on the iPhone;
 People 001 phase 4 owns the iPhone's other link opens.
 
-**[Sharing 002: invite from the command line, through a client library](features/sharing-002-invite-from-the-command-line.md).**
-*Soon* (Joe, 2026-11-07). Setting up the intro video, Joe could make an invitation only in the Mac app. He wants
-`story invite`, built the way the other clients work: the command talks to the host itself
-through `@ovst/client`, with Story Sync out of the path. The rest of the CLI's host edits
-moving the same way is recorded there as a follow-up.
-
 **[Sharing 003: New Tree… on the iPhone](features/sharing-003-new-tree-on-the-iphone.md).**
 *Now.* Moving a page to another tree from the share sheet is built on the Mac and the iPhone
 ([status](../status.md#move-a-page-to-another-tree--2026-11-01)); the iPhone's tree menu still
 lacks New Tree…, which needs an administrator device. Three open questions for Joe: one-off
 shares, where the MAI tree lives, and Undo for a move.
-
-**[Sharing 004: what Story says to a host older than it](features/sharing-004-hosts-older-than-the-app.md).**
-*Soon* (Joe, 2026-11-07), before the template is public. Starting your own community from a Railway template is built
-([status](../status.md#start-your-own-community-from-a-railway-template--2026-11-05)) and
-waits on Joe publishing it. Self-hosted hosts will lag behind Story releases, so Story should
-say plainly when a host is too old for it.
 
 **[Filesystem 027: the whole namespace on disk](features/filesystem-027-the-whole-namespace-on-disk.md).**
 *Not soon.* The AFS half of the global namespace: every tree you can read is a path under
@@ -169,15 +154,31 @@ same way. Soon (Joe, 2026-11-07), after Apps 005.
 so Story can be found without a TestFlight invitation. A sketch of what review requires: account deletion, report
 and block, and policy pages. The sample pages are the reviewer's way in.
 
-## Later
+**[Apps 011: widgets in Story](soon/apps-011-widgets-in-story.md).**
+After Apps 005. Small apps embedded in pages by a link to a `.tsx`, written as views
+in TSX and drawn natively in SwiftUI (no web view, no React), with state owned by the app,
+the page or the reader. Absorbs Apps 001 and 003; an HTML renderer comes later.
 
-**[Schema language 007: edit rows in Story's collection view, and the structured editor](later/schema-language-007-editing-in-the-collection-view.md).**
-Joe wants collections edited natively in Story, the People directory first. The write path is
-done and in daily use: Story sends row operations through the host on every device, queued
-while offline, and the host derives the result (spec 10 §2.2). Left: the queue's loose ends,
-every view intent as row operations, simple edits in the view, then the structured editor
-(groups, chips, bullets, drag, inline Markdown). The editing half of the split Joe made on
-2026-10-28.
+**[Agents 002: talk to the agent, and run tasks from anywhere](soon/agents-002-talk-to-the-agent-and-run-from-anywhere.md).**
+Joe moved it to soon on 2026-11-07. After Agents 001: Run sends a task to a *runner* the person chooses (Joe, 2026-11-06):
+a present runner such as their Mac, reached through presence messages, or a webhook runner
+such as a claude.ai scheduled task, GitHub Actions or their own server; whatever runs it uses
+`story agent start --task`, so every run looks the same. Then the agent asks and Joe answers at
+its cursor from any device, and Codex. The conversation vanishes like presence.
+
+**[Sharing 002: invite from the command line, through a client library](soon/sharing-002-invite-from-the-command-line.md).**
+Joe moved it to soon on 2026-11-07. Setting up the intro video, Joe could make an invitation only in the Mac app. He wants
+`story invite`, built the way the other clients work: the command talks to the host itself
+through `@ovst/client`, with Story Sync out of the path. The rest of the CLI's host edits
+moving the same way is recorded there as a follow-up.
+
+**[Sharing 004: what Story says to a host older than it](soon/sharing-004-hosts-older-than-the-app.md).**
+Before the template is public (Joe moved it to soon on 2026-11-07). Starting your own community from a Railway template is built
+([status](../status.md#start-your-own-community-from-a-railway-template--2026-11-05)) and
+waits on Joe publishing it. Self-hosted hosts will lag behind Story releases, so Story should
+say plainly when a host is too old for it.
+
+## Later
 
 **[Schema language 010: row ownership](later/schema-language-010-row-ownership.md).**
 Rows only their authors edit, as access policy (`who: {property: authors}`, one
@@ -188,25 +189,6 @@ milestone 5; Joe moved it to soon on 2026-10-28.
 After Apps 005: code runs as an activated app under an execution token with lenders, not as
 its caller; revocation; first-run consent in Story writes `apps.yaml`. Decide first what code
 gets without asking.
-
-**[Performance 008: merge cost by edit, not by size](later/performance-008-merge-cost-by-edit.md).**
-What Performance 004 (merges start from a provenance index; closed 2026-11-02) left: a
-canonical contribution order inside choices, and collection merges and replay that decode
-only the chunks an edit touches instead of whole tables.
-
-**[overstoryd 015: explain automatic resolutions and clear reconciled choices](later/merge-015-resolve-reconciled-choices.md).**
-Joe encountered a whole-tree conflict after moving blocks into a new page. Later
-accepted edits already produced the intended contents, but the conflict remained
-and its cards showed only older alternatives. overstoryd should clear choices it can
-prove reconciled, and Story should explain the current result and make explicit
-resolution easy. Joe moved it to soon on 2026-10-28.
-
-**[overstoryd 017: more formats as elements, choices named by block, and the cases still open](later/merge-017-more-formats-and-open-cases.md).**
-After the 2026-10-31 todos conflicts, Joe asked for one merge model instead of a growing list
-of allowances. Markdown merges as blocks and JSON, YAML, TOML and CSV as elements since
-2026-11-01 ([status](../status.md#merge-as-blocks-and-elements--2026-11-01)). Left: JSONL,
-XML/HTML/CSS and code as elements, choices named by the blocks they cover, then the menu of
-cases that still go to review, which was overstoryd 014 until Joe folded it in on 2026-11-01.
 
 **[Schema language 008: port excellences and supplies-remake to Story](later/schema-language-008-port-excellences-and-supplies.md).**
 Joe wants the excellences document and supplies-remake to run natively in Story instead of on
@@ -269,6 +251,25 @@ a tree too big to place on the iPhone in one download.
 **[Security 010: signed profile statements](when-needed/security-010-signed-profile-statements.md).**
 When a host Joe does not control is involved, or a home host must be left behind.
 
+**[overstoryd 015: explain automatic resolutions and clear reconciled choices](when-needed/merge-015-resolve-reconciled-choices.md).**
+When a conflict that later work already reconciled shows up again. Joe moved it out of soon on 2026-11-07. Joe encountered a whole-tree conflict after moving blocks into a new page. Later
+accepted edits already produced the intended contents, but the conflict remained
+and its cards showed only older alternatives. overstoryd should clear choices it can
+prove reconciled, and Story should explain the current result and make explicit
+resolution easy. Joe moved it to soon on 2026-10-28.
+
+**[overstoryd 017: more formats as elements, choices named by block, and the cases still open](when-needed/merge-017-more-formats-and-open-cases.md).**
+When a real edit in one of these formats, or one of the open cases, goes to review. Joe moved it out of soon on 2026-11-07. After the 2026-10-31 todos conflicts, Joe asked for one merge model instead of a growing list
+of allowances. Markdown merges as blocks and JSON, YAML, TOML and CSV as elements since
+2026-11-01 ([status](../status.md#merge-as-blocks-and-elements--2026-11-01)). Left: JSONL,
+XML/HTML/CSS and code as elements, choices named by the blocks they cover, then the menu of
+cases that still go to review, which was overstoryd 014 until Joe folded it in on 2026-11-01.
+
+**[Performance 008: merge cost by edit, not by size](when-needed/performance-008-merge-cost-by-edit.md).**
+When merges of large collections get slow. Joe moved it out of soon on 2026-11-07. What Performance 004 (merges start from a provenance index; closed 2026-11-02) left: a
+canonical contribution order inside choices, and collection merges and replay that decode
+only the chunks an edit touches instead of whole tables.
+
 ## Groups
 
 Some plans cover different stages of the same work. They stay separate files because their
@@ -279,8 +280,8 @@ proofs and release boundaries differ, and they share examples rather than duplic
 Editor intent, client publication, host merging and conflict review. [Native 008](when-needed/merge-008-copies-with-changes-and-compound-undo.md)
 supplies truthful command evidence; [Clients 002](soon/merge-002-identity-preserving-coalescing.md)
 can simplify that evidence after it exists, and must not invent missing copy or move identity;
-[overstoryd 017](later/merge-017-more-formats-and-open-cases.md) must support an emitted
-operation form before a client that emits it is installed; [overstoryd 015](later/merge-015-resolve-reconciled-choices.md)
+[overstoryd 017](when-needed/merge-017-more-formats-and-open-cases.md) must support an emitted
+operation form before a client that emits it is installed; [overstoryd 015](when-needed/merge-015-resolve-reconciled-choices.md)
 clears choices later work has reconciled; [Editor 003 part 3](features/editor-003-suggestions.md#part-3-merge-notes)
 gives every automatic outcome its explanation (merge notes), which 015's authority resolutions
 and 017's "merge with a note" cases wait for. The numbers are identifiers, not an execution order. History and provenance support
@@ -303,7 +304,7 @@ merge work.
 
 Latency, transfer size and storage overhead: take a plan when its stated problem occurs, and
 measure both the benefit and the cost to correctness, recovery and offline use.
-[Performance 008](later/performance-008-merge-cost-by-edit.md) and
+[Performance 008](when-needed/performance-008-merge-cost-by-edit.md) and
 [Native 006](when-needed/performance-006-sparse-ios-placement.md) are the plans; the
 provenance index ([Performance 004](https://github.com/jxe/arbor/blob/4844b1c/plans/soon/performance-004-provenance-index.md), closed), the object journal and
 object packing are live. Client

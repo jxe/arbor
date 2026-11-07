@@ -69,5 +69,5 @@ Not part of this plan; recorded here so step 6 can lift it out.
 ## Related
 
 - [Release 004](../../status.md#plans-closed-out--2026-10-20): the video's `~chungus` invitation is made in the app.
-- [Sharing 001](sharing-001-join-on-iphone-first.md): the other end of an invitation, on the iPhone.
+- [Sharing 001](../features/sharing-001-join-on-iphone-first.md): the other end of an invitation, on the iPhone.
 - [Story Web 025](../later/story-web-025-story-web.md): the browser publishes to the host itself with a session, the same direction as this plan.

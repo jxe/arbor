@@ -10,9 +10,9 @@ needs it.
 - **Effort:** S to M each.
 - **Risk:** LOW for previews and display; MEDIUM for the freshness policy and offline
   resolution, which change when a guarded resolution is accepted.
-- **Relates to:** [overstoryd 015](merge-015-resolve-reconciled-choices.md)
+- **Relates to:** [overstoryd 015](../when-needed/merge-015-resolve-reconciled-choices.md)
   (clearing choices later work has reconciled, and explaining automatic outcomes), and
-  [overstoryd 017](merge-017-more-formats-and-open-cases.md#cases-still-open) item 33 (suggested
+  [overstoryd 017](../when-needed/merge-017-more-formats-and-open-cases.md#cases-still-open) item 33 (suggested
   resolutions).
 
 ## The extensions

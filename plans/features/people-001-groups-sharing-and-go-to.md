@@ -29,7 +29,7 @@ Formerly "a directory you own, Go to…, and links by tree ID".
   directory tree, is built; phase 3, the share sheet, was dropped on 2026-11-01.)
 - **Order** (Joe, 2026-10-24): the directory first, because it is People's point; Go to… and
   tree-ID links are a side slice for any time.
-- **Gated on:** phase 2 on [Schema language 007](../later/schema-language-007-editing-in-the-collection-view.md)'s
+- **Gated on:** phase 2 on [Schema language 007](schema-language-007-editing-in-the-collection-view.md)'s
   structured editor (editing by hand in simple ways comes earlier, with 007 step 7) and, for
   dragging people into groups, the [groups that are other trees](../spec-extensions/groups-that-are-other-trees.md)
   spec extension. How the directory is shown is done (Schema language 002, closed 2026-10-28). The Go to… slice

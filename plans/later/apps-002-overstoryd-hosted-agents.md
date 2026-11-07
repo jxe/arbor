@@ -1,6 +1,6 @@
 # Apps 002: Host authored agents on overstoryd
 
-**Why and when:** after widgets in Story ([Apps 011](../features/apps-011-widgets-in-story.md)): authored agents hosted beside an app, calling its own query and mutation handles. No timing yet.
+**Why and when:** after widgets in Story ([Apps 011](../soon/apps-011-widgets-in-story.md)): authored agents hosted beside an app, calling its own query and mutation handles. No timing yet.
 
 > **Execution-model revision (2026-09-18):** Resource policy is the deployed
 > [access-control grammar](../../docs/overstory-spec/05-access-control.md), source resolution and runtime extraction
@@ -10,7 +10,7 @@
 > Preserve Supplies behavior while intentionally adapting its source to the new API.
 
 
-**Status:** Planned. Depends on the compiler, query/mutation handles, Overstory-user context, and overstoryd execution delivered by [Apps 005](../soon/apps-005-views-on-the-host.md) and [Apps 011](../features/apps-011-widgets-in-story.md).
+**Status:** Planned. Depends on the compiler, query/mutation handles, Overstory-user context, and overstoryd execution delivered by [Apps 005](../soon/apps-005-views-on-the-host.md) and [Apps 011](../soon/apps-011-widgets-in-story.md).
 
 ## Target result
 

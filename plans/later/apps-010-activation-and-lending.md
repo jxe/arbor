@@ -6,7 +6,7 @@
 
 **PLANNED · M–L effort · high authority-boundary risk.** It needs Apps 005 steps 3–4, which
 load code from trees and turn it on in the host. Widgets from other people
-([Apps 011](../features/apps-011-widgets-in-story.md)) wait on this plan. Joe's own
+([Apps 011](../soon/apps-011-widgets-in-story.md)) wait on this plan. Joe's own
 widgets don't.
 
 ## 1. Decide first: what code gets without asking
@@ -21,7 +21,7 @@ Proposed:
 - Anything more of the caller's needs the caller's `who: me` entry in `apps.yaml`. That
   matches what code gets on a placement host.
 - An app reads and writes its own personal models
-  ([Apps 011](../features/apps-011-widgets-in-story.md)) in the reader's tree without
+  ([Apps 011](../soon/apps-011-widgets-in-story.md)) in the reader's tree without
   asking.
 
 The decision edits access control §1.1.

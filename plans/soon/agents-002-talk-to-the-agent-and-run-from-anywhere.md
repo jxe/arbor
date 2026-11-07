@@ -8,9 +8,9 @@ Google Docs or Notion: the agent can ask, and Joe answers right at its cursor, f
 device he's on. Run should work from the iPhone, and (Joe, 2026-11-06) each user should be
 able to choose what runs their tasks: their Mac, a cloud session, or anything else that can
 start an agent, with Story knowing only "send this task to a runner". Codex should work as
-well as Claude Code. Exact carets ([Live 002](live-002-exact-carets.md)) and suggestions ([Editor 003](editor-003-suggestions.md)) are
+well as Claude Code. Exact carets ([Live 002](../features/live-002-exact-carets.md)) and suggestions ([Editor 003](../features/editor-003-suggestions.md)) are
 their own plans, for people and agents alike (Joe, 2026-10-30). Runs in history are
-[overstoryd 007](history-007-document-history-routes-and-restore.md) steps 5 and 6.
+[overstoryd 007](../features/history-007-document-history-routes-and-restore.md) steps 5 and 6.
 
 > **Executor instructions**: Refresh "What happens today" against Agents 001 as built. Do the
 > phases in order and stop after each for Joe's hands-on check. Phase 1 changes a host route,
@@ -131,7 +131,7 @@ stream; a hidden stream asking to be a runner is refused. Then `bun run test:aff
 - **Mac Run uses the same path.** `AgentRuns` keeps starting `claude -p`, but its bookkeeping
   becomes this code, so a Mac run, a webhook run and a by-hand run behave alike.
 - **Undo Run** needs the pre-run snapshot, so it's offered only by a runner that keeps one (the
-  Mac); others say "Undo needs history" until [overstoryd 007](history-007-document-history-routes-and-restore.md)
+  Mac); others say "Undo needs history" until [overstoryd 007](../features/history-007-document-history-routes-and-restore.md)
   step 6.
 
 **Verification:** the fake-agent harness runs a request on a placed tree and on a fresh
@@ -241,8 +241,8 @@ A task block can have blocks indented under it, like sub-bullets: the task line 
     claude.ai, billed per use, not Claude Code (Story writes the loop and page tools), and
     stopped by iOS shortly after the app leaves the screen, so short tasks only. A
     subscription token can't be used this way.
-- Exact carets: [Live 002](live-002-exact-carets.md). Suggestions: [Editor 003](editor-003-suggestions.md).
-- Runs in history and attribution: [overstoryd 007](history-007-document-history-routes-and-restore.md) steps 5 and 6; both names in
+- Exact carets: [Live 002](../features/live-002-exact-carets.md). Suggestions: [Editor 003](../features/editor-003-suggestions.md).
+- Runs in history and attribution: [overstoryd 007](../features/history-007-document-history-routes-and-restore.md) steps 5 and 6; both names in
   line provenance: [overstoryd 006](../later/history-006-line-provenance.md).
 
 ## Close out

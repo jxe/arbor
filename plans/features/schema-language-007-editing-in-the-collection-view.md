@@ -1,9 +1,11 @@
 # Schema language 007: edit rows in Story's collection view, and the structured editor
 
+**Timing:** Later (out of soon, 2026-11-07).
+
 **Why and when:** Joe wants collections edited natively in Story, on the Mac and iPhone: the
 People directory first, then games, excellences and Supplies. Joe, 2026-10-24: once Schema
 language 006 showed a collection read-only
-([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)), editing goes in soon; Joe moved it to later on 2026-11-07.
+([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)), editing goes in soon; Joe moved it out of soon on 2026-11-07.
 The write path is built and in daily use: Story sends row operations through the host on
 every device, queued while offline
 ([status](../../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)). Left:
@@ -219,7 +221,7 @@ an unknown selection) rather than fixing the byte-range shape.
 
 - Pages that present collections kept elsewhere, and groups that are other trees: both are
   [spec extensions](../spec-extensions/README.md).
-- Row ownership is [Schema language 010](schema-language-010-row-ownership.md).
+- Row ownership is [Schema language 010](../later/schema-language-010-row-ownership.md).
 - A replica on the device that encodes tables, and any SQLite there (Joe, 2026-10-25). Large
-  collections are [Performance 008](performance-008-merge-cost-by-edit.md)'s concern.
+  collections are [Performance 008](../when-needed/performance-008-merge-cost-by-edit.md)'s concern.
 - Derived candidates for Story's text edits: allowed by the spec, not used.
