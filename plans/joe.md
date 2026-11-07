@@ -32,7 +32,7 @@ On main since fa661f3, 2026-11-07
 ### Coalesced typing (Merge 002)
 
 Built 2026-11-07 on branch `claude/merge-002` ([status](../status.md#coalesced-typing-bursts-merge-002-case-1--2026-11-07)).
-A session builds and runs the Swift tests on the Mac first (`OverstoryWorkingTree` publication tests).
+The Swift publication tests pass on the Mac; Story itself has not been rebuilt with it.
 
 - [ ] Go-ahead to merge the branch to main (it changes what Story and Story Sync send, not the host).
 - [ ] After merging and rebuilding Story: type a sentence, backspace a word and Option-arrow a block

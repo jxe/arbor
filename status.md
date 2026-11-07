@@ -83,8 +83,9 @@ and overlapping, in both arrival orders; the real overstoryd accepts a composed 
 burst in a request under 5 KB with and without a concurrent peer edit. `bun run
 test:affected` on Linux: typecheck, 380 product tests, build and 425 TypeScript protocol tests
 pass; the Swift half of the protocol gate needs xcodebuild, and the object-index timing bench
-missed its startup bound on the container disk (unrelated). The Swift port
-has not been compiled yet. Remaining cases are in
+missed its startup bound on the container disk (unrelated). On Joe's Mac,
+`swift test --filter PublicationTests` in `OverstoryWorkingTree` compiles and passes all 22
+tests, including the shared vectors (worktree `~/src/arbor-merge-002`; the app was not built). Remaining cases are in
 [Clients 002](plans/soon/merge-002-coalesce-moves-with-edits-copies-and-undo.md).
 
 ## Domain locators: your own domain names your profile — 2026-11-05
