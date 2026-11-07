@@ -1,7 +1,7 @@
 import Foundation
 import Overstory
 import OverstoryObjectStore
-import OverstoryWorkingTree
+@testable import OverstoryWorkingTree
 import OverstoryWorkspace
 import Testing
 @testable import OverstoryClient
@@ -95,6 +95,31 @@ struct TreeSessionTests {
         }
         try await tree.ensureLoaded("/assets/photo.png")
         #expect(!(await tree.hasUnloadedDirectories()))
+    }
+
+    @Test("A fork loading everything takes bodies from the folder and its parent, not the sources")
+    func forkLoadsThroughParent() async throws {
+        let body = Data("# Plan\n".utf8)
+        let plan = try ProtocolObjectCodec.object(.file(body))
+        let march = try ProtocolObjectCodec.object(.directory([ProtocolDirectoryEntry(name: "plan.md", file: plan.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([ProtocolDirectoryEntry(name: "march", directory: march.hash)]))
+        let folder = FileManager.default.temporaryDirectory.appending(path: "fork-folder-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder.appending(path: "march"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try body.write(to: folder.appending(path: "march/plan.md"))
+        // The sources never serve the body: only the folder can.
+        let tree = try await WorkingTree.inMemory(tree: "tr_fork", platform: FixedStore(objects: [
+            root.hash: root.bytes, march.hash: march.bytes,
+        ]))
+        await tree.loadDirectoriesLazily()
+        await tree.readPages(from: folder)
+        try await tree.initializeFromSystem(SnapshotBridge.replacement(
+            snapshot: try await tree.acceptedGraph(root: root.hash), tree: "tr_fork", update: "up_fork", mode: .lazyDirectories))
+        let fork = try await tree.fork()
+        try await fork.loadEverything()
+        #expect(!(await fork.hasUnloadedDirectories()))
+        #expect(!(await tree.hasUnloadedDirectories()))
+        #expect(try await fork.heads().materializedRoot == root.hash)
     }
 
     @Test("A directory that arrives without its pages' bodies is held unloaded, not refused")

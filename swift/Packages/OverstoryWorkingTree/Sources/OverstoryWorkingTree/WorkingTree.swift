@@ -62,10 +62,12 @@ public actor WorkingTree {
         control: WorkingTreeControl,
         index: WorkingTreeSearchIndex,
         parent: WorkingTree? = nil,
-        loadsLazily: Bool = false
+        loadsLazily: Bool = false,
+        pageFolder: URL? = nil
     ) {
         self.parent = parent
         self.loadsLazily = loadsLazily
+        self.pageFolder = pageFolder
         self.store = store
         self.overlay = overlay
         self.platform = platform
@@ -364,7 +366,10 @@ public actor WorkingTree {
             control: control,
             index: index,
             parent: self,
-            loadsLazily: loadsLazily
+            loadsLazily: loadsLazily,
+            // Bodies the parent has not loaded still come from the folder.
+            // Path reads stay with the parent, which a fork asks first.
+            pageFolder: pageFolder
         )
         return fork
     }
@@ -554,6 +559,9 @@ public actor WorkingTree {
     /// not among the loaded pages needs to resolve.
     public func loadEverything() async throws {
         try requireOpen()
+        // The parent loads first (bodies from its folder, objects into the
+        // overlay this fork reads), so the fork's own pass reads nothing new.
+        if let parent { try? await parent.loadEverything() }
         try await loadAll { _ in true }
     }
 
