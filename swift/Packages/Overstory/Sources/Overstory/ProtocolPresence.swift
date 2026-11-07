@@ -15,6 +15,10 @@ public enum ProtocolPresenceLimits {
     public static let cursorsPerSecond = 4
     /// Largest plausible byte offset in a selection.
     public static let maxOffset: Int = 4_294_967_295
+    /// Largest message body, in bytes.
+    public static let messageBytes = 4096
+    /// Longest run ID, in characters.
+    public static let runCharacters = 64
 }
 
 /// A page as a presence entry names it: its canonical node path, such as `/Groceries`.
@@ -67,21 +71,26 @@ public struct ProtocolPresenceSelection: Codable, Hashable, Sendable {
 public struct ProtocolPresenceAgent: Codable, Hashable, Sendable {
     public var label: String
     public var status: String?
+    /// The run this agent is doing (spec 12 §6), so another device can match it to its task.
+    public var run: String?
 
-    public init(label: String, status: String? = nil) {
+    public init(label: String, status: String? = nil, run: String? = nil) {
         self.label = label
         self.status = status
+        self.run = run
     }
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(label, forKey: .label)
         try container.encode(status, forKey: .status)
+        try container.encode(run, forKey: .run)
     }
 
     func validated() throws -> Self {
         _ = try ProtocolPresence.line(label, what: "agent.label", max: ProtocolPresenceLimits.labelCharacters)
         if let status { _ = try ProtocolPresence.line(status, what: "status", max: ProtocolPresenceLimits.statusCharacters) }
+        if let run { _ = try ProtocolPresence.runID(run) }
         return self
     }
 }
@@ -95,14 +104,17 @@ public struct ProtocolPresencePeer: Codable, Hashable, Sendable, Identifiable {
     public var agent: ProtocolPresenceAgent?
     /// What the client says it runs on (`mac`, `ios`); nil when it didn't say.
     public var device: String?
+    /// A runner's label ("Ana's Mac") when this stream runs its person's tasks (spec 12 §6).
+    public var runner: String?
 
-    public init(id: String, profile: String, name: String? = nil, page: ProtocolPresencePage? = nil, agent: ProtocolPresenceAgent? = nil, device: String? = nil) {
+    public init(id: String, profile: String, name: String? = nil, page: ProtocolPresencePage? = nil, agent: ProtocolPresenceAgent? = nil, device: String? = nil, runner: String? = nil) {
         self.id = id
         self.profile = profile
         self.name = name
         self.page = page
         self.agent = agent
         self.device = device
+        self.runner = runner
     }
 
     func validated() throws -> Self {
@@ -110,6 +122,7 @@ public struct ProtocolPresencePeer: Codable, Hashable, Sendable, Identifiable {
         var peer = self
         peer.page = try page?.validated()
         peer.agent = try agent?.validated()
+        if let runner { _ = try ProtocolPresence.line(runner, what: "runner", max: ProtocolPresenceLimits.labelCharacters) }
         return peer
     }
 }
@@ -117,27 +130,33 @@ public struct ProtocolPresencePeer: Codable, Hashable, Sendable, Identifiable {
 public struct ProtocolPresenceReady: Codable, Hashable, Sendable {
     /// This stream's own entry; nil when the subscriber is not visible.
     public var selfID: String?
+    /// This stream's own entry, listed or not, for messages (spec 12 §6).
+    public var stream: String?
     public var peers: [ProtocolPresencePeer]
 
-    public init(selfID: String?, peers: [ProtocolPresencePeer]) {
+    public init(selfID: String?, stream: String? = nil, peers: [ProtocolPresencePeer]) {
         self.selfID = selfID
+        self.stream = stream ?? selfID
         self.peers = peers
     }
 
     private enum CodingKeys: String, CodingKey {
         case selfID = "self"
+        case stream
         case peers
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         selfID = try container.decodeIfPresent(String.self, forKey: .selfID)
+        stream = try container.decodeIfPresent(String.self, forKey: .stream) ?? selfID
         peers = try container.decode([ProtocolPresencePeer].self, forKey: .peers)
     }
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(selfID, forKey: .selfID)
+        try container.encodeIfPresent(stream, forKey: .stream)
         try container.encode(peers, forKey: .peers)
     }
 }
@@ -157,6 +176,94 @@ public enum ProtocolPresenceEvent: Hashable, Sendable {
     case peer(ProtocolPresencePeer)
     case cursor(ProtocolPresenceCursor)
     case leave(id: String)
+    case message(from: String, body: ProtocolPresenceMessageBody)
+}
+
+/// A task sent to a runner (spec 12 §6): the same whatever runs it.
+public struct ProtocolRunRequest: Codable, Hashable, Sendable {
+    public struct Task: Codable, Hashable, Sendable {
+        public var text: String
+        public var range: ProtocolPresenceSelection?
+
+        public init(text: String, range: ProtocolPresenceSelection? = nil) {
+            self.text = text
+            self.range = range
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(text, forKey: .text)
+            try container.encode(range, forKey: .range)
+        }
+    }
+
+    /// The tree's canonical URL.
+    public var tree: String
+    public var page: ProtocolPresencePage
+    public var task: Task
+    public var run: String
+
+    public init(tree: String, page: ProtocolPresencePage, task: Task, run: String) {
+        self.tree = tree
+        self.page = page
+        self.task = task
+        self.run = run
+    }
+
+    func validated() throws -> Self {
+        guard !tree.isEmpty else { throw ProtocolValidationError.invalidValue("request.tree must be non-empty") }
+        guard !task.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ProtocolValidationError.invalidValue("request.task.text must be non-empty")
+        }
+        var request = self
+        request.page = try page.validated()
+        request.task.range = try task.range?.validated()
+        _ = try ProtocolPresence.runID(run)
+        return request
+    }
+
+    /// A new run ID: `run_` and 16 random URL-safe characters.
+    public static func newRunID() -> String {
+        let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+        return "run_" + String((0..<16).map { _ in alphabet.randomElement()! })
+    }
+}
+
+/// What one of a person's streams sends another (spec 12 §6).
+public enum ProtocolPresenceMessageBody: Hashable, Sendable, Codable {
+    case run(ProtocolRunRequest)
+    case stop(run: String)
+    case done(run: String, result: String)
+
+    private enum CodingKeys: String, CodingKey { case kind, request, run, result }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(String.self, forKey: .kind) {
+        case "run": self = .run(try container.decode(ProtocolRunRequest.self, forKey: .request).validated())
+        case "stop": self = .stop(run: try ProtocolPresence.runID(container.decode(String.self, forKey: .run)))
+        case "done":
+            self = .done(run: try ProtocolPresence.runID(container.decode(String.self, forKey: .run)),
+                         result: try container.decode(String.self, forKey: .result))
+        case let kind: throw ProtocolValidationError.invalidValue("unknown presence message kind \(kind)")
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .run(let request):
+            try container.encode("run", forKey: .kind)
+            try container.encode(request, forKey: .request)
+        case .stop(let run):
+            try container.encode("stop", forKey: .kind)
+            try container.encode(run, forKey: .run)
+        case .done(let run, let result):
+            try container.encode("done", forKey: .kind)
+            try container.encode(run, forKey: .run)
+            try container.encode(result, forKey: .result)
+        }
+    }
 }
 
 /// The body of `POST …/presence/{PresenceID}`; a nil member is left unchanged,
@@ -171,14 +278,17 @@ public struct ProtocolPresenceUpdate: Encodable, Sendable, Equatable {
     public var selection: Change<ProtocolPresenceSelection>?
     /// Accepted only on an agent stream.
     public var status: Change<String>?
+    /// Accepted only on an agent stream.
+    public var run: Change<String>?
 
-    public init(page: Change<ProtocolPresencePage>? = nil, selection: Change<ProtocolPresenceSelection>? = nil, status: Change<String>? = nil) {
+    public init(page: Change<ProtocolPresencePage>? = nil, selection: Change<ProtocolPresenceSelection>? = nil, status: Change<String>? = nil, run: Change<String>? = nil) {
         self.page = page
         self.selection = selection
         self.status = status
+        self.run = run
     }
 
-    private enum CodingKeys: String, CodingKey { case page, selection, status }
+    private enum CodingKeys: String, CodingKey { case page, selection, status, run }
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -192,11 +302,12 @@ public struct ProtocolPresenceUpdate: Encodable, Sendable, Equatable {
         try write(page, .page)
         try write(selection, .selection)
         try write(status, .status)
+        try write(run, .run)
     }
 }
 
 public enum ProtocolPresence {
-    public static let eventKinds = ["presence.ready", "presence.peer", "presence.cursor", "presence.leave"]
+    public static let eventKinds = ["presence.ready", "presence.peer", "presence.cursor", "presence.leave", "presence.message"]
 
     /// One presence frame's event and data, decoded; anything else is refused.
     public static func decodeEvent(event: String?, data: Data) throws -> ProtocolPresenceEvent {
@@ -215,12 +326,25 @@ public enum ProtocolPresence {
             let leave = try decoder.decode(Leave.self, from: data)
             guard !leave.id.isEmpty else { throw ProtocolValidationError.invalidValue("leave.id must be non-empty") }
             return .leave(id: leave.id)
+        case "presence.message":
+            let message = try decoder.decode(Message.self, from: data)
+            guard !message.from.isEmpty else { throw ProtocolValidationError.invalidValue("message.from must be non-empty") }
+            return .message(from: message.from, body: message.body)
         default:
             throw ProtocolValidationError.malformedSSE("Unsupported presence event \(event ?? "(none)")")
         }
     }
 
     private struct Leave: Decodable { var id: String }
+    private struct Message: Decodable { var from: String; var body: ProtocolPresenceMessageBody }
+
+    /// A run ID: one line, no whitespace, at most 64 characters.
+    @discardableResult
+    static func runID(_ value: String) throws -> String {
+        _ = try line(value, what: "run", max: ProtocolPresenceLimits.runCharacters)
+        guard !value.contains(where: \.isWhitespace) else { throw ProtocolValidationError.invalidValue("run must not contain spaces") }
+        return value
+    }
 
     static func line(_ value: String, what: String, max: Int) throws -> String {
         guard !value.isEmpty, value.unicodeScalars.count <= max,
@@ -258,6 +382,9 @@ public struct ProtocolPresenceRoster: Hashable, Sendable {
         case .leave(let id):
             peers[id] = nil
             cursors[id] = nil
+        case .message:
+            // Messages are for the stream's owner, not the roster.
+            break
         }
     }
 

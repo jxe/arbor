@@ -24,6 +24,8 @@ export interface PresenceAgent {
   /** The agent's name, such as "Claude"; the client adds the device. */
   label: string;
   status: string | null;
+  /** The run this agent is doing (a `RunRequest`'s `run`), so another device can match it to its task. */
+  run: string | null;
 }
 
 /** What a client says it runs on; a hint for showing the entry. */
@@ -38,11 +40,39 @@ export interface PresencePeer {
   agent: PresenceAgent | null;
   /** Null when the client didn't say. */
   device: PresenceDevice | null;
+  /** A runner's label ("Joe's Mac") when this stream runs its person's tasks; else null. */
+  runner: string | null;
+}
+
+/**
+ * A task sent to a runner (spec 12 §6): the same whatever runs it, a Mac
+ * through presence or a webhook by POST.
+ */
+export interface RunRequest {
+  /** The tree's canonical URL. */
+  tree: string;
+  page: PresencePage;
+  task: { text: string; range: PresenceSelection | null };
+  /** Chosen by the sender; an agent doing the run reports it in presence. */
+  run: string;
+}
+
+/** What one of a person's streams sends another (spec 12 §6). */
+export type PresenceMessageBody =
+  | { kind: "run"; request: RunRequest }
+  | { kind: "stop"; run: string }
+  | { kind: "done"; run: string; result: string };
+
+export interface PresenceMessage {
+  from: PresenceID;
+  body: PresenceMessageBody;
 }
 
 export interface PresenceReady {
   /** Null when the subscriber is not visible. */
   self: PresenceID | null;
+  /** This stream's own entry, listed or not, for sending and receiving messages; absent for a caller without an account. */
+  stream?: PresenceID;
   peers: PresencePeer[];
 }
 
@@ -59,7 +89,8 @@ export type PresenceEvent =
   | { kind: "presence.ready"; ready: PresenceReady }
   | { kind: "presence.peer"; peer: PresencePeer }
   | { kind: "presence.cursor"; cursor: PresenceCursor }
-  | { kind: "presence.leave"; leave: PresenceLeave };
+  | { kind: "presence.leave"; leave: PresenceLeave }
+  | { kind: "presence.message"; message: PresenceMessage };
 
 /** The body of `POST …/presence/{PresenceID}`; an omitted member is unchanged. */
 export interface PresenceUpdate {
@@ -67,6 +98,8 @@ export interface PresenceUpdate {
   selection?: PresenceSelection | null;
   /** Accepted only on an agent stream. */
   status?: string | null;
+  /** Accepted only on an agent stream. */
+  run?: string | null;
 }
 
 /** Presence bounds (spec 12 §5). */
@@ -81,9 +114,13 @@ export const PRESENCE_LIMITS = {
   cursorsPerSecond: 4,
   /** Largest plausible byte offset in a selection. */
   maxOffset: 2 ** 32 - 1,
+  /** Largest message POST body, in bytes. */
+  messageBytes: 4096,
+  /** Longest run ID, in characters. */
+  runCharacters: 64,
 } as const;
 
-export const PRESENCE_EVENT_KINDS = ["presence.ready", "presence.peer", "presence.cursor", "presence.leave"] as const;
+export const PRESENCE_EVENT_KINDS = ["presence.ready", "presence.peer", "presence.cursor", "presence.leave", "presence.message"] as const;
 
 export class PresenceDecodeError extends Error {}
 
@@ -142,10 +179,61 @@ export function decodePresenceStatus(value: unknown): string | null {
   return value === null ? null : line(value, "status", PRESENCE_LIMITS.statusCharacters);
 }
 
+/** A run ID: one line, no spaces, at most 64 characters. */
+export function decodeRunID(value: unknown, what = "run"): string {
+  const run = line(value, what, PRESENCE_LIMITS.runCharacters);
+  if (/\s/.test(run)) fail(`${what} must not contain spaces`);
+  return run;
+}
+
 function decodeAgent(value: unknown): PresenceAgent | null {
   if (value === null) return null;
   const agent = record(value, "agent");
-  return { label: line(agent.label, "agent.label", PRESENCE_LIMITS.labelCharacters), status: decodePresenceStatus(agent.status) };
+  return {
+    label: line(agent.label, "agent.label", PRESENCE_LIMITS.labelCharacters),
+    status: decodePresenceStatus(agent.status),
+    // Older hosts don't send it.
+    run: agent.run === undefined || agent.run === null ? null : decodeRunID(agent.run, "agent.run"),
+  };
+}
+
+/** A runner's label, from a stream's `runner` query parameter or a peer. */
+export function decodePresenceRunnerLabel(value: unknown): string {
+  return line(value, "runner", PRESENCE_LIMITS.labelCharacters);
+}
+
+export function decodeRunRequest(value: unknown): RunRequest {
+  const request = record(value, "request");
+  const page = decodePresencePage(request.page);
+  if (!page) fail("request.page must be a page");
+  const task = record(request.task, "request.task");
+  if (typeof task.text !== "string" || !task.text.trim()) fail("request.task.text must be a non-empty string");
+  return {
+    tree: text(request.tree, "request.tree"),
+    page,
+    task: { text: task.text, range: task.range === undefined ? null : decodePresenceSelection(task.range) },
+    run: decodeRunID(request.run, "request.run"),
+  };
+}
+
+export function decodePresenceMessageBody(value: unknown): PresenceMessageBody {
+  const body = record(value, "body");
+  switch (body.kind) {
+    case "run": return { kind: "run", request: decodeRunRequest(body.request) };
+    case "stop": return { kind: "stop", run: decodeRunID(body.run) };
+    case "done": {
+      if (typeof body.result !== "string") fail("body.result must be a string");
+      return { kind: "done", run: decodeRunID(body.run), result: body.result };
+    }
+    default: fail(`unknown presence message kind ${JSON.stringify(body.kind)}`);
+  }
+}
+
+/** The body of `POST …/presence/{PresenceID}/messages`. */
+export function decodePresenceMessagePost(value: unknown): { to: PresenceID; body: PresenceMessageBody } {
+  const post = record(value, "message");
+  for (const key of Object.keys(post)) if (key !== "to" && key !== "body") fail(`unknown presence message member ${JSON.stringify(key)}`);
+  return { to: text(post.to, "message.to"), body: decodePresenceMessageBody(post.body) };
 }
 
 /** A device kind from a query parameter or a peer; anything else is no kind. */
@@ -163,6 +251,7 @@ export function decodePresencePeer(value: unknown): PresencePeer {
     page: decodePresencePage(peer.page),
     agent: decodeAgent(peer.agent),
     device: decodePresenceDevice(peer.device),
+    runner: peer.runner === undefined || peer.runner === null ? null : decodePresenceRunnerLabel(peer.runner),
   };
 }
 
@@ -173,7 +262,8 @@ export function decodePresenceEvent(event: string | undefined, data: unknown): P
       const ready = record(data, "ready");
       if (ready.self !== null && typeof ready.self !== "string") fail("ready.self must be a string or null");
       if (!Array.isArray(ready.peers)) fail("ready.peers must be an array");
-      return { kind: event, ready: { self: ready.self as string | null, peers: ready.peers.map(decodePresencePeer) } };
+      if (ready.stream !== undefined && typeof ready.stream !== "string") fail("ready.stream must be a string");
+      return { kind: event, ready: { self: ready.self as string | null, ...(typeof ready.stream === "string" ? { stream: ready.stream } : {}), peers: ready.peers.map(decodePresencePeer) } };
     }
     case "presence.peer":
       return { kind: event, peer: decodePresencePeer(data) };
@@ -183,6 +273,10 @@ export function decodePresenceEvent(event: string | undefined, data: unknown): P
     }
     case "presence.leave":
       return { kind: event, leave: { id: text(record(data, "leave").id, "leave.id") } };
+    case "presence.message": {
+      const message = record(data, "message");
+      return { kind: event, message: { from: text(message.from, "message.from"), body: decodePresenceMessageBody(message.body) } };
+    }
     default:
       fail(`unsupported presence event ${JSON.stringify(event)}`);
   }
@@ -196,6 +290,7 @@ export function decodePresenceUpdate(value: unknown): PresenceUpdate {
     if (key === "page") update.page = decodePresencePage(body.page);
     else if (key === "selection") update.selection = decodePresenceSelection(body.selection);
     else if (key === "status") update.status = decodePresenceStatus(body.status);
+    else if (key === "run") update.run = body.run === null ? null : decodeRunID(body.run);
     else fail(`unknown presence update member ${JSON.stringify(key)}`);
   }
   return update;

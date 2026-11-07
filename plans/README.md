@@ -52,6 +52,14 @@ After Agents 002's presence messages. The agent asks and Joe answers at its curs
 device, and the conversation vanishes like presence; the agent can also show work in progress,
 and a task can carry blocks under it. Split from Agents 002 by Joe, 2026-11-07.
 
+**[Agents 005: webhook runners, starting with a claude.ai scheduled task](features/agents-005-webhook-runners.md).**
+After Agents 002. Run with the Mac asleep: Story POSTs the run request to a URL, such as a
+claude.ai scheduled task's API trigger (still a beta), GitHub Actions or your own server.
+
+**[Agents 006: Codex as a runner](features/agents-006-codex.md).**
+After Agents 002. The same runner with `codex exec`; Codex's hooks are weaker, so Story Sync
+falls back to the files it sees change.
+
 **[Live 002: exact carets and selections](features/live-002-exact-carets.md).**
 After Agents 001: a Quagmire release that reports and draws exact carets and
 selections, for people and agents alike. The wire does not change.
@@ -151,7 +159,7 @@ the page or the reader. Absorbs Apps 001 and 003; an HTML renderer comes later.
 Run sends a task to a *runner* the person chooses (Joe, 2026-11-06):
 a present runner such as their Mac, reached through presence messages, or a webhook runner
 such as a claude.ai scheduled task, GitHub Actions or their own server; whatever runs it uses
-`story agent start --task`, so every run looks the same. Then Codex as a runner.
+`story agent start --task`, so every run looks the same. Run from the iPhone goes to your Mac.
 
 ## Later
 

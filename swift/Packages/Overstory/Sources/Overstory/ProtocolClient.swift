@@ -550,6 +550,7 @@ public actor ProtocolClient {
         visible: Bool = true,
         agent: String? = nil,
         device: String? = nil,
+        runner: String? = nil,
         idleTimeout: Duration = ProtocolClient.watchIdleTimeout,
         onOpen: (@Sendable () async -> Void)? = nil
     ) async throws -> AsyncThrowingStream<ProtocolPresenceEvent, Error> {
@@ -558,6 +559,7 @@ public actor ProtocolClient {
         if !visible { query.append("visible=false") }
         if let agent { query.append("agent=\(agent.addingPercentEncoding(withAllowedCharacters: allowed)!)") }
         if let device { query.append("device=\(device.addingPercentEncoding(withAllowedCharacters: allowed)!)") }
+        if let runner { query.append("runner=\(runner.addingPercentEncoding(withAllowedCharacters: allowed)!)") }
         let suffix = query.isEmpty ? "" : "?" + query.joined(separator: "&")
         var request = try await authorizedRequest(path: "/.overstory/trees/\(component(tree))/presence\(suffix)")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -613,6 +615,20 @@ public actor ProtocolClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try encoder.encode(update)
+        let (data, response) = try await session.data(for: request)
+        let status = try statusCode(response)
+        if status == 401 { await credentialProvider.invalidate() }
+        try validate(data: data, status: status)
+    }
+
+    /// Send `body` from this stream (`from`, its ready event's `stream`) to
+    /// another of the caller's own streams (spec 12 §6).
+    public func sendPresenceMessage(tree: String, from: String, to: String, body: ProtocolPresenceMessageBody) async throws {
+        struct Post: Encodable { var to: String; var body: ProtocolPresenceMessageBody }
+        var request = try await authorizedRequest(path: "/.overstory/trees/\(component(tree))/presence/\(component(from))/messages")
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(Post(to: to, body: body))
         let (data, response) = try await session.data(for: request)
         let status = try statusCode(response)
         if status == 401 { await credentialProvider.invalidate() }

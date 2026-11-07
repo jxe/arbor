@@ -1,7 +1,7 @@
 // The presence hub (spec 12): every live presence entry, in this process's
 // memory only. A restart or deploy empties it, and clients start over.
 
-import { encodeSSEFrame, type PresenceAgent, type PresenceDevice, type PresenceID, type PresencePage, type PresencePeer, type PresenceSelection, type PresenceUpdate } from "@ovst/protocol";
+import { encodeSSEFrame, type PresenceAgent, type PresenceDevice, type PresenceID, type PresenceMessageBody, type PresencePage, type PresencePeer, type PresenceSelection, type PresenceUpdate } from "@ovst/protocol";
 import { randomBytes } from "node:crypto";
 
 /** Who opened a presence stream. Only an account's device can be listed. */
@@ -19,6 +19,8 @@ export interface PresenceJoin {
   name: string | null;
   /** What the client says it runs on. Not the caller's device ID. */
   device: PresenceDevice | null;
+  /** A runner's label: this visible person stream runs its person's tasks (spec 12 §6). */
+  runner?: string | null;
   /** Wakes the stream's reader when frames are waiting. */
   wake: () => void;
   /** Ends the stream, as for a consumer too slow to keep up. */
@@ -32,9 +34,11 @@ interface Entry {
   agent: string | null;
   name: string | null;
   device: PresenceDevice | null;
+  runner: string | null;
   page: PresencePage | null;
   selection: PresenceSelection | null;
   status: string | null;
+  run: string | null;
   /** Frames waiting for this subscriber, keyed so a newer frame about the
    * same peer replaces an older one: at most one peer, cursor or leave frame
    * per peer is ever pending. */
@@ -57,8 +61,8 @@ const POST_BURST = 20;
 const POSTS_PER_SECOND = 10;
 
 function peerOf(entry: Entry): PresencePeer {
-  const agent: PresenceAgent | null = entry.agent === null ? null : { label: entry.agent, status: entry.status };
-  return { id: entry.id, profile: entry.caller!.account, name: entry.name, page: entry.page, agent, device: entry.device };
+  const agent: PresenceAgent | null = entry.agent === null ? null : { label: entry.agent, status: entry.status, run: entry.run };
+  return { id: entry.id, profile: entry.caller!.account, name: entry.name, page: entry.page, agent, device: entry.device, runner: entry.runner };
 }
 
 function samePage(a: PresencePage | null, b: PresencePage | null): boolean {
@@ -67,10 +71,13 @@ function samePage(a: PresencePage | null, b: PresencePage | null): boolean {
 
 export class PresenceHub {
   private readonly trees = new Map<string, Map<PresenceID, Entry>>();
+  private messages = 0;
 
   /** Join a tree's presence. Returns the stream's entry ID and its first frame. */
   join(tree: string, join: PresenceJoin): { id: PresenceID; listed: boolean; ready: string } {
     const listed = join.caller !== null && (join.visible || join.agent !== null);
+    // A runner is a listed person's stream: a hidden one, or an agent's, cannot be one.
+    if (join.runner && (!listed || join.agent !== null)) throw new PresenceRefused("Only a visible person's stream can be a runner");
     const entry: Entry = {
       id: `pr_${randomBytes(16).toString("base64url")}`,
       caller: join.caller,
@@ -78,9 +85,11 @@ export class PresenceHub {
       agent: listed ? join.agent : null,
       name: join.name,
       device: join.device,
+      runner: join.runner ?? null,
       page: null,
       selection: null,
       status: null,
+      run: null,
       pending: new Map(),
       wake: join.wake,
       close: join.close,
@@ -95,7 +104,8 @@ export class PresenceHub {
     return {
       id: entry.id,
       listed,
-      ready: encodeSSEFrame({ event: "presence.ready", data: { self: listed ? entry.id : null, peers } }),
+      // `stream`: the entry's own ID, for messages (spec 12 §6), even when it is not listed.
+      ready: encodeSSEFrame({ event: "presence.ready", data: { self: listed ? entry.id : null, ...(join.caller ? { stream: entry.id } : {}), peers } }),
     };
   }
 
@@ -122,11 +132,8 @@ export class PresenceHub {
       throw new PresenceNotFound("Presence entry not found");
     }
     if (update.status !== undefined && entry.agent === null) throw new PresenceRefused("Only an agent's stream has a status");
-    const now = Date.now();
-    entry.tokens = Math.min(POST_BURST, entry.tokens + (now - entry.refilledAt) * POSTS_PER_SECOND / 1000);
-    entry.refilledAt = now;
-    if (entry.tokens < 1) throw new PresenceBusy("Too many presence updates");
-    entry.tokens -= 1;
+    if (update.run !== undefined && entry.agent === null) throw new PresenceRefused("Only an agent's stream has a run");
+    this.spend(entry);
     let peerChanged = false;
     let cursorChanged = false;
     if (update.page !== undefined && !(update.page === null ? entry.page === null : samePage(update.page, entry.page) && update.page.stableKey === entry.page!.stableKey)) {
@@ -140,6 +147,10 @@ export class PresenceHub {
       entry.status = update.status;
       peerChanged = true;
     }
+    if (update.run !== undefined && update.run !== entry.run) {
+      entry.run = update.run;
+      peerChanged = true;
+    }
     if (update.selection !== undefined) {
       entry.selection = entry.page === null ? null : update.selection;
       cursorChanged = true;
@@ -150,6 +161,33 @@ export class PresenceHub {
       // Cursors are reciprocal: only visible subscribers on the same page.
       this.fanOut(tree, entry, "cursor", frame, (other) => other.visible && samePage(other.page, entry.page));
     }
+  }
+
+  /**
+   * A message from one of a person's streams to another of theirs (spec 12
+   * §6). Hidden streams may send and receive; anything across profiles, or to
+   * or from a stream that isn't open, is not found. The host keeps nothing.
+   */
+  message(tree: string, from: PresenceID, caller: PresenceCaller, to: PresenceID, body: PresenceMessageBody): void {
+    const entries = this.trees.get(tree);
+    const sender = entries?.get(from);
+    if (!sender || sender.caller?.account !== caller.account || sender.caller.device !== caller.device) {
+      throw new PresenceNotFound("Presence entry not found");
+    }
+    const target = entries!.get(to);
+    if (!target || target === sender || target.caller?.account !== caller.account) throw new PresenceNotFound("Presence entry not found");
+    this.spend(sender);
+    this.messages += 1;
+    this.enqueue(target, `message:${this.messages}`, encodeSSEFrame({ event: "presence.message", data: { from, body } }));
+  }
+
+  /** One POST from a stream, or busy when it has sent too many lately. */
+  private spend(entry: Entry): void {
+    const now = Date.now();
+    entry.tokens = Math.min(POST_BURST, entry.tokens + (now - entry.refilledAt) * POSTS_PER_SECOND / 1000);
+    entry.refilledAt = now;
+    if (entry.tokens < 1) throw new PresenceBusy("Too many presence updates");
+    entry.tokens -= 1;
   }
 
   /** The frames waiting for a stream, oldest first; empties its queue. */

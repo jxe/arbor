@@ -77,6 +77,72 @@
       "data": {
         "self": null
       }
+    },
+    {
+      "name": "message-unknown-kind",
+      "event": "presence.message",
+      "data": {
+        "from": "pr_mac",
+        "body": {
+          "kind": "answer",
+          "question": "q1",
+          "text": "yes"
+        }
+      }
+    },
+    {
+      "name": "message-run-with-space",
+      "event": "presence.message",
+      "data": {
+        "from": "pr_mac",
+        "body": {
+          "kind": "stop",
+          "run": "run 1"
+        }
+      }
+    },
+    {
+      "name": "message-run-without-page",
+      "event": "presence.message",
+      "data": {
+        "from": "pr_phone",
+        "body": {
+          "kind": "run",
+          "request": {
+            "tree": "https://garden.example/~ana",
+            "page": null,
+            "task": {
+              "text": "x",
+              "range": null
+            },
+            "run": "r1"
+          }
+        }
+      }
+    },
+    {
+      "name": "message-done-without-result",
+      "event": "presence.message",
+      "data": {
+        "from": "pr_mac",
+        "body": {
+          "kind": "done",
+          "run": "r1"
+        }
+      }
+    },
+    {
+      "name": "runner-label-two-lines",
+      "event": "presence.peer",
+      "data": {
+        "id": "pr_mac",
+        "profile": "tr_a",
+        "name": null,
+        "page": null,
+        "agent": null,
+        "device": "mac",
+        "runner": "Ana's\nMac"
+      }
     }
   ]
 }
