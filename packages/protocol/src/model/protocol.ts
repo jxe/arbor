@@ -10,7 +10,7 @@ import type { ContentRevision, DirectoryRevision, EventCursor, Hash, LogicalPath
  * higher level than a host states refuses that host instead of failing in odd
  * ways (Story says so at launch and quits).
  */
-export const HOST_PROTOCOL = 1;
+export const HOST_PROTOCOL = 2;
 
 /** The protocol level a health answer states; absent is level 1. */
 export function hostProtocolOf(health: unknown): number {

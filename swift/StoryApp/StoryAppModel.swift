@@ -2669,6 +2669,88 @@ final class StoryWorkspaceState {
     }
 #endif
 
+    // MARK: Runs sent to a runner (Agents 002 phase 3)
+
+    /// A task this device sent to one of the person's runners, such as their Mac.
+    struct SentRun: Equatable {
+        var id: String
+        var runnerID: String
+        var runner: String
+    }
+
+    /// The latest run sent for each task, keyed by `agentRunKey`.
+    private(set) var sentRuns: [String: SentRun] = [:]
+    /// Why the last send of a task failed, keyed like `sentRuns`.
+    private(set) var sentRunErrors: [String: String] = [:]
+
+    /// Where a sent run is: waiting for its agent, with its agent at work, or ended with the runner's result.
+    enum SentRunState: Equatable {
+        case starting(runner: String)
+        case working(ProtocolPresencePeer)
+        case ended(String)
+    }
+
+    private func sentRunKey(task: String, on reference: WorkspaceReference) -> String {
+        Self.agentRunKey(tree: reference.tree.rawValue, page: Self.presencePage(reference).path, task: task)
+    }
+
+    /// Your own runners in the open tree, newest last: the last is the default.
+    func taskRunners(on reference: WorkspaceReference) -> [ProtocolPresencePeer] {
+        guard let tree = hostPresence?.tree, reference.tree.rawValue == tree else { return [] }
+        return presenceRoster.runners.filter { isOwnProfile($0.profile) }
+    }
+
+    func sentRun(task: String, on reference: WorkspaceReference) -> SentRun? {
+        sentRuns[sentRunKey(task: task, on: reference)]
+    }
+
+    func sentRunError(task: String, on reference: WorkspaceReference) -> String? {
+        sentRunErrors[sentRunKey(task: task, on: reference)]
+    }
+
+    func sentRunState(_ run: SentRun) -> SentRunState {
+        if let result = presenceRoster.runResults[run.id] { return .ended(result) }
+        if let agent = presenceRoster.agent(doing: run.id) { return .working(agent) }
+        // The runner left before saying how it went.
+        if !presenceRoster.runners.contains(where: { $0.id == run.runnerID }) { return .ended("Failed: \(run.runner) went away") }
+        return .starting(runner: run.runner)
+    }
+
+    /// Send `task` to a runner, the newest one unless another is named. The
+    /// runner starts the person's agent and answers when it ends; the task
+    /// block is checked off through the tree, like any run's.
+    func sendTask(_ task: String, on reference: WorkspaceReference, to chosen: ProtocolPresencePeer? = nil) async {
+        let key = sentRunKey(task: task, on: reference)
+        sentRunErrors[key] = nil
+        guard let presence = hostPresence, let runner = chosen ?? taskRunners(on: reference).last else {
+            sentRunErrors[key] = "No Mac is running Story Sync for this tree"
+            return
+        }
+        // The runner works on the page as the host has it: send the task's own edits first.
+        await flush()
+        let request = ProtocolRunRequest(
+            tree: currentTreeCanonical?.canonicalURL ?? reference.tree.rawValue,
+            page: Self.presencePage(reference),
+            task: ProtocolRunRequest.Task(text: task, range: nil),
+            run: ProtocolRunRequest.newRunID())
+        do {
+            try await presence.send(.run(request), to: runner.id)
+            sentRuns[key] = SentRun(id: request.run, runnerID: runner.id, runner: runner.runner ?? "your Mac")
+        } catch {
+            sentRunErrors[key] = "Couldn't send it to \(runner.runner ?? "your Mac"): \(error.localizedDescription)"
+        }
+    }
+
+    /// Ask the runner to stop; its answer ends the run.
+    func stopSentRun(_ run: SentRun) async {
+        guard let presence = hostPresence else { return }
+        try? await presence.send(.stop(run: run.id), to: run.runnerID)
+    }
+
+    func dismissSentRun(task: String, on reference: WorkspaceReference) {
+        sentRuns[sentRunKey(task: task, on: reference)] = nil
+    }
+
     /// Whether `task` on this page has a run to show (always false off the Mac).
     func hasAgentRun(task: String, on reference: WorkspaceReference) -> Bool {
 #if os(macOS)

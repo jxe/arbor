@@ -147,10 +147,25 @@ describe("REST v1 protocol fixtures", () => {
     });
     expect(events.map((event) => event.kind)).toEqual(["presence.ready", "presence.peer", "presence.cursor", "presence.peer", "presence.cursor", "presence.leave"]);
     const agent = events[3]!;
-    expect(agent.kind === "presence.peer" && agent.peer.agent).toEqual({ label: "Claude", status: "merging duplicates" });
+    expect(agent.kind === "presence.peer" && agent.peer.agent).toEqual({ label: "Claude", status: "merging duplicates", run: null });
     const [first, moved] = events;
     expect(first!.kind === "presence.ready" && first!.ready.peers[0]!.device).toBeNull();
     expect(moved!.kind === "presence.peer" && moved!.peer.device).toBe("ios");
+  });
+
+  test("presence-runners.sse frames decode: a runner, a run, the agent doing it, stop and done", async () => {
+    const source = await readFile(join(conformance, "presence-runners.sse"), "utf8");
+    const frames = await Array.fromAsync(parseSSEStream(new Response(source).body!));
+    const events = frames.map((frame) => decodePresenceEvent(frame.event, JSON.parse(frame.data)));
+    expect(events.map((event) => event.kind)).toEqual(["presence.ready", "presence.message", "presence.peer", "presence.message", "presence.message"]);
+    const [ready, run, agent, stop, done] = events;
+    expect(ready!.kind === "presence.ready" && ready!.ready.peers[0]!.runner).toBe("Ana's Mac");
+    expect(run!.kind === "presence.message" && run!.message).toEqual({ from: "pr_phone", body: { kind: "run", request: {
+      tree: "https://garden.example/~ana/days", page: { path: "/Today", stableKey: null },
+      task: { text: "Sort the shopping list by aisle", range: null }, run: "run_7Kq2" } } });
+    expect(agent!.kind === "presence.peer" && agent!.peer.agent?.run).toBe("run_7Kq2");
+    expect(stop!.kind === "presence.message" && stop!.message.body).toEqual({ kind: "stop", run: "run_7Kq2" });
+    expect(done!.kind === "presence.message" && done!.message.body).toEqual({ kind: "done", run: "run_7Kq2", result: "Sorted 14 items into 5 aisles." });
   });
 
   test("presence-events-invalid.json frames are rejected", async () => {

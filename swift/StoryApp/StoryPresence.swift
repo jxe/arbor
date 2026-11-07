@@ -492,6 +492,29 @@ struct StoryAgentTaskDetail: View {
                 }
             }
         }
+#else
+        // A run sent to a runner: "Starting…" until its agent joins (whose
+        // bubble then says what it's doing), and how it ended if not well.
+        if !done {
+            if let sent = workspace.sentRun(task: task, on: reference) {
+                switch workspace.sentRunState(sent) {
+                case .starting(let runner):
+                    Text("Starting on \(runner)…").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                case .working:
+                    EmptyView()
+                case .ended(let result):
+                    if result == "Stopped" || result.hasPrefix("Failed") {
+                        Label(result, systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+            } else if let error = workspace.sentRunError(task: task, on: reference) {
+                Label(error, systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            } else if workspace.taskRunners(on: reference).isEmpty {
+                Text("Run needs your Mac awake with Story Sync running").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+        } else if let sent = workspace.sentRun(task: task, on: reference), case .ended(let result) = workspace.sentRunState(sent) {
+            Text(result).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        }
 #endif
     }
 }
@@ -499,7 +522,8 @@ struct StoryAgentTaskDetail: View {
 /// The control at the end of an agent task callout (Agents 001 phase 6):
 /// Run on the Mac, then a spinner with Stop, then Run Again on failure. A
 /// finished run checks its task off; the done task shows the run's result and
-/// Undo Run while the run can be undone. On iPhone and iPad the task waits for a Mac.
+/// Undo Run while the run can be undone. On iPhone and iPad, Run sends the task
+/// to your Mac (a runner, Agents 002); Undo Run is only on the Mac.
 struct StoryAgentTaskControl: View {
     let workspace: StoryWorkspaceState
     let reference: WorkspaceReference
@@ -538,14 +562,54 @@ struct StoryAgentTaskControl: View {
         .controlSize(.small)
         .buttonStyle(.bordered)
 #else
+        // Off the Mac, Run sends the task to one of your runners (Agents 002):
+        // a tap sends it to the newest, a long press picks another.
         if !done {
-            Image(systemName: "desktopcomputer")
-                .foregroundStyle(.secondary)
-                .help("Run this task from Story on your Mac")
-                .accessibilityLabel("Run this task from Story on your Mac")
+            let runners = workspace.taskRunners(on: reference)
+            let sent = workspace.sentRun(task: task, on: reference)
+            switch sent.map(workspace.sentRunState) {
+            case .starting?, .working?:
+                roundButton("stop.fill", size: 11, label: "Stop") {
+                    if let sent { Task { await workspace.stopSentRun(sent) } }
+                }
+            case .ended?, nil:
+                Menu {
+                    ForEach(runners.reversed()) { runner in
+                        Button("Run on \(runner.runner ?? "Mac")") {
+                            Task { await workspace.sendTask(task, on: reference, to: runner) }
+                        }
+                    }
+                } label: {
+                    roundIcon("play.fill", size: 14, nudge: 1)
+                } primaryAction: {
+                    Task { await workspace.sendTask(task, on: reference) }
+                }
+                .disabled(runners.isEmpty)
+                .opacity(runners.isEmpty ? 0.4 : 1)
+                .accessibilityLabel(runners.isEmpty ? "Run: no Mac is running Story Sync" : "Run on \(runners.last?.runner ?? "your Mac")")
+            }
         }
 #endif
     }
+
+#if !os(macOS)
+    private func roundIcon(_ symbol: String, size: CGFloat, nudge: CGFloat = 0) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(.primary)
+            .offset(x: nudge)
+            .frame(width: 30, height: 30)
+            .background(Circle().fill(.purple.opacity(0.18)))
+            .overlay(Circle().strokeBorder(.purple.opacity(0.14), lineWidth: 1))
+            .contentShape(Circle())
+    }
+
+    private func roundButton(_ symbol: String, size: CGFloat, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { roundIcon(symbol, size: size) }
+            .buttonStyle(.plain)
+            .accessibilityLabel(label)
+    }
+#endif
 
 #if os(macOS)
     /// Run and Stop: a round button at the panel's trailing edge.

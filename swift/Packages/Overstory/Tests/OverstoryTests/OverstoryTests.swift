@@ -1190,6 +1190,29 @@ struct ProtocolValueVectorTests {
         }
     }
 
+    @Test("presence-runners.sse frames decode: a runner, a run, the agent doing it, stop and done")
+    func presenceRunners() throws {
+        let source = try String(contentsOf: fixtures.appending(path: "presence-runners.sse"), encoding: .utf8)
+        var parser = ProtocolSSEParser()
+        var frames = try parser.append(Data(source.utf8))
+        frames.append(contentsOf: try parser.finish())
+        let events = try frames.map { try ProtocolPresence.decodeEvent(event: $0.event, data: Data($0.data.utf8)) }
+        #expect(events.count == 5)
+        guard case .ready(let ready) = events[0] else { Issue.record("first event is not ready"); return }
+        #expect(ready.peers.first?.runner == "Ana's Mac")
+        let request = ProtocolRunRequest(
+            tree: "https://garden.example/~ana/days", page: ProtocolPresencePage(path: "/Today"),
+            task: .init(text: "Sort the shopping list by aisle"), run: "run_7Kq2")
+        #expect(events[1] == .message(from: "pr_phone", body: .run(request)))
+        guard case .peer(let agent) = events[2] else { Issue.record("third event is not a peer"); return }
+        #expect(agent.agent?.run == "run_7Kq2")
+        #expect(events[3] == .message(from: "pr_mac", body: .stop(run: "run_7Kq2")))
+        #expect(events[4] == .message(from: "pr_mac", body: .done(run: "run_7Kq2", result: "Sorted 14 items into 5 aisles.")))
+        // A body encodes as the host expects it.
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ProtocolPresenceMessageBody.stop(run: "r1"))) as? [String: String]
+        #expect(encoded == ["kind": "stop", "run": "r1"])
+    }
+
     @Test("a presence roster follows peers and drops a caret when its peer changes page or leaves")
     func presenceRoster() {
         let source = "sha256:" + String(repeating: "c", count: 64)
@@ -1210,6 +1233,25 @@ struct ProtocolValueVectorTests {
         roster.apply(.leave(id: "pr_bot"))
         #expect(!roster.anyoneElse(onPage: "/Groceries"))
         #expect(roster.anyoneElse(onPage: "/Plan"))
+    }
+
+    @Test("a roster keeps runners apart, newest last, and the results of the runs it sent")
+    func presenceRosterRunners() {
+        var roster = ProtocolPresenceRoster()
+        roster.apply(.ready(ProtocolPresenceReady(selfID: nil, stream: "pr_hidden", peers: [
+            ProtocolPresencePeer(id: "pr_air", profile: "tr_me", name: "Joe", runner: "Joe's Air"),
+        ])))
+        #expect(roster.streamID == "pr_hidden")
+        #expect(roster.peers.isEmpty)
+        roster.apply(.peer(ProtocolPresencePeer(id: "pr_studio", profile: "tr_me", name: "Joe", runner: "Studio")))
+        #expect(roster.runners.map(\.id) == ["pr_air", "pr_studio"])
+        roster.apply(.peer(ProtocolPresencePeer(id: "pr_bot", profile: "tr_me", name: "Joe", page: ProtocolPresencePage(path: "/Groceries"),
+                                                agent: ProtocolPresenceAgent(label: "Claude", run: "run_1"))))
+        #expect(roster.agent(doing: "run_1")?.id == "pr_bot")
+        roster.apply(.message(from: "pr_studio", body: .done(run: "run_1", result: "Merged")))
+        #expect(roster.runResults["run_1"] == "Merged")
+        roster.apply(.leave(id: "pr_studio"))
+        #expect(roster.runners.map(\.id) == ["pr_air"])
     }
 
     @Test("a presence update writes only the members it changes, and null for a cleared one")

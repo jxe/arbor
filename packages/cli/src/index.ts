@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
-import { HANDLE_PATH, agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, treeHoldsPages, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
+import { HANDLE_PATH, decodeRunRequest, type RunRequest, agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, treeHoldsPages, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { constants as osConstants } from "node:os";
 import { resolveUserPath, STORY_VERSION } from "@ovst/story-sync";
 import { runStorySyncDaemon } from "@ovst/story-sync/cli";
-import { StorySyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
+import { StorySyncRESTClient, type AgentRunView, type DeclinedChanges } from "./daemon-client.ts";
 import { agentLabel, hasClaudeCode, hookReport, installAgentPresence, textReport, uninstallAgentPresence } from "./agent-presence.ts";
 import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@ovst/fs";
 import { listLocalAccounts } from "@ovst/story-sync/state";
@@ -102,15 +102,24 @@ Folders
   story mv [--dry-run] <source-canonical-url> <destination-canonical-url>
       Move a placed folder on this device, or rename it on its host.
 
-Agents
+Agents, for you
   story agent create [--name <label>] --place <canonical-url> <relative-path> [...]
       Make an agent bundle: a revocable string that lets an agent work in the chosen folders and nothing else.
   story agent list [--json]
   story agent revoke <bundle-id>
   story agent run [<bundle-string>] [--root <directory>] [--timeout <duration>] [-- <command> [<argument>...]]
       In the agent's workspace: check those folders out, run the command there, then send what is left and stop.
-  story agent start [<bundle-string>] [--root <directory>] [--timeout <duration>] [--json]
+  story agent runner [on|off]
+      Whether this Mac runs tasks you send from your other devices (Run on the iPhone). On by default.
+  story agent install [--command <path>] [--agent <label>]
+  story agent uninstall
+      Add (or remove) the hooks, the skill and the permission that let Claude Code sessions in placed folders show up in Story.
+
+Agents, for the agent
+  story agent start [<bundle-string>] [--task <run request>] [--root <directory>] [--timeout <duration>] [--json]
       Check those folders out and keep them syncing, for a harness that starts the agent itself.
+      With --task (JSON, or @file, or STORY_RUN_REQUEST): also take on that task, in a tree placed here
+      if there is no bundle. Story shows the agent from then on and marks the task done when it says done.
   story agent finish [--root <directory>] [--timeout <duration>] [--json]
       Send what is left and stop.
   story agent status <text> [--at <text on the page>]
@@ -118,9 +127,6 @@ Agents
       From an agent in a placed folder: say what it is doing, or what it did; Story shows it beside the agent's cursor.
   story agent hook [--agent <label>]
       Read a Claude Code hook's JSON on stdin and show the agent's page and cursor. Never fails the agent.
-  story agent install [--command <path>] [--agent <label>]
-  story agent uninstall
-      Add (or remove) the hooks, the skill and the permission that let Claude Code sessions in placed folders show up in Story.
 
 People
   story invite <account-url>
@@ -1150,17 +1156,24 @@ async function revokeCloudBundle(bundleID: string): Promise<void> {
 
 interface CloudStartOptions { bundle: string; root: string; timeoutMs: number; json: boolean }
 
-function cloudStartArguments(args: string[], verb: "start" | "run" = "start"): CloudStartOptions {
+/** `story agent start`'s options: a bundle, a run request, or both. */
+interface AgentStartOptions extends Omit<CloudStartOptions, "bundle"> { bundle?: string; task?: string }
+
+function cloudStartArguments(args: string[], verb: "run"): CloudStartOptions;
+function cloudStartArguments(args: string[], verb?: "start"): AgentStartOptions;
+function cloudStartArguments(args: string[], verb: "start" | "run" = "start"): AgentStartOptions {
   let bundleArgument: string | undefined;
   let root = process.cwd();
   let timeout: string | undefined;
+  let task: string | undefined;
   let json = false;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
-    if (arg === "--root" || arg === "--timeout") {
+    if (arg === "--root" || arg === "--timeout" || (arg === "--task" && verb === "start")) {
       const value = args[index + 1];
       if (!value || value.startsWith("--")) usageError(`${arg} requires a value`);
       if (arg === "--root") root = value;
+      else if (arg === "--task") task = value;
       else timeout = value;
       index += 1;
     } else if (arg === "--json" && verb === "start") json = true;
@@ -1171,8 +1184,23 @@ function cloudStartArguments(args: string[], verb: "start" | "run" = "start"): C
   const environmentBundle = process.env.STORY_CLOUD_BUNDLE;
   if (bundleArgument && environmentBundle) usageError("Supply the agent bundle as an argument or STORY_CLOUD_BUNDLE, not both");
   const bundle = bundleArgument ?? environmentBundle;
+  if (verb === "start") {
+    if (task && process.env.STORY_RUN_REQUEST) usageError("Supply the run request as --task or STORY_RUN_REQUEST, not both");
+    task ??= process.env.STORY_RUN_REQUEST;
+    // A task alone runs in a tree already placed on this machine.
+    if (!bundle && !task) usageError("story agent start requires a bundle argument, STORY_CLOUD_BUNDLE, or --task");
+    return { ...(bundle ? { bundle } : {}), ...(task ? { task } : {}), root: resolve(root), timeoutMs: parseDuration(timeout), json };
+  }
   if (!bundle) usageError(`story agent ${verb} requires a bundle argument or STORY_CLOUD_BUNDLE`);
   return { bundle, root: resolve(root), timeoutMs: parseDuration(timeout), json };
+}
+
+/** A run request as `--task` or STORY_RUN_REQUEST gives it: its JSON, or `@` and a file holding it. */
+async function readRunRequest(value: string): Promise<RunRequest> {
+  const text = value.startsWith("@") ? await readFile(resolve(value.slice(1)), "utf8") : value;
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { throw new Error("The run request is not JSON"); }
+  return decodeRunRequest(parsed);
 }
 
 async function directoryIsEmpty(path: string): Promise<boolean> {
@@ -1337,6 +1365,10 @@ interface CloudStartResult {
   bundleID: string;
   root: string;
   origin: string;
+  /** The data home the session's Story Sync answers for. */
+  dataHome: string;
+  /** The agent's name in presence: the bundle's label. */
+  label: string;
   placements: CloudSessionRecord["placements"];
   /** What an agent needs to know to work in the checkout, as `story agent start` prints it. */
   instructions: string;
@@ -1376,12 +1408,32 @@ function agentInstructions(root: string, placements: CloudSessionRecord["placeme
   ].join("\n");
 }
 
+/**
+ * `story agent start`: check a bundle's folders out, or start a run request
+ * (Agents 002), or both: a run in a fresh checkout. A run goes to the Story
+ * Sync serving the tree's folder, which shows the agent with the run's ID and
+ * marks the task block done when the agent says done.
+ */
 async function startCloud(args: string[]): Promise<void> {
   const options = cloudStartArguments(args);
-  const result = await startCloudSession(options);
-  if (options.json) console.log(JSON.stringify(result, null, 2));
+  const request = options.task ? await readRunRequest(options.task) : undefined;
+  const result = options.bundle ? await startCloudSession({ ...options, bundle: options.bundle }) : undefined;
+  let run: AgentRunView | undefined;
+  if (request) {
+    const client = result
+      ? new StorySyncRESTClient({ baseURL: result.origin, dataHome: result.dataHome })
+      : new StorySyncRESTClient({ baseURL: process.env.STORY_SYNC_URL ?? await storySyncOrigin() });
+    const label = result?.label ?? agentLabel(process.env.STORY_AGENT_LABEL ?? "Claude");
+    run = await client.startRun(request, { external: true, label });
+  }
+  if (options.json) console.log(JSON.stringify({ ...(result ?? { schemaVersion: 1 }), ...(run ? { run } : {}) }, null, 2));
   else {
-    console.log(result.instructions);
+    if (result) console.log(result.instructions);
+    if (run) {
+      if (result) console.log("");
+      console.log(run.prompt ?? run.task);
+      if (run.state !== "running") console.log(`\n(Run ${run.id} is ${run.state}${run.result ? `: ${run.result}` : ""}.)`);
+    }
   }
 }
 
@@ -1514,7 +1566,7 @@ async function startCloudSession(options: CloudStartOptions): Promise<CloudStart
       try { await installAgentPresence({ command: storyInvocation(), agent: label }); hooks = true; } catch { hooks = false; }
     }
     return {
-      schemaVersion: 1, ready: true, sessionID: session.sessionID, bundleID: session.bundleID, root, origin,
+      schemaVersion: 1, ready: true, sessionID: session.sessionID, bundleID: session.bundleID, root, origin, dataHome: session.dataHome, label,
       placements: session.placements, instructions: agentInstructions(root, session.placements, { label, hooks }),
     };
   } catch (error) {
@@ -2043,6 +2095,16 @@ async function agentHookCommand(operands: string[]): Promise<void> {
   }
 }
 
+/** `story agent runner [on|off]`: whether this Mac's Story Sync runs tasks sent from the person's other devices. */
+async function agentRunnerCommand(operands: string[]): Promise<void> {
+  if (operands.length > 1 || (operands[0] !== undefined && operands[0] !== "on" && operands[0] !== "off")) usageError("story agent runner takes on, off, or nothing");
+  const client = new StorySyncRESTClient({ baseURL: process.env.STORY_SYNC_URL ?? await storySyncOrigin() });
+  const status = await client.runner(operands[0] === undefined ? undefined : operands[0] === "on");
+  if (!status.enabled) console.log(`"${status.label}" does not run tasks from your other devices. Turn it on with: story agent runner on`);
+  else if (!status.trees.length) console.log(`"${status.label}" runs tasks from your other devices, but is not offered on any tree yet: it is offered on each tree placed here while Story Sync is connected.`);
+  else console.log(`"${status.label}" runs tasks from your other devices, on ${status.trees.length} tree${status.trees.length === 1 ? "" : "s"} placed here.`);
+}
+
 async function agentInstallCommand(operands: string[]): Promise<void> {
   const options: { command?: string; agent?: string } = {};
   for (let index = 0; index < operands.length; index += 1) {
@@ -2084,6 +2146,7 @@ async function main(): Promise<void> {
     else if (action === "finish") await finishCloud(operands);
     else if (action === "status" || action === "done") await agentTextCommand(action, operands);
     else if (action === "hook") await agentHookCommand(operands);
+    else if (action === "runner") await agentRunnerCommand(operands);
     else if (action === "install") await agentInstallCommand(operands);
     else if (action === "uninstall") {
       if (operands.length) usage();

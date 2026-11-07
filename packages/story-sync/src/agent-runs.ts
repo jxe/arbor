@@ -10,7 +10,7 @@ import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promi
 import { homedir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { createInterface } from "node:readline";
-import { hashObject } from "@ovst/protocol";
+import { hashObject, type PresenceSelection } from "@ovst/protocol";
 import { AGENT_SKILL } from "./agent-skill.ts";
 import type { AgentSessions } from "./agents.ts";
 
@@ -22,6 +22,18 @@ export interface AgentRunRequest {
   page: string;
   /** The task block's text, without its `> [!agent]` marker. */
   task: string;
+  /** The run's ID, as the run request names it (spec 12 §6); otherwise one is made. Starting a run again with it gives the same run. */
+  run?: string;
+  /** Where the task is in the sender's version of the page; used when this folder holds that version. */
+  range?: PresenceSelection | null;
+  /**
+   * An agent someone else starts, as `story agent start --task` says: Story
+   * Sync starts nothing, shows the agent in presence from now, and marks the
+   * block done when the agent says `done`. No snapshot, so no Undo Run.
+   */
+  external?: boolean;
+  /** The agent's name in presence; default "Claude". */
+  label?: string;
 }
 
 export interface AgentRun {
@@ -40,6 +52,11 @@ export interface AgentRun {
   blocked: string[];
   startedAt: number | null;
   finishedAt: number | null;
+  /** Started by someone else (`story agent start --task`), not by Story Sync. */
+  external: boolean;
+  /** For an external run: the page's file and what to tell the agent. */
+  file?: string | null;
+  prompt?: string;
 }
 
 export interface UndoResult {
@@ -179,9 +196,20 @@ export function runPrompt(run: Pick<AgentRun, "page" | "task">, section: string 
   ].join("\n");
 }
 
-/** A task block's lines in a Markdown page: `> [!agent] text`, with any `> ` continuation lines. */
-export function findTaskBlock(source: string, task: string): { start: number; end: number; section: string | null } | null {
+/**
+ * A task block's lines in a Markdown page: `> [!agent] text`, with any `> `
+ * continuation lines. Where several blocks hold the task, `near` picks one:
+ * the block holding a UTF-8 byte offset into this same source, else the one
+ * nearest a line.
+ */
+export function findTaskBlock(source: string, task: string, near: { byte?: number; line?: number } = {}): { start: number; end: number; section: string | null } | null {
   const lines = source.split("\n");
+  const lineStarts: number[] = [];
+  for (let index = 0, offset = 0; index < lines.length; index += 1) {
+    lineStarts.push(offset);
+    offset += Buffer.byteLength(lines[index]!) + 1;
+  }
+  const matches: Array<{ start: number; end: number; section: string | null }> = [];
   // The task arrives as the editor's plain text; the file may hold link
   // markup, escapes and emphasis delimiters, so both sides are compared without them.
   const plain = (value: string) => value
@@ -202,14 +230,19 @@ export function findTaskBlock(source: string, task: string): { start: number; en
       text.push(lines[end]!.replace(/^\s*>\s?/, ""));
       end += 1;
     }
-    if (plain(text.join(" ")) === wanted) return { start: index, end, section };
+    const block = { start: index, end, section };
+    // The sender's own version of the page: the block under its range is the task.
+    if (near.byte !== undefined && near.byte >= lineStarts[index]! && near.byte < (lineStarts[end] ?? Infinity)) return block;
+    if (plain(text.join(" ")) === wanted) matches.push(block);
   }
-  return null;
+  if (near.line === undefined) return matches[0] ?? null;
+  const line = near.line;
+  return matches.reduce<typeof matches[number] | null>((best, block) => !best || Math.abs(block.start - line) < Math.abs(best.start - line) ? block : best, null);
 }
 
 /** The page with its task block marked done: `> [!agent]` becomes `> [!agent-done]`, all else as it was. */
-export function markTaskDone(source: string, task: string): string | null {
-  const found = findTaskBlock(source, task);
+export function markTaskDone(source: string, task: string, near: { line?: number } = {}): string | null {
+  const found = findTaskBlock(source, task, near);
   if (!found) return null;
   const lines = source.split("\n");
   lines[found.start] = lines[found.start]!.replace(/\[!agent(\\?)\]/i, "[!agent-done$1]");
@@ -255,6 +288,11 @@ interface RunRecord extends AgentRun {
   process?: ChildProcess;
   session: string;
   stopRequested: boolean;
+  label?: string;
+  range?: PresenceSelection | null;
+  prompt?: string;
+  /** The task block's first line when the run began, to tell it from a copy. */
+  taskLine?: number;
 }
 
 export class AgentRuns {
@@ -262,6 +300,8 @@ export class AgentRuns {
   /** Each tree's queue: runs on one tree go one at a time. */
   private readonly tails = new Map<string, Promise<void>>();
   private readonly snapshotMs: number;
+  /** Who waits for each run to end. */
+  private readonly waiters = new Map<string, Array<(run: AgentRun) => void>>();
 
   constructor(private readonly host: AgentRunHost, private readonly agents: AgentSessions, private readonly options: AgentRunsOptions = {}) {
     this.snapshotMs = options.snapshotMs ?? 24 * 60 * 60_000;
@@ -327,26 +367,57 @@ export class AgentRuns {
     return [...this.runs.values()].map((run) => this.view(run, allowed));
   }
 
+  /** The run once it has ended: finished, failed or stopped. */
+  ended(id: string): Promise<AgentRun> {
+    const run = this.require(id);
+    if (run.state !== "queued" && run.state !== "running") return Promise.resolve(this.view(run));
+    return new Promise((resolve) => {
+      const waiting = this.waiters.get(id) ?? [];
+      waiting.push(resolve);
+      this.waiters.set(id, waiting);
+    });
+  }
+
+  private ending(run: RunRecord): void {
+    const waiting = this.waiters.get(run.id);
+    this.waiters.delete(run.id);
+    for (const resolve of waiting ?? []) resolve(this.view(run));
+  }
+
   get(id: string): AgentRun | undefined {
     const run = this.runs.get(id);
     return run ? this.view(run) : undefined;
   }
 
-  /** Queue a run; it starts when the tree's earlier runs finish. */
+  /**
+   * Queue a run; it starts when the tree's earlier runs finish. An external
+   * run starts at once, since its agent is already on its way. A run ID
+   * already known gives that run, so a request sent twice runs once.
+   */
   async start(request: AgentRunRequest): Promise<AgentRun> {
+    const known = request.run === undefined ? undefined : this.runs.get(request.run);
+    if (known) {
+      if (known.tree !== request.tree) throw new AgentRunError("conflict", "That run ID is another tree's run.");
+      return this.view(known);
+    }
     const folder = await this.host.folder(request.tree);
-    if (!folder) throw new AgentRunError("not-placed", "This tree is not placed on this Mac, so it cannot run a task here.");
-    const command = this.options.command ?? findClaude();
-    if (!command) throw new AgentRunError("no-agent", "Story could not find Claude Code. Install it, or set its path in STORY_CLAUDE_PATH.");
-    const id = `run_${crypto.randomUUID().replaceAll("-", "")}`;
+    if (!folder) throw new AgentRunError("not-placed", "This tree is not placed on this machine, so it cannot run a task here.");
+    const command = request.external ? null : this.options.command ?? findClaude();
+    if (!request.external && !command) throw new AgentRunError("no-agent", "Story could not find Claude Code. Install it, or set its path in STORY_CLAUDE_PATH.");
+    const id = request.run ?? `run_${crypto.randomUUID().replaceAll("-", "")}`;
     const run: RunRecord = {
       id, tree: request.tree, page: request.page, task: request.task.trim(), state: "queued", result: null,
       changed: [], undoable: false, blocked: [], startedAt: null, finishedAt: null, folder,
-      session: crypto.randomUUID(), stopRequested: false,
+      session: crypto.randomUUID(), stopRequested: false, external: request.external === true,
+      label: request.label, range: request.range ?? null,
     };
     this.runs.set(id, run);
+    if (run.external) {
+      await this.begin(run);
+      return this.view(run);
+    }
     const previous = this.tails.get(request.tree) ?? Promise.resolve();
-    const next = previous.then(() => this.execute(run, command)).catch(() => {});
+    const next = previous.then(() => this.execute(run, command!)).catch(() => {});
     this.tails.set(request.tree, next);
     return this.view(run);
   }
@@ -355,8 +426,10 @@ export class AgentRuns {
   stop(id: string): AgentRun {
     const run = this.require(id);
     run.stopRequested = true;
-    if (run.state === "queued") { run.state = "stopped"; run.finishedAt = Date.now(); }
+    if (run.state === "queued") { run.state = "stopped"; run.result = "Stopped"; run.finishedAt = Date.now(); this.ending(run); }
     run.process?.kill("SIGTERM");
+    // An external run's agent is not ours to stop: it leaves presence, and the block stays.
+    if (run.external && run.state === "running") this.agents.end(run.session);
     return this.view(run);
   }
 
@@ -408,7 +481,76 @@ export class AgentRuns {
 
   private view(run: RunRecord, allowed = allowedRules(this.settingsPath)): AgentRun {
     const { id, tree, page, task, state, result, changed, undoable, blocked, startedAt, finishedAt } = run;
-    return { id, tree, page, task, state, result, changed: [...changed], undoable, blocked: blocked.filter((rule) => !allowed.includes(rule)), startedAt, finishedAt };
+    const external = run.external === true;
+    return {
+      id, tree, page, task, state, result, changed: [...changed], undoable, blocked: blocked.filter((rule) => !allowed.includes(rule)), startedAt, finishedAt, external,
+      ...(external ? { file: run.folder ? this.pageFile(run.folder, run.page) : null, prompt: run.prompt } : {}),
+    };
+  }
+
+  /** The page's file, its task block (by the sender's range where this is its version, else by text), and the block's section. */
+  private async locateTask(run: RunRecord): Promise<{ pagePath: string | null; found: ReturnType<typeof findTaskBlock> }> {
+    const pagePath = this.pageFile(run.folder!, run.page);
+    const source = pagePath ? await readFile(pagePath, "utf8").catch(() => null) : null;
+    if (source === null) return { pagePath, found: null };
+    const sameVersion = run.range && hashObject(new TextEncoder().encode(source)) === run.range.source;
+    const found = findTaskBlock(source, run.task, sameVersion ? { byte: Math.min(run.range!.anchor, run.range!.head) } : {});
+    run.taskLine = found?.start;
+    return { pagePath, found };
+  }
+
+  /** Mark the run's task block done in the page as it is now; the page's path, relative to the folder, if it changed. */
+  private async markDone(run: RunRecord, pagePath: string | null): Promise<{ path: string; hash: string } | null> {
+    if (!pagePath) return null;
+    const current = await readFile(pagePath, "utf8").catch(() => null);
+    const done = current === null ? null : markTaskDone(current, run.task, { line: run.taskLine });
+    if (done === null) return null;
+    await writeFile(pagePath, done);
+    return { path: relative(run.folder!, pagePath).split(sep).join("/"), hash: hashObject(new TextEncoder().encode(done)) };
+  }
+
+  /**
+   * An external run: show its agent in presence from now, as a stand-in the
+   * agent's own session takes over when it first reports, and finish when
+   * that session says done (block marked) or ends without (block left).
+   */
+  private async begin(run: RunRecord): Promise<void> {
+    const folder = run.folder!;
+    run.state = "running";
+    run.startedAt = Date.now();
+    const { pagePath, found } = await this.locateTask(run);
+    run.prompt = [
+      runPrompt(run, found?.section ?? null),
+      ...(pagePath ? ["", `The page's file is ${pagePath}.`] : []),
+    ].join("\n");
+    // The agent's edits and the block's mark go up as one change, as a run Story Sync starts.
+    this.host.hold?.(run.tree, run.session);
+    const label = run.label ?? "Claude";
+    const report = (body: { status?: string; hold?: boolean; hook?: unknown; claim?: boolean; run?: string }) =>
+      this.agents.report({ cwd: folder, session: run.session, agent: label, ...body }).catch(() => null);
+    const shown = await report({ status: "Starting", hold: true, claim: true, run: run.id });
+    if (shown && pagePath) {
+      const lines = found ? { offset: found.start + 1, limit: found.end - found.start } : {};
+      await report({ hook: { hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: pagePath, ...lines } } });
+    }
+    const finish = async (said: string | undefined) => {
+      if (run.state !== "running") return;
+      const marked = said !== undefined && !run.stopRequested ? await this.markDone(run, pagePath) : null;
+      if (run.stopRequested) { run.state = "stopped"; run.result = "Stopped"; }
+      else if (said !== undefined) { run.state = "finished"; run.result = said; }
+      else { run.state = "failed"; run.result ??= "The agent stopped without saying it was done"; }
+      run.changed = marked ? [marked.path] : [];
+      run.finishedAt = Date.now();
+      await this.save();
+      await this.host.release?.(run.tree, run.session).catch(() => {});
+      await this.host.publish(run.tree).catch(() => {});
+      this.ending(run);
+    };
+    if (!shown || !this.agents.onSettle(run.session, finish)) {
+      // Presence could not be opened here: the run is no one's to finish.
+      run.result = "Story could not show the agent in this tree's presence";
+      await finish(undefined);
+    }
   }
 
   private async execute(run: RunRecord, command: string): Promise<void> {
@@ -418,9 +560,7 @@ export class AgentRuns {
     run.startedAt = Date.now();
     // Earlier runs keep their snapshots: each done task keeps its own Undo Run
     // until it expires, and undo leaves alone what a later run changed again.
-    const pagePath = this.pageFile(folder, run.page);
-    const source = pagePath ? await readFile(pagePath, "utf8").catch(() => null) : null;
-    const found = source ? findTaskBlock(source, run.task) : null;
+    const { pagePath, found } = await this.locateTask(run);
     const section = found?.section ?? null;
     run.snapshotDirectory = join(this.host.stateDirectory, "agent-runs", run.id);
     await rm(run.snapshotDirectory, { recursive: true, force: true });
@@ -430,10 +570,10 @@ export class AgentRuns {
     // Held under the run's session, which the agent's own reports hold too.
     this.host.hold?.(run.tree, run.session);
 
-    const report = (body: { status?: string; hold?: boolean; done?: string; hook?: unknown }) =>
-      this.agents.report({ cwd: folder, session: run.session, agent: "Claude", ...body }).catch(() => null);
+    const report = (body: { status?: string; hold?: boolean; done?: string; hook?: unknown; run?: string }) =>
+      this.agents.report({ cwd: folder, session: run.session, agent: run.label ?? "Claude", ...body }).catch(() => null);
     // The session holds too, so it shows the page as others still see it.
-    await report({ status: "Starting", hold: true });
+    await report({ status: "Starting", hold: true, run: run.id });
     // Show the agent at the task block from the start.
     if (pagePath) {
       const lines = found ? { offset: found.start + 1, limit: found.end - found.start } : {};
@@ -489,15 +629,8 @@ export class AgentRuns {
       run.result = "Stopped";
     } else if (exit.code === 0) {
       // The task is done: its block stays, checked off, until the person deletes it.
-      if (pagePath) {
-        const current = await readFile(pagePath, "utf8").catch(() => null);
-        const done = current === null ? null : markTaskDone(current, run.task);
-        if (done !== null) {
-          await writeFile(pagePath, done);
-          const relativePage = relative(folder, pagePath).split(sep).join("/");
-          changes.set(relativePage, hashObject(new TextEncoder().encode(done)));
-        }
-      }
+      const marked = await this.markDone(run, pagePath);
+      if (marked) changes.set(marked.path, marked.hash);
       run.result = this.resultLine(run, finalText);
       // Finished only with its result: a poll never sees one without the other.
       run.state = "finished";
@@ -522,6 +655,7 @@ export class AgentRuns {
     if (run.state !== "finished" || this.agents.result(run.session) === undefined) {
       await report({ done: run.state === "finished" ? run.result! : `${run.state === "stopped" ? "Stopped" : "Failed"}: ${run.result}` });
     }
+    this.ending(run);
   }
 
   /** The agent's own `done` line if it said one, otherwise its final message's first line. */
@@ -549,7 +683,7 @@ function isDirectory(path: string): boolean {
 }
 
 export class AgentRunError extends Error {
-  constructor(readonly code: "not-placed" | "no-agent" | "not-found" | "not-undoable" | "not-blocked" | "bad-settings", message: string) {
+  constructor(readonly code: "not-placed" | "no-agent" | "not-found" | "not-undoable" | "not-blocked" | "bad-settings" | "conflict", message: string) {
     super(message);
   }
 }

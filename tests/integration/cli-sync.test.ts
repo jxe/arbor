@@ -274,6 +274,31 @@ describe("plural-account CLI place", () => {
       .toMatchObject({ exit: 0, stdout: "# Interrupted\n" });
   }, 90_000);
 
+  test("agent start --task takes on a run request in a fresh checkout and marks its block done when the agent says done", async () => {
+    const original = await source("task-source", "# Tasks\n\n> [!agent] tidy the list\n\n- b\n- a\n");
+    const canonical = `${firstHost.url}/~alice/task-source`;
+    await story(["place", original, canonical]);
+    const bundle = (await storyOutput(["agent", "create", "--name", "Cloud runner", "--place", canonical, "checkout"])).stdout;
+    const root = join(sandbox, "agent-task");
+    const request = { tree: canonical, page: { path: "/note", stableKey: null }, task: { text: "tidy the list", range: null }, run: "run-from-phone" };
+    const started = JSON.parse((await storyOutput(["agent", "start", bundle, "--root", root, "--timeout", "15s", "--task", JSON.stringify(request), "--json"])).stdout);
+    expect(started).toMatchObject({ ready: true, run: { id: "run-from-phone", state: "running", external: true } });
+    expect(started.run.prompt).toContain("tidy the list");
+    const checkout = join(await realpath(root), "checkout");
+    expect(started.run.file).toBe(join(checkout, "note.md"));
+    await writeFile(join(checkout, "note.md"), "# Tasks\n\n> [!agent] tidy the list\n\n- a\n- b\n");
+    // The agent says done from its folder, which names the session's own Story Sync.
+    const env: Record<string, string | undefined> = { ...Bun.env };
+    delete env.STORY_HOME;
+    delete env.STORY_SYNC_URL;
+    const done = Bun.spawn([...cliCommand, "agent", "done", "Sorted the list"], { cwd: checkout, env, stdout: "pipe", stderr: "pipe" });
+    expect(await done.exited).toBe(0);
+    expect(await readFile(join(checkout, "note.md"), "utf8")).toBe("# Tasks\n\n> [!agent-done] tidy the list\n\n- a\n- b\n");
+    await storyOutput(["agent", "finish", "--root", root, "--timeout", "15s"]);
+    expect(await storyResult(["agent", "run", bundle, "--root", join(sandbox, "agent-task-check"), "--timeout", "15s", "--", "cat", "checkout/note.md"]))
+      .toMatchObject({ exit: 0, stdout: "# Tasks\n\n> [!agent-done] tidy the list\n\n- a\n- b\n" });
+  }, 60_000);
+
   test("declares, mounts and activates a placed tree below the profile, publicly readable when asked", async () => {
     const firstSource = await source("first-source", "# First\n");
     const firstCanonical = `${firstHost.url}/~alice/notes`;

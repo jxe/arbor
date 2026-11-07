@@ -2,7 +2,7 @@ import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID, DOMAIN_PROFILE_PATH } from "@ovst/protocol";
+import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, decodePresenceMessagePost, decodePresenceRunnerLabel, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID, DOMAIN_PROFILE_PATH } from "@ovst/protocol";
 import { decodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { AccountChallenge, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeQueryResponse } from "./exec-routes.ts";
@@ -916,7 +916,7 @@ export async function serveHost(options: {
             return response;
           });
         }
-        const presenceRoute = /^\/\.overstory\/trees\/([^/]+)\/presence(?:\/([^/]+))?$/.exec(url.pathname);
+        const presenceRoute = /^\/\.overstory\/trees\/([^/]+)\/presence(?:\/([^/]+)(\/messages)?)?$/.exec(url.pathname);
         if (presenceRoute && execution) return protocolError("permission-denied", "Presence is for people and their agents, not execution tokens", 403);
         if (presenceRoute && !presenceRoute[2] && request.method === "GET") {
           const { tree } = readableTree(presenceRoute[1]!);
@@ -926,6 +926,13 @@ export async function serveHost(options: {
           catch (error) { return protocolError("invalid-request", error instanceof Error ? error.message : String(error), 400); }
           if (agent !== null && !authentication) return protocolError("unauthenticated", "An agent's presence needs an account", 401);
           const visible = url.searchParams.get("visible") !== "false";
+          const runnerParameter = url.searchParams.get("runner");
+          let runner: string | null = null;
+          try { runner = runnerParameter === null ? null : decodePresenceRunnerLabel(runnerParameter); }
+          catch (error) { return protocolError("invalid-request", error instanceof Error ? error.message : String(error), 400); }
+          if (runner !== null && (!authentication || !visible || agent !== null)) {
+            return protocolError("invalid-request", "Only a visible person's stream can be a runner", 400);
+          }
           const device = decodePresenceDevice(url.searchParams.get("device"));
           let name: string | null = null;
           if (authentication) {
@@ -948,7 +955,7 @@ export async function serveHost(options: {
             start(controller) {
               const joined = presence.join(tree.id, {
                 caller: authentication ? { account: authentication.account.id, device: authentication.device } : null,
-                visible, agent, name, device,
+                visible, agent, name, device, runner,
                 wake: () => { wake?.(); wake = undefined; },
                 close: () => end(),
               });
@@ -984,7 +991,27 @@ export async function serveHost(options: {
             cancel() { end(); },
           }), { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache" } });
         }
-        if (presenceRoute && presenceRoute[2] && request.method === "POST") {
+        if (presenceRoute && presenceRoute[2] && presenceRoute[3] && request.method === "POST") {
+          // A message to another of the caller's own streams (spec 12 §6).
+          const { tree } = readableTree(presenceRoute[1]!);
+          if (!authentication) return notFound("Presence entry not found");
+          const raw = new Uint8Array(await request.arrayBuffer());
+          if (raw.byteLength > PRESENCE_LIMITS.messageBytes) return protocolError("invalid-request", "The presence message is too large", 413);
+          let message;
+          try { message = decodePresenceMessagePost(JSON.parse(new TextDecoder().decode(raw))); }
+          catch (error) {
+            return protocolError("invalid-request", error instanceof PresenceDecodeError ? error.message : "The presence message must be a JSON object", 400);
+          }
+          try {
+            presence.message(tree.id, decodeURIComponent(presenceRoute[2]), { account: authentication.account.id, device: authentication.device }, message.to, message.body);
+          } catch (error) {
+            if (error instanceof PresenceNotFound) return notFound("Presence entry not found");
+            if (error instanceof PresenceBusy) return protocolError("rate-limited", error.message, 429, true);
+            throw error;
+          }
+          return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+        }
+        if (presenceRoute && presenceRoute[2] && !presenceRoute[3] && request.method === "POST") {
           const { tree } = readableTree(presenceRoute[1]!);
           // Only the caller that opened the stream may change it; anyone else
           // is told it does not exist, so a presence ID is not a credential.

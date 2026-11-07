@@ -3,8 +3,9 @@
 **Why and when:** from what Joe described on 2026-10-30 (thread "Bring AI into Story
 smoothly"). Run should work from the iPhone, and (Joe, 2026-11-06) each user should be able
 to choose what runs their tasks: their Mac, a cloud session, or anything else that can start
-an agent, with Story knowing only "send this task to a runner". Codex should work as well as
-Claude Code. Talking to the agent while it works is [Agents 004](../features/agents-004-talk-to-the-agent.md)
+an agent, with Story knowing only "send this task to a runner". Webhook runners (a claude.ai
+scheduled task, GitHub Actions, your own server) are [Agents 005](../features/agents-005-webhook-runners.md)
+and Codex is [Agents 006](../features/agents-006-codex.md) (Joe, 2026-11-07). Talking to the agent while it works is [Agents 004](../features/agents-004-talk-to-the-agent.md)
 (split off by Joe, 2026-11-07). Runs in history are
 [overstoryd 007](../later/history-007-page-history.md) steps 6 and 7.
 
@@ -35,7 +36,7 @@ Claude Code. Talking to the agent while it works is [Agents 004](../features/age
   Mac) checks trees out on any machine with `story agent start`; `finish` proves the work
   reached the host. `start` installs the hooks labelled with the bundle's name.
 - Task blocks are `> [!agent]` quotes drawn as Quagmire callouts with Run, Stop and Undo Run.
-- No Run on the iPhone, no runner but the Mac you're on, and no Codex.
+- No Run on the iPhone, and no runner but the Mac you're on.
 
 ## Decisions
 
@@ -48,9 +49,8 @@ From Joe, 2026-11-06:
    `run` as a presence message (a Mac; later a host runner or a Codex machine); it is offered
    only while online. A *webhook runner* is a URL and a secret the device POSTs the run request
    to (a claude.ai scheduled task, GitHub Actions, your own server); it is always offered.
-3. **Each person picks.** Settings has a Runners list, kept in the configuration tree; Run
-   uses the default runner and a long-press picks another. With no runner available, Run is
-   greyed out and says why ("Your Mac is asleep").
+3. **Each person picks.** Run uses the default runner and a long-press picks another. With
+   no runner available, Run is greyed out and says why ("Your Mac is asleep").
 4. **Messages go through presence, not the tree.** Asking a present runner to run a task and
    stopping it are short ephemeral messages between one person's streams, so nothing is
    written to a page to make them happen. They vanish like presence.
@@ -101,7 +101,7 @@ adds a question and an `answer` message on the same route.
 
 Spec 11 (presence) gains the additions above; spec 05 §3.2 says messages flow only between one
 profile's streams. `RunRequest` gets its own section, since webhook runners receive it too
-(phase 5). Models in TypeScript and Swift, and vectors for a run request, a runner and each
+([Agents 005](../features/agents-005-webhook-runners.md)). Models in TypeScript and Swift, and vectors for a run request, a runner and each
 message kind (plus invalid ones: an unknown kind, an oversize body). The hub delivers messages.
 
 **Verification:** integration tests: a message reaches the named stream of the same profile
@@ -126,70 +126,31 @@ refused. Then `bun run test:affected` and `bun run test:protocol`.
 checkout from a bundle: block marked done with the result; a failed or abandoned run leaves
 the block; a second client sees the agent with the run's id.
 
-## Phase 3: the Runners list and the Mac runner
+## Phase 3: the Mac as a runner, and Run from the iPhone
 
-- **Runners in Settings** on the Mac and iPhone: each entry has a label, a kind (present or
-  webhook), and is default or not. Present runners appear by themselves while online; webhook
-  runners are added by hand.
-- **The list lives in the configuration tree** (Joe, 2026-11-06; spec 04 §7) as `runners.yaml`,
-  so every device of the account sees it. `tree-config-v1`'s closed file set gains it: entries
-  keyed by a runner ID, each with its label, kind, URL (for a webhook), default flag, and the
-  `DeviceID` of its bundle from `devices.yaml`. Revoking that device removes the runner, and
-  removing the runner revokes the device, in one accepted root. No secret is written there:
-  the webhook's secret stays in the Keychain (synced by iCloud), and the bundle's credential
-  stays where it was handed out.
-- **The Mac as a runner.** With "Run tasks on this Mac" on (default on), the Mac keeps a runner
-  stream on every tree placed on it, not only the open one, and runs `run` messages as phase 2
-  does. If two Macs are runners, the most recently active is the default.
-- **Run on the phone** sends `run` to the chosen present runner, or POSTs to a webhook runner
-  (phase 5). The block shows "Starting…" on the phone until an agent with that run id joins.
+- **Story Sync is the Mac's runner**, since it runs whether or not Story is open and already
+  starts runs (`AgentRuns`). With running on (`story agent runner on|off`, default on), it
+  keeps a runner stream, labelled with the Mac's name, on every tree placed on the Mac, and
+  runs each `run` message as phase 2 does, answering `done` to the sender when it ends.
+- **The runners you can pick** are the present runners in a tree's roster: your own streams
+  with a runner label. With several, the one that joined last is the default. A list kept in
+  the configuration tree is needed only for runners that aren't present, so it moves to
+  [Agents 005](../features/agents-005-webhook-runners.md).
+- **Run on the iPhone** sends `run` from the page's presence stream to the default runner;
+  the block shows "Starting…" until an agent with that run id joins, then the agent's status.
+  With no runner present, Run is greyed out and says why ("Your Mac isn't running Story
+  Sync"). Stop sends `stop`.
 
-**Verification:** by hand: dictate a task on the phone, press Run with the Mac awake, see the
-result; with the Mac asleep and no webhook runner, Run is greyed out. Check what a runner
+**Verification:** a Story Sync test with a fake agent: a `run` message on a placed tree runs
+and answers `done`; `stop` stops it. By hand: dictate a task on the phone, press Run with the
+Mac awake, see the result; with Story Sync stopped, Run is greyed out. Check what a runner
 stream on each placed tree costs the Mac and the host.
 
 ## Phase 4: one name for agents
 
-`story agent` holds both cloud bundles (`create`, `list`, `revoke`, `run`, `start`, `finish`)
-and presence reporting (`status`, `done`, `hook`, `install`). Pick the split before the
-commands are documented further: for example `story cloud …` for bundles and `story agent …`
-for reporting, keeping the old spellings as aliases for one release. Do this before phase 5's
-prompt is published, since that prompt names the commands.
-
-## Phase 5: webhook runners, starting with a claude.ai scheduled task
-
-- **The request.** `POST <url>` with the run request as JSON and `Authorization: Bearer
-  <secret>`. The runner's answer may carry `{ "url": … }`, which the block menu opens ("Open
-  session"). Errors show on the block.
-- **Access.** A webhook runner usually starts on a machine with nothing placed.
-  Adding one mints a bundle for it (on a device that can create bundles) and the request
-  carries its agent link, so the remote side needs no stored secret of ours; removing the
-  runner revokes the bundle (Joe, 2026-11-06).
-- **The claude.ai preset.** A scheduled task with only an API trigger: the request goes as
-  `{"text": …}` with the beta header `experimental-cc-routine-2026-04-01`. Fire text arrives
-  wrapped as untrusted `<routine-fire-payload>`, so the saved prompt opts in: "Run the Story
-  task in the payload: `npx @ovst/cli agent start --task` with it, do the task, `done`,
-  `finish`." The fire text is never approval, so the skill's "ask before what you can't undo"
-  holds. `npx` needs no setup script, since npm is on the default allowlist; the user still
-  allows their host's domain in the environment's network settings, which nothing can do for
-  them. "Add claude.ai runner…" copies the prompt, opens claude.ai/code/routines, and takes
-  the fire URL and token back, checking them with a test fire. Limits: 30 fires an hour per
-  task; a cold start takes a minute or two.
-- **Other webhooks** (GitHub Actions, your own server) take the same JSON; docs give one
-  example of each.
-
-**Verification:** a local webhook harness receives the request and runs phase 2's path; an
-iOS unit test for both request shapes; by hand, Run from the iPhone with the Mac asleep
-through the claude.ai preset.
-
-## Phase 6: Codex
-
-The same runner with `codex exec`, the same skill and `story agent` commands. Codex's hooks are
-weaker than Claude Code's, so check what it can report; where it can't, Story Sync falls back
-to the files it sees change in the placed folder during the run. The Mac runner's entry picks
-the agent; the presence label follows it.
-
-**Verification:** the fake-agent harness with Codex's event shape, then one real task by hand.
+`story agent` keeps every command (Joe, 2026-11-07): its help groups them into the ones
+for you (`create`, `list`, `revoke`, `run`) and the ones for the agent (`start`, `finish`,
+`status`, `done`, `hook`, `install`).
 
 ## Not in this plan
 

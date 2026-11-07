@@ -12,7 +12,7 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@ovst/protocol";
-import { canonicalNodePath, storyDataRoot, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type CurrentTree, type ObjectHash, type TreeSnapshot, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
+import { canonicalHTTPURL, canonicalNodePath, canonicalOverstoryLocator, canonicalURL, storyDataRoot, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type CurrentTree, type ObjectHash, type TreeSnapshot, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@ovst/client";
 import { type SharedTreePlacement } from "./state/index.ts";
@@ -23,6 +23,7 @@ import { TreeObjectCache } from "./object-cache.ts";
 import { TreeManager } from "./tree-manager.ts";
 import { AgentSessions } from "./agents.ts";
 import { AgentRuns } from "./agent-runs.ts";
+import { TaskRunner } from "./task-runner.ts";
 import { ProtocolError, Workspace, type WorkspaceOptions } from "./workspace.ts";
 
 export { resolveUserPath } from "@ovst/client";
@@ -96,6 +97,8 @@ export class StorySyncDaemon implements AsyncDisposable {
   readonly agents: AgentSessions;
   /** Tasks run by the person's own agent in a placed folder. */
   readonly runs: AgentRuns;
+  /** This device as a runner of the person's tasks from their other devices; started by `startRunner`. */
+  readonly runner: TaskRunner;
 
   private constructor(events: EventBus, trees: TreeManager, options: StorySyncDaemonOptions = {}) {
     this.connections = options.connections ?? localSyncConnections();
@@ -152,6 +155,16 @@ export class StorySyncDaemon implements AsyncDisposable {
       },
       stateDirectory: join(storyDataRoot(), ".state"),
     }, this.agents);
+    this.runner = new TaskRunner({
+      trees: async () => (await trees.descriptors())
+        .filter((tree) => tree.placement === "placed" && tree.osPath && !tree.missing && trees.placementFor(tree.id))
+        .map((tree) => tree.id),
+      presence: async (tree) => {
+        const placement = trees.placementFor(tree);
+        return placement ? this.accountClient(placement) : undefined;
+      },
+      catchUp: async (tree) => { await this.folders.get(tree)?.sync.syncOnce(); },
+    }, this.runs, { settingsPath: join(storyDataRoot(), ".state", "runner.json") });
     if (options.autoSync !== false) this.startAutoSync(options.syncIntervalMs);
   }
 
@@ -306,6 +319,23 @@ export class StorySyncDaemon implements AsyncDisposable {
   async treeList(): Promise<SnapshotEnvelope<LocalTreeDescriptor[]>> {
     const descriptors = await this.trees.descriptors();
     return { snapshot: descriptors, observedThrough: this.events.currentCursor() };
+  }
+
+  /**
+   * The placed tree a canonical URL names, as a run request gives it: at a
+   * person's domain or at the host, or a TreeID. Undefined when it is not
+   * placed here.
+   */
+  async treeForURL(url: string): Promise<string | undefined> {
+    const descriptors = (await this.trees.descriptors()).filter((tree) => this.trees.placementFor(tree.id));
+    if (/^tr_[a-z2-7]+$/.test(url)) return descriptors.find((tree) => tree.id === url)?.id;
+    const wanted = url.replace(/\/+$/, "");
+    const named = descriptors.find((tree) => tree.canonical && [canonicalURL(tree.canonical), canonicalHTTPURL(tree.canonical), canonicalOverstoryLocator(tree.canonical)]
+      .some((candidate) => candidate.replace(/\/+$/, "") === wanted));
+    if (named) return named.id;
+    const resolved = await this.resolveLocator(url).catch(() => null);
+    const tree = resolved?.enclosingTree?.id;
+    return tree && resolved?.ref.path === "/" && this.trees.placementFor(tree) ? tree : undefined;
   }
 
   async resolveLocator(input: string): Promise<LocatorResolution> {
@@ -752,8 +782,14 @@ export class StorySyncDaemon implements AsyncDisposable {
     }
   }
 
+  /** Run the person's tasks sent from their other devices (Agents 002): only the device's own long-lived Story Sync does. */
+  startRunner(): void {
+    this.runner.start();
+  }
+
   async [Symbol.asyncDispose](): Promise<void> {
     if (this.syncStartupTimer) clearTimeout(this.syncStartupTimer);
+    await this.runner[Symbol.asyncDispose]();
     await this.runs[Symbol.asyncDispose]();
     await this.agents[Symbol.asyncDispose]();
     if (this.syncing) await new Promise<void>((resolve) => this.syncWaiters.push(resolve));

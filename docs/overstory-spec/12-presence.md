@@ -25,6 +25,7 @@ type PresenceSelection = { source: Hash; anchor: number; head: number };
 type PresenceAgent = {
   label: string;           // the agent's name, at most 40 characters, one line
   status: string | null;   // at most 140 characters, one line
+  run: string | null;      // the run it is doing (§6), if any
 };
 
 type PresencePeer = {
@@ -34,6 +35,7 @@ type PresencePeer = {
   page: PresencePage | null;
   agent: PresenceAgent | null;   // null for a person
   device: "mac" | "ios" | null;  // what the client says it runs on, if it said
+  runner: string | null;   // a runner's label (§6), at most 40 characters, one line
 };
 ```
 
@@ -75,8 +77,9 @@ cursor when the peer's page changes.
 ## 3. Routes
 
 ```text
-GET  /.overstory/trees/{TreeID}/presence[?visible=false][&agent=<label>][&device=<kind>]
+GET  /.overstory/trees/{TreeID}/presence[?visible=false][&agent=<label>][&device=<kind>][&runner=<label>]
 POST /.overstory/trees/{TreeID}/presence/{PresenceID}
+POST /.overstory/trees/{TreeID}/presence/{PresenceID}/messages
 ```
 
 The GET is a stream with the shared framing
@@ -85,17 +88,18 @@ with no `id` and no `after`. Its events, each `data` one JSON value:
 
 | `event` | `data` | Sent |
 | --- | --- | --- |
-| `presence.ready` | `{ self: PresenceID \| null; peers: PresencePeer[] }` | First, once. `self` is null when the subscriber is not listed; `peers` excludes it. |
+| `presence.ready` | `{ self: PresenceID \| null; stream?: PresenceID; peers: PresencePeer[] }` | First, once. `self` is null when the subscriber is not listed; `peers` excludes it. `stream` is the stream's own entry, listed or not, given to a caller with an account, for messages (§6). |
 | `presence.peer` | `PresencePeer` | A listed entry joined, changed page, or (an agent) changed status. |
 | `presence.cursor` | `{ id: PresenceID; selection: PresenceSelection \| null }` | Per §2. |
 | `presence.leave` | `{ id: PresenceID }` | A listed entry's stream closed. |
+| `presence.message` | `{ from: PresenceID; body: PresenceMessageBody }` | Per §6, only to the stream it names. |
 
 A client rejects any other event. An agent stream requires an account; an
 execution token may not open or change presence.
 
-The POST body is a JSON object with any of `page`, `selection` and `status`;
-an omitted member leaves its value unchanged, and an unknown member is
-refused. `status` is accepted only on an agent's entry. The POST is accepted
+The POST body is a JSON object with any of `page`, `selection`, `status` and
+`run`; an omitted member leaves its value unchanged, and an unknown member is
+refused. `status` and `run` are accepted only on an agent's entry. The POST is accepted
 only from the caller (account and device) that opened the stream, and only
 while it is open; any other request, including one naming a page the caller
 cannot read, is answered `404`, the same as a missing entry, so a presence ID
@@ -120,3 +124,40 @@ tree.
 - A host MAY refuse a POST body over 1 KiB (`413`) and MAY answer `429` to a
   stream that changes faster than it allows.
 - A selection's offsets are integers from 0 to 2³²−1.
+- A host MAY refuse a message body over 4 KiB (`413`).
+
+## 6. Runners and messages
+
+A person can have tasks run for them by an agent somewhere else: a Mac that
+is awake, a cloud session, a server. Whatever runs a task is a **runner**,
+and every runner receives the same request:
+
+```ts
+type RunRequest = {
+  tree: string;                     // the tree's canonical URL
+  page: PresencePage;
+  task: { text: string; range: PresenceSelection | null };  // in the sender's source, if known
+  run: string;                      // chosen by the sender: one line, no spaces, at most 64 characters
+};
+
+type PresenceMessageBody =
+  | { kind: "run"; request: RunRequest }
+  | { kind: "stop"; run: string }
+  | { kind: "done"; run: string; result: string };
+```
+
+- **A present runner** is a person's visible stream opened with
+  `runner=<label>`; the roster shows it with that label while it is open. A
+  hidden stream or an agent's cannot be a runner (`400`).
+- **Messages** pass between one person's own streams. The messages POST is
+  made on the sender's own entry, with `{ to: PresenceID, body }`; the host
+  delivers it as a `presence.message` frame to that stream only, and keeps
+  nothing. A sender may be a hidden stream. A message to a stream that is not
+  open, or that another profile opened, is answered `404`, as a missing entry
+  is. Success is `204`. A runner that receives `run` starts an agent that
+  reports the request's `run` in its entry; `stop` asks it to stop; `done` tells
+  the sender the result. A client that cannot run tasks ignores `run`.
+- **Other runners** receive a run request some other way, such as an HTTP
+  POST; it is the same `RunRequest`.
+- A host that serves this states `protocol` 2 or more in its health
+  ([locators §5](03-locators.md#5-finding-trees)).

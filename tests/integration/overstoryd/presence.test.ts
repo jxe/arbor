@@ -42,7 +42,7 @@ afterAll(async () => {
 });
 
 /** A presence stream whose events a test awaits one at a time. */
-function subscribe(client: ProtocolClient, options: { visible?: boolean; agent?: string; device?: "mac" | "ios" } = {}) {
+function subscribe(client: ProtocolClient, options: { visible?: boolean; agent?: string; device?: "mac" | "ios"; runner?: string } = {}) {
   const abort = new AbortController();
   const events = client.presence(community, { ...options, signal: abort.signal });
   const next = async (): Promise<PresenceEvent> => {
@@ -117,6 +117,7 @@ describe("presence", () => {
     const hidden = subscribe(ben, { visible: false });
     const hiddenReady = await ready(hidden);
     expect(hiddenReady.self).toBeNull();
+    expect(hiddenReady.stream).toBeString();
 
     const a = subscribe(ana);
     const aReady = await ready(a);
@@ -136,7 +137,7 @@ describe("presence", () => {
     const agent = subscribe(ana, { agent: "Claude" });
     const agentReady = await ready(agent);
     const listed = await b.take();
-    expect(listed).toMatchObject({ kind: "presence.peer", peer: { profile: anaProfile, agent: { label: "Claude", status: null } } });
+    expect(listed).toMatchObject({ kind: "presence.peer", peer: { profile: anaProfile, agent: { label: "Claude", status: null, run: null } } });
 
     await ana.updatePresence(community, agentReady.self!, { status: "merging duplicates" });
     expect(await b.take()).toMatchObject({ kind: "presence.peer", peer: { agent: { label: "Claude", status: "merging duplicates" } } });
@@ -194,5 +195,75 @@ describe("presence", () => {
       expect(first).toContain('"self":null');
       await reader.cancel();
     }
+  });
+
+  test("a runner is listed; a hidden stream or an agent cannot be one", async () => {
+    const b = subscribe(ben);
+    await ready(b);
+    const mac = subscribe(ana, { runner: "Ana's Mac", device: "mac" });
+    await ready(mac);
+    expect(await b.take()).toMatchObject({ kind: "presence.peer", peer: { profile: anaProfile, runner: "Ana's Mac", agent: null } });
+    mac.close();
+    expect((await b.take()).kind).toBe("presence.leave");
+    b.close();
+    const token = await deviceSession(running.url, "presence-ana");
+    for (const query of ["runner=Mac&visible=false", "runner=Mac&agent=Claude", "runner=two%0Alines"]) {
+      const refused = await fetch(`${running.url}/.overstory/trees/${community}/presence?${query}`, { headers: { authorization: `Bearer ${token}` } });
+      expect(refused.status, query).toBe(400);
+    }
+  });
+
+  test("a run message reaches the named stream of the same person only; the agent reports the run", async () => {
+    const mac = subscribe(ana, { runner: "Ana's Mac" });
+    const macReady = await ready(mac);
+    // A phone that is hidden still has its own stream for messages.
+    const hidden = subscribe(ana, { visible: false });
+    const hiddenReady = await ready(hidden);
+    expect(hiddenReady.self).toBeNull();
+    await ana.sendPresenceMessage(community, hiddenReady.stream!, macReady.self!, { kind: "stop", run: "run_0" });
+    expect(await mac.take()).toEqual({ kind: "presence.message", message: { from: hiddenReady.stream!, body: { kind: "stop", run: "run_0" } } });
+    hidden.close();
+
+    const visiblePhone = subscribe(ana, { device: "ios" });
+    const phoneReady = await ready(visiblePhone);
+    expect((await mac.take()).kind).toBe("presence.peer");
+    const request = { tree: `${running.url}/`, page: { path: "/Today", stableKey: null }, task: { text: "Sort the list", range: null }, run: "run_1" };
+    await ana.sendPresenceMessage(community, phoneReady.self!, macReady.self!, { kind: "run", request });
+    expect(await mac.take()).toEqual({ kind: "presence.message", message: { from: phoneReady.self!, body: { kind: "run", request } } });
+
+    const agent = subscribe(ana, { agent: "Claude" });
+    const agentReady = await ready(agent);
+    expect((await visiblePhone.take()).kind).toBe("presence.peer");
+    expect((await mac.take()).kind).toBe("presence.peer");
+    await ana.updatePresence(community, agentReady.self!, { run: "run_1", status: "sorting" });
+    expect(await visiblePhone.take()).toMatchObject({ kind: "presence.peer", peer: { agent: { label: "Claude", status: "sorting", run: "run_1" } } });
+    expect((await mac.take()).kind).toBe("presence.peer");
+    await expect(ana.updatePresence(community, macReady.self!, { run: "run_1" })).rejects.toThrow();
+
+    await ana.sendPresenceMessage(community, macReady.self!, phoneReady.self!, { kind: "done", run: "run_1", result: "Sorted." });
+    expect(await visiblePhone.take()).toEqual({ kind: "presence.message", message: { from: macReady.self!, body: { kind: "done", run: "run_1", result: "Sorted." } } });
+
+    // Across profiles, from someone else's entry, to a closed stream, or malformed: refused.
+    const b = subscribe(ben);
+    const bReady = await ready(b);
+    await expect(ana.sendPresenceMessage(community, macReady.self!, bReady.self!, { kind: "stop", run: "run_1" })).rejects.toThrow();
+    await expect(ben.sendPresenceMessage(community, bReady.self!, macReady.self!, { kind: "stop", run: "run_1" })).rejects.toThrow();
+    await expect(ben.sendPresenceMessage(community, macReady.self!, phoneReady.self!, { kind: "stop", run: "run_1" })).rejects.toThrow();
+    const bad = await fetch(`${running.url}/.overstory/trees/${community}/presence/${macReady.self}/messages`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${await deviceSession(running.url, "presence-ana")}`, "content-type": "application/json" },
+      body: JSON.stringify({ to: phoneReady.self, body: { kind: "teleport" } }),
+    });
+    expect(bad.status).toBe(400);
+    const large = await fetch(`${running.url}/.overstory/trees/${community}/presence/${macReady.self}/messages`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${await deviceSession(running.url, "presence-ana")}`, "content-type": "application/json" },
+      body: JSON.stringify({ to: phoneReady.self, body: { kind: "done", run: "r", result: "x".repeat(5000) } }),
+    });
+    expect(large.status).toBe(413);
+    visiblePhone.close();
+    await Bun.sleep(50);
+    await expect(ana.sendPresenceMessage(community, macReady.self!, phoneReady.self!, { kind: "stop", run: "run_1" })).rejects.toThrow();
+    agent.close(); mac.close(); b.close();
   });
 });

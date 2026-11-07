@@ -393,7 +393,7 @@ test("every acceptance records a log entry after its predecessor's, and only pro
 test("health checks only the database while integrity audits history in one shared run", async () => {
   const health = await fetch(`${running.url}/.overstory/health`);
   expect(health.status).toBe(200);
-  expect(await health.json()).toEqual({ status: "ok", protocol: 1 });
+  expect(await health.json()).toEqual({ status: "ok", protocol: 2 });
   const first = running.overstoryd.verifyIntegrity();
   expect(running.overstoryd.verifyIntegrity()).toBe(first);
   await first;

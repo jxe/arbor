@@ -145,6 +145,7 @@ authority for the implemented subset; the request grammar itself is in
 | `node-targets.json` | Node target resolution |
 | `observation-events.sse`, `observation-events-invalid.json` | Watch stream framing, valid and invalid: the cursor in the SSE `id`, the kind in `event`, one transition per `tree.update`, and `resync-required` with no `id` |
 | `presence-events.sse`, `presence-events-invalid.json` | Presence stream framing, valid and invalid ([spec 12](../12-presence.md)): a ready roster, peers (one an agent with a status), cursors, a leave, and frames a client must reject |
+| `presence-runners.sse` | Runners and messages ([spec 12 §6](../12-presence.md#6-runners-and-messages)): a runner in the roster, a `run` message, an agent doing the run, `stop` and `done` |
 | `page-presentation.json` | Page presentation (spec 02 §4.1): presented title and Children headings (`cases`), and the source an edited page writes (`edits`) |
 | `page-conversion-undo.json` | Page-creation receipts and undo targets through restart |
 | `resource-policy.json` | `who` / `app` / `allow` / `within` rule grammar, profile locators, and one file's rules |

@@ -76,6 +76,13 @@ public actor HostPresence {
         scheduleFlush()
     }
 
+    /// Send a message to another of this person's streams, from this one
+    /// (spec 12 §6). Throws when the stream isn't open yet, or the host refuses.
+    public func send(_ body: ProtocolPresenceMessageBody, to peer: String) async throws {
+        guard let from = roster.streamID else { throw HostPresenceError.notConnected }
+        try await client.sendPresenceMessage(tree: tree, from: from, to: peer, body: body)
+    }
+
     private nonisolated func run() async {
         await runObservationLoop(maximumDelay: maximumReconnectDelay) { connected in
             defer { Task { await self.disconnected() } }
@@ -147,4 +154,9 @@ public actor HostPresence {
             }
         }
     }
+}
+
+public enum HostPresenceError: Error, Equatable {
+    /// The presence stream isn't open, so there is nothing to send from.
+    case notConnected
 }
