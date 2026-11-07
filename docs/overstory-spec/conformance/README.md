@@ -16,6 +16,12 @@ more files, each run by both implementations:
 - `markdown-link-healing.json`: byte-preserving rewrites after a move, a body-form change, or a stale path.
 - `markdown-link-destinations.json`: which hrefs a Markdown source contains.
 
+`invitations.json` binds invitation codes
+([accounts §1.2](../04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)):
+each code's `sha256:` digest, the form a community's `members` entry reserves, and its join
+link. TypeScript (`inviteCodeDigest`, `buildInviteLocator`) and Swift (`StoryInvitation`)
+check them.
+
 `node-model.json` freezes the provider-neutral model-sampling values (refs,
 identity rules, snapshots, child pages) that the
 `@ovst/protocol` node-model decoders and the native model types share. Positive

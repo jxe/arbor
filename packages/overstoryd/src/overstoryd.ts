@@ -33,6 +33,7 @@ import {
   isGeneratedOverstoryID,
   isPersonProfileTreeID,
   sha256,
+  inviteCodeDigest,
   validateAccountChallenge,
   deviceKeySPKI,
   deviceSessionChallengeBytes,
@@ -3304,12 +3305,6 @@ function profileKeySigned(label: string, publicKey: string, profileTree: string,
   if (bytes.byteLength !== 32 || bytes.toString("base64url") !== publicKey) throw new Error(`${label} is invalid`);
   if (personProfileTreeID(bytes) !== profileTree) throw new Error(`${label} derives another Profile TreeID`);
   return verifyDeviceSignature(`ed25519:${publicKey}`, message, signature);
-}
-
-/** The digest a well-formed invitation code is reserved under. */
-function inviteCodeDigest(code: string): string {
-  if (!/^[A-Za-z0-9_-]{22}$/.test(code)) throw new Error("Invitation code is invalid");
-  return `sha256:${sha256(code)}`;
 }
 
 /** A group that administers a tree keeps at least one member. */

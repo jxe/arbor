@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, treeHoldsPages, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
+import { HANDLE_PATH, agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, treeHoldsPages, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { constants as osConstants } from "node:os";
@@ -9,7 +9,7 @@ import { StorySyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
 import { agentLabel, hasClaudeCode, hookReport, installAgentPresence, textReport, uninstallAgentPresence } from "./agent-presence.ts";
 import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@ovst/fs";
 import { listLocalAccounts } from "@ovst/story-sync/state";
-import { accountProtocolClient, addLocalPlacement, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
+import { accountProtocolClient, addLocalPlacement, cancelInvitation, createInvitation, pendingInvitations, renewInvitation, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
 import type { Document } from "yaml";
 import { STORY_SYNC_PORT, storyDaemonSupervisor } from "./daemon.ts";
 import { compiledExecutable, storyCommand } from "./package-runtime.ts";
@@ -122,6 +122,14 @@ Agents
   story agent uninstall
       Add (or remove) the hooks, the skill and the permission that let Claude Code sessions in placed folders show up in Story.
 
+People
+  story invite <account-url>
+      Invite someone to your community: reserve https://<host>/~<handle> and print its join link.
+  story invite list [<host-url>]
+  story invite renew <account-url>
+      Print a new join link for a pending invitation; the old link stops working.
+  story invite cancel <account-url>
+
 Browser
   story open [<locator>]
 
@@ -159,6 +167,8 @@ Notes:
     from the command's environment, passes the command's exit status through, and exits ${AGENT_RUN_UNSENT_EXIT} when the command
     succeeded but its last changes could not be sent. With no command it runs $SHELL, on a terminal only.
   story open  opens the daemon-hosted web editor, which is being rebuilt and may be unavailable.
+  story invite  talks to the host with this device's key; it needs no Story Sync. The link is printed once and
+    stored nowhere: lose it and use renew. list prints pending invitations, not members.
   story me accounts  lists your home account and your placement accounts at other hosts.
   story sync status  reports Story Sync itself (state, supervision, origin) and every placed folder.
     story status is short for it.
@@ -1831,6 +1841,63 @@ function domainName(input: string): string | null {
  * listed domain both ways, as a host would. Prints the records to publish,
  * which name the profile by its locator at its home host.
  */
+/**
+ * `story invite`: invitations to the community at the account URL's host,
+ * made through \`@ovst/client\` with this device's key. Story Sync is not
+ * involved (Sharing 002).
+ */
+async function inviteCommand(args: string[]): Promise<void> {
+  const [first, ...rest] = args;
+  const sub = first === "list" || first === "renew" || first === "cancel" ? first : undefined;
+  const operands = sub ? rest : args;
+  if (operands.some((operand) => operand.startsWith("-"))) usage();
+  if (sub === "list") {
+    if (operands.length > 1) usage();
+    const client = await inviteClient(operands[0]);
+    const pending = await pendingInvitations(client);
+    for (const invitation of pending) console.log(invitation.account);
+    if (!pending.length) console.error("No invitations are pending.");
+    return;
+  }
+  if (operands.length !== 1) usage();
+  const target = inviteTarget(operands[0]!);
+  const client = await inviteClient(target.origin);
+  if (sub === "cancel") {
+    await cancelInvitation(client, target.handle);
+    console.error(`The invitation for ${target.origin}/~${target.handle} is cancelled; its link no longer works.`);
+    return;
+  }
+  const invitation = sub === "renew" ? await renewInvitation(client, target.handle) : await createInvitation(client, target.handle);
+  console.log(invitation.link);
+}
+
+/** The host origin and handle of an account URL, `https://<host>/~<handle>`. */
+function inviteTarget(input: string): { origin: string; handle: string } {
+  let url: URL;
+  try { url = new URL(input.replace(/^overstory:/, "https:")); } catch { usageError(`Not an account URL: ${input}`); }
+  if (url.hash || url.search) usageError(`An account URL has no query or fragment: ${input}`);
+  const match = HANDLE_PATH.exec(url.pathname);
+  if (!match) usageError(`Not an account URL (https://<host>/~<handle>): ${input}`);
+  return { origin: url.origin, handle: match[1]! };
+}
+
+/** A client speaking for this device's home account at `host`, or at its only home host. */
+async function inviteClient(host?: string): Promise<ProtocolClient> {
+  let origin: string | undefined;
+  if (host) {
+    try { origin = new URL(host.replace(/^overstory:/, "https:")).origin; } catch { usageError(`Not a host URL: ${host}`); }
+  }
+  const records = await HostAccountStore.list();
+  if (!records.length) throw new Error("No account is claimed on this device; join a community or run `story me create` first");
+  const record = origin ? records.find((candidate) => candidate.origin === origin) : records.length === 1 ? records[0] : undefined;
+  if (!record) {
+    throw new Error(origin
+      ? `You have no account whose home is ${new URL(origin).host}; only its community's administrators can invite people there`
+      : "Several accounts are claimed here; name the host: story invite list <host-url>");
+  }
+  return (await accountProtocolClient({ configurationTree: record.configurationTree, origin: record.origin }, { required: true, timeoutMs: 60_000 })).client;
+}
+
 async function domainCommand(store: ProfileIdentityStore, operands: string[]): Promise<void> {
   let add: string | undefined;
   let remove: string | undefined;
@@ -2161,6 +2228,10 @@ async function main(): Promise<void> {
       return;
     }
     throw new Error(`A compatible Story Sync is not reachable at ${selectedOrigin ?? await storySyncOrigin()}; run \`story sync status\` for details`);
+  }
+  if (command === "invite") {
+    await inviteCommand(args);
+    process.exit(0);
   }
   if (command === "place") {
     await placeCommand(args);

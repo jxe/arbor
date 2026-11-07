@@ -62,7 +62,7 @@ describe("story open operands", () => {
     const [exit, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
     expect(exit).toBe(0);
     const sections = [...stdout.matchAll(/^(\S[^\n:]*)$/gm)].map((match) => match[1]);
-    expect(sections).toEqual(["Folders", "Agents", "Browser", "Identity", "Sync state", "Daemon"]);
+    expect(sections).toEqual(["Folders", "Agents", "People", "Browser", "Identity", "Sync state", "Daemon"]);
     for (const line of ["story agent run [<bundle-string>]", "story me accounts", "story me device", "story sync status [<locator>] [--json]", "story sync declined restore <placed-path>"]) {
       expect(stdout).toContain(line);
     }

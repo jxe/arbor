@@ -95,8 +95,12 @@ overstoryd also accepts a pending community invitation with `handle` and
 `inviteDigest: sha256:<hex>` in place of `profile`. It reserves the account
 address but is not yet a member for access purposes. The administrator gives
 the prospective member a 22-character base64url code generated from 16 random
-bytes; the SHA-256 digest of its UTF-8 text is authored there. The invitation
-remains valid until claimed or removed from the community profile.
+bytes; the SHA-256 digest of its UTF-8 text, as `sha256:` and lowercase hex, is
+authored there, in an entry holding exactly `handle` and `inviteDigest`. The code
+travels only in the join link, `https://<host>/~<handle>#overstory-invite=<code>`
+([conformance `invitations.json`](conformance/invitations.json)). The invitation
+remains valid until claimed or removed from the community profile; replacing its
+digest gives it a new code and retires the old link.
 On a successful signed claim, overstoryd replaces that entry with the claimant's
 `profile` locator and retains its handle. This pending form is host allocation
 policy, not a group membership identity; other group profiles continue to name

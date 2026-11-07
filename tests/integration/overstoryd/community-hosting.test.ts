@@ -1,4 +1,4 @@
-import { activationElement, decodeProtocolDirectory, encodeProtocolDirectory, generateOverstoryID, hashObject, sha256, safeResourceRule, HostAccountStore, ProtocolClient } from "@ovst/protocol";
+import { activationElement, decodeProtocolDirectory, encodeProtocolDirectory, generateOverstoryID, hashObject, inviteCodeDigest, sha256, safeResourceRule, HostAccountStore, ProtocolClient } from "@ovst/protocol";
 import { LocalAccountService } from "../../../packages/story-sync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
 import { StorySyncDaemon } from "@ovst/story-sync";
-import { loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
+import { editTreeFile, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
 import { initialPersonConfig, readTreeConfigGraph, snapshotTreeConfig, snapshotTreeConfigFiles, treeConfigurationID, type TreeConfigValues } from "@ovst/protocol";
 import { editTreeConfig, hostTree, readTreeConfig } from "../../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
@@ -92,23 +92,14 @@ describe("client-generated profile and account bootstrap", () => {
    */
   async function inviteAndClaim(handle: string, inviteCode: string, rewrite: (source: string, digest: string) => string) {
     const origin = new URL(running.url).origin;
-    const digest = `sha256:${sha256(inviteCode)}`;
+    const digest = inviteCodeDigest(inviteCode);
     const community = running.overstoryd.community();
-    const head = await owner.descriptor(community.id);
-    const snapshot = await owner.snapshot(community.id, head.tree.root);
-    const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
-    const index = root.entries.find((entry) => entry.name === "_index.md")!.file!;
-    const source = new TextDecoder().decode(snapshot.objects.get(index)!);
-    const invited_source = rewrite(source, digest);
-    expect(invited_source).not.toBe(source);
-    const bytes = new TextEncoder().encode(invited_source);
-    const file = hashObject(bytes);
-    const rootBytes = encodeProtocolDirectory({
-      type: "directory",
-      entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file } : entry),
+    let invited_source = "";
+    await editTreeFile(owner, community.id, "_index.md", (source) => {
+      invited_source = rewrite(source, digest);
+      expect(invited_source).not.toBe(source);
+      return invited_source;
     });
-    const candidate = { root: hashObject(rootBytes), objects: new Map([...snapshot.objects, [file, bytes], [hashObject(rootBytes), rootBytes]]) };
-    await owner.submitUpdate(community.id, head.tree.update, candidate, { ifCurrent: head.tree.update });
     expect(running.overstoryd.accountReservation(`${origin}/~${handle}`)?.inviteDigest).toBe(digest);
 
     const identity = testProfileIdentity();

@@ -187,6 +187,11 @@ host. The page's script, seeing that fragment, reveals an "Open in Story" link
 to the same URL under the `overstory:` scheme, plus the download links
 configured by `OVERSTORYD_STORY_MAC_URL` and `OVERSTORYD_STORY_IPHONE_URL`.
 
+An administrator makes an invitation from Story's share sheet, or from a terminal
+with `story invite https://<host>/~<handle>`, which prints the link once (`story
+invite list`, `renew` and `cancel` manage pending ones). Either way it is one
+`members` entry in the community's `_index.md`; the host never sees the code.
+
 ### Rate limits and proxies
 
 Rate limits are off unless `OVERSTORYD_RATE_LIMITS=1`. When on, a caller is

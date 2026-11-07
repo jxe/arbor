@@ -14,6 +14,31 @@ import AppKit
 
 @MainActor
 struct StoryAppTests {
+    @Test("An invitation code's digest matches the shared vectors")
+    func invitationVectors() throws {
+        struct Vectors: Decodable {
+            struct Invitation: Decodable { let code: String; let digest: String }
+            let invitations: [Invitation]
+        }
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appending(path: "../../docs/overstory-spec/conformance/invitations.json")
+        let vectors = try JSONDecoder().decode(Vectors.self, from: Data(contentsOf: url))
+        #expect(!vectors.invitations.isEmpty)
+        for vector in vectors.invitations {
+            #expect(StoryInvitation(code: vector.code).digest == vector.digest)
+        }
+        #expect(StoryInvitation().code.count == 22)
+    }
+
+    @Test("A host's health states its protocol level; none is level 1, and a non-health answer none")
+    func hostProtocolLevels() {
+        #expect(StoryHostCompatibility.hostProtocol(fromHealth: Data(#"{"status":"ok","protocol":2}"#.utf8)) == 2)
+        #expect(StoryHostCompatibility.hostProtocol(fromHealth: Data(#"{"status":"ok"}"#.utf8)) == 1)
+        #expect(StoryHostCompatibility.hostProtocol(fromHealth: Data(#"{"status":"ok","protocol":0}"#.utf8)) == 1)
+        #expect(StoryHostCompatibility.hostProtocol(fromHealth: Data("<html>".utf8)) == nil)
+        #expect(StoryHostCompatibility.message(.init(host: "garden.example", hostProtocol: 1)).contains("garden.example"))
+    }
+
 #if os(macOS)
     @Test("Focus regions include native sibling controls and field-editor owners, but exclude document focus")
     func surfaceFocusOwnership() throws {

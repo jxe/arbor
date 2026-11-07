@@ -6661,8 +6661,14 @@ struct StoryInvitation {
 
     init() {
         let bytes = Data((0..<16).map { _ in UInt8.random(in: .min ... .max) })
-        code = bytes.base64EncodedString().replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        self.init(code: bytes.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: ""))
+    }
+
+    /// The invitation a code stands for: its digest is `sha256:` and the hex
+    /// SHA-256 of the code's text (accounts §1.2; conformance `invitations.json`).
+    init(code: String) {
+        self.code = code
         digest = "sha256:" + SHA256.hash(data: Data(code.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }

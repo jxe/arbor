@@ -51,7 +51,7 @@
     },
     "packages/cli": {
       "name": "@ovst/cli",
-      "version": "0.1.5",
+      "version": "0.1.7",
       "bin": {
         "story": "./src/index.ts",
       },
@@ -70,6 +70,7 @@
       "dependencies": {
         "@ovst/fs": "workspace:*",
         "@ovst/protocol": "workspace:*",
+        "yaml": "2.9.1",
       },
     },
     "packages/collection-schema": {

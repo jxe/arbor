@@ -1,0 +1,29 @@
+{
+  "description": "Invitation codes (accounts \u00a71.2): 16 random bytes in unpadded base64url; the digest a community reserves is sha256: and the hex SHA-256 of the code's text; the join link is the account URL with #overstory-invite=<code>.",
+  "invitations": [
+    {
+      "code": "Qk3x_9-aZ0bY7cW6dV5eU4",
+      "digest": "sha256:9dc0f12603590dde0d4fee31bf2473b0a83c7aa722f0fd94a0bfcbd548618e17",
+      "account": "https://garden.example/~dana",
+      "link": "https://garden.example/~dana#overstory-invite=Qk3x_9-aZ0bY7cW6dV5eU4"
+    },
+    {
+      "code": "AAAAAAAAAAAAAAAAAAAAAA",
+      "digest": "sha256:8a5bdb4cc15164126c6ef2668de9dd240d299ce6397a42c95a9411b93d080ed8",
+      "account": "https://garden.example/~dana",
+      "link": "https://garden.example/~dana#overstory-invite=AAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "code": "_____________________w",
+      "digest": "sha256:f055fbb78d51e39defb88d8b20b4a09c062521bd773160dfc23e9bf3fbaba0eb",
+      "account": "https://garden.example/~dana",
+      "link": "https://garden.example/~dana#overstory-invite=_____________________w"
+    }
+  ],
+  "invalid": [
+    "short",
+    "Qk3x_9-aZ0bY7cW6dV5eU4=",
+    "Qk3x+9/aZ0bY7cW6dV5eU4",
+    ""
+  ]
+}
