@@ -6,7 +6,7 @@ Agent runs in History (formerly **Agents 003** phases 1 and 2) joined this plan 
 2026-11-01 (Joe): a run is one History entry labelled with its task, Undo Run is a
 restore, and updates gain an optional attribution naming the agent and run. Its third
 phase, both names in line provenance, went to
-[overstoryd 006](../later/history-006-line-provenance.md).
+[overstoryd 006](../later/history-006-page-changes-and-blame.md).
 
 Historical identifier: **Smaller project 007**, formerly "Surface accepted document
 history from overstoryd". Its storage half shipped with overstoryd 013
@@ -19,8 +19,8 @@ what remains.
 - **Risk:** HIGH — an authenticated overstoryd route that enumerates deleted
   source, and a visible restore action whose meaning changes
 - **State:** PLANNED. Refreshed 2026-09-24 after migration 016 and the working-tree redesign.
-- **Depends on:** nothing. Execute before [overstoryd 006](../later/history-006-line-provenance.md),
-  which reuses the same index.
+- **Depends on:** nothing. [overstoryd 006](../later/history-006-page-changes-and-blame.md)
+  no longer waits for it; only 006's agent labels need step 5.
 
 ## Target result
 

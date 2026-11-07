@@ -223,9 +223,10 @@ a freshness policy so unrelated updates don't force a renewed review, explanatio
 and deletions, combination previews, and bulk and offline resolution. Joe made the ideas item
 a plan on 2026-10-28; take each when a real review needs it.
 
-**[overstoryd 006: line provenance](later/history-006-line-provenance.md).** After
-overstoryd 007: who submitted each current line, and the agent when an update names one
-("Joe · Claude"). With Performance 004's index it reads pieces instead of matching lines.
+**[overstoryd 006: what changed on a page, and who wrote each line](later/history-006-page-changes-and-blame.md).**
+`story changes <page> --day yesterday` lists what was added to and deleted from a page, then
+blame, then who submitted each update and the agent ("Joe · Claude"). All of it reads
+Performance 004's provenance index, not stored versions.
 
 **[Postgres 001: collections backed by Postgres, and SQLite projections of them](later/postgres-001-postgres-backed-collections.md).**
 Longer term. For now the point is that the design shows Postgres backings, SQLite projections
@@ -287,9 +288,9 @@ include editor alignment and round-trip characterization.
 ### History and revisions
 
 [overstoryd 007](features/history-007-document-history-routes-and-restore.md) (history and
-restore) comes before [overstoryd 006](later/history-006-line-provenance.md) (line
-provenance), which builds on the history API and adds its own metadata and policy. 007 adds
-the agent attribution on updates; 006 adds who submitted each update and shows both. Merge
+restore) and [overstoryd 006](later/history-006-page-changes-and-blame.md) (page changes and
+line provenance) are independent: 006 reads the provenance index, not 007's history routes.
+007 adds the agent attribution on updates; 006 adds who submitted each update and shows both. Merge
 explanations can link to this history; their provenance proofs and conflict rules stay with
 merge work.
 

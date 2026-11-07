@@ -20,7 +20,7 @@ This is the cleanup it left. Soon, after the other trees are converted (a go-ahe
 ## Cleanup
 
 1. **Provenance for page bodies.** The provenance index (Performance 004) and line provenance
-   ([overstoryd 006](../later/history-006-line-provenance.md)) index page bodies, not only
+   ([overstoryd 006](../later/history-006-page-changes-and-blame.md)) index page bodies, not only
    file bytes. Until then a copy out of a page's body goes as a snapshot.
 2. **Front-matter merge cases.** Close the overstoryd 014/015 front-matter cases that per-property
    merge now covers (the "Per-key frontmatter conflicts" candidate moved here).

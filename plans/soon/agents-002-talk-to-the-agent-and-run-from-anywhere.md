@@ -241,7 +241,7 @@ A task block can have blocks indented under it, like sub-bullets: the task line 
     subscription token can't be used this way.
 - Exact carets: [Live 002](../features/live-002-exact-carets.md). Suggestions: [Editor 003](../features/editor-003-suggestions.md).
 - Runs in history and attribution: [overstoryd 007](../features/history-007-document-history-routes-and-restore.md) steps 5 and 6; both names in
-  line provenance: [overstoryd 006](../later/history-006-line-provenance.md).
+  line provenance: [overstoryd 006](../later/history-006-page-changes-and-blame.md).
 
 ## Close out
 
