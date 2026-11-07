@@ -29,6 +29,16 @@ On main since fa661f3, 2026-11-07
   shows a path read).
 - [ ] iPhone: a placed tree and the personal directory open and sync as before.
 
+### Coalesced typing (Merge 002)
+
+Built 2026-11-07 on branch `claude/merge-002` ([status](../status.md#coalesced-typing-bursts-merge-002-case-1--2026-11-07)).
+A session builds and runs the Swift tests on the Mac first (`OverstoryWorkingTree` publication tests).
+
+- [ ] Go-ahead to merge the branch to main (it changes what Story and Story Sync send, not the host).
+- [ ] After merging and rebuilding Story: type a sentence, backspace a word and Option-arrow a block
+  on a long page, then check the request in the network log is one update with one or a few frames,
+  and that a second device shows the same text.
+
 ### Inviting and joining
 
 Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-people-and-joining-by-invitation--2026-10-11)).

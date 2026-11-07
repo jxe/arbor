@@ -57,6 +57,36 @@ TypeScript: object sources, path reads and a Browse session
 (`tests/unit/object-sources.test.ts`, `tests/integration/overstoryd/path-read.test.ts`).
 Not tried by hand; launch timings not measured ([joe.md](plans/joe.md#clients-003)).
 
+## Coalesced typing bursts (Merge 002 case 1) — 2026-11-07
+
+On branch `claude/merge-002` (built on Clients 003's branch), not on main. The publication
+compilers (`publication.ts`, `ChangePublication.swift`) now compose each run of plain edit
+frames over one path, across local records, into one frame of edits over the run's first
+basis (`composeSourceEdits` / `WorkspaceSourceEdit.compose`), and each run of single-span
+move frames inside a batch into one move. Inserted text deleted again never reaches the
+account; basis bytes deleted and retyped stay a replacement. A run stays uncomposed when an
+operation result in it is referenced, when its end trees are not held, or when the composed
+frame does not take its first tree exactly to its last (checked by rebuilding the tree). The
+trace limits now apply after composition, so a 200-keystroke burst is one update.
+
+Measured with `tests/performance/coalescing-bursts.ts` on a 64 KB page (one record per
+generation): typing 48 characters went from 17.1 KB and 48 frames in one batch (43.8 KB as
+separate updates) to 1.1 KB and one frame; 20 backspaces 7.5 → 1.0 KB; a corrected phrase
+4.8 → 1.0 KB; ten moves around four typed characters 5.9 KB/11 frames → 2.1 KB/3 frames.
+Preparation stays under about 11 ms.
+
+Checked: ten new shared vectors in `tests/fixtures/coalesced-publication.json` (Unicode,
+CRLF, net-zero retyping, cancelling text, edits in two places, a page body, moves on either
+side of an edit); for each plain-edit vector the host merge engine gives the same text and
+decision count for the composed frame as for the original frames against a peer edit far away
+and overlapping, in both arrival orders; the real overstoryd accepts a composed five-key
+burst in a request under 5 KB with and without a concurrent peer edit. `bun run
+test:affected` on Linux: typecheck, 380 product tests, build and 425 TypeScript protocol tests
+pass; the Swift half of the protocol gate needs xcodebuild, and the object-index timing bench
+missed its startup bound on the container disk (unrelated). The Swift port
+has not been compiled yet. Remaining cases are in
+[Clients 002](plans/soon/merge-002-coalesce-moves-with-edits-copies-and-undo.md).
+
 ## Domain locators: your own domain names your profile — 2026-11-05
 
 **Implemented** on main, deployed with it (overstoryd); Names 001 steps 1-4. A person can
@@ -1367,7 +1397,7 @@ retry. The protocol run passes 124 working-tree tests and 7 live editor tests.
 A read-only check of the stuck local journal confirms all three pending edits
 fit the disjoint-source case. No installed app, live journal or public host was
 changed. Broader interior-basis support remains in
-[Clients 002](plans/soon/merge-002-identity-preserving-coalescing.md#interior-bases-that-need-further-support).
+[Clients 002](plans/soon/merge-002-coalesce-moves-with-edits-copies-and-undo.md#interior-bases-that-need-further-support).
 
 ## Unchanged-content resolutions publish — 2026-09-29
 
@@ -1494,7 +1524,7 @@ result no longer reached the final candidate; both compilers now retain such
 material as an object and keep deltas only for final reachable results.
 
 Further reduction is ordered by likely frequency and byte savings in
-[Clients 002](plans/soon/merge-002-identity-preserving-coalescing.md): plain edits across
+[Clients 002](plans/soon/merge-002-coalesce-moves-with-edits-copies-and-undo.md): plain edits across
 records, moves with edits, then repeated selection/subtree moves. These priorities
 are source-based estimates; the plan requires encoded-byte and preparation-cost
 measurements before broadening the implementation.

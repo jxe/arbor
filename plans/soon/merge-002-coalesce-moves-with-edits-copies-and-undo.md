@@ -1,10 +1,12 @@
-# Clients 002: more identity-preserving coalescing
+# Clients 002: coalesce moves with edits, selections, copies and undo
 
-Joe wants ordinary editing bursts to publish as a few meaningful authored changes (soon, since 2026-10-28),
-with enough identity for overstoryd to merge concurrent work correctly. After the
-idle-based publication baseline, extend simplification beyond repeated moves of
-one unchanged span. Implement each case in the Swift and TypeScript clients,
-using shared examples and the host merge engine to prove the result.
+Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
+with enough identity for overstoryd to merge concurrent work correctly. Plain
+edits across records and runs of moves on either side of other work already
+compose ([status](../../status.md#coalesced-typing-bursts-merge-002-case-1--2026-11-07));
+what is left is a move with edits inside the moved material, several selections,
+copies, entry chains and undo. Implement each case in the Swift and TypeScript
+clients, using shared examples and the host merge engine to prove the result.
 
 ## Starting point
 
@@ -40,36 +42,33 @@ resolutions, collapsed move coordinates, retry and restart against the real host
 
 ## Implementation order
 
-Start with common editor bursts that currently retain intermediate full-file
-objects or many source operations. This ordering is based on the capture and
-publication paths, not measured usage frequency. First measure repeated typing,
-backspace, replacements, Option-arrow movement, indentation and selected-subtree
-movement on a long page. Report encoded request bytes (including object envelopes
-and deltas), update/frame/operation counts and preparation time, not HTTP count
-alone. Compare against the uncoalesced encoded request: combining frames can
-expand an accepted-base delta into an intermediate object when that version is
-absent from the final candidate. Prioritize removing those intermediate versions,
-and avoid selecting a larger wire representation merely to reduce update count.
-Reorder later cases if measurements show a larger practical saving.
+`tests/performance/coalescing-bursts.ts` measures each burst on a 64 KB page
+(encoded request bytes, updates, frames, operations, preparation time). After
+case 1, typing, backspacing, corrections and word replacements send about 1 KB
+in one frame, and pure move runs about 1.2 KB. The largest remaining bursts are
+moves with edits between them: "moves around typing" (five Option-arrow presses,
+four characters typed in the block, five more presses) sends 2.1 KB in three
+frames, and "move then edits" 1.7 KB in two. So the next saving is small per
+burst; take the cases below when measurements on real journals show them matter,
+and re-run the script before choosing.
 
 | Order | Case | Expected benefit |
 | --- | --- | --- |
-| 1 | Plain edits across local records | Typing, deletion and correction are common. A composed edit can remove intermediate full-file objects and reduce repeated replacement text; preserve or generate an efficient final delta when valid. |
-| 2 | Move plus edits | Extends the pure-move reduction to ordinary indentation and separator changes, which currently prevent simplification. Retain only the final candidate's objects when the compact operations suffice. |
-| 3 | Repeated moves of selections/subtrees | A long keyboard or drag sequence over several blocks can otherwise carry many move operations and intermediate candidates. |
-| 4 | Copy followed by edits/moves | Useful for duplicate-and-adapt workflows; measure frequency and payload before broadening the origin/result mapping. |
-| 5 | Entry rename/move chains | Usually small directory payloads; pursue earlier only if real workflows show large subtree/object duplication. |
-| 6 | Undo/redo cancellation and snapshot reductions | Potentially large savings, but origin, hidden-state and dependency proofs are harder. Cover safety now; implement reductions when measured examples justify them. |
+| 2 | Move plus edits | One move of the original span plus the edits inside it, in one frame: about 0.5-1 KB per burst over today's frame per side. |
+| 3 | Repeated moves of selections/subtrees | Several separate spans moved together; a single contiguous selection already composes. |
+| 4 | Copy followed by edits/moves | Duplicate-and-adapt workflows; measure frequency and payload first. |
+| 5 | Entry rename/move chains | Usually small directory payloads; pursue only if real workflows show large duplication. |
+| 6 | Undo/redo cancellation and snapshot reductions | Potentially large savings, but origin, hidden-state and dependency proofs are harder. |
 
 ## Remaining cases
 
-1. **Plain edits across local records.** Compose insertions, replacements and
-   deletions in source coordinates. Preserve any intermediate operation result
-   referenced by later work, or provide an exact mapping to its published result.
-   Include edits that cancel in bytes but differ in origins.
-2. **Move plus edits.** Collapse repeated movement with text edits, re-indentation
-   and separator changes into an original-source move plus verified edits. Carry
-   a peer's edit with the moved material. Do not turn it into deletion and retyping.
+2. **Move plus edits.** Collapse movement with text edits inside the moved
+   material, re-indentation and separator changes into one frame: an
+   original-source move plus edits stated over the same basis (a frame's edits
+   address basis bytes wherever its moves put them). Decide where an insertion
+   at the moved span's edge belongs before composing it. Carry a peer's edit
+   with the moved material. Do not turn it into deletion and retyping. Runs of
+   moves on either side of an edit already collapse one per side.
 3. **Several selected spans and subtrees.** Coalesce repeated movement of a
    selection, including heading envelopes and descendants, without claiming that
    intervening stationary blocks moved. Handle changing selections explicitly.
@@ -86,6 +85,11 @@ Reorder later cases if measurements show a larger practical saving.
 7. **Snapshot boundaries.** Decide which snapshot-only sequences can safely be
    reduced. Never erase hidden identity effects, operation dependencies, or human
    resolution declarations to obtain one final snapshot.
+
+Runner-level interruption vectors (before preparation, after durable
+preparation, after acceptance, before acknowledgement) have not been repeated
+with a composed burst; the composition happens inside the deterministic compile
+step that the existing vectors freeze, so add them with the next case.
 
 ## Requirements for each case
 

@@ -200,8 +200,15 @@ chain into a fresh authored update. Mixed operation-bearing records retain their
 ordered frames with unique operation keys. Repeated pure moves of the same
 original span reduce to one move from that original span to its final anchor;
 coordinates are transported through the moves, never inferred from equal text.
-Snapshots, resolutions and guarded changes are boundaries, and generic batches split at 64 frames
-or 1024 operations. Local records and undo history remain intact.
+Inside a mixed batch, each run of plain edit frames over one path composes into
+one frame of edits over the run's first basis, and each run of single-span move
+frames into one move. Text inserted and deleted again leaves the account; deleted
+and retyped basis bytes stay a replacement. A run whose operation results are
+referenced, or whose end trees the client does not hold, keeps its frames, and
+every composed frame is checked by rebuilding its `after` tree. Composed
+originals leave the operation-name mapping.
+Snapshots, resolutions and guarded changes are boundaries, and batches split at 64 frames
+or 1024 operations after composition. Local records and undo history remain intact.
 
 A known local branch point ends a batch. A later editor can still branch from
 inside a batch that was already published. The runner can carry that branch
@@ -226,11 +233,9 @@ Delta bases never come from an unpublished prefix; intermediate objects needed
 by trace frames stay available. Later batch elements retain their envelopes because their preceding candidate
 may not yet be retained by the host. Frozen request bodies are never recompressed.
 
-Generic batching retains intermediate object material. A delta survives only
-when its result reaches the final candidate; otherwise its intermediate object
-is retained. Fewer update elements therefore do not guarantee fewer bytes for
-mixed or plain-edit sequences. Eliminating those intermediate versions is the
-first follow-up priority.
+Only the final candidate's objects travel (`dropIntermediates`); the host
+regenerates intermediate frames' objects by executing them. A delta survives only
+when its result reaches the final candidate.
 
 The compiler persists original-to-published change and operation-result mappings
 with the prepared request. A later descendant uses those names, and acceptance
@@ -245,8 +250,8 @@ acknowledge a resolution or evaluate an authority guard.
 Shared `coalesced-publication.json` fixtures check the compiler in both languages;
 the TypeScript tests also run the real merge engine against concurrent peer edits.
 The runner vectors cover exact retries, restart, work after an ambiguous request and discard.
-Further byte reductions are ordered in [Clients 002](../../plans/soon/merge-002-identity-preserving-coalescing.md),
-starting with plain edits across records, then moves with edits and selections.
+Further byte reductions are ordered in [Clients 002](../../plans/soon/merge-002-coalesce-moves-with-edits-copies-and-undo.md),
+next a move with edits inside it, then selections, copies and undo.
 
 ## Checking by hand
 
