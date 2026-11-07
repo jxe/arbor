@@ -84,6 +84,8 @@ Built 2026-11-07 ([status](../status.md#invite-from-the-command-line-and-hosts-o
 - [ ] **Too-old host:** the next time `minimumHostProtocol` is raised, open Story with a tree
   placed from a host still on the older image and check the "Story can't start" alert (Mac)
   and screen (iPhone).
+- [ ] **Story's tests for both** (they need Story quit): `xcodebuild test -workspace
+  swift/Story.local.xcworkspace -scheme Story -destination platform=macOS -only-testing:StoryAppTests/StoryAppTests/hostProtocolLevels -only-testing:StoryAppTests/StoryAppTests/invitationVectors`.
 
 ## Releases and publishing
 

@@ -606,6 +606,7 @@ struct StoryAppTests {
         #expect(!StorySupportDirectories.pendingVoiceRecordings.path.contains("Hunch"))
     }
 
+#if os(macOS)
     @Test("An agent code derives the device the shared vectors name")
     func agentCodeVectors() throws {
         struct Vectors: Decodable {
@@ -625,6 +626,7 @@ struct StoryAppTests {
         #expect(StoryAgentCode("short") == nil)
         #expect(StoryAgentCode().code.count == 22)
     }
+#endif
 
     @Test("The sample pages open on a page that edits, with the others beside it")
     func tourProvider() async throws {

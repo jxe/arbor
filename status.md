@@ -61,7 +61,7 @@ yet; not hand-checked on Joe's Mac.
 ## Invite from the command line, and hosts older than Story — 2026-11-07
 
 **Implemented** on main (`b92baec`, `1b3812a`), deployed with them (overstoryd); Sharing 002
-and Sharing 004, closed out. Not yet tried on the live host.
+and Sharing 004, closed out. Story builds for the Mac and the iPhone simulator on Joe's Mac; its two new tests wait for a run with Story quit, and nothing was tried on the live host.
 
 - **`story invite`** (`packages/cli/src/index.ts`): `story invite <account-url>`, `list
   [<host-url>]`, `renew <account-url>` and `cancel <account-url>`. It opens its own session from
