@@ -1,6 +1,6 @@
 # Agents 002: talk to the agent, and run tasks from anywhere
 
-**Timing:** Later, after [Agents 001](../../status.md#agents-001-presence-and-agent-tasks--2026-11-01).
+**Timing:** Soon (Joe, 2026-11-07), after [Agents 001](../../status.md#agents-001-presence-and-agent-tasks--2026-11-01).
 
 **Why and when:** the harder half of what Joe described on 2026-10-30 (thread "Bring AI into
 Story smoothly"). Presence for an agent should support more back and forth than presence in

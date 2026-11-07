@@ -19,4 +19,4 @@ schema's `~views`) and on pages that present it; views in a schema are defaults 
 override (Joe, 2026-10-13). Formerly milestone 2 of Schema language 002, moved here on
 2026-10-28. The view such a page presents is a declared view
 ([executable documents §4.1](../../docs/overstory-spec/07-executable-documents.md#41-views)), drawn
-as any view is ([Apps 012](../later/apps-012-one-kind-of-view.md); Joe, 2026-11-06).
+as any view is ([Apps 012](../soon/apps-012-one-kind-of-view.md); Joe, 2026-11-06).

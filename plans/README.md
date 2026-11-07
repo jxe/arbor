@@ -43,7 +43,7 @@ in TSX and drawn natively in SwiftUI (no web view, no React), with state owned b
 the page or the reader. Absorbs Apps 001 and 003; an HTML renderer comes later.
 
 **[Agents 002: talk to the agent, and run tasks from anywhere](features/agents-002-talk-to-the-agent-and-run-from-anywhere.md).**
-*Later.* After Agents 001: Run sends a task to a *runner* the person chooses (Joe, 2026-11-06):
+*Soon* (Joe, 2026-11-07). After Agents 001: Run sends a task to a *runner* the person chooses (Joe, 2026-11-06):
 a present runner such as their Mac, reached through presence messages, or a webhook runner
 such as a claude.ai scheduled task, GitHub Actions or their own server; whatever runs it uses
 `story agent start --task`, so every run looks the same. Then the agent asks and Joe answers at
@@ -84,7 +84,7 @@ the Mac shows. After Release 001. It owns what an invitation link does on the iP
 People 001 phase 4 owns the iPhone's other link opens.
 
 **[Sharing 002: invite from the command line, through a client library](features/sharing-002-invite-from-the-command-line.md).**
-*Later.* Setting up the intro video, Joe could make an invitation only in the Mac app. He wants
+*Soon* (Joe, 2026-11-07). Setting up the intro video, Joe could make an invitation only in the Mac app. He wants
 `story invite`, built the way the other clients work: the command talks to the host itself
 through `@ovst/client`, with Story Sync out of the path. The rest of the CLI's host edits
 moving the same way is recorded there as a follow-up.
@@ -96,7 +96,7 @@ lacks New Tree…, which needs an administrator device. Three open questions for
 shares, where the MAI tree lives, and Undo for a move.
 
 **[Sharing 004: what Story says to a host older than it](features/sharing-004-hosts-older-than-the-app.md).**
-*Before the template is public.* Starting your own community from a Railway template is built
+*Soon* (Joe, 2026-11-07), before the template is public. Starting your own community from a Railway template is built
 ([status](../status.md#start-your-own-community-from-a-railway-template--2026-11-05)) and
 waits on Joe publishing it. Self-hosted hosts will lag behind Story releases, so Story should
 say plainly when a host is too old for it.
@@ -134,35 +134,12 @@ from soon to when needed on 2026-10-24.
 
 ## Soon
 
-**[Schema language 007: edit rows in Story's collection view, and the structured editor](soon/schema-language-007-editing-in-the-collection-view.md).**
-Joe wants collections edited natively in Story, the People directory first. The write path is
-done and in daily use: Story sends row operations through the host on every device, queued
-while offline, and the host derives the result (spec 10 §2.2). Left: the queue's loose ends,
-every view intent as row operations, simple edits in the view, then the structured editor
-(groups, chips, bullets, drag, inline Markdown). The editing half of the split Joe made on
-2026-10-28.
-
-**[Schema language 010: row ownership](soon/schema-language-010-row-ownership.md).**
-Rows only their authors edit, as access policy (`who: {property: authors}`, one
-`unless`/`when` predicate), with device updates authorized by effect. Formerly 002's
-milestone 5; Joe moved it to soon on 2026-10-28.
-
 **[Apps 005: views on the host](soon/apps-005-views-on-the-host.md).**
 Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
 lending models against real code. Views (functions over rows that return JSX or data, traced
 into plans, laying out rows in code) replace queries; the sidecar runs
 them from trees, and they are turned on in the host, still as their caller. First of the
 three apps plans Joe split on 2026-11-06.
-
-**[Apps 010: activation and lending](soon/apps-010-activation-and-lending.md).**
-After Apps 005: code runs as an activated app under an execution token with lenders, not as
-its caller; revocation; first-run consent in Story writes `apps.yaml`. Decide first what code
-gets without asking.
-
-**[Performance 008: merge cost by edit, not by size](soon/performance-008-merge-cost-by-edit.md).**
-What Performance 004 (merges start from a provenance index; closed 2026-11-02) left: a
-canonical contribution order inside choices, and collection merges and replay that decode
-only the chunks an edit touches instead of whole tables.
 
 **[Clients 002: more identity-preserving coalescing](soon/merge-002-identity-preserving-coalescing.md).**
 Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
@@ -177,27 +154,59 @@ converted on Joe's todos tree ([status](../status.md#pages-as-logical-nodes-buil
 Left: provenance for page bodies, the front-matter merge cases it closes, and removing the
 `.md` file-entry path once every tree is converted.
 
-**[overstoryd 015: explain automatic resolutions and clear reconciled choices](soon/merge-015-resolve-reconciled-choices.md).**
-Joe encountered a whole-tree conflict after moving blocks into a new page. Later
-accepted edits already produced the intended contents, but the conflict remained
-and its cards showed only older alternatives. overstoryd should clear choices it can
-prove reconciled, and Story should explain the current result and make explicit
-resolution easy. Joe moved it to soon on 2026-10-28.
-
-**[overstoryd 017: more formats as elements, choices named by block, and the cases still open](soon/merge-017-more-formats-and-open-cases.md).**
-After the 2026-10-31 todos conflicts, Joe asked for one merge model instead of a growing list
-of allowances. Markdown merges as blocks and JSON, YAML, TOML and CSV as elements since
-2026-11-01 ([status](../status.md#merge-as-blocks-and-elements--2026-11-01)). Left: JSONL,
-XML/HTML/CSS and code as elements, choices named by the blocks they cover, then the menu of
-cases that still go to review, which was overstoryd 014 until Joe folded it in on 2026-11-01.
-
 **[Names 001: your trees at your own domain, and domains in Story](soon/names-001-your-trees-at-your-own-domain.md).**
 A domain can already name a person (TXT record or `.well-known`, checked against the profile's
 `domains`; [status](../status.md#domain-locators-your-own-domain-names-your-profile--2026-11-05)).
 Left (Joe, 2026-11-06): a host serves a person's trees at their domain through a CNAME, with one
 canonical URL per tree, and Story shows and accepts domains.
 
+**[Apps 012: one kind of view](soon/apps-012-one-kind-of-view.md).**
+Joe, 2026-11-06: a schema's `~views` entry is the built-in list view with its settings (spec
+07 §4.1), so overstoryd serves declared and authored views alike and Story draws both the
+same way. Soon (Joe, 2026-11-07), after Apps 005.
+
+**[Release 003: the iPhone app on the App Store](soon/release-003-app-store.md).** Soon (Joe, 2026-11-07),
+so Story can be found without a TestFlight invitation. A sketch of what review requires: account deletion, report
+and block, and policy pages. The sample pages are the reviewer's way in.
+
 ## Later
+
+**[Schema language 007: edit rows in Story's collection view, and the structured editor](later/schema-language-007-editing-in-the-collection-view.md).**
+Joe wants collections edited natively in Story, the People directory first. The write path is
+done and in daily use: Story sends row operations through the host on every device, queued
+while offline, and the host derives the result (spec 10 §2.2). Left: the queue's loose ends,
+every view intent as row operations, simple edits in the view, then the structured editor
+(groups, chips, bullets, drag, inline Markdown). The editing half of the split Joe made on
+2026-10-28.
+
+**[Schema language 010: row ownership](later/schema-language-010-row-ownership.md).**
+Rows only their authors edit, as access policy (`who: {property: authors}`, one
+`unless`/`when` predicate), with device updates authorized by effect. Formerly 002's
+milestone 5; Joe moved it to soon on 2026-10-28.
+
+**[Apps 010: activation and lending](later/apps-010-activation-and-lending.md).**
+After Apps 005: code runs as an activated app under an execution token with lenders, not as
+its caller; revocation; first-run consent in Story writes `apps.yaml`. Decide first what code
+gets without asking.
+
+**[Performance 008: merge cost by edit, not by size](later/performance-008-merge-cost-by-edit.md).**
+What Performance 004 (merges start from a provenance index; closed 2026-11-02) left: a
+canonical contribution order inside choices, and collection merges and replay that decode
+only the chunks an edit touches instead of whole tables.
+
+**[overstoryd 015: explain automatic resolutions and clear reconciled choices](later/merge-015-resolve-reconciled-choices.md).**
+Joe encountered a whole-tree conflict after moving blocks into a new page. Later
+accepted edits already produced the intended contents, but the conflict remained
+and its cards showed only older alternatives. overstoryd should clear choices it can
+prove reconciled, and Story should explain the current result and make explicit
+resolution easy. Joe moved it to soon on 2026-10-28.
+
+**[overstoryd 017: more formats as elements, choices named by block, and the cases still open](later/merge-017-more-formats-and-open-cases.md).**
+After the 2026-10-31 todos conflicts, Joe asked for one merge model instead of a growing list
+of allowances. Markdown merges as blocks and JSON, YAML, TOML and CSV as elements since
+2026-11-01 ([status](../status.md#merge-as-blocks-and-elements--2026-11-01)). Left: JSONL,
+XML/HTML/CSS and code as elements, choices named by the blocks they cover, then the menu of
+cases that still go to review, which was overstoryd 014 until Joe folded it in on 2026-11-01.
 
 **[Schema language 008: port excellences and supplies-remake to Story](later/schema-language-008-port-excellences-and-supplies.md).**
 Joe wants the excellences document and supplies-remake to run natively in Story instead of on
@@ -207,11 +216,6 @@ ownership.
 **[Apps 006: durable query and mutation authoring](later/apps-006-durable-authoring.md).**
 Part of the same push, after Apps 005: the authoring API that declares author and user
 authority together is what exercises the permissions and lending models.
-
-**[Apps 012: one kind of view](later/apps-012-one-kind-of-view.md).**
-Joe, 2026-11-06: a schema's `~views` entry is the built-in list view with its settings (spec
-07 §4.1), so overstoryd serves declared and authored views alike and Story draws both the
-same way. Not needed now; after Apps 005.
 
 **[Apps 008: app approvals and lending on placement hosts](later/apps-008-app-approvals-on-placement-hosts.md).**
 Part of the lending test: an app approved at a profile's home host should work on its
@@ -244,10 +248,6 @@ a freshness policy so unrelated updates don't force a renewed review, explanatio
 and deletions, combination previews, and bulk and offline resolution. Joe made the ideas item
 a plan on 2026-10-28; take each when a real review needs it.
 
-**[Release 003: the iPhone app on the App Store](later/release-003-app-store.md).** After friends
-are using the TestFlight build. A sketch of what review requires: account deletion, report
-and block, and policy pages. The sample pages are the reviewer's way in.
-
 **[overstoryd 006: line provenance](later/history-006-line-provenance.md).** After
 overstoryd 007: who submitted each current line, and the agent when an update names one
 ("Joe · Claude"). With Performance 004's index it reads pieces instead of matching lines.
@@ -279,8 +279,8 @@ proofs and release boundaries differ, and they share examples rather than duplic
 Editor intent, client publication, host merging and conflict review. [Native 008](when-needed/merge-008-copies-with-changes-and-compound-undo.md)
 supplies truthful command evidence; [Clients 002](soon/merge-002-identity-preserving-coalescing.md)
 can simplify that evidence after it exists, and must not invent missing copy or move identity;
-[overstoryd 017](soon/merge-017-more-formats-and-open-cases.md) must support an emitted
-operation form before a client that emits it is installed; [overstoryd 015](soon/merge-015-resolve-reconciled-choices.md)
+[overstoryd 017](later/merge-017-more-formats-and-open-cases.md) must support an emitted
+operation form before a client that emits it is installed; [overstoryd 015](later/merge-015-resolve-reconciled-choices.md)
 clears choices later work has reconciled; [Editor 003 part 3](features/editor-003-suggestions.md#part-3-merge-notes)
 gives every automatic outcome its explanation (merge notes), which 015's authority resolutions
 and 017's "merge with a note" cases wait for. The numbers are identifiers, not an execution order. History and provenance support
@@ -303,7 +303,7 @@ merge work.
 
 Latency, transfer size and storage overhead: take a plan when its stated problem occurs, and
 measure both the benefit and the cost to correctness, recovery and offline use.
-[Performance 008](soon/performance-008-merge-cost-by-edit.md) and
+[Performance 008](later/performance-008-merge-cost-by-edit.md) and
 [Native 006](when-needed/performance-006-sparse-ios-placement.md) are the plans; the
 provenance index ([Performance 004](https://github.com/jxe/arbor/blob/4844b1c/plans/soon/performance-004-provenance-index.md), closed), the object journal and
 object packing are live. Client

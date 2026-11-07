@@ -1,7 +1,7 @@
 # Apps 011: Widgets in Story
 
 **Timing:** Soon, after [Apps 005](../soon/apps-005-views-on-the-host.md). Joe's own widgets can be
-built and tried while [Apps 010](../soon/apps-010-activation-and-lending.md) lands. Widgets from
+built and tried while [Apps 010](../later/apps-010-activation-and-lending.md) lands. Widgets from
 other people wait for Apps 010.
 
 **Why and when:** Joe wants to embed small apps in Story pages, written in TypeScript with

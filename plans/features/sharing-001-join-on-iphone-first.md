@@ -47,5 +47,5 @@
 ## Related
 
 - [Security 012](security-012-get-back-in-with-the-admins-help.md): Joe decided on 2026-10-11 that an identity alone does not add a device, so restoring a backup on the Mac is not a second way to add it. A person who loses the phone restores the backup on a new one and asks the host's administrator to let them back in.
-- [Release 003](../later/release-003-app-store.md): Look Around First is the App Store reviewer's way in today; joining on the iPhone from an invitation is the fallback if sample pages are not enough. This plan replaces Joe's 2026-10-10 decision, recorded there until 2026-10-11, not to build joining on the iPhone.
+- [Release 003](../soon/release-003-app-store.md): Look Around First is the App Store reviewer's way in today; joining on the iPhone from an invitation is the fallback if sample pages are not enough. This plan replaces Joe's 2026-10-10 decision, recorded there until 2026-10-11, not to build joining on the iPhone.
 - [People 001](people-001-groups-sharing-and-go-to.md) phase 4 owns the iPhone's other link opens; see step 3.

@@ -1,6 +1,6 @@
 # Release 003: the iPhone app on the App Store
 
-**Why and when:** Joe wants Story listed publicly, so that someone can find it without a TestFlight invitation. Later: after [Release 001](../../status.md#plans-closed-out--2026-10-20) has friends using the TestFlight build, and when Joe is ready to write the policy pages. This is a sketch of what review requires; plan the steps in detail then.
+**Why and when:** Joe wants Story listed publicly, so that someone can find it without a TestFlight invitation. Soon (Joe moved it from later on 2026-11-07; it had waited for friends to use the TestFlight build from [Release 001](../../status.md#plans-closed-out--2026-10-20)). This is a sketch of what review requires; plan the steps in detail first. The policy pages are Joe's to write.
 
 ## Status
 

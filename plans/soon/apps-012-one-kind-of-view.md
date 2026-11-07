@@ -1,6 +1,6 @@
 # Apps 012: One kind of view
 
-**Why and when:** later, after [Apps 005](../soon/apps-005-views-on-the-host.md). Joe wants USL
+**Why and when:** soon (Joe moved it from later on 2026-11-07), after [Apps 005](../soon/apps-005-views-on-the-host.md). Joe wants USL
 `~views` and views written in code to be one concept, both in Story and in overstoryd. He
 agreed on 2026-11-06 that this isn't needed now.
 
@@ -17,7 +17,7 @@ The spec already describes the target:
 **PLANNED · M effort · low risk.**
 - Needs Apps 005's views and route.
 - Coordinates with
-  [Schema language 007](../soon/schema-language-007-editing-in-the-collection-view.md)
+  [Schema language 007](../later/schema-language-007-editing-in-the-collection-view.md)
   (editing in the collection view) and
   [People 001](../features/people-001-groups-sharing-and-go-to.md), both of which draw
   declared views.

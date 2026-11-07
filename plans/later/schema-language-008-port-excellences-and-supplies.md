@@ -3,8 +3,8 @@
 **Why and when:** Joe asked on 2026-10-13 for the MAI excellences document and supplies-remake
 to run natively in Story on Overstory collections instead of Supabase. This was milestone 6 of
 Schema language 002; Joe split it out and left it in later on 2026-10-25. It needs
-[Schema language 007](../soon/schema-language-007-editing-in-the-collection-view.md)'s structured
-editor and [Schema language 010](../soon/schema-language-010-row-ownership.md)'s ownership, and the sites on USL 0.3.0
+[Schema language 007](schema-language-007-editing-in-the-collection-view.md)'s structured
+editor and [Schema language 010](schema-language-010-row-ownership.md)'s ownership, and the sites on USL 0.3.0
 (done 2026-10-28, [status](../../status.md#plans-and-small-work-trimmed--2026-10-28)).
 
 ## Status

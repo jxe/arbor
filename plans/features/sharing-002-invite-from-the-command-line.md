@@ -1,6 +1,6 @@
 # Sharing 002: Invite from the command line, through a client library
 
-**Timing:** Later.
+**Timing:** Soon (Joe, 2026-11-07).
 
 **Why and when:** setting up the intro video on 2026-10-11, Joe needed an invitation for `~chungus` and the only way to make one was the Mac app's People sheet. He wants `story invite`, and he wants it to be the first command built the way the other clients work: the command talks to the host itself through a client library, and Story Sync is not in the path. "Echoing everything through story sync just adds complexity. What we want is just a client lib." No date; before the next person is invited from a machine without the Mac app.
 

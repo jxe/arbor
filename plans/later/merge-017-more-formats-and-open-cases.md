@@ -7,7 +7,7 @@ CSV/TSV as elements ([status](../../status.md#merge-as-blocks-and-elements--2026
 [format support contract](../../docs/architecture/overstoryd/merge-tool.md#format-support-contract)
 says what each format merges). Left: the formats that still keep their own rules, choices
 named by what they cover, and the menu of cases that still go to review, taken when a real
-edit asks for one. Soon.
+edit asks for one. Later (Joe moved it out of soon on 2026-11-07).
 
 Absorbed **overstoryd 014** ("the merge handles many cases") on 2026-11-01 (Joe): its menu is
 "Cases still open" below, keeping 014's item numbers. Items 6, 11 and 13 are done for the

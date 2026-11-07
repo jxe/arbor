@@ -4,7 +4,7 @@
 
 On 2026-11-06, Joe split the apps work into three plans:
 1. This plan: views replace queries, the sidecar runs them from trees, and they are turned on in the host.
-2. [Apps 010](apps-010-activation-and-lending.md): activation authority and lending.
+2. [Apps 010](../later/apps-010-activation-and-lending.md): activation authority and lending.
 3. [Apps 011](../features/apps-011-widgets-in-story.md): widgets in Story.
 
 ## Status
@@ -156,12 +156,12 @@ Run `bun run typecheck`, `bun run test`, `bun run test:protocol`, `bun run build
 when only Joe's items are left.
 
 Not here:
-- Activation authority and lending ([Apps 010](apps-010-activation-and-lending.md)).
+- Activation authority and lending ([Apps 010](../later/apps-010-activation-and-lending.md)).
 - Widgets in Story and the HTML renderer
   ([Apps 011](../features/apps-011-widgets-in-story.md)).
 - Durable workflows ([Apps 006](../later/apps-006-durable-authoring.md)).
 - Serving and drawing USL `~views` as declared views
-  ([Apps 012](../later/apps-012-one-kind-of-view.md)). Step 2's spec and wire changes are
+  ([Apps 012](apps-012-one-kind-of-view.md)). Step 2's spec and wire changes are
   written so the two kinds of view stay one.
 - Approvals on placement hosts (Apps 008).
 

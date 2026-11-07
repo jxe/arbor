@@ -3,7 +3,7 @@
 **Why and when:** split out of [Performance 004](https://github.com/jxe/arbor/blob/4844b1c/plans/soon/performance-004-provenance-index.md)
 when Joe closed it on 2026-11-02. 004 made merges start from a provenance index instead of
 replaying history (steps 1 to 5, deployed; see [status](../../status.md#performance-004-merges-start-from-the-provenance-index--2026-11-02)).
-These two pieces were left. Soon.
+These two pieces were left. Later (Joe moved it out of soon on 2026-11-07).
 
 ## Status
 
