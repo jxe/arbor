@@ -1,4 +1,4 @@
-import StoryKit
+import OverstoryWorkspace
 import OverstoryObjectStore
 import OverstoryWorkingTree
 import Overstory

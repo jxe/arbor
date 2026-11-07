@@ -1,4 +1,4 @@
-import StoryKit
+import OverstoryWorkspace
 import Foundation
 
 /// A workspace over one working tree. With a coordinator, every write is a

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import StoryKit
+@testable import OverstoryWorkspace
 
 @MainActor
 @Suite("Editor source")

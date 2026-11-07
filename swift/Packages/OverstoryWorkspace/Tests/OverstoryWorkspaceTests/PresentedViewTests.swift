@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import StoryKit
+@testable import OverstoryWorkspace
 
 /// docs/overstory-spec/conformance/presented-views.json, which the
 /// TypeScript reference (`@ovst/usl` present.ts) also runs.

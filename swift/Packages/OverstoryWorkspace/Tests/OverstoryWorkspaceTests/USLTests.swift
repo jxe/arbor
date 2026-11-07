@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import StoryKit
+@testable import OverstoryWorkspace
 
 /// The repository root, from this file (swift/Packages/StoryKit/Tests/StoryKitTests).
 private let repositoryRoot = URL(fileURLWithPath: #filePath)

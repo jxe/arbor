@@ -107,6 +107,7 @@ try {
         "-only-testing:StoryAppTests/StorySyncClientTests",
         "-only-testing:StoryAppTests/LoopbackServicesTests",
       ], Object.fromEntries(Object.entries({ ...fixtures, ...daemon }).map(([key, value]) => [`TEST_RUNNER_${key}`, value])));
+      await run(["swift", "test", "--package-path", "swift/Packages/OverstoryWorkspace"], fixtures);
       await run(["swift", "test", "--package-path", "swift/Packages/StoryKit"], fixtures);
       // Exercise a real accepted conflict through the baseline filesystem client.
       const basis = (await owner.descriptor(tree)).tree;

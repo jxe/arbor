@@ -11,6 +11,8 @@ let package = Package(
         .library(name: "OverstoryWorkingTree", targets: ["OverstoryWorkingTree"])
     ],
     dependencies: [
+        .package(path: "../OverstoryWorkspace"),
+        // Tests only: the in-memory provider fixture.
         .package(path: "../StoryKit"),
         .package(path: "../OverstoryObjectStore"),
         .package(path: "../Overstory")
@@ -19,7 +21,7 @@ let package = Package(
         .target(
             name: "OverstoryWorkingTree",
             dependencies: [
-                .product(name: "StoryKit", package: "StoryKit"),
+                .product(name: "OverstoryWorkspace", package: "OverstoryWorkspace"),
                 .product(name: "OverstoryObjectStore", package: "OverstoryObjectStore"),
                 .product(name: "Overstory", package: "Overstory")
             ]
@@ -28,6 +30,7 @@ let package = Package(
             name: "OverstoryWorkingTreeTests",
             dependencies: [
                 "OverstoryWorkingTree",
+                .product(name: "OverstoryWorkspace", package: "OverstoryWorkspace"),
                 .product(name: "StoryKit", package: "StoryKit"),
                 .product(name: "OverstoryObjectStore", package: "OverstoryObjectStore"),
                 .product(name: "Overstory", package: "Overstory")

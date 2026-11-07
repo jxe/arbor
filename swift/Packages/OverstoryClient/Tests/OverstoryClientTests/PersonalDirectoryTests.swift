@@ -1,4 +1,4 @@
-import StoryKit
+import OverstoryWorkspace
 import OverstoryWorkingTree
 @testable import OverstoryClient
 import Overstory

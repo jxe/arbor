@@ -10,9 +10,17 @@ let package = Package(
     products: [
         .library(name: "StoryKit", targets: ["StoryKit"])
     ],
+    dependencies: [
+        .package(path: "../OverstoryWorkspace")
+    ],
     targets: [
-        .target(name: "StoryKit"),
-        .testTarget(name: "StoryKitTests", dependencies: ["StoryKit"])
+        .target(name: "StoryKit", dependencies: [
+            .product(name: "OverstoryWorkspace", package: "OverstoryWorkspace")
+        ]),
+        .testTarget(name: "StoryKitTests", dependencies: [
+            "StoryKit",
+            .product(name: "OverstoryWorkspace", package: "OverstoryWorkspace")
+        ])
     ],
     swiftLanguageModes: [.v6]
 )

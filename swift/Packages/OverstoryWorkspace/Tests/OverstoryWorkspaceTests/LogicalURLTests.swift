@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import StoryKit
+@testable import OverstoryWorkspace
 
 final class LogicalURLTests: XCTestCase {
     private var conformanceFixtures: URL {

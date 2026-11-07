@@ -7,9 +7,10 @@ the TypeScript workspace, and the Story app for macOS and iOS.
 |---|---|---|---|
 | [`Overstory`](Packages/Overstory/README.md) | Protocol models, canonical CBOR, SSE, the HTTP client, contracts, operations, resource policy | `protocol` | |
 | [`OverstoryObjectStore`](Packages/OverstoryObjectStore/README.md) | Object stores: overlay, directory, host-backed | `object-store` | Overstory |
-| [`StoryKit`](Packages/StoryKit/README.md) | Workspace models and coordinator, the editor source, logical URLs and titles, the browser tab controller | | |
-| [`OverstoryWorkingTree`](Packages/OverstoryWorkingTree/README.md) | The durable working tree, update machine and coordinator, admission queue, entry actions, conflict review | `client` | StoryKit, OverstoryObjectStore, Overstory |
-| [`OverstoryClient`](Packages/OverstoryClient/README.md) | Credentials, placement service, watch runner, account YAML, resource consent | `client` | StoryKit, OverstoryWorkingTree, OverstoryObjectStore, Overstory, Yams |
+| [`OverstoryWorkspace`](Packages/OverstoryWorkspace/README.md) | The workspace interface an editor or UI uses (`WorkspaceProvider`) and its models, logical URLs, display titles, `EditorSource`, collection views (USL) | story-sync's `Workspace` | |
+| [`StoryKit`](Packages/StoryKit/README.md) | The app's own pieces on the workspace: `WorkspaceCoordinator`, drafts, the in-memory provider, title slugs, cross-tree moves, the browser tab controller; re-exports `OverstoryWorkspace` | | OverstoryWorkspace |
+| [`OverstoryWorkingTree`](Packages/OverstoryWorkingTree/README.md) | The durable working tree, update machine and coordinator, admission queue, entry actions, conflict review | `working-tree` | OverstoryWorkspace, OverstoryObjectStore, Overstory |
+| [`OverstoryClient`](Packages/OverstoryClient/README.md) | Credentials, placement service, watch runner, account YAML, resource consent | `client` | OverstoryWorkspace, OverstoryWorkingTree, OverstoryObjectStore, Overstory, Yams |
 | [`StoryEditor`](Packages/StoryEditor/README.md) | The Quagmire editor host, document binding, Markdown codec | | StoryKit, Quagmire |
 
 `StoryApp/` is the app target (SwiftUI, the story-sync helper service, the

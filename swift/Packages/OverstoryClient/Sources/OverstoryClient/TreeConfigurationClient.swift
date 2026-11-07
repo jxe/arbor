@@ -1,6 +1,6 @@
 import Foundation
 import Overstory
-import StoryKit
+import OverstoryWorkspace
 
 /// Reads and edits tree configurations through the host, as one of the
 /// tree's administrators: the sharing panel's rules, app consents, and

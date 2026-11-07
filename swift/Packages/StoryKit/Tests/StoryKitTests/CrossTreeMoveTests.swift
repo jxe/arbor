@@ -1,5 +1,6 @@
 import XCTest
 @testable import StoryKit
+@testable import OverstoryWorkspace
 
 final class CrossTreeMoveTests: XCTestCase {
     private let move = CrossTreePageMove(
