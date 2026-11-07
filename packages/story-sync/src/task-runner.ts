@@ -23,6 +23,8 @@ export interface TaskRunnerHost {
   /** The trees placed in a folder on this device. */
   trees(): Promise<string[]>;
   presence(tree: string): Promise<RunnerPresenceClient | undefined>;
+  /** Bring the folder up to what the host has, so a task just written elsewhere is there to find. */
+  catchUp?(tree: string): Promise<void>;
 }
 
 export interface TaskRunnerOptions {
@@ -155,6 +157,7 @@ export class TaskRunner {
     if (body.kind !== "run") return;
     const { request } = body;
     let started: AgentRun;
+    await this.host.catchUp?.(tree).catch(() => {});
     try {
       // The stream's own tree, whatever URL the request names it by.
       started = await this.runs.start({ tree, page: request.page.path, task: request.task.text, run: request.run, range: request.task.range });

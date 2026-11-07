@@ -1235,6 +1235,25 @@ struct ProtocolValueVectorTests {
         #expect(roster.anyoneElse(onPage: "/Plan"))
     }
 
+    @Test("a roster keeps runners apart, newest last, and the results of the runs it sent")
+    func presenceRosterRunners() {
+        var roster = ProtocolPresenceRoster()
+        roster.apply(.ready(ProtocolPresenceReady(selfID: nil, stream: "pr_hidden", peers: [
+            ProtocolPresencePeer(id: "pr_air", profile: "tr_me", name: "Joe", runner: "Joe's Air"),
+        ])))
+        #expect(roster.streamID == "pr_hidden")
+        #expect(roster.peers.isEmpty)
+        roster.apply(.peer(ProtocolPresencePeer(id: "pr_studio", profile: "tr_me", name: "Joe", runner: "Studio")))
+        #expect(roster.runners.map(\.id) == ["pr_air", "pr_studio"])
+        roster.apply(.peer(ProtocolPresencePeer(id: "pr_bot", profile: "tr_me", name: "Joe", page: ProtocolPresencePage(path: "/Groceries"),
+                                                agent: ProtocolPresenceAgent(label: "Claude", run: "run_1"))))
+        #expect(roster.agent(doing: "run_1")?.id == "pr_bot")
+        roster.apply(.message(from: "pr_studio", body: .done(run: "run_1", result: "Merged")))
+        #expect(roster.runResults["run_1"] == "Merged")
+        roster.apply(.leave(id: "pr_studio"))
+        #expect(roster.runners.map(\.id) == ["pr_air"])
+    }
+
     @Test("a presence update writes only the members it changes, and null for a cleared one")
     func presenceUpdateEncoding() throws {
         let update = ProtocolPresenceUpdate(page: .set(ProtocolPresencePage(path: "/Groceries")), selection: .clear)

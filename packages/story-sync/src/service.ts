@@ -163,6 +163,7 @@ export class StorySyncDaemon implements AsyncDisposable {
         const placement = trees.placementFor(tree);
         return placement ? this.accountClient(placement) : undefined;
       },
+      catchUp: async (tree) => { await this.folders.get(tree)?.sync.syncOnce(); },
     }, this.runs, { settingsPath: join(storyDataRoot(), ".state", "runner.json") });
     if (options.autoSync !== false) this.startAutoSync(options.syncIntervalMs);
   }

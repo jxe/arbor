@@ -357,12 +357,20 @@ public enum ProtocolPresence {
 
 /// One presence stream's view of its tree: the roster and each peer's caret.
 /// A client folds every event into it; a new stream starts a new roster.
+/// Runner entries (spec 12 §6) are kept apart from people and agents: a
+/// runner is something to send tasks to, not someone on a page.
 public struct ProtocolPresenceRoster: Hashable, Sendable {
     /// This stream's own entry, which `peers` never lists.
     public private(set) var selfID: String?
+    /// This stream's own entry, listed or not: what it sends messages from.
+    public private(set) var streamID: String?
     public private(set) var peers: [String: ProtocolPresencePeer] = [:]
+    /// Runner entries, in the order they joined: the last is the newest.
+    public private(set) var runners: [ProtocolPresencePeer] = []
     /// Carets of peers on the subscriber's page; a peer that moves page drops its caret.
     public private(set) var cursors: [String: ProtocolPresenceSelection] = [:]
+    /// What runners said when runs this stream sent them ended, by run ID.
+    public private(set) var runResults: [String: String] = [:]
 
     public init() {}
 
@@ -370,10 +378,17 @@ public struct ProtocolPresenceRoster: Hashable, Sendable {
         switch event {
         case .ready(let ready):
             selfID = ready.selfID
-            peers = Dictionary(ready.peers.filter { $0.id != ready.selfID }.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+            streamID = ready.stream
+            let others = ready.peers.filter { $0.id != ready.selfID }
+            peers = Dictionary(others.filter { $0.runner == nil }.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+            runners = others.filter { $0.runner != nil }
             cursors = [:]
         case .peer(let peer):
             guard peer.id != selfID else { return }
+            if peer.runner != nil {
+                if let index = runners.firstIndex(where: { $0.id == peer.id }) { runners[index] = peer } else { runners.append(peer) }
+                return
+            }
             if peers[peer.id]?.page != peer.page { cursors[peer.id] = nil }
             peers[peer.id] = peer
         case .cursor(let cursor):
@@ -382,10 +397,18 @@ public struct ProtocolPresenceRoster: Hashable, Sendable {
         case .leave(let id):
             peers[id] = nil
             cursors[id] = nil
-        case .message:
-            // Messages are for the stream's owner, not the roster.
-            break
+            runners.removeAll { $0.id == id }
+        case .message(_, let body):
+            // Only a run's end is kept; anything else is for the stream's owner.
+            if case .done(let run, let result) = body {
+                runResults[run] = result
+            }
         }
+    }
+
+    /// The agent doing `run`, once one has joined.
+    public func agent(doing run: String) -> ProtocolPresencePeer? {
+        peers.values.first { $0.agent?.run == run }
     }
 
     /// Entries on `path` (a canonical node path), people before agents, then by name.
