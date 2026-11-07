@@ -123,6 +123,8 @@ export interface TreeDescriptor {
     path: LogicalPath;
     endpoint: string;
     parentTree: TreeID | null;
+    /** The canonical URL at a person's domain, when the host serves one over this tree (locators §5.1). */
+    url?: string;
   } | null;
 }
 
@@ -137,6 +139,15 @@ function encodedCanonicalPath(path: string): string {
 /** The public HTTP URL of a canonical tree: the endpoint's origin followed by its encoded path. */
 export function canonicalHTTPURL(canonical: Pick<CanonicalTreeDescriptor, "path" | "endpoint">): string {
   return `${new URL(canonical.endpoint).origin}${encodedCanonicalPath(canonical.path) || "/"}`;
+}
+
+/**
+ * A canonical tree's canonical URL: its URL at a person's domain when the
+ * host serves one (locators §5.1), else its URL at the host. `canonicalHTTPURL`
+ * is always the host's form, which keeps resolving.
+ */
+export function canonicalURL(canonical: Pick<CanonicalTreeDescriptor, "path" | "endpoint" | "url">): string {
+  return canonical.url ?? canonicalHTTPURL(canonical);
 }
 
 /** The `overstory://` locator of a canonical tree: the endpoint's host followed by its encoded path. */

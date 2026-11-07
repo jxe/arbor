@@ -192,6 +192,18 @@ with `story invite https://<host>/~<handle>`, which prints the link once (`story
 invite list`, `renew` and `cancel` manage pending ones). Either way it is one
 `members` entry in the community's `_index.md`; the host never sees the code.
 
+### People's own domains
+
+A person can have the host serve their trees at a domain they own
+([locators §5.1](../../../docs/overstory-spec/03-locators.md#51-trees-at-a-persons-domain)):
+they list it in their profile's `domains` and point it at the host with a CNAME
+(`story me domain <domain>` prints it). The host serves the domain once
+`https://<domain>/.overstory/domain-check` answers with its own token, checked on the
+profile-locator schedule (about a minute). Getting the name to the host with a
+certificate is the operator's part and depends on where the host runs: behind a proxy
+that issues certificates on demand (Caddy's on-demand TLS, for example) nothing more is
+needed; on a platform that routes only names added to the service, add the domain there.
+
 ### Rate limits and proxies
 
 Rate limits are off unless `OVERSTORYD_RATE_LIMITS=1`. When on, a caller is

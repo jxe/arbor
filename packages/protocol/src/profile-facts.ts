@@ -5,6 +5,7 @@
 import { parseMarkdown, parseMarkdownFrontmatter } from "./documents/markdown.ts";
 import { plainMarkdownTitle } from "./documents/display-title.ts";
 import { parseProfileLocator } from "./model/resource-policy.ts";
+import { profileDomains } from "./model/domain-profile.ts";
 import { decodeProtocolDirectory, loadProtocolContent, protocolContentObject, type ObjectHash } from "./objects.ts";
 
 const HANDLE_SOURCE = "[a-z0-9][a-z0-9-]{0,62}";
@@ -20,6 +21,8 @@ export interface RootProfileFacts {
   headingTitle?: string;
   description?: string;
   avatar?: { path: string; hash: ObjectHash };
+  /** A person profile's `domains` (accounts §1), when it lists any. */
+  domains?: string[];
 }
 
 function scalarCount(value: string): number { return [...value].length; }
@@ -110,6 +113,7 @@ export async function readRootProfile(root: ObjectHash, load: (hash: ObjectHash)
       )?.content ?? "") || undefined
     : undefined;
   const description = validateProfileDescription(frontmatter.description);
+  const domains = type === "person" ? profileDomains(frontmatter) : [];
   const avatarPath = validateProfileAvatarPath(frontmatter.avatar);
   let avatar: RootProfileFacts["avatar"];
   if (avatarPath && options.avatar !== false) {
@@ -135,6 +139,7 @@ export async function readRootProfile(root: ObjectHash, load: (hash: ObjectHash)
       ...(headingTitle ? { headingTitle } : {}),
       ...(description !== undefined ? { description } : {}),
       ...(avatar ? { avatar } : {}),
+      ...(domains.length ? { domains } : {}),
     },
     indexHash,
     avatarPath: avatarPath ?? null,

@@ -13,7 +13,7 @@ import { accountProtocolClient, addLocalPlacement, cancelInvitation, createInvit
 import type { Document } from "yaml";
 import { STORY_SYNC_PORT, storyDaemonSupervisor } from "./daemon.ts";
 import { compiledExecutable, storyCommand } from "./package-runtime.ts";
-import { domainProfileResolver, validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@ovst/overstoryd";
+import { DOMAIN_CHECK_PATH, domainOrigin, domainProfileResolver, validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@ovst/overstoryd";
 import { DOMAIN_PROFILE_PATH, domainTXTName, parseMarkdown, parseProfileLocator, profileDomains, resolveDomainDelegation, treeConfigurationID } from "@ovst/protocol";
 import {
   cloudPlacementPath,
@@ -138,7 +138,7 @@ Identity
   story me create [<profile-folder>] [--name <display-name>]
   story me set [--name <display-name>] [--avatar <relative-path>] [--description <text>]
   story me domain [<domain>] [--remove <domain>] [--check]
-      Name your profile by a domain you control: add it to your profile, print the record to publish, and check both directions.
+      Name your profile by a domain you control, or have your home host serve your trees there: add it to your profile, print the records to publish, and check.
   story me backup <file>
   story me restore <file> [<profile-folder>]
   story me accounts
@@ -1836,12 +1836,6 @@ function domainName(input: string): string | null {
 }
 
 /**
- * `story me domain` (locators §1.1): with a domain, list it in the profile's
- * front matter; with `--remove`, take it out; with `--check`, resolve each
- * listed domain both ways, as a host would. Prints the records to publish,
- * which name the profile by its locator at its home host.
- */
-/**
  * `story invite`: invitations to the community at the account URL's host,
  * made through \`@ovst/client\` with this device's key. Story Sync is not
  * involved (Sharing 002).
@@ -1898,6 +1892,13 @@ async function inviteClient(host?: string): Promise<ProtocolClient> {
   return (await accountProtocolClient({ configurationTree: record.configurationTree, origin: record.origin }, { required: true, timeoutMs: 60_000 })).client;
 }
 
+/**
+ * `story me domain` (locators §1.1): with a domain, list it in the profile's
+ * front matter; with `--remove`, take it out; with `--check`, resolve each
+ * listed domain both ways, as a host would. Prints the records to publish,
+ * which name the profile by its locator at its home host, or the CNAME that
+ * also has the home host serve the person's trees there (locators §5.1).
+ */
 async function domainCommand(store: ProfileIdentityStore, operands: string[]): Promise<void> {
   let add: string | undefined;
   let remove: string | undefined;
@@ -1936,16 +1937,23 @@ async function domainCommand(store: ProfileIdentityStore, operands: string[]): P
       return;
     }
     for (const domain of add ? [domainName(add)!] : domains) {
-      console.log(`\n${domain}: publish either record, then let Story Sync publish your profile and run \`story me domain --check\`.`);
-      console.log(`  DNS TXT   ${domainTXTName(domain)}  "profile=${home.account}"`);
-      console.log(`  or HTTPS  https://${domain}${DOMAIN_PROFILE_PATH}  {"profile": "${home.account}"}`);
+      console.log(`\n${domain}: publish one of these, then let Story Sync publish your profile and run \`story me domain --check\`.`);
+      console.log(`  To name you:  DNS TXT   ${domainTXTName(domain)}  "profile=${home.account}"`);
+      console.log(`            or  HTTPS     https://${domain}${DOMAIN_PROFILE_PATH}  {"profile": "${home.account}"}`);
+      console.log(`  To also serve your trees at https://${domain}/:  DNS CNAME  ${domain}  ${new URL(home.origin).host}`);
+      console.log(`    (whoever runs ${new URL(home.origin).host} must also route ${domain} to it with a certificate)`);
     }
     return;
   }
   const resolve = domainProfileResolver();
   let failed = false;
+  const hostToken = home ? await domainCheckToken(home.origin).catch(() => null) : null;
   for (const domain of domains) {
     const locator = parseProfileLocator(`https://${domain}`)!.locator;
+    if (hostToken) {
+      const answer = await domainCheckToken(domainOrigin(domain)).catch(() => null);
+      if (answer === hostToken) console.log(`${domain}: reaches ${new URL(home!.origin).host}, which serves your trees there`);
+    }
     try {
       const named = await resolve(locator, domain);
       if (named?.profile === status.profileTree) {
@@ -1967,6 +1975,14 @@ async function domainCommand(store: ProfileIdentityStore, operands: string[]): P
     }
   }
   if (failed) process.exitCode = 1;
+}
+
+/** What a host answers at its domain check route. */
+async function domainCheckToken(origin: string): Promise<string | null> {
+  const response = await fetch(`${origin}${DOMAIN_CHECK_PATH}`, { redirect: "manual", signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) return null;
+  const body = await response.json().catch(() => null) as { host?: unknown } | null;
+  return typeof body?.host === "string" ? body.host : null;
 }
 
 /** `story me device` prints this installation's device for one home account. */

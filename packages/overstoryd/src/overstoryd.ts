@@ -5,6 +5,7 @@ import { PlacementDeviceKeys, type DeviceKeyCopy, type ListedDevice } from "./pl
 import { RemoteGroups } from "./remote-groups.ts";
 import { VisitorSessions, type VisitorAuthentication } from "./visitors.ts";
 import { LocatorPins } from "./locator-pins.ts";
+import { CustomDomains, type DomainCandidate } from "./custom-domains.ts";
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
@@ -405,6 +406,10 @@ export class HostDaemon implements AsyncDisposable {
   /** Copies of the groups other hosts hold that this host's rules name. */
   private readonly remoteGroups: RemoteGroups;
   private readonly locatorPins: LocatorPins;
+  /** Domains this host serves a person's trees at (locators §5.1). */
+  readonly customDomains: CustomDomains;
+  /** Each local profile's listed domains, by the root they were read from. */
+  private readonly listedDomains = new Map<string, { ref: string; domains: string[] }>();
   private remoteGroupTimer: ReturnType<typeof setTimeout> | undefined;
   /** Background object packing (overstoryd 001). */
   readonly packing: PackMaintenance;
@@ -477,6 +482,37 @@ export class HostDaemon implements AsyncDisposable {
         this.execution.invalidate();
       },
     );
+    // Served domains are checked on the same schedule.
+    this.customDomains = new CustomDomains(
+      () => this.domainCandidates(),
+      () => ({ lifetimeMs: this.remoteGroupLifetimeMs, refetchMs: this.remoteGroupRefetchMs, staleMs: this.remoteGroupStaleMs }),
+    );
+  }
+
+  /**
+   * The domains this host's own people list in their profiles (locators
+   * §5.1), each with the path its profile is mounted at. A profile is read
+   * again only when its root changes.
+   */
+  private async domainCandidates(): Promise<DomainCandidate[]> {
+    const rows = this.db.query("SELECT id FROM accounts WHERE home_host IS NULL AND enabled = 1").all() as Array<{ id: string }>;
+    const candidates: DomainCandidate[] = [];
+    for (const { id } of rows) {
+      const tree = this.get(id);
+      if (!tree?.canonicalPath || tree.canonicalPath === "/") continue;
+      let listed = this.listedDomains.get(id);
+      if (listed?.ref !== tree.ref) {
+        try {
+          const read = await readRootProfile(tree.ref as ObjectHash, (hash) => this.object(hash), { avatar: false });
+          listed = { ref: tree.ref, domains: read.facts.type === "person" ? read.facts.domains ?? [] : [] };
+        } catch {
+          continue;
+        }
+        this.listedDomains.set(id, listed);
+      }
+      for (const domain of listed.domains) candidates.push({ domain, profile: id, prefix: tree.canonicalPath });
+    }
+    return candidates;
   }
 
   static async open(dataRoot: string, bootstrap?: HostBootstrap, mergeTool?: MergeToolOptions, options: HostDaemonOptions = {}): Promise<HostDaemon> {
@@ -1068,6 +1104,7 @@ export class HostDaemon implements AsyncDisposable {
     if (this.disposed) return;
     await this.locatorPins.refresh();
     await this.remoteGroups.refresh(this.namedRemoteGroups());
+    await this.customDomains.refresh();
   }
 
   /**
