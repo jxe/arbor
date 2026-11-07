@@ -52,7 +52,8 @@ public struct TreeConfigurationClient: Sendable {
     public func access(tree: String) async throws -> NativeTreeAccessPresentation {
         let (account, _, snapshot, devicesSource, appsSource) = try await treeConfiguration(tree)
         let accessSource = try utf8(snapshot.rootFile(named: "access.yaml"), name: "access.yaml")
-        let canonical = (try? await wire.descriptor(tree: tree).tree.httpURL) ?? nil
+        let described = try? await wire.descriptor(tree: tree).tree.canonical
+        let canonical = described?.httpURL
         let declaration = try TreeConfigurationYAML.declaration(canonical: canonical ?? "", source: accessSource)
         var profileLocators = (try? await wire.access(tree: tree).locators) ?? [:]
         if let profileTree = account.profileTree, let profileURL = account.profileURL {
@@ -70,7 +71,8 @@ public struct TreeConfigurationClient: Sendable {
         }
         return NativeTreeAccessPresentation(
             tree: tree,
-            canonical: declaration.canonical,
+            // Shown and shared: the domain form when the host serves one (locators §5.1).
+            canonical: described?.url ?? declaration.canonical,
             entries: ProfileConfigurationYAML.presentedAccessEntries(
                 rules: declaration.access,
                 profileLocators: profileLocators,

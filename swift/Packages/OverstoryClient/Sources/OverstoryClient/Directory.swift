@@ -16,6 +16,8 @@ public struct DirectoryPerson: Identifiable, Hashable, Sendable {
     }
 
     public var subtitle: String {
+        // A person's own domain names them wherever they are homed.
+        if let domain = entry.domain { return domain }
         let host = origin.host() ?? origin.absoluteString
         if let handle = entry.handle { return "~\(handle) · \(host)" }
         if let locator = entry.locator { return "\(locator) · \(host)" }
@@ -34,7 +36,7 @@ public struct DirectoryPerson: Identifiable, Hashable, Sendable {
         for person in people {
             guard var current = result[person.id] else { result[person.id] = person; continue }
             func richness(_ entry: ProtocolProfileDirectoryEntry) -> Int {
-                [entry.displayName, entry.handle, entry.locator, entry.summary, entry.avatar?.path].compactMap { $0 }.count
+                [entry.displayName, entry.handle, entry.locator, entry.summary, entry.avatar?.path, entry.domain].compactMap { $0 }.count
             }
             let sources = Array(Set(current.entry.sources + person.entry.sources)).sorted()
             if richness(person.entry) > richness(current.entry) { current = person }
@@ -55,7 +57,7 @@ public enum DirectoryMatcher {
         let needle = folded(raw.hasPrefix("~") ? String(raw.dropFirst()) : raw)
         guard !needle.isEmpty else { return people }
         return people.filter { person in
-            [person.entry.displayName, person.entry.handle, person.entry.locator, person.entry.profile]
+            [person.entry.displayName, person.entry.handle, person.entry.locator, person.entry.domain, person.entry.profile]
                 .compactMap { $0 }.contains { folded($0).contains(needle) }
         }
     }

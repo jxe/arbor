@@ -2702,8 +2702,7 @@ struct StoryRootView: View {
         guard let node = model.node, let canonical = workspace.currentTreeCanonical,
               node.reference.tree == workspace.home.tree else { return nil }
         let page = node.reference.path == "/" ? "" : node.reference.path
-        let path = canonical.path == "/" ? (page.isEmpty ? "/" : page) : canonical.path + page
-        let address = ProtocolCanonicalDescriptor(path: path, endpoint: canonical.endpoint).httpURL
+        let address = canonical.canonicalURL(below: page)
         return URL(string: buildNetworkLocator(rawPath: address, stableKey: node.reference.stableKey) ?? address)
     }
 
@@ -3707,7 +3706,8 @@ private struct StorySharePanel: View {
         let path = currentNode.reference.path.split(separator: "/").map {
             String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
         }.joined(separator: "/")
-        return buildNetworkLocator(rawPath: "\(access.canonical)/\(path)", stableKey: currentNode.reference.stableKey)
+        let base = access.canonical.hasSuffix("/") ? String(access.canonical.dropLast()) : access.canonical
+        return buildNetworkLocator(rawPath: "\(base)/\(path)", stableKey: currentNode.reference.stableKey)
             ?? access.canonical
     }
 

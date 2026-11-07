@@ -10,6 +10,8 @@ export interface SharedTreePlacement {
   tree: TreeID;
   canonical?: string;
   canonicalPath?: string;
+  /** The canonical URL at a person's domain, when the host serves one (locators §5.1). */
+  canonicalURL?: string;
   kind?: TreeKind;
   access: "read" | "write";
   endpoint: string;

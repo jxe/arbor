@@ -1077,6 +1077,14 @@ struct ProtocolValueVectorTests {
         #expect(remote.canonical?.endpoint == "https://community.example/.overstory/trees/\(remote.id)")
         #expect(remote.canonical?.httpURL == "https://community.example/~joe")
         #expect(remote.canonical?.overstoryURL == "overstory://community.example/~joe")
+        // Served at a person's domain (locators §5.1), the canonical URL is the domain's.
+        var atDomain = try #require(remote.canonical)
+        #expect(atDomain.canonicalURL(below: "/notes") == "https://community.example/~joe/notes")
+        atDomain.url = "https://notes.joe.example/"
+        #expect(atDomain.canonicalURL == "https://notes.joe.example/")
+        #expect(atDomain.canonicalURL(below: "") == "https://notes.joe.example/")
+        #expect(atDomain.canonicalURL(below: "/a b") == "https://notes.joe.example/a%20b")
+        #expect(atDomain.httpURL == "https://community.example/~joe")
         #expect(remote.update == "up_aaaaaaaaaaaaaaaaaaaaaaaaaa")
         // TODO: `treeDescriptor`, `treeConfigurationDescriptor`, and `resolution.enclosingTree`
         // are plain `TreeDescriptor`s without `ref`/`update`. Overstory models only the remote

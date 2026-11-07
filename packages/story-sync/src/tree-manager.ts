@@ -21,7 +21,7 @@ interface CandidateRoot extends KnownRoot {
 function descriptorCanonical(placement: TreePlacement, parentTree: string | null = null): LocalTreeDescriptor["canonical"] {
   if (!placement.canonical) return null;
   const path = placement.canonicalPath ?? new URL(placement.canonical).pathname;
-  return { path, endpoint: placement.endpoint, parentTree };
+  return { path, endpoint: placement.endpoint, parentTree, ...(placement.canonicalURL ? { url: placement.canonicalURL } : {}) };
 }
 
 /** The accepted host base a placement derives from, in protocol vocabulary. */
@@ -712,6 +712,7 @@ export class TreeManager implements AsyncDisposable {
     root.placement = {
       ...root.placement, ref: placement.ref, update: placement.update, cursor: placement.cursor, conflicted: placement.conflicted, access: placement.access,
       canonicalPath, canonical: canonicalPath ? `overstory://${new URL(root.placement.endpoint).host}${canonicalPath}` : undefined,
+      canonicalURL: canonicalPath ? placement.canonicalURL : undefined,
     };
     this.workspaces.get(placement.tree)?.updateTreeDescriptor({
       access: placement.access,
@@ -719,7 +720,8 @@ export class TreeManager implements AsyncDisposable {
     });
     await savePlacementSyncMetadata(
       placement.tree,
-      { ref: placement.ref, update: placement.update, cursor: placement.cursor, conflicted: placement.conflicted, access: placement.access, ...(canonicalPath ? { canonicalPath } : {}) },
+      { ref: placement.ref, update: placement.update, cursor: placement.cursor, conflicted: placement.conflicted, access: placement.access, ...(canonicalPath ? { canonicalPath } : {}),
+        ...(canonicalPath && placement.canonicalURL ? { canonicalURL: placement.canonicalURL } : {}) },
       placement.configurationTree,
     );
     this.invalidateDescriptors();

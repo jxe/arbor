@@ -71,6 +71,8 @@ describe("a person's domain", () => {
     expect(canonicalURL(canonical)).toBe(`${domainURL}/`);
     const community = (await alice.account()).account.community;
     expect(community.canonical?.url).toBeUndefined();
+    const people = (await alice.directory()).snapshot;
+    expect(people.find((entry) => entry.profile === profile)?.domain).toBe(domain);
   });
 
   test("resolves and names her at the domain, and sends other accounts' paths home", async () => {
