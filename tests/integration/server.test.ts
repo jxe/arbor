@@ -1,5 +1,5 @@
 import { installAccountHome } from "../helpers/account-home.ts";
-import { decodeCanonicalCBOR, encodeProtocolDirectory, ensureStorySyncAccess, ProtocolClient, readStorySyncAccess, storySyncAuthorization } from "@ovst/protocol";
+import { encodeProtocolDirectory, ensureStorySyncAccess, ProtocolClient, readStorySyncAccess, storySyncAuthorization } from "@ovst/protocol";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -21,6 +21,11 @@ let scope: string;
 
 /** Every request here comes from the data home's own user. */
 const fetch = (input: string, init?: RequestInit) => storySyncFetch(input, init);
+
+/** The standard protocol client, reading through Story Sync with the data home's token. */
+async function loopbackReads(at = base): Promise<ProtocolClient> {
+  return new ProtocolClient(at, (await readStorySyncAccess())!.token);
+}
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "story-server-"));
@@ -220,7 +225,7 @@ describe("story-sync REST v1", () => {
 
 });
 
-describe("story-sync object route", () => {
+describe("story-sync object route (the standard read on loopback)", () => {
   const validHash = (hex: string) => `sha256:${hex.repeat(64 / hex.length)}`;
 
   async function indexedSnapshot() {
@@ -237,14 +242,14 @@ describe("story-sync object route", () => {
     const hash = hashObject(bytes);
     expect(snapshot.objects.has(hash)).toBe(true);
 
-    const response = await fetch(`${base}/v1/objects/${encodeURIComponent(hash)}?tree=${encodeURIComponent(scope)}`);
+    const response = await fetch(`${base}/.overstory/trees/${encodeURIComponent(scope)}/objects/${hash}`);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("application/octet-stream");
     expect(response.headers.get("etag")).toBe(`"${hash}"`);
     expect(response.headers.get("cache-control")).toBe("private, immutable, max-age=31536000");
     const served = new Uint8Array(await response.arrayBuffer());
     expect(hashObject(served)).toBe(hash);
-    expect(await client.object(scope, hash)).toEqual(served);
+    expect(await (await loopbackReads()).object(scope, hash)).toEqual(served);
   });
 
   test("serves a directory object re-encoded from its children rows", async () => {
@@ -256,7 +261,7 @@ describe("story-sync object route", () => {
     if (rootObject.type !== "directory") throw new Error("Expected a directory");
     const directoryHash = rootObject.entries.find((entry) => entry.name === "object-dir")!.directory!;
     for (const hash of [directoryHash, snapshot.root]) {
-      const served = await client.object(scope, hash);
+      const served = await (await loopbackReads()).object(scope, hash);
       expect(hashObject(served)).toBe(hash);
       expect(decodeProtocolDirectory(served).type).toBe("directory");
     }
@@ -279,35 +284,37 @@ describe("story-sync object route", () => {
       update: encodeCandidateUpdateJSON({ change, candidate: directoryHash, trace: null, resolves: [], deltas: [],
         objects: [{ hash: directoryHash, bytes: directory }, { hash, bytes }].sort((a, b) => a.hash.localeCompare(b.hash)) }) });
     try {
-      expect(await client.object(scope, hash)).toEqual(bytes);
+      expect(await (await loopbackReads()).object(scope, hash)).toEqual(bytes);
     } finally {
       await log.discard(new Set([change]));
     }
-    const gone = await fetch(`${base}/v1/objects/${encodeURIComponent(hash)}?tree=${encodeURIComponent(scope)}`);
+    const gone = await fetch(`${base}/.overstory/trees/${encodeURIComponent(scope)}/objects/${hash}`);
     expect(gone.status).toBe(404);
   });
 
   test("serves no objects for a tree it has not placed, whatever origin is named", async () => {
     const hash = validHash("2f");
-    const response = await fetch(`${base}/v1/objects/${encodeURIComponent(hash)}?tree=tr_unplaced&origin=${encodeURIComponent("http://127.0.0.1:9")}`);
+    const response = await fetch(`${base}/.overstory/trees/tr_unplaced/objects/${hash}`);
     expect(response.status).toBe(404);
   });
 
-  test("answers 404 for unavailable objects and 400 for malformed hashes", async () => {
-    const missing = await fetch(`${base}/v1/objects/${validHash("0f")}?tree=${encodeURIComponent(scope)}`);
+  test("answers 404 for unavailable objects and malformed hashes, and refuses writes", async () => {
+    const missing = await fetch(`${base}/.overstory/trees/${encodeURIComponent(scope)}/objects/${validHash("0f")}`);
     expect(missing.status).toBe(404);
     expect((await missing.json() as any).error).toBe("not-found");
 
-    const malformed = await fetch(`${base}/v1/objects/sha256:nothex?tree=${encodeURIComponent(scope)}`);
-    expect(malformed.status).toBe(400);
-    expect((await malformed.json() as any).error).toBe("invalid-request");
+    const malformed = await fetch(`${base}/.overstory/trees/${encodeURIComponent(scope)}/objects/sha256:nothex`);
+    expect(malformed.status).toBe(404);
 
-    const unscoped = await fetch(`${base}/v1/objects/${validHash("0f")}`);
-    expect(unscoped.status).toBe(400);
+    // The old private routes are gone (Clients 003).
+    expect((await fetch(`${base}/v1/objects/${validHash("0f")}?tree=${encodeURIComponent(scope)}`)).status).toBe(405);
+    expect((await fetch(`${base}/v1/bootstrap?tree=${encodeURIComponent(scope)}`)).status).toBe(405);
+    const write = await fetch(`${base}/.overstory/trees/${encodeURIComponent(scope)}/updates`, { method: "POST", body: "{}" });
+    expect(write.status).toBe(405);
   });
 });
 
-describe("story-sync bootstrap and credential routes", () => {
+describe("story-sync standard reads and credential route", () => {
   const token = "bootstrap-route-owner";
   let sandbox: string;
   let home: string;
@@ -374,71 +381,69 @@ describe("story-sync bootstrap and credential routes", () => {
     expect(current.ref).toMatchObject({ tree, path: "/note" });
   });
 
-  test("bootstraps a clean placed tree with a sparse spine", async () => {
-    const { decodeSparseSnapshotBundle, decodeProtocolDirectory, hashObject } = await import("@ovst/protocol");
-    const bootstrap = await placedClient.bootstrap(tree);
-    // Page dates come from the host's entry metadata, never from the daemon's files.
-    expect("modifiedAtByPath" in bootstrap).toBe(false);
+  test("answers the current tree from the daemon's recorded accepted base", async () => {
+    const reads = await loopbackReads(placedBase);
+    const current = await reads.descriptor(tree);
     const descriptor = (await placedClient.trees()).snapshot.find((item) => item.id === tree)!;
-    expect(bootstrap.tree.id).toBe(tree);
-    expect("sync" in bootstrap.tree).toBe(false);
-    expect("root" in bootstrap.tree).toBe(false);
-    expect("update" in bootstrap.tree).toBe(false);
-    expect("conflicted" in bootstrap.tree).toBe(false);
-    expect("reviewableConflict" in bootstrap.tree).toBe(false);
-    expect(bootstrap.accepted).toEqual({ root: descriptor.root!, update: descriptor.update!, cursor: descriptor.update! });
-    expect(typeof bootstrap.observedThrough).toBe("string");
-
-    const spine = decodeSparseSnapshotBundle(bootstrap.spine);
-    expect(spine.has(bootstrap.accepted.root as never)).toBe(true);
-    const directories = [decodeProtocolDirectory(spine.get(bootstrap.accepted.root)!)];
-    for (const entry of directories[0]!.entries) if (entry.directory) directories.push(decodeProtocolDirectory(spine.get(entry.directory)!));
-    expect(directories).toHaveLength(2);
-    const markdown = directories.flatMap(directory => directory.entries.filter(entry => entry.file && entry.name.endsWith(".md")).map(entry => new TextDecoder().decode(spine.get(entry.file!)!))).sort();
-    expect(markdown).toEqual(["# Bootstrap tree\n", "A note\n", "Child\n"]);
-    expect("files" in bootstrap).toBe(false);
-    // Typed file entries are resolvable even when their payload is omitted.
-    const photoHash = hashObject(new Uint8Array([1, 2, 3, 4, 5]));
-    expect(spine.has(photoHash)).toBe(false);
-    const root = decodeProtocolDirectory(spine.get(bootstrap.accepted.root as never)!);
-    if (root.type !== "directory") throw new Error("Expected a directory root");
-    expect(root.entries.find((entry) => entry.name === "photo.bin")?.file).toBe(photoHash);
-    expect(hashObject(await placedClient.object(tree, photoHash))).toBe(photoHash);
+    expect(current.tree).toMatchObject({ id: tree, root: descriptor.root!, update: descriptor.update!, access: "write", conflicted: false });
+    expect(current.tree.canonical?.endpoint).toBe(new URL(overstoryd.url).origin);
+    // The cursor seeds a watch on the host itself.
+    expect(typeof current.observedThrough).toBe("string");
   });
 
-  test("bootstraps the accepted host root while the folder has an unpublished edit", async () => {
-    const { decodeSparseSnapshotBundle, decodeProtocolDirectory } = await import("@ovst/protocol");
-    const accepted = (await placedClient.bootstrap(tree)).accepted;
+  test("serves the snapshot, path reads and objects of a placed tree, all verified", async () => {
+    const { hashObject, decodeProtocolDirectory } = await import("@ovst/protocol");
+    const reads = await loopbackReads(placedBase);
+    const { tree: current } = await reads.descriptor(tree);
+    const snapshot = await reads.snapshot(tree, current.root);
+    const text = [...snapshot.objects.values()].map((bytes) => new TextDecoder().decode(bytes));
+    expect(text).toContain("A note\n");
+    expect(text).toContain("Child\n");
+    const page = await reads.pathRead(tree, current.root, "/sub/child");
+    const sub = decodeProtocolDirectory(snapshot.objects.get(decodeProtocolDirectory(snapshot.objects.get(current.root)!).entries.find((entry) => entry.name === "sub")!.directory!)!);
+    expect(new Set(page.keys())).toEqual(new Set([current.root,
+      decodeProtocolDirectory(snapshot.objects.get(current.root)!).entries.find((entry) => entry.name === "sub")!.directory!,
+      sub.entries.find((entry) => entry.name === "child.md")!.file!]));
+    const photoHash = hashObject(new Uint8Array([1, 2, 3, 4, 5]));
+    expect(hashObject(await reads.object(tree, photoHash))).toBe(photoHash);
+    expect((await reads.entryMetadata(tree)).update).toBe(current.update);
+  });
+
+  test("answers the accepted host root while the folder has an unpublished edit", async () => {
+    const { decodeProtocolDirectory } = await import("@ovst/protocol");
+    const reads = await loopbackReads(placedBase);
+    const accepted = (await reads.descriptor(tree)).tree;
     await writeFile(join(treeDir, "note.md"), "Daemon-only pending edit\n");
     try {
-      const bootstrap = await placedClient.bootstrap(tree);
-      expect(bootstrap.accepted).toEqual(accepted);
-      expect("pending" in bootstrap).toBe(false);
-      expect("blocked" in bootstrap).toBe(false);
-      const spine = decodeSparseSnapshotBundle(bootstrap.spine);
-      const root = decodeProtocolDirectory(spine.get(accepted.root as never)!);
-      const note = root.entries.find((entry) => entry.name === "note.md")?.file;
-      expect(new TextDecoder().decode(spine.get(note!)!)).toBe("A note\n");
+      const current = (await reads.descriptor(tree)).tree;
+      expect(current.root).toBe(accepted.root);
+      expect(current.update).toBe(accepted.update);
+      const objects = await reads.pathRead(tree, current.root, "/note");
+      const note = decodeProtocolDirectory(objects.get(current.root)!).entries.find((entry) => entry.name === "note.md")!.file!;
+      expect(new TextDecoder().decode(objects.get(note)!)).toBe("A note\n");
     } finally {
       await writeFile(join(treeDir, "note.md"), "A note\n");
     }
   });
 
-  test("answers CBOR only, even to a caller that does not ask for it", async () => {
-    const plain = await fetch(`${placedBase}/v1/bootstrap?tree=${tree}`);
-    expect(plain.status).toBe(200);
-    expect(plain.headers.get("content-type")).toBe("application/cbor");
-    const value = decodeCanonicalCBOR(new Uint8Array(await plain.arrayBuffer())) as { spine?: unknown };
-    expect(value.spine).toBeInstanceOf(Uint8Array);
+  test("passes the host's watch through, with or without objects", async () => {
+    const reads = await loopbackReads(placedBase);
+    const { observedThrough } = await reads.descriptor(tree);
+    const abort = new AbortController();
+    let opened = false;
+    const events = reads.watch(tree, observedThrough, { signal: abort.signal, objects: "none", onOpen: () => { opened = true; } });
+    const first = events.next();
+    await Bun.sleep(50);
+    expect(opened).toBe(true);
+    abort.abort();
+    await first.catch(() => undefined);
+    expect((await fetch(`${placedBase}/.overstory/trees/${tree}/watch?objects=all`)).status).toBe(400);
   });
 
-  test("answers 404 for an unplaced tree and 400 without tree scope", async () => {
-    const missing = await fetch(`${placedBase}/v1/bootstrap?tree=tr_${"b".repeat(26)}`);
-    expect(missing.status).toBe(404);
-    expect(await missing.json()).toMatchObject({ error: "not-found" });
-    const unscoped = await fetch(`${placedBase}/v1/bootstrap`);
-    expect(unscoped.status).toBe(400);
-    expect(await placedClient.bootstrap(scope).catch((error) => error.status)).toBe(404);
+  test("answers 404 for a tree it has not placed", async () => {
+    const reads = await loopbackReads(placedBase);
+    expect(await reads.descriptor(`tr_${"b".repeat(26)}`).catch((error) => error.status)).toBe(404);
+    expect(await reads.descriptor(scope).catch((error) => error.status)).toBe(404);
   });
 
   test("serves a session its device key opened over loopback, never the key, and 404s when absent", async () => {

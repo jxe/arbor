@@ -10,8 +10,7 @@ import type {
   WorkspaceEvent,
 } from "@ovst/protocol";
 import { parseSSEStream, reconnectingStream, type ParsedSSEFrame } from "@ovst/protocol/sse";
-import { decodeCanonicalCBOR } from "@ovst/protocol/cbor";
-import { readStorySyncAccess, storySyncAuthorization } from "@ovst/protocol";
+import { ProtocolClient, readStorySyncAccess, storySyncAuthorization } from "@ovst/protocol";
 
 export type {
   OverstoryErrorCode,
@@ -73,22 +72,6 @@ export interface StorySyncRESTClientOptions {
 // Story Sync reports exactly what the protocol and the data-home stores use.
 export type { LocalAccountSummary, ProfileIdentity } from "@ovst/protocol";
 
-/** `GET /v1/bootstrap?tree=`: what a loopback client needs to open a placed tree as its own working tree. */
-export type BootstrapTreeDescriptor = Pick<
-  LocalTreeDescriptor,
-  "id" | "configurationTree" | "kind" | "access" | "canonical" | "name" | "osPath" | "placement"
->;
-
-export interface TreeBootstrap {
-  /** Placement and routing metadata only; daemon synchronization state is deliberately excluded. */
-  tree: BootstrapTreeDescriptor;
-  /** The daemon's accepted base; `cursor` equals `update` and seeds a protocol watch. */
-  accepted: { root: string; update: string; cursor: string | null };
-  /** The sparse CBOR snapshot bundle's bytes: every directory object plus every Markdown file object. */
-  spine: Uint8Array;
-  observedThrough: string;
-}
-
 /** `GET /v1/credential`: a session of the account's device, which a same-installation client shares with the daemon. */
 export interface TreeCredential {
   token: string;
@@ -126,22 +109,37 @@ export interface DeclinedChanges {
 
 export class StorySyncRESTClient {
   private baseURL: string;
+  private token: Promise<string | undefined> | undefined;
+  private readonly options: StorySyncRESTClientOptions;
   private fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
   constructor(options: StorySyncRESTClientOptions = {}) {
     this.baseURL = options.baseURL?.replace(/\/$/, "") ?? "";
     const fetcher = options.fetch ?? ((input, init) => fetch(input, init));
+    this.options = options;
     // Story Sync answers only callers holding its data home's token (data-home.md).
-    let token: Promise<string | undefined> | undefined;
     this.fetcher = async (input, init) => {
-      token ??= options.token !== undefined
-        ? Promise.resolve(options.token)
-        : readStorySyncAccess(options.dataHome).then((access) => access?.token);
-      const value = await token;
+      const value = await this.callerToken();
       const headers = new Headers(init?.headers);
       if (value) headers.set("authorization", storySyncAuthorization({ token: value }));
       return fetcher(input, { ...init, headers });
     };
+  }
+
+  private callerToken(): Promise<string | undefined> {
+    this.token ??= this.options.token !== undefined
+      ? Promise.resolve(this.options.token)
+      : readStorySyncAccess(this.options.dataHome).then((access) => access?.token);
+    return this.token;
+  }
+
+  /**
+   * The standard Overstory reads of the trees placed here, through Story Sync
+   * (descriptor, snapshot, path read, objects, entry metadata, watch): the
+   * ordinary protocol client, with this data home's token as its credential.
+   */
+  async reads(): Promise<ProtocolClient> {
+    return new ProtocolClient(this.baseURL, await this.callerToken());
   }
 
   trees(): Promise<SnapshotEnvelope<LocalTreeDescriptor[]>> {
@@ -156,23 +154,6 @@ export class StorySyncRESTClient {
       body: JSON.stringify(body),
     });
     return "ignored" in result ? null : result;
-  }
-
-  /** Verified wire object bytes for a tree placed on this device. */
-  async object(tree: string, hash: string): Promise<Uint8Array> {
-    const query = new URLSearchParams({ tree });
-    const response = await this.fetcher(`${this.baseURL}/v1/objects/${encodeURIComponent(hash)}?${query}`);
-    if (!response.ok) await this.throwResponse(response);
-    return new Uint8Array(await response.arrayBuffer());
-  }
-
-  /** Bootstrap material for a placed tree: accepted base and sparse spine, answered as canonical CBOR. */
-  async bootstrap(tree: string): Promise<TreeBootstrap> {
-    const response = await this.fetcher(`${this.baseURL}/v1/bootstrap?tree=${encodeURIComponent(tree)}`, { headers: { accept: "application/cbor" } });
-    if (!response.ok) await this.throwResponse(response);
-    const value = decodeCanonicalCBOR(new Uint8Array(await response.arrayBuffer())) as TreeBootstrap;
-    if (!(value?.spine instanceof Uint8Array)) throw new Error("Bootstrap spine must be a CBOR byte string");
-    return value;
   }
 
   /**

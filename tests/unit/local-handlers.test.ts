@@ -3,7 +3,6 @@ import { HostAccountStore, HostPlacementStore, ProtocolHTTPError } from "@ovst/p
 import { accountHandler } from "../../packages/story-sync/src/account-http.ts";
 import { LocalAccountService } from "../../packages/story-sync/src/account-service.ts";
 import { browserHandler } from "../../packages/story-sync/src/browser-http.ts";
-import { syncHandler } from "../../packages/story-sync/src/sync-http.ts";
 
 // Neither handler needs a running daemon, watcher, synchronizer or private index.
 test("browser handler preserves conditional/ranged bytes independently of sync", async () => {
@@ -60,34 +59,4 @@ test("a placement host's refusal keeps its home host, and one it may lift later 
   } finally {
     mock.restore();
   }
-});
-
-test("bootstrap classifies unavailable placeholder content without exposing a path", async () => {
-  const tree = "tr_placeholder";
-  const unavailable = Object.assign(new Error("private local path"), { code: "EDEADLK" });
-  const unexpected = () => { throw new Error("Unrelated sync dependency was used"); };
-  const handler = syncHandler({
-    bootstrapTree: async () => { throw unavailable; },
-    events: { currentCursor: unexpected, observations: unexpected },
-    synchronizeNow: unexpected,
-    moveLocalPlacement: unexpected,
-    treeList: unexpected,
-    objectBytes: unexpected,
-    treeConflictWorkspace: unexpected,
-    resolveReviewedTreeConflict: unexpected,
-    resolveLocator: unexpected,
-  } as never, { instanceID: "test", runtimeKind: "persistent" });
-  const url = new URL(`http://127.0.0.1/v1/bootstrap?tree=${tree}`);
-
-  await expect(handler(new Request(url), url, { timeout: unexpected })).rejects.toMatchObject({
-    code: "internal-error",
-    status: 500,
-    message: expect.stringContaining("unavailable cloud placeholders"),
-    details: {
-      tree,
-      retryable: true,
-      kind: "local-content-unavailable",
-      reason: "EDEADLK",
-    },
-  });
 });

@@ -6,10 +6,9 @@ import type {
   OverstoryError,
   WorkspaceEvent,
 } from "@ovst/protocol";
-import { applySourceEdits, canonicalOverstoryLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, decodePresenceEvent, PresenceDecodeError, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeUpdateConflictJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeProtocolDirectory, hashObject, updateRequestDigests } from "@ovst/protocol";
+import { applySourceEdits, canonicalOverstoryLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, decodePresenceEvent, PresenceDecodeError, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeUpdateConflictJSON, decodeSnapshotBundle, decodeUpdateRequestJSON, hashObject, updateRequestDigests } from "@ovst/protocol";
 import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@ovst/protocol";
-import { decodeCanonicalCBOR } from "@ovst/protocol";
-import type { StorySyncStatus, TreeBootstrap, TreeCredential } from "../../packages/cli/src/daemon-client.ts";
+import type { StorySyncStatus, TreeCredential } from "../../packages/cli/src/daemon-client.ts";
 
 // Test-local checks mirroring Overstory's `ProtocolTreeDescriptor.validated()` and
 // `ProtocolSafeAccessSubject` decoding; the TypeScript packages export no descriptor
@@ -56,9 +55,6 @@ const conformance = join(import.meta.dir, "../../docs/overstory-spec/conformance
 const overstorydFixtures = join(import.meta.dir, "../fixtures/overstoryd");
 const json = async <T>(name: string): Promise<T> =>
   JSON.parse(await readFile(join(fixtures, name), "utf8")) as T;
-/** A bootstrap body exactly as `GET /v1/bootstrap` sends it: canonical CBOR. */
-const bootstrapBody = async (name: string): Promise<TreeBootstrap> =>
-  decodeCanonicalCBOR(new Uint8Array(await readFile(join(fixtures, name)))) as TreeBootstrap;
 const conformanceJSON = async <T>(name: string): Promise<T> =>
   JSON.parse(await readFile(join(conformance, name), "utf8")) as T;
 
@@ -76,28 +72,8 @@ describe("REST v1 protocol fixtures", () => {
     });
   });
 
-  test("decodes the bootstrap and credential fixtures", async () => {
-    const clean = await bootstrapBody("bootstrap.cbor");
-    const legacy = await bootstrapBody("bootstrap-pending.cbor");
-    // The CBOR body is the JSON fixture's value with the spine as bytes.
-    const readable = await json<Omit<TreeBootstrap, "spine"> & { spine: string }>("bootstrap.json");
-    expect({ ...clean, spine: Buffer.from(clean.spine).toString("base64") }).toEqual(readable);
+  test("decodes the credential fixture", async () => {
     const credential = await json<TreeCredential>("credential.json");
-    expect(clean.tree.id).toBe("tr_notes7f3q2ab7c");
-    expect(clean.accepted.cursor).toBeNull();
-    expect("modifiedAtByPath" in clean).toBe(false);
-    // The spine is sparse: the root directory and its Markdown child are present, the binary is not.
-    const spine = decodeSparseSnapshotBundle(clean.spine);
-    const root = decodeProtocolDirectory(spine.get(clean.accepted.root as never)!);
-    if (root.type !== "directory") throw new Error("Expected a directory root");
-    expect(root.entries.map((entry) => entry.name)).toEqual(["_index.md", "photo.bin"]);
-    expect(spine.has(root.entries[0]!.file!)).toBe(true);
-    expect(spine.has(root.entries[1]!.file!)).toBe(false);
-    expect("files" in clean).toBe(false);
-    // New clients use only accepted-root fields if an older daemon includes local pending metadata.
-    expect(legacy.spine).toEqual(clean.spine);
-    expect(legacy.accepted.root).toBe(clean.accepted.root);
-    expect(legacy.accepted.update).toBe(clean.accepted.update);
     expect(credential.token).toBe("overstoryd-account-token-fixture");
   });
 
@@ -362,9 +338,9 @@ describe("canonical descriptor helpers", () => {
     const canonical = values.valid.remoteTreeDescriptor.canonical!;
     expect(canonicalHTTPURL(canonical)).toBe("https://community.example/~joe");
     expect(canonicalOverstoryLocator(canonical)).toBe("overstory://community.example/~joe");
-    const bootstrap = await bootstrapBody("bootstrap.cbor");
-    expect(canonicalHTTPURL(bootstrap.tree.canonical!)).toBe("https://notes.example/~joe/notes");
-    expect(canonicalOverstoryLocator(bootstrap.tree.canonical!)).toBe("overstory://notes.example/~joe/notes");
+    const nested = { path: "/~joe/notes", endpoint: "https://notes.example", parentTree: null };
+    expect(canonicalHTTPURL(nested)).toBe("https://notes.example/~joe/notes");
+    expect(canonicalOverstoryLocator(nested)).toBe("overstory://notes.example/~joe/notes");
   });
 });
 

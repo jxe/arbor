@@ -571,6 +571,7 @@ async function pendingCommand(args: string[]): Promise<void> {
     console.log(`Accepted base: update ${pending.request.base}, root ${pending.base.root}`);
     // Earlier elements' objects serve later elements' bases; the rest come from the daemon.
     const objects = new Map<string, Uint8Array>();
+    const reads = await client.reads();
     let before = pending.base.root;
     for (const [index, element] of updates.entries()) {
       const update = decodeCandidateUpdateJSON(element);
@@ -578,7 +579,7 @@ async function pendingCommand(args: string[]): Promise<void> {
       console.log(`\nUpdate ${index + 1} of ${updates.length}: ${update.change}${update.trace === null ? "" : " (traced)"}`);
       console.log(await describeTransitionPayload({
         before, after: update.candidate, payload: update,
-        load: async (hash) => objects.get(hash) ?? await client.object(tree.id, hash).catch(() => undefined),
+        load: async (hash) => objects.get(hash) ?? await reads.object(tree.id, hash).catch(() => undefined),
       }));
       before = update.candidate;
     }

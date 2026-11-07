@@ -6,13 +6,12 @@ import { LocalFileService } from "./local-files.ts";
 import { lstat, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import type {
-  Hash,
   LocalTreeDescriptor,
   LocatorResolution,
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@ovst/protocol";
-import { canonicalNodePath, storyDataRoot, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type ObjectHash, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
+import { canonicalNodePath, storyDataRoot, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, pathReadObjects, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type CurrentTree, type ObjectHash, type TreeSnapshot, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@ovst/client";
 import { type SharedTreePlacement } from "./state/index.ts";
@@ -36,20 +35,6 @@ export interface PendingUpdate {
 }
 
 /** What a loopback client needs to open a placed tree as its own working tree. */
-export type BootstrapTreeDescriptor = Pick<
-  LocalTreeDescriptor,
-  "id" | "configurationTree" | "kind" | "access" | "canonical" | "name" | "osPath" | "placement"
->;
-
-export interface TreeBootstrap {
-  /** Placement and routing metadata only; daemon synchronization state is deliberately excluded. */
-  tree: BootstrapTreeDescriptor;
-  /** The daemon's accepted base; `cursor` is the protocol watch cursor, which is independent of the accepted update id. */
-  accepted: { root: Hash; update: string; cursor: string | null };
-  /** A sparse CBOR snapshot bundle's bytes: every directory object and every Markdown file object. The route answers canonical CBOR, so this is a byte string. */
-  spine: Uint8Array;
-  observedThrough: string;
-}
 
 export interface StorySyncDaemonOptions {
   connections?: SyncConnections;
@@ -76,47 +61,13 @@ class UnsynchronizedTreeError extends ProtocolError {
   }
 }
 
-async function sparseSpine(
-  snapshotRoot: ObjectHash,
-  readObject: (hash: ObjectHash) => Promise<Uint8Array | undefined>,
-): Promise<Uint8Array> {
-  const spine = new Map<ObjectHash, Uint8Array>();
-  const visit = async (hash: ObjectHash, kind: ProtocolObjectKind = "directory"): Promise<void> => {
-    const bytes = spine.get(hash) ?? await readObject(hash);
-    if (!bytes) throw new Error(`Accepted snapshot is missing object ${hash}`);
-    if (hashObject(bytes) !== hash) throw new Error(`Accepted snapshot object does not match ${hash}`);
-    spine.set(hash, bytes);
-    if (kind === "table") {
-      for (const chunk of protocolObjectReferences(kind, bytes)) await visit(chunk.hash, chunk.kind);
-      return;
-    }
-    if (kind !== "directory") return;
-    const directory = decodeProtocolDirectory(bytes);
-    // A collection's rows are structure, not file content, so they go too.
-    for (const { table } of directory.collection?.tables ?? []) await visit(table, "table");
-    for (const entry of directory.entries) {
-      if (entry.directory) await visit(entry.directory);
-      else if ((entry.file || entry.page) && entry.name.toLowerCase().endsWith(".md")) {
-        const content = (entry.file ?? entry.page)!;
-        const child = spine.get(content) ?? await readObject(content);
-        if (!child) throw new Error(`Accepted snapshot is missing Markdown ${content}`);
-        if (hashObject(child) !== content) throw new Error(`Accepted Markdown does not match ${content}`);
-        spine.set(content, child);
-      }
-    }
-  };
-  await visit(snapshotRoot);
-  verifyTreeSnapshotGraph({ root: snapshotRoot, objects: spine }, "sparse-files");
-  return encodeSparseSnapshotBundle(spine);
-}
-
 /**
  * The daemon's top-level coordinator: one process-wide event bus, a root
  * manager owning N per-root Workspaces, one `FolderSync` per placed tree (the
  * update machine's runner with the folder as its source and accepted tree),
- * and the loopback services a working-tree client uses (bootstrap,
- * credential, objects). Editors run the same machine against their own
- * working tree.
+ * and the standard Overstory reads a working-tree client uses on loopback
+ * (descriptor, snapshot, path read, objects, entry metadata, watch). Editors
+ * run the same machine against their own working tree.
  */
 export class StorySyncDaemon implements AsyncDisposable {
   readonly events: EventBus;
@@ -208,40 +159,73 @@ export class StorySyncDaemon implements AsyncDisposable {
   }
 
   /**
-   * Bootstrap the daemon's recorded accepted host root. The folder's own
-   * changes and held work belong only to the folder's client and never gate
-   * or seed another client.
+   * The standard current-tree read, answered from the daemon's recorded
+   * accepted base (Clients 003): the root and update Story Sync last
+   * accepted for the placement, and the host's watch cursor for it. The
+   * folder's own changes and held work belong only to the folder's client and
+   * never gate or seed another client.
    */
-  async bootstrapTree(tree: string): Promise<TreeBootstrap> {
+  async acceptedTree(tree: string): Promise<CurrentTree> {
     const placement = this.trees.placementFor(tree);
-    const workspace = placement ? await this.trees.workspaceByTree(tree) : undefined;
-    if (!placement || !workspace) throw new ProtocolError("not-found", `Tree has no local placement: ${tree}`, 404, { tree });
-    if (!placement.ref || !placement.update) {
+    if (!placement) throw new ProtocolError("not-found", `Tree has no local placement: ${tree}`, 404, { tree });
+    if (!placement.ref || !placement.update || !placement.cursor) {
       throw new ProtocolError("conflict", `Tree has not synchronized an accepted base yet: ${tree}`, 409, { tree, details: { kind: "unsynchronized" } });
     }
     const descriptor = (await this.trees.descriptors()).find((item) => item.id === tree);
     if (!descriptor) throw new ProtocolError("not-found", `Tree has no local placement: ${tree}`, 404, { tree });
-
-    const spine = await sparseSpine(
-      placement.ref as ObjectHash,
-      (hash) => this.objectCache.bytes(tree, hash),
-    );
-    const bootstrapDescriptor: BootstrapTreeDescriptor = {
-      id: descriptor.id,
-      ...(descriptor.configurationTree ? { configurationTree: descriptor.configurationTree } : {}),
-      kind: descriptor.kind,
-      access: descriptor.access,
-      canonical: descriptor.canonical ?? null,
-      name: descriptor.name,
-      ...(descriptor.osPath ? { osPath: descriptor.osPath } : {}),
-      placement: descriptor.placement,
-    };
     return {
-      tree: bootstrapDescriptor,
-      accepted: { root: placement.ref as Hash, update: placement.update, cursor: placement.cursor ?? null },
-      spine,
-      observedThrough: this.events.currentCursor(),
+      tree: {
+        id: descriptor.id,
+        kind: descriptor.kind,
+        access: descriptor.access,
+        root: placement.ref as RemoteTreeDescriptor["root"],
+        update: placement.update,
+        conflicted: placement.conflicted === true,
+        canonical: descriptor.canonical ?? null,
+      },
+      observedThrough: placement.cursor,
     };
+  }
+
+  /** Objects of a placed tree for the standard read routes; only placed trees are served. */
+  private placedObject(tree: string): (hash: ObjectHash) => Promise<Uint8Array> {
+    if (!this.trees.placementFor(tree)) throw new ProtocolError("not-found", `Tree has no local placement: ${tree}`, 404, { tree });
+    return async (hash) => {
+      const bytes = await this.objectCache.bytes(tree, hash);
+      if (!bytes) throw new ProtocolError("not-found", `Object is not available: ${hash}`, 404, { tree });
+      return bytes;
+    };
+  }
+
+  /** The standard snapshot read of a placed tree: its complete graph at `root`. */
+  async snapshot(tree: string, root: ObjectHash): Promise<TreeSnapshot> {
+    const read = this.placedObject(tree);
+    const objects = new Map<ObjectHash, Uint8Array>();
+    const visit = async (hash: ObjectHash, kind: ProtocolObjectKind): Promise<void> => {
+      if (objects.has(hash)) return;
+      const bytes = await read(hash);
+      objects.set(hash, bytes);
+      await Promise.all(protocolObjectReferences(kind, bytes).map((reference) => visit(reference.hash, reference.kind)));
+    };
+    await visit(root, "directory");
+    return verifyTreeSnapshotGraph({ root, objects });
+  }
+
+  /** The standard path read of a placed tree (tree operations §1.2.4). */
+  pathRead(tree: string, root: ObjectHash, path: string): Promise<Map<ObjectHash, Uint8Array>> {
+    return pathReadObjects(root, path, this.placedObject(tree));
+  }
+
+  /** The host's entry metadata for a placed tree, read through its account. */
+  async entryMetadata(tree: string): Promise<Awaited<ReturnType<ProtocolClient["entryMetadata"]>>> {
+    return (await this.hostClient(tree)).entryMetadata(tree);
+  }
+
+  /** The tree's host, through the placement's account: what loopback reads fall through to. */
+  async hostClient(tree: string): Promise<ProtocolClient> {
+    const placement = this.trees.placementFor(tree);
+    if (!placement) throw new ProtocolError("not-found", `Tree has no local placement: ${tree}`, 404, { tree });
+    return this.accountClient(placement);
   }
 
   /** Start every placed folder once; from then on its machine polls, and watches and scans drive it. */
