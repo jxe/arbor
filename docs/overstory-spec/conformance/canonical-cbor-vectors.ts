@@ -40,15 +40,6 @@ for (const c of endpoints.cases) {
 }
 await writeFile(endpointsPath,JSON.stringify(endpoints,null,2)+"\n");
 
-// Bootstrap pending requests preserve semantic identity after object rehashing.
-for (const path of ["tests/fixtures/story-sync/bootstrap.json", "tests/fixtures/story-sync/bootstrap-pending.json"]) {
-  const value = JSON.parse(await readFile(path, "utf8"));
-  if (value.pending) value.pending.requestDigests = updateRequestDigests(value.tree.id, value.pending);
-  await writeFile(path, JSON.stringify(value, null, 2) + "\n");
-  // `GET /v1/bootstrap` answers canonical CBOR with the spine as bytes; the JSON file is its readable spelling.
-  await writeFile(path.replace(/\.json$/, ".cbor"), encodeCanonicalCBOR({ ...value, spine: new Uint8Array(Buffer.from(value.spine, "base64")) }));
-}
-
 // Object models are the symbolic source of truth; payloads are raw for files.
 const objectPath = "docs/overstory-spec/conformance/protocol-objects.json";
 const objectVectors = JSON.parse(await readFile(objectPath, "utf8"));

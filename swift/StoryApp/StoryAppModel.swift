@@ -1479,20 +1479,50 @@ final class StoryWorkspaceState {
 
     // MARK: Placed trees
 
+    /// What opening a placed tree reads from Story Sync before anything is
+    /// drawn: the placement (folder, account, name), the daemon's recorded
+    /// accepted base through the standard current-tree read, and the tree's
+    /// spine (every directory and Markdown body) through the standard object
+    /// route (Clients 003 step 2).
+    struct PlacedTreeOpening: Sendable {
+        var placed: LocalTreeDescriptor
+        var current: ProtocolCurrentTree
+        var spine: ProtocolSnapshot
+    }
+
+    /// Read a placed tree's opening through Story Sync's standard reads.
+    nonisolated static func readPlacedTree(_ treeID: String, client: StorySyncRESTClient) async throws -> PlacedTreeOpening {
+        let reads = client.reads()
+        async let listed = client.trees()
+        async let accepted = reads.descriptor(tree: treeID)
+        let current = try await accepted
+        guard let placed = (try await listed).snapshot.first(where: { $0.id == treeID }) else {
+            throw ProtocolValidationError.invalidValue("\(treeID) is not placed on this Mac")
+        }
+        let spine = try await SpineFetch.spine(root: current.tree.root, from: placedTreeObjects(treeID, reads: reads))
+        return PlacedTreeOpening(placed: placed, current: current, spine: spine)
+    }
+
+    /// Where a placed tree's objects come from: Story Sync's standard object
+    /// route, which serves them from the folder, the pending changes or the host.
+    nonisolated static func placedTreeObjects(_ treeID: String, reads: ProtocolClient) -> ObjectSourceChain {
+        ObjectSourceChain([HostObjectStore(client: reads, tree: treeID)])
+    }
+
     /// Open a tree the daemon has placed as this app's own working tree.
     ///
-    /// `GET /v1/bootstrap` seeds an in-memory tree from the daemon's recorded
-    /// accepted host root: a sparse spine of directories and Markdown, with
-    /// every other file a hash the daemon's `/v1/objects` serves on demand.
+    /// The tree is read through Story Sync's standard reads: the daemon's
+    /// recorded accepted host root and its spine (directories and Markdown),
+    /// with every other file a hash served on demand by the same object route.
     /// The folder client has independent pending/conflict state; it neither
     /// seeds nor blocks this client's direct host update coordinator.
     /// `page`, a path within the tree, is opened instead of its home page.
     ///
-    /// `fetching` is this tree's bootstrap already under way (launch starts
-    /// it before showing the preview, so the request overlaps the first frame).
-    func openPlacedTree(_ treeID: String, page: String? = nil, fetching early: Task<TreeBootstrap, any Error>? = nil) async throws {
+    /// `fetching` is this tree's opening already under way (launch starts it
+    /// before showing the preview, so the reads overlap the first frame).
+    func openPlacedTree(_ treeID: String, page: String? = nil, fetching early: Task<PlacedTreeOpening, any Error>? = nil) async throws {
         var timing = StoryLaunchTiming.Stopwatch()
-        let earlyBootstrap = try await early?.value
+        let earlyOpening = try await early?.value
         if early != nil { timing.mark("early-bootstrap") }
         try await editorWorkspace.flushAll()
         try await closeOpenTree()
@@ -1500,10 +1530,10 @@ final class StoryWorkspaceState {
         let runtime = try await ensureStorySync()
         timing.mark("story-sync")
         let client = runtime.client
-        let bootstrap: TreeBootstrap
-        if let earlyBootstrap { bootstrap = earlyBootstrap } else { bootstrap = try await client.bootstrap(tree: treeID) }
+        let opening: PlacedTreeOpening
+        if let earlyOpening { opening = earlyOpening } else { opening = try await Self.readPlacedTree(treeID, client: client) }
         timing.mark("bootstrap")
-        let placed = bootstrap.tree
+        let placed = opening.placed
         guard placed.osPath != nil else {
             throw ProtocolValidationError.invalidValue("\(placed.name) is not placed on this Mac")
         }
@@ -1527,26 +1557,19 @@ final class StoryWorkspaceState {
         // and the placement host's session otherwise (`/v1/credential`), so
         // the app need not know which it is.
         let placementOrigin = endpoint == nil ? nil : originString(origin)
-        let descriptor = try ProtocolTreeDescriptor(
-            id: placed.id,
-            kind: placed.kind,
-            root: bootstrap.accepted.root,
-            access: placed.access,
-            canonical: placed.canonical,
-            update: bootstrap.accepted.update
-        ).validated()
+        let descriptor = try opening.current.tree.validated()
 
         let credentialProvider = StorySyncCredentialProvider.shared(client: client, configurationTree: configurationTree, origin: placementOrigin)
         let protocolClient = ProtocolClient(origin: origin, credentialProvider: credentialProvider)
         let transport = ProtocolReplicaTransport(client: protocolClient)
-        let platform = DaemonObjectStore(client: client, tree: treeID)
+        let platform = Self.placedTreeObjects(treeID, reads: client.reads())
         let workingTree = try await WorkingTree.inMemory(tree: TreeID(rawValue: treeID), platform: platform)
         timing.mark("working-tree")
         let replacement = try SnapshotBridge.replacement(
-            snapshot: bootstrap.spine,
+            snapshot: opening.spine,
             tree: TreeID(rawValue: treeID),
-            update: bootstrap.accepted.update,
-            cursor: bootstrap.accepted.cursor,
+            update: descriptor.update,
+            cursor: opening.current.observedThrough,
             mode: .sparseFiles
         )
         try await workingTree.initializeFromSystem(replacement)
@@ -1826,12 +1849,12 @@ final class StoryWorkspaceState {
             record = nil
         }
         StoryLaunchTiming.milestone("placements-loaded")
-        // Attach to Story Sync and ask for the tree's bootstrap now, while the
+        // Attach to Story Sync and read the tree's opening now, while the
         // preview is scanned and drawn, rather than after.
-        let earlyBootstrap: Task<TreeBootstrap, any Error>? = record.map { record in
+        let earlyBootstrap: Task<PlacedTreeOpening, any Error>? = record.map { record in
             Task { @MainActor in
                 let runtime = try await self.ensureStorySync()
-                return try await runtime.client.bootstrap(tree: record.tree.id)
+                return try await Self.readPlacedTree(record.tree.id, client: runtime.client)
             }
         }
         if let record, !launchPhase.isPreviewing, let osPath = record.osPath,

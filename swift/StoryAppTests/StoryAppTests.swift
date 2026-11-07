@@ -1860,7 +1860,7 @@ struct StoryAppTests {
     /// claims an account into the test data home, places a disposable folder,
     /// and runs this suite with `STORY_TEST_TREE` naming that tree. The signed
     /// app supervises its bundled control-mode helper on the test port, opens
-    /// the tree through `/v1/bootstrap`, edits its own working tree, and the
+    /// the tree through Story Sync's standard reads, edits its own working tree, and the
     /// edit reaches the folder through the host and the daemon.
     @Test("The signed app opens a placed tree through its bundled control daemon and edits it")
     func hostedPlacedTreeSmoke() async throws {

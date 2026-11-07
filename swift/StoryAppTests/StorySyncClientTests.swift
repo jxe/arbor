@@ -2,6 +2,7 @@
 import Foundation
 import XCTest
 import StoryKit
+import Overstory
 @testable import StoryApp
 
 final class StorySyncClientTests: XCTestCase {
@@ -119,18 +120,19 @@ final class StorySyncClientTests: XCTestCase {
         XCTAssertEqual(status.protocolVersion, "v1")
         let placed = try await client.trees().snapshot.first { $0.id == tree }
         XCTAssertEqual(placed?.placement, "placed")
-        let bootstrap = try await client.bootstrap(tree: tree)
-        XCTAssertEqual(bootstrap.tree.id, tree)
-        XCTAssertEqual(bootstrap.spine.root, bootstrap.accepted.root)
+        let opening = try await StoryAppModel.readPlacedTree(tree, client: client)
+        XCTAssertEqual(opening.current.tree.id, tree)
+        XCTAssertEqual(opening.spine.root, opening.current.tree.root)
         let credential = try await client.credential()
         XCTAssertFalse(credential.isEmpty)
-        let root = try await client.object(tree: tree, hash: bootstrap.accepted.root)
+        let reads = client.reads()
+        let root = try await reads.object(tree: tree, hash: opening.current.tree.root)
         XCTAssertFalse(root.isEmpty)
         let missing = "sha256:" + String(repeating: "0", count: 64)
         do {
-            _ = try await client.object(tree: tree, hash: missing)
+            _ = try await reads.object(tree: tree, hash: missing)
             XCTFail("Expected a 404 for an unavailable object")
-        } catch let error as StorySyncServerError {
+        } catch let error as ProtocolHTTPError {
             XCTAssertEqual(error.status, 404)
         }
     }

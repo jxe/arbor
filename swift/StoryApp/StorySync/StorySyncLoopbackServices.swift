@@ -76,26 +76,4 @@ actor StorySyncCredentialProvider: ProtocolCredentialProvider {
     var isCached: Bool { cached != nil }
 }
 
-/// The daemon's `/v1/objects` route as a platform `ObjectStore`.
-///
-/// The daemon already verifies every body it serves; `StorySyncRESTClient.object`
-/// verifies again on the client side so a corrupted loopback hop can never hand out wrong bytes.
-/// A `404` becomes `ObjectStoreError.missing` so a layered store can fall through.
-struct DaemonObjectStore: ObjectStore {
-    let client: StorySyncRESTClient
-    let tree: String
-
-    func bytes(_ hash: String) async throws -> Data {
-        do {
-            return try await client.object(tree: tree, hash: hash)
-        } catch let error as StorySyncServerError where error.status == 404 {
-            throw ObjectStoreError.missing(hash)
-        } catch let error as ProtocolValidationError {
-            if case let .objectHashMismatch(expected, actual) = error {
-                throw ObjectStoreError.hashMismatch(expected: expected, actual: actual)
-            }
-            throw error
-        }
-    }
-}
 #endif

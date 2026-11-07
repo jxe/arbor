@@ -1243,13 +1243,13 @@ working tree: the node index, local overlay, and object store an editor edits
 directly. The normative client behavior is the update machine in
 [working-tree updates](09-client-synchronization.md).
 
-0. The working tree is installed from an accepted snapshot. On a device that
-   shares an installation with the folder's daemon it installs a **sparse
-   spine** (directories and Markdown inline, other files by hash and lazily
-   fetched from the loopback object route) rooted at the host's accepted
-   root; the daemon's pending request is never adopted. Elsewhere it
-   installs from the host. Either way it records the confirmed
-   `{ root, update, cursor }` watchpoint.
+0. The working tree reads an accepted root through the standard reads: from
+   the host, or on a device whose daemon has placed the tree, from the
+   daemon, which answers the same routes from the folder. It holds as much
+   as it needs (a whole snapshot, every directory and Markdown body, or only
+   the pages opened, by path read, §1.2.4), with other objects fetched by
+   hash when used; the daemon's pending request is never adopted. Either way
+   it records the confirmed `{ root, update, cursor }` watchpoint.
 1. Each authored generation is appended to the working tree's change log
    and becomes locally durable at once (the editor is a source of local
    changes); unsent changes are published together so that one request

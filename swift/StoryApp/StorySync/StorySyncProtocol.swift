@@ -151,56 +151,7 @@ struct StorySyncErrorValue: Codable, Sendable, Equatable {
     }
 }
 
-// MARK: - Bootstrap and credential (`GET /v1/bootstrap`, `GET /v1/credential[?origin=]`)
-
-/// The daemon's recorded accepted base for a placement; `cursor` equals `update` and seeds a protocol watch.
-struct TreeBootstrapAccepted: Codable, Sendable, Equatable {
-    var root: String
-    var update: String
-    var cursor: String?
-
-    init(root: String, update: String, cursor: String?) {
-        self.root = root
-        self.update = update
-        self.cursor = cursor
-    }
-}
-
-/// Placement and routing metadata needed to open a working tree. Daemon
-/// synchronization state is deliberately not part of the bootstrap contract.
-struct TreeBootstrapDescriptor: Codable, Sendable, Equatable {
-    var id: String
-    var configurationTree: String?
-    var kind: String
-    var access: String
-    var canonical: CanonicalTreeDescriptor?
-    var name: String
-    var osPath: String?
-    var placement: String
-}
-
-/// `GET /v1/bootstrap?tree=`: what a loopback client needs to open a placed tree as its own
-/// working tree. Mirrors `TreeBootstrap` in `packages/cli/src/daemon-client.ts`, with the base64 spine
-/// already decoded and validated in sparse mode.
-struct TreeBootstrap: Sendable, Equatable {
-    var tree: TreeBootstrapDescriptor
-    var accepted: TreeBootstrapAccepted
-    /// Every directory object plus every Markdown file object; validated with `.sparseFiles`.
-    var spine: ProtocolSnapshot
-    var observedThrough: String
-
-    init(
-        tree: TreeBootstrapDescriptor,
-        accepted: TreeBootstrapAccepted,
-        spine: ProtocolSnapshot,
-        observedThrough: String
-    ) {
-        self.tree = tree
-        self.accepted = accepted
-        self.spine = spine
-        self.observedThrough = observedThrough
-    }
-}
+// MARK: - Credential (`GET /v1/credential[?origin=]`)
 
 /// `GET /v1/credential?configurationTree=[&origin=]`: a session of the account's
 /// device, which a same-installation client shares with the daemon. With
@@ -212,14 +163,4 @@ struct TreeCredential: Codable, Sendable, Equatable {
     init(token: String) { self.token = token }
 }
 
-enum TreeBootstrapError: Error, LocalizedError, Sendable, Equatable {
-    case invalidSpine(String)
-
-    var errorDescription: String? {
-        switch self {
-        case let .invalidSpine(detail):
-            "Bootstrap spine is invalid: \(detail)"
-        }
-    }
-}
 #endif

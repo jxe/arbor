@@ -214,32 +214,6 @@ actor StorySyncRESTClient {
 
     // MARK: Loopback services for a same-installation working-tree client
 
-    /// `GET /v1/bootstrap?tree=`: the daemon's accepted host base and sparse spine.
-    /// The spine is decoded and validated in `.sparseFiles` mode against `accepted.root`;
-    /// daemon-local pending and conflict state never enters another client's bootstrap.
-    func bootstrap(tree: String) async throws -> TreeBootstrap {
-        // The route answers canonical CBOR only, with `spine` as the bundle's bytes.
-        var components = URLComponents(url: url("/v1/bootstrap"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "tree", value: tree)]
-        var request = URLRequest(url: components.url!)
-        request.setValue("application/cbor", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: Self.authorized(request, token: token))
-        try validate(data: data, status: try statusCode(response))
-        let envelope = try CanonicalCBORDecoder().decode(TreeBootstrapEnvelope.self, from: data)
-        let spine: ProtocolSnapshot
-        do {
-            spine = try ProtocolSnapshotBundleCodec.decode(envelope.spine, root: envelope.accepted.root, mode: .sparseFiles)
-        } catch {
-            throw TreeBootstrapError.invalidSpine(String(describing: error))
-        }
-        return TreeBootstrap(
-            tree: envelope.tree,
-            accepted: envelope.accepted,
-            spine: spine,
-            observedThrough: envelope.observedThrough
-        )
-    }
-
     /// `GET /v1/credential`: the host account credential the daemon holds for
     /// `configurationTree` (or the only connected account when omitted). With
     /// `origin`, the session is for that host: the account's home host, or one
@@ -261,23 +235,13 @@ actor StorySyncRESTClient {
         return value.token
     }
 
-    /// `GET /v1/objects/{hash}?tree=`: one canonical wire object of a placed tree,
-    /// hash-verified before it is returned. A 404 surfaces as `StorySyncServerError` with status 404.
-    func object(tree: String, hash: String) async throws -> Data {
-        guard hash.range(of: #"^sha256:[a-f0-9]{64}$"#, options: .regularExpression) != nil else {
-            throw ProtocolValidationError.invalidHash(hash)
-        }
-        var components = URLComponents(url: url("/v1/objects/\(hash)"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "tree", value: tree)]
-        var request = URLRequest(url: components.url!)
-        request.setValue("application/cbor", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: Self.authorized(request, token: token))
-        try validate(data: data, status: try statusCode(response))
-        let actual = ProtocolObjectCodec.hash(data)
-        guard actual == hash else {
-            throw ProtocolValidationError.objectHashMismatch(expected: hash, actual: actual)
-        }
-        return data
+    /// The standard Overstory reads of the trees placed here (Clients 003):
+    /// descriptor, snapshot, path read, objects, entry metadata and the host's
+    /// watch, served by Story Sync on loopback. The ordinary protocol client,
+    /// with the data home's caller token as its credential; every object it
+    /// returns is verified against its hash.
+    nonisolated func reads() -> ProtocolClient {
+        ProtocolClient(origin: baseURL, credential: token, session: session)
     }
 
     func observations(after initialCursor: String) -> AsyncThrowingStream<WorkspaceEvent, Error> {
@@ -423,13 +387,6 @@ actor StorySyncRESTClient {
 
 private struct LocalResyncObservation: Decodable { var cursor: String; var tree: String; var kind: String }
 
-private struct TreeBootstrapEnvelope: Decodable {
-    var tree: TreeBootstrapDescriptor
-    var accepted: TreeBootstrapAccepted
-    /// The sparse snapshot bundle's bytes: a CBOR byte string.
-    var spine: Data
-    var observedThrough: String
-}
 #endif
 
 // Outside the macOS block: views shared with iOS name these types, though only the Mac runs.

@@ -196,6 +196,19 @@ public actor ProtocolClient {
         return try ProtocolSnapshotBundleCodec.decode(data, root: root)
     }
 
+    /// A path read (tree operations §1.2.4): the directories from `root` down to
+    /// `path` and the objects of the entries it names, checked against the walk.
+    public func pathRead(tree: String, root: String, path: String) async throws -> [String: Data] {
+        try validateObjectHash(root)
+        var request = try await authorizedRequest(
+            path: "/.overstory/trees/\(component(tree))/snapshots/\(component(root))/path\(try ProtocolPathRead.urlSuffix(path))"
+        )
+        request.setValue("application/cbor", forHTTPHeaderField: "Accept")
+        let (data, response) = try await logged(request, kind: .read, name: "path-read", tree: tree)
+        try validate(data: data, status: try statusCode(response))
+        return try await ProtocolPathRead.decode(data, root: root, path: path)
+    }
+
     /// Descriptive metadata of the current root's file entries: never part of
     /// any hash, and describing `update`, which may be newer than a snapshot
     /// just installed (the watch corrects that).
@@ -421,9 +434,14 @@ public actor ProtocolClient {
         tree: String,
         after: String? = nil,
         idleTimeout: Duration = ProtocolClient.watchIdleTimeout,
+        withoutObjects: Bool = false,
         onOpen: (@Sendable () async -> Void)? = nil
     ) async throws -> AsyncThrowingStream<ProtocolWatchEvent, Error> {
-        let query = after.map { "?after=\($0.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._~")))!)" } ?? ""
+        // `objects=none` (§1.1.3): frames without objects, for a client that refetches what it holds.
+        var parameters: [String] = []
+        if let after { parameters.append("after=\(after.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._~")))!)") }
+        if withoutObjects { parameters.append("objects=none") }
+        let query = parameters.isEmpty ? "" : "?" + parameters.joined(separator: "&")
         var request = try await authorizedRequest(path: "/.overstory/trees/\(component(tree))/watch\(query)")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         let session = session
