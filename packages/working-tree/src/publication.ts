@@ -1,4 +1,4 @@
-import { objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, protocolObjectReferences, type ProtocolObjectKind, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
+import { composeSourceEdits, decodeProtocolPage, encodeProtocolPage, type PlainSourceEdit, objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, protocolObjectReferences, type ProtocolObjectKind, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
 import { UpdateValidationError } from "./control.ts";
 import type { LocalChange } from "./local-change.ts";
 
@@ -79,14 +79,16 @@ function movePublication(records: LocalChange[]): ChangePublication | undefined 
 
 /** Concatenate proven frames under one fresh identity, preserving result names
  * through an explicit mapping. Snapshots, resolutions and trace limits are
- * boundaries. Repeated pure moves additionally collapse to one operation. */
+ * boundaries. Repeated pure moves additionally collapse to one operation, and
+ * runs of plain edits to one frame of the edits they amount to; the trace
+ * limits apply to the result. */
 export function publication(records: LocalChange[], previous: ChangePublication[]): ChangePublication | undefined {
   const first = records[0], last = records.at(-1);
   if (!first || !last || records.some((record, i) => record.tree !== first.tree || !record.update.trace || (records.length > 1 && (record.update.resolves.length || record.update.ifCurrent !== undefined)) || (i > 0 && (record.basis.kind !== "authored" || record.basis.change !== records[i-1]!.change || records[i-1]!.candidate.root !== record.graph.root)))) return;
   const moved = !first.update.resolves.length && first.update.ifCurrent === undefined ? movePublication(records) : undefined;
   if (moved) return moved;
   const frames = records.flatMap(record => record.update.trace!);
-  if (!frames.length || frames.length > 64 || frames.reduce((n, frame) => n + frame.operations.length, 0) > 1024) return;
+  if (!frames.length) return;
   const changes = records.map(record => record.change), change = identity("batch-", changes);
   const names: Record<string, Record<string, string>> = {};
   let count = 0;
@@ -113,9 +115,133 @@ export function publication(records: LocalChange[], previous: ChangePublication[
     if (!object) return;
     objects.set(object.hash, object);
   }
+  const renamed = records.flatMap(record => record.update.trace!.map(frame => ({...frame, operations: frame.operations.map(op => ({...rewrite(op), key: names[record.change]![op.key]}) as SourceOperation)})));
+  const trace = composePlainRuns(renamed, records, change, names);
+  if (trace.length > 64 || trace.reduce((n, frame) => n + frame.operations.length, 0) > 1024) return;
   return { changes, operations: names, update: { change, candidate: last.candidate.root, resolves: first.update.resolves, ...(first.update.ifCurrent !== undefined ? {ifCurrent: first.update.ifCurrent} : {}), deltas,
-    trace: records.flatMap(record => record.update.trace!.map(frame => ({...frame, operations: frame.operations.map(op => ({...rewrite(op), key: names[record.change]![op.key]}) as SourceOperation)}))),
+    trace,
     objects: [...objects.values()].filter(object => !known.has(object.hash)).sort((a,b) => a.hash.localeCompare(b.hash)) } };
+}
+
+type Frame = NonNullable<CandidateUpdateJSON["trace"]>[number];
+
+/** A frame is plain when every operation is a lineage-free `editSource` over
+ * `basis` material of one path with a range (as `compactTrace` in
+ * local-change.ts and `LocalChange.plainEdits` in Swift define it). */
+function plainFrame(frame: Frame): { path: string; object: string; edits: PlainSourceEdit[] } | undefined {
+  let path: string | undefined, object: string | undefined;
+  const edits: PlainSourceEdit[] = [];
+  for (const op of frame.operations) {
+    if (op.kind !== "editSource" || op.lineage?.length || op.source.material.kind !== "basis" || op.source.within?.length || !op.source.range) return;
+    const material = op.source.material;
+    if ((path !== undefined && path !== material.path) || (object !== undefined && object !== material.object)) return;
+    path = material.path; object = material.object;
+    edits.push({ offset: op.source.range[0], length: op.source.range[1] - op.source.range[0], replacement: op.text });
+  }
+  if (path === undefined || object === undefined) return;
+  return { path, object, edits: edits.sort((a, b) => a.offset - b.offset) };
+}
+
+/** Merge 002 case 1: plain edits across local records. Each run of adjacent
+ * plain frames over one path becomes one frame of edits stated over the
+ * run's first basis (`composeSourceEdits`), so a typing burst publishes as
+ * the edits it amounts to rather than one frame per keystroke.
+ *
+ * Identity: inserted text that a later frame deleted never reaches the
+ * published account; basis bytes deleted and retyped stay a replacement, so
+ * equal bytes never stand in for their origin. A run is kept as it is when
+ * any operation result in it is referenced (its published name would no
+ * longer exist), when its end trees are not held, or when the composed frame
+ * does not take the run's first tree exactly to its last. Composed
+ * operations are named `edit-<k>-<i>`, `k` the run's first frame index, and
+ * the originals they replace leave the publication's name mapping. */
+function composePlainRuns(frames: Frame[], records: LocalChange[], change: string, names: Record<string, Record<string, string>>): Frame[] {
+  const referenced = new Set<string>();
+  (function visit(value: any): void {
+    if (Array.isArray(value)) { value.forEach(visit); return; }
+    if (!value || typeof value !== "object") return;
+    if (value.kind === "operation" && value.change === change) referenced.add(value.operation);
+    Object.values(value).forEach(visit);
+  })(frames);
+  const trees = new Map<string, Map<string, Uint8Array>>();
+  const tree = (root: string) => {
+    if (trees.has(root)) return trees.get(root);
+    for (const record of records) for (const graph of [record.graph, record.candidate]) if (graph.root === root) {
+      const objects = decodeTreeSnapshotJSON(graph).objects; trees.set(root, objects); return objects;
+    }
+  };
+  const result: Frame[] = [], removed = new Set<string>();
+  let index = 0;
+  while (index < frames.length) {
+    const first = plainFrame(frames[index]!);
+    let end = index + 1;
+    if (first) while (end < frames.length) {
+      const next = plainFrame(frames[end]!);
+      if (!next || next.path !== first.path) break;
+      end++;
+    }
+    const run = frames.slice(index, end);
+    const composed = first && run.length > 1 && !run.some(frame => frame.operations.some(op => referenced.has(op.key)))
+      ? composeRun(run, first.path, first.object, index, tree) : undefined;
+    if (composed) { result.push(...composed); for (const frame of run) for (const op of frame.operations) removed.add(op.key); }
+    else result.push(...run);
+    index = end;
+  }
+  // A burst that cancels completely keeps its frames: an empty trace states nothing.
+  if (!result.length) return frames;
+  if (removed.size) for (const map of Object.values(names)) for (const [key, name] of Object.entries(map)) if (removed.has(name)) delete map[key];
+  return result;
+}
+
+function composeRun(run: Frame[], path: string, object: string, index: number, tree: (root: string) => Map<string, Uint8Array> | undefined): Frame[] | undefined {
+  const before = run[0]!.before, after = run.at(-1)!.after;
+  const start = tree(before), finish = tree(after);
+  if (!start || !finish) return;
+  let edits: PlainSourceEdit[];
+  try { edits = composeSourceEdits(run.map(frame => plainFrame(frame)!.edits)); } catch { return; }
+  // Verify: the composed edits take the path's content in the first tree to
+  // the last tree, and nothing else differs.
+  const parts = path.slice(1).split("/"), directories: Array<{ hash: string; value: ReturnType<typeof decodeProtocolDirectory> }> = [];
+  let hash = before;
+  for (const [i, part] of parts.entries()) {
+    const bytes = start.get(hash); if (!bytes) return;
+    const value = decodeProtocolDirectory(bytes); directories.push({ hash, value });
+    const entry = value.entries.find(entry => entry.name === part);
+    if (!entry) return;
+    if (i < parts.length - 1) { if (!entry.directory) return; hash = entry.directory; continue; }
+    const content = entry.file ?? entry.page;
+    if (content !== object) return;
+    const stored = start.get(content); if (!stored) return;
+    const page = entry.page !== undefined ? decodeProtocolPage(stored) : undefined;
+    const source = page ? page.body : stored;
+    const produced = applyPlainEdits(source, edits); if (!produced) return;
+    let next = page ? hashObject(encodeProtocolPage({ ...page, body: produced })) : hashObject(produced);
+    for (let depth = parts.length - 1; depth >= 0; depth--) {
+      const directory = directories[depth]!.value;
+      const entries = directory.entries.map(item => item.name !== parts[depth] ? item : depth === parts.length - 1
+        ? (page ? { name: item.name, page: next } : { name: item.name, file: next }) : { name: item.name, directory: next });
+      next = hashObject(encodeProtocolDirectory({ ...directory, entries }));
+    }
+    if (next !== after) return;
+    if (!edits.length) return [];
+    return [{ before, after, operations: edits.map((edit, i) => ({ key: `edit-${index}-${i}`, kind: "editSource" as const,
+      source: { material: { kind: "basis" as const, path, object }, range: [edit.offset, edit.offset + edit.length] as [number, number] }, text: edit.replacement })) }];
+  }
+}
+
+function applyPlainEdits(source: Uint8Array, edits: PlainSourceEdit[]): Uint8Array | undefined {
+  const encoder = new TextEncoder(), chunks: Uint8Array[] = [];
+  let cursor = 0;
+  for (const edit of edits) {
+    if (edit.offset < cursor || edit.offset + edit.length > source.length) return;
+    chunks.push(source.subarray(cursor, edit.offset), encoder.encode(edit.replacement));
+    cursor = edit.offset + edit.length;
+  }
+  chunks.push(source.subarray(cursor));
+  const out = new Uint8Array(chunks.reduce((n, chunk) => n + chunk.length, 0));
+  let at = 0;
+  for (const chunk of chunks) { out.set(chunk, at); at += chunk.length; }
+  return out;
 }
 
 /** A branch captured inside a frozen batch can cross its remaining frames only

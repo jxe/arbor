@@ -101,10 +101,16 @@ test("operation results are renamed within and across publications without losin
 });
 
 test("generic frame limits remain boundaries and accepted-base deltas remain compact", () => {
-  let source = "A".repeat(4096) + "\n";
-  const initial = source;
+  // Edits alternate with moves of different lines, so no run of plain edits composes.
+  let source = "A".repeat(4096) + "\nx\ny\n";
+  const initial = source, line = 4097;
   const steps = Array.from({length: 65}, (_, i) => {
-    const text = i % 2 ? "A" : "B";
+    if (i % 2) {
+      const moves: SourceMove[] = [{source: [line, line + 2], anchor: [line + 2, line + 4], side: "after"}];
+      source = applySourceChange(source, [], moves);
+      return {source, moves};
+    }
+    const text = i % 4 ? "A" : "B";
     source = text + source.slice(1);
     return {source, edits: [{range: [0, 1] as [number, number], replacement: text}]};
   });
@@ -198,4 +204,80 @@ test("fifty moves in a large document use compact accepted-base deltas, includin
     expect(compact.deltas.every(delta => basis.objects.has(delta.base))).toBe(true);
     console.log(`move payload (${offset ? "new accepted basis" : "whole burst"}): ${decodeBase64(old.body).length} -> ${decodeBase64(encoded.body).length} bytes`);
   }
+});
+
+// Merge 002 case 1: a run of plain edits composes into one frame. The shorter
+// account must merge with concurrent work exactly as the frames it replaces.
+const plainCases = vectors.cases.filter(value => value.kinds.every(kind => kind === "editSource") && value.steps.every(step => !step.moves));
+for (const value of plainCases) for (const peerAt of ["far", "overlapping"] as const) for (const reverse of [false, true]) {
+  test(`composed plain edits merge as their frames: ${value.name}, ${peerAt} peer ${reverse ? "last" : "first"}`, async () => {
+    const local = records(value), published = publication(local, [])!;
+    expect(published.update.trace).toHaveLength(1);
+    const composed = published.update.trace![0]!.operations[0]!;
+    if (composed.kind !== "editSource") throw Error("Expected an edit");
+    const bytes = new TextEncoder().encode(value.source), decoder = new TextDecoder();
+    const [start, end] = peerAt === "far" ? [bytes.length, bytes.length] : composed.source.range!;
+    const peerSource = decoder.decode(bytes.subarray(0, start)) + "@" + decoder.decode(bytes.subarray(end));
+    const outcome = async (trace: NonNullable<LocalChange["update"]["trace"]>, change: string) => {
+      const f = new Fixture(), baseRoot = local[0]!.graph.root;
+      for (const record of local) for (const graph of [record.graph, record.candidate]) for (const [hash, bytes] of decodeTreeSnapshotJSON(graph).objects) f.objects.set(hash, bytes);
+      const base = (await f.run(f.request(baseRoot, baseRoot, [{key: "start", kind: "editSource", source: f.ref("/note.md", value.source, [0, 0]), text: ""}], "start"))).result;
+      const peer = f.request(base, f.tree({"note.md": peerSource}), [{key: "peer", kind: "editSource", source: f.ref("/note.md", value.source, [start, end]), text: "@"}], "peer");
+      const mine = f.request(base, published.update.candidate, [], change);
+      mine.incoming.trace = trace;
+      const first = await f.run(reverse ? mine : peer), next = reverse ? peer : mine;
+      next.current = first.result;
+      const merged = await f.run(next);
+      return {content: f.content(merged.result.object, "note.md"), decisions: merged.decisions.length};
+    };
+    // The uncoalesced account: every record's frames, keys kept distinct.
+    const frames = local.flatMap(record => record.update.trace!.map(frame => ({...frame, operations: frame.operations.map(op => ({...op, key: `${record.change}-${op.key}`}))})));
+    const expected = await outcome(frames, "frames");
+    expect(await outcome(published.update.trace!, published.update.change)).toEqual(expected);
+  });
+}
+
+test("a typing burst longer than the frame limit publishes as one composed frame", async () => {
+  const source = "A\n\nB\n\n", typed = "x".repeat(200);
+  const steps = [...typed].map((c, i) => ({source: "A" + typed.slice(0, i + 1) + "\n\nB\n\n", edits: [{range: [1 + i, 1 + i] as [number, number], replacement: c}]}));
+  const local = records({name: "long typing", source, steps, frames: 1, kinds: ["editSource"]});
+  const published = publication(local, [])!;
+  expect(published.changes).toHaveLength(200);
+  expect(published.update.trace).toEqual([{before: local[0]!.graph.root, after: local.at(-1)!.candidate.root, operations: [
+    {key: "edit-0-0", kind: "editSource", source: {material: {kind: "basis", path: "/note.md", object: hashObject(new TextEncoder().encode(source))}, range: [1, 1]}, text: typed}]}]);
+  // Composed originals are no longer addressable under their published names.
+  expect(Object.values(published.operations).every(map => Object.keys(map).length === 0)).toBe(true);
+});
+
+test("a referenced operation result keeps its run uncomposed", () => {
+  const value = vectors.cases.find(value => value.name === "typing across records composes into one edit")!;
+  const local = records(value);
+  const first = local[0]!.update.trace![0]!.operations[0]!, later = local[2]!.update.trace![0]!;
+  later.operations = [...later.operations, {key: "copy", kind: "copySource", source: {material: {kind: "operation", change: local[0]!.change, operation: first.key}, range: [0, 1]}, at: (later.operations[0] as any).source, side: "before"}];
+  const published = publication(local, [])!;
+  expect(published.update.trace!.length).toBeGreaterThan(1);
+  expect(published.operations[local[0]!.change]![first.key]).toBeDefined();
+});
+
+test("typing in a page's body composes over the body", async () => {
+  const {parsePage, encodeProtocolPage} = await import("@ovst/protocol");
+  let source = "---\ntitle: Note\n---\nHello\n";
+  const page = encodeProtocolPage(parsePage(new TextEncoder().encode(source))!), pageHash = hashObject(page);
+  const directory = encodeProtocolDirectory({type: "directory", entries: [{name: "note.md", page: pageHash}]}), root = hashObject(directory);
+  let graph: TreeSnapshot = {root, objects: new Map([[pageHash, page], [root, directory]])};
+  const local: LocalChange[] = [];
+  for (const [i, c] of [..." world"].entries()) {
+    const at = source.length - 1, next = source.slice(0, at) + c + source.slice(at);
+    const record = prepareSourceChange({change: `p${i}`, tree: "tr_publication", graph, sourcePath: "/note.md",
+      basis: i ? {kind: "authored", change: `p${i-1}`} : {kind: "accepted", root, update: "up_initial"},
+      intent: {basis: {tree: "tr_publication", path: "/note", revision: `r${i}`, source}, edits: [{offset: at, length: 0, replacement: c}], source: next}});
+    local.push(record); graph = decodeTreeSnapshotJSON(record.candidate); source = next;
+  }
+  const published = publication(local, [])!;
+  expect(published.update.trace).toHaveLength(1);
+  const op = published.update.trace![0]!.operations[0]!;
+  if (op.kind !== "editSource") throw Error("Expected an edit");
+  expect(op.source.material).toEqual({kind: "basis", path: "/note.md", object: pageHash});
+  expect(op.source.range).toEqual([5, 5]);
+  expect(op.text).toBe(" world");
 });
