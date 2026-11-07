@@ -691,7 +691,10 @@ struct UpdateCoordinatorTests {
             #expect(following.updates.count == 2)
             #expect(Array(requests[1].requestDigests.prefix(1)) == requests[0].requestDigests)
             #expect(following.updates[0].objects.isEmpty)
-            #expect(following.updates[1].trace?.count == 37)
+            // The 37 offline appends compose into one edit of the first basis (Merge 002).
+            #expect(following.updates[1].trace?.count == 1)
+            #expect(following.updates[1].trace?.first?.operations.map(\.kind) == ["editSource"])
+            #expect(following.updates[1].trace?.first?.operations.first?.fields["text"] == .string((1...37).map { "Offline \($0)\n" }.joined()))
 
             await reconnect.value
             try await waitUntil { await coordinator.syncState.kind == "current" }
