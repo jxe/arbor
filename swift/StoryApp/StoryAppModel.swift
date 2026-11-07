@@ -4186,8 +4186,7 @@ extension StoryWorkspaceState {
         try await closeOpenTree()
         // Objects come from the host, as for any tree not placed here.
         let locator = tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
-        try await openWritableRemoteTree(tree: tree, locator: locator, client: client,
-                                         platform: HostObjectStore(client: client, tree: tree.id))
+        try await openWritableRemoteTree(tree: tree, locator: locator, client: client)
 #else
         try await place(tree: directory.tree, from: directory.origin, configurationTree: directory.configurationTree)
 #endif
