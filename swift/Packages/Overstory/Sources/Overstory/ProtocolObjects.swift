@@ -502,9 +502,22 @@ public enum ProtocolObjectGraph {
     ///   with no object is allowed and is taken to be a file or page whose bytes are
     ///   resolvable elsewhere; an object that is not reachable is still rejected,
     ///   as is a cycle. Used for daemon bootstraps and locally sparsified bundles.
+    /// - `lazyDirectories`: as `sparseFiles`, and a directory below the root may
+    ///   be missing too: the lazy node index loads it, checked against its hash,
+    ///   the first time a path below it is asked for.
     public enum ValidationMode: Sendable, Equatable {
         case complete
         case sparseFiles
+        case lazyDirectories
+
+        /// Whether a reachable object of `kind` may be missing from the graph.
+        public func allowsMissing(_ kind: ProtocolObjectKind) -> Bool {
+            switch self {
+            case .complete: return false
+            case .sparseFiles: return kind == .file || kind == .page
+            case .lazyDirectories: return kind == .file || kind == .page || kind == .directory
+            }
+        }
     }
 
     @discardableResult
@@ -537,7 +550,7 @@ public enum ProtocolObjectGraph {
             if visiting.contains(hash) { throw ProtocolValidationError.cyclicGraph(hash) }
             if visited.contains(hash) { return }
             guard let bytes = bytesByHash[hash] else {
-                if mode == .sparseFiles && (kind == .file || kind == .page) { visited.insert(hash); return }
+                if hash != snapshot.root && mode.allowsMissing(kind) { visited.insert(hash); return }
                 throw ProtocolValidationError.incompleteGraph(hash)
             }
             let object: ProtocolObject
