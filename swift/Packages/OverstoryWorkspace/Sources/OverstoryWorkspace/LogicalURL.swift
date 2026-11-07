@@ -277,7 +277,7 @@ private func canonicalDecodedNodePath(_ input: String) -> String? {
     return path
 }
 
-func canonicalNodePath(_ input: String) -> String {
+public func canonicalNodePath(_ input: String) -> String {
     canonicalDecodedNodePath(input) ?? input
 }
 
