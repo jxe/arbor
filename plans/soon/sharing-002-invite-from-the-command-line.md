@@ -1,7 +1,5 @@
 # Sharing 002: Invite from the command line, through a client library
 
-**Timing:** Soon (Joe, 2026-11-07).
-
 **Why and when:** setting up the intro video on 2026-10-11, Joe needed an invitation for `~chungus` and the only way to make one was the Mac app's People sheet. He wants `story invite`, and he wants it to be the first command built the way the other clients work: the command talks to the host itself through a client library, and Story Sync is not in the path. "Echoing everything through story sync just adds complexity. What we want is just a client lib." No date; before the next person is invited from a machine without the Mac app.
 
 > **Executor instructions**: Develop and test against a disposable overstoryd. The first invitation made on arb.nxhx.org with the new command, and its cancellation, wait for Joe's go-ahead. No host route or response shape changes, so `bun run test:protocol` is not needed unless that turns out false.

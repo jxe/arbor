@@ -1,6 +1,6 @@
 # Sharing 004: what Story says to a host older than it
 
-**Timing:** Soon (Joe, 2026-11-07), before the Railway template is public. Starting your own community from the
+**Order:** before the Railway template is public. Starting your own community from the
 template is built ([status](../../status.md#start-your-own-community-from-a-railway-template--2026-11-05));
 publishing it is in [Joe's to-do](../joe.md#sharing-004-railway-template).
 

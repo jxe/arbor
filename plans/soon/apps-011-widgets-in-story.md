@@ -1,6 +1,6 @@
 # Apps 011: Widgets in Story
 
-**Timing:** Soon, after [Apps 005](../soon/apps-005-views-on-the-host.md). Joe's own widgets can be
+**Order:** after [Apps 005](../soon/apps-005-views-on-the-host.md). Joe's own widgets can be
 built and tried while [Apps 010](../later/apps-010-activation-and-lending.md) lands. Widgets from
 other people wait for Apps 010.
 

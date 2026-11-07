@@ -2,9 +2,9 @@
 
 **Why and when:** a shared collection needs rows that only their authors edit: games by
 their authors, Supplies' lists by their owner unless `openToEdits`, excellences' entries.
-This was milestone 5 of Schema language 002; Joe moved it to later on 2026-10-28, beside
-[Schema language 008](../later/schema-language-008-port-excellences-and-supplies.md), its first
-customer, then to soon the same day, and back to later on 2026-11-07. Settled with Joe on 2026-10-15 in the project thread "Cranberries in Story".
+This was milestone 5 of Schema language 002;
+[Schema language 008](../later/schema-language-008-port-excellences-and-supplies.md) is its first
+customer. Settled with Joe on 2026-10-15 in the project thread "Cranberries in Story".
 
 ## Status
 

@@ -1,7 +1,5 @@
 # Filesystem 027: The whole namespace on disk
 
-**Timing:** Not soon (Joe, 2026-11-05: "in features and not to do anytime soon").
-
 **Why and when:** Joe asked whether Overstory should do more to live up to the promise of a global namespace, the way AFS, sshfs and IPFS do. The first half was making any readable tree reachable without an account: visitor sessions and read-only placements (accounts §5.6, `story place --read-only`, built 2026-11-05). This plan is the other half, the AFS feeling: every tree you can read is a path on your disk, without placing it first. `~/Overstory/garden.example/~alice/notes/drift.md` opens in any editor, and an agent can `cat` and `grep` across trees it has never seen, with files fetched only when opened. Not soon: it is a large native piece (a File Provider extension), and placed folders already cover the trees Joe works in every day.
 
 > **Executor instructions**: Start by re-reading accounts §5.6 and the read-only placement code (`packages/client/src/placements.ts`, `packages/story-sync/src/state/trees.ts`), which this builds on. Spike the File Provider extension on its own before touching Story Sync. Nothing here changes the protocol; if it seems to, stop and ask Joe.

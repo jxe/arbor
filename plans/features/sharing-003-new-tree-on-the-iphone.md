@@ -1,6 +1,6 @@
 # Sharing 003: New Tree… on the iPhone
 
-**Timing:** Now. What's left of moving pages between trees from the share sheet, which is
+What's left of moving pages between trees from the share sheet, which is
 built on the Mac and the iPhone ([status](../../status.md#move-a-page-to-another-tree--2026-11-01)).
 The Mac's share sheet offers New Tree… at the end of its tree menu; the iPhone's doesn't yet.
 

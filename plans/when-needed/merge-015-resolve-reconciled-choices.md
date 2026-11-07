@@ -4,7 +4,7 @@
 new page. Later accepted edits already produced the intended contents, but the
 conflict remained and its cards showed only older alternatives. overstoryd should
 clear choices it can prove reconciled, and Story should explain the current result
-and make explicit resolution easy. Joe moved it to when-needed on 2026-10-25, back to soon on 2026-10-28, and out of soon on 2026-11-07: when a conflict that later work has already reconciled shows up again. Its first step is the
+and make explicit resolution easy. When needed: when a conflict that later work has already reconciled shows up again. Its first step is the
 foundation every automatic outcome needs, moved here from overstoryd 014 on
 2026-10-11 and on to [Editor 003](../features/editor-003-suggestions.md#part-3-merge-notes)
 on 2026-11-01.

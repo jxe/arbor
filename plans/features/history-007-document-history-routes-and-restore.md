@@ -1,7 +1,5 @@
 # overstoryd 007: Document history routes, restore, and the History view
 
-**Timing:** Later.
-
 **Why and when:** parked. Seeing and restoring earlier versions of a page; it also decides how long document versions are kept, which is most of what overstoryd retains.
 
 Agent runs in History (formerly **Agents 003** phases 1 and 2) joined this plan on

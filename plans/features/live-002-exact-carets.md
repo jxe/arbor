@@ -1,7 +1,5 @@
 # Live 002: exact carets and selections, for people and agents
 
-**Timing:** Later, after [Agents 001](../../status.md#agents-001-presence-and-agent-tasks--2026-11-01).
-
 **Why and when:** Agents 001 shows presence at block level: a person's or agent's mark sits
 on the block holding their caret. Joe asked on 2026-10-30 for exact carets and selections as
 their own plan, covering people and agents alike: you see the precise spot someone is typing,

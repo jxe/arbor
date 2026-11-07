@@ -1,6 +1,6 @@
 # Apps 005: Views on the host
 
-**Why and when:** Joe wants queries and mutations running on hosts fairly soon, to test the permissions and lending models against real code. He moved this plan to soon on 2026-10-28.
+**Why and when:** Joe wants queries and mutations running on hosts fairly soon, to test the permissions and lending models against real code.
 
 On 2026-11-06, Joe split the apps work into three plans:
 1. This plan: views replace queries, the sidecar runs them from trees, and they are turned on in the host.

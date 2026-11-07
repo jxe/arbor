@@ -1,7 +1,5 @@
 # People 001: form groups, share with people, and go to any tree
 
-**Timing:** Soon.
-
 **Why and when:** Joe asked on 2026-10-20 for People to remember the people and trees he has
 come across, not only what connected hosts list. Its main jobs are finding someone and forming
 groups to share with: family, different groups at work. That means knowing whether a group
@@ -10,8 +8,7 @@ person whose tree ID you don't know. He also wants a way back to any tree or pag
 visited without remembering its host URL or path, like Chrome's address bar. Phase 1, the
 directory tree kept by code, is done
 ([status](../../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25); Joe:
-"this will do for now"). Joe moved what is left to soon on 2026-10-25: forming groups in the
-directory, the share sheet, Go to… and links by tree ID. The UX was worked out in the doc
+"this will do for now"). What is left: forming groups in the directory, Go to… and links by tree ID. The UX was worked out in the doc
 [People directory UX](https://claude.ai/code/artifact/b3c3e9a9-aeee-49f9-b973-b9bee2d256bb)
 (thread "People directory memory").
 

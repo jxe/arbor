@@ -1,11 +1,9 @@
 # Schema language 007: edit rows in Story's collection view, and the structured editor
 
-**Timing:** Later (out of soon, 2026-11-07).
-
 **Why and when:** Joe wants collections edited natively in Story, on the Mac and iPhone: the
 People directory first, then games, excellences and Supplies. Joe, 2026-10-24: once Schema
 language 006 showed a collection read-only
-([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)), editing goes in soon; Joe moved it out of soon on 2026-11-07.
+([status](../../status.md#collections-in-story-on-the-mac--2026-10-25)), Story should edit them too.
 The write path is built and in daily use: Story sends row operations through the host on
 every device, queued while offline
 ([status](../../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25)). Left:

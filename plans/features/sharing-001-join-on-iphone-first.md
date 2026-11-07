@@ -1,7 +1,5 @@
 # Sharing 001: Join on an iPhone first, add a Mac later
 
-**Timing:** Later.
-
 **Why and when:** an invitation link usually arrives in a message and is tapped on a phone. Today that ends at an app that can only pair with a Mac. Joe wants a friend to be able to join from the iPhone with the same link, and add a Mac afterwards by scanning a code the Mac shows. After the first Mac and TestFlight releases are out.
 
 > **Executor instructions**: Nothing here changes live data. The host change in step 4 is the device-only session challenge already made for agent links (accounts §5.1); confirm it is deployed before testing against the live host.
