@@ -59,7 +59,7 @@ Not tried by hand; launch timings not measured ([joe.md](plans/joe.md#clients-00
 
 ## Coalesced typing bursts (Merge 002 case 1) — 2026-11-07
 
-On branch `claude/merge-002` (built on Clients 003's branch), not on main. The publication
+On main (merged 2026-11-07 after Clients 003; Joe's go-ahead). Story needs a rebuild to send it. The publication
 compilers (`publication.ts`, `ChangePublication.swift`) now compose each run of plain edit
 frames over one path, across local records, into one frame of edits over the run's first
 basis (`composeSourceEdits` / `WorkspaceSourceEdit.compose`), and each run of single-span
