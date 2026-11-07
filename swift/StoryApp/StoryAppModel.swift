@@ -1430,11 +1430,16 @@ final class StoryWorkspaceState {
         let reads = client.reads()
         async let listed = client.trees()
         async let accepted = reads.descriptor(tree: treeID)
-        let current = try await accepted
         guard let placed = (try await listed).snapshot.first(where: { $0.id == treeID }) else {
             throw ProtocolValidationError.invalidValue("\(treeID) is not placed on this Mac")
         }
-        return PlacedTreeOpening(placed: placed, current: current)
+        do {
+            return PlacedTreeOpening(placed: placed, current: try await accepted)
+        } catch let error as ProtocolHTTPError where error.status == 404 || error.status == 405 {
+            // Story Sync lists the tree but has no standard reads: it runs
+            // code from before Clients 003 (a rebuild doesn't restart it).
+            throw StorySyncOutdatedError()
+        }
     }
 
     /// Open a tree the daemon has placed as this app's own working tree.
@@ -1809,6 +1814,7 @@ final class StoryWorkspaceState {
                 prefetchLocalStorySyncOverview()
             }
         } catch {
+            if error is StorySyncOutdatedError { storySyncIsOutdated = true }
             let message = Self.bootstrapFailureMessage(error, processKind: storySyncProcessKind)
             if case let .confirming(name) = launchPhase {
                 // Keep showing the folder; it just cannot be edited yet.
@@ -2074,6 +2080,7 @@ final class StoryWorkspaceState {
     }
 
     static func bootstrapFailureMessage(_ error: Error, processKind: StorySyncProcessKind?) -> String {
+        if let outdated = error as? StorySyncOutdatedError { return outdated.localizedDescription }
         guard let diagnostic = StorySaveDiagnostic.describe(error, processKind: processKind, context: .bootstrap) else {
             return error.localizedDescription
         }
@@ -2517,6 +2524,7 @@ final class StoryWorkspaceState {
     private var checkedStorySyncInstance: String?
 
     /// Ask the connected Story Sync for its agent runs; only an old one has no such route.
+    /// (An older one still has no standard reads: `StorySyncOutdatedError`.)
     func checkStorySyncIsCurrent() async {
         guard let client = storySyncClient else { return }
         do {
@@ -4793,5 +4801,13 @@ enum StoryLaunchTiming {
         private static func milliseconds(_ duration: Duration) -> Double {
             Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15
         }
+    }
+}
+
+/// Story Sync answered without the standard reads this app opens placed trees
+/// through: it runs older code than the app.
+struct StorySyncOutdatedError: LocalizedError, Equatable {
+    var errorDescription: String? {
+        "Story Sync is out of date. Restart it from the warning in the toolbar, then try again."
     }
 }

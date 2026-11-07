@@ -440,7 +440,7 @@ struct StoryOutdatedSyncWarning: View {
         .popover(isPresented: $showing) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Story Sync is out of date").font(.headline)
-                Text("It is still running code from before this build of Story, so agent tasks can't run. Restarting it doesn't close your pages.")
+                Text("It is still running code from before this build of Story, so trees may not open and agent tasks can't run. Restarting it doesn't close your pages.")
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Spacer()
