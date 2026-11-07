@@ -250,7 +250,7 @@ acknowledge a resolution or evaluate an authority guard.
 Shared `conformance/coalesced-publication.json` vectors check the compiler in both languages;
 the TypeScript tests also run the real merge engine against concurrent peer edits.
 The runner vectors cover exact retries, restart, work after an ambiguous request and discard.
-Further byte reductions are ordered in [Clients 002](../../plans/soon/merge-002-coalesce-moves-with-edits-copies-and-undo.md),
+Further byte reductions are ordered in [Clients 002](../../plans/when-needed/merge-002-coalesce-moves-with-edits-copies-and-undo.md),
 next a move with edits inside it, then selections, copies and undo.
 
 ## Checking by hand

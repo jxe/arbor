@@ -86,7 +86,7 @@ pass; the Swift half of the protocol gate needs xcodebuild, and the object-index
 missed its startup bound on the container disk (unrelated). On Joe's Mac,
 `swift test --filter PublicationTests` in `OverstoryWorkingTree` compiles and passes all 22
 tests, including the shared vectors (worktree `~/src/arbor-merge-002`; the app was not built). Remaining cases are in
-[Clients 002](plans/soon/merge-002-coalesce-moves-with-edits-copies-and-undo.md).
+[Clients 002](plans/when-needed/merge-002-coalesce-moves-with-edits-copies-and-undo.md).
 
 ## Domain locators: your own domain names your profile — 2026-11-05
 
@@ -1398,7 +1398,7 @@ retry. The protocol run passes 124 working-tree tests and 7 live editor tests.
 A read-only check of the stuck local journal confirms all three pending edits
 fit the disjoint-source case. No installed app, live journal or public host was
 changed. Broader interior-basis support remains in
-[Clients 002](plans/soon/merge-002-coalesce-moves-with-edits-copies-and-undo.md#interior-bases-that-need-further-support).
+[Clients 002](plans/when-needed/merge-002-coalesce-moves-with-edits-copies-and-undo.md#interior-bases-that-need-further-support).
 
 ## Unchanged-content resolutions publish — 2026-09-29
 
@@ -1525,7 +1525,7 @@ result no longer reached the final candidate; both compilers now retain such
 material as an object and keep deltas only for final reachable results.
 
 Further reduction is ordered by likely frequency and byte savings in
-[Clients 002](plans/soon/merge-002-coalesce-moves-with-edits-copies-and-undo.md): plain edits across
+[Clients 002](plans/when-needed/merge-002-coalesce-moves-with-edits-copies-and-undo.md): plain edits across
 records, moves with edits, then repeated selection/subtree moves. These priorities
 are source-based estimates; the plan requires encoded-byte and preparation-cost
 measurements before broadening the implementation.

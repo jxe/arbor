@@ -1,7 +1,9 @@
 # Clients 002: coalesce moves with edits, selections, copies and undo
 
 Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
-with enough identity for overstoryd to merge concurrent work correctly. Plain
+with enough identity for overstoryd to merge concurrent work correctly. When needed
+(Joe, 2026-11-07): take it up when real journals or network logs show edit bursts
+from moves with edits, selections, copies or undo are still large. Plain
 edits across records and runs of moves on either side of other work already
 compose ([status](../../status.md#coalesced-typing-bursts-merge-002-case-1--2026-11-07));
 what is left is a move with edits inside the moved material, several selections,
