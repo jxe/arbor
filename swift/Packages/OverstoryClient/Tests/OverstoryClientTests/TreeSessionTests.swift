@@ -97,6 +97,25 @@ struct TreeSessionTests {
         #expect(!(await tree.hasUnloadedDirectories()))
     }
 
+    @Test("A directory that arrives without its pages' bodies is held unloaded, not refused")
+    func directoryWithoutBodies() throws {
+        let inner = try ProtocolObjectCodec.object(.file(Data("# Plan\n".utf8)))
+        let folder = try ProtocolObjectCodec.object(.directory([ProtocolDirectoryEntry(name: "plan.md", file: inner.hash)]))
+        let note = try ProtocolObjectCodec.object(.file(Data("# Note\n".utf8)))
+        let root = try ProtocolObjectCodec.object(.directory([
+            ProtocolDirectoryEntry(name: "march", directory: folder.hash),
+            ProtocolDirectoryEntry(name: "note.md", file: note.hash),
+        ]))
+        // An own update's projection can hold the directory but not plan.md.
+        let projection = ProtocolSnapshot(root: root.hash, objects: [root, folder, note])
+        #expect(throws: (any Error).self) {
+            _ = try SnapshotBridge.replacement(snapshot: projection, tree: "tr_visit", update: "up_2", mode: .sparseFiles)
+        }
+        let replacement = try SnapshotBridge.replacement(snapshot: projection, tree: "tr_visit", update: "up_2", mode: .lazyDirectories)
+        #expect(replacement.nodes.first { $0.path == "/march" }?.unloadedDirectory == folder.hash)
+        #expect(!replacement.nodes.contains { $0.path == "/march/plan" })
+    }
+
     @Test("A directory whose bytes do not match its hash never loads")
     func tamperedDirectory() async throws {
         let f = try fixture()

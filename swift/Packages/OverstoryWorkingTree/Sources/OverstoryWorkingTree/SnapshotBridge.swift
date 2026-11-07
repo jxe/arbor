@@ -75,6 +75,21 @@ public enum SnapshotBridge {
             return decoded
         }
 
+        /// Whether the directory `hash` arrived with every Markdown body and
+        /// collection object a node needs.
+        func holdsBodies(_ hash: String) -> Bool {
+            guard case let .directory(entries, collection)? = objects[hash] else { return false }
+            for entry in entries where entry.directory == nil && entry.tree == nil {
+                guard entry.page != nil || entry.name.hasSuffix(".md") else { continue }
+                guard let body = entry.hash, objects[body] != nil else { return false }
+            }
+            for table in collection?.tables ?? [] {
+                guard case let .table(object)? = objects[table.table] else { return false }
+                if object.chunks.contains(where: { bytesByHash[$0.chunk] == nil }) { return false }
+            }
+            return true
+        }
+
         func appendNode(_ node: WorkingTreeSystemNode) throws {
             guard logicalPaths.insert(node.path).inserted else {
                 throw ProtocolValidationError.invalidValue("Duplicate logical path \(node.path)")
@@ -172,6 +187,18 @@ public enum SnapshotBridge {
                         siblingSource = try markdownSource(siblingHash)
                     } else {
                         siblingSource = nil
+                    }
+                    if lazy, !holdsBodies(childHash) {
+                        // Present but without every body (a replay that changed it,
+                        // a graph cut before its pages were read): held unloaded,
+                        // so it loads again, checked, when a path below it is asked for.
+                        try appendNode(WorkingTreeSystemNode(
+                            path: destination,
+                            content: .directory(source: siblingSource),
+                            directoryBodyPlacement: siblingSource != nil ? .siblingMarkdown : nil,
+                            unloadedDirectory: childHash
+                        ))
+                        continue
                     }
                     try visitDirectory(childHash, path: destination, siblingMarkdownSource: siblingSource)
                 case .file, .page:

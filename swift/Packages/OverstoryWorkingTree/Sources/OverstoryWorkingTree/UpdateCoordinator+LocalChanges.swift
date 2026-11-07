@@ -42,7 +42,7 @@ extension UpdateCoordinator {
         let prepared: (record: LocalChange, node: WorkspaceNode)
         if let previous = preparedStructures[key] { prepared = previous }
         else {
-            let graph: ProtocolSnapshot, basis: LocalChangeBasis
+            var graph: ProtocolSnapshot, basis: LocalChangeBasis
             if let latest = try await pendingLocalChanges().last {
                 graph = latest.candidate; basis = .authored(change: latest.change)
             } else {
@@ -88,6 +88,9 @@ extension UpdateCoordinator {
                     node = try await provider.importFile(name: name, bytes: bytes, mediaType: mediaType, in: parent)
                 }
                 let candidate = try await staging.localSnapshot()
+                // Directories loaded since `graph` was cut are read into it, so
+                // the change is computed between two graphs that both hold them.
+                graph = try await workingTree.hydrating(graph, toward: candidate)
                 var actions: EntryActions?
                 if let old = transferred, old.kind != .boundary {
                     let moved = try await staging.resolve(node.reference)

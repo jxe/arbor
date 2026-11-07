@@ -670,6 +670,43 @@ public actor WorkingTree {
         return graph
     }
 
+    /// `graph` (an earlier candidate or accepted graph, cut when fewer
+    /// directories were loaded) with the directories `candidate` changes
+    /// filled in: wherever both name a directory at the same path, the
+    /// candidate holds it and the hashes differ, the base directory is read
+    /// (with its bodies and collection) so a change can be computed between
+    /// them. Unchanged directories are left as they are.
+    public func hydrating(_ graph: ProtocolSnapshot, toward candidate: ProtocolSnapshot) async throws -> ProtocolSnapshot {
+        try requireOpen()
+        var objects = Dictionary(graph.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
+        let held = Dictionary(candidate.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
+        func entries(_ bytes: Data?) throws -> [ProtocolDirectoryEntry] {
+            guard let bytes, case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else { return [] }
+            return entries
+        }
+        var pending: [(base: String, next: String, path: String)] = [(graph.root, candidate.root, "/")]
+        var added = false
+        while let pair = pending.popLast() {
+            guard pair.base != pair.next, let nextBytes = held[pair.next] else { continue }
+            if objects[pair.base] == nil {
+                for object in try await directoryObjects(pair.base, at: pair.path) where objects[object.hash] == nil {
+                    objects[object.hash] = object.bytes
+                }
+                added = true
+            }
+            let nextEntries = try entries(nextBytes)
+            for entry in try entries(objects[pair.base]) {
+                guard let base = entry.directory,
+                      let next = nextEntries.first(where: { $0.name == entry.name })?.directory else { continue }
+                pending.append((base, next, WorkingTreeSemantics.child(entry.name, of: pair.path)))
+            }
+        }
+        guard added else { return graph }
+        let result = ProtocolSnapshot(root: graph.root, objects: objects.map { ProtocolObjectEnvelope(hash: $0.key, bytes: $0.value) }.sorted { $0.hash < $1.hash })
+        _ = try ProtocolObjectGraph.validate(result, mode: .lazyDirectories)
+        return result
+    }
+
     /// Read the unloaded directories in `directories` (concurrently) and
     /// splice their entries into the state. Nothing hashed changes, so the
     /// result must have the same root: a directory whose bytes do not rebuild
