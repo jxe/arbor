@@ -20,7 +20,7 @@ On main since fa661f3, 2026-11-07
 - [ ] Launch timings on the Mac with the branch's Story: `tree-open`, `launch-preview` and
   `editor-drawn` in `~/Library/Application Support/Story/Logs/network-<date>.jsonl`, against
   main's. The placed tree must not open slower. The numbers decide
-  [Clients 003](soon/clients-003-launch-preview-and-choosing-the-way.md) step 1.
+  [Clients 003](soon/clients-003-launch-preview-as-the-session.md).
 - [ ] First launch: allow the Keychain prompt for Story Sync's device key once; Story then
   opens sessions itself.
 - [ ] Open pages in folders you haven't opened yet, edit one while Story Sync is behind, and

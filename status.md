@@ -42,6 +42,18 @@ Sync** (Mac placed trees). Built in seven steps (5d85051 to 286d56f):
   use the session (Story Sync is the "everything plus a folder" way already). The Web 025
   host was not moved onto it (Joe: Story web is not important).
 
+Follow-ups on main after the merge (2026-11-07): an outdated Story Sync (still running code
+from before Clients 003) is named in the toolbar warning instead of "Try Again" (5fdb4ed);
+directory loads read concurrently (f14bcb2) and a page opens with one path read (cfd5895);
+a directory that arrives without its pages' bodies is held unloaded, and a structural edit's
+base graph is filled with the directories the candidate loaded (d14e9ef, 3047058: an image
+paste failed with incompleteGraph before); a staging fork that loads the whole tree goes
+through its parent and the folder (e19d217: 121 loopback reads at a launch with a pending
+paste, against 16). Visits choose the way with `TreeWay.choose` (fde6847): Alongside when
+Story Sync has the tree placed here, a replica when the person can write and it fits on
+disk (twice the replica already kept plus 1 GB), Browse otherwise; `defaults write
+<Story's domain> treeWay.<tree id> browse|replica|alongside` overrides it when the way can work.
+
 Removed: `DaemonObjectStore`, `StorySyncCredentialProvider`, `StoryVisitSnapshot`,
 `StoryVisitFollower`, `WorkingTreePlacementService`, `UpdateCoordinator.sparseDirectoryGraph`,
 `TreeSpine`, `SpineFetch`, and the bootstrap, object and credential routes and client calls.

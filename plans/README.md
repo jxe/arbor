@@ -123,10 +123,9 @@ into plans, laying out rows in code) replace queries; the sidecar runs
 them from trees, and they are turned on in the host, still as their caller. First of the
 three apps plans Joe split on 2026-11-06.
 
-**[Clients 003: the launch preview as the session, and choosing the way from facts](soon/clients-003-launch-preview-and-choosing-the-way.md).**
+**[Clients 003: the launch preview as the session](soon/clients-003-launch-preview-as-the-session.md).**
 What is left of the one client library: once Joe's launch timings are in, the Mac's launch
-preview becomes the Alongside Story Sync session itself, and a small policy picks Browse,
-Replica or Alongside from facts about the machine rather than from the call site.
+preview becomes the Alongside Story Sync session itself.
 
 **[Filesystem 026: page provenance, and dropping Markdown file entries](soon/filesystem-026-page-provenance-and-cleanup.md).**
 Pages are logical nodes, written to disk by each placement: built, released in 0.1.6 and
