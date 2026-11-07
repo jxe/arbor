@@ -23,37 +23,30 @@ whole.
 - **The spec allows it.** A snapshot may be installed sparsely: directories and
   Markdown present, every other file referenced by hash, provided every hash is
   resolvable on demand and the spine validates.
-- **Catch-up already does it.** `UpdateCoordinator.sparseDirectoryGraph`
-  (`swift/Packages/OverstoryWorkingTree/Sources/OverstoryWorkingTree/UpdateCoordinator.swift`)
-  walks the spine from a root object by object, reuses local objects, fetches
-  the rest through the tree-scoped object route, validates with
-  `ProtocolObjectGraph.validate(_, mode: .sparseFiles)`, and installs it.
-- **iOS resolves absent files already.** `StoryAppModel` opens each working tree
-  over `HostObjectStore`, which reads any object by hash from the host, and
-  `WorkingTree.objectBytes` reads its own overlay first.
-- **Only placement is whole.** `WorkingTreePlacementService.place`
-  (`swift/Packages/OverstoryClient/Sources/OverstoryClient/WorkingTreePlacementService.swift`)
-  still calls `transport.snapshot`, which buffers the complete bundle
-  (`ProtocolClient.snapshot`, `URLSession.data(for:)`) before anything is
-  installed. On a slow connection that looks stuck, and a timeout starts over.
-  The Mac places through the daemon's loopback sparse bootstrap and is out of
-  scope.
+- **The engine already loads lazily.** Since Clients 003 a `TreeSession` opens a tree
+  with a prefetch setting: `openedPages` holds the root and loads each directory, with
+  its Markdown bodies, through the object sources on first use
+  (`WorkingTree.ensureLoaded`), checked against its hash; installs read
+  `WorkingTree.acceptedGraph`. iPhone trees open as a Replica (`prefetch:
+  .everything`, on disk), which still places from one whole snapshot
+  (`TreeSession.openOrPlaceReplica` calls `transport.snapshot`, buffered whole before
+  anything is installed). On a slow connection that looks stuck, and a timeout starts
+  over.
 
 ## Work
 
-1. **One spine walker.** Move the spine walk out of `UpdateCoordinator` into a
-   shared function in `OverstoryWorkingTree` that takes a root, a local object
-   lookup and a fetch, and reports progress (objects and bytes fetched, directories
-   still to visit). Catch-up and placement both call it.
-2. **Sparse placement.** `WorkingTreePlacementService.place` pins the descriptor,
-   walks the spine from its root, and installs with `mode: .sparseFiles`, recording
-   the pinned update and cursor as today. Keep `transport.snapshot` as the fallback
-   when an object read is unavailable, as catch-up does.
+1. **Progress from the walk.** `WorkingTree.acceptedGraph` reports progress (objects
+   and bytes fetched, directories still to visit).
+2. **Sparse placement.** A Replica places by pinning the descriptor and installing
+   `acceptedGraph` (or opening lazily and running `loadEverything` in the
+   background), recording the pinned update and cursor as today. Keep
+   `transport.snapshot` as the fallback when an object read is unavailable, as
+   catch-up does.
 3. **Resume by keeping what arrived.** Write each verified object into the new
    working tree's object store as it arrives, before the install, so an
    interrupted placement resumes by walking again and fetching only what is
    missing. The working tree is not marked placed (no `materialized/tree.json`,
-   no format marker) until the install succeeds, so `openOrPlaceWorkingTree`
+   no format marker) until the install succeeds, so `TreeSession.openOrPlaceReplica`
    retries placement rather than opening a half-placed tree.
 4. **Fetch concurrency.** Fetch a directory's children with bounded concurrency
    (for example 8 at a time); one object per request over a slow link is otherwise

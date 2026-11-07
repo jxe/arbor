@@ -131,13 +131,10 @@ idle-based publication baseline, extend simplification beyond repeated moves of
 one unchanged span. Implement each case in the Swift and TypeScript clients,
 using shared examples and the host merge engine to prove the result.
 
-**[Clients 003: one client library, three ways to hold a tree](soon/clients-003-one-client-library-three-ways-to-hold-a-tree.md).**
-Joe wants apps like Story to be easy to build on any platform, with alongside-Story-Sync,
-replica and page-by-page ways of holding a tree sharing one engine. Seven modules ported
-alike in each language; one engine with prefetch, object-source and durability settings;
-path read and payload-free watch; Story Sync serves the standard reads. On the Mac, placed
-trees read pages only from the folder and visits load page by page. Removes Story Sync's
-bootstrap, object and credential endpoints and Story's five separate ways of opening a tree.
+**[Clients 003: the launch preview as the session, and choosing the way from facts](soon/clients-003-launch-preview-and-choosing-the-way.md).**
+What is left of the one client library: once Joe's launch timings are in, the Mac's launch
+preview becomes the Alongside Story Sync session itself, and a small policy picks Browse,
+Replica or Alongside from facts about the machine rather than from the call site.
 
 **[Filesystem 026: page provenance, and dropping Markdown file entries](soon/filesystem-026-page-provenance-and-cleanup.md).**
 Pages are logical nodes, written to disk by each placement: built, released in 0.1.6 and

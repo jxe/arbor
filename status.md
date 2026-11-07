@@ -12,6 +12,51 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Clients 003: one client library, three ways to hold a tree — 2026-11-07
+
+**Implemented** on branch `claude/project-thread-71wcm4` (not on main: it changes overstoryd
+routes, and pushing main redeploys the host; Joe's go-ahead pending). Every client-library
+port has the same seven modules ([porting guide](docs/implementing-sync-services/porting-a-client.md);
+`bun tools/client-parity.ts` compares TypeScript and Swift), and one engine holds a tree in
+three ways: **Browse** (visits; page by page from the host), **Replica** (iPhone trees, the
+Mac's writable remote trees and the personal directory; whole, on disk) and **Alongside Story
+Sync** (Mac placed trees). Built in seven steps (5d85051 to 286d56f):
+
+- The Swift engine imports no app package (step 1).
+- Story Sync serves the standard reads on loopback (descriptor, snapshots, path read,
+  objects, entry metadata, watch); `/v1/bootstrap` and `/v1/objects` are gone (step 2).
+- Swift `TreeSession` opens every tree from settings (prefetch, object sources, index in
+  memory or on disk, change log). The Mac reads the data home's device key itself
+  (Keychain or `device-key` file) and opens its own sessions, sharing `session.json` with
+  the CLI; `/v1/credential` is gone (step 3).
+- The node index is lazy in both languages (step 4, step 6). A directory not yet loaded is
+  held by its accepted hash, so every edit is computed against the accepted root; a load is
+  checked against the hash and refused if it does not rebuild the same root. Alongside Story
+  Sync reads each Markdown body from the placed folder only when the file rebuilds the
+  accepted entry's hash, and from Story Sync otherwise. Placed trees no longer read a
+  spine at open; a visit opens its first page with one path read and follows the watch
+  without payloads. Search, and a page ID not among the loaded pages, load the whole tree.
+- Path read and payload-free watch in the spec, overstoryd and both clients (step 5).
+- TypeScript `ObjectSourceChain`, `NodeIndex` and `TreeSession` (step 6). Story Sync's path
+  reads go through a per-tree `NodeIndex`; its `TreeManager` keeps the folder and does not
+  use the session (Story Sync is the "everything plus a folder" way already). The Web 025
+  host was not moved onto it (Joe: Story web is not important).
+
+Removed: `DaemonObjectStore`, `StorySyncCredentialProvider`, `StoryVisitSnapshot`,
+`StoryVisitFollower`, `WorkingTreePlacementService`, `UpdateCoordinator.sparseDirectoryGraph`,
+`TreeSpine`, `SpineFetch`, and the bootstrap, object and credential routes and client calls.
+
+Validation (at 286d56f, Swift on Joe's Mac in a separate worktree): `swift test` passes in
+Overstory (86), OverstoryObjectStore (3), OverstoryWorkingTree (144) and OverstoryClient (37,
+including lazy loading, a tampered directory that never loads, and an edit beside an
+unloaded directory keeping its hash); the app builds for testing; StorySyncClientTests and
+the loopback suite pass. The full StoryAppTests run has two failures that don't involve the
+working tree: a group member written as a bare link (no longer a member since de57e211) and
+child links refreshing over an in-memory provider; neither was checked against main.
+TypeScript: object sources, path reads and a Browse session
+(`tests/unit/object-sources.test.ts`, `tests/integration/overstoryd/path-read.test.ts`).
+Not tried by hand; launch timings not measured ([joe.md](plans/joe.md#clients-003)).
+
 ## Domain locators: your own domain names your profile — 2026-11-05
 
 **Implemented** on main, deployed with it (overstoryd); Names 001 steps 1-4. A person can

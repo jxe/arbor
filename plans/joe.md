@@ -12,6 +12,23 @@ when it was a gate for something.
 
 ## Hand checks
 
+### Clients 003
+
+Built on branch `claude/project-thread-71wcm4`
+([status](../status.md#clients-003-one-client-library-three-ways-to-hold-a-tree--2026-11-07)).
+
+- [ ] Launch timings on the Mac with the branch's Story: `tree-open`, `launch-preview` and
+  `editor-drawn` in `~/Library/Application Support/Story/Logs/network-<date>.jsonl`, against
+  main's. The placed tree must not open slower. The numbers decide
+  [Clients 003](soon/clients-003-launch-preview-and-choosing-the-way.md) step 1.
+- [ ] First launch: allow the Keychain prompt for Story Sync's device key once; Story then
+  opens sessions itself.
+- [ ] Open pages in folders you haven't opened yet, edit one while Story Sync is behind, and
+  check a folder file edited outside Story never shows as the accepted page.
+- [ ] Visit a large tree: the first page opens without a snapshot download (network log
+  shows a path read).
+- [ ] iPhone: a placed tree and the personal directory open and sync as before.
+
 ### Inviting and joining
 
 Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-people-and-joining-by-invitation--2026-10-11)).
@@ -89,6 +106,10 @@ Built 2026-11-07 ([status](../status.md#invite-from-the-command-line-and-hosts-o
 
 ## Releases and publishing
 
+- [ ] **Quagmire 0.16.0** with the next arbor release: main builds only against local
+  Quagmire, because the pinned 0.15.0 lacks `EditorPeer(avatar:)`. Release it and move
+  arbor's pin (found while building Clients 003, 2026-11-07).
+
 ### Sharing 004: Railway template
 
 Built 2026-11-05 ([status](../status.md#start-your-own-community-from-a-railway-template--2026-11-05)).
@@ -104,6 +125,10 @@ Built 2026-11-05 ([status](../status.md#start-your-own-community-from-a-railway-
 
 Steps a session has ready but must not take without Joe's word, because they change live
 data or something outside the repository.
+
+- [ ] **Merge Clients 003 to main** (branch `claude/project-thread-71wcm4`). That redeploys
+  overstoryd with path reads and the `objects=none` watch; rehearse first per the
+  host-deploy rule. After the hand checks under [Clients 003](#clients-003).
 
 - [ ] **Schedule the object collector.** Run the `railway ssh` collection command
   ([deployment](../packages/overstoryd/deploy/README.md#collecting-unreferenced-objects))

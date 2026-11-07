@@ -128,6 +128,11 @@ is a present directory, every present object is reachable, and the graph is
 acyclic). A payload-less entry the client cannot classify as a file fails the
 install.
 
+A client MAY also hold only some directories and load the others by hash when a
+path below them is first read (a lazy node index). Each directory it loads must
+be checked against the hash its parent names, and a candidate it builds carries
+every directory it has not loaded under that same hash, unchanged.
+
 ```text
 GET /.overstory/trees/{TreeID}
 GET /.overstory/trees/{TreeID}/snapshots/{root}
