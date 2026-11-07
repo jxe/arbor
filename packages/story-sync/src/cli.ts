@@ -53,6 +53,8 @@ export async function runStorySyncDaemon(args = process.argv.slice(2)): Promise<
   const running = control
     ? await serveStorySyncControl(serverOptions)
     : await serveStorySync(resolve(positionals[0] ?? "."), serverOptions);
+  // The device's own Story Sync runs the person's tasks from their other devices; a cloud session's does not.
+  if (control && runtimeKind !== "cloud" && process.env.STORY_SYNC_RUNNER !== "0") running.service.startRunner();
   if (running.mode === "workspace") console.log(`Story Sync is serving ${running.start} at ${running.url}`);
   else console.log(`Story Sync control service is listening at ${running.url}`);
   let shuttingDown = false;

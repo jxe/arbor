@@ -179,6 +179,15 @@ export class StorySyncRESTClient {
     });
   }
 
+  /** Whether this device runs the person's tasks from their other devices, and on which trees it is offered now. */
+  runner(enabled?: boolean): Promise<{ enabled: boolean; label: string; trees: string[] }> {
+    return this.request("/v1/agents/runner", enabled === undefined ? {} : {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
   resolve(locator: string): Promise<LocatorResolution> {
     return this.request(`/v1/resolve?locator=${encodeURIComponent(locator)}`);
   }

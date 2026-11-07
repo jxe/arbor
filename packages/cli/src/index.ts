@@ -102,13 +102,20 @@ Folders
   story mv [--dry-run] <source-canonical-url> <destination-canonical-url>
       Move a placed folder on this device, or rename it on its host.
 
-Agents
+Agents, for you
   story agent create [--name <label>] --place <canonical-url> <relative-path> [...]
       Make an agent bundle: a revocable string that lets an agent work in the chosen folders and nothing else.
   story agent list [--json]
   story agent revoke <bundle-id>
   story agent run [<bundle-string>] [--root <directory>] [--timeout <duration>] [-- <command> [<argument>...]]
       In the agent's workspace: check those folders out, run the command there, then send what is left and stop.
+  story agent runner [on|off]
+      Whether this Mac runs tasks you send from your other devices (Run on the iPhone). On by default.
+  story agent install [--command <path>] [--agent <label>]
+  story agent uninstall
+      Add (or remove) the hooks, the skill and the permission that let Claude Code sessions in placed folders show up in Story.
+
+Agents, for the agent
   story agent start [<bundle-string>] [--task <run request>] [--root <directory>] [--timeout <duration>] [--json]
       Check those folders out and keep them syncing, for a harness that starts the agent itself.
       With --task (JSON, or @file, or STORY_RUN_REQUEST): also take on that task, in a tree placed here
@@ -120,9 +127,6 @@ Agents
       From an agent in a placed folder: say what it is doing, or what it did; Story shows it beside the agent's cursor.
   story agent hook [--agent <label>]
       Read a Claude Code hook's JSON on stdin and show the agent's page and cursor. Never fails the agent.
-  story agent install [--command <path>] [--agent <label>]
-  story agent uninstall
-      Add (or remove) the hooks, the skill and the permission that let Claude Code sessions in placed folders show up in Story.
 
 People
   story invite <account-url>
@@ -2091,6 +2095,16 @@ async function agentHookCommand(operands: string[]): Promise<void> {
   }
 }
 
+/** `story agent runner [on|off]`: whether this Mac's Story Sync runs tasks sent from the person's other devices. */
+async function agentRunnerCommand(operands: string[]): Promise<void> {
+  if (operands.length > 1 || (operands[0] !== undefined && operands[0] !== "on" && operands[0] !== "off")) usageError("story agent runner takes on, off, or nothing");
+  const client = new StorySyncRESTClient({ baseURL: process.env.STORY_SYNC_URL ?? await storySyncOrigin() });
+  const status = await client.runner(operands[0] === undefined ? undefined : operands[0] === "on");
+  if (!status.enabled) console.log(`"${status.label}" does not run tasks from your other devices. Turn it on with: story agent runner on`);
+  else if (!status.trees.length) console.log(`"${status.label}" runs tasks from your other devices, but is not offered on any tree yet: it is offered on each tree placed here while Story Sync is connected.`);
+  else console.log(`"${status.label}" runs tasks from your other devices, on ${status.trees.length} tree${status.trees.length === 1 ? "" : "s"} placed here.`);
+}
+
 async function agentInstallCommand(operands: string[]): Promise<void> {
   const options: { command?: string; agent?: string } = {};
   for (let index = 0; index < operands.length; index += 1) {
@@ -2132,6 +2146,7 @@ async function main(): Promise<void> {
     else if (action === "finish") await finishCloud(operands);
     else if (action === "status" || action === "done") await agentTextCommand(action, operands);
     else if (action === "hook") await agentHookCommand(operands);
+    else if (action === "runner") await agentRunnerCommand(operands);
     else if (action === "install") await agentInstallCommand(operands);
     else if (action === "uninstall") {
       if (operands.length) usage();

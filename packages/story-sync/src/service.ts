@@ -23,6 +23,7 @@ import { TreeObjectCache } from "./object-cache.ts";
 import { TreeManager } from "./tree-manager.ts";
 import { AgentSessions } from "./agents.ts";
 import { AgentRuns } from "./agent-runs.ts";
+import { TaskRunner } from "./task-runner.ts";
 import { ProtocolError, Workspace, type WorkspaceOptions } from "./workspace.ts";
 
 export { resolveUserPath } from "@ovst/client";
@@ -96,6 +97,8 @@ export class StorySyncDaemon implements AsyncDisposable {
   readonly agents: AgentSessions;
   /** Tasks run by the person's own agent in a placed folder. */
   readonly runs: AgentRuns;
+  /** This device as a runner of the person's tasks from their other devices; started by `startRunner`. */
+  readonly runner: TaskRunner;
 
   private constructor(events: EventBus, trees: TreeManager, options: StorySyncDaemonOptions = {}) {
     this.connections = options.connections ?? localSyncConnections();
@@ -152,6 +155,15 @@ export class StorySyncDaemon implements AsyncDisposable {
       },
       stateDirectory: join(storyDataRoot(), ".state"),
     }, this.agents);
+    this.runner = new TaskRunner({
+      trees: async () => (await trees.descriptors())
+        .filter((tree) => tree.placement === "placed" && tree.osPath && !tree.missing && trees.placementFor(tree.id))
+        .map((tree) => tree.id),
+      presence: async (tree) => {
+        const placement = trees.placementFor(tree);
+        return placement ? this.accountClient(placement) : undefined;
+      },
+    }, this.runs, { settingsPath: join(storyDataRoot(), ".state", "runner.json") });
     if (options.autoSync !== false) this.startAutoSync(options.syncIntervalMs);
   }
 
@@ -769,8 +781,14 @@ export class StorySyncDaemon implements AsyncDisposable {
     }
   }
 
+  /** Run the person's tasks sent from their other devices (Agents 002): only the device's own long-lived Story Sync does. */
+  startRunner(): void {
+    this.runner.start();
+  }
+
   async [Symbol.asyncDispose](): Promise<void> {
     if (this.syncStartupTimer) clearTimeout(this.syncStartupTimer);
+    await this.runner[Symbol.asyncDispose]();
     await this.runs[Symbol.asyncDispose]();
     await this.agents[Symbol.asyncDispose]();
     if (this.syncing) await new Promise<void>((resolve) => this.syncWaiters.push(resolve));

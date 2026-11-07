@@ -7,7 +7,7 @@ import { AgentRunError } from "./agent-runs.ts";
 
 type SyncHTTPService = Pick<StorySyncDaemon,
   "events" | "synchronizeNow" | "moveLocalPlacement" | "treeList" |
-  "agents" | "runs" | "treeForURL" | "declinedChanges" | "discardHeldChanges" | "restoreDeclined" | "resendDeclined" | "resolveLocator" | "pauseFolder" | "resumeFolder" | "pendingUpdate">;
+  "agents" | "runs" | "runner" | "treeForURL" | "declinedChanges" | "discardHeldChanges" | "restoreDeclined" | "resendDeclined" | "resolveLocator" | "pauseFolder" | "resumeFolder" | "pendingUpdate">;
 
 export function syncHandler(service: SyncHTTPService, options: {
   instanceID: string;
@@ -64,6 +64,14 @@ export function syncHandler(service: SyncHTTPService, options: {
       if (typeof body.cwd !== "string" || !body.cwd.startsWith("/")) throw new ProtocolError("invalid-request", "cwd must be an absolute path", 400);
       const result = await service.agents.report(body as unknown as Parameters<typeof service.agents.report>[0]);
       return json(result ?? { ignored: "not-placed" });
+    }
+    if (url.pathname === "/v1/agents/runner") {
+      if (request.method === "GET") return json(service.runner.status());
+      if (request.method === "POST") {
+        const body = await request.json().catch(() => null) as { enabled?: unknown } | null;
+        if (typeof body?.enabled !== "boolean") throw new ProtocolError("invalid-request", "Say whether this device runs tasks: { enabled: true | false }", 400);
+        return json(await service.runner.setEnabled(body.enabled));
+      }
     }
     if (request.method === "GET" && url.pathname === "/v1/agents") {
       return json(service.agents.list());

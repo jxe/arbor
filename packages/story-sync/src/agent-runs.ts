@@ -300,6 +300,8 @@ export class AgentRuns {
   /** Each tree's queue: runs on one tree go one at a time. */
   private readonly tails = new Map<string, Promise<void>>();
   private readonly snapshotMs: number;
+  /** Who waits for each run to end. */
+  private readonly waiters = new Map<string, Array<(run: AgentRun) => void>>();
 
   constructor(private readonly host: AgentRunHost, private readonly agents: AgentSessions, private readonly options: AgentRunsOptions = {}) {
     this.snapshotMs = options.snapshotMs ?? 24 * 60 * 60_000;
@@ -365,6 +367,23 @@ export class AgentRuns {
     return [...this.runs.values()].map((run) => this.view(run, allowed));
   }
 
+  /** The run once it has ended: finished, failed or stopped. */
+  ended(id: string): Promise<AgentRun> {
+    const run = this.require(id);
+    if (run.state !== "queued" && run.state !== "running") return Promise.resolve(this.view(run));
+    return new Promise((resolve) => {
+      const waiting = this.waiters.get(id) ?? [];
+      waiting.push(resolve);
+      this.waiters.set(id, waiting);
+    });
+  }
+
+  private ending(run: RunRecord): void {
+    const waiting = this.waiters.get(run.id);
+    this.waiters.delete(run.id);
+    for (const resolve of waiting ?? []) resolve(this.view(run));
+  }
+
   get(id: string): AgentRun | undefined {
     const run = this.runs.get(id);
     return run ? this.view(run) : undefined;
@@ -407,7 +426,7 @@ export class AgentRuns {
   stop(id: string): AgentRun {
     const run = this.require(id);
     run.stopRequested = true;
-    if (run.state === "queued") { run.state = "stopped"; run.finishedAt = Date.now(); }
+    if (run.state === "queued") { run.state = "stopped"; run.result = "Stopped"; run.finishedAt = Date.now(); this.ending(run); }
     run.process?.kill("SIGTERM");
     // An external run's agent is not ours to stop: it leaves presence, and the block stays.
     if (run.external && run.state === "running") this.agents.end(run.session);
@@ -519,17 +538,18 @@ export class AgentRuns {
       const marked = said !== undefined && !run.stopRequested ? await this.markDone(run, pagePath) : null;
       if (run.stopRequested) { run.state = "stopped"; run.result = "Stopped"; }
       else if (said !== undefined) { run.state = "finished"; run.result = said; }
-      else { run.state = "failed"; run.result = "The agent stopped without saying it was done"; }
+      else { run.state = "failed"; run.result ??= "The agent stopped without saying it was done"; }
       run.changed = marked ? [marked.path] : [];
       run.finishedAt = Date.now();
       await this.save();
       await this.host.release?.(run.tree, run.session).catch(() => {});
       await this.host.publish(run.tree).catch(() => {});
+      this.ending(run);
     };
     if (!shown || !this.agents.onSettle(run.session, finish)) {
       // Presence could not be opened here: the run is no one's to finish.
-      await finish(undefined);
       run.result = "Story could not show the agent in this tree's presence";
+      await finish(undefined);
     }
   }
 
@@ -635,6 +655,7 @@ export class AgentRuns {
     if (run.state !== "finished" || this.agents.result(run.session) === undefined) {
       await report({ done: run.state === "finished" ? run.result! : `${run.state === "stopped" ? "Stopped" : "Failed"}: ${run.result}` });
     }
+    this.ending(run);
   }
 
   /** The agent's own `done` line if it said one, otherwise its final message's first line. */
