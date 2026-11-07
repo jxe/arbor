@@ -1627,9 +1627,12 @@ final class StoryWorkspaceState {
             return
         }
         let tree = resolution.enclosingTree
+        // The way to hold the tree comes from facts, not from this call site.
+        let placedHere = remote.configuration ? false : await isPlacedOnThisMac(tree.id)
+        let way = TreeWay.choose(treeWayFacts(tree, placedHere: placedHere))
         // A tree placed on this Mac opens as its working tree, which knows its
         // folder, even when the locator's address did not match the placement's.
-        if !remote.configuration, await isPlacedOnThisMac(tree.id) {
+        if way == .alongsideStorySync {
             let page = resolution.ref.tree == tree.id && resolution.ref.path != "/" ? resolution.ref.path : nil
             try await openPlacedTree(tree.id, page: page)
             return
@@ -1645,7 +1648,7 @@ final class StoryWorkspaceState {
         } catch {
             Self.recordDiagnostic("visit-record", error)
         }
-        if tree.grantsWrite {
+        if way == .replica {
             try await openWritableRemoteTree(tree: tree, locator: rootLocator, client: client)
             return
         }
@@ -1698,6 +1701,7 @@ final class StoryWorkspaceState {
                 changeLogRecoveryName: "RemoteSync"
             ),
             changeLog: StorySupportDirectories.remoteSync.appending(path: key, directoryHint: .isDirectory),
+            readOnly: !tree.grantsWrite,
             transportAvailable: nativeTransportAvailable
         ))
         refreshEntryDates(session)
@@ -2177,6 +2181,35 @@ final class StoryWorkspaceState {
 #if os(macOS)
     /// Whether story-sync keeps `tree` in a folder on this Mac, asking it again
     /// when the overview does not list the tree yet.
+    /// What `TreeWay.choose` decides from for `tree`: whether Story Sync has
+    /// it placed here, whether the person can change it, the free space where
+    /// a replica would live, the size of a replica already kept, and the
+    /// person's override (`defaults write … treeWay.<tree id> browse|replica|alongside`).
+    private func treeWayFacts(_ tree: ProtocolTreeDescriptor, placedHere: Bool) -> TreeWay.Facts {
+        let replicas = StorySupportDirectories.remoteWorkingTrees
+        let volume = FileManager.default.fileExists(atPath: replicas.path) ? replicas : StorySupportDirectories.root
+        let free = (try? volume.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage
+        return TreeWay.Facts(
+            placedWithStorySync: placedHere,
+            canWrite: tree.grantsWrite,
+            freeDiskBytes: free,
+            treeBytes: Self.allocatedBytes(replicas.appending(path: StorySupportDirectories.workingTreeKey(tree.id), directoryHint: .isDirectory)),
+            override: UserDefaults.standard.string(forKey: "treeWay.\(tree.id)").flatMap(TreeWay.init(rawValue:))
+        )
+    }
+
+    /// The bytes the files under `folder` take, or nil when there is none.
+    nonisolated private static func allocatedBytes(_ folder: URL) -> Int64? {
+        guard FileManager.default.fileExists(atPath: folder.path),
+              let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) else { return nil }
+        var total: Int64 = 0
+        for case let file as URL in files {
+            total += Int64((try? file.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?.totalFileAllocatedSize ?? 0)
+        }
+        return total
+    }
+
     private func isPlacedOnThisMac(_ tree: String) async -> Bool {
         func listed() -> Bool {
             localStorySyncOverview?.trees.contains { $0.id == tree && $0.path != nil && $0.missing != true } == true
