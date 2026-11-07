@@ -518,12 +518,10 @@ public actor WorkingTree {
         }
         for path in prefixes {
             guard let node = state.nodes.first(where: { $0.path == path }) else { return }
-            if let hash = node.subtree { try await load(path, hash: hash) }
+            if let hash = node.subtree { try await load([(path: path, hash: hash)]) }
         }
         guard children else { return }
-        for child in childNodes(of: target) {
-            if let hash = child.subtree { try await load(child.path, hash: hash) }
-        }
+        try await load(childNodes(of: target).compactMap { child in child.subtree.map { (path: child.path, hash: $0) } })
     }
 
     /// Load every directory at or below `path`: what a copy needs.
@@ -531,125 +529,187 @@ public actor WorkingTree {
         try await ensureLoaded(path)
         guard let target = try? WorkingTreeSemantics.normalizePath(path) else { return }
         if let parent { try? await parent.loadSubtree(target) }
-        while let node = state.nodes.first(where: { $0.subtree != nil && ($0.path == target || WorkingTreeSemantics.isDescendant($0.path, of: target)) }),
-              let hash = node.subtree {
-            try await load(node.path, hash: hash)
-        }
+        try await loadAll { $0 == target || WorkingTreeSemantics.isDescendant($0, of: target) }
     }
 
     /// Load every directory: what search needs, and what a page ID that is
     /// not among the loaded pages needs to resolve.
     public func loadEverything() async throws {
         try requireOpen()
-        while let node = state.nodes.first(where: { $0.subtree != nil }), let hash = node.subtree {
-            try await load(node.path, hash: hash)
+        try await loadAll { _ in true }
+    }
+
+    /// Load the unloaded directories whose paths pass `included`, a level at a time.
+    private func loadAll(_ included: (String) -> Bool) async throws {
+        while true {
+            let level: [(path: String, hash: String)] = state.nodes.compactMap { node in
+                guard let hash = node.subtree, included(node.path) else { return nil }
+                return (path: node.path, hash: hash)
+            }
+            if level.isEmpty { return }
+            try await load(level)
+            // A pass that loaded none of them must not spin.
+            if level.allSatisfy({ item in state.nodes.contains { $0.path == item.path && $0.subtree == item.hash } }) { return }
         }
     }
 
-    /// The directory object `hash` with the objects a node needs from it: its
-    /// Markdown bodies and its collection's tables and rows, each read through
-    /// `objectBytes` and checked against its hash. Child directories are not
-    /// read.
-    private func directoryObjects(_ hash: String, at path: String, fallback: (@Sendable (String) async throws -> Data)? = nil) async throws -> [ProtocolObjectEnvelope] {
-        func read(_ hash: String) async throws -> Data {
-            do { return try await objectBytes(hash: hash) }
-            catch ObjectStoreError.missing {
-                guard let fallback else { throw ObjectStoreError.missing(hash) }
-                return try verifyObject(try await fallback(hash), hash: hash)
+    /// One object through `objectBytes`, then `fallback`, checked against its hash.
+    private func readObject(_ hash: String, fallback: (@Sendable (String) async throws -> Data)?) async throws -> Data {
+        do { return try await objectBytes(hash: hash) }
+        catch ObjectStoreError.missing {
+            guard let fallback else { throw ObjectStoreError.missing(hash) }
+            return try verifyObject(try await fallback(hash), hash: hash)
+        }
+    }
+
+    /// Read `hashes` concurrently (at most `width` at once).
+    private func readObjects(_ hashes: [String], fallback: (@Sendable (String) async throws -> Data)?, width: Int = 16) async throws -> [String: Data] {
+        var result: [String: Data] = [:]
+        var index = 0
+        while index < hashes.count {
+            let batch = hashes[index..<min(index + width, hashes.count)]
+            index += batch.count
+            try await withThrowingTaskGroup(of: (String, Data).self) { group in
+                for hash in batch { group.addTask { (hash, try await self.readObject(hash, fallback: fallback)) } }
+                for try await (hash, bytes) in group { result[hash] = bytes }
             }
         }
-        let bytes = try await read(hash)
+        return result
+    }
+
+    /// The directory object `hash` with the objects a node needs from it: its
+    /// Markdown bodies and its collection's tables and rows, each checked
+    /// against its hash. A body comes from the overlay, then the page folder,
+    /// then the object sources; the reads run concurrently. Child directories
+    /// are not read.
+    private func directoryObjects(_ hash: String, at path: String, fallback: (@Sendable (String) async throws -> Data)? = nil) async throws -> [ProtocolObjectEnvelope] {
+        let bytes = try await readObject(hash, fallback: fallback)
         guard case let .directory(entries, collection) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else {
             throw ProtocolValidationError.incompleteGraph(hash)
         }
-        var objects = [ProtocolObjectEnvelope(hash: hash, bytes: bytes)]
-        for table in collection?.tables ?? [] {
-            let tableBytes = try await read(table.table)
-            objects.append(ProtocolObjectEnvelope(hash: table.table, bytes: tableBytes))
-            guard case let .table(object) = try ProtocolObjectCodec.decode(tableBytes, kind: .table) else { continue }
-            for chunk in object.chunks { objects.append(ProtocolObjectEnvelope(hash: chunk.chunk, bytes: try await read(chunk.chunk))) }
-        }
-        var bodies = Set<String>()
+        var found: [String: Data] = [:]
+        var wanted: [String] = []
         for entry in entries where entry.directory == nil {
             guard let child = entry.hash, entry.page != nil || entry.name.hasSuffix(".md") || entry.name.hasSuffix(".mdx"),
-                  bodies.insert(child).inserted else { continue }
-            let body: Data
-            if let local = try overlay.storedBytes(child) { body = local }
-            else if let file = folderBody(entry, in: path) { body = file }
-            else { body = try await read(child) }
-            objects.append(ProtocolObjectEnvelope(hash: child, bytes: body))
+                  found[child] == nil, !wanted.contains(child) else { continue }
+            if let local = try overlay.storedBytes(child) { found[child] = local }
+            else if let file = folderBody(entry, in: path) { found[child] = file }
+            else { wanted.append(child) }
         }
-        return objects
+        let tables = collection?.tables.map(\.table) ?? []
+        found.merge(try await readObjects(wanted + tables, fallback: fallback)) { first, _ in first }
+        var chunks: [String] = []
+        for table in tables {
+            guard let tableBytes = found[table], case let .table(object) = try ProtocolObjectCodec.decode(tableBytes, kind: .table) else { continue }
+            chunks += object.chunks.map(\.chunk)
+        }
+        found.merge(try await readObjects(chunks, fallback: fallback)) { first, _ in first }
+        return [ProtocolObjectEnvelope(hash: hash, bytes: bytes)]
+            + found.filter { $0.key != hash }.map { ProtocolObjectEnvelope(hash: $0.key, bytes: $0.value) }.sorted { $0.hash < $1.hash }
+    }
+
+    /// `directoryObjects` for several directories at once.
+    private func directoriesObjects(_ directories: [(path: String, hash: String)], fallback: (@Sendable (String) async throws -> Data)? = nil) async throws -> [Int: [ProtocolObjectEnvelope]] {
+        try await withThrowingTaskGroup(of: (Int, [ProtocolObjectEnvelope]).self) { group in
+            for (position, directory) in directories.enumerated() {
+                group.addTask { (position, try await self.directoryObjects(directory.hash, at: directory.path, fallback: fallback)) }
+            }
+            var result: [Int: [ProtocolObjectEnvelope]] = [:]
+            for try await (position, objects) in group { result[position] = objects }
+            return result
+        }
     }
 
     /// The accepted graph at `root` as far as this tree holds it: every
     /// directory a lazy tree has loaded (by path), or every directory, with
     /// their Markdown bodies and collections. Objects come through
     /// `objectBytes`, so unchanged ones are local; `fallback` serves what the
-    /// stores lack. Replaces the catch-up spine walk.
+    /// stores lack. Each level is read concurrently. Replaces the catch-up
+    /// spine walk.
     public func acceptedGraph(root: String, fallback: (@Sendable (String) async throws -> Data)? = nil) async throws -> ProtocolSnapshot {
         try requireOpen()
         let loaded = Set(state.nodes.lazy.filter { $0.kind == .directory && $0.subtree == nil }.map(\.path))
         var objects: [String: Data] = [:]
-        var pending: [(hash: String, path: String)] = [(root, "/")], seen = Set<String>()
-        while let next = pending.popLast() {
-            guard seen.insert(next.hash).inserted else { continue }
-            let read = try await directoryObjects(next.hash, at: next.path, fallback: fallback)
-            for object in read { objects[object.hash] = object.bytes }
-            guard case let .directory(entries, _) = try ProtocolObjectCodec.decode(read[0].bytes, kind: .directory) else { continue }
-            for entry in entries {
-                guard let child = entry.directory else { continue }
-                let path = WorkingTreeSemantics.child(entry.name, of: next.path)
-                if !loadsLazily || loaded.contains(path) { pending.append((child, path)) }
+        var level: [(path: String, hash: String)] = [(path: "/", hash: root)], seen = Set<String>()
+        while !level.isEmpty {
+            level = level.filter { seen.insert($0.hash).inserted }
+            let read = try await directoriesObjects(level, fallback: fallback)
+            var next: [(path: String, hash: String)] = []
+            for (position, directory) in level.enumerated() {
+                guard let envelopes = read[position] else { continue }
+                for object in envelopes { objects[object.hash] = object.bytes }
+                guard case let .directory(entries, _) = try ProtocolObjectCodec.decode(envelopes[0].bytes, kind: .directory) else { continue }
+                for entry in entries {
+                    guard let child = entry.directory else { continue }
+                    let path = WorkingTreeSemantics.child(entry.name, of: directory.path)
+                    if !loadsLazily || loaded.contains(path) { next.append((path: path, hash: child)) }
+                }
             }
+            level = next
         }
         let graph = ProtocolSnapshot(root: root, objects: objects.map { ProtocolObjectEnvelope(hash: $0.key, bytes: $0.value) }.sorted { $0.hash < $1.hash })
         _ = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
         return graph
     }
 
-    /// Read the unloaded directory at `path` and splice its entries into the
-    /// state. Nothing hashed changes, so the result must have the same root:
-    /// a directory whose bytes do not rebuild the accepted hash is refused.
-    private func load(_ path: String, hash: String) async throws {
-        let objects = try await directoryObjects(hash, at: path)
-        // Another load may have finished while this one read.
-        guard let current = state.nodes.first(where: { $0.path == path }), current.subtree == hash else { return }
+    /// Read the unloaded directories in `directories` (concurrently) and
+    /// splice their entries into the state. Nothing hashed changes, so the
+    /// result must have the same root: a directory whose bytes do not rebuild
+    /// the accepted hash is refused.
+    private func load(_ directories: [(path: String, hash: String)]) async throws {
+        guard !directories.isEmpty else { return }
+        let read = try await directoriesObjects(directories)
+        var next = state
+        var stored: [String: Data] = [:]
+        for (position, directory) in directories.enumerated() {
+            guard let objects = read[position] else { continue }
+            // Another load may have finished, or an install moved on, while this one read.
+            guard let slot = next.nodes.firstIndex(where: { $0.path == directory.path }),
+                  next.nodes[slot].subtree == directory.hash else { continue }
+            let (node, children, pages) = try spliced(next.nodes[slot], hash: directory.hash, objects: objects)
+            next.nodes[slot] = node
+            next.nodes.append(contentsOf: children)
+            if pages { next.pages = true }
+            for object in objects { stored[object.hash] = object.bytes }
+        }
+        guard !stored.isEmpty else { return }
+        let snapshot = try WorkingTreeProtocolCodec.snapshot(for: next, memo: codecMemo)
+        guard snapshot.root == control.materializedRoot else {
+            throw WorkingTreeError.corruptState("A loaded directory does not rebuild the accepted root")
+        }
+        try Self.validate(next, control: nil, checked: state)
+        // Kept so a later install or replay reads them locally.
+        try overlay.store(stored)
+        state = next
+        snapshotMemo = snapshot
+        childPositions = nil
+        index = makeIndex(state: state, generation: control.generation)
+    }
+
+    /// The unloaded directory `current` once its object `hash` and `objects`
+    /// are read: the node itself, its children, and whether they hold pages.
+    private func spliced(_ current: WorkingTreeNode, hash: String, objects: [ProtocolObjectEnvelope]) throws -> (WorkingTreeNode, [WorkingTreeNode], Bool) {
+        let path = current.path
         let graph = ProtocolSnapshot(root: hash, objects: objects)
         let replacement = try SnapshotBridge.replacement(snapshot: graph, tree: treeID(), update: control.acceptedUpdate ?? "lazy",
                                                          mode: .lazyDirectories)
         var nodes = replacement.nodes
         guard let top = nodes.firstIndex(where: { $0.path == "/" }) else { throw WorkingTreeError.corruptState("Loaded directory has no root") }
         let body = nodes.remove(at: top)
-        for index in nodes.indices { nodes[index].path = path == "/" ? nodes[index].path : path + nodes[index].path }
+        for position in nodes.indices { nodes[position].path = path + nodes[position].path }
         var directory = current
         directory.subtree = nil
         directory.collection = body.collection
         directory.collectionObjects = body.collectionObjects.isEmpty ? nil : body.collectionObjects.keys.sorted()
-        if case let .directory(index?) = body.content {
+        if case let .directory(source?) = body.content {
             // `_index.md` holds the body; a sibling `<name>.md` is then shadowed.
             directory.shadowedSiblingMarkdownSource = current.directoryBodyPlacement == .siblingMarkdown ? current.source : nil
             directory.directoryBodyPlacement = nil
-            directory.source = index
-            directory.pageID = WorkingTreeSemantics.pageID(in: index)
+            directory.source = source
+            directory.pageID = WorkingTreeSemantics.pageID(in: source)
         }
-        let loaded = try state(from: WorkingTreeSystemReplacement(root: hash, update: replacement.update, nodes: nodes, pages: replacement.pages)).nodes
-        var next = state
-        guard let position = next.nodes.firstIndex(where: { $0.path == path }) else { return }
-        next.nodes[position] = directory
-        next.nodes.append(contentsOf: loaded)
-        if replacement.pages { next.pages = true }
-        let snapshot = try WorkingTreeProtocolCodec.snapshot(for: next, memo: codecMemo)
-        guard snapshot.root == control.materializedRoot else {
-            throw WorkingTreeError.corruptState("The directory loaded at \(path) does not rebuild the accepted root")
-        }
-        try Self.validate(next, control: nil, checked: state)
-        // Kept so a later install or replay reads them locally.
-        try overlay.store(Dictionary(objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first }))
-        state = next
-        snapshotMemo = snapshot
-        childPositions = nil
-        index = makeIndex(state: state, generation: control.generation)
+        let children = try state(from: WorkingTreeSystemReplacement(root: hash, update: replacement.update, nodes: nodes, pages: replacement.pages)).nodes
+        return (directory, children, replacement.pages)
     }
 
     func deleteRebuildableIndexes() throws {
