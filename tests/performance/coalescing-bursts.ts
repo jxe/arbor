@@ -81,7 +81,16 @@ export function bursts(source: string): Record<string, Step[]> {
     moveThenEdit.push({ edits: [{ offset: at, length: 0, replacement: "  " }] });
     const lineStop = lineEnd(applySourceChange(moved, [{ offset: at, length: 0, replacement: "  " }]), 61);
     for (const [i, c] of [..."!!"].entries()) moveThenEdit.push({ edits: [{ offset: lineStop + i, length: 0, replacement: c }] }); }
-  return { typing, backspace, "word replacement": replace, correction, indentation: indent, "block moves": blockMoves, "selection moves": selectionMoves, "move then edits": moveThenEdit };
+  // Option-arrow five times, type a word in the block, five more moves.
+  const movesAroundTyping: Step[] = [];
+  { let current = source, line = 80;
+    const down = () => { const s = offsetOfLine(current, line), e = offsetOfLine(current, line + 1), n = offsetOfLine(current, line + 2);
+      const move = { source: [s, e] as [number, number], anchor: [e, n] as [number, number], side: "after" as const };
+      movesAroundTyping.push({ moves: [move] }); current = applySourceChange(current, [], [move]); line++; };
+    for (let i = 0; i < 5; i++) down();
+    for (const c of " now") { const at = lineEnd(current, line); const edits = [{ offset: at, length: 0, replacement: c }]; movesAroundTyping.push({ edits }); current = applySourceChange(current, edits); }
+    for (let i = 0; i < 5; i++) down(); }
+  return { "moves around typing": movesAroundTyping, typing, backspace, "word replacement": replace, correction, indentation: indent, "block moves": blockMoves, "selection moves": selectionMoves, "move then edits": moveThenEdit };
 }
 
 const wire = (records: LocalChange[], updates: LocalChange["update"][]) => decodeBase64(encodeAttempt("tr_bursts", { root: records[0]!.graph.root, update: "up_initial" }, { base: "up_initial", updates }).body).length;

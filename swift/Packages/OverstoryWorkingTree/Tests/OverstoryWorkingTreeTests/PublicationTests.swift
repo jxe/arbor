@@ -121,7 +121,9 @@ struct PublicationTests {
             records.append(record); graph = record.candidate
         }
         let published = try #require(try LocalChange.publication(records, previous: []))
-        #expect((published.update.trace?.count ?? 0) > 1)
+        // Merge 002: the five keystrokes publish as one edit of the first basis.
+        #expect(published.update.trace?.count == 1)
+        #expect(published.update.trace?.first?.operations.map { $0.fields["text"] } == [.string("hello")])
         #expect(published.update.objects.reduce(0) { $0 + $1.bytes.count } > 4 * 70_000)
         let compact = try LocalChange.compactTransport(published.update, basis: base, candidate: graph)
         #expect(compact.objects.allSatisfy { $0.bytes.count < 1_024 })

@@ -1288,7 +1288,8 @@ test.each([false, true])("a batch of edits to one large file sends only the fina
     local.push(record); graph = decodeTreeSnapshotJSON(record.candidate); source = next;
   }
   const published = publication(local, [])!;
-  expect(published.update.trace!.length).toBeGreaterThan(1);
+  // Merge 002: the five keystrokes publish as one edit of the first basis.
+  expect(published.update.trace!.flatMap(frame => frame.operations).map(op => op.kind === "editSource" ? [op.source.range, op.text] : op.kind)).toEqual([[[100, 100], "hello"]]);
   // The composed update names every record's objects; the host needs only
   // the final candidate's, and regenerates the rest by executing the frames.
   const whole = published.update.objects.reduce((sum, object) => sum + object.bytes.length, 0);
