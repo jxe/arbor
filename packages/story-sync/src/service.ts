@@ -2,6 +2,7 @@ import { localSyncConnections, type SyncConnections } from "./sync-connections.t
 import { FolderSync, folderStateRoot, pendingBytes, type DeclinedReport } from "./folder-sync.ts";
 import type { TrackedRoot } from "./filesystem-object-source.ts";
 import { ChangeLog } from "@ovst/working-tree/node";
+import { NodeIndex } from "@ovst/working-tree";
 import { LocalFileService } from "./local-files.ts";
 import { lstat, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, normalize } from "node:path";
@@ -11,7 +12,7 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@ovst/protocol";
-import { canonicalNodePath, storyDataRoot, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, pathReadObjects, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type CurrentTree, type ObjectHash, type TreeSnapshot, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
+import { canonicalNodePath, storyDataRoot, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type CurrentTree, type ObjectHash, type TreeSnapshot, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@ovst/client";
 import { type SharedTreePlacement } from "./state/index.ts";
@@ -90,6 +91,7 @@ export class StorySyncDaemon implements AsyncDisposable {
   private readonly unsubscribeEvents: () => void;
   private readonly files: LocalFileService;
   private readonly objectCache: TreeObjectCache;
+  private readonly nodeIndexes = new Map<string, NodeIndex>();
   /** Agents working in placed folders, shown in their trees' presence. */
   readonly agents: AgentSessions;
   /** Tasks run by the person's own agent in a placed folder. */
@@ -211,9 +213,24 @@ export class StorySyncDaemon implements AsyncDisposable {
     return verifyTreeSnapshotGraph({ root, objects });
   }
 
-  /** The standard path read of a placed tree (tree operations §1.2.4). */
+  /**
+   * The standard path read of a placed tree (tree operations §1.2.4), from
+   * the tree's lazy node index: directories it already decoded are not read
+   * again.
+   */
   pathRead(tree: string, root: ObjectHash, path: string): Promise<Map<ObjectHash, Uint8Array>> {
-    return pathReadObjects(root, path, this.placedObject(tree));
+    return this.nodeIndex(tree, root).pathRead(path);
+  }
+
+  /** A placed tree's node index at `root`, over its object source chain (folder, pending, host). */
+  private nodeIndex(tree: string, root: ObjectHash): NodeIndex {
+    const read = this.placedObject(tree);
+    let index = this.nodeIndexes.get(tree);
+    if (!index) {
+      index = new NodeIndex(root, { object: read });
+      this.nodeIndexes.set(tree, index);
+    }
+    return index.at(root);
   }
 
   /** The host's entry metadata for a placed tree, read through its account. */

@@ -1,9 +1,10 @@
-import { applyTransitionPayload, AuthoredContractError, decodeTreeSnapshotJSON, hashObject, ProtocolHTTPError, ProtocolUnsupportedOperation, ProtocolUpdateConflict,
+import { applyTransitionPayload, AuthoredContractError, decodeTreeSnapshotJSON, ProtocolHTTPError, ProtocolUnsupportedOperation, ProtocolUpdateConflict,
   type CurrentTree, type TreeSnapshot, type UpdateResponse, type WatchEvent, type ProtocolClient } from "@ovst/protocol";
 import { attemptEncoding, attemptRequest, emptyControl, encodeAttempt, verifyAttempt, UpdateStateError, UpdateValidationError,
   type ControlStore, type UpdateAttempt, type UpdateControl } from "./control.ts";
 import { compactTransport, dropIntermediates, branchPublications, publication, type ChangePublication } from "./publication.ts";
 import { equal, type LocalChange } from "./local-change.ts";
+import { memorySource, ObjectSourceChain } from "@ovst/object-store/sources";
 import { reduceUpdate, type AcceptedBase, type AuthorityResult, type HeldReason, type LocalTip, type PreparedRequest,
   type UpdateEffect, type UpdateEvent, type UpdateOptions, type UpdateState } from "./update-machine.ts";
 
@@ -24,12 +25,15 @@ export interface ChangeLogPort {
 export type UpdateTransport = Pick<ProtocolClient, "submitUpdates" | "descriptor"> & Partial<Pick<ProtocolClient, "snapshot" | "object">>;
 
 /**
- * Where an accepted state's objects come from: those the runner already holds
- * (a projection of our own candidate, a replayed watch batch), then the tree's
- * own, then the host. Every object is verified against its hash.
+ * An accepted state to install: its root, and its objects through an object
+ * source chain (`ObjectSourceChain` in `@ovst/object-store/sources`): those
+ * the runner already holds (a projection of our own candidate, a replayed
+ * watch batch), then the tree's own, then the host. Every object is verified
+ * against its hash.
  */
 export interface AcceptedSource {
   readonly root: string;
+  /** The object; throws when no source holds it. */
   object(hash: string): Promise<Uint8Array>;
   /** The complete graph from the host, for a tree that needs every file at once. */
   snapshot(): Promise<TreeSnapshot>;
@@ -468,7 +472,7 @@ export class UpdateCoordinator {
   private source(root: string, objects: ReadonlyMap<string, Uint8Array>): AcceptedSource {
     return {
       root,
-      object: hash => this.object(hash, objects),
+      object: (hash) => this.object(hash, objects),
       snapshot: async () => {
         if (!this.transport.snapshot) throw new UpdateValidationError("The transport serves no snapshots");
         const snapshot = await this.transport.snapshot(this.tree, root);
@@ -478,13 +482,21 @@ export class UpdateCoordinator {
     };
   }
 
+  /** One object through the chain; throws when nothing holds it. */
   private async object(hash: string, held: ReadonlyMap<string, Uint8Array>): Promise<Uint8Array> {
-    const bytes = held.get(hash) ?? await this.working.object(hash) ?? await (async () => {
-      if (!this.transport.object) throw new UpdateValidationError(`Object ${hash} is unavailable`);
-      return this.transport.object(this.tree, hash);
-    })();
-    if (hashObject(bytes) !== hash) throw new UpdateValidationError(`Object ${hash} does not match its hash`);
+    const bytes = await this.objects(held).object(hash);
+    if (!bytes) throw new UpdateValidationError(`Object ${hash} is unavailable`);
     return bytes;
+  }
+
+  /** Held objects, then the working tree's, then the host's. */
+  private objects(held: ReadonlyMap<string, Uint8Array>): ObjectSourceChain {
+    const transport = this.transport;
+    return new ObjectSourceChain([
+      memorySource(held),
+      { object: (hash) => this.working.object(hash) },
+      ...(transport.object ? [{ object: (hash: string) => transport.object!(this.tree, hash) }] : []),
+    ]);
   }
 
   /** Clean catch-up: replay the watch batch the cursor names when it chains from the installed state, otherwise install the host's current state. */

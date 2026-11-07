@@ -169,6 +169,7 @@
         "@ovst/client": "workspace:*",
         "@ovst/collection-schema": "workspace:*",
         "@ovst/fs": "workspace:*",
+        "@ovst/object-store": "workspace:*",
         "@ovst/protocol": "workspace:*",
         "@ovst/usl": "workspace:*",
         "@ovst/working-tree": "workspace:*",
@@ -216,6 +217,7 @@
       "name": "@ovst/working-tree",
       "version": "0.1.0",
       "dependencies": {
+        "@ovst/object-store": "workspace:*",
         "@ovst/protocol": "workspace:*",
       },
     },

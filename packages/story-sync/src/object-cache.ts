@@ -1,5 +1,6 @@
 import { objectReadError, reportObjectRead, type ObjectReadReporter } from "./object-read-diagnostics.ts";
-import { hashObject, type ObjectHash, type ProtocolClient } from "@ovst/protocol";
+import { type ObjectHash, type ProtocolClient } from "@ovst/protocol";
+import { ObjectSourceChain } from "@ovst/object-store/sources";
 import type { Workspace } from "./workspace.ts";
 
 export const OBJECT_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
@@ -49,11 +50,13 @@ class ByteLRU {
 }
 
 /**
- * Serves tree objects by hash from, in order, the placed workspace's object
- * index (re-encoding the file or directory on disk), the tree's pending
- * local changes, and the host through the tree's account client. Every result is
- * hash-verified before it is returned, so a stale index row falls through
- * rather than serving wrong bytes.
+ * Serves tree objects by hash through an object source chain (Clients 003
+ * module 2): the placed workspace's object index (re-encoding the file or
+ * directory on disk), the tree's pending local changes, and the host through
+ * the tree's account client. The chain checks every result against its hash,
+ * so a stale index row falls through rather than serving wrong bytes. Each
+ * source reports its own failures and answers a miss, so the chain never
+ * throws.
  */
 export class TreeObjectCache {
   private readonly fetched: ByteLRU;
@@ -65,9 +68,19 @@ export class TreeObjectCache {
   }
 
   async bytes(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined> {
-    return await this.fromIndex(tree, hash)
-      ?? await this.fromPending(tree, hash)
-      ?? await this.fromHost(tree, hash);
+    return this.sources(tree).object(hash);
+  }
+
+  /** The tree's chain: folder, pending changes, host. */
+  sources(tree: string): ObjectSourceChain {
+    const names = ["filesystem", "pending", "overstoryd"] as const;
+    return new ObjectSourceChain([
+      { object: (hash) => this.fromIndex(tree, hash as ObjectHash) },
+      { object: (hash) => this.fromPending(tree, hash as ObjectHash) },
+      { object: (hash) => this.fromHost(tree, hash as ObjectHash) },
+    ], (skip) => {
+      if (skip.reason === "hash-mismatch") this.report({ source: names[skip.source]!, reason: "hash-mismatch", tree, hash: skip.hash as ObjectHash });
+    });
   }
 
   private async fromIndex(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined> {
@@ -91,10 +104,7 @@ export class TreeObjectCache {
       this.report(objectReadError({ source: "pending", tree, hash }, error));
       return undefined;
     });
-    if (!bytes) return undefined;
-    if (hashObject(bytes) === hash) return bytes;
-    this.report({ source: "pending", reason: "hash-mismatch", tree, hash });
-    return undefined;
+    return bytes;
   }
 
   private async fromHost(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined> {

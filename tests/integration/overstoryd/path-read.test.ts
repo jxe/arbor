@@ -128,6 +128,27 @@ describe("path reads", () => {
   });
 });
 
+describe("a Browse session", () => {
+  test("opens a page with one path read and resolves it from what that brought", async () => {
+    const { TreeSession, browseSettings } = await import("@ovst/working-tree");
+    let objectReads = 0;
+    const counting = new Proxy(client, {
+      get(target, property, receiver) {
+        if (property === "object") return (...args: Parameters<ProtocolClient["object"]>) => { objectReads += 1; return target.object(...args); };
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const session = await TreeSession.open(community, counting, browseSettings(), { tree: { ...(await client.descriptor(community)).tree, root: root as never }, observedThrough });
+    const objects = await session.openPage("/Trips/Paris");
+    expect(new Set(objects.keys())).toEqual(new Set([root, hashes.trips!, hashes.paris!]));
+    expect((await session.index.entry("/Trips/Paris.md"))?.file).toBe(hashes.paris!);
+    expect(new TextDecoder().decode((await session.objects.object(hashes.paris!))!)).toBe("# Paris\n");
+    expect(objectReads).toBe(0);
+    expect(session.index.heldDirectories).toBe(2);
+  });
+});
+
 describe("payload-free watch", () => {
   test("sends each accepted update without its objects", async () => {
     const abort = new AbortController();
