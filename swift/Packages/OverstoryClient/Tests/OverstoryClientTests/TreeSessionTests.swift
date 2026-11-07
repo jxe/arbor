@@ -87,9 +87,9 @@ struct TreeSessionTests {
         await tree.loadDirectoriesLazily()
         try await tree.initializeFromSystem(SnapshotBridge.replacement(
             snapshot: try await tree.acceptedGraph(root: f.root.hash), tree: "tr_visit", update: "up_visit", mode: .lazyDirectories))
-        let nested = f.nested
+        let nested = f.nested, rootHash = f.root.hash
         await tree.readPaths { root, path in
-            #expect(root == f.root.hash)
+            #expect(root == rootHash)
             #expect(path == "/assets/photo.png")
             return [nested.hash: nested.bytes]
         }
