@@ -352,7 +352,8 @@ is **implemented** on main and closed; its plan is deleted. It absorbed Live 001
   restarted.
 - **Left over:** hand checks are in [Joe's to-do](plans/joe.md#agents-001); sidebar
   presence dots and `story sync status --wait` were not built (noted in
-  [Agents 002](plans/soon/agents-002-talk-to-the-agent-and-run-from-anywhere.md)).
+  [Agents 004](plans/features/agents-004-talk-to-the-agent.md) and
+  [Agents 002](plans/soon/agents-002-run-tasks-from-anywhere.md)).
 
 ## Merge as blocks and elements — 2026-11-01
 

@@ -6,7 +6,7 @@ other plans for things you would notice in Story; [`later/`](later) and
 [`when-needed/`](when-needed) hold the rest, the latter for plans that wait on a trigger ("when
 merges bite", "when size hurts") rather than a date. Plans and their paragraphs here don't say
 soon or later; they may say what they come after. A file
-is named by its topic and number, such as `soon/agents-002-talk-to-the-agent-and-run-from-anywhere.md`. When a plan's timing
+is named by its topic and number, such as `soon/agents-002-run-tasks-from-anywhere.md`. When a plan's timing
 changes, move the file and its paragraph here.
 
 Each plan starts with why Joe wants it and what it comes after; the same paragraph is below. Things only
@@ -46,6 +46,11 @@ while offline, and the host derives the result (spec 10 §2.2). Left: the queue'
 every view intent as row operations, simple edits in the view, then the structured editor
 (groups, chips, bullets, drag, inline Markdown). The editing half of the split Joe made on
 2026-10-28.
+
+**[Agents 004: talk to the agent while it works](features/agents-004-talk-to-the-agent.md).**
+After Agents 002's presence messages. The agent asks and Joe answers at its cursor from any
+device, and the conversation vanishes like presence; the agent can also show work in progress,
+and a task can carry blocks under it. Split from Agents 002 by Joe, 2026-11-07.
 
 **[Live 002: exact carets and selections](features/live-002-exact-carets.md).**
 After Agents 001: a Quagmire release that reports and draws exact carets and
@@ -142,12 +147,11 @@ After Apps 005. Small apps embedded in pages by a link to a `.tsx`, written as v
 in TSX and drawn natively in SwiftUI (no web view, no React), with state owned by the app,
 the page or the reader. Absorbs Apps 001 and 003; an HTML renderer comes later.
 
-**[Agents 002: talk to the agent, and run tasks from anywhere](soon/agents-002-talk-to-the-agent-and-run-from-anywhere.md).**
+**[Agents 002: run tasks from anywhere](soon/agents-002-run-tasks-from-anywhere.md).**
 Run sends a task to a *runner* the person chooses (Joe, 2026-11-06):
 a present runner such as their Mac, reached through presence messages, or a webhook runner
 such as a claude.ai scheduled task, GitHub Actions or their own server; whatever runs it uses
-`story agent start --task`, so every run looks the same. Then the agent asks and Joe answers at
-its cursor from any device, and Codex. The conversation vanishes like presence.
+`story agent start --task`, so every run looks the same. Then Codex as a runner.
 
 ## Later
 
