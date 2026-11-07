@@ -15,6 +15,9 @@ When one is decided, write a plan (or add it to the plan it belongs to) and dele
 
 ## Small features
 
+- **Founding a community off Railway.** Fly and the docker-compose VPS recipe could get the
+  same founder-code path as the Railway template (Sharing 004, 2026-11-05). Railway only for
+  now.
 - **`story untrack`.** Ignore rules never untrack an already-published path; today the
   recipe is move out, sync the deletion, move back. One command could publish the deletion
   and leave the bytes. The bytes stay in accepted history, so a leaked secret still needs
@@ -72,6 +75,15 @@ Measure before promoting any of these.
   foreground latency while a pass runs under a burst; measure them with the next backup.
 
 ## Cleanup
+
+- **The rest of the CLI on the client library** (after `story invite`, 2026-11-07): `story
+  agent revoke` edits `devices.yaml` on the host through `@ovst/client` instead of in the
+  checkout; `story place` and `story mv <url> <url>` make their `mounts.yaml` edits the same
+  way and stop requiring Story Sync when nothing local changes; `story agent create` drops its
+  `withStorySync` precondition. What stays with Story Sync: `story status`, `story sync …`,
+  `story mv` of a local folder, waiting for a new placement. Correct the comment in
+  `packages/protocol/src/config/device-key.ts` and `docs/architecture/story-sync/data-home.md`
+  to say which processes read the key. Overlaps Clients 003's account-setup note.
 
 - **Shared runtime protocol decoding.** When a second trusted boundary besides Story Sync
   needs runtime decoding, colocate pure decoders in `@ovst/protocol`.

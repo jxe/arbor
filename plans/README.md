@@ -171,18 +171,6 @@ such as a claude.ai scheduled task, GitHub Actions or their own server; whatever
 `story agent start --task`, so every run looks the same. Then the agent asks and Joe answers at
 its cursor from any device, and Codex. The conversation vanishes like presence.
 
-**[Sharing 002: invite from the command line, through a client library](soon/sharing-002-invite-from-the-command-line.md).**
-Setting up the intro video, Joe could make an invitation only in the Mac app. He wants
-`story invite`, built the way the other clients work: the command talks to the host itself
-through `@ovst/client`, with Story Sync out of the path. The rest of the CLI's host edits
-moving the same way is recorded there as a follow-up.
-
-**[Sharing 004: what Story says to a host older than it](soon/sharing-004-hosts-older-than-the-app.md).**
-Before the template is public. Starting your own community from a Railway template is built
-([status](../status.md#start-your-own-community-from-a-railway-template--2026-11-05)) and
-waits on Joe publishing it. Self-hosted hosts will lag behind Story releases, so Story should
-say plainly when a host is too old for it.
-
 ## Later
 
 **[Schema language 010: row ownership](later/schema-language-010-row-ownership.md).**

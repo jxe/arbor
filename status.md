@@ -58,6 +58,39 @@ the owner's edits arriving and local edits never sent
 (`tests/integration/story-sync-read-only-placement.test.ts`). Story.app has no UI for it
 yet; not hand-checked on Joe's Mac.
 
+## Invite from the command line, and hosts older than Story — 2026-11-07
+
+**Implemented** on main (`b92baec`, `1b3812a`), deployed with them (overstoryd); Sharing 002
+and Sharing 004, closed out. Not yet tried on the live host.
+
+- **`story invite`** (`packages/cli/src/index.ts`): `story invite <account-url>`, `list
+  [<host-url>]`, `renew <account-url>` and `cancel <account-url>`. It opens its own session from
+  the device key (`accountProtocolClient`) and never needs Story Sync; `invite` and `renew`
+  print only the link. A caller who can't write the community tree, a handle that isn't one,
+  a member, an already pending handle and an unknown one are each refused with a sentence.
+- **Client library** (`@ovst/client`): `editTreeFile` rewrites one file at the tree's head
+  under `ifCurrent`, rebuilding directories and page entries, retrying a lost race up to four
+  times and submitting nothing when unchanged. `invitations.ts` edits the root `members`
+  source in place (block, flow, empty, absent; comments and CRLF kept) and refuses any result
+  whose parsed member list isn't the old one plus or minus exactly that invitation. The plan's
+  "use the host's `structuredMembers`" became a parse with the `yaml` library compared entry
+  by entry; the host's reader stayed where it is.
+- **One code and digest:** `generateInviteCode`, `isInviteCode` and `inviteCodeDigest` in
+  `@ovst/protocol`, used by overstoryd and the tests; vectors in
+  `docs/overstory-spec/conformance/invitations.json`, checked by TypeScript and by Story's
+  `invitationVectors` test. Accounts §1 now gives the digest format, entry keys and link form.
+- **Host protocol level:** `GET /.overstory/health` states `protocol` (`HOST_PROTOCOL`, 1;
+  absent means 1; locators §5). At launch Story asks the hosts of its placed trees and, if one
+  is below `StoryHostCompatibility.minimumHostProtocol`, says the host needs updating
+  (redeploy on Railway) and quits on the Mac, or covers the app on the iPhone. Unreachable
+  hosts pass. Both levels are 1, so no host is refused yet: raise both when Story starts
+  depending on something new.
+- **Tests:** `tests/unit/client/invitation-entries.test.ts`,
+  `tests/integration/client/invitations.test.ts`, `tests/integration/cli-invite.test.ts` (no
+  Story Sync running), `host-responses`; Swift `hostProtocolLevels`, `invitationVectors`.
+- **Left:** the live hand checks are in [Joe's to-do](plans/joe.md#sharing-002-and-004-invitations-and-old-hosts);
+  moving the rest of the CLI's host edits onto the library is a [candidate](plans/candidates.md#cleanup).
+
 ## Start your own community from a Railway template — 2026-11-05
 
 **Implemented** on main (`e99919e`), deployed with it (overstoryd); Sharing 004 steps 1, 2, 4
@@ -81,7 +114,7 @@ and 5, and step 3's image and template definition. Not yet published or rehearse
   deploy README's "The template (maintainers)".
 - **Left:** publishing the image and the template and a rehearsal from a fresh Railway account
   are in [Joe's to-do](plans/joe.md#sharing-004-railway-template); what Story says to a host too
-  old for it is [Sharing 004](plans/soon/sharing-004-hosts-older-than-the-app.md).
+  old for it was built [2026-11-07](#invite-from-the-command-line-and-hosts-older-than-story--2026-11-07).
 
 ## Story Path (White) icon — 2026-11-02
 

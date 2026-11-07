@@ -73,6 +73,18 @@ Built 2026-11-01 ([status](../status.md#merge-as-blocks-and-elements--2026-11-01
 - [ ] On the next real conflict on a page, try **Keep current contents**: it lists only the
   lines a version holds that the page lacks, and keeping them clears the choice.
 
+### Sharing 002 and 004: invitations and old hosts
+
+Built 2026-11-07 ([status](../status.md#invite-from-the-command-line-and-hosts-older-than-story--2026-11-07)).
+
+- [ ] **Invite from the terminal:** `story invite https://arb.nxhx.org/~<throwaway>`, see it
+  pending in the Mac People sheet, `story invite cancel` it, see it gone. Once more from
+  `bunx @ovst/cli` instead of the app's bundled command, and note whether macOS asks before a
+  different binary reads the device key.
+- [ ] **Too-old host:** the next time `minimumHostProtocol` is raised, open Story with a tree
+  placed from a host still on the older image and check the "Story can't start" alert (Mac)
+  and screen (iPhone).
+
 ## Releases and publishing
 
 ### Sharing 004: Railway template

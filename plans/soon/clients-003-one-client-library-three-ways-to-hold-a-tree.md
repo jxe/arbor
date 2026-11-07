@@ -22,9 +22,8 @@ platform", 2026-11-05 to 2026-11-07.
 - **Effort**: XL, in seven steps
 - **Risk**: MEDIUM. It changes how every app opens a tree. Edits, the change log and the
   update machine don't change, so the risk is to reading and launch speed, not to data.
-- **Comes after**: nothing. [Sharing 002](sharing-002-invite-from-the-command-line.md)
-  (the CLI as a client of `@ovst/client`) points the same way and can go first or in
-  parallel. [Native 006](../when-needed/performance-006-sparse-ios-placement.md) (sparse
+- **Comes after**: nothing. [Sharing 002](../../status.md#invite-from-the-command-line-and-hosts-older-than-story--2026-11-07)
+  (`story invite` as a client of `@ovst/client`, built 2026-11-07) points the same way. [Native 006](../when-needed/performance-006-sparse-ios-placement.md) (sparse
   iPhone placement) becomes a prefetch setting once step 4 is done.
 
 ## What exists
@@ -181,7 +180,7 @@ declined changes, placement move/pause/resume, resolve, agents, and account setu
 Account setup (`/v1/me`, `/v1/me/backup`, `/v1/me/restore`, `/v1/bootstrap/accounts` and
 `/cancel`, `/v1/bootstrap/pairings/claim`, `/v1/bootstrap/placements`, `/v1/accounts`) is
 the accounts module's job and could leave Story Sync the same way, but that is
-[Sharing 002](sharing-002-invite-from-the-command-line.md)'s direction and not part of
+[Sharing 002](../../status.md#invite-from-the-command-line-and-hosts-older-than-story--2026-11-07)'s direction and not part of
 this plan.
 
 ### Swift app and client code
