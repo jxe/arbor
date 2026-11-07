@@ -689,9 +689,10 @@ public actor WorkingTree {
         while let pair = pending.popLast() {
             guard pair.base != pair.next, let nextBytes = held[pair.next] else { continue }
             if objects[pair.base] == nil {
-                for object in try await directoryObjects(pair.base, at: pair.path) where objects[object.hash] == nil {
-                    objects[object.hash] = object.bytes
-                }
+                // A base directory no source still holds stays out; the change
+                // is then computed as before, from what the graph has.
+                guard let read = try? await directoryObjects(pair.base, at: pair.path) else { continue }
+                for object in read where objects[object.hash] == nil { objects[object.hash] = object.bytes }
                 added = true
             }
             let nextEntries = try entries(nextBytes)
