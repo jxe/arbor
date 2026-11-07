@@ -10,12 +10,27 @@ export interface ChangePublication {
 }
 const identity = (prefix: string, changes: string[]) => prefix + hashObject(new TextEncoder().encode(JSON.stringify(changes))).replace("sha256:", "");
 
+type Frame = NonNullable<CandidateUpdateJSON["trace"]>[number];
+
 /** Compose the same original span through repeated pure moves, by provenance
  * coordinates. Equal text at a different position never identifies that span. */
 function movePublication(records: LocalChange[]): ChangePublication | undefined {
   const first = records[0]!, last = records.at(-1)!;
   const frames = records.flatMap(record => record.update.trace ?? []);
-  if (frames.length < 2 || frames.some(frame => frame.operations.length !== 1 || frame.operations[0]!.kind !== "moveSource")) return;
+  const frame = composeMoves(frames, decodeTreeSnapshotJSON(first.graph).objects, decodeTreeSnapshotJSON(last.candidate).objects, "move");
+  if (!frame || frame.after !== last.candidate.root) return;
+  const changes = records.map(record => record.change), known = new Set(first.graph.objects.map(object => object.hash));
+  return { changes, update: { change: identity("moves-", changes), candidate: frame.after, resolves: [], deltas: [],
+    objects: last.candidate.objects.filter(object => !known.has(object.hash)), trace: [frame] },
+    operations: Object.fromEntries(records.map(record => [record.change, Object.fromEntries(record.update.trace!.flatMap(frame => frame.operations).map(op => [op.key, "move"]))])) };
+}
+
+const pureMove = (frame: Frame) => frame.operations.length === 1 && frame.operations[0]!.kind === "moveSource";
+
+/** The one move a run of single-move frames amounts to, when every frame moves
+ * the same original span: `start` holds the run's first tree, `end` its last. */
+function composeMoves(frames: Frame[], start: Map<string, Uint8Array>, end: Map<string, Uint8Array>, key: string): Frame | undefined {
+  if (frames.length < 2 || !frames.every(pureMove)) return;
   type Span = [number, number];
   const reference = (value: any): { path: string; object: string; range: Span } | undefined => {
     if (value?.material?.kind !== "basis" || !Array.isArray(value.range) || value.range.length !== 2 || value.range[1] <= value.range[0]) return;
@@ -23,7 +38,7 @@ function movePublication(records: LocalChange[]): ChangePublication | undefined 
   };
   const original = reference((frames[0]!.operations[0] as any).source);
   if (!original) return;
-  const bytes = decodeTreeSnapshotJSON(first.graph).objects.get(original.object);
+  const bytes = start.get(original.object);
   if (!bytes || original.range[1] > bytes.length) return;
   let pieces: Span[] = [[0, bytes.length]];
   function select([a, b]: Span, source: Span[]): Span[] {
@@ -46,7 +61,7 @@ function movePublication(records: LocalChange[]): ChangePublication | undefined 
     for (const [a, b] of spans) { result.set(bytes.subarray(a, b), offset); offset += b - a; }
     return result;
   };
-  let anchor: Span | undefined, side: "before" | "after" | undefined, root = first.graph.root;
+  let anchor: Span | undefined, side: "before" | "after" | undefined, root = frames[0]!.before;
   for (const frame of frames) {
     const op = frame.operations[0]!;
     if (op.kind !== "moveSource") return;
@@ -64,17 +79,13 @@ function movePublication(records: LocalChange[]): ChangePublication | undefined 
     pieces = [...select([0, at], rest), ...moved, ...select([at, bytes.length - width], rest)];
     anchor = mapped; side = op.side; root = frame.after;
   }
-  if (!anchor || !side || root !== last.candidate.root) return;
-  const final = render(pieces), graph = decodeTreeSnapshotJSON(last.candidate);
-  if (!graph.objects.has(hashObject(final))) return;
+  if (!anchor || !side) return;
+  const final = render(pieces);
+  if (!end.has(hashObject(final))) return;
   const moved = arrangeSources(new Map([[original.path, bytes]]), [{source: {path: original.path, range: original.range}, anchor: {path: original.path, range: anchor}, side}], []).get(original.path);
   if (!moved || hashObject(moved) !== hashObject(final)) return;
   const ref = (range: Span) => ({ material: { kind: "basis" as const, path: original.path, object: original.object }, range });
-  const changes = records.map(record => record.change), known = new Set(first.graph.objects.map(object => object.hash));
-  return { changes, update: { change: identity("moves-", changes), candidate: root, resolves: [], deltas: [],
-    objects: last.candidate.objects.filter(object => !known.has(object.hash)),
-    trace: [{ before: first.graph.root, after: root, operations: [{ key: "move", kind: "moveSource", source: ref(original.range), at: ref(anchor), side }] }] },
-    operations: Object.fromEntries(records.map(record => [record.change, Object.fromEntries(record.update.trace!.flatMap(frame => frame.operations).map(op => [op.key, "move"]))])) };
+  return { before: frames[0]!.before, after: root, operations: [{ key, kind: "moveSource", source: ref(original.range), at: ref(anchor), side }] };
 }
 
 /** Concatenate proven frames under one fresh identity, preserving result names
@@ -123,7 +134,6 @@ export function publication(records: LocalChange[], previous: ChangePublication[
     objects: [...objects.values()].filter(object => !known.has(object.hash)).sort((a,b) => a.hash.localeCompare(b.hash)) } };
 }
 
-type Frame = NonNullable<CandidateUpdateJSON["trace"]>[number];
 
 /** A frame is plain when every operation is a lineage-free `editSource` over
  * `basis` material of one path with a range (as `compactTrace` in
@@ -173,16 +183,18 @@ function composePlainRuns(frames: Frame[], records: LocalChange[], change: strin
   const result: Frame[] = [], removed = new Set<string>();
   let index = 0;
   while (index < frames.length) {
-    const first = plainFrame(frames[index]!);
+    const first = plainFrame(frames[index]!), moving = pureMove(frames[index]!);
     let end = index + 1;
     if (first) while (end < frames.length) {
       const next = plainFrame(frames[end]!);
       if (!next || next.path !== first.path) break;
       end++;
     }
-    const run = frames.slice(index, end);
-    const composed = first && run.length > 1 && !run.some(frame => frame.operations.some(op => referenced.has(op.key)))
-      ? composeRun(run, first.path, first.object, index, tree) : undefined;
+    else if (moving) while (end < frames.length && pureMove(frames[end]!)) end++;
+    const run = frames.slice(index, end), free = run.length > 1 && !run.some(frame => frame.operations.some(op => referenced.has(op.key)));
+    const start = free ? tree(run[0]!.before) : undefined, finish = free ? tree(run.at(-1)!.after) : undefined;
+    const moved = moving && start && finish ? composeMoves(run, start, finish, `move-${index}`) : undefined;
+    const composed = first && free ? composeRun(run, first.path, first.object, index, tree) : moved && moved.after === run.at(-1)!.after ? [moved] : undefined;
     if (composed) { result.push(...composed); for (const frame of run) for (const op of frame.operations) removed.add(op.key); }
     else result.push(...run);
     index = end;

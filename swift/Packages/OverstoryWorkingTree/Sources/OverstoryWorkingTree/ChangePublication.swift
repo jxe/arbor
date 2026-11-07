@@ -29,7 +29,27 @@ extension LocalChange {
         guard let first = records.first, let last = records.last,
               records.allSatisfy(\.isMoveSequence) else { return nil }
         let frames = records.flatMap { $0.update.trace ?? [] }
-        guard frames.count > 1 || frames.first.map({ $0.operations.count > 1 }) == true else { return nil }
+        guard let frame = try composeMoves(frames, start: first.graph, end: last.candidate, key: "move"), frame.after == last.candidate.root else { return nil }
+        let changes = records.map(\.change)
+        let identity = "moves-" + ProtocolObjectCodec.hash(try sortedKeysJSON(changes)).replacingOccurrences(of: "sha256:", with: "")
+        let known = Set(first.graph.objects.map(\.hash))
+        let update = ProtocolCandidateUpdate(candidate: frame.after, change: identity, trace: [frame],
+            objects: last.candidate.objects.filter { !known.contains($0.hash) })
+        let names = Dictionary(uniqueKeysWithValues: records.map { record in
+            (record.change, Dictionary(uniqueKeysWithValues: (record.update.trace ?? []).flatMap(\.operations).map { ($0.key, "move") }))
+        })
+        return ChangePublication(changes: changes, update: update, operations: names)
+    }
+
+    static func isPureMove(_ frame: ProtocolTraceFrame) -> Bool {
+        !frame.operations.isEmpty && frame.operations.allSatisfy { $0.kind == "moveSource" }
+    }
+
+    /// The one move a run of move frames amounts to, when every frame moves
+    /// the same original span: `start` is the run's first tree, `end` its last.
+    static func composeMoves(_ frames: [ProtocolTraceFrame], start first: ProtocolSnapshot, end last: ProtocolSnapshot, key: String) throws -> ProtocolTraceFrame? {
+        guard frames.allSatisfy(isPureMove), frames.count > 1 || frames.first.map({ $0.operations.count > 1 }) == true,
+              let firstFrame = frames.first, firstFrame.before == first.root else { return nil }
         struct Reference {
             var path: String
             var object: String
@@ -47,10 +67,10 @@ extension LocalChange {
             return Reference(path: path, object: object, range: start..<end)
         }
         guard let opening = ref(frames[0].operations[0].fields["source"]),
-              let stored = first.graph.objects.first(where: { $0.hash == opening.object })?.bytes else { return nil }
+              let stored = first.objects.first(where: { $0.hash == opening.object })?.bytes else { return nil }
         let path = opening.path
         let page: ProtocolPage?
-        if try LocalChange.entry(at: path, in: first.graph)?.page == opening.object {
+        if try LocalChange.entry(at: path, in: first)?.page == opening.object {
             guard case let .page(decoded) = try ProtocolObjectCodec.decode(stored, kind: .page) else { return nil }
             page = decoded
         } else { page = nil }
@@ -78,7 +98,7 @@ extension LocalChange {
         func contiguous(_ ranges: [Range<Int>]) -> Range<Int>? { ranges.count == 1 ? ranges[0] : nil }
         var moved: Range<Int>?
         var anchors: [(range: Range<Int>, side: WorkspaceSourceMove.Side)] = []
-        var root = first.graph.root
+        var root = first.root
         for frame in frames {
             guard frame.before == root else { return nil }
             let current = rendered(pieces)
@@ -112,10 +132,10 @@ extension LocalChange {
         }
         // A run that ends where it began states one move in place, as the
         // shared vectors expect ("move back to start").
-        guard let moved, root == last.candidate.root else { return nil }
+        guard let moved, root == last.root else { return nil }
         let finalBytes = rendered(pieces)
         let final = try object(finalBytes)
-        guard last.candidate.objects.contains(where: { $0.hash == final.hash && $0.bytes == final.bytes }) else { return nil }
+        guard last.objects.contains(where: { $0.hash == final.hash && $0.bytes == final.bytes }) else { return nil }
         // One move of the original span, beside the last anchor the editor
         // named, or else beside its new neighbour; whichever executes to the
         // final bytes.
@@ -134,18 +154,8 @@ extension LocalChange {
             .object(["material": .object(["kind": .string("basis"), "path": .string(path), "object": .string(opening.object)]),
                      "range": .array([.integer(range.lowerBound), .integer(range.upperBound)])])
         }
-        let changes = records.map(\.change)
-        let identity = "moves-" + ProtocolObjectCodec.hash(try sortedKeysJSON(changes)).replacingOccurrences(of: "sha256:", with: "")
-        let operation = try ProtocolSourceOperation(["key": .string("move"), "kind": .string("moveSource"),
-            "source": reference(moved), "at": reference(move.range), "side": .string(move.side.rawValue)])
-        let known = Set(first.graph.objects.map(\.hash))
-        let update = ProtocolCandidateUpdate(candidate: root, change: identity,
-            trace: [ProtocolTraceFrame(before: first.graph.root, after: root, operations: [operation])],
-            objects: last.candidate.objects.filter { !known.contains($0.hash) })
-        let names = Dictionary(uniqueKeysWithValues: records.map { record in
-            (record.change, Dictionary(uniqueKeysWithValues: (record.update.trace ?? []).flatMap(\.operations).map { ($0.key, "move") }))
-        })
-        return ChangePublication(changes: changes, update: update, operations: names)
+        return ProtocolTraceFrame(before: first.root, after: root, operations: [try ProtocolSourceOperation(["key": .string(key), "kind": .string("moveSource"),
+            "source": reference(moved), "at": reference(move.range), "side": .string(move.side.rawValue)])])
     }
 }
 
@@ -250,11 +260,16 @@ extension LocalChange {
         var result: [ProtocolTraceFrame] = [], removed = Set<String>(), index = 0
         while index < frames.count {
             var end = index + 1
-            let first = plainEdits(frames[index])
+            let first = plainEdits(frames[index]), moving = isPureMove(frames[index])
             if let first { while end < frames.count, let next = plainEdits(frames[end]), next.path == first.path { end += 1 } }
+            else if moving { while end < frames.count, isPureMove(frames[end]) { end += 1 } }
             let run = Array(frames[index..<end])
-            if let first, run.count > 1, !run.contains(where: { $0.operations.contains { referenced.contains($0.key) } }),
-               let composed = try composeRun(run, path: first.path, object: first.object, index: index, snapshots: snapshots) {
+            let free = run.count > 1 && !run.contains(where: { $0.operations.contains { referenced.contains($0.key) } })
+            var composed: [ProtocolTraceFrame]?
+            if free, let first { composed = try composeRun(run, path: first.path, object: first.object, index: index, snapshots: snapshots) }
+            else if free, moving, let start = snapshots[run[0].before], let finish = snapshots[run[run.count - 1].after],
+                    let move = try composeMoves(run, start: start, end: finish, key: "move-\(index)"), move.after == finish.root { composed = [move] }
+            if let composed {
                 result.append(contentsOf: composed)
                 for frame in run { for operation in frame.operations { removed.insert(operation.key) } }
             } else {

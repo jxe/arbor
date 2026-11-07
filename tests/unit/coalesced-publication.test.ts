@@ -281,3 +281,26 @@ test("typing in a page's body composes over the body", async () => {
   expect(op.source.range).toEqual([5, 5]);
   expect(op.text).toBe(" world");
 });
+
+test("moves composed around an edit carry a peer's edit as the frames do", async () => {
+  const value = vectors.cases.find(value => value.name === "moves on either side of an edit collapse to one move each")!;
+  for (const reverse of [false, true]) {
+    const local = records(value), published = publication(local, [])!;
+    const peerSource = "@" + value.source.slice(1);
+    const outcome = async (trace: NonNullable<LocalChange["update"]["trace"]>, change: string) => {
+      const f = new Fixture(), baseRoot = local[0]!.graph.root;
+      for (const record of local) for (const graph of [record.graph, record.candidate]) for (const [hash, bytes] of decodeTreeSnapshotJSON(graph).objects) f.objects.set(hash, bytes);
+      const base = (await f.run(f.request(baseRoot, baseRoot, [{key: "start", kind: "editSource", source: f.ref("/note.md", value.source, [0, 0]), text: ""}], "start"))).result;
+      const peer = f.request(base, f.tree({"note.md": peerSource}), [{key: "peer", kind: "editSource", source: f.ref("/note.md", value.source, [0, 1]), text: "@"}], "peer");
+      const mine = f.request(base, published.update.candidate, [], change);
+      mine.incoming.trace = trace;
+      const first = await f.run(reverse ? mine : peer), next = reverse ? peer : mine;
+      next.current = first.result;
+      const merged = await f.run(next);
+      return {content: f.content(merged.result.object, "note.md"), decisions: merged.decisions.length};
+    };
+    const frames = local.flatMap(record => record.update.trace!.map(frame => ({...frame, operations: frame.operations.map(op => ({...op, key: `${record.change}-${op.key}`}))})));
+    const expected = await outcome(frames, "frames");
+    expect(await outcome(published.update.trace!, published.update.change)).toEqual(expected);
+  }
+});
