@@ -29,6 +29,15 @@ On main since fa661f3, 2026-11-07
   shows a path read).
 - [ ] iPhone: a placed tree and the personal directory open and sync as before.
 
+### Coalesced typing (Merge 002)
+
+Merged to main 2026-11-07 ([status](../status.md#coalesced-typing-bursts-merge-002-case-1--2026-11-07)).
+The Swift publication tests pass on the Mac; Story itself has not been rebuilt with it.
+
+- [ ] After rebuilding Story (and restarting Story Sync): type a sentence, backspace a word and Option-arrow a block
+  on a long page, then check the request in the network log is one update with one or a few frames,
+  and that a second device shows the same text.
+
 ### Inviting and joining
 
 Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-people-and-joining-by-invitation--2026-10-11)).

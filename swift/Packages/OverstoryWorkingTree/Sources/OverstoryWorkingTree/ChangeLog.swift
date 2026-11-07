@@ -353,7 +353,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
 
     /// A frame is plain when every operation is a lineage-free `editSource`
     /// over `basis` material of one path with a range: what `compose` handles.
-    private static func plainEdits(_ frame: ProtocolTraceFrame) -> (path: String, object: String, edits: [WorkspaceSourceEdit])? {
+    static func plainEdits(_ frame: ProtocolTraceFrame) -> (path: String, object: String, edits: [WorkspaceSourceEdit])? {
         var path: String?, object: String?, edits: [WorkspaceSourceEdit] = []
         for operation in frame.operations {
             guard operation.kind == "editSource", operation.fields["lineage"] == nil || operation.fields["lineage"] == .array([]),

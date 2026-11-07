@@ -118,13 +118,6 @@ into plans, laying out rows in code) replace queries; the sidecar runs
 them from trees, and they are turned on in the host, still as their caller. First of the
 three apps plans Joe split on 2026-11-06.
 
-**[Clients 002: more identity-preserving coalescing](soon/merge-002-identity-preserving-coalescing.md).**
-Joe wants ordinary editing bursts to publish as a few meaningful authored changes,
-with enough identity for overstoryd to merge concurrent work correctly. After the
-idle-based publication baseline, extend simplification beyond repeated moves of
-one unchanged span. Implement each case in the Swift and TypeScript clients,
-using shared examples and the host merge engine to prove the result.
-
 **[Clients 003: the launch preview as the session, and choosing the way from facts](soon/clients-003-launch-preview-and-choosing-the-way.md).**
 What is left of the one client library: once Joe's launch timings are in, the Mac's launch
 preview becomes the Alongside Story Sync session itself, and a small policy picks Browse,
@@ -221,6 +214,12 @@ when Joe had them rewritten as one against logical collections.
 
 ## When needed
 
+**[Clients 002: coalesce moves with edits, selections, copies and undo](when-needed/merge-002-coalesce-moves-with-edits-copies-and-undo.md).**
+When edit bursts are still large: real journals or network logs show requests well over a few
+KB from moves with edits, selections, copies or undo. Typing bursts and runs of moves already
+compose (2026-11-07); left are those cases, each in the Swift and TypeScript clients with shared
+examples and host merge evidence.
+
 **[Native 008: copies with changes and compound undo](when-needed/merge-008-copies-with-changes-and-compound-undo.md).**
 When merges bite: a real concurrent edit reviews or loses a copy, paste or undo that should
 have merged. Needs a new Quagmire release.
@@ -258,7 +257,7 @@ proofs and release boundaries differ, and they share examples rather than duplic
 ### Merge improvements
 
 Editor intent, client publication, host merging and conflict review. [Native 008](when-needed/merge-008-copies-with-changes-and-compound-undo.md)
-supplies truthful command evidence; [Clients 002](soon/merge-002-identity-preserving-coalescing.md)
+supplies truthful command evidence; [Clients 002](when-needed/merge-002-coalesce-moves-with-edits-copies-and-undo.md)
 can simplify that evidence after it exists, and must not invent missing copy or move identity;
 [overstoryd 017](when-needed/merge-017-more-formats-and-open-cases.md) must support an emitted
 operation form before a client that emits it is installed; [overstoryd 015](when-needed/merge-015-resolve-reconciled-choices.md)

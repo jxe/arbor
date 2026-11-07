@@ -29,7 +29,27 @@ extension LocalChange {
         guard let first = records.first, let last = records.last,
               records.allSatisfy(\.isMoveSequence) else { return nil }
         let frames = records.flatMap { $0.update.trace ?? [] }
-        guard frames.count > 1 || frames.first.map({ $0.operations.count > 1 }) == true else { return nil }
+        guard let frame = try composeMoves(frames, start: first.graph, end: last.candidate, key: "move"), frame.after == last.candidate.root else { return nil }
+        let changes = records.map(\.change)
+        let identity = "moves-" + ProtocolObjectCodec.hash(try sortedKeysJSON(changes)).replacingOccurrences(of: "sha256:", with: "")
+        let known = Set(first.graph.objects.map(\.hash))
+        let update = ProtocolCandidateUpdate(candidate: frame.after, change: identity, trace: [frame],
+            objects: last.candidate.objects.filter { !known.contains($0.hash) })
+        let names = Dictionary(uniqueKeysWithValues: records.map { record in
+            (record.change, Dictionary(uniqueKeysWithValues: (record.update.trace ?? []).flatMap(\.operations).map { ($0.key, "move") }))
+        })
+        return ChangePublication(changes: changes, update: update, operations: names)
+    }
+
+    static func isPureMove(_ frame: ProtocolTraceFrame) -> Bool {
+        !frame.operations.isEmpty && frame.operations.allSatisfy { $0.kind == "moveSource" }
+    }
+
+    /// The one move a run of move frames amounts to, when every frame moves
+    /// the same original span: `start` is the run's first tree, `end` its last.
+    static func composeMoves(_ frames: [ProtocolTraceFrame], start first: ProtocolSnapshot, end last: ProtocolSnapshot, key: String) throws -> ProtocolTraceFrame? {
+        guard frames.allSatisfy(isPureMove), frames.count > 1 || frames.first.map({ $0.operations.count > 1 }) == true,
+              let firstFrame = frames.first, firstFrame.before == first.root else { return nil }
         struct Reference {
             var path: String
             var object: String
@@ -47,10 +67,10 @@ extension LocalChange {
             return Reference(path: path, object: object, range: start..<end)
         }
         guard let opening = ref(frames[0].operations[0].fields["source"]),
-              let stored = first.graph.objects.first(where: { $0.hash == opening.object })?.bytes else { return nil }
+              let stored = first.objects.first(where: { $0.hash == opening.object })?.bytes else { return nil }
         let path = opening.path
         let page: ProtocolPage?
-        if try LocalChange.entry(at: path, in: first.graph)?.page == opening.object {
+        if try LocalChange.entry(at: path, in: first)?.page == opening.object {
             guard case let .page(decoded) = try ProtocolObjectCodec.decode(stored, kind: .page) else { return nil }
             page = decoded
         } else { page = nil }
@@ -78,7 +98,7 @@ extension LocalChange {
         func contiguous(_ ranges: [Range<Int>]) -> Range<Int>? { ranges.count == 1 ? ranges[0] : nil }
         var moved: Range<Int>?
         var anchors: [(range: Range<Int>, side: WorkspaceSourceMove.Side)] = []
-        var root = first.graph.root
+        var root = first.root
         for frame in frames {
             guard frame.before == root else { return nil }
             let current = rendered(pieces)
@@ -112,10 +132,10 @@ extension LocalChange {
         }
         // A run that ends where it began states one move in place, as the
         // shared vectors expect ("move back to start").
-        guard let moved, root == last.candidate.root else { return nil }
+        guard let moved, root == last.root else { return nil }
         let finalBytes = rendered(pieces)
         let final = try object(finalBytes)
-        guard last.candidate.objects.contains(where: { $0.hash == final.hash && $0.bytes == final.bytes }) else { return nil }
+        guard last.objects.contains(where: { $0.hash == final.hash && $0.bytes == final.bytes }) else { return nil }
         // One move of the original span, beside the last anchor the editor
         // named, or else beside its new neighbour; whichever executes to the
         // final bytes.
@@ -134,18 +154,8 @@ extension LocalChange {
             .object(["material": .object(["kind": .string("basis"), "path": .string(path), "object": .string(opening.object)]),
                      "range": .array([.integer(range.lowerBound), .integer(range.upperBound)])])
         }
-        let changes = records.map(\.change)
-        let identity = "moves-" + ProtocolObjectCodec.hash(try sortedKeysJSON(changes)).replacingOccurrences(of: "sha256:", with: "")
-        let operation = try ProtocolSourceOperation(["key": .string("move"), "kind": .string("moveSource"),
-            "source": reference(moved), "at": reference(move.range), "side": .string(move.side.rawValue)])
-        let known = Set(first.graph.objects.map(\.hash))
-        let update = ProtocolCandidateUpdate(candidate: root, change: identity,
-            trace: [ProtocolTraceFrame(before: first.graph.root, after: root, operations: [operation])],
-            objects: last.candidate.objects.filter { !known.contains($0.hash) })
-        let names = Dictionary(uniqueKeysWithValues: records.map { record in
-            (record.change, Dictionary(uniqueKeysWithValues: (record.update.trace ?? []).flatMap(\.operations).map { ($0.key, "move") }))
-        })
-        return ChangePublication(changes: changes, update: update, operations: names)
+        return ProtocolTraceFrame(before: first.root, after: root, operations: [try ProtocolSourceOperation(["key": .string(key), "kind": .string("moveSource"),
+            "source": reference(moved), "at": reference(move.range), "side": .string(move.side.rawValue)])])
     }
 }
 
@@ -153,15 +163,15 @@ extension LocalChange {
     /// One authored update may retain several frames. This combines edits,
     /// copies, moves and structural operations without discarding their history
     /// or inventing a one-frame explanation. Snapshots and resolutions are
-    /// deliberate boundaries; trace limits split large batches.
+    /// deliberate boundaries. Runs of plain edits compose to one frame of the
+    /// edits they amount to (`composePlainRuns`); the trace limits apply to
+    /// the result and split larger batches.
     static func publication(_ records: [LocalChange], previous: [ChangePublication]) throws -> ChangePublication? {
         guard let first = records.first, let last = records.last,
               records.allSatisfy({ $0.tree == first.tree && $0.update.trace != nil && (records.count == 1 || ($0.update.resolves.isEmpty && $0.update.ifCurrent == nil)) }),
               zip(records, records.dropFirst()).allSatisfy({ $1.basis == .authored(change: $0.change) && $0.candidate.root == $1.graph.root }) else { return nil }
         if first.update.resolves.isEmpty, first.update.ifCurrent == nil, let moves = try movePublication(records) { return moves }
-        let rawFrames = records.flatMap { $0.update.trace ?? [] }
-        guard !rawFrames.isEmpty, rawFrames.count <= traceFrameLimit,
-              rawFrames.reduce(0, { $0 + $1.operations.count }) <= traceOperationLimit else { return nil }
+        guard records.contains(where: { !($0.update.trace ?? []).isEmpty }) else { return nil }
         let changes = records.map(\.change)
         let identity = "batch-" + ProtocolObjectCodec.hash(try sortedKeysJSON(changes)).replacingOccurrences(of: "sha256:", with: "")
         var names: [String: [String: String]] = [:], count = 0
@@ -199,6 +209,8 @@ extension LocalChange {
                 frames.append(ProtocolTraceFrame(before: frame.before, after: frame.after, operations: operations))
             }
         }
+        frames = try composePlainRuns(frames, records: records, identity: identity, names: &names)
+        guard frames.count <= traceFrameLimit, frames.reduce(0, { $0 + $1.operations.count }) <= traceOperationLimit else { return nil }
         // Retain the original payload union, including the first record's
         // accepted-base deltas; batching must not expand them to full files.
         var objects = Dictionary(records.flatMap { $0.update.objects }.map { ($0.hash, $0) }, uniquingKeysWith: { first, _ in first })
@@ -213,6 +225,123 @@ extension LocalChange {
         return ChangePublication(changes: changes, update: ProtocolCandidateUpdate(candidate: last.candidate.root, change: identity,
             trace: frames, resolves: first.update.resolves, ifCurrent: first.update.ifCurrent,
             objects: objects.values.filter { !known.contains($0.hash) }.sorted { $0.hash < $1.hash }, deltas: deltas), operations: names)
+    }
+}
+
+extension LocalChange {
+    /// Merge 002 case 1: plain edits across local records. Each run of
+    /// adjacent plain frames over one path becomes one frame of edits stated
+    /// over the run's first basis (`WorkspaceSourceEdit.compose`), so a typing
+    /// burst publishes as the edits it amounts to rather than a frame per key.
+    ///
+    /// Inserted text a later frame deleted never reaches the published
+    /// account; basis bytes deleted and retyped stay a replacement, so equal
+    /// bytes never stand in for their origin. A run stays as it is when any
+    /// operation result in it is referenced, when its end trees are not held,
+    /// or when the composed frame does not take the run's first tree exactly
+    /// to its last. Composed operations are keyed `edit-<k>-<i>`, `k` the run's
+    /// first frame index, and the originals leave the name mapping. The same
+    /// rule runs as `composePlainRuns` in `@ovst/working-tree`; the shared
+    /// vectors are `docs/overstory-spec/conformance/coalesced-publication.json`.
+    static func composePlainRuns(_ frames: [ProtocolTraceFrame], records: [LocalChange], identity: String, names: inout [String: [String: String]]) throws -> [ProtocolTraceFrame] {
+        var referenced = Set<String>()
+        func visit(_ value: ProtocolSemanticValue) {
+            switch value {
+            case let .object(fields):
+                if fields["kind"] == .string("operation"), fields["change"] == .string(identity), case let .string(key)? = fields["operation"] { referenced.insert(key) }
+                fields.values.forEach(visit)
+            case let .array(values): values.forEach(visit)
+            default: break
+            }
+        }
+        for frame in frames { for operation in frame.operations { operation.fields.values.forEach(visit) } }
+        var snapshots: [String: ProtocolSnapshot] = [:]
+        for record in records { for graph in [record.graph, record.candidate] where snapshots[graph.root] == nil { snapshots[graph.root] = graph } }
+        var result: [ProtocolTraceFrame] = [], removed = Set<String>(), index = 0
+        while index < frames.count {
+            var end = index + 1
+            let first = plainEdits(frames[index]), moving = isPureMove(frames[index])
+            if let first { while end < frames.count, let next = plainEdits(frames[end]), next.path == first.path { end += 1 } }
+            else if moving { while end < frames.count, isPureMove(frames[end]) { end += 1 } }
+            let run = Array(frames[index..<end])
+            let free = run.count > 1 && !run.contains(where: { $0.operations.contains { referenced.contains($0.key) } })
+            var composed: [ProtocolTraceFrame]?
+            if free, let first { composed = try composeRun(run, path: first.path, object: first.object, index: index, snapshots: snapshots) }
+            else if free, moving, let start = snapshots[run[0].before], let finish = snapshots[run[run.count - 1].after],
+                    let move = try composeMoves(run, start: start, end: finish, key: "move-\(index)"), move.after == finish.root { composed = [move] }
+            if let composed {
+                result.append(contentsOf: composed)
+                for frame in run { for operation in frame.operations { removed.insert(operation.key) } }
+            } else {
+                result.append(contentsOf: run)
+            }
+            index = end
+        }
+        // A burst that cancels completely keeps its frames: an empty trace states nothing.
+        if result.isEmpty { return frames }
+        if !removed.isEmpty { for change in names.keys { names[change] = names[change]!.filter { !removed.contains($0.value) } } }
+        return result
+    }
+
+    private static func composeRun(_ run: [ProtocolTraceFrame], path: String, object: String, index: Int, snapshots: [String: ProtocolSnapshot]) throws -> [ProtocolTraceFrame]? {
+        guard let before = run.first?.before, let after = run.last?.after, let start = snapshots[before], snapshots[after] != nil,
+              let edits = try? WorkspaceSourceEdit.compose(generations: run.map { plainEdits($0)!.edits }) else { return nil }
+        // Verify: the composed edits take the path's content in the first tree
+        // to the last tree, and nothing else differs.
+        let objects = Dictionary(start.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
+        let parts = path.split(separator: "/").map(String.init)
+        guard !parts.isEmpty else { return nil }
+        var directories: [(entries: [ProtocolDirectoryEntry], collection: ProtocolCollectionReference?)] = []
+        var hash = before
+        for (depth, part) in parts.enumerated() {
+            guard let bytes = objects[hash], case let .directory(entries, collection) = try ProtocolObjectCodec.decode(bytes, kind: .directory),
+                  let entry = entries.first(where: { $0.name == part }) else { return nil }
+            directories.append((entries, collection))
+            if depth < parts.count - 1 { guard let directory = entry.directory else { return nil }; hash = directory; continue }
+            guard (entry.file ?? entry.page) == object, let stored = objects[object] else { return nil }
+            var page: ProtocolPage?
+            if entry.page != nil {
+                guard case let .page(decoded) = try ProtocolObjectCodec.decode(stored, kind: .page) else { return nil }
+                page = decoded
+            }
+            guard let produced = applyPlain(page?.body ?? stored, edits) else { return nil }
+            var next = try page.map { try ProtocolObjectCodec.object(.page(ProtocolPage(id: $0.id, properties: $0.properties, body: produced))).hash }
+                ?? ProtocolObjectCodec.hash(produced)
+            for level in stride(from: parts.count - 1, through: 0, by: -1) {
+                let (levelEntries, collection) = directories[level]
+                let entries = levelEntries.map { item -> ProtocolDirectoryEntry in
+                    guard item.name == parts[level] else { return item }
+                    var replaced = item
+                    if level == parts.count - 1 { if page != nil { replaced.page = next } else { replaced.file = next } }
+                    else { replaced.directory = next }
+                    return replaced
+                }
+                next = try ProtocolObjectCodec.object(.directory(entries, collection: collection)).hash
+            }
+            guard next == after else { return nil }
+            if edits.isEmpty { return [] }
+            let operations = try edits.enumerated().map { i, edit in
+                try ProtocolSourceOperation(["key": .string("edit-\(index)-\(i)"), "kind": .string("editSource"),
+                    "source": .object(["material": .object(["kind": .string("basis"), "path": .string(path), "object": .string(object)]),
+                                       "range": .array([.integer(edit.utf8Range.lowerBound), .integer(edit.utf8Range.upperBound)])]),
+                    "text": .string(edit.replacement)])
+            }
+            return [ProtocolTraceFrame(before: before, after: after, operations: operations)]
+        }
+        return nil
+    }
+
+    private static func applyPlain(_ source: Data, _ edits: [WorkspaceSourceEdit]) -> Data? {
+        let bytes = [UInt8](source)
+        var result = Data(), cursor = 0
+        for edit in edits {
+            guard edit.utf8Range.lowerBound >= cursor, edit.utf8Range.upperBound <= bytes.count else { return nil }
+            result.append(contentsOf: bytes[cursor..<edit.utf8Range.lowerBound])
+            result.append(Data(edit.replacement.utf8))
+            cursor = edit.utf8Range.upperBound
+        }
+        result.append(contentsOf: bytes[cursor...])
+        return result
     }
 }
 

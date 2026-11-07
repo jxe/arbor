@@ -138,6 +138,120 @@
         { "source": "B\nA\n", "moves": [{ "source": [0, 2], "anchor": [2, 4], "side": "after" }] },
         { "source": "A\nB\n", "moves": [{ "source": [2, 4], "anchor": [0, 2], "side": "before" }] }
       ]
+    },
+    {
+      "name": "typing across records composes into one edit",
+      "source": "A\n\nB\n\nC\n\n",
+      "frames": 1,
+      "kinds": ["editSource"],
+      "steps": [
+        { "edits": [{ "range": [1, 1], "replacement": "x" }], "source": "Ax\n\nB\n\nC\n\n" },
+        { "edits": [{ "range": [2, 2], "replacement": "y" }], "source": "Axy\n\nB\n\nC\n\n" },
+        { "edits": [{ "range": [3, 3], "replacement": "z" }], "source": "Axyz\n\nB\n\nC\n\n" }
+      ]
+    },
+    {
+      "name": "backspacing composes into one deletion",
+      "source": "A\n\nB\n\nC\n\n",
+      "frames": 1,
+      "kinds": ["editSource"],
+      "steps": [
+        { "edits": [{ "range": [2, 3], "replacement": "" }], "source": "A\nB\n\nC\n\n" },
+        { "edits": [{ "range": [1, 2], "replacement": "" }], "source": "AB\n\nC\n\n" },
+        { "edits": [{ "range": [0, 1], "replacement": "" }], "source": "B\n\nC\n\n" }
+      ]
+    },
+    {
+      "name": "replacing a selection then typing composes",
+      "source": "A\n\nB\n\nC\n\n",
+      "frames": 1,
+      "kinds": ["editSource"],
+      "steps": [
+        { "edits": [{ "range": [3, 4], "replacement": "Q" }], "source": "A\n\nQ\n\nC\n\n" },
+        { "edits": [{ "range": [4, 4], "replacement": "u" }], "source": "A\n\nQu\n\nC\n\n" },
+        { "edits": [{ "range": [5, 5], "replacement": "e" }], "source": "A\n\nQue\n\nC\n\n" }
+      ]
+    },
+    {
+      "name": "deleted basis retyped stays a replacement",
+      "source": "A\n\nB\n\nC\n\n",
+      "frames": 1,
+      "kinds": ["editSource"],
+      "steps": [
+        { "edits": [{ "range": [3, 4], "replacement": "" }], "source": "A\n\n\n\nC\n\n" },
+        { "edits": [{ "range": [3, 3], "replacement": "B" }], "source": "A\n\nB\n\nC\n\n" }
+      ]
+    },
+    {
+      "name": "typed text deleted again cancels out of the account",
+      "source": "A\n\nB\n\nC\n\n",
+      "frames": 1,
+      "kinds": ["editSource"],
+      "steps": [
+        { "edits": [{ "range": [1, 1], "replacement": "x" }], "source": "Ax\n\nB\n\nC\n\n" },
+        { "edits": [{ "range": [2, 2], "replacement": "y" }], "source": "Axy\n\nB\n\nC\n\n" },
+        { "edits": [{ "range": [1, 3], "replacement": "" }], "source": "A\n\nB\n\nC\n\n" },
+        { "edits": [{ "range": [4, 5], "replacement": "b" }], "source": "A\n\nBb\nC\n\n" }
+      ]
+    },
+    {
+      "name": "edits in two places stay two operations",
+      "source": "A\n\nB\n\nC\n\n",
+      "frames": 1,
+      "kinds": ["editSource", "editSource"],
+      "steps": [
+        { "edits": [{ "range": [0, 0], "replacement": "1" }], "source": "1A\n\nB\n\nC\n\n" },
+        { "edits": [{ "range": [7, 7], "replacement": "2" }], "source": "1A\n\nB\n\n2C\n\n" },
+        { "edits": [{ "range": [1, 1], "replacement": "1" }], "source": "11A\n\nB\n\n2C\n\n" }
+      ]
+    },
+    {
+      "name": "edits around a move compose on each side",
+      "source": "A\n\nB\n\nC\n\n",
+      "frames": 3,
+      "kinds": ["editSource", "moveSource", "editSource"],
+      "steps": [
+        { "edits": [{ "range": [0, 1], "replacement": "X" }], "source": "X\n\nB\n\nC\n\n" },
+        { "edits": [{ "range": [1, 1], "replacement": "Y" }], "source": "XY\n\nB\n\nC\n\n" },
+        { "moves": [{  "source": [0, 4], "anchor": [4, 7], "side": "after" }], "source": "B\n\nXY\n\nC\n\n" },
+        { "edits": [{ "range": [3, 3], "replacement": "Z" }], "source": "B\n\nZXY\n\nC\n\n" },
+        { "edits": [{ "range": [4, 4], "replacement": "W" }], "source": "B\n\nZWXY\n\nC\n\n" }
+      ]
+    },
+    {
+      "name": "multibyte text composes by UTF-8 offsets",
+      "source": "naïve 日本\n\n",
+      "frames": 1,
+      "kinds": ["editSource", "editSource"],
+      "steps": [
+        { "edits": [{ "range": [13, 13], "replacement": "é" }], "source": "naïve 日本é\n\n" },
+        { "edits": [{ "range": [15, 15], "replacement": "😀" }], "source": "naïve 日本é😀\n\n" },
+        { "edits": [{ "range": [0, 2], "replacement": "Ñ" }], "source": "Ñïve 日本é😀\n\n" }
+      ]
+    },
+    {
+      "name": "CRLF line breaks compose",
+      "source": "one\r\ntwo\r\n",
+      "frames": 1,
+      "kinds": ["editSource"],
+      "steps": [
+        { "edits": [{ "range": [3, 3], "replacement": "!" }], "source": "one!\r\ntwo\r\n" },
+        { "edits": [{ "range": [4, 4], "replacement": "\r\n" }], "source": "one!\r\n\r\ntwo\r\n" },
+        { "edits": [{ "range": [6, 6], "replacement": "new" }], "source": "one!\r\nnew\r\ntwo\r\n" }
+      ]
+    },
+    {
+      "name": "moves on either side of an edit collapse to one move each",
+      "source": "A\n\nB\n\nC\n\nD\n\nE\n\n",
+      "frames": 3,
+      "kinds": ["moveSource", "editSource", "moveSource"],
+      "steps": [
+        { "moves": [{ "source": [0, 3], "anchor": [3, 6], "side": "after" }], "source": "B\n\nA\n\nC\n\nD\n\nE\n\n" },
+        { "moves": [{ "source": [3, 6], "anchor": [6, 9], "side": "after" }], "source": "B\n\nC\n\nA\n\nD\n\nE\n\n" },
+        { "edits": [{ "range": [7, 7], "replacement": "x" }], "source": "B\n\nC\n\nAx\n\nD\n\nE\n\n" },
+        { "moves": [{ "source": [6, 10], "anchor": [10, 13], "side": "after" }], "source": "B\n\nC\n\nD\n\nAx\n\nE\n\n" },
+        { "moves": [{ "source": [9, 13], "anchor": [13, 16], "side": "after" }], "source": "B\n\nC\n\nD\n\nE\n\nAx\n\n" }
+      ]
     }
   ]
 }
