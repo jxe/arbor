@@ -27,7 +27,6 @@ On main since fa661f3, 2026-11-07
   check a folder file edited outside Story never shows as the accepted page.
 - [ ] Visit a large tree: the first page opens without a snapshot download (network log
   shows a path read).
-- [ ] iPhone: a placed tree and the personal directory open and sync as before.
 
 ### Coalesced typing (Merge 002)
 

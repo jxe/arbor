@@ -67,7 +67,7 @@ working tree: a group member written as a bare link (no longer a member since de
 child links refreshing over an in-memory provider; neither was checked against main.
 TypeScript: object sources, path reads and a Browse session
 (`tests/unit/object-sources.test.ts`, `tests/integration/overstoryd/path-read.test.ts`).
-Not tried by hand; launch timings not measured ([joe.md](plans/joe.md#clients-003)).
+iPhone checked by Joe 2026-11-07 (works fine); Mac hand checks and launch timings in [joe.md](plans/joe.md#clients-003).
 
 ## Coalesced typing bursts (Merge 002 case 1) — 2026-11-07
 
