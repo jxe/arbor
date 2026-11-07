@@ -120,7 +120,7 @@ final class StorySyncClientTests: XCTestCase {
         XCTAssertEqual(status.protocolVersion, "v1")
         let placed = try await client.trees().snapshot.first { $0.id == tree }
         XCTAssertEqual(placed?.placement, "placed")
-        let opening = try await StoryAppModel.readPlacedTree(tree, client: client)
+        let opening = try await StoryWorkspaceState.readPlacedTree(tree, client: client)
         XCTAssertEqual(opening.current.tree.id, tree)
         XCTAssertEqual(opening.spine.root, opening.current.tree.root)
         let credential = try await client.credential()

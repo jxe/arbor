@@ -102,7 +102,7 @@ struct LoopbackServicesTests {
             .init(name: "photo.bin", file: photo.hash),
         ]))
         await installPlacedTree(root: root, objects: [root, index, photo])
-        let opening = try await StoryAppModel.readPlacedTree("tr_notes7f3q2ab7c", client: stubbedClient())
+        let opening = try await StoryWorkspaceState.readPlacedTree("tr_notes7f3q2ab7c", client: stubbedClient())
 
         #expect(opening.placed.osPath == "/Users/joe/notes")
         #expect(opening.current.tree.root == root.hash)
@@ -121,7 +121,7 @@ struct LoopbackServicesTests {
         let root = try ProtocolObjectCodec.object(.directory([]))
         await installPlacedTree(root: root, objects: [root], current: 409)
         do {
-            _ = try await StoryAppModel.readPlacedTree("tr_notes7f3q2ab7c", client: stubbedClient())
+            _ = try await StoryWorkspaceState.readPlacedTree("tr_notes7f3q2ab7c", client: stubbedClient())
             Issue.record("expected a 409")
         } catch let error as ProtocolHTTPError {
             #expect(error.status == 409)
@@ -264,7 +264,7 @@ struct LoopbackServicesTests {
             if request.url?.path.hasSuffix(hash) == true { return (200, bytes, "application/octet-stream") }
             return (404, Data(#"{"error":"not-found","message":"missing","retryable":false}"#.utf8), "application/json")
         }
-        let store = StoryAppModel.placedTreeObjects("tr_notes", reads: stubbedClient().reads())
+        let store = StoryWorkspaceState.placedTreeObjects("tr_notes", reads: stubbedClient().reads())
 
         #expect(try await store.bytes(hash) == bytes)
         let request = try #require(await LoopbackStub.state.requests().first)
