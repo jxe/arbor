@@ -294,7 +294,9 @@ public struct TreeSession: Sendable {
                         try await workingTree.recordAccepted(root: event.update.root, update: event.update.id, cursor: event.id)
                         continue
                     }
-                    if lazy || (try? await workingTree.applyAcceptedTransitions(event)) == nil {
+                    var replayed = false
+                    if !lazy { replayed = (try? await workingTree.applyAcceptedTransitions(event)) != nil }
+                    if !replayed {
                         try await pull(root: event.update.root, update: event.update.id, cursor: event.id)
                     }
                     await onChange()
