@@ -64,5 +64,5 @@ One folder per host you've visited, under one root:
 
 - **Writing to an unplaced tree you can write.** Either refuse (place it first) or give the namespace view its own change log per tree. Refusing is simpler and probably right.
 - **Which hosts to list.** Only hosts you've opened, or also every host your People directory knows?
-- **Names that are not hosts.** With person-owned domains ([Names 001](../soon/names-001-your-trees-at-your-own-domain.md)), `~/Overstory/alice.com/` could show Alice's trees wherever she hosts them.
+- **Names that are not hosts.** With person-owned domains ([built 2026-11-07](../../status.md#trees-at-your-own-domain--2026-11-07)), `~/Overstory/alice.com/` could show Alice's trees wherever she hosts them.
 - **Search.** Spotlight indexing of hydrated files only, or Story Sync's own search behind the extension?

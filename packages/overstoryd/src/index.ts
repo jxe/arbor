@@ -9,3 +9,4 @@ export * from "./pack-maintenance.ts";
 export * from "./report.ts";
 export * from "./collections.ts";
 export { domainProfileResolver, type DomainProfileResolver } from "./locator-pins.ts";
+export * from "./custom-domains.ts";

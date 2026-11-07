@@ -370,6 +370,56 @@ DNS origin changes neither. A raw `overstory://<TreeID>/...` locator remains the
 primary address when a canonical name is absent, unknown, inaccessible, or
 changing.
 
+### 5.1 Trees at a person's domain
+
+A host may serve one person's trees at a domain they control, so the
+canonical URL of what the host holds at `/~alice/drafts` is
+`https://notes.alice.example/drafts`, and survives a move to another host
+that keeps her trees at the same names. The person points the domain at the
+host in DNS (usually a CNAME to the host's name) and lists it in their profile's
+`domains` ([accounts §1](04-accounts-and-devices.md#1-profiles-and-host-accounts)).
+The host serves the domain only while both directions hold:
+
+1. **The domain reaches the host.** The host fetches
+   `https://<domain>/.overstory/domain-check`, without following redirects,
+   and gets back its own answer: `{ "host": "<token>" }`, a value it chose
+   and serves at every name it answers to. That proves DNS, the certificate
+   and any proxy in front at once. A loopback test domain is fetched over
+   `http`.
+2. **The profile lists the domain.** The profile is a person profile the host
+   holds for one of its own accounts, mounted at a path, and exactly one such
+   profile lists the domain.
+
+The host checks again on the schedule it resolves profile locators on
+(§1), and stops serving a domain when a check gets another answer, when the
+profile no longer lists it, or when it has gone unconfirmed past the grace.
+
+While a domain is served, with the profile's path as its **prefix**:
+
+- **Requests at the domain** have the prefix put in front of their path:
+  `GET /drafts` at the domain is `GET /~alice/drafts`, and
+  `/.well-known/overstory/drafts` is `/.well-known/overstory/~alice/drafts`.
+  `/.overstory/*` routes, which name trees by TreeID, are the same at every
+  name. A path at the domain whose first segment begins with `~` names
+  another account and is redirected to the host's own name.
+  `/.well-known/overstory-profile` at the domain names the profile's
+  locator at the host, so the domain also names the person (§1.1) with no
+  TXT record.
+- **One canonical URL.** A descriptor's `canonical` gains `url`, the tree's
+  canonical HTTP URL, for every tree whose path is at or below the prefix: the
+  domain's origin followed by the path below the prefix. The longest served
+  prefix covering a path decides; with none, there is no `url` and the
+  canonical URL is the endpoint's origin and path, as before. `path` and
+  `endpoint` keep naming the tree at the host, which still resolves and
+  serves it there, so a client that does not know `url` keeps working.
+- **Browsers are sent to it.** An HTML request for a path at or below the
+  prefix at the host's own name is redirected (`301`) to the same path at
+  the domain.
+
+A domain names one profile's trees. Profile locators in rules and group
+members keep their spelling; a domain locator (§1.1) is still how a rule
+names a person by their domain.
+
 ```text
 GET /.overstory/health
 GET /.overstory/integrity

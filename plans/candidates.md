@@ -15,6 +15,9 @@ When one is decided, write a plan (or add it to the plan it belongs to) and dele
 
 ## Small features
 
+- **A domain that stops checking** (Names 001, 2026-11-07). When a person's domain stops
+  reaching their host, Story falls back to `~alice · host`. Should people whose rules name
+  her by the domain be warned?
 - **Founding a community off Railway.** Fly and the docker-compose VPS recipe could get the
   same founder-code path as the Railway template (Sharing 004, 2026-11-05). Railway only for
   now.

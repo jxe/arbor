@@ -54,5 +54,5 @@ command that installed them, so `story agent start` from the npm package writes
   final message. Failure keeps the block and shows the last line of stderr.
 - **Undo.** The files the run changed, with their hashes right after it, and
   the snapshot, kept for a day and saved in `agent-runs/runs.json` so they
-  survive a restart. [overstoryd 007](../../../plans/features/history-007-document-history-routes-and-restore.md)
-  step 6 plans to replace this with a history restore.
+  survive a restart. [overstoryd 007](../../../plans/later/history-007-page-history.md)
+  step 7 plans to replace this with a history restore.

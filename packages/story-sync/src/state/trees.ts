@@ -26,6 +26,8 @@ export interface TreeRegistrySnapshot {
 interface PlacementSyncMetadata {
   /** The canonical path the host last reported, absent for a tree it mounts nowhere. */
   canonicalPath?: string;
+  /** The canonical URL at a person's domain the host last reported (locators §5.1). */
+  canonicalURL?: string;
   conflicted?: boolean;
   ref?: string;
   update?: string;

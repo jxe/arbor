@@ -169,6 +169,7 @@ type RemoteTreeDescriptor = {
     path: LogicalPath;
     endpoint: string;
     parentTree: TreeID | null;
+    url?: string;
   } | null;
   pages?: true;
 };
@@ -189,7 +190,9 @@ The enclosing read's `observedThrough` is the cursor after which watching begins
 It is an observation boundary, not an alias for the accepted `update` identity.
 The read binds the descriptor and this boundary atomically.
 Hosted trees have, in addition, a canonical path, endpoint, and might be nested
-inside a parent tree.
+inside a parent tree. `canonical.url`, when present, is the tree's canonical URL at a
+person's domain ([locators §5.1](03-locators.md#51-trees-at-a-persons-domain)); without it
+the canonical URL is the endpoint's origin followed by `path`.
 
 The same root may be accepted again by a later update. Its graph remains the
 same content-addressed snapshot, while the later descriptor's `update` identifies

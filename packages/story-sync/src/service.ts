@@ -716,6 +716,7 @@ export class StorySyncDaemon implements AsyncDisposable {
                 update: activated.update.id,
                 access: "write",
                 canonicalPath: described?.tree.canonical?.path ?? placement.canonicalPath,
+                canonicalURL: described?.tree.canonical?.url,
               });
               await folder.placed({ root: activated.update.root, update: activated.update.id });
               this.trees.setSyncState(placement.tree, "idle");
@@ -724,8 +725,10 @@ export class StorySyncDaemon implements AsyncDisposable {
             const access = placement.readOnly ? "read" : remote.access;
             // The host decides a tree's canonical path; a mount or rename moves it.
             const canonicalPath = remote.canonical?.path;
-            if (placement.access !== access || (placement.kind !== "tree-configuration" && placement.canonicalPath !== canonicalPath)) {
-              await this.trees.updateSyncMetadata({ ...placement, access, canonicalPath });
+            const canonicalURL = remote.canonical?.url;
+            if (placement.access !== access || (placement.kind !== "tree-configuration"
+              && (placement.canonicalPath !== canonicalPath || placement.canonicalURL !== canonicalURL))) {
+              await this.trees.updateSyncMetadata({ ...placement, access, canonicalPath, canonicalURL });
             }
             if (!placement.ref || !placement.update) await folder.placeFromHost();
             folder.ensureWatch();

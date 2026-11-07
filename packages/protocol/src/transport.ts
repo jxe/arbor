@@ -189,6 +189,8 @@ export interface RemoteDirectoryEntry {
   description?: string;
   avatar?: { tree: TreeID; path: string; hash: ObjectHash };
   sources: Array<"community" | `group:${TreeID}` | "access">;
+  /** The domain the host serves the person's trees at (locators §5.1). */
+  domain?: string;
 }
 
 /**

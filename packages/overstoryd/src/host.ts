@@ -2,7 +2,7 @@ import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID } from "@ovst/protocol";
+import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID, DOMAIN_PROFILE_PATH } from "@ovst/protocol";
 import { decodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { AccountChallenge, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeQueryResponse } from "./exec-routes.ts";
@@ -32,6 +32,7 @@ import {
 import { escapeHTML, publicTreePath, renderNoticePage, renderPublicDataPage, renderPublicMarkdownPage, renderReservedPage, RESERVED_PAGE_SCRIPT, PAGE_ASSETS, type PublicPageChild, type StoryDownloads } from "./public-page.ts";
 import { ProtocolProjection, protocolCollectionRowMarkdown, protocolCollectionRowTitle, type ProtocolCollectionRow } from "./projection.ts";
 import { buildDirectory } from "./directory.ts";
+import { DOMAIN_CHECK_PATH, domainOrigin, type CustomDomains } from "./custom-domains.ts";
 import { clientAddress, hardenResponse, htmlContentSecurityPolicy, storedFileHeaders, type PageScript } from "./response-policy.ts";
 
 
@@ -128,12 +129,19 @@ function protocolError(
   return json({ error, message, retryable, ...context, ...(Object.keys(details).length ? { details } : {}) }, status);
 }
 
-/** A tree's canonical placement at this origin, or null for a tree mounted nowhere. */
-function canonicalOf(origin: string, tree: HostTree): RemoteTreeDescriptor["canonical"] {
-  return tree.canonicalPath === null ? null : {
+/**
+ * A tree's canonical placement at this origin, or null for a tree mounted
+ * nowhere; with `domains`, its canonical URL at a person's domain when one is
+ * served over its path (locators §5.1).
+ */
+function canonicalOf(origin: string, tree: HostTree, domains?: CustomDomains): RemoteTreeDescriptor["canonical"] {
+  if (tree.canonicalPath === null) return null;
+  const url = domains?.url(tree.canonicalPath);
+  return {
     path: tree.canonicalPath as `/${string}`,
     endpoint: `${origin}/.overstory/trees/${encodeURIComponent(tree.id)}`,
     parentTree: tree.parentTree,
+    ...(url ? { url } : {}),
   } as RemoteTreeDescriptor["canonical"];
 }
 
@@ -144,12 +152,12 @@ function overstoryLocator(origin: string, tree: HostTree): string | null {
 }
 
 /** A tree's descriptor at `head`, one of its accepted updates. */
-function descriptor(origin: string, tree: HostTree, access: ReadWriteAccess, head: Pick<AcceptedUpdate, "id" | "root" | "conflicted">, pages = false): RemoteTreeDescriptor {
+function descriptor(origin: string, tree: HostTree, access: ReadWriteAccess, head: Pick<AcceptedUpdate, "id" | "root" | "conflicted">, pages = false, domains?: CustomDomains): RemoteTreeDescriptor {
   return {
     id: tree.id,
     kind: tree.kind,
     access,
-    canonical: canonicalOf(origin, tree),
+    canonical: canonicalOf(origin, tree, domains),
     root: head.root as RemoteTreeDescriptor["root"],
     update: head.id,
     conflicted: head.conflicted,
@@ -165,7 +173,7 @@ function descriptorWithUpdate(
 ): RemoteTreeDescriptor {
   const update = overstoryd.currentUpdate(tree.id);
   if (!update) throw new ServerFaultError(`Tree has no accepted update: ${tree.id}`);
-  return descriptor(origin, tree, access, update, overstoryd.acceptsPages(tree.id));
+  return descriptor(origin, tree, access, update, overstoryd.acceptsPages(tree.id), overstoryd.customDomains);
 }
 
 /**
@@ -173,11 +181,11 @@ function descriptorWithUpdate(
  * and what the client cannot derive for its new descriptor. The cursor is the
  * frame's SSE `id` and the tree is the URL's.
  */
-function watchFrame(origin: string, tree: HostTree, transition: AcceptedTransition, access: ReadWriteAccess) {
+function watchFrame(origin: string, tree: HostTree, transition: AcceptedTransition, access: ReadWriteAccess, domains?: CustomDomains) {
   return {
     transition: encodeAcceptedTransitionJSON(transition),
     access,
-    canonical: descriptor(origin, tree, access, transition.update).canonical,
+    canonical: descriptor(origin, tree, access, transition.update, false, domains).canonical,
   };
 }
 
@@ -431,6 +439,39 @@ export async function serveHost(options: {
       if (token?.startsWith("execution_") && !execution) return protocolError("unauthenticated", "Execution authorization is unavailable", 401);
       const response = await overstoryd.execution.run(execution, async () => {
       const url = new URL(request.url);
+      // At a person's domain (locators §5.1), their prefix goes in front of
+      // the path; `/.overstory/*` names trees by TreeID at every name.
+      const servedDomain = overstoryd.customDomains.serving(request.headers.get("host"));
+      if (servedDomain && (request.method === "GET" || request.method === "HEAD")) {
+        if (url.pathname === DOMAIN_PROFILE_PATH) {
+          return json({ profile: `${publicOrigin}${servedDomain.prefix}` });
+        }
+        if (url.pathname === "/.well-known/overstory" || url.pathname.startsWith("/.well-known/overstory/")) {
+          const below = url.pathname.slice("/.well-known/overstory".length);
+          url.pathname = `/.well-known/overstory${servedDomain.prefix}${below === "/" ? "" : below}`;
+        } else if (!url.pathname.startsWith("/.")) {
+          // Another account's path is at the host's own name.
+          if (url.pathname.startsWith("/~")) return new Response(null, { status: 308, headers: { location: `${publicOrigin}${url.pathname}${url.search}` } });
+          url.pathname = `${servedDomain.prefix}${url.pathname === "/" ? "" : url.pathname}`;
+        }
+      }
+      // A browser at the host's own name is sent to the domain serving the path.
+      if (!servedDomain && request.method === "GET" && !url.pathname.startsWith("/.") && request.headers.get("accept")?.includes("text/html")) {
+        let decoded: string | null = null;
+        try { decoded = decodeURIComponent(url.pathname).replace(/\/$/, ""); } catch {}
+        const domain = decoded ? overstoryd.customDomains.domainFor(decoded) : null;
+        if (domain) {
+          const below = url.pathname.slice(encodeURI(domain.prefix).length);
+          return new Response(null, { status: 301, headers: { location: `${domainOrigin(domain.domain)}${below || "/"}${url.search}` } });
+        }
+      }
+      /** A path at this host as the request's own name spells it: without a served domain's prefix. */
+      const shown = (path: string): string => {
+        if (!servedDomain) return path;
+        if (path === servedDomain.prefix) return "/";
+        return path.startsWith(`${servedDomain.prefix}/`) ? path.slice(servedDomain.prefix.length) : path;
+      };
+      const shownOrigin = servedDomain ? domainOrigin(servedDomain.domain) : publicOrigin;
       // The one authentication of this request; routes below reuse it.
       const authentication = overstoryd.authenticateToken(token);
       // A visitor (accounts §5.6) has no account: every route reads it as
@@ -526,6 +567,9 @@ export async function serveHost(options: {
           return new Response(Bun.file(new URL(`../assets/${pageAsset.slice(pageAsset.lastIndexOf("/") + 1)}`, import.meta.url)), {
             headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" },
           });
+        }
+        if (request.method === "GET" && url.pathname === DOMAIN_CHECK_PATH) {
+          return json({ host: overstoryd.customDomains.token });
         }
         if (request.method === "GET" && url.pathname === "/.overstory/health") {
           try {
@@ -1056,7 +1100,7 @@ export async function serveHost(options: {
                   delivered = next.record.ordinal;
                   const transition = payloadFree ? { ...next.transition, objects: [], deltas: [] } : next.transition;
                   frames = [encodeSSEFrame({id: next.record.id, event: "tree.update",
-                    data: watchFrame(publicOrigin, overstoryd.get(tree.id) ?? tree, transition, access)})];
+                    data: watchFrame(publicOrigin, overstoryd.get(tree.id) ?? tree, transition, access, overstoryd.customDomains)})];
                 }
               } catch (error) {
                 // A failure here, such as a retained transition whose objects
@@ -1119,7 +1163,8 @@ export async function serveHost(options: {
           if (resolution.kind === "missing") return pageNotFound();
           const logicalPath = resolution.path;
           const canonicalPath = tree.canonicalPath!;
-          const publicPath = publicTreePath(canonicalPath, logicalPath);
+          // At a served domain, links and redirects are spelled without its prefix.
+          const publicPath = shown(publicTreePath(canonicalPath, logicalPath));
           if (requestLocator.stableKey && resolved.path !== logicalPath) {
             const location = buildNetworkLocator(publicPath, {
               stableKey: requestLocator.stableKey,
@@ -1145,8 +1190,8 @@ export async function serveHost(options: {
             return html(renderPublicMarkdownPage({
               source: "",
               fallbackTitle: resolution.table.table!,
-              origin: publicOrigin,
-              treeCanonicalPath: canonicalPath,
+              origin: shownOrigin,
+              treeCanonicalPath: shown(canonicalPath),
               sourceDirectory: markdownSourceDirectory(logicalPath, null),
               publicPath,
               storyDownloads: options.storyDownloads,
@@ -1168,8 +1213,8 @@ export async function serveHost(options: {
               return html(renderPublicMarkdownPage({
                 source: new TextDecoder().decode(logical.bytes),
                 fallbackTitle: objectName.slice(0, -3),
-                origin: publicOrigin,
-                treeCanonicalPath: canonicalPath,
+                origin: shownOrigin,
+                treeCanonicalPath: shown(canonicalPath),
                 sourceDirectory: markdownSourceDirectory(logicalPath, "sibling"),
                 publicPath,
                 storyDownloads: options.storyDownloads,
@@ -1212,8 +1257,8 @@ export async function serveHost(options: {
           return html(renderPublicMarkdownPage({
             source,
             fallbackTitle: logicalPath.split("/").filter(Boolean).at(-1) ?? canonicalPath.split("/").filter(Boolean).at(-1) ?? overstoryd.communityHandle(),
-            origin: publicOrigin,
-            treeCanonicalPath: canonicalPath,
+            origin: shownOrigin,
+            treeCanonicalPath: shown(canonicalPath),
             sourceDirectory: markdownSourceDirectory(logicalPath, logical.bodyOrigin ?? null),
             children,
             publicPath,
@@ -1271,6 +1316,8 @@ export async function serveHost(options: {
     publicOrigin = `${publicOrigin.slice(0, publicOrigin.lastIndexOf(":"))}:${server.port}`;
   }
   if (dynamicLoopbackOrigin) overstoryd.setCommunityHost(new URL(publicOrigin).host, true);
+  // Served domains are checked once the listener answers, then on the pin schedule.
+  void overstoryd.customDomains.refresh().catch((error) => console.error("overstoryd custom domain check failed", error));
   // The execution sidecar calls the standard API here, on loopback.
   collections?.listen(`http://127.0.0.1:${server.port}`);
   return { overstoryd, server, url: publicOrigin, collections };

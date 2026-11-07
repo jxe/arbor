@@ -98,12 +98,6 @@ spec has it; Joe wants that to be as easy as possible for both. The administrato
 link from Story, or approves a request the person sends from the new Mac. Before people
 depend on Story enough to lose a Mac.
 
-**[overstoryd 007: document history and restore](features/history-007-document-history-routes-and-restore.md).**
-Seeing and restoring earlier versions of a page; it also decides how long document
-versions are kept, which is most of what overstoryd retains. Since 2026-11-01 it also holds
-agent runs in History (formerly Agents 003): updates carry an optional attribution naming the
-agent and run, a run is one History entry, and Undo Run is a restore.
-
 **[Editor 001: snippets you type or say](features/editor-001-snippets.md).**
 Joe asked on 2026-10-24 for TextMate-style snippets in place of template buttons: a page he
 edits like any other, such as his standard day outline, that expands where he is when he
@@ -141,12 +135,6 @@ Pages are logical nodes, written to disk by each placement: built, released in 0
 converted on Joe's todos tree ([status](../status.md#pages-as-logical-nodes-built--2026-10-28)).
 Left: provenance for page bodies, the front-matter merge cases it closes, and removing the
 `.md` file-entry path once every tree is converted.
-
-**[Names 001: your trees at your own domain, and domains in Story](soon/names-001-your-trees-at-your-own-domain.md).**
-A domain can already name a person (TXT record or `.well-known`, checked against the profile's
-`domains`; [status](../status.md#domain-locators-your-own-domain-names-your-profile--2026-11-05)).
-Left (Joe, 2026-11-06): a host serves a person's trees at their domain through a CNAME, with one
-canonical URL per tree, and Story shows and accepts domains.
 
 **[Apps 012: one kind of view](soon/apps-012-one-kind-of-view.md).**
 Joe, 2026-11-06: a schema's `~views` entry is the built-in list view with its settings (spec
@@ -220,9 +208,11 @@ a freshness policy so unrelated updates don't force a renewed review, explanatio
 and deletions, combination previews, and bulk and offline resolution. Joe made the ideas item
 a plan on 2026-10-28; take each when a real review needs it.
 
-**[overstoryd 006: line provenance](later/history-006-line-provenance.md).** After
-overstoryd 007: who submitted each current line, and the agent when an update names one
-("Joe · Claude"). With Performance 004's index it reads pieces instead of matching lines.
+**[overstoryd 007: page history](later/history-007-page-history.md).**
+`story changes <page> --day yesterday` lists what was added to and deleted from a page; then
+History with Restore, agent runs in History with Undo Run, and blame naming who submitted each
+line and the agent ("Joe · Claude"). All of it reads Performance 004's provenance index rather
+than stored versions. Merged from overstoryd 006 and 007 on 2026-11-07.
 
 **[Postgres 001: collections backed by Postgres, and SQLite projections of them](later/postgres-001-postgres-backed-collections.md).**
 Longer term. For now the point is that the design shows Postgres backings, SQLite projections
@@ -283,12 +273,9 @@ include editor alignment and round-trip characterization.
 
 ### History and revisions
 
-[overstoryd 007](features/history-007-document-history-routes-and-restore.md) (history and
-restore) comes before [overstoryd 006](later/history-006-line-provenance.md) (line
-provenance), which builds on the history API and adds its own metadata and policy. 007 adds
-the agent attribution on updates; 006 adds who submitted each update and shows both. Merge
-explanations can link to this history; their provenance proofs and conflict rules stay with
-merge work.
+[overstoryd 007](later/history-007-page-history.md) holds page changes, History and restore,
+agent runs, and line provenance, all read from the provenance index. Merge explanations can
+link to this history; their provenance proofs and conflict rules stay with merge work.
 
 ### Performance
 

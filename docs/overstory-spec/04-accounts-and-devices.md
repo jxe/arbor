@@ -51,7 +51,8 @@ domains: [alice.example]
 
 A domain names the profile only when the domain's own records name it back
 ([locators §1.1](03-locators.md#11-domain-locators)); the list alone grants
-nothing, and a malformed entry is ignored.
+nothing, and a malformed entry is ignored. A domain pointed at the profile's own host also
+serves the person's trees there ([locators §5.1](03-locators.md#51-trees-at-a-persons-domain)).
 
 A **host account** is host state: the host's record that one profile
 `TreeID` is claimed there, with the DeviceIDs that profile's devices have
