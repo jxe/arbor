@@ -1,8 +1,8 @@
 # Names 001: Your trees at your own domain, and domains in Story
 
-**Why and when:** Joe, 2026-11-05, asked whether DNS host names are a good way to define the global namespace: a name like `garden.example/~alice` belongs to whoever runs the host, and stops working when Alice moves. The first part is built (2026-11-05, [status](../../status.md#domain-locators-your-own-domain-names-your-profile--2026-11-05)): a domain can name a person, Bluesky-style. What is left is serving her trees at her domain, so links survive a move too, and showing domains in Story. Joe, 2026-11-06: do it in DNS (a CNAME to the host), not by clients rewriting URLs; a tree has exactly one canonical URL; keep both the TXT naming and the CNAME serving, with one Settings flow for both.
+**Why and when:** Joe, 2026-11-05, asked whether DNS host names are a good way to define the global namespace: a name like `garden.example/~alice` belongs to whoever runs the host, and stops working when Alice moves. The first part is built (2026-11-05, [status](../../status.md#domain-locators-your-own-domain-names-your-profile--2026-11-05)): a domain can name a person, Bluesky-style. What is left is serving her trees at her domain, so links survive a move too, and showing domains in Story. Joe, 2026-11-06: do it in DNS (a CNAME to the host), not by clients rewriting URLs; a tree has exactly one canonical URL; keep both the TXT naming and the CNAME serving. Joe, 2026-11-07: set up from the command line only (`story me domain`); Story shows and accepts domains but has no setting for them.
 
-> **Executor instructions**: Step 1 is overstoryd work on main, testable in the cloud with loopback hosts (as `tests/integration/overstoryd/visitor-sessions.test.ts` does for domain naming). Reuse the domain check in `packages/overstoryd/src/locator-pins.ts` (`domainProfileResolver`) and its refresh schedule. Spec first (locators §5, accounts §1). Step 2 needs the Mac, so it goes on a branch.
+> **Executor instructions**: Step 1 is overstoryd work on main, testable in the cloud with loopback hosts (as `tests/integration/overstoryd/visitor-sessions.test.ts` does for domain naming). Reuse the domain check in `packages/overstoryd/src/locator-pins.ts` (`domainProfileResolver`) and its refresh schedule. Spec first (locators §5, accounts §1). Step 2 needs the Mac to build. Setup is the CLI's alone: no Settings flow in Story.
 
 ## Status
 
@@ -32,17 +32,15 @@ Alice points a domain at her home host with a CNAME, often a subdomain (`notes.a
 
 - Show `alice.com` in place of `~alice · garden.example` wherever a person is named, once the domain checks: People, presence avatars, share sheets, group members.
 - Accept a domain wherever a person is named: the share sheet and Go to….
-- Settings, "Use your own domain…": writes `domains`, shows the TXT record or the CNAME with a copy button, and a Check button (what `story me domain --check` does).
 - Share links use the canonical URL, which is the domain form when one is verified.
 
 ## Steps
 
 1. **Custom domains at a host** (main): spec (locators §5: a host may serve one account's paths at a domain's root; accounts §1), the verified-domain table, URL building, serving and redirects, with loopback tests. CLI: `story me domain --serve <domain>` prints the CNAME. Then certificates on Railway: its API adds a custom domain per verified claim, or a certificate-issuing proxy in front (try Railway's API first).
-2. **Story** (branch, Mac then iPhone): the display, input and Settings changes above.
+2. **Story** (Mac then iPhone): the display and input changes above.
 3. **Close out**: Joe's hand checks go to his to-do file, status, then delete this plan.
 
 ## Open questions
 
-- **Domains in reservations.** A community could reserve `alice.com` and follow her home host as it moves. That needs a placement account whose home host can change (Security 010's territory).
 - **Many custom domains on Railway.** Railway caps custom domains per service; a community with many people using their own may need the proxy route.
 - **Display without the check.** If the check fails later (the record is removed), Story falls back to `~alice · garden.example`. Should it warn the people who wrote rules with the domain?
