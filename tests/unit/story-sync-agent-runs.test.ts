@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { PresenceEvent, PresenceUpdate } from "@ovst/protocol";
+import { hashObject, type PresenceEvent, type PresenceUpdate } from "@ovst/protocol";
 import { addAllowRule, AgentRuns, blockedRules, findTaskBlock, markTaskDone, permissionRule, RUN_TOOLS, runArguments, runPrompt, type AgentRun } from "../../packages/story-sync/src/agent-runs.ts";
 import { AgentSessions, type AgentPresenceClient } from "../../packages/story-sync/src/agents.ts";
 
@@ -136,8 +136,71 @@ describe("agent runs", () => {
     }
   });
 
+  test("a run request's ID names the run, and sending it again runs it once", async () => {
+    const first = await runs.start({ tree: "tr_notes", page: "/Groceries.md", task: "merge the duplicates", run: "phone-1" });
+    const again = await runs.start({ tree: "tr_notes", page: "/Groceries.md", task: "merge the duplicates", run: "phone-1" });
+    expect(first.id).toBe("phone-1");
+    expect(again.id).toBe("phone-1");
+    expect((await settled("phone-1")).state).toBe("finished");
+    expect(runs.list().length).toBe(1);
+    // The agent's presence entry names the run, so a phone can match it to its block.
+    expect(updates.some((update) => update.run === "phone-1")).toBe(true);
+  });
+
   test("a tree that is not placed here cannot run", async () => {
     await expect(runs.start({ tree: "tr_elsewhere", page: "/x.md", task: "anything" })).rejects.toThrow("not placed");
+  });
+});
+
+describe("external runs (story agent start --task)", () => {
+  const request = { tree: "tr_notes", page: "/Groceries.md", task: "merge the duplicates", run: "run-ext", external: true, label: "Cloud" } as const;
+
+  test("the agent's own session takes over the run and marks the block done when it says done", async () => {
+    const started = await runs.start(request);
+    expect(started).toMatchObject({ id: "run-ext", state: "running", external: true, undoable: false, file: join(folder, "Groceries.md") });
+    expect(started.prompt).toContain("merge the duplicates");
+    expect(started.prompt).toContain(join(folder, "Groceries.md"));
+    // Shown from the start, holding the tree, with the run's ID.
+    expect(hostCalls[0]).toBe("hold tr_notes");
+    // The agent's hooks name their own session: it takes over the stand-in rather than showing twice.
+    await sessions.report({ cwd: folder, session: "claude-session", hook: { hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: join(folder, "Groceries.md") } } });
+    expect(sessions.list()).toEqual([{ session: "claude-session", tree: "tr_notes", agent: "Cloud" }]);
+    await writeFile(join(folder, "Groceries.md"), PAGE.replace("- milk\n- milk\n", "- milk\n"));
+    // `story agent done` names no session: it goes to the tree's agent. The block is marked before it returns.
+    await sessions.report({ cwd: folder, done: "Merged the milk" });
+    const run = runs.get("run-ext")!;
+    expect(run).toMatchObject({ state: "finished", result: "Merged the milk", changed: ["Groceries.md"] });
+    expect(await readFile(join(folder, "Groceries.md"), "utf8")).toBe("# Groceries\n\n> [!agent-done] merge the duplicates\n\n- milk\n- eggs\n");
+    expect(hostCalls).toContain("release tr_notes");
+    expect(published).toBeGreaterThan(0);
+    await Bun.sleep(30);
+    expect(updates.some((update) => update.run === "run-ext")).toBe(true);
+  });
+
+  test("an agent that leaves without saying done leaves the block, and says why", async () => {
+    await runs.start(request);
+    await sessions.report({ cwd: folder, session: "claude-session", hook: { hook_event_name: "SessionEnd" } });
+    await Bun.sleep(10);
+    expect(runs.get("run-ext")).toMatchObject({ state: "failed", result: "The agent stopped without saying it was done" });
+    expect(await readFile(join(folder, "Groceries.md"), "utf8")).toBe(PAGE);
+  });
+
+  test("stopping an external run takes its agent out of presence and leaves the block", async () => {
+    await runs.start(request);
+    runs.stop("run-ext");
+    expect(runs.get("run-ext")).toMatchObject({ state: "stopped", result: "Stopped" });
+    expect(sessions.list()).toEqual([]);
+    expect(await readFile(join(folder, "Groceries.md"), "utf8")).toBe(PAGE);
+  });
+
+  test("the sender's range picks its block among copies when this folder has the sender's version", async () => {
+    const twice = "# Groceries\n\n> [!agent] tidy\n\n## Later\n\n> [!agent] tidy\n";
+    await writeFile(join(folder, "Groceries.md"), twice);
+    const second = Buffer.byteLength(twice.slice(0, twice.lastIndexOf("> [!agent]")));
+    const range = { source: hashObject(new TextEncoder().encode(twice)) as never, anchor: second, head: second };
+    await runs.start({ ...request, task: "tidy", range });
+    await sessions.report({ cwd: folder, done: "Tidied" });
+    expect(await readFile(join(folder, "Groceries.md"), "utf8")).toBe("# Groceries\n\n> [!agent] tidy\n\n## Later\n\n> [!agent-done] tidy\n");
   });
 });
 
@@ -236,6 +299,16 @@ describe("task blocks", () => {
     // Story writes a typed URL as a link; the task's plain text holds only the URL.
     const linked = "> [!agent] images from [https://example.com/a](https://example.com/a) and <https://example.com/b>\n";
     expect(markTaskDone(linked, "images from https://example.com/a and https://example.com/b")).toBe(linked.replace("[!agent]", "[!agent-done]"));
+  });
+
+  test("near a line or holding a byte, among blocks with the same task", () => {
+    const source = "> [!agent] tidy\n\ntext\n\n> [!agent] tidy\n";
+    expect(findTaskBlock(source, "tidy")!.start).toBe(0);
+    expect(findTaskBlock(source, "tidy", { line: 3 })!.start).toBe(4);
+    expect(findTaskBlock(source, "tidy", { byte: source.lastIndexOf(">") + 3 })!.start).toBe(4);
+    // A byte in no task block falls back to the text.
+    expect(findTaskBlock(source, "tidy", { byte: source.indexOf("text") })!.start).toBe(0);
+    expect(markTaskDone(source, "tidy", { line: 4 })).toBe("> [!agent] tidy\n\ntext\n\n> [!agent-done] tidy\n");
   });
 
   test("the prompt names the page, the section and the task", () => {

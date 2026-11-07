@@ -1,5 +1,5 @@
 import { STORY_VERSION } from "./version.ts";
-import { encodeSSEFrame, ProtocolError } from "@ovst/protocol";
+import { decodeRunRequest, encodeSSEFrame, ProtocolError, type RunRequest } from "@ovst/protocol";
 import { ResyncRequiredError } from "./events.ts";
 import type { StorySyncDaemon } from "./service.ts";
 import { json, errorResponse } from "./http.ts";
@@ -7,7 +7,7 @@ import { AgentRunError } from "./agent-runs.ts";
 
 type SyncHTTPService = Pick<StorySyncDaemon,
   "events" | "synchronizeNow" | "moveLocalPlacement" | "treeList" |
-  "agents" | "runs" | "declinedChanges" | "discardHeldChanges" | "restoreDeclined" | "resendDeclined" | "resolveLocator" | "pauseFolder" | "resumeFolder" | "pendingUpdate">;
+  "agents" | "runs" | "treeForURL" | "declinedChanges" | "discardHeldChanges" | "restoreDeclined" | "resendDeclined" | "resolveLocator" | "pauseFolder" | "resumeFolder" | "pendingUpdate">;
 
 export function syncHandler(service: SyncHTTPService, options: {
   instanceID: string;
@@ -75,6 +75,23 @@ export function syncHandler(service: SyncHTTPService, options: {
           let body: Record<string, unknown>;
           try { body = await request.json() as Record<string, unknown>; } catch { throw new ProtocolError("invalid-request", "A run must be a JSON object", 400); }
           if (!body || typeof body !== "object" || Array.isArray(body)) throw new ProtocolError("invalid-request", "A run must be a JSON object", 400);
+          // A run request (spec 12 §6), as any runner receives it; or Story's own Run on this Mac.
+          if (body.request !== undefined) {
+            const unknown = Object.keys(body).filter((key) => !["request", "external", "label"].includes(key));
+            if (unknown.length) throw new ProtocolError("invalid-request", `Unknown run fields: ${unknown.join(", ")}`, 400);
+            if (body.external !== undefined && typeof body.external !== "boolean") throw new ProtocolError("invalid-request", "external must be a boolean", 400);
+            if (body.label !== undefined && (typeof body.label !== "string" || !body.label.trim())) throw new ProtocolError("invalid-request", "label must be a non-empty string", 400);
+            let runRequest: RunRequest;
+            try { runRequest = decodeRunRequest(body.request); } catch (error) {
+              throw new ProtocolError("invalid-request", error instanceof Error ? error.message : "Invalid run request", 400);
+            }
+            const tree = await service.treeForURL(runRequest.tree);
+            if (!tree) throw new ProtocolError("not-found", `${runRequest.tree} is not placed on this machine`, 404, { kind: "not-placed" } as never);
+            return json(await service.runs.start({
+              tree, page: runRequest.page.path, task: runRequest.task.text, run: runRequest.run, range: runRequest.task.range,
+              external: body.external === true, ...(typeof body.label === "string" ? { label: body.label } : {}),
+            }), 202);
+          }
           const unknown = Object.keys(body).filter((key) => !["tree", "page", "task"].includes(key));
           if (unknown.length) throw new ProtocolError("invalid-request", `Unknown run fields: ${unknown.join(", ")}`, 400);
           if (typeof body.tree !== "string" || typeof body.page !== "string" || typeof body.task !== "string" || !body.task.trim()) {
@@ -82,7 +99,9 @@ export function syncHandler(service: SyncHTTPService, options: {
           }
           return json(await service.runs.start({ tree: body.tree, page: body.page, task: body.task }), 202);
         }
-        const match = /^\/v1\/agents\/runs\/(run_[0-9a-f]+)(?:\/(stop|undo|allow))?$/.exec(url.pathname);
+        const match = /^\/v1\/agents\/runs\/([^/]+)(?:\/(stop|undo|allow))?$/.exec(url.pathname);
+        // A run ID is the sender's: any one line without spaces, so it comes percent-encoded.
+        if (match) { try { match[1] = decodeURIComponent(match[1]!); } catch { throw new ProtocolError("not-found", "No such run", 404); } }
         if (match && request.method === "GET" && !match[2]) {
           const run = service.runs.get(match[1]!);
           if (!run) throw new ProtocolError("not-found", "No such run", 404);

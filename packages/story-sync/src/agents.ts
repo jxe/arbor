@@ -46,6 +46,14 @@ export interface AgentReport {
   at?: string;
   /** Hold the tree's publishing from now, as a run does before its agent starts. */
   hold?: boolean;
+  /** The run this agent is doing (spec 12 §6), shown in its presence entry. */
+  run?: string;
+  /**
+   * Open the session as a stand-in that the next other agent session to
+   * report in its tree takes over, as `story agent start --task` does for an
+   * agent its runner did not start: its hooks name their own session.
+   */
+  claim?: boolean;
   done?: string;
   hook?: unknown;
 }
@@ -79,8 +87,13 @@ interface Session {
   quietTimer?: ReturnType<typeof setTimeout>;
   lastReport: number;
   ended: boolean;
-  /** Whether this session holds its tree's publishing. */
+  /** Whether this session holds its tree's publishing, and under which name. */
   holding: boolean;
+  holder?: string;
+  /** A stand-in the next other session in its tree takes over. */
+  claimable: boolean;
+  /** Told once when the session says done (with what it said) or ends without. */
+  onSettle?: (result: string | undefined) => Promise<void>;
   /** The page it was last placed on, by logical path, and that page's file. */
   page?: string;
   pageFile?: string;
@@ -136,6 +149,8 @@ export class AgentSessions {
   private readonly sessions = new Map<string, Session>();
   /** What each session said with `done`, kept after it leaves; the most recent 100. */
   private readonly results = new Map<string, string>();
+  /** A stand-in's first name, to the session that took it over. */
+  private readonly claimed = new Map<string, string>();
   private readonly quietMs: number;
   private readonly doneLingerMs: number;
   private readonly updateIntervalMs: number;
@@ -159,16 +174,17 @@ export class AgentSessions {
     if (!isAbsolute(cwd)) throw new Error("An agent report's working directory must be absolute");
     const location = await this.host.locate(cwd);
     if (!location) return null;
-    const key = report.session ?? hook?.session_id ?? this.latestIn(location.tree)?.key ?? `cwd:${location.tree}`;
+    const named = report.session ?? hook?.session_id ?? this.latestIn(location.tree)?.key ?? `cwd:${location.tree}`;
+    const key = this.claimed.get(named) ?? named;
+    if (!report.claim) this.takeOver(key, location.tree);
     const session = await this.open(key, location, report.agent);
     if (!session) return null;
     session.lastReport = Date.now();
     this.armQuiet(session);
+    if (report.claim) session.claimable = true;
 
-    if (report.hold && !session.holding && this.host.hold) {
-      session.holding = true;
-      this.host.hold(session.tree, session.key);
-    }
+    if (report.hold && !session.holding && this.host.hold) this.holdFor(session);
+    if (report.run !== undefined) this.change(session, { run: report.run || null });
     if (report.status !== undefined) this.change(session, { status: oneLine(report.status, PRESENCE_LIMITS.statusCharacters) || null });
     if (report.at) await this.pointAt(session, report.at);
     if (hook) await this.applyHook(session, hook);
@@ -178,6 +194,9 @@ export class AgentSessions {
       this.results.set(session.key, result);
       if (this.results.size > 100) this.results.delete(this.results.keys().next().value!);
       this.change(session, { status: result });
+      // Whoever waits on the session (a run) is done before `done` returns,
+      // so an agent that finishes next finds its result already written.
+      await this.settle(session, result);
       this.finish(session, this.doneLingerMs);
     }
     return { session: session.key, tree: session.tree };
@@ -190,8 +209,50 @@ export class AgentSessions {
 
   /** End a session now, as when its run stops. */
   end(key: string): void {
-    const session = this.sessions.get(key);
+    const session = this.find(key);
     if (session) this.close(session);
+  }
+
+  /**
+   * Be told when the session says done, with what it said, or ends without
+   * (`undefined`), whichever is first. The session must be open. A session
+   * that takes over a stand-in keeps its listener.
+   */
+  onSettle(key: string, listener: (result: string | undefined) => Promise<void>): boolean {
+    const session = this.find(key);
+    if (!session || session.ended) return false;
+    session.onSettle = listener;
+    return true;
+  }
+
+  private find(key: string): Session | undefined {
+    return this.sessions.get(this.claimed.get(key) ?? key) ?? this.sessions.get(key);
+  }
+
+  /** A new session in a tree with a stand-in becomes that stand-in, under its own name. */
+  private takeOver(key: string, tree: string): void {
+    const existing = this.sessions.get(key);
+    if (existing && !existing.ended) return;
+    const standIn = [...this.sessions.values()].find((session) => session.tree === tree && session.claimable && !session.ended);
+    if (!standIn) return;
+    this.sessions.delete(standIn.key);
+    this.claimed.set(standIn.key, key);
+    if (this.claimed.size > 100) this.claimed.delete(this.claimed.keys().next().value!);
+    standIn.key = key;
+    standIn.claimable = false;
+    this.sessions.set(key, standIn);
+  }
+
+  private async settle(session: Session, result: string | undefined): Promise<void> {
+    const listener = session.onSettle;
+    session.onSettle = undefined;
+    await listener?.(result).catch(() => {});
+  }
+
+  private holdFor(session: Session): void {
+    session.holding = true;
+    session.holder = session.key;
+    this.host.hold!(session.tree, session.key);
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
@@ -218,7 +279,7 @@ export class AgentSessions {
     const self = new Promise<string | null>((resolve) => { ready = resolve; });
     const session: Session = {
       key, tree: location.tree, root: location.root, label: agent, abort, self, client,
-      pending: {}, lastSent: 0, lastReport: Date.now(), ended: false, holding: false, before: new Map(),
+      pending: {}, lastSent: 0, lastReport: Date.now(), ended: false, holding: false, claimable: false, before: new Map(),
     };
     this.sessions.set(key, session);
     // Drain the stream for as long as the session lasts: the roster is not
@@ -249,10 +310,7 @@ export class AgentSessions {
     const file = typeof input.file_path === "string" ? input.file_path : typeof input.notebook_path === "string" ? input.notebook_path : undefined;
     const absolute = file === undefined ? undefined : isAbsolute(file) ? file : resolve(session.root, file);
     if (hook.tool_name && EDIT_TOOLS.has(hook.tool_name)) {
-      if (!session.holding && this.host.hold) {
-        session.holding = true;
-        this.host.hold(session.tree, session.key);
-      }
+      if (!session.holding && this.host.hold) this.holdFor(session);
       // Before the edit: keep the page as everyone else still sees it.
       if (hook.hook_event_name === "PreToolUse" && absolute) await this.seen(session, absolute);
     }
@@ -377,7 +435,7 @@ export class AgentSessions {
     if (!session.holding) return;
     session.holding = false;
     session.before.clear();
-    void this.host.release?.(session.tree, session.key)?.catch(() => {});
+    void this.host.release?.(session.tree, session.holder ?? session.key)?.catch(() => {});
   }
 
   private close(session: Session): void {
@@ -388,6 +446,7 @@ export class AgentSessions {
     if (session.quietTimer) clearTimeout(session.quietTimer);
     session.abort.abort();
     if (this.sessions.get(session.key) === session) this.sessions.delete(session.key);
+    void this.settle(session, undefined);
   }
 }
 

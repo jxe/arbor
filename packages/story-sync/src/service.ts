@@ -12,7 +12,7 @@ import type {
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@ovst/protocol";
-import { canonicalNodePath, storyDataRoot, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type CurrentTree, type ObjectHash, type TreeSnapshot, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
+import { canonicalHTTPURL, canonicalNodePath, canonicalOverstoryLocator, canonicalURL, storyDataRoot, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type CurrentTree, type ObjectHash, type TreeSnapshot, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@ovst/client";
 import { type SharedTreePlacement } from "./state/index.ts";
@@ -306,6 +306,23 @@ export class StorySyncDaemon implements AsyncDisposable {
   async treeList(): Promise<SnapshotEnvelope<LocalTreeDescriptor[]>> {
     const descriptors = await this.trees.descriptors();
     return { snapshot: descriptors, observedThrough: this.events.currentCursor() };
+  }
+
+  /**
+   * The placed tree a canonical URL names, as a run request gives it: at a
+   * person's domain or at the host, or a TreeID. Undefined when it is not
+   * placed here.
+   */
+  async treeForURL(url: string): Promise<string | undefined> {
+    const descriptors = (await this.trees.descriptors()).filter((tree) => this.trees.placementFor(tree.id));
+    if (/^tr_[a-z2-7]+$/.test(url)) return descriptors.find((tree) => tree.id === url)?.id;
+    const wanted = url.replace(/\/+$/, "");
+    const named = descriptors.find((tree) => tree.canonical && [canonicalURL(tree.canonical), canonicalHTTPURL(tree.canonical), canonicalOverstoryLocator(tree.canonical)]
+      .some((candidate) => candidate.replace(/\/+$/, "") === wanted));
+    if (named) return named.id;
+    const resolved = await this.resolveLocator(url).catch(() => null);
+    const tree = resolved?.enclosingTree?.id;
+    return tree && resolved?.ref.path === "/" && this.trees.placementFor(tree) ? tree : undefined;
   }
 
   async resolveLocator(input: string): Promise<LocatorResolution> {

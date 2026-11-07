@@ -4,6 +4,7 @@ import type {
   LocalAccountSummary,
   LocatorResolution,
   ProfileIdentity,
+  RunRequest,
   SnapshotEnvelope,
   TreeRef,
   UpdateRequestJSON,
@@ -22,6 +23,20 @@ export type {
   TreeRef,
   WorkspaceEvent,
 } from "@ovst/protocol";
+
+/** A run as Story Sync shows it (its `/v1/agents/runs` routes). */
+export interface AgentRunView {
+  id: string;
+  tree: string;
+  page: string;
+  task: string;
+  state: "queued" | "running" | "finished" | "failed" | "stopped" | "undone";
+  result: string | null;
+  external: boolean;
+  /** For an external run: the page's file, and the task as the agent should be told it. */
+  file?: string | null;
+  prompt?: string;
+}
 
 /**
  * The `story` command's client of the daemon's loopback surface: status,
@@ -149,6 +164,19 @@ export class StorySyncRESTClient {
       body: JSON.stringify(body),
     });
     return "ignored" in result ? null : result;
+  }
+
+  /**
+   * Start a run request (spec 12 §6) in the tree's placed folder. External:
+   * the caller's agent does the task, and Story Sync shows it and marks the
+   * block done when it says done.
+   */
+  startRun(request: RunRequest, options: { external: boolean; label?: string }): Promise<AgentRunView> {
+    return this.request("/v1/agents/runs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ request, external: options.external, ...(options.label ? { label: options.label } : {}) }),
+    });
   }
 
   resolve(locator: string): Promise<LocatorResolution> {
