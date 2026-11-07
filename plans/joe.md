@@ -14,7 +14,7 @@ when it was a gate for something.
 
 ### Clients 003
 
-Built on branch `claude/project-thread-71wcm4`
+On main since fa661f3, 2026-11-07
 ([status](../status.md#clients-003-one-client-library-three-ways-to-hold-a-tree--2026-11-07)).
 
 - [ ] Launch timings on the Mac with the branch's Story: `tree-open`, `launch-preview` and
@@ -136,9 +136,6 @@ Built 2026-11-05 ([status](../status.md#start-your-own-community-from-a-railway-
 Steps a session has ready but must not take without Joe's word, because they change live
 data or something outside the repository.
 
-- [ ] **Merge Clients 003 to main** (branch `claude/project-thread-71wcm4`). That redeploys
-  overstoryd with path reads and the `objects=none` watch; rehearse first per the
-  host-deploy rule. After the hand checks under [Clients 003](#clients-003).
 
 - [ ] **Schedule the object collector.** Run the `railway ssh` collection command
   ([deployment](../packages/overstoryd/deploy/README.md#collecting-unreferenced-objects))

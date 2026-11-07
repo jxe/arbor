@@ -14,8 +14,8 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 
 ## Clients 003: one client library, three ways to hold a tree — 2026-11-07
 
-**Implemented** on branch `claude/project-thread-71wcm4` (not on main: it changes overstoryd
-routes, and pushing main redeploys the host; Joe's go-ahead pending). Every client-library
+**Implemented** on main fa661f3 (merged 2026-11-07 on Joe's word, which redeployed
+overstoryd with path reads and the payload-free watch). Every client-library
 port has the same seven modules ([porting guide](docs/implementing-sync-services/porting-a-client.md);
 `bun tools/client-parity.ts` compares TypeScript and Swift), and one engine holds a tree in
 three ways: **Browse** (visits; page by page from the host), **Replica** (iPhone trees, the
