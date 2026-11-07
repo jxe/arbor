@@ -98,12 +98,6 @@ spec has it; Joe wants that to be as easy as possible for both. The administrato
 link from Story, or approves a request the person sends from the new Mac. Before people
 depend on Story enough to lose a Mac.
 
-**[overstoryd 007: document history and restore](features/history-007-document-history-routes-and-restore.md).**
-Seeing and restoring earlier versions of a page; it also decides how long document
-versions are kept, which is most of what overstoryd retains. Since 2026-11-01 it also holds
-agent runs in History (formerly Agents 003): updates carry an optional attribution naming the
-agent and run, a run is one History entry, and Undo Run is a restore.
-
 **[Editor 001: snippets you type or say](features/editor-001-snippets.md).**
 Joe asked on 2026-10-24 for TextMate-style snippets in place of template buttons: a page he
 edits like any other, such as his standard day outline, that expands where he is when he
@@ -217,10 +211,11 @@ a freshness policy so unrelated updates don't force a renewed review, explanatio
 and deletions, combination previews, and bulk and offline resolution. Joe made the ideas item
 a plan on 2026-10-28; take each when a real review needs it.
 
-**[overstoryd 006: what changed on a page, and who wrote each line](later/history-006-page-changes-and-blame.md).**
-`story changes <page> --day yesterday` lists what was added to and deleted from a page, then
-blame, then who submitted each update and the agent ("Joe · Claude"). All of it reads
-Performance 004's provenance index, not stored versions.
+**[overstoryd 007: page history](later/history-007-page-history.md).**
+`story changes <page> --day yesterday` lists what was added to and deleted from a page; then
+History with Restore, agent runs in History with Undo Run, and blame naming who submitted each
+line and the agent ("Joe · Claude"). All of it reads Performance 004's provenance index rather
+than stored versions. Merged from overstoryd 006 and 007 on 2026-11-07.
 
 **[Postgres 001: collections backed by Postgres, and SQLite projections of them](later/postgres-001-postgres-backed-collections.md).**
 Longer term. For now the point is that the design shows Postgres backings, SQLite projections
@@ -281,12 +276,9 @@ include editor alignment and round-trip characterization.
 
 ### History and revisions
 
-[overstoryd 007](features/history-007-document-history-routes-and-restore.md) (history and
-restore) and [overstoryd 006](later/history-006-page-changes-and-blame.md) (page changes and
-line provenance) are independent: 006 reads the provenance index, not 007's history routes.
-007 adds the agent attribution on updates; 006 adds who submitted each update and shows both. Merge
-explanations can link to this history; their provenance proofs and conflict rules stay with
-merge work.
+[overstoryd 007](later/history-007-page-history.md) holds page changes, History and restore,
+agent runs, and line provenance, all read from the provenance index. Merge explanations can
+link to this history; their provenance proofs and conflict rules stay with merge work.
 
 ### Performance
 

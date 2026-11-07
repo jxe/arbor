@@ -8,7 +8,7 @@ able to choose what runs their tasks: their Mac, a cloud session, or anything el
 start an agent, with Story knowing only "send this task to a runner". Codex should work as
 well as Claude Code. Exact carets ([Live 002](../features/live-002-exact-carets.md)) and suggestions ([Editor 003](../features/editor-003-suggestions.md)) are
 their own plans, for people and agents alike (Joe, 2026-10-30). Runs in history are
-[overstoryd 007](../features/history-007-document-history-routes-and-restore.md) steps 5 and 6.
+[overstoryd 007](../later/history-007-page-history.md) steps 6 and 7.
 
 > **Executor instructions**: Refresh "What happens today" against Agents 001 as built. Do the
 > phases in order and stop after each for Joe's hands-on check. Phase 1 changes a host route,
@@ -129,8 +129,8 @@ stream; a hidden stream asking to be a runner is refused. Then `bun run test:aff
 - **Mac Run uses the same path.** `AgentRuns` keeps starting `claude -p`, but its bookkeeping
   becomes this code, so a Mac run, a webhook run and a by-hand run behave alike.
 - **Undo Run** needs the pre-run snapshot, so it's offered only by a runner that keeps one (the
-  Mac); others say "Undo needs history" until [overstoryd 007](../features/history-007-document-history-routes-and-restore.md)
-  step 6.
+  Mac); others say "Undo needs history" until [overstoryd 007](../later/history-007-page-history.md)
+  step 7.
 
 **Verification:** the fake-agent harness runs a request on a placed tree and on a fresh
 checkout from a bundle: block marked done with the result; a failed or abandoned run leaves
@@ -240,8 +240,8 @@ A task block can have blocks indented under it, like sub-bullets: the task line 
     stopped by iOS shortly after the app leaves the screen, so short tasks only. A
     subscription token can't be used this way.
 - Exact carets: [Live 002](../features/live-002-exact-carets.md). Suggestions: [Editor 003](../features/editor-003-suggestions.md).
-- Runs in history and attribution: [overstoryd 007](../features/history-007-document-history-routes-and-restore.md) steps 5 and 6; both names in
-  line provenance: [overstoryd 006](../later/history-006-page-changes-and-blame.md).
+- Runs in history and attribution: [overstoryd 007](../later/history-007-page-history.md) steps 6 and 7; both names in
+  line provenance: its steps 8 and 9.
 
 ## Close out
 

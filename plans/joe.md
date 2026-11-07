@@ -120,7 +120,7 @@ data or something outside the repository.
   daily or weekly from Joe's machine, keeping each report. Formerly overstoryd 017; the first
   live run is recorded in [status](../status.md#known-gaps). A bound on `document_versions`,
   which holds most retained bytes, is part of
-  [overstoryd 007](features/history-007-document-history-routes-and-restore.md).
+  [overstoryd 007](later/history-007-page-history.md).
 - [ ] **Convert the other trees to pages** once every writer (Oliver included) runs Story
   0.1.6 or later: back up the host, then set `OVERSTORYD_PAGES=1` on Railway; each owner's
   Story Sync converts their trees. Gates [Filesystem 026](soon/filesystem-026-page-provenance-and-cleanup.md)'s
