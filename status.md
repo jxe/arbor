@@ -58,6 +58,37 @@ the owner's edits arriving and local edits never sent
 (`tests/integration/story-sync-read-only-placement.test.ts`). Story.app has no UI for it
 yet; not hand-checked on Joe's Mac.
 
+## Trees at your own domain — 2026-11-07
+
+**Implemented** on main (`fc71c74`, `921d76f`), deployed with them (overstoryd); Names 001,
+closed out. Not yet tried with a real domain.
+
+- **Serving** ([locators §5.1](docs/overstory-spec/03-locators.md#51-trees-at-a-persons-domain)):
+  a person lists a domain in their profile's `domains` and points it at their home host with
+  a CNAME. The host (`packages/overstoryd/src/custom-domains.ts`) serves it once
+  `https://<domain>/.overstory/domain-check` answers with the host's own token, checking on
+  the profile-locator schedule; it then puts their `/~handle` in front of paths at the
+  domain, answers the domain's `/.well-known/overstory-profile` (so it also names them with
+  no TXT record), sends other `/~` paths home, and sends browsers at the host's own name to
+  the domain. No host-specific code: routing the name to the host with a certificate is the
+  operator's part (deploy README, "People's own domains").
+- **One canonical URL:** descriptors gain `canonical.url` (tree operations §1), the
+  domain form; `path` and `endpoint` keep naming the tree at the host, which keeps
+  resolving, so older clients are unaffected. Story Sync keeps it with a placement's sync
+  metadata. The host's directory names the domain (`domain`).
+- **Setup is the CLI's:** `story me domain <domain>` prints the TXT record (to name you) and
+  the CNAME (to also serve your trees); `--check` says whether the domain reaches your host.
+  Story has no setting for it (Joe, 2026-11-07).
+- **Story:** People, the share sheet's picker and Go to show `notes.alice.example` in
+  place of `~alice · host` and match on it; Copy Link and the share sheet's link use the
+  canonical URL. Built on Joe's Mac (see Joe's to-do for the hand check).
+- **Tests:** `tests/integration/overstoryd/custom-domains.test.ts` (a loopback name for the
+  same listener); Swift `DirectoryTests.domain` and the canonical URL checks in
+  `OverstoryTests`.
+- **Left:** the hand check with a real domain is in [Joe's to-do](plans/joe.md#names-001-your-own-domain);
+  warning people whose rules use a domain that stops checking is a [candidate](plans/candidates.md#small-features).
+  A domain that only names you (TXT) is not shown in Story, since only the host serving it checks it.
+
 ## Invite from the command line, and hosts older than Story — 2026-11-07
 
 **Implemented** on main (`b92baec`, `1b3812a`), deployed with them (overstoryd); Sharing 002

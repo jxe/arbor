@@ -87,6 +87,16 @@ Built 2026-11-07 ([status](../status.md#invite-from-the-command-line-and-hosts-o
 - [ ] **Story's tests for both** (they need Story quit): `xcodebuild test -workspace
   swift/Story.local.xcworkspace -scheme Story -destination platform=macOS -only-testing:StoryAppTests/StoryAppTests/hostProtocolLevels -only-testing:StoryAppTests/StoryAppTests/invitationVectors`.
 
+### Names 001: your own domain
+
+Built 2026-11-07 ([status](../status.md#trees-at-your-own-domain--2026-11-07)).
+
+- [ ] Pick a subdomain (say `notes.<your domain>`), run `story me domain <it>` and publish the
+  CNAME it prints. On Railway, add the domain to the overstoryd service in the dashboard and
+  publish the records Railway shows instead. Once `story me domain --check` says it reaches
+  arb.nxhx.org: `https://<it>/` shows your profile, `arb.nxhx.org/~joe/…` in a browser
+  goes there, Copy Link gives the domain form, and the People sheet shows the domain.
+
 ## Releases and publishing
 
 ### Sharing 004: Railway template

@@ -145,12 +145,6 @@ converted on Joe's todos tree ([status](../status.md#pages-as-logical-nodes-buil
 Left: provenance for page bodies, the front-matter merge cases it closes, and removing the
 `.md` file-entry path once every tree is converted.
 
-**[Names 001: your trees at your own domain, and domains in Story](soon/names-001-your-trees-at-your-own-domain.md).**
-A domain can already name a person (TXT record or `.well-known`, checked against the profile's
-`domains`; [status](../status.md#domain-locators-your-own-domain-names-your-profile--2026-11-05)).
-Left (Joe, 2026-11-06): a host serves a person's trees at their domain through a CNAME, with one
-canonical URL per tree, and Story shows and accepts domains.
-
 **[Apps 012: one kind of view](soon/apps-012-one-kind-of-view.md).**
 Joe, 2026-11-06: a schema's `~views` entry is the built-in list view with its settings (spec
 07 §4.1), so overstoryd serves declared and authored views alike and Story draws both the
