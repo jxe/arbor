@@ -26,6 +26,7 @@ struct StoryApplication: App {
         WindowGroup(for: StoryWindowRequest.self) { $request in
 #if os(iOS)
             StoryIOSLaunchView(workspace: workspace, windowRequest: request?.id)
+                .modifier(StoryHostCompatibilityGate())
 #else
             StoryMacLaunchView(workspace: workspace, windowRequest: request?.id)
                 .task { appDelegate.workspace = workspace }
@@ -125,6 +126,14 @@ final class StoryApplicationDelegate: NSObject, NSApplicationDelegate {
         StoryAppIconSelection.shared.restore()
     }
 
+    /// A placed tree's host older than this Story stops it here (Sharing 004).
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { @MainActor in
+            guard let tooOld = await StoryHostCompatibility.checkPlacedHosts() else { return }
+            StoryHostCompatibility.refuseToStart(tooOld)
+        }
+    }
+
     func applicationWillUpdate(_ notification: Notification) {
         StoryMenuBar.shared.install()
     }
@@ -137,6 +146,111 @@ final class StoryApplicationDelegate: NSObject, NSApplicationDelegate {
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
+    }
+}
+#endif
+
+// MARK: Hosts older than this Story
+
+/// Each host states its protocol level in `GET /.overstory/health` (locators
+/// §5; absent is level 1). Story checks the hosts of its placed trees at
+/// launch and refuses to start when one is below `minimumHostProtocol`,
+/// rather than talk to it and fail in odd ways: a self-hosted community keeps
+/// the overstoryd image it pulled until its owner redeploys (Sharing 004).
+enum StoryHostCompatibility {
+    /// The lowest host protocol level this Story works with. Raise it, after
+    /// raising overstoryd's `HOST_PROTOCOL`, when Story starts depending on
+    /// something older hosts lack.
+    static let minimumHostProtocol = 1
+
+    struct TooOld: Equatable, Sendable {
+        var host: String
+        var hostProtocol: Int
+    }
+
+    /// The level a health answer states, or nil when it is not a health answer.
+    static func hostProtocol(fromHealth data: Data) -> Int? {
+        struct Health: Decodable { var status: String?; var `protocol`: Int? }
+        guard let health = try? JSONDecoder().decode(Health.self, from: data), health.status != nil else { return nil }
+        guard let level = health.protocol, level >= 1 else { return 1 }
+        return level
+    }
+
+    /// The first of `origins` whose host states a level below the minimum.
+    /// A host that doesn't answer (offline, slow, not a host) passes: this
+    /// check never keeps Story from starting without a network.
+    static func check(origins: [URL], minimum: Int = minimumHostProtocol) async -> TooOld? {
+        var seen = Set<String>()
+        let unique = origins.compactMap { origin -> URL? in
+            guard let scheme = origin.scheme, let host = origin.host() else { return nil }
+            let base = "\(scheme)://\(host)\(origin.port.map { ":\($0)" } ?? "")"
+            guard seen.insert(base).inserted else { return nil }
+            return URL(string: base)
+        }
+        return await withTaskGroup(of: TooOld?.self) { group in
+            for origin in unique {
+                group.addTask {
+                    var request = URLRequest(url: origin.appending(path: ".overstory/health"))
+                    request.timeoutInterval = 5
+                    guard let (data, response) = try? await URLSession.shared.data(for: request),
+                          (response as? HTTPURLResponse)?.statusCode == 200,
+                          let level = hostProtocol(fromHealth: data), level < minimum else { return nil }
+                    return TooOld(host: origin.host() ?? origin.absoluteString, hostProtocol: level)
+                }
+            }
+            for await result in group { if let result { group.cancelAll(); return result } }
+            return nil
+        }
+    }
+
+    /// The hosts of the trees placed on this device.
+    static func checkPlacedHosts() async -> TooOld? {
+        let placements = (try? NativePlacementStore.all()) ?? []
+        return await check(origins: placements.map(\.origin))
+    }
+
+    static let title = "Story can't start"
+
+    static func message(_ tooOld: TooOld) -> String {
+        "\(tooOld.host) runs an older version of overstoryd than this version of Story needs. "
+            + "Whoever runs \(tooOld.host) needs to update it: on Railway, redeploy the service to pull the newest image. "
+            + "Story will start once the host is updated."
+    }
+
+#if os(macOS)
+    /// Say why, then quit.
+    @MainActor
+    static func refuseToStart(_ tooOld: TooOld) {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = title
+        alert.informativeText = message(tooOld)
+        alert.addButton(withTitle: "Quit Story")
+        alert.runModal()
+        NSApp.terminate(nil)
+    }
+#endif
+}
+
+#if os(iOS)
+/// On the iPhone, which can't quit itself, a host older than this Story
+/// covers the app with the reason instead (Sharing 004).
+private struct StoryHostCompatibilityGate: ViewModifier {
+    @State private var tooOld: StoryHostCompatibility.TooOld?
+
+    func body(content: Content) -> some View {
+        Group {
+            if let tooOld {
+                ContentUnavailableView {
+                    Label(StoryHostCompatibility.title, systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(StoryHostCompatibility.message(tooOld))
+                }
+            } else {
+                content
+            }
+        }
+        .task { tooOld = await StoryHostCompatibility.checkPlacedHosts() }
     }
 }
 #endif

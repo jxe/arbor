@@ -382,7 +382,11 @@ GET /.well-known/overstory[/{path}]
 server's own database is consistent; poll it freely. It may add `features`, the
 optional protocol features the host serves, such as `"pages-v1"`
 ([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity));
-a host that lists none serves none. It adds `"founding": true` while the
+a host that lists none serves none. It states `protocol`, the host protocol level it
+implements, a positive integer; a host that states none is level 1. A level rises when a
+host gains something clients may depend on. A client that needs a higher level than a host
+states must refuse that host and say the host needs updating, rather than talk to it and
+fail in other ways. It adds `"founding": true` while the
 community was founded by code and nobody has claimed it yet
 ([accounts §1.2](04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)).
 `integrity` audits every

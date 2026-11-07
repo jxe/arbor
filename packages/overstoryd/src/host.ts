@@ -2,7 +2,7 @@ import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID } from "@ovst/protocol";
+import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID } from "@ovst/protocol";
 import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { AccountChallenge, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeQueryResponse } from "./exec-routes.ts";
@@ -534,7 +534,7 @@ export async function serveHost(options: {
             // `founding`: the community was founded by code and nobody has
             // claimed it yet, so an invitation claim here makes its claimer
             // the administrator (accounts §1.2). Story words its join screen by it.
-            return json({ status: "ok", ...(pages ? { features: ["pages-v1"] } : {}), ...(overstoryd.founding() ? { founding: true } : {}) });
+            return json({ status: "ok", protocol: HOST_PROTOCOL, ...(pages ? { features: ["pages-v1"] } : {}), ...(overstoryd.founding() ? { founding: true } : {}) });
           } catch (error) {
             console.error("overstoryd database check failed", error);
             return protocolError("internal-error", "Host database check failed", 503, true);

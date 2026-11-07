@@ -111,7 +111,7 @@ test("one property set twice is a property choice, which a property operation re
 });
 
 test("the host advertises pages-v1, and refuses a conversion that changes a page", async () => {
-  expect(await (await fetch(`${running.url}/.overstory/health`)).json()).toEqual({ status: "ok", features: ["pages-v1"] });
+  expect(await (await fetch(`${running.url}/.overstory/health`)).json()).toEqual({ status: "ok", protocol: 1, features: ["pages-v1"] });
   const { fileRoot, update } = await start(true);
   const changed = convert(fileRoot, pageObject([["title", "B"], ["status", "draft"]], "One\nTwo\n"));
   await expect(submit(snapshotUpdate(changed), update)).rejects.toThrow(/reads as/);
@@ -119,7 +119,7 @@ test("the host advertises pages-v1, and refuses a conversion that changes a page
 
 test("a host without pages-v1 refuses page entries", async () => {
   const { fileRoot, update } = await start(false);
-  expect(await (await fetch(`${running.url}/.overstory/health`)).json()).toEqual({ status: "ok" });
+  expect(await (await fetch(`${running.url}/.overstory/health`)).json()).toEqual({ status: "ok", protocol: 1 });
   const converted = convert(fileRoot, pageObject([["title", "A"], ["status", "draft"]], "One\nTwo\n"));
   await expect(submit(snapshotUpdate(converted), update)).rejects.toThrow(/pages-v1/);
 });

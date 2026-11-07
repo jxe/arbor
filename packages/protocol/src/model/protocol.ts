@@ -3,6 +3,21 @@ import { arrangeSources } from "../updates/source-moves.ts";
 import type { NodeRef, NodeSnapshot } from "./node-model.ts";
 import type { ContentRevision, DirectoryRevision, EventCursor, Hash, LogicalPath, TreeID, TreeRef } from "./identifiers.ts";
 
+/**
+ * The host protocol level a host states in `GET /.overstory/health` as
+ * `protocol` (locators §5). A host that states none is level 1. Raise it when
+ * a host gains something a client may then depend on; a client that needs a
+ * higher level than a host states refuses that host instead of failing in odd
+ * ways (Story says so at launch and quits).
+ */
+export const HOST_PROTOCOL = 1;
+
+/** The protocol level a health answer states; absent is level 1. */
+export function hostProtocolOf(health: unknown): number {
+  const level = typeof health === "object" && health !== null ? (health as { protocol?: unknown }).protocol : undefined;
+  return typeof level === "number" && Number.isInteger(level) && level >= 1 ? level : 1;
+}
+
 
 
 export interface QueryHandleRef {

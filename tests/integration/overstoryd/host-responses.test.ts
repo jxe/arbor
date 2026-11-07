@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, sha256, type ProtocolClient } from "@ovst/protocol";
+import { HOST_PROTOCOL, hostProtocolOf, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, sha256, type ProtocolClient } from "@ovst/protocol";
 import { RESERVED_PAGE_SCRIPT } from "../../../packages/overstoryd/src/public-page.ts";
 import { testProfileIdentity } from "../../helpers/profile-identity.ts";
 import { serveHost } from "@ovst/overstoryd";
@@ -80,6 +80,8 @@ describe("the shared header policy", () => {
     expect(json.status).toBe(200);
     expectHardened(json, "json");
     expect(json.headers.get("cache-control")).toBe("no-store");
+    // The host states its protocol level, which clients check (locators §5).
+    expect(hostProtocolOf(await json.json())).toBe(HOST_PROTOCOL);
 
     const page = await fetch(`${running.url}/guide`, { headers: { accept: "text/html" } });
     expect(page.status).toBe(200);
