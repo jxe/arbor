@@ -15,10 +15,11 @@ filesystem synchronizer, with a separate loopback API for local clients.
 
 - [The update machine and its coordinator](update-machine.md): reference reducers, durable requests, watching, recovery, and timing.
 - [Local placements](local-placements.md): reference YAML layout and platform working-tree ownership.
+- [Porting the client library](porting-a-client.md): the seven modules, the three ways to hold a tree, the order to build them, and their conformance files; `bun tools/client-parity.ts` compares TypeScript and Swift.
 
 ## Reference services
 
-- [Story Sync REST API](story-sync-api.md): loopback status, trees, bootstrap, objects, accounts, held changes, and observation; includes reference fixture pointers.
+- [Story Sync REST API](story-sync-api.md): loopback status, trees, the standard reads, accounts, held changes, and observation; includes reference fixture pointers.
 - [Story Sync architecture](../architecture/story-sync/README.md): placed-folder ownership, daemon services, and private state.
 - [Client stack](../architecture/client-stack/README.md): retained requests and conflict recovery.
 - [overstoryd architecture](../architecture/overstoryd/README.md): authoritative acceptance, merge and execution sidecars, and durability.
