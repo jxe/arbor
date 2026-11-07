@@ -42,6 +42,11 @@ public struct TreeSessionSettings: Sendable {
     /// alongside it. Pages are read from it first, each only when its file
     /// still reads as the accepted entry.
     public var folder: URL?
+    /// Where a path read (one request for the directories down to a page)
+    /// is asked: Story Sync's loopback reads alongside it. Nil asks the
+    /// session's host when the host is a source, and otherwise reads object
+    /// by object.
+    public var pathReads: ProtocolClient?
     public var readOnly: Bool
     public var transportAvailable: Bool
     public var pollInterval: Duration?
@@ -81,7 +86,7 @@ public struct TreeSessionSettings: Sendable {
     /// (`reads`), the index in memory, the change log on disk, and the folder
     /// Story Sync keeps. Writes and watching still go to the host.
     public static func alongsideStorySync(reads: ProtocolClient, tree: String, folder: URL?, changeLog: URL, transportAvailable: Bool = true) -> Self {
-        .init(
+        var settings = Self(
             prefetch: .openedPages,
             sources: [.store(HostObjectStore(client: reads, tree: tree))],
             index: .memory,
@@ -89,6 +94,8 @@ public struct TreeSessionSettings: Sendable {
             folder: folder,
             transportAvailable: transportAvailable
         )
+        settings.pathReads = reads
+        return settings
     }
 }
 
@@ -166,6 +173,11 @@ public struct TreeSession: Sendable {
             workingTree = try await WorkingTree.inMemory(tree: treeID, platform: objects)
             if settings.prefetch == .openedPages { await workingTree.loadDirectoriesLazily() }
             await workingTree.readPages(from: settings.folder)
+            let hostIsSource = settings.sources.contains { if case .host = $0 { true } else { false } }
+            if let reads = settings.pathReads ?? (hostIsSource ? client : nil) {
+                let id = tree.id
+                await workingTree.readPaths { root, path in try await reads.pathRead(tree: id, root: root, path: path) }
+            }
             // Lazily, the root directory and its bodies; otherwise every directory.
             let graph: ProtocolSnapshot
             if let given = opening?.spine { graph = given } else { graph = try await workingTree.acceptedGraph(root: current.tree.root) }
@@ -336,18 +348,11 @@ public struct TreeSession: Sendable {
         ))
     }
 
-    /// Open the page at `path` with one path read (tree operations §1.2.4)
-    /// when the session reads the host: the directories down to it and its
-    /// body arrive together and are held, so loading them reads nothing
-    /// more. Elsewhere, or when the read fails, the directories load one by
-    /// one through the object sources.
+    /// Open the page at `path` ahead of the editor: one path read (tree
+    /// operations §1.2.4) brings the directories down to it, then its
+    /// listing loads. Without a path read, or when it fails, the directories
+    /// load object by object through the sources.
     public func openPage(_ path: String) async throws {
-        if settings.sources.contains(where: { if case .host = $0 { true } else { false } }) {
-            let root = try await workingTree.heads().materializedRoot
-            if let objects = try? await client.pathRead(tree: tree.id, root: root, path: path) {
-                try await workingTree.hold(objects)
-            }
-        }
         try await workingTree.ensureLoaded(path, children: true)
     }
 }

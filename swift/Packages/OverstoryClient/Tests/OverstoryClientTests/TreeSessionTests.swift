@@ -76,6 +76,27 @@ struct TreeSessionTests {
         #expect(try await session.objects.bytes(f.image.hash) == f.image.bytes)
     }
 
+    @Test("A path read fills the directories down to a page in one request")
+    func pathReadFillsPath() async throws {
+        let f = try fixture()
+        // The sources serve only the root and its bodies; the nested directory
+        // can come only from the path read.
+        let tree = try await WorkingTree.inMemory(tree: "tr_visit", platform: FixedStore(objects: [
+            f.root.hash: f.root.bytes, f.markdown.hash: f.markdown.bytes,
+        ]))
+        await tree.loadDirectoriesLazily()
+        try await tree.initializeFromSystem(SnapshotBridge.replacement(
+            snapshot: try await tree.acceptedGraph(root: f.root.hash), tree: "tr_visit", update: "up_visit", mode: .lazyDirectories))
+        let nested = f.nested
+        await tree.readPaths { root, path in
+            #expect(root == f.root.hash)
+            #expect(path == "/assets/photo.png")
+            return [nested.hash: nested.bytes]
+        }
+        try await tree.ensureLoaded("/assets/photo.png")
+        #expect(!(await tree.hasUnloadedDirectories()))
+    }
+
     @Test("A directory whose bytes do not match its hash never loads")
     func tamperedDirectory() async throws {
         let f = try fixture()

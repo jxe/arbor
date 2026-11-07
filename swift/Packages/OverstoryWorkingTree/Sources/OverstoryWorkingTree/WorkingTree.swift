@@ -45,6 +45,12 @@ public actor WorkingTree {
     /// Markdown body is read from its file there when that file still reads
     /// as the accepted entry, and from the object sources otherwise.
     private var pageFolder: URL?
+    /// A path read (tree operations §1.2.4) at an accepted root: the
+    /// directories from the root down to a path and the objects it names, in
+    /// one request. When set, a path with unloaded directories on the way is
+    /// filled by one read instead of one per object.
+    public typealias PathReader = @Sendable (_ root: String, _ path: String) async throws -> [String: Data]
+    private var pathReader: PathReader?
 
     private init(
         store: any WorkingTreeStateStore,
@@ -473,6 +479,11 @@ public actor WorkingTree {
         try overlay.store(verified)
     }
 
+    /// Fill paths with `reader` (the host's path read, or Story Sync's on loopback).
+    public func readPaths(with reader: PathReader?) {
+        pathReader = reader
+    }
+
     /// Read Markdown bodies from `folder` first (Alongside Story Sync).
     public func readPages(from folder: URL?) {
         pageFolder = folder
@@ -515,6 +526,13 @@ public actor WorkingTree {
         for name in target.split(separator: "/") {
             prefix = prefix == "/" ? "/\(name)" : "\(prefix)/\(name)"
             prefixes.append(prefix)
+        }
+        // One path read brings every directory on the way, held before the
+        // loads below read them; a failed read leaves them to the object sources.
+        if let pathReader, let root = control.acceptedRoot,
+           prefixes.contains(where: { prefix in state.nodes.contains { $0.path == prefix && $0.subtree != nil } }),
+           let objects = try? await pathReader(root, target) {
+            try? hold(objects)
         }
         for path in prefixes {
             guard let node = state.nodes.first(where: { $0.path == path }) else { return }
