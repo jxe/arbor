@@ -14,16 +14,6 @@ struct StorySyncServerError: Error, LocalizedError, Sendable {
     }
 
     var errorDescription: String? { value.message }
-
-    /// A refused credential as the protocol client reports a host's refusal:
-    /// a device the host no longer lists is a 401, a host that cannot check it
-    /// now keeps its retryable status, and a named home host stays named.
-    var credentialRefusal: ProtocolHTTPError {
-        var homeHost: String?
-        if case let .object(details)? = value.details, case let .string(host)? = details["homeHost"] { homeHost = host }
-        return ProtocolHTTPError(status: status == 409 ? 401 : status, code: value.code, message: value.message,
-                                 retryable: value.retryable, homeHost: homeHost)
-    }
 }
 
 /// The running Story Sync has no placement route yet; the `story` command
@@ -213,27 +203,6 @@ actor StorySyncRESTClient {
     }
 
     // MARK: Loopback services for a same-installation working-tree client
-
-    /// `GET /v1/credential`: the host account credential the daemon holds for
-    /// `configurationTree` (or the only connected account when omitted). With
-    /// `origin`, the session is for that host: the account's home host, or one
-    /// of its placement hosts (accounts §1.3), which the same device key opens.
-    /// `origin` requires `configurationTree`.
-    func credential(configurationTree: String? = nil, origin: String? = nil) async throws -> String {
-        var items: [URLQueryItem] = []
-        if let configurationTree { items.append(URLQueryItem(name: "configurationTree", value: configurationTree)) }
-        if let origin {
-            guard configurationTree != nil else {
-                throw ProtocolValidationError.invalidValue("A credential for a host names its account's configuration tree")
-            }
-            items.append(URLQueryItem(name: "origin", value: origin))
-        }
-        let value: TreeCredential = try await get(path: "/v1/credential", items: items)
-        guard !value.token.isEmpty else {
-            throw ProtocolValidationError.invalidValue("Story Sync returned an empty credential")
-        }
-        return value.token
-    }
 
     /// The standard Overstory reads of the trees placed here (Clients 003):
     /// descriptor, snapshot, path read, objects, entry metadata and the host's

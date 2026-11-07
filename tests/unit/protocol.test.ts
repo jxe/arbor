@@ -8,7 +8,7 @@ import type {
 } from "@ovst/protocol";
 import { applySourceEdits, canonicalOverstoryLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, decodePresenceEvent, PresenceDecodeError, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeUpdateConflictJSON, decodeSnapshotBundle, decodeUpdateRequestJSON, hashObject, updateRequestDigests } from "@ovst/protocol";
 import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@ovst/protocol";
-import type { StorySyncStatus, TreeCredential } from "../../packages/cli/src/daemon-client.ts";
+import type { StorySyncStatus } from "../../packages/cli/src/daemon-client.ts";
 
 // Test-local checks mirroring Overstory's `ProtocolTreeDescriptor.validated()` and
 // `ProtocolSafeAccessSubject` decoding; the TypeScript packages export no descriptor
@@ -70,11 +70,6 @@ describe("REST v1 protocol fixtures", () => {
       instanceID: "instance-fixture-01",
       runtimeKind: "cloud",
     });
-  });
-
-  test("decodes the credential fixture", async () => {
-    const credential = await json<TreeCredential>("credential.json");
-    expect(credential.token).toBe("overstoryd-account-token-fixture");
   });
 
   test("covers every current error code, cursor shape, and the control routes' fixtures", async () => {

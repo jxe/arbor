@@ -1,5 +1,4 @@
-import { expect, mock, spyOn, test } from "bun:test";
-import { HostAccountStore, HostPlacementStore, ProtocolHTTPError } from "@ovst/protocol";
+import { expect, test } from "bun:test";
 import { accountHandler } from "../../packages/story-sync/src/account-http.ts";
 import { LocalAccountService } from "../../packages/story-sync/src/account-service.ts";
 import { browserHandler } from "../../packages/story-sync/src/browser-http.ts";
@@ -30,33 +29,7 @@ test("account handler takes only account bootstrap ports and leaves sync routes 
   }));
   const sync = new URL("http://127.0.0.1/v1/sync");
   expect(await handler(new Request(sync, { method: "POST" }), sync)).toBeUndefined();
-  const invalid = new URL("http://127.0.0.1/v1/credential?configurationTree=invalid");
-  await expect(handler(new Request(invalid), invalid)).rejects.toMatchObject({ code: "invalid-request" });
-  // A placement host's session names an exact origin, and the account it belongs to.
-  const cfg = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
-  for (const query of [`origin=${encodeURIComponent("https://orchard.example")}`, `configurationTree=${cfg}&origin=${encodeURIComponent("https://orchard.example/~joe")}`]) {
-    const url = new URL(`http://127.0.0.1/v1/credential?${query}`);
-    await expect(handler(new Request(url), url)).rejects.toMatchObject({ code: "invalid-request" });
-  }
-});
-
-test("a placement host's refusal keeps its home host, and one it may lift later stays retryable", async () => {
-  const unexpected = () => { throw new Error("Unrelated account dependency was used"); };
-  const service = new LocalAccountService({
-    trees: { openSession: unexpected, refreshConfiguration: unexpected, invalidateDescriptors: unexpected },
-    events: { emit: unexpected },
-  });
-  const cfg = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
-  const origin = "https://orchard.example";
-  const homeHost = "https://garden.example";
-  spyOn(HostAccountStore.prototype, "safe").mockResolvedValue({ origin: homeHost } as never);
-  const get = spyOn(HostPlacementStore.prototype, "get");
-  try {
-    get.mockRejectedValueOnce(new ProtocolHTTPError(503, "the home host cannot be read", { error: "internal-error", retryable: true, details: { homeHost } }));
-    await expect(service.credentialToken(cfg, origin)).rejects.toMatchObject({ status: 503, details: { retryable: true, homeHost } });
-    get.mockRejectedValueOnce(new ProtocolHTTPError(404, "unknown device", { error: "not-found", retryable: false, details: { homeHost } }));
-    await expect(service.credentialToken(cfg, origin)).rejects.toMatchObject({ code: "credential-unavailable", status: 409, details: { homeHost } });
-  } finally {
-    mock.restore();
-  }
+  // Sessions are the accounts module's: an app opens its own from the data home's key.
+  const credential = new URL("http://127.0.0.1/v1/credential");
+  expect(await handler(new Request(credential), credential)).toBeUndefined();
 });

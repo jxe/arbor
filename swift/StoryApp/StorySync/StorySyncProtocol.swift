@@ -151,16 +151,4 @@ struct StorySyncErrorValue: Codable, Sendable, Equatable {
     }
 }
 
-// MARK: - Credential (`GET /v1/credential[?origin=]`)
-
-/// `GET /v1/credential?configurationTree=[&origin=]`: a session of the account's
-/// device, which a same-installation client shares with the daemon. With
-/// `origin`, it is the session at that host: the account's home host, or a
-/// placement host (accounts §1.3) whose trees name it as `canonical.endpoint`.
-struct TreeCredential: Codable, Sendable, Equatable {
-    var token: String
-
-    init(token: String) { self.token = token }
-}
-
 #endif

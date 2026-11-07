@@ -244,14 +244,15 @@ Every device is a key device
 The daemon keeps the account's Ed25519 private key in the platform credential
 store (or the file store when `STORY_CREDENTIAL_STORE=file`), where the
 connection record names it (`file:device-key` or its store slot), and never
-writes it to the tree. It serves a session the key opened, never the key, to
-any local process over `GET /v1/credential` on its loopback socket; the session
-is reused until five minutes before it expires and cached for other local
-processes in the account's owner-only `session.json`. This is deliberate: a
-local process running as the user can already read the credential store and
-write the placed folders the daemon synchronizes, so handing it an hour-long
-session grants nothing further. The point is one device identity per
-installation: the Mac app and the daemon are one device to overstoryd, sharing
+writes it to the tree. A local client beside it (the Mac app, the `story`
+command) reads the same key from the same slot and opens its own sessions
+(Clients 003 step 3; Story Sync no longer serves `GET /v1/credential`); a
+session is reused until five minutes before it expires and cached for every
+local process in the account's owner-only `session.json`. A local process
+running as the user can already read the credential store, so this grants
+nothing further; on macOS the first read from the app may ask the person to
+allow access to the keychain item Story Sync wrote. The point is one device
+identity per installation: the Mac app and the daemon are one device to overstoryd, sharing
 authentication and a request-digest scope while remaining independent
 working-tree clients. The socket binds to loopback only and rejects
 non-loopback `Host` headers. Local clients never hold the key, and on a 401
@@ -283,9 +284,8 @@ anonymous client, or `credential-unavailable` when a credential is required.
 A 401 from a placement host makes Story Sync forget that placement
 connection's cached session and open another with the device key; the home
 connection's session is untouched, and a 401 from the home forgets only the
-home's. `GET /v1/credential?configurationTree=…&origin=…` serves the session
-for a placement host to a local working-tree client, under the same loopback
-exposure as the home session.
+home's. A local working-tree client opens its own session at a placement
+host from the placement connection and the home key, as Story Sync does.
 
 A placement account exists once the host's community reserves the
 profile's locator at its home host (accounts §1.3); there is no claim. Two

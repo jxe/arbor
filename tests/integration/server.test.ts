@@ -71,7 +71,7 @@ describe("story-sync REST v1", () => {
     const other = await mkdtemp(join(tmpdir(), "story-server-other-home-"));
     try {
       const stranger = await ensureStorySyncAccess(other);
-      for (const route of ["/v1/status", "/v1/trees", "/v1/accounts", "/v1/credential"]) {
+      for (const route of ["/v1/status", "/v1/trees", "/v1/accounts"]) {
         const response = await globalThis.fetch(`${base}${route}`, { headers: { authorization: storySyncAuthorization(stranger) } });
         expect(response.status, route).toBe(401);
       }
@@ -314,7 +314,7 @@ describe("story-sync object route (the standard read on loopback)", () => {
   });
 });
 
-describe("story-sync standard reads and credential route", () => {
+describe("story-sync standard reads", () => {
   const token = "bootstrap-route-owner";
   let sandbox: string;
   let home: string;
@@ -446,15 +446,13 @@ describe("story-sync standard reads and credential route", () => {
     expect(await reads.descriptor(scope).catch((error) => error.status)).toBe(404);
   });
 
-  test("serves a session its device key opened over loopback, never the key, and 404s when absent", async () => {
-    const { token: session } = await placedClient.credential();
+  test("serves no sessions: a client opens its own from the data home's device key", async () => {
+    expect((await fetch(`${placedBase}/v1/credential`)).ok).toBe(false);
+    const { HostAccountStore } = await import("@ovst/protocol");
+    const configurationTree = (await placedClient.trees()).snapshot.find((item) => item.id === tree)!.configurationTree!;
+    const session = (await new HostAccountStore(configurationTree).get())!.accountToken;
     expect(session).toStartWith("ars_");
     expect(session).not.toBe(testDevice(token).seed);
     expect((await new ProtocolClient(overstoryd.url, session).account()).account.device?.id).toBe(testDevice(token).device);
-    const absent = await fetch(`${placedBase}/v1/credential?configurationTree=tr_${"c".repeat(26)}`);
-    expect(absent.status).toBe(404);
-    expect(await absent.json()).toMatchObject({ error: "not-found" });
-    const malformed = await fetch(`${placedBase}/v1/credential?configurationTree=nope`);
-    expect(malformed.status).toBe(400);
   });
 });

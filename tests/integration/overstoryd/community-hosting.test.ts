@@ -363,7 +363,7 @@ describe("client-generated profile and account bootstrap", () => {
       expect(await readFile(join(home, "configurations", configurationTree, "devices.yaml"), "utf8")).toContain(`key: ${claimed.deviceKey}`);
 
       // A recovered profile still needs a new authorized device on a claimed account.
-      const originalCredential = await bootstrap.credentialToken(configurationTree);
+      const originalCredential = (await new HostAccountStore(configurationTree).get())!.accountToken;
       const offer = await new ProtocolClient(running.url, originalCredential).createPairing();
       const backupPath = join(sandbox, "charlie-identity-backup.json");
       await new ProfileIdentityStore().backup(backupPath, "charlie's passphrase");
@@ -387,7 +387,7 @@ describe("client-generated profile and account bootstrap", () => {
         await paired.claimPairing();
         expect(await paired.pendingPairing()).toBeNull();
         expect(await paired.accountList()).toMatchObject([{ configurationTree, profileTree: localProfileTree, credentialAvailable: true }]);
-        const token = await paired.credentialToken(configurationTree);
+        const token = (await new HostAccountStore(configurationTree).get())!.accountToken;
         expect(token).not.toBe(originalCredential);
         // Pairing gives the new device its own key, not a credential.
         const pairedRecord = (await new HostAccountStore(configurationTree).safe())!;

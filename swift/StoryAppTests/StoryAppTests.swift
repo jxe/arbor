@@ -467,21 +467,6 @@ struct StoryAppTests {
     }
 
 #if os(macOS)
-    @Test("A placement host's refused credential reads as a refusal naming the home host")
-    func placementCredentialRefusal() {
-        func refusal(_ status: Int, retryable: Bool) -> ProtocolHTTPError {
-            StorySyncServerError(status: status, value: StorySyncErrorValue(
-                code: status == 409 ? "unauthenticated" : "internal-error", message: "refused", retryable: retryable,
-                tree: nil, path: nil, details: .object(["homeHost": .string("https://garden.example")])
-            )).credentialRefusal
-        }
-        let unreachable = refusal(503, retryable: true)
-        #expect(unreachable.status == 503 && unreachable.retryable)
-        #expect(unreachable.localizedDescription.contains("can't reach the account's home host, garden.example"))
-        let unlisted = refusal(409, retryable: false)
-        #expect(unlisted.status == 401 && unlisted.homeHost == "https://garden.example")
-    }
-
     @Test("Bootstrap rejection banner includes the daemon's explanation")
     func rejectedBootstrapShowsServerExplanation() throws {
         let error = StorySyncServerError(
@@ -832,35 +817,6 @@ struct StoryAppTests {
         #expect(StoryIncomingLocator(try #require(URL(string: "overstory://tr_alice/#overstory-invite=c0de"))) == nil)
         // The old segment parameter is gone, with no alias.
         #expect(StoryIncomingLocator(try #require(URL(string: "overstory://arb.example/~alice;overstory-invite=c0de"))) == nil)
-    }
-
-    @Test("A visit sparsifies a complete snapshot to directories and Markdown")
-    func visitSnapshotSparsification() throws {
-        let markdown = try ProtocolObjectCodec.object(.file(Data("# Note\n".utf8)))
-        let image = try ProtocolObjectCodec.object(.file(Data([0x89, 0x50, 0x4E, 0x47])))
-        let nestedDirectory = try ProtocolObjectCodec.object(.directory([
-            ProtocolDirectoryEntry(name: "photo.png", file: image.hash),
-        ]))
-        let root = try ProtocolObjectCodec.object(.directory([
-            ProtocolDirectoryEntry(name: "assets", directory: nestedDirectory.hash),
-            ProtocolDirectoryEntry(name: "cover.png", file: image.hash),
-            ProtocolDirectoryEntry(name: "note.md", file: markdown.hash),
-        ]))
-        let complete = ProtocolSnapshot(root: root.hash, objects: [root, nestedDirectory, markdown, image])
-        let sparse = try StoryVisitSnapshot.sparsified(complete)
-        #expect(Set(sparse.spine.objects.map(\.hash)) == [root.hash, nestedDirectory.hash, markdown.hash])
-        let objects = try ProtocolObjectGraph.validate(sparse.spine, mode: .sparseFiles)
-        #expect(objects[image.hash] == nil)
-        guard case let .directory(rootEntries, _)? = objects[root.hash],
-              case let .directory(nestedEntries, _)? = objects[nestedDirectory.hash] else {
-            Issue.record("Sparse snapshot must retain both directories")
-            return
-        }
-        #expect(rootEntries.first { $0.name == "cover.png" }?.file == image.hash)
-        #expect(nestedEntries.first { $0.name == "photo.png" }?.file == image.hash)
-        let replacement = try StoryVisitSnapshot.replacement(complete, tree: "tr_visit", update: "up_visit", cursor: "up_visit")
-        #expect(replacement.root == root.hash)
-        #expect(replacement.nodes.map(\.path).sorted() == ["/", "/assets", "/assets/photo.png", "/cover.png", "/note"])
     }
 #endif
 

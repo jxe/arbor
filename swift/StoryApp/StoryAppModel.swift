@@ -477,29 +477,21 @@ final class StoryWorkspaceState {
             AccountStoredCredentialProvider.shared(configurationTree: configurationTree, origin: $0, store: store)
         } ?? AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: store)
         let client = ProtocolClient(origin: origin, credentialProvider: credentialProvider, sessions: hostSessions)
-        let transport = ProtocolReplicaTransport(client: client)
-        let platform = HostObjectStore(client: client, tree: tree.id)
-        let root = StorySupportDirectories.root
         let key = StorySupportDirectories.workingTreeKey(tree.id)
-        let replicaRoot = StorySupportDirectories.workingTrees.appending(path: key, directoryHint: .isDirectory)
-        let syncStateRoot = root.appending(path: "Sync/\(key)", directoryHint: .isDirectory)
-        let workingTree = try await Self.openOrPlaceWorkingTree(
-            tree,
-            replicaRoot: replicaRoot,
-            syncStateRoot: syncStateRoot,
-            recoveryNames: (workingTree: "WorkingTree", sync: "Sync"),
-            transport: transport,
-            platform: platform
-        )
+        let session = try await TreeSession.open(tree, client: client, settings: .replica(
+            Self.replicaStorage(
+                root: StorySupportDirectories.workingTrees.appending(path: key, directoryHint: .isDirectory),
+                recoveryName: "WorkingTree",
+                changeLogRecoveryName: "Sync"
+            ),
+            changeLog: StorySupportDirectories.root.appending(path: "Sync/\(key)", directoryHint: .isDirectory),
+            readOnly: !tree.grantsWrite,
+            transportAvailable: nativeTransportAvailable
+        ))
         timing.mark("working-tree")
-        refreshEntryDates(workingTree, tree: tree.id, client: client)
-        let (coordinator, nextProvider) = try synchronizedProvider(
-            workingTree: workingTree,
-            transport: transport,
-            stateRoot: syncStateRoot,
-            platformObjectStore: workingTree,
-            readOnly: !tree.grantsWrite
-        )
+        refreshEntryDates(session)
+        guard let coordinator = session.coordinator else { throw ProtocolValidationError.invalidValue("A replica keeps a change log") }
+        let nextProvider = session.provider
         if remember {
             try await nativePlacementStore.save(NativePlacementRecord(origin: origin, configurationTree: configurationTree, tree: tree))
             nativePlacements = try await nativePlacementStore.loadAll()
@@ -553,72 +545,18 @@ final class StoryWorkspaceState {
         timing.record("tree-open", detail: "\(tree.id) · device", extra: StoryLaunchTiming.milestones)
     }
 
-    /// Open the durable working tree at `replicaRoot`, or place it afresh from
-    /// a snapshot. A working tree records the wire format it was placed under.
-    /// When the format changes (accepted-update ids, cursors, and request
-    /// shapes are not continuous across such a change), the tree and its update
-    /// state cannot resume against the server and are re-placed.
-    private static func openOrPlaceWorkingTree(
-        _ tree: ProtocolTreeDescriptor,
-        replicaRoot: URL,
-        syncStateRoot: URL,
-        recoveryNames: (workingTree: String, sync: String),
-        transport: ProtocolReplicaTransport,
-        platform: any ObjectStore
-    ) async throws -> WorkingTree {
-        let formatMarker = replicaRoot.appending(path: "wire-format")
-        let placedFormat = (try? String(contentsOf: formatMarker, encoding: .utf8))?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if placedFormat == workingTreeFormat,
-           FileManager.default.fileExists(atPath: replicaRoot.appending(path: "materialized/tree.json").path) {
-            return try await WorkingTree.open(at: replicaRoot, tree: TreeID(rawValue: tree.id), platform: platform)
-        }
-        // Retain old admissions and materialized content for recovery; never
-        // replay an old-format journal against reset accepted history.
-        let archive = StorySupportDirectories.root
-            .appending(path: "FormatRecovery/\(UUID().uuidString)", directoryHint: .isDirectory)
-        for (source, name) in [(replicaRoot, recoveryNames.workingTree), (syncStateRoot, recoveryNames.sync)] {
-            if FileManager.default.fileExists(atPath: source.path) {
-                try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
-                try FileManager.default.moveItem(at: source, to: archive.appending(path: name))
-            }
-        }
-        let workingTree = try await WorkingTreePlacementService.place(
-            tree: tree,
-            at: replicaRoot,
-            transport: transport,
-            platform: platform
+    /// Where a replica of this app lives, under the wire format this app
+    /// places replicas with; an incompatible one moves to `FormatRecovery`.
+    static func replicaStorage(root: URL, recoveryName: String, changeLogRecoveryName: String) -> TreeReplicaStorage {
+        TreeReplicaStorage(
+            root: root,
+            format: workingTreeFormat,
+            recoveryArchive: {
+                StorySupportDirectories.root.appending(path: "FormatRecovery/\(UUID().uuidString)", directoryHint: .isDirectory)
+            },
+            recoveryName: recoveryName,
+            changeLogRecoveryName: changeLogRecoveryName
         )
-        try workingTreeFormat.write(to: formatMarker, atomically: true, encoding: .utf8)
-        return workingTree
-    }
-
-    /// An update coordinator for `workingTree` and the provider whose writes
-    /// are local changes it publishes. The coordinator polls so that a
-    /// transport failure is retried while the network is believed available.
-    private func synchronizedProvider(
-        workingTree: WorkingTree,
-        transport: ProtocolReplicaTransport,
-        stateRoot: URL,
-        platformObjectStore: any ObjectStore,
-        readOnly: Bool = false,
-        materializedRoot: URL? = nil
-    ) throws -> (UpdateCoordinator, WorkingTreeProvider) {
-        let coordinator = try UpdateCoordinator(
-            workingTree: workingTree,
-            transport: transport,
-            stateRoot: stateRoot,
-            transportAvailable: nativeTransportAvailable,
-            platformObjectStore: platformObjectStore,
-            pollInterval: .seconds(30)
-        )
-        let provider = WorkingTreeProvider(
-            workingTree: workingTree,
-            readOnly: readOnly,
-            materializedRoot: materializedRoot,
-            coordinator: coordinator
-        )
-        return (coordinator, provider)
     }
 
     /// Make `coordinator` the open tree's: its conflict review, sync
@@ -696,12 +634,11 @@ final class StoryWorkspaceState {
     /// The host's entry dates for an opened tree, read in the background: they
     /// never delay opening, and a failed read keeps the dates the tree has.
     @discardableResult
-    private func refreshEntryDates(_ workingTree: WorkingTree, tree: String, client: ProtocolClient) -> Task<Void, Never> {
+    private func refreshEntryDates(_ session: TreeSession) -> Task<Void, Never> {
         Task.detached {
-            guard let metadata = try? await client.entryMetadata(tree: tree) else { return }
-            let dates = metadata.entries.compactMapValues { $0.modifiedAt.map { Date(timeIntervalSince1970: $0 / 1_000) } }
-            try? await workingTree.applyEntryDates(dates, update: metadata.update)
-            let record = StoryEntryDateCache.Record(update: metadata.update, dates: dates)
+            guard let read = await session.refreshEntryDates() else { return }
+            let record = StoryEntryDateCache.Record(update: read.update, dates: read.dates)
+            let tree = session.tree.id
             await MainActor.run { StoryEntryDateCache.save(record, tree: tree) }
         }
     }
@@ -1552,27 +1489,35 @@ final class StoryWorkspaceState {
         guard let rawOrigin = endpoint ?? homeHost, let origin = URL(string: rawOrigin) else {
             throw ProtocolValidationError.invalidValue("\(placed.name) has no host origin")
         }
-        // Credentials are asked for by the endpoint's origin. Story Sync
-        // answers with the home session when that is the account's home host
-        // and the placement host's session otherwise (`/v1/credential`), so
-        // the app need not know which it is.
+        // Credentials are asked for by the endpoint's origin: the data home's
+        // device key opens the home session when that is the account's home
+        // host and the placement host's session otherwise, so the app need
+        // not know which it is.
         let placementOrigin = endpoint == nil ? nil : originString(origin)
         let descriptor = try opening.current.tree.validated()
 
-        let credentialProvider = StorySyncCredentialProvider.shared(client: client, configurationTree: configurationTree, origin: placementOrigin)
-        let protocolClient = ProtocolClient(origin: origin, credentialProvider: credentialProvider)
-        let transport = ProtocolReplicaTransport(client: protocolClient)
-        let platform = Self.placedTreeObjects(treeID, reads: client.reads())
-        let workingTree = try await WorkingTree.inMemory(tree: TreeID(rawValue: treeID), platform: platform)
-        timing.mark("working-tree")
-        let replacement = try SnapshotBridge.replacement(
-            snapshot: opening.spine,
-            tree: TreeID(rawValue: treeID),
-            update: descriptor.update,
-            cursor: opening.current.observedThrough,
-            mode: .sparseFiles
+        let credentialProvider = DataHomeCredentialProvider.shared(
+            store: DataHomeAccountStore(dataHome: StorySupportDirectories.dataHome),
+            configurationTree: configurationTree,
+            origin: placementOrigin
         )
-        try await workingTree.initializeFromSystem(replacement)
+        let protocolClient = ProtocolClient(origin: origin, credentialProvider: credentialProvider)
+        // Alongside Story Sync: objects only from its loopback reads, the
+        // index rebuilt in memory on every launch, the change log on disk.
+        let session = try await TreeSession.open(
+            descriptor,
+            client: protocolClient,
+            settings: .alongsideStorySync(
+                reads: client.reads(),
+                tree: treeID,
+                folder: placed.osPath.map { URL(filePath: $0, directoryHint: .isDirectory) },
+                changeLog: StorySupportDirectories.workingTrees
+                    .appending(path: StorySupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory),
+                transportAvailable: nativeTransportAvailable
+            ),
+            opening: TreeOpening(current: opening.current, spine: opening.spine)
+        )
+        let workingTree = session.workingTree
         timing.mark("build")
         // This tree is rebuilt on every launch. The dates its host reported
         // last date the sidebar at once, and the host's answer refreshes them
@@ -1583,21 +1528,14 @@ final class StoryWorkspaceState {
         if let cachedDates {
             try? await workingTree.applyEntryDates(cachedDates.dates, update: cachedDates.update)
         }
-        let dates = refreshEntryDates(workingTree, tree: treeID, client: protocolClient)
+        let dates = refreshEntryDates(session)
         if cachedDates == nil {
             await awaitTasks([dates], atMost: .seconds(2))
         }
 
         timing.mark("dates")
-        let stateRoot = StorySupportDirectories.workingTrees
-            .appending(path: StorySupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory)
-        let (coordinator, nextProvider) = try synchronizedProvider(
-            workingTree: workingTree,
-            transport: transport,
-            stateRoot: stateRoot,
-            platformObjectStore: platform,
-            materializedRoot: placed.osPath.map { URL(filePath: $0, directoryHint: .isDirectory) }
-        )
+        guard let coordinator = session.coordinator else { throw ProtocolValidationError.invalidValue("A placed tree keeps a change log") }
+        let nextProvider = session.provider
         try await nativePlacementStore.save(NativePlacementRecord(
             origin: origin,
             configurationTree: placed.configurationTree,
@@ -1702,7 +1640,6 @@ final class StoryWorkspaceState {
         let treeID = TreeID(rawValue: tree.id)
         // Story Sync serves only placed trees; a visit reads from the host,
         // with the account's session when there is one.
-        let platform = HostObjectStore(client: client, tree: tree.id)
         let rootLocator = remote.configuration
             ? remote.locator(path: remote.path) + ";overstory-config"
             : tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
@@ -1712,24 +1649,18 @@ final class StoryWorkspaceState {
             Self.recordDiagnostic("visit-record", error)
         }
         if tree.grantsWrite {
-            try await openWritableRemoteTree(
-                tree: tree,
-                locator: rootLocator,
-                client: client,
-                platform: platform
-            )
+            try await openWritableRemoteTree(tree: tree, locator: rootLocator, client: client)
             return
         }
-        let snapshot = try await client.snapshot(tree: tree.id, root: tree.root)
-        let workingTree = try await WorkingTree.inMemory(tree: treeID, platform: platform)
-        try await workingTree.initializeFromSystem(try StoryVisitSnapshot.replacement(
-            snapshot,
-            tree: treeID,
-            update: tree.update,
-            cursor: resolution.observedThrough
-        ))
-        refreshEntryDates(workingTree, tree: tree.id, client: client)
-        let provider = WorkingTreeProvider(workingTree: workingTree, readOnly: true)
+        let session = try await TreeSession.open(
+            tree,
+            client: client,
+            settings: .browse(),
+            opening: TreeOpening(current: ProtocolCurrentTree(tree: tree, observedThrough: resolution.observedThrough))
+        )
+        let workingTree = session.workingTree
+        refreshEntryDates(session)
+        let provider = session.provider
         await switchProvider(
             provider,
             home: WorkspaceReference(tree: treeID, path: "/"),
@@ -1748,41 +1679,31 @@ final class StoryWorkspaceState {
             acceptedRoot: tree.root,
             localRoot: tree.root
         )
-        visitFollowTask = StoryVisitFollower(client: client, tree: tree.id, workingTree: workingTree) { [weak self] in
+        visitFollowTask = session.follow(after: resolution.observedThrough) { [weak self] in
             await self?.noteVisitChanged(workingTree)
-        }.start(after: resolution.observedThrough)
+        }
         prefetchLocalStorySyncOverview()
     }
 
     private func openWritableRemoteTree(
         tree: ProtocolTreeDescriptor,
         locator: String,
-        client: ProtocolClient,
-        platform: any ObjectStore
+        client: ProtocolClient
     ) async throws {
-        let transport = ProtocolReplicaTransport(client: client)
         let key = StorySupportDirectories.workingTreeKey(tree.id)
-        let replicaRoot = StorySupportDirectories.remoteWorkingTrees
-            .appending(path: key, directoryHint: .isDirectory)
-        let syncStateRoot = StorySupportDirectories.remoteSync
-            .appending(path: key, directoryHint: .isDirectory)
-        let workingTree = try await Self.openOrPlaceWorkingTree(
-            tree,
-            replicaRoot: replicaRoot,
-            syncStateRoot: syncStateRoot,
-            recoveryNames: (workingTree: "RemoteWorkingTree", sync: "RemoteSync"),
-            transport: transport,
-            platform: platform
-        )
-        refreshEntryDates(workingTree, tree: tree.id, client: client)
-        let (coordinator, provider) = try synchronizedProvider(
-            workingTree: workingTree,
-            transport: transport,
-            stateRoot: syncStateRoot,
-            platformObjectStore: workingTree
-        )
+        let session = try await TreeSession.open(tree, client: client, settings: .replica(
+            Self.replicaStorage(
+                root: StorySupportDirectories.remoteWorkingTrees.appending(path: key, directoryHint: .isDirectory),
+                recoveryName: "RemoteWorkingTree",
+                changeLogRecoveryName: "RemoteSync"
+            ),
+            changeLog: StorySupportDirectories.remoteSync.appending(path: key, directoryHint: .isDirectory),
+            transportAvailable: nativeTransportAvailable
+        ))
+        refreshEntryDates(session)
+        guard let coordinator = session.coordinator else { throw ProtocolValidationError.invalidValue("A replica keeps a change log") }
         await switchProvider(
-            provider,
+            session.provider,
             home: WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/"),
             detail: "Working tree · \(locator)",
             canonical: tree.canonical
@@ -2751,8 +2672,8 @@ final class StoryWorkspaceState {
 
     /// The placement host a tree's session is for: its canonical `endpoint`
     /// when that is not the account's `home` host, else nil (the home
-    /// session). Passed as `origin` to `GET /v1/credential`, spelled as the
-    /// daemon's descriptor spells it.
+    /// session). Passed as the credential provider's `origin`, spelled as
+    /// the daemon's descriptor spells it.
     nonisolated static func placementOrigin(endpoint: String?, home: String?) -> String? {
         guard let endpoint, let endpointURL = URL(string: endpoint),
               let home, let homeURL = URL(string: home) else { return nil }
@@ -4713,25 +4634,18 @@ extension StoryWorkspaceState {
             AccountStoredCredentialProvider.shared(configurationTree: configurationTree, origin: $0, store: store)
         } ?? AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: store)
         let client = ProtocolClient(origin: record.origin, credentialProvider: credentialProvider, sessions: hostSessions)
-        let transport = ProtocolReplicaTransport(client: client)
-        let platform = HostObjectStore(client: client, tree: tree.id)
         let key = StorySupportDirectories.workingTreeKey(tree.id)
-        let replicaRoot = StorySupportDirectories.workingTrees.appending(path: key, directoryHint: .isDirectory)
-        let syncStateRoot = StorySupportDirectories.root.appending(path: "Sync/\(key)", directoryHint: .isDirectory)
-        let workingTree = try await Self.openOrPlaceWorkingTree(
-            tree,
-            replicaRoot: replicaRoot,
-            syncStateRoot: syncStateRoot,
-            recoveryNames: (workingTree: "WorkingTree", sync: "Sync"),
-            transport: transport,
-            platform: platform
-        )
-        return try synchronizedProvider(
-            workingTree: workingTree,
-            transport: transport,
-            stateRoot: syncStateRoot,
-            platformObjectStore: workingTree
-        )
+        let session = try await TreeSession.open(tree, client: client, settings: .replica(
+            Self.replicaStorage(
+                root: StorySupportDirectories.workingTrees.appending(path: key, directoryHint: .isDirectory),
+                recoveryName: "WorkingTree",
+                changeLogRecoveryName: "Sync"
+            ),
+            changeLog: StorySupportDirectories.root.appending(path: "Sync/\(key)", directoryHint: .isDirectory),
+            transportAvailable: nativeTransportAvailable
+        ))
+        guard let coordinator = session.coordinator else { throw ProtocolValidationError.invalidValue("A replica keeps a change log") }
+        return (coordinator, session.provider)
     }
 #endif
 

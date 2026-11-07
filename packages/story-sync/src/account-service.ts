@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { overstoryPrivateRoot } from "@ovst/protocol";
 import type { HostPlacementRecord, MutationReceipt } from "@ovst/protocol";
-import { ProtocolError, HostAccountStore, HostPlacementStore, ProtocolHTTPError, ProtocolTransportError } from "@ovst/protocol";
+import { ProtocolError, ProtocolHTTPError, ProtocolTransportError } from "@ovst/protocol";
 import { ProfileIdentityStore } from "@ovst/client";
 import { listLocalAccounts, type LocalAccountSummary } from "./state/index.ts";
 import { claimLocalPairing, connectPlacementAccount, pendingLocalPairing, cancelPendingAccountClaim, claimHostAccountBootstrap, resolveUserPath, type AccountBootstrapDeps } from "@ovst/client";
@@ -10,59 +10,6 @@ import { claimLocalPairing, connectPlacementAccount, pendingLocalPairing, cancel
 /** Account administration depends on bootstrap ports, never the sync daemon. */
 export class LocalAccountService {
   constructor(private readonly deps: AccountBootstrapDeps) {}
-  /**
-   * A session token for a configuration tree's account, which the device key
-   * opens and never leaves Story Sync. Serving it over loopback is deliberate:
-   * any local process with the user's filesystem access can already read the
-   * credential store and write the placed folders, so this exposes no new
-   * authority (documented in `docs/architecture/story-sync/data-home.md`).
-   * With `origin`, the token is for that host: the home account's when it is
-   * the home host, else the account's placement connection there.
-   */
-  async credentialToken(configurationTree?: string, origin?: string): Promise<string> {
-    let token: string | undefined;
-    if (origin !== undefined) {
-      if (!configurationTree) throw new ProtocolError("invalid-request", "credential for an origin requires a configurationTree", 400);
-      let placement: HostPlacementStore;
-      try { placement = new HostPlacementStore(configurationTree, origin); }
-      catch { throw new ProtocolError("invalid-request", "configurationTree must be a TreeID and origin a canonical origin", 400); }
-      const home = await new HostAccountStore(configurationTree).safe();
-      try {
-        token = home?.origin === origin
-          ? (await new HostAccountStore(configurationTree).get())?.accountToken
-          : (await placement.get())?.accountToken;
-      } catch (error) {
-        if (error instanceof ProtocolHTTPError) {
-          // A placement host names the profile's home host when it cannot
-          // check the device (accounts §5.4); clients show it.
-          const homeHost = typeof error.details?.homeHost === "string" ? error.details.homeHost : undefined;
-          const details = (homeHost ? { homeHost } : {}) as ProtocolError["details"];
-          // It cannot check this device now (its home host is unreachable): a retry may succeed.
-          if (error.retryable) {
-            throw new ProtocolError(error.code ?? "internal-error", `${origin} cannot check this device now: ${error.message}`, 503, { retryable: true, ...details });
-          }
-          // The host refused to open a session for this device: it is not listed there any more.
-          throw new ProtocolError("credential-unavailable", `${origin} refused this device: ${error.message}`, 409, details);
-        }
-        throw error;
-      }
-    } else if (configurationTree) {
-      let store: HostAccountStore;
-      try { store = new HostAccountStore(configurationTree); }
-      catch { throw new ProtocolError("invalid-request", "configurationTree must be a TreeID", 400); }
-      token = (await store.get())?.accountToken;
-    } else {
-      const accounts = await HostAccountStore.list();
-      if (accounts.length > 1) {
-        throw new ProtocolError("invalid-request", "credential requires an explicit configurationTree when several accounts are connected", 400);
-      }
-      token = accounts.length === 1
-        ? (await new HostAccountStore(accounts[0]!.configurationTree).get())?.accountToken
-        : undefined;
-    }
-    if (!token) throw new ProtocolError("not-found", "No account credential is available", 404);
-    return token;
-  }
 
   async claimHostAccount(account: string, inputPath: string, displayName?: string, inviteCode?: string): Promise<MutationReceipt["effects"]> {
     try { return await claimHostAccountBootstrap(this.deps, account, inputPath, displayName, inviteCode); }

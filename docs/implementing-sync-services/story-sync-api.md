@@ -8,7 +8,7 @@ do not acquire new capabilities from that specification.
 
 Story Sync makes placed folders content-addressable and keeps each one equal
 to overstoryd's accepted root in both directions. Everything below is either that
-store's read surface (the standard Overstory reads, §3a, and the credential) or the control surface
+store's read surface (the standard Overstory reads, §3a) or the control surface
 for placements, accounts, and declined changes.
 
 Story Sync binds to loopback and rejects cross-origin browser requests. JSON is
@@ -34,7 +34,7 @@ working-tree client needs: `GET /v1/status`, `GET /v1/trees`,
 `GET /v1/accounts`, `GET /v1/resolve`, `POST /v1/held/discard`, `GET /v1/declined`, `POST /v1/declined/restore`, `POST /v1/declined/resend`,
 `POST /v1/sync`, `POST /v1/placements/move`, `POST /v1/placements/pause`,
 `POST /v1/placements/resume`, `GET /v1/pending`,
-`GET /v1/credential` (§3b), the standard read routes under
+the standard read routes under
 `/.overstory/trees/` (§3a), the data-home identity and account
 bootstrap routes (§4), and `GET /v1/events` (§5). The Mac app's client in
 `swift/StoryApp/StorySync/` launches or attaches to the control-mode daemon
@@ -267,41 +267,20 @@ and every other host route still go to the host; any other method on
 A client reading a tree that isn't placed here (a visit) asks the tree's host
 itself, with its own account session.
 
-### 3b. Credential
+### 3b. Sessions
 
-```text
-GET /v1/credential[?configurationTree={TreeID}[&origin={origin}]]
-```
-
-**Credential.** `GET /v1/credential` returns `{ token }`, an overstoryd session
-token the device key stored for `configurationTree` opened, so that several
-local clients on one installation share the daemon's device identity and
-request-digest scope without ever holding the key. Without the parameter it
-answers for the only connected account; with several accounts connected the
-parameter is required (`400 invalid-request`). An account with no usable key
-is `404 not-found`. With `origin` as well, the token is for that host: the home
-account's session when it is the account's home host, else a session the same
-device key opened on the account's placement connection there
+Story Sync hands out no sessions. A client beside it opens its own from the
+data home's device key, through the accounts module, exactly as Story Sync and
+the `story` command do (`HostAccountStore` and `HostPlacementStore` in
+`@ovst/protocol`, `DataHomeAccountStore` in Swift's `OverstoryClient`): it
+reads the account's `connection.json`, the key's seed from the slot the record
+names (`file:device-key`, or an item in the operating-system credential
+store), and reuses the `session.json` beside it while it is usable, writing a
+newly opened session back so the others reuse it too. A tree placed on a
+placement host names that host as its descriptor's `canonical.endpoint`; the
+session there is opened with the same key from the placement connection
 ([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)).
-A tree placed on a placement host names that host as its descriptor's
-`canonical.endpoint`, which is the `origin` a working-tree client passes. An
-`origin` without `configurationTree`, or one that is not an exact origin, is
-`400 invalid-request`; no placement connection there is `404 not-found`, and a
-host that refuses to open a session for the device (it is no longer listed) is
-`409` with error `unauthenticated`. A placement host that cannot check the
-device now, because the profile's home host has been unreachable past the
-grace ([accounts §5.4](../overstory-spec/04-accounts-and-devices.md#54-published-device-keys)), is
-`503` with `retryable: true`. Either keeps the host's `details.homeHost`, so a
-client can name the home host.
-Serving the token over loopback is deliberate and adds no authority: only
-a caller holding the data home's caller token reaches it, and any local
-process running as the user can already read the credential store and write
-the placed folders the daemon synchronizes. `data-home.md` records
-the exposure.
-
-The token is never a long-lived credential: a session is valid for at most an
-hour, so a client refetches it after a 401 rather than caching it
-indefinitely.
+The former `GET /v1/credential` route went with Clients 003 step 3.
 
 ## 4. Identity, account bootstrap, and declined changes
 
@@ -573,7 +552,7 @@ shared tests cover explicit tree scope, snapshot/SSE gap freedom, multiline
 data, keepalives, conflicting-cursor rejection, and terminal
 resynchronization. Another local implementation may expose the same underlying
 Overstory behavior through a different client/daemon boundary.
-The credential route is fixed by `credential.json`. The standard reads
+The standard reads
 Story Sync serves (§3a) are checked by the protocol's own vectors
 (`protocol-path-reads.json` among them) and by `tests/integration/server.test.ts`.
 

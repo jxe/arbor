@@ -35,13 +35,13 @@ struct StorySyncAccountService: HostAccountService {
     }
 
     func credentialProvider(configurationTree: String) async throws -> any ProtocolCredentialProvider {
-        StorySyncCredentialProvider.shared(client: try await connect(), configurationTree: configurationTree)
+        DataHomeCredentialProvider.shared(store: DataHomeAccountStore(dataHome: StorySupportDirectories.dataHome), configurationTree: configurationTree)
     }
 
-    /// The daemon's session at a placement host (`GET /v1/credential?origin=`),
-    /// opened there with the data home's device key.
+    /// Sessions at a placement host (accounts §1.3), which the app opens
+    /// there itself with the data home's device key.
     func credentialProvider(configurationTree: String, placementOrigin origin: String) async throws -> any ProtocolCredentialProvider {
-        StorySyncCredentialProvider.shared(client: try await connect(), configurationTree: configurationTree, origin: origin)
+        DataHomeCredentialProvider.shared(store: DataHomeAccountStore(dataHome: StorySupportDirectories.dataHome), configurationTree: configurationTree, origin: origin)
     }
 
     func createIdentity() async throws {

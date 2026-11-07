@@ -37,7 +37,6 @@ final class StorySyncClientTests: XCTestCase {
         let status = try decode(StorySyncServiceStatus.self, "status.json")
         let error = try decode(StorySyncErrorValue.self, "error.json")
         let errors = try decode([StorySyncErrorValue].self, "errors.json")
-        let credential = try decode(TreeCredential.self, "credential.json")
         let cursors = try XCTUnwrap(JSONSerialization.jsonObject(
             with: Data(contentsOf: fixtures.appending(path: "cursors.json"))
         ) as? [String: String])
@@ -52,7 +51,6 @@ final class StorySyncClientTests: XCTestCase {
         XCTAssertEqual(status.runtimeKind, "cloud")
         XCTAssertEqual(error.code, "future-error-code")
         XCTAssertEqual(errors.last?.code, "future-error-code")
-        XCTAssertFalse(credential.token.isEmpty)
         XCTAssertEqual(cursors["current"]?.hasSuffix(":5"), true)
         XCTAssertEqual(mergeFixtures["version"] as? Int, 2)
         XCTAssertGreaterThanOrEqual((mergeFixtures["markdownCases"] as? [[String: Any]])?.count ?? 0, 10)

@@ -128,85 +128,6 @@ struct LoopbackServicesTests {
         }
     }
 
-    @Test("The credential fixture decodes and the route scopes by configuration tree")
-    func credentialDecodes() async throws {
-        let body = try fixture("credential.json")
-        #expect(try JSONDecoder().decode(TreeCredential.self, from: body).token == "overstoryd-account-token-fixture")
-        await LoopbackStub.state.install { _, _ in (200, body, "application/json") }
-        let client = stubbedClient()
-        #expect(try await client.credential() == "overstoryd-account-token-fixture")
-        #expect(try await client.credential(configurationTree: "tr_cfg7f3q2ab7cdefg") == "overstoryd-account-token-fixture")
-        let requests = await LoopbackStub.state.requests()
-        #expect(requests.map(\.path) == ["/v1/credential", "/v1/credential"])
-        #expect(requests[0].query == nil)
-        #expect(requests[1].query == "configurationTree=tr_cfg7f3q2ab7cdefg")
-    }
-
-    @Test("The credential provider fetches once, caches, and refetches after invalidate")
-    func credentialProviderCachesAndInvalidates() async throws {
-        await LoopbackStub.state.install { _, attempt in
-            (200, Data(#"{"token":"token-\#(attempt)"}"#.utf8), "application/json")
-        }
-        let provider = StorySyncCredentialProvider(client: stubbedClient(), configurationTree: "tr_cfg")
-
-        #expect(await provider.isCached == false)
-        async let first = provider.credential()
-        async let second = provider.credential()
-        let (a, b) = try await (first, second)
-        #expect(a == "token-1")
-        #expect(b == "token-1")
-        #expect(try await provider.credential() == "token-1")
-        #expect(await provider.isCached)
-        #expect(await LoopbackStub.state.requests().count == 1)
-
-        await provider.invalidate()
-        #expect(await provider.isCached == false)
-        #expect(try await provider.credential() == "token-2")
-        let requests = await LoopbackStub.state.requests()
-        #expect(requests.count == 2)
-        #expect(requests.allSatisfy { $0.query == "configurationTree=tr_cfg" })
-
-        // As a ProtocolCredentialProvider it feeds the protocol client's bearer header.
-        let wire: any ProtocolCredentialProvider = provider
-        #expect(try await wire.credential() == "token-2")
-    }
-
-    @Test("A placement host's credential names its origin, and its provider is not the home's")
-    func placementCredentialCarriesOrigin() async throws {
-        await LoopbackStub.state.install { request, _ in
-            let placement = request.url?.query?.contains("origin=") == true
-            return (200, Data(#"{"token":"\#(placement ? "orchard" : "garden")-token"}"#.utf8), "application/json")
-        }
-        let client = stubbedClient()
-        #expect(try await client.credential(configurationTree: "tr_cfg", origin: "https://orchard.example") == "orchard-token")
-        var requests = await LoopbackStub.state.requests()
-        #expect(requests.map(\.path) == ["/v1/credential"])
-        #expect(requests[0].query == "configurationTree=tr_cfg&origin=https://orchard.example")
-        // An origin names the account whose device key opens the session there.
-        await #expect(throws: ProtocolValidationError.self) {
-            _ = try await client.credential(origin: "https://orchard.example")
-        }
-
-        // Shared providers are per account and host: B's never hands out the home session.
-        let home = StorySyncCredentialProvider.shared(client: client, configurationTree: "tr_cfg")
-        let orchard = StorySyncCredentialProvider.shared(client: client, configurationTree: "tr_cfg", origin: "https://orchard.example")
-        #expect(home !== orchard)
-        #expect(StorySyncCredentialProvider.shared(client: client, configurationTree: "tr_cfg", origin: "https://orchard.example") === orchard)
-        #expect(orchard.origin == "https://orchard.example")
-        #expect(try await orchard.credential() == "orchard-token")
-        #expect(try await home.credential() == "garden-token")
-        // After a 401 from B the provider asks the daemon again, still for B.
-        await orchard.invalidate()
-        #expect(try await orchard.credential() == "orchard-token")
-        requests = await LoopbackStub.state.requests()
-        #expect(requests.map(\.query) == [
-            "configurationTree=tr_cfg&origin=https://orchard.example",
-            "configurationTree=tr_cfg&origin=https://orchard.example",
-            "configurationTree=tr_cfg",
-            "configurationTree=tr_cfg&origin=https://orchard.example",
-        ])
-    }
-
     @Test("Adding a host posts to the placement route and decodes the connection it recorded")
     func connectPlacementRoute() async throws {
         let body = Data(#"{"placement":{"configurationTree":"tr_cfg","origin":"https://orchard.example","account":"https://orchard.example/~joe","accountID":"ac_joe","handle":"joe","profileTree":"tr_profile","homeHost":"https://garden.example","placementRoot":"tr_root","placed":true}}"#.utf8)
@@ -235,21 +156,6 @@ struct LoopbackServicesTests {
         await #expect(throws: StorySyncPlacementUnavailable(host: "https://orchard.example")) {
             _ = try await stubbedClient().connectPlacement(host: "https://orchard.example")
         }
-    }
-
-    @Test("A missing credential propagates the daemon's 404 and caches nothing")
-    func credentialProviderMissing() async throws {
-        await LoopbackStub.state.install { _, _ in
-            (404, Data(#"{"error":"not-found","message":"No account credential is available","retryable":false}"#.utf8), "application/json")
-        }
-        let provider = StorySyncCredentialProvider(client: stubbedClient())
-        do {
-            _ = try await provider.credential()
-            Issue.record("expected not-found")
-        } catch let error as StorySyncServerError {
-            #expect(error.status == 404)
-        }
-        #expect(await provider.isCached == false)
     }
 
     // MARK: Objects

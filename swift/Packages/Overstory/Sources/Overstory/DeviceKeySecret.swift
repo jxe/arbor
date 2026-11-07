@@ -5,9 +5,19 @@ import Foundation
 /// the account's Keychain slot. A Secure Enclave key is stored as its opaque
 /// `dataRepresentation`, which only this device's enclave can use; a software
 /// key, where no enclave is available (the simulator), as its raw scalar.
+/// An Ed25519 seed is the key a Story data home keeps (the CLI's and Story
+/// Sync's `HostAccountStore`), which the Mac app signs with alongside Story Sync.
 public enum DeviceKeySecret: Sendable, Equatable {
     case secureEnclave(Data)
     case software(Data)
+    case ed25519Seed(Data)
+
+    /// A data home's seed: 32 bytes of unpadded base64url.
+    public init?(dataHomeSeed seed: String) {
+        let trimmed = seed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = decodeBase64URL(trimmed), data.count == 32, encodeBase64URL(data) == trimmed else { return nil }
+        self = .ed25519Seed(data)
+    }
 
     static let prefix = "arbor-device-key:v1:"
 
@@ -28,6 +38,7 @@ public enum DeviceKeySecret: Sendable, Equatable {
         switch parts[0] {
         case "se": self = .secureEnclave(data)
         case "sw": self = .software(data)
+        case "ed": self = .ed25519Seed(data)
         default: return nil
         }
     }
@@ -36,6 +47,7 @@ public enum DeviceKeySecret: Sendable, Equatable {
         switch self {
         case let .secureEnclave(data): Self.prefix + "se:" + encodeBase64URL(data)
         case let .software(data): Self.prefix + "sw:" + encodeBase64URL(data)
+        case let .ed25519Seed(data): Self.prefix + "ed:" + encodeBase64URL(data)
         }
     }
 
@@ -43,16 +55,20 @@ public enum DeviceKeySecret: Sendable, Equatable {
         switch self {
         case let .secureEnclave(data): ProtocolDeviceKey(p256: try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: data).publicKey)
         case let .software(data): ProtocolDeviceKey(p256: try P256.Signing.PrivateKey(rawRepresentation: data).publicKey)
+        case let .ed25519Seed(data):
+            try ProtocolDeviceKey("ed25519:" + encodeBase64URL(try Curve25519.Signing.PrivateKey(rawRepresentation: data).publicKey.rawRepresentation))
         }
     }
 
-    /// An ECDSA P-256 signature over SHA-256 of `message`: `r || s`, unpadded base64url.
+    /// An ECDSA P-256 signature over SHA-256 of `message` (`r || s`), or an
+    /// Ed25519 signature of `message`, as unpadded base64url.
     public func sign(_ message: Data) throws -> String {
-        let signature = switch self {
-        case let .secureEnclave(data): try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: data).signature(for: message)
-        case let .software(data): try P256.Signing.PrivateKey(rawRepresentation: data).signature(for: message)
+        let signature: Data = switch self {
+        case let .secureEnclave(data): try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: data).signature(for: message).rawRepresentation
+        case let .software(data): try P256.Signing.PrivateKey(rawRepresentation: data).signature(for: message).rawRepresentation
+        case let .ed25519Seed(data): try Curve25519.Signing.PrivateKey(rawRepresentation: data).signature(for: message)
         }
-        return encodeBase64URL(signature.rawRepresentation)
+        return encodeBase64URL(signature)
     }
 }
 

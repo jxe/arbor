@@ -72,11 +72,6 @@ export interface StorySyncRESTClientOptions {
 // Story Sync reports exactly what the protocol and the data-home stores use.
 export type { LocalAccountSummary, ProfileIdentity } from "@ovst/protocol";
 
-/** `GET /v1/credential`: a session of the account's device, which a same-installation client shares with the daemon. */
-export interface TreeCredential {
-  token: string;
-}
-
 export interface LocalPlacementMoveResult {
   tree: string;
   configurationTree: string;
@@ -154,19 +149,6 @@ export class StorySyncRESTClient {
       body: JSON.stringify(body),
     });
     return "ignored" in result ? null : result;
-  }
-
-  /**
-   * A session of the device for a configuration tree's account (or the only
-   * connected account when omitted); with `origin`, the session at that host,
-   * the home's or a placement account's.
-   */
-  credential(configurationTree?: string, origin?: string): Promise<TreeCredential> {
-    const parameters = new URLSearchParams({
-      ...(configurationTree ? { configurationTree } : {}),
-      ...(origin ? { origin } : {}),
-    }).toString();
-    return this.request(`/v1/credential${parameters ? `?${parameters}` : ""}`);
   }
 
   resolve(locator: string): Promise<LocatorResolution> {
