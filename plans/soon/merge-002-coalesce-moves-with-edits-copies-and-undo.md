@@ -16,7 +16,7 @@ Read the implementation and tests before selecting a case:
 - [Editor capture and publication](../../docs/implementing-editors/editor-source.md).
 - [Source intent and provenance](../../docs/overstory-spec/10-source-intent.md).
 - Swift `ChangePublication.swift` and TypeScript `publication.ts` in their
-  working-tree packages; `tests/fixtures/coalesced-publication.json`.
+  working-tree packages; `docs/overstory-spec/conformance/coalesced-publication.json`.
 - [Native 008](../when-needed/merge-008-copies-with-changes-and-compound-undo.md) owns missing
   editor evidence for copies with changes and compound undo. Coalescing must use
   such evidence, not infer it from matching text.

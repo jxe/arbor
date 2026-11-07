@@ -20,7 +20,7 @@ struct PublicationTests {
     }
     @Test("Shared move and mixed-edit vectors preserve the original records and publish one update")
     func sharedPublications() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../tests/fixtures/coalesced-publication.json")
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance/coalesced-publication.json")
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
         for value in fixture.cases {
             let file = try ProtocolObjectCodec.object(.file(Data(value.source.utf8)))

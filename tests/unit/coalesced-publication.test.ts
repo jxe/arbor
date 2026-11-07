@@ -6,7 +6,7 @@ import { encodeAttempt } from "../../packages/working-tree/src/control.ts";
 import { compactTransport, branchPublications, publication } from "../../packages/working-tree/src/publication.ts";
 import { Fixture } from "./overstoryd-merge/fixture.ts";
 
-const vectors = JSON.parse(await readFile(new URL("../fixtures/coalesced-publication.json", import.meta.url), "utf8")) as { cases: Array<{
+const vectors = JSON.parse(await readFile(new URL("../../docs/overstory-spec/conformance/coalesced-publication.json", import.meta.url), "utf8")) as { cases: Array<{
   name: string; source: string; frames: number; kinds: SourceOperation["kind"][];
   steps: Array<{ source: string; moves?: SourceMove[]; edits?: Array<{range: [number, number]; replacement: string}> }>;
 }> };

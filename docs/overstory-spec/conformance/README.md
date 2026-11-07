@@ -134,6 +134,7 @@ authority for the implemented subset; the request grammar itself is in
 | `accepted-ambiguity.json` | Planned semantic conflict scenarios (not executable claims) |
 | `canonical-cbor-values.json` | The canonical CBOR subset and its hashes |
 | `client-state-machines.json` | Document admission and working-tree update machines |
+| `coalesced-publication.json` | The client publication compiler (sync module): which local edit and move records compose into how many frames and which operation kinds; each case's merge outcome must match its uncomposed frames |
 | `collection-schemas.json` | Collection schemas in `schema.usl`: accepted and rejected schemas, values, CSV cells, limits |
 | `cross-document-copy.json` | Cross-document copy capture in both admission queues |
 | `device-keys.json` | Device key encodings, session challenges, and their signatures |

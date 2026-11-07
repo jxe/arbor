@@ -242,7 +242,7 @@ extension LocalChange {
     /// to its last. Composed operations are keyed `edit-<k>-<i>`, `k` the run's
     /// first frame index, and the originals leave the name mapping. The same
     /// rule runs as `composePlainRuns` in `@ovst/working-tree`; the shared
-    /// vectors are `tests/fixtures/coalesced-publication.json`.
+    /// vectors are `docs/overstory-spec/conformance/coalesced-publication.json`.
     static func composePlainRuns(_ frames: [ProtocolTraceFrame], records: [LocalChange], identity: String, names: inout [String: [String: String]]) throws -> [ProtocolTraceFrame] {
         var referenced = Set<String>()
         func visit(_ value: ProtocolSemanticValue) {

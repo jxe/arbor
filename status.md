@@ -75,7 +75,7 @@ separate updates) to 1.1 KB and one frame; 20 backspaces 7.5 → 1.0 KB; a corre
 4.8 → 1.0 KB; ten moves around four typed characters 5.9 KB/11 frames → 2.1 KB/3 frames.
 Preparation stays under about 11 ms.
 
-Checked: ten new shared vectors in `tests/fixtures/coalesced-publication.json` (Unicode,
+Checked: ten new shared vectors in `docs/overstory-spec/conformance/coalesced-publication.json` (Unicode,
 CRLF, net-zero retyping, cancelling text, edits in two places, a page body, moves on either
 side of an edit); for each plain-edit vector the host merge engine gives the same text and
 decision count for the composed frame as for the original frames against a peer edit far away

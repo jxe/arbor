@@ -247,7 +247,7 @@ This includes snapshot resolutions (`trace: null` with `resolves`) and `ifCurren
 guards. Both clients must send them to overstoryd; local byte equality cannot
 acknowledge a resolution or evaluate an authority guard.
 
-Shared `coalesced-publication.json` fixtures check the compiler in both languages;
+Shared `conformance/coalesced-publication.json` vectors check the compiler in both languages;
 the TypeScript tests also run the real merge engine against concurrent peer edits.
 The runner vectors cover exact retries, restart, work after an ambiguous request and discard.
 Further byte reductions are ordered in [Clients 002](../../plans/soon/merge-002-coalesce-moves-with-edits-copies-and-undo.md),
