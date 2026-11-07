@@ -3,7 +3,7 @@ import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
 import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID } from "@ovst/protocol";
-import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
+import { decodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { AccountChallenge, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeQueryResponse } from "./exec-routes.ts";
 import { HostCollections, type HostCollectionsOptions } from "./collections.ts";
@@ -793,6 +793,18 @@ export async function serveHost(options: {
           // root names it; hashing the body again would add nothing.
           return new Response(encodeSnapshotBundle(snapshot) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, root) });
         }
+        const pathRead = /^\/\.overstory\/trees\/([^/]+)\/snapshots\/(sha256:[a-f0-9]{64})\/path(\/.*)?$/.exec(url.pathname);
+        if (pathRead && request.method === "GET") {
+          const root = pathRead[2] as ObjectHash;
+          const { tree } = readableTree(pathRead[1]!);
+          let path: string;
+          try { path = decodePathReadPath(pathRead[3] ?? "/"); }
+          catch { return protocolError("invalid-request", "The path is not a valid logical path", 400); }
+          const objects = await overstoryd.pathRead(tree.id, root, path);
+          if (!objects) return notFound("Snapshot not found");
+          // The root and the path name the body: it is as immutable as the snapshot.
+          return new Response(encodePathReadBundle(objects) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, `${root}${path}`) });
+        }
         const metadata = /^\/\.overstory\/trees\/([^/]+)\/entry-metadata$/.exec(url.pathname);
         if (metadata && request.method === "GET") {
           const { tree } = readableTree(metadata[1]!);
@@ -960,6 +972,10 @@ export async function serveHost(options: {
           const credentialSubject = authentication?.subject;
           // `after` is the only resume cursor; `Last-Event-ID` is ignored.
           const after = url.searchParams.get("after");
+          // `objects=none`: each frame without its objects; the client refetches what it holds (§1.1.3).
+          const objectsParam = url.searchParams.get("objects");
+          if (objectsParam !== null && objectsParam !== "none") return protocolError("invalid-request", "objects must be none when present", 400);
+          const payloadFree = objectsParam === "none";
           let closed = false;
           let delivered = 0;
           let frames: string[] = [];
@@ -1038,8 +1054,9 @@ export async function serveHost(options: {
                   if (!authorized()) return end();
                   if (!next) return end("The requested accepted basis is no longer retained");
                   delivered = next.record.ordinal;
+                  const transition = payloadFree ? { ...next.transition, objects: [], deltas: [] } : next.transition;
                   frames = [encodeSSEFrame({id: next.record.id, event: "tree.update",
-                    data: watchFrame(publicOrigin, overstoryd.get(tree.id) ?? tree, next.transition, access)})];
+                    data: watchFrame(publicOrigin, overstoryd.get(tree.id) ?? tree, transition, access)})];
                 }
               } catch (error) {
                 // A failure here, such as a retained transition whose objects

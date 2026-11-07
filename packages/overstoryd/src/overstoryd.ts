@@ -15,7 +15,7 @@ import { Recent } from "./recent.ts";
 import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { retainedObjects } from "./retention.ts";
-import { checkPlainTrace, deriveTrace, encodeProtocolPage, isRowOperation, loadProtocolContent, parsePage, protocolContentObject, isStatedUpdate, TreeReader, UnsupportedDerivation, type DecisionPage, type ProtocolDirectory, type DerivableUpdateRequest } from "@ovst/protocol";
+import { pathReadObjects, checkPlainTrace, deriveTrace, encodeProtocolPage, isRowOperation, loadProtocolContent, parsePage, protocolContentObject, isStatedUpdate, TreeReader, UnsupportedDerivation, type DecisionPage, type ProtocolDirectory, type DerivableUpdateRequest } from "@ovst/protocol";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -739,6 +739,20 @@ export class HostDaemon implements AsyncDisposable {
   async snapshotForRoot(treeID: string, root: ObjectHash): Promise<TreeSnapshot | null> {
     if (!this.acceptedStore.hasRoot(treeID, root)) return null;
     return this.objects.completeSnapshot(root);
+  }
+
+  /**
+   * A path read (tree operations §1.2.4): the directories from a retained
+   * accepted root down to `path`, and the objects of the entries it names.
+   */
+  async pathRead(treeID: string, root: ObjectHash, path: string): Promise<Map<ObjectHash, Uint8Array> | null> {
+    if (!this.acceptedStore.hasRoot(treeID, root)) return null;
+    return pathReadObjects(root, path, async (hash) => {
+      const bytes = await this.retainedObject(hash);
+      // Every object of a retained root is retained; a gap is a fault, not an absent entry.
+      if (!bytes) throw new Error(`Retained root ${root} is missing ${hash}`);
+      return bytes;
+    });
   }
 
   /** Descriptive metadata of the current accepted root's file entries, keyed

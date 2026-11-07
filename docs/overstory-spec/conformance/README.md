@@ -157,6 +157,7 @@ authority for the implemented subset; the request grammar itself is in
 | `protocol-endpoints.json` | Route shapes |
 | `protocol-graphs.json`, `protocol-objects.json`, `protocol-object-deltas.json`, `protocol-snapshot-bundles.json`, `protocol-values.json` | Objects, directory graphs, deltas, snapshot bundles, and canonical values |
 | `protocol-operations.json`, `protocol-update-intent.json` | Source operations and the update digest |
+| `protocol-path-reads.json` | Path reads: which objects a read of a path holds, the bundle's bytes, and bundles a reader must reject ([tree operations §1.2.4](../01-tree-operations.md#124-reading-a-path)) |
 
 `protocol-account-challenges.json` covers community-address, exact-account and invitation-code challenge requests. All return the same complete account-bound challenge; placement accounts have none ([accounts §1.3](../04-accounts-and-devices.md#13-placement-accounts)). Its `signing` section fixes the bytes a profile key signs for a challenge, with the signature. TypeScript and Swift clients consume these cases.
 

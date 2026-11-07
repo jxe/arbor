@@ -134,6 +134,9 @@ GET /.overstory/trees/{TreeID}/snapshots/{root}
 GET /.overstory/trees/{TreeID}/watch?after={cursor}
 ```
 
+A client that holds only the pages it has opened reads them with path reads
+(§1.2.4) instead of a snapshot, and may watch with `objects=none`.
+
 ### 1.1.1 Reading the current tree
 
 ```text
@@ -394,7 +397,11 @@ GET /.overstory/trees/{TreeID}/watch?after={cursor}
 
 The request carries `Accept: text/event-stream`. `after` is the only resume
 cursor: it names the observation the client last applied, and without it the
-watch starts at the tree's current head. A host ignores `Last-Event-ID`; a
+watch starts at the tree's current head. With `objects=none` the
+host sends every frame with empty `objects` and `deltas`: a client that holds
+only part of the tree (one that reads page by page, §1.2.4) learns the new
+`update` and root and refetches only what it holds. Any other `objects` value
+is `400 invalid-request`. A host ignores `Last-Event-ID`; a
 client that reconnects opens a new watch with a new `after`. Servers may emit
 an explicit `from` spanning intermediate accepted updates without client
 negotiation; a frame per accepted update remains valid.
@@ -773,6 +780,42 @@ selected IDs, malformed references and invalid values fail decoding. Open decisi
 have at least two alternatives. Responses are private and must not be stored by shared
 HTTP caches. The [target read vectors](conformance/protocol-accepted-state.json) bind
 paired TypeScript and Swift models; they do not assert server execution.
+
+#### 1.2.4 Reading a path
+
+```text
+GET /.overstory/trees/{TreeID}/snapshots/{root}/path/{logical path}
+```
+
+A path read gives a client that opens a tree page by page what it needs to
+show and edit one node, in one round trip: the directory objects from a
+retained accepted root down to the node, and the objects of the entries the
+node is made of. The body is a snapshot bundle (§1.1.2) in its exact shape,
+`{ version: 1, objects }` in hash order, holding exactly these objects:
+
+- every directory from `root` down to the parent of the path's last
+  component;
+- for the last component `x`, the objects of the entries named `x`, `x.md`
+  and `x.mdx` in that parent, and, when one of them is a directory, the
+  objects of its `_index.md` and `_index.mdx` entries;
+- for `/`, the root directory and its `_index.md` and `_index.mdx` objects.
+
+The path is a logical path ([locators §3](03-locators.md#3-parsing-and-canonicalization)), each segment percent-encoded once;
+`x.md`, `x/` and `x/_index.md` read the same objects as `x`, and a file is
+read by its own name, such as `photo.bin`. A segment that decodes to one
+holding `/`, or a path that escapes the root, is `400 invalid-request`.
+
+A component that names no directory, or a nested tree's boundary, ends the
+walk: the bundle then holds the directories down to the deepest one that
+exists, so the reader sees from that directory's entries that the node is
+absent or belongs to another tree, without a second request. The reader
+decodes the bundle, walks the same path from `root` through it, and rejects
+a bundle that lacks an object the walk reaches or holds one it does not.
+`protocol-path-reads.json` fixes the walk.
+
+Access, `404` for an unknown or unretained root, `Vary` and `Cache-Control`
+are those of the snapshot read; the root and the path together name the
+body, so it is as immutable as the snapshot.
 
 ## 2. Updates and writes
 

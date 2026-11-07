@@ -48,6 +48,7 @@ import {
 import { updateRequestDigests } from "./updates/intent.ts";
 import { CONFIGURATION_PARAMETER, parseTreeReference, treeConfigurationID } from "./config/tree-config.ts";
 import { decodeSnapshotBundle } from "./snapshots.ts";
+import { decodePathReadBundle, encodePathReadPath } from "./path-read.ts";
 
 
 /** Three missed keepalives. */
@@ -499,6 +500,25 @@ export class ProtocolClient {
     }
   }
 
+  /**
+   * A path read (tree operations §1.2.4): the directories from `root` down to
+   * `path` and the objects of the entries it names, checked against the walk.
+   */
+  async pathRead(tree: string, root: string, path: string): Promise<Map<ObjectHash, Uint8Array>> {
+    if (!/^sha256:[a-f0-9]{64}$/.test(root)) throw new Error("Snapshot root hash is invalid");
+    const response = await this.checked(await this.request(
+      `/.overstory/trees/${encodeURIComponent(tree)}/snapshots/${root}/path${encodePathReadPath(path)}`,
+      { headers: { ...this.headers(), accept: "application/cbor" } },
+    ));
+    return decodePathReadBundle(root, path, new Uint8Array(await response.arrayBuffer()));
+  }
+
+  /** Descriptive dates of the current accepted root's file entries (tree operations §1.1.2a). */
+  async entryMetadata(tree: string): Promise<{ update: string; entries: Record<string, { modifiedAt?: number }> }> {
+    const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/entry-metadata`, { headers: this.headers() }));
+    return response.json();
+  }
+
 
   async resolve(path: string): Promise<LocatorResolution> {
     const response = await this.checked(await this.request(`/.well-known/overstory${encodedCanonicalPath(path)}`, {
@@ -615,8 +635,12 @@ export class ProtocolClient {
    * reconnects with a fresh cursor. `onOpen` runs once the host has accepted
    * the stream.
    */
-  async *watch(tree: TreeID, after: EventCursor | null, options: { signal?: AbortSignal; onOpen?: () => void } = {}): AsyncGenerator<WatchEvent> {
-    const query = after ? `?after=${encodeURIComponent(after)}` : "";
+  async *watch(tree: TreeID, after: EventCursor | null, options: { signal?: AbortSignal; onOpen?: () => void; objects?: "none" } = {}): AsyncGenerator<WatchEvent> {
+    const parameters = new URLSearchParams();
+    if (after) parameters.set("after", after);
+    // Frames without their objects (§1.1.3): the caller refetches only what it holds.
+    if (options.objects === "none") parameters.set("objects", "none");
+    const query = parameters.size ? `?${parameters}` : "";
     // The host comments at least every 20 s; a longer silence is a dead
     // connection (a half-open socket, a proxy that dropped it), not an idle tree.
     const idle = new AbortController();
