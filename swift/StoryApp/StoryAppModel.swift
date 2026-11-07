@@ -1417,14 +1417,12 @@ final class StoryWorkspaceState {
     // MARK: Placed trees
 
     /// What opening a placed tree reads from Story Sync before anything is
-    /// drawn: the placement (folder, account, name), the daemon's recorded
-    /// accepted base through the standard current-tree read, and the tree's
-    /// spine (every directory and Markdown body) through the standard object
-    /// route (Clients 003 step 2).
+    /// drawn: the placement (folder, account, name) and the daemon's recorded
+    /// accepted base through the standard current-tree read. The session
+    /// then loads directories as they are opened (Clients 003 step 4).
     struct PlacedTreeOpening: Sendable {
         var placed: LocalTreeDescriptor
         var current: ProtocolCurrentTree
-        var spine: ProtocolSnapshot
     }
 
     /// Read a placed tree's opening through Story Sync's standard reads.
@@ -1436,21 +1434,15 @@ final class StoryWorkspaceState {
         guard let placed = (try await listed).snapshot.first(where: { $0.id == treeID }) else {
             throw ProtocolValidationError.invalidValue("\(treeID) is not placed on this Mac")
         }
-        let spine = try await SpineFetch.spine(root: current.tree.root, from: placedTreeObjects(treeID, reads: reads))
-        return PlacedTreeOpening(placed: placed, current: current, spine: spine)
-    }
-
-    /// Where a placed tree's objects come from: Story Sync's standard object
-    /// route, which serves them from the folder, the pending changes or the host.
-    nonisolated static func placedTreeObjects(_ treeID: String, reads: ProtocolClient) -> ObjectSourceChain {
-        ObjectSourceChain([HostObjectStore(client: reads, tree: treeID)])
+        return PlacedTreeOpening(placed: placed, current: current)
     }
 
     /// Open a tree the daemon has placed as this app's own working tree.
     ///
     /// The tree is read through Story Sync's standard reads: the daemon's
-    /// recorded accepted host root and its spine (directories and Markdown),
-    /// with every other file a hash served on demand by the same object route.
+    /// recorded accepted host root, then each directory as it is opened, with
+    /// Markdown bodies from the folder when they still match and every other
+    /// object served on demand by the same object route.
     /// The folder client has independent pending/conflict state; it neither
     /// seeds nor blocks this client's direct host update coordinator.
     /// `page`, a path within the tree, is opened instead of its home page.
@@ -1515,7 +1507,7 @@ final class StoryWorkspaceState {
                     .appending(path: StorySupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory),
                 transportAvailable: nativeTransportAvailable
             ),
-            opening: TreeOpening(current: opening.current, spine: opening.spine)
+            opening: TreeOpening(current: opening.current)
         )
         let workingTree = session.workingTree
         timing.mark("build")
@@ -1658,6 +1650,9 @@ final class StoryWorkspaceState {
             settings: .browse(),
             opening: TreeOpening(current: ProtocolCurrentTree(tree: tree, observedThrough: resolution.observedThrough))
         )
+        // Browse: the first page and the directories down to it in one path
+        // read, before the editor asks for them; no snapshot is downloaded.
+        try? await session.openPage(resolution.ref.path)
         let workingTree = session.workingTree
         refreshEntryDates(session)
         let provider = session.provider

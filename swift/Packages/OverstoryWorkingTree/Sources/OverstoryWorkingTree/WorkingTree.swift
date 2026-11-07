@@ -34,6 +34,17 @@ public actor WorkingTree {
     /// held by such a reference is presented as a placeholder until a later
     /// read succeeds.
     private var missingHashes: Set<String> = []
+    /// The tree this one was forked from. A fork that loads a directory asks
+    /// its parent to load it as well, so later forks start with it loaded.
+    private var parent: WorkingTree?
+    /// Whether an accepted state this tree installs keeps directories it has
+    /// not loaded unloaded (Browse, Alongside Story Sync) rather than loading
+    /// every one (Replica).
+    private var loadsLazily = false
+    /// The folder Story Sync keeps this tree in, when it runs alongside: a
+    /// Markdown body is read from its file there when that file still reads
+    /// as the accepted entry, and from the object sources otherwise.
+    private var pageFolder: URL?
 
     private init(
         store: any WorkingTreeStateStore,
@@ -43,8 +54,12 @@ public actor WorkingTree {
         clock: @escaping Clock,
         state: WorkingTreeState,
         control: WorkingTreeControl,
-        index: WorkingTreeSearchIndex
+        index: WorkingTreeSearchIndex,
+        parent: WorkingTree? = nil,
+        loadsLazily: Bool = false
     ) {
+        self.parent = parent
+        self.loadsLazily = loadsLazily
         self.store = store
         self.overlay = overlay
         self.platform = platform
@@ -236,7 +251,7 @@ public actor WorkingTree {
     /// The current graph as far as this tree's own bytes go: every object the
     /// state carries inline plus every referenced object the overlay holds.
     /// Platform-served files are omitted, so the result validates in
-    /// `.sparseFiles`; nothing is fetched. Candidate bodies and durable heads
+    /// `.lazyDirectories`; nothing is fetched. Candidate bodies and durable heads
     /// are cut from this, never from the platform store.
     public func localSnapshot() throws -> ProtocolSnapshot {
         let sparse = try currentSnapshot()
@@ -333,7 +348,7 @@ public actor WorkingTree {
     /// this tree's overlay and then this tree, and never writes back to it.
     func fork() throws -> WorkingTree {
         try requireOpen()
-        return WorkingTree(
+        let fork = WorkingTree(
             store: DisposableWorkingTreeStore(),
             overlay: ForkedObjectOverlay(parent: overlay),
             platform: self,
@@ -341,8 +356,11 @@ public actor WorkingTree {
             clock: clock,
             state: state,
             control: control,
-            index: index
+            index: index,
+            parent: self,
+            loadsLazily: loadsLazily
         )
+        return fork
     }
 
     /// Dates from the host's entry metadata, keyed by entry path. They describe
@@ -394,7 +412,8 @@ public actor WorkingTree {
                     collectionObjects: node.collectionObjects.isEmpty ? nil : node.collectionObjects.keys.sorted(),
                     directoryBodyPlacement: node.directoryBodyPlacement,
                     shadowedSiblingMarkdownSource: node.shadowedSiblingMarkdownSource,
-                    metadata: node.metadata
+                    metadata: node.metadata,
+                    subtree: node.unloadedDirectory
                 )
             case let .markdown(source):
                 return WorkingTreeNode(path: node.path, pageID: node.pageID ?? WorkingTreeSemantics.pageID(in: source), kind: .markdown, source: source, metadata: node.metadata)
@@ -435,6 +454,202 @@ public actor WorkingTree {
             }
             return node
         }
+    }
+
+    // MARK: Lazy directories (Clients 003 module 3)
+
+    /// Install accepted states lazily from now on: directories this tree has
+    /// not loaded stay unloaded (Browse, Alongside Story Sync).
+    public func loadDirectoriesLazily() {
+        loadsLazily = true
+    }
+
+    /// Keep `objects` (a path read's answer), each checked against its hash,
+    /// so the directories and bodies they hold load without another read.
+    public func hold(_ objects: [String: Data]) throws {
+        try requireOpen()
+        var verified: [String: Data] = [:]
+        for (hash, bytes) in objects { verified[hash] = try verifyObject(bytes, hash: hash) }
+        try overlay.store(verified)
+    }
+
+    /// Read Markdown bodies from `folder` first (Alongside Story Sync).
+    public func readPages(from folder: URL?) {
+        pageFolder = folder
+    }
+
+    /// The object for Markdown `entry` of the directory at `directory`, from
+    /// the page folder: only when the file there rebuilds exactly the entry's
+    /// hash, so a file the person is editing, or one Story Sync has not yet
+    /// rewritten, is never shown as the accepted page.
+    private func folderBody(_ entry: ProtocolDirectoryEntry, in directory: String) -> Data? {
+        guard let pageFolder, let expected = entry.hash else { return nil }
+        let url = directory.split(separator: "/").reduce(pageFolder) { $0.appending(path: String($1)) }.appending(path: entry.name)
+        guard let bytes = try? Data(contentsOf: url) else { return nil }
+        var object: Data?
+        let rebuilt = ProtocolDirectoryEntry.markdown(name: entry.name, bytes: bytes, pages: entry.page != nil) { encoded in
+            object = encoded
+            return ProtocolObjectCodec.hash(encoded)
+        }
+        guard rebuilt.hash == expected, (rebuilt.page != nil) == (entry.page != nil), let object else { return nil }
+        return object
+    }
+
+    /// Whether some directory is still waiting to load. Search and backlinks
+    /// see only what is loaded.
+    public func hasUnloadedDirectories() -> Bool {
+        state.nodes.contains { $0.subtree != nil }
+    }
+
+    /// Load every directory on the way to `path`, `path` itself when it is a
+    /// directory, and, with `children`, each directory directly inside it, so
+    /// a listing shows which children have bodies. A path that does not
+    /// exist loads what is above it and stops. A fork asks the tree it was
+    /// forked from to load the same path first.
+    public func ensureLoaded(_ path: String, children: Bool = false) async throws {
+        try requireOpen()
+        guard let target = try? WorkingTreeSemantics.normalizePath(path) else { return }
+        if let parent { try? await parent.ensureLoaded(target, children: children) }
+        var prefix = "/"
+        var prefixes = ["/"]
+        for name in target.split(separator: "/") {
+            prefix = prefix == "/" ? "/\(name)" : "\(prefix)/\(name)"
+            prefixes.append(prefix)
+        }
+        for path in prefixes {
+            guard let node = state.nodes.first(where: { $0.path == path }) else { return }
+            if let hash = node.subtree { try await load(path, hash: hash) }
+        }
+        guard children else { return }
+        for child in childNodes(of: target) {
+            if let hash = child.subtree { try await load(child.path, hash: hash) }
+        }
+    }
+
+    /// Load every directory at or below `path`: what a copy needs.
+    public func loadSubtree(_ path: String) async throws {
+        try await ensureLoaded(path)
+        guard let target = try? WorkingTreeSemantics.normalizePath(path) else { return }
+        if let parent { try? await parent.loadSubtree(target) }
+        while let node = state.nodes.first(where: { $0.subtree != nil && ($0.path == target || WorkingTreeSemantics.isDescendant($0.path, of: target)) }),
+              let hash = node.subtree {
+            try await load(node.path, hash: hash)
+        }
+    }
+
+    /// Load every directory: what search needs, and what a page ID that is
+    /// not among the loaded pages needs to resolve.
+    public func loadEverything() async throws {
+        try requireOpen()
+        while let node = state.nodes.first(where: { $0.subtree != nil }), let hash = node.subtree {
+            try await load(node.path, hash: hash)
+        }
+    }
+
+    /// The directory object `hash` with the objects a node needs from it: its
+    /// Markdown bodies and its collection's tables and rows, each read through
+    /// `objectBytes` and checked against its hash. Child directories are not
+    /// read.
+    private func directoryObjects(_ hash: String, at path: String, fallback: (@Sendable (String) async throws -> Data)? = nil) async throws -> [ProtocolObjectEnvelope] {
+        func read(_ hash: String) async throws -> Data {
+            do { return try await objectBytes(hash: hash) }
+            catch ObjectStoreError.missing {
+                guard let fallback else { throw ObjectStoreError.missing(hash) }
+                return try verifyObject(try await fallback(hash), hash: hash)
+            }
+        }
+        let bytes = try await read(hash)
+        guard case let .directory(entries, collection) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else {
+            throw ProtocolValidationError.incompleteGraph(hash)
+        }
+        var objects = [ProtocolObjectEnvelope(hash: hash, bytes: bytes)]
+        for table in collection?.tables ?? [] {
+            let tableBytes = try await read(table.table)
+            objects.append(ProtocolObjectEnvelope(hash: table.table, bytes: tableBytes))
+            guard case let .table(object) = try ProtocolObjectCodec.decode(tableBytes, kind: .table) else { continue }
+            for chunk in object.chunks { objects.append(ProtocolObjectEnvelope(hash: chunk.chunk, bytes: try await read(chunk.chunk))) }
+        }
+        var bodies = Set<String>()
+        for entry in entries where entry.directory == nil {
+            guard let child = entry.hash, entry.page != nil || entry.name.hasSuffix(".md") || entry.name.hasSuffix(".mdx"),
+                  bodies.insert(child).inserted else { continue }
+            let body: Data
+            if let local = try overlay.storedBytes(child) { body = local }
+            else if let file = folderBody(entry, in: path) { body = file }
+            else { body = try await read(child) }
+            objects.append(ProtocolObjectEnvelope(hash: child, bytes: body))
+        }
+        return objects
+    }
+
+    /// The accepted graph at `root` as far as this tree holds it: every
+    /// directory a lazy tree has loaded (by path), or every directory, with
+    /// their Markdown bodies and collections. Objects come through
+    /// `objectBytes`, so unchanged ones are local; `fallback` serves what the
+    /// stores lack. Replaces the catch-up spine walk.
+    public func acceptedGraph(root: String, fallback: (@Sendable (String) async throws -> Data)? = nil) async throws -> ProtocolSnapshot {
+        try requireOpen()
+        let loaded = Set(state.nodes.lazy.filter { $0.kind == .directory && $0.subtree == nil }.map(\.path))
+        var objects: [String: Data] = [:]
+        var pending: [(hash: String, path: String)] = [(root, "/")], seen = Set<String>()
+        while let next = pending.popLast() {
+            guard seen.insert(next.hash).inserted else { continue }
+            let read = try await directoryObjects(next.hash, at: next.path, fallback: fallback)
+            for object in read { objects[object.hash] = object.bytes }
+            guard case let .directory(entries, _) = try ProtocolObjectCodec.decode(read[0].bytes, kind: .directory) else { continue }
+            for entry in entries {
+                guard let child = entry.directory else { continue }
+                let path = WorkingTreeSemantics.child(entry.name, of: next.path)
+                if !loadsLazily || loaded.contains(path) { pending.append((child, path)) }
+            }
+        }
+        let graph = ProtocolSnapshot(root: root, objects: objects.map { ProtocolObjectEnvelope(hash: $0.key, bytes: $0.value) }.sorted { $0.hash < $1.hash })
+        _ = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
+        return graph
+    }
+
+    /// Read the unloaded directory at `path` and splice its entries into the
+    /// state. Nothing hashed changes, so the result must have the same root:
+    /// a directory whose bytes do not rebuild the accepted hash is refused.
+    private func load(_ path: String, hash: String) async throws {
+        let objects = try await directoryObjects(hash, at: path)
+        // Another load may have finished while this one read.
+        guard let current = state.nodes.first(where: { $0.path == path }), current.subtree == hash else { return }
+        let graph = ProtocolSnapshot(root: hash, objects: objects)
+        let replacement = try SnapshotBridge.replacement(snapshot: graph, tree: treeID(), update: control.acceptedUpdate ?? "lazy",
+                                                         mode: .lazyDirectories)
+        var nodes = replacement.nodes
+        guard let top = nodes.firstIndex(where: { $0.path == "/" }) else { throw WorkingTreeError.corruptState("Loaded directory has no root") }
+        let body = nodes.remove(at: top)
+        for index in nodes.indices { nodes[index].path = path == "/" ? nodes[index].path : path + nodes[index].path }
+        var directory = current
+        directory.subtree = nil
+        directory.collection = body.collection
+        directory.collectionObjects = body.collectionObjects.isEmpty ? nil : body.collectionObjects.keys.sorted()
+        if case let .directory(index?) = body.content {
+            // `_index.md` holds the body; a sibling `<name>.md` is then shadowed.
+            directory.shadowedSiblingMarkdownSource = current.directoryBodyPlacement == .siblingMarkdown ? current.source : nil
+            directory.directoryBodyPlacement = nil
+            directory.source = index
+            directory.pageID = WorkingTreeSemantics.pageID(in: index)
+        }
+        let loaded = try state(from: WorkingTreeSystemReplacement(root: hash, update: replacement.update, nodes: nodes, pages: replacement.pages)).nodes
+        var next = state
+        guard let position = next.nodes.firstIndex(where: { $0.path == path }) else { return }
+        next.nodes[position] = directory
+        next.nodes.append(contentsOf: loaded)
+        if replacement.pages { next.pages = true }
+        let snapshot = try WorkingTreeProtocolCodec.snapshot(for: next, memo: codecMemo)
+        guard snapshot.root == control.materializedRoot else {
+            throw WorkingTreeError.corruptState("The directory loaded at \(path) does not rebuild the accepted root")
+        }
+        try Self.validate(next, control: nil, checked: state)
+        // Kept so a later install or replay reads them locally.
+        try overlay.store(Dictionary(objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first }))
+        state = next
+        snapshotMemo = snapshot
+        childPositions = nil
+        index = makeIndex(state: state, generation: control.generation)
     }
 
     func deleteRebuildableIndexes() throws {
@@ -800,6 +1015,10 @@ public actor WorkingTree {
             try prepareParentForChildren(parent, in: &next)
             try refuseCollision(target, in: next)
             let sourceNodes = next.nodes.filter { $0.path == node.path || WorkingTreeSemantics.isDescendant($0.path, of: node.path) }
+            // A copy gives every page a new ID, so it needs every page loaded.
+            if let unloaded = sourceNodes.first(where: { $0.subtree != nil }) {
+                throw WorkingTreeError.corruptState("\(unloaded.path) must load before it is copied")
+            }
             for var source in sourceNodes.sorted(by: { $0.path.count < $1.path.count }) {
                 source.path = WorkingTreeSemantics.replacingPrefix(source.path, from: node.path, to: target)
                 source.trashedFrom = nil
@@ -1259,6 +1478,9 @@ public actor WorkingTree {
                 if node.kind == .boundary, parents.contains(node.path) {
                     throw WorkingTreeError.corruptState("Nested tree boundary has local children")
                 }
+                if node.subtree != nil, parents.contains(node.path) {
+                    throw WorkingTreeError.corruptState("Unloaded directory has children")
+                }
                 continue
             }
             guard try WorkingTreeSemantics.normalizePath(node.path) == node.path else { throw WorkingTreeError.corruptState("Noncanonical path") }
@@ -1300,6 +1522,13 @@ public actor WorkingTree {
             }
             if node.kind != .file, node.ref != nil {
                 throw WorkingTreeError.corruptState("Content reference is attached to a non-file node")
+            }
+            if let subtree = node.subtree {
+                guard node.kind == .directory, node.path != "/", !subtree.isEmpty, !parents.contains(node.path),
+                      node.source == nil || node.directoryBodyPlacement == .siblingMarkdown,
+                      node.collection == nil, node.shadowedSiblingMarkdownSource == nil else {
+                    throw WorkingTreeError.corruptState("Malformed unloaded directory \(node.path)")
+                }
             }
             if node.kind == .boundary {
                 guard node.boundaryTree?.isEmpty == false, node.source == nil, node.ref == nil else {

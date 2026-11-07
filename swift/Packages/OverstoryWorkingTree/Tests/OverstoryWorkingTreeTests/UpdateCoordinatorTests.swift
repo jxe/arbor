@@ -1717,8 +1717,8 @@ private func accepted(id: String, tree: String, root: String, base: String, cand
 }
 
 /// Test-local placement: install the transport's current complete snapshot as
-/// the accepted base of a fresh durable working tree (what the app's
-/// `WorkingTreePlacementService` in `OverstoryClient` does).
+/// the accepted base of a fresh durable working tree (what a Replica `TreeSession`
+/// in `OverstoryClient` does when it places a tree).
 private func placeWorkingTree(
     tree: ProtocolTreeDescriptor,
     at root: URL,

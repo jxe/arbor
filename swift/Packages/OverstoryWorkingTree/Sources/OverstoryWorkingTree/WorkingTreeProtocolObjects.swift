@@ -70,6 +70,7 @@ enum WorkingTreeProtocolCodec {
             guard let node = byPath[path], node.kind == .directory else {
                 throw WorkingTreeError.corruptState("Missing directory at \(path)")
             }
+            guard node.subtree == nil else { throw WorkingTreeError.corruptState("Directory \(path) is not loaded") }
             if path == "/", node.directoryBodyPlacement != nil || node.shadowedSiblingMarkdownSource != nil {
                 throw WorkingTreeError.corruptState("Replica root body must use _index.md")
             }
@@ -91,7 +92,16 @@ enum WorkingTreeProtocolCodec {
             for (name, child) in children {
                 switch child.kind {
                 case .directory:
-                    entries.append(ProtocolDirectoryEntry(name: name, directory: try buildDirectory(at: child.path)))
+                    if let subtree = child.subtree {
+                        // Not loaded: the accepted directory object, unchanged.
+                        guard childrenByParent[child.path] == nil else {
+                            throw WorkingTreeError.corruptState("Unloaded directory \(child.path) has children")
+                        }
+                        if objects[subtree] == nil { objects[subtree] = .some(nil) }
+                        entries.append(ProtocolDirectoryEntry(name: name, directory: subtree))
+                    } else {
+                        entries.append(ProtocolDirectoryEntry(name: name, directory: try buildDirectory(at: child.path)))
+                    }
                     if child.directoryBodyPlacement == .siblingMarkdown, let source = child.source {
                         entries.append(markdown(name + ".md", source: source, in: path))
                     } else if let shadowed = child.shadowedSiblingMarkdownSource {

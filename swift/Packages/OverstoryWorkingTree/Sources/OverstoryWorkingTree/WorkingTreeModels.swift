@@ -141,8 +141,9 @@ public struct WorkingTreeStoredObject: Codable, Equatable, Sendable {
     }
 }
 
-/// The wire graph of a working-tree state. Directory and Markdown objects are
-/// always carried with bytes; file objects held by reference appear as hashes.
+/// The wire graph of a working-tree state. Loaded directory and Markdown
+/// objects are carried with bytes; file objects held by reference, and
+/// directories the lazy index has not loaded, appear as hashes.
 public struct WorkingTreeSnapshot: Codable, Equatable, Sendable {
     public var root: String
     public var objects: [WorkingTreeStoredObject]
@@ -210,6 +211,9 @@ public struct WorkingTreeSystemNode: Sendable, Equatable {
     public var collectionObjects: [String: Data]
     public var directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement?
     public var shadowedSiblingMarkdownSource: String?
+    /// For a directory the graph did not carry (`.lazyDirectories`): its
+    /// object hash. Its entries load on first use (`WorkingTree.ensureLoaded`).
+    public var unloadedDirectory: String?
 
     public init(
         path: String,
@@ -219,8 +223,10 @@ public struct WorkingTreeSystemNode: Sendable, Equatable {
         collection: ProtocolCollectionReference? = nil,
         collectionObjects: [String: Data] = [:],
         directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
-        shadowedSiblingMarkdownSource: String? = nil
+        shadowedSiblingMarkdownSource: String? = nil,
+        unloadedDirectory: String? = nil
     ) {
+        self.unloadedDirectory = unloadedDirectory
         self.metadata = metadata
         self.path = path
         self.pageID = pageID
@@ -310,6 +316,14 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
     var shadowedSiblingMarkdownSource: String?
     /// Descriptive metadata, deliberately omitted from Overstory object encoding.
     var metadata: EntryMetadata?
+    /// Set on a directory whose own entries are not loaded yet (the lazy node
+    /// index, Clients 003 module 3): the accepted directory object's hash. Its
+    /// `_index.md` body and its children are absent from the state until
+    /// `WorkingTree.ensureLoaded` reads that object, checked against the hash;
+    /// until then the snapshot carries the hash unchanged, so an edit
+    /// elsewhere is computed against the accepted root. A sibling `<name>.md`
+    /// body belongs to the parent and is loaded with it.
+    var subtree: String?
 
     var modifiedAt: Date? {
         get { metadata?.modifiedAt }
@@ -338,7 +352,7 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case path, pageID, kind, source, ref, mediaType, trashedFrom, boundaryTree, collection, collectionObjects
-        case directoryBodyPlacement, shadowedSiblingMarkdownSource, metadata
+        case directoryBodyPlacement, shadowedSiblingMarkdownSource, metadata, subtree
     }
 
     init(
@@ -354,8 +368,10 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
         collectionObjects: [String]? = nil,
         directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil,
-        metadata: EntryMetadata? = nil
+        metadata: EntryMetadata? = nil,
+        subtree: String? = nil
     ) {
+        self.subtree = subtree
         self.path = path
         self.pageID = pageID
         self.kind = kind

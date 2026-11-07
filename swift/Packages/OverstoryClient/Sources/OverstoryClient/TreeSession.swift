@@ -10,9 +10,8 @@ import Foundation
 /// combinations of them (`browse`, `replica`, `alongsideStorySync`).
 public struct TreeSessionSettings: Sendable {
     public enum Prefetch: Sendable, Equatable {
-        /// Only what the opened pages need. Until the node index loads
-        /// directories lazily (Clients 003 step 4) this holds every directory
-        /// and Markdown body, as `directoriesAndPages` does.
+        /// Only what the opened pages need: a directory loads, with its
+        /// Markdown bodies, the first time a path below it is asked for.
         case openedPages
         case directoriesAndPages
         case everything
@@ -40,7 +39,8 @@ public struct TreeSessionSettings: Sendable {
     /// read-only: no coordinator, and the session follows the host itself.
     public var changeLog: URL?
     /// The folder Story Sync writes this tree into, for a session that runs
-    /// alongside it.
+    /// alongside it. Pages are read from it first, each only when its file
+    /// still reads as the accepted entry.
     public var folder: URL?
     public var readOnly: Bool
     public var transportAvailable: Bool
@@ -114,7 +114,8 @@ public struct TreeReplicaStorage: Sendable {
 }
 
 /// What the caller already read of the tree's accepted state: the current
-/// tree, and, when it has it, the spine (every directory and Markdown body).
+/// tree, and, when it has it, a graph of it (some directories and their
+/// Markdown bodies; a directory it lacks loads on first use).
 public struct TreeOpening: Sendable {
     public var current: ProtocolCurrentTree
     public var spine: ProtocolSnapshot?
@@ -162,18 +163,20 @@ public struct TreeSession: Sendable {
             let current: ProtocolCurrentTree
             if let given = opening?.current { current = given } else { current = try await client.descriptor(tree: tree.id) }
             observedThrough = current.observedThrough
-            let spine: ProtocolSnapshot
-            if let given = opening?.spine { spine = given } else {
-                spine = try TreeSpine.sparse(await client.snapshot(tree: tree.id, root: current.tree.root))
-            }
             workingTree = try await WorkingTree.inMemory(tree: treeID, platform: objects)
+            if settings.prefetch == .openedPages { await workingTree.loadDirectoriesLazily() }
+            await workingTree.readPages(from: settings.folder)
+            // Lazily, the root directory and its bodies; otherwise every directory.
+            let graph: ProtocolSnapshot
+            if let given = opening?.spine { graph = given } else { graph = try await workingTree.acceptedGraph(root: current.tree.root) }
             try await workingTree.initializeFromSystem(SnapshotBridge.replacement(
-                snapshot: spine,
+                snapshot: graph,
                 tree: treeID,
                 update: current.tree.update,
                 cursor: current.observedThrough,
-                mode: .sparseFiles
+                mode: .lazyDirectories
             ))
+            if settings.prefetch != .openedPages { try await workingTree.loadEverything() }
         case let .disk(storage):
             workingTree = try await openOrPlaceReplica(tree, storage: storage, changeLog: settings.changeLog, transport: transport, platform: objects)
         }
@@ -277,7 +280,10 @@ public struct TreeSession: Sendable {
         var after = cursor
         await runObservationLoop(maximumDelay: maximumReconnectDelay) { connected in
             do {
-                let events = try await client.watch(tree: tree.id, after: after)
+                // A lazy session asks for frames without objects and reads
+                // again only the directories it holds (§1.1.3).
+                let lazy = settings.prefetch == .openedPages
+                let events = try await client.watch(tree: tree.id, after: after, withoutObjects: lazy)
                 for try await event in events {
                     connected()
                     try Task.checkCancellation()
@@ -288,7 +294,7 @@ public struct TreeSession: Sendable {
                         try await workingTree.recordAccepted(root: event.update.root, update: event.update.id, cursor: event.id)
                         continue
                     }
-                    if (try? await workingTree.applyAcceptedTransitions(event)) == nil {
+                    if lazy || (try? await workingTree.applyAcceptedTransitions(event)) == nil {
                         try await pull(root: event.update.root, update: event.update.id, cursor: event.id)
                     }
                     await onChange()
@@ -302,8 +308,8 @@ public struct TreeSession: Sendable {
         }
     }
 
-    /// Re-read the current tree and, when its root moved, its spine; returns
-    /// the cursor to watch after.
+    /// Re-read the current tree and, when its root moved, the directories the
+    /// session holds; returns the cursor to watch after.
     @discardableResult
     public func pullCurrent() async throws -> String {
         let current = try await client.descriptor(tree: tree.id)
@@ -314,50 +320,32 @@ public struct TreeSession: Sendable {
         return current.observedThrough
     }
 
+    /// Move to the accepted state at `root`: the directories the session
+    /// has loaded are read again there (unchanged ones are already held),
+    /// and the rest stay unloaded.
     private func pull(root: String, update: String, cursor: String) async throws {
-        let spine = try TreeSpine.sparse(await client.snapshot(tree: tree.id, root: root))
+        let graph = try await workingTree.acceptedGraph(root: root)
         try await workingTree.replaceFromSystem(SnapshotBridge.replacement(
-            snapshot: spine,
+            snapshot: graph,
             tree: TreeID(rawValue: tree.id),
             update: update,
             cursor: cursor,
-            mode: .sparseFiles
+            mode: .lazyDirectories
         ))
     }
-}
 
-/// A complete snapshot reduced to the spine a sparse index installs: every
-/// directory, every collection's tables and rows, and every Markdown body.
-/// Every other file stays a hash the object sources serve on demand.
-public enum TreeSpine {
-    public static func sparse(_ snapshot: ProtocolSnapshot) throws -> ProtocolSnapshot {
-        let objects = try ProtocolObjectGraph.validate(snapshot, mode: .complete)
-        var keep = Set<String>()
-        var visited = Set<String>()
-
-        func visit(_ hash: String) {
-            guard case let .directory(entries, collection)? = objects[hash] else { return }
-            keep.insert(hash)
-            guard visited.insert(hash).inserted else { return }
-            for table in collection?.tables ?? [] {
-                keep.insert(table.table)
-                if case let .table(object)? = objects[table.table] { keep.formUnion(object.chunks.map(\.chunk)) }
-            }
-            for entry in entries {
-                guard let child = entry.hash else { continue }
-                switch objects[child] {
-                case .directory:
-                    visit(child)
-                case .file?:
-                    if entry.name.hasSuffix(".md") || entry.name.hasSuffix(".mdx") { keep.insert(child) }
-                case .page?:
-                    keep.insert(child)
-                case .table?, .rows?, nil:
-                    continue
-                }
+    /// Open the page at `path` with one path read (tree operations §1.2.4)
+    /// when the session reads the host: the directories down to it and its
+    /// body arrive together and are held, so loading them reads nothing
+    /// more. Elsewhere, or when the read fails, the directories load one by
+    /// one through the object sources.
+    public func openPage(_ path: String) async throws {
+        if settings.sources.contains(where: { if case .host = $0 { true } else { false } }) {
+            let root = try await workingTree.heads().materializedRoot
+            if let objects = try? await client.pathRead(tree: tree.id, root: root, path: path) {
+                try await workingTree.hold(objects)
             }
         }
-        visit(snapshot.root)
-        return ProtocolSnapshot(root: snapshot.root, objects: snapshot.objects.filter { keep.contains($0.hash) })
+        try await workingTree.ensureLoaded(path, children: true)
     }
 }

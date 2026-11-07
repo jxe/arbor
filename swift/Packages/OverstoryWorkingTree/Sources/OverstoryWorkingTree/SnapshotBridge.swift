@@ -27,8 +27,9 @@ public enum SnapshotBridge {
         }
     }
 
-    /// Directory references must be present in all modes; sparse file references
-    /// may omit payloads, except Markdown source which must remain inline.
+    /// Directory references must be present except in `.lazyDirectories`, where
+    /// a missing directory becomes an unloaded node; sparse file references may
+    /// omit payloads, except Markdown source which must remain inline.
     public static func replacement(
         snapshot: ProtocolSnapshot,
         tree: TreeID,
@@ -38,7 +39,8 @@ public enum SnapshotBridge {
         entryMetadata: [String: EntryMetadata] = [:],
         acceptedAt: Date? = nil
     ) throws -> WorkingTreeSystemReplacement {
-        let sparse = mode == .sparseFiles
+        let sparse = mode != .complete
+        let lazy = mode == .lazyDirectories
         let objects = try ProtocolObjectGraph.validate(snapshot, mode: mode)
         let bytesByHash = Dictionary(snapshot.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
         var nodes: [WorkingTreeSystemNode] = []
@@ -87,8 +89,7 @@ public enum SnapshotBridge {
                 throw ProtocolValidationError.incompleteGraph(hash)
             }
             let directoryNames = Set(entries.compactMap { entry -> String? in
-                guard let hash = entry.hash, case .directory? = objects[hash] else { return nil }
-                return entry.name
+                entry.directory == nil ? nil : entry.name
             })
             let siblingBodies = Dictionary(grouping: entries.compactMap { entry -> (stem: String, name: String)? in
                 guard let hash = entry.hash, let object = objects[hash] else { return nil }
@@ -136,6 +137,18 @@ public enum SnapshotBridge {
                 }
                 guard let object = objects[childHash] else {
                     guard sparse else { throw ProtocolValidationError.incompleteGraph(childHash) }
+                    if entry.directory != nil {
+                        guard lazy else { throw ProtocolValidationError.incompleteGraph(childHash) }
+                        // Not loaded yet; its sibling body belongs to this directory.
+                        let siblingSource = try entries.first { $0.name == entry.name + ".md" && $0.hash != nil }?.hash.map(markdownSource)
+                        try appendNode(WorkingTreeSystemNode(
+                            path: destination,
+                            content: .directory(source: siblingSource),
+                            directoryBodyPlacement: siblingSource != nil ? .siblingMarkdown : nil,
+                            unloadedDirectory: childHash
+                        ))
+                        continue
+                    }
                     guard !entry.name.hasSuffix(".md"), entry.page == nil else {
                         throw ProtocolValidationError.incompleteGraph("Markdown \(destination) is not in the sparse snapshot")
                     }

@@ -18,7 +18,7 @@ extension LocalChange {
         guard transfer.origin.reference.tree.rawValue == tree else { throw ProtocolValidationError.invalidValue("Wrong tree") }
         guard originPath != destinationPath else { throw ProtocolValidationError.invalidValue("A transfer names two documents") }
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count else { throw ProtocolValidationError.invalidValue("Duplicate basis object") }
-        var decoded = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
+        var decoded = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
         var bytes = Dictionary(uniqueKeysWithValues: graph.objects.map { ($0.hash, $0.bytes) })
         func store(_ object: ProtocolObject) throws -> String {
             let value = try ProtocolObjectCodec.encode(object), hash = ProtocolObjectCodec.hash(value)
@@ -87,7 +87,7 @@ extension LocalChange {
         }
         let root = destination.root
         let candidate = try ProtocolGraph.reachable(from: root, in: bytes)
-        _ = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
+        _ = try ProtocolObjectGraph.validate(candidate, mode: .lazyDirectories)
         let known = Set(graph.objects.map(\.hash))
         let update = ProtocolCandidateUpdate(candidate: root, change: change,
             trace: touchesPage ? nil : [ProtocolTraceFrame(before: graph.root, after: root, operations: operations)],

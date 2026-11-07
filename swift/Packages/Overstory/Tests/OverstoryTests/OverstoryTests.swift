@@ -200,6 +200,15 @@ struct ProtocolObjectTests {
         #expect(throws: ProtocolValidationError.self) {
             _ = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [inner, file]), mode: .sparseFiles)
         }
+        // A directory below the root may be missing only for the lazy index.
+        let rootOnly = ProtocolSnapshot(root: root.hash, objects: [root, file])
+        #expect(throws: ProtocolValidationError.incompleteGraph(inner.hash)) {
+            _ = try ProtocolObjectGraph.validate(rootOnly, mode: .sparseFiles)
+        }
+        #expect(try ProtocolObjectGraph.validate(rootOnly, mode: .lazyDirectories).count == 2)
+        #expect(throws: ProtocolValidationError.self) {
+            _ = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [inner, file]), mode: .lazyDirectories)
+        }
         #expect(throws: ProtocolValidationError.self) {
             _ = try ProtocolObjectGraph.validate(.init(root: file.hash, objects: [file]), mode: .sparseFiles)
         }

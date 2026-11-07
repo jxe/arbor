@@ -285,7 +285,7 @@ extension UpdateCoordinator {
             }
         }
         let spine = ProtocolSnapshot(root: snapshot.root, objects: kept.sorted { $0.hash < $1.hash })
-        _ = try ProtocolObjectGraph.validate(spine, mode: .sparseFiles)
+        _ = try ProtocolObjectGraph.validate(spine, mode: .lazyDirectories)
         return spine
     }
 

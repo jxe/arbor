@@ -123,7 +123,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
               parts.allSatisfy(ProtocolGraph.isPathComponent),
               !generations.isEmpty else { throw Self.invalid("Invalid source path or empty intent") }
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count else { throw Self.invalid("Duplicate basis object") }
-        var decoded = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
+        var decoded = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
         var bytes = Dictionary(uniqueKeysWithValues: graph.objects.map { ($0.hash, $0.bytes) })
         func store(_ object: ProtocolObject) throws -> String {
             let value = try ProtocolObjectCodec.encode(object), hash = ProtocolObjectCodec.hash(value)
@@ -303,7 +303,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
         }
         let root = previousRoot
         let candidate = try ProtocolGraph.reachable(from: root, in: bytes)
-        _ = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
+        _ = try ProtocolObjectGraph.validate(candidate, mode: .lazyDirectories)
         if evidence, compact {
             // A compacted frame is proven against the generation sources it
             // spans before it replaces the chain; otherwise the chain stays.
@@ -460,8 +460,8 @@ public struct LocalChange: Codable, Equatable, Sendable {
     /// genuine snapshot semantics. Never infer provenance from resulting bytes.
     public init(change: String = UUID().uuidString, tree: String, basis: LocalChangeBasis,
                 graph: ProtocolSnapshot, candidate: ProtocolSnapshot, entryTransfer: EntryTransfer? = nil, entryActions: EntryActions? = nil, creation: SourcePageCreation? = nil) throws {
-        _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
-        _ = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
+        _ = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
+        _ = try ProtocolObjectGraph.validate(candidate, mode: .lazyDirectories)
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count,
               Set(candidate.objects.map(\.hash)).count == candidate.objects.count else { throw Self.invalid("Duplicate snapshot object") }
         self.change = change; self.tree = tree; self.basis = basis
@@ -516,8 +516,8 @@ public struct LocalChange: Codable, Equatable, Sendable {
         guard !change.isEmpty, update.change == change, update.candidate == candidate.root else { throw Self.invalid("Wire element does not name its record") }
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count,
               Set(candidate.objects.map(\.hash)).count == candidate.objects.count else { throw Self.invalid("Duplicate snapshot object") }
-        if !graphValidated { _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles) }
-        _ = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
+        if !graphValidated { _ = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories) }
+        _ = try ProtocolObjectGraph.validate(candidate, mode: .lazyDirectories)
         let known = Set(graph.objects.map(\.hash)), present = Dictionary(uniqueKeysWithValues: candidate.objects.map { ($0.hash, $0.bytes) })
         // An operation may introduce material that later operations change,
         // such as the empty directory receiving a moved page. Its original
@@ -581,8 +581,8 @@ public struct LocalChange: Codable, Equatable, Sendable {
     /// directory that already held it. The removal proof in `init` shows the
     /// candidate is exactly the basis plus these branches.
     static func creationOperations(_ creation: SourcePageCreation, graph: ProtocolSnapshot, candidate: ProtocolSnapshot) throws -> [ProtocolSourceOperation] {
-        let basis = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
-        let result = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
+        let basis = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
+        let result = try ProtocolObjectGraph.validate(candidate, mode: .lazyDirectories)
         func directory(_ objects: [String: ProtocolObject], _ root: String, _ parts: ArraySlice<String>) throws -> [ProtocolDirectoryEntry] {
             var hash = root
             for part in parts {

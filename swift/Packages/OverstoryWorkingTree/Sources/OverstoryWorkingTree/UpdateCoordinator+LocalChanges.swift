@@ -112,7 +112,7 @@ extension UpdateCoordinator {
                 // A promoted Markdown parent's sibling body stays exactly where it was.
                 func introducedBranch(_ path: String) throws -> String? {
                     let parts = path.dropFirst().split(separator: "/").map(String.init)
-                    let objects = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
+                    let objects = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
                     var hash = graph.root, prefix: [String] = []
                     for part in parts {
                         prefix.append(part)
@@ -253,7 +253,7 @@ extension UpdateCoordinator {
             let snapshot: ProtocolSnapshot
             if let graph { snapshot = graph } else { snapshot = try await tree.localSnapshot() }
             try await tree.project(SnapshotBridge.replacement(snapshot: snapshot, tree: await workingTree.treeID(),
-                update: "local-candidate", mode: .sparseFiles))
+                update: "local-candidate", mode: .lazyDirectories))
         }
         timer?.mark("view-project")
         if includeTrash {

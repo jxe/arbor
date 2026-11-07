@@ -93,7 +93,7 @@ struct LoopbackServicesTests {
         }
     }
 
-    @Test("Opening a placed tree reads its base and spine through the standard routes")
+    @Test("Opening a placed tree reads only its base, through the standard routes")
     func placedTreeOpeningUsesStandardReads() async throws {
         let index = try ProtocolObjectCodec.object(.file(Data("# Notes\n".utf8)))
         let photo = try ProtocolObjectCodec.object(.file(Data([1, 2, 3])))
@@ -107,11 +107,10 @@ struct LoopbackServicesTests {
         #expect(opening.placed.osPath == "/Users/joe/notes")
         #expect(opening.current.tree.root == root.hash)
         #expect(opening.current.observedThrough == "host-cursor-7")
-        // The spine holds the directory and the Markdown, not the photo.
-        #expect(Set(opening.spine.objects.map(\.hash)) == [root.hash, index.hash])
+        // Directories load when the session opens them, not here.
         let paths = await LoopbackStub.state.requests().map(\.path)
         #expect(paths.contains("/.overstory/trees/tr_notes7f3q2ab7c"))
-        #expect(paths.contains("/.overstory/trees/tr_notes7f3q2ab7c/objects/\(root.hash)"))
+        #expect(!paths.contains("/.overstory/trees/tr_notes7f3q2ab7c/objects/\(root.hash)"))
         #expect(!paths.contains("/.overstory/trees/tr_notes7f3q2ab7c/objects/\(photo.hash)"))
         #expect(!paths.contains("/v1/bootstrap"))
     }
@@ -170,7 +169,7 @@ struct LoopbackServicesTests {
             if request.url?.path.hasSuffix(hash) == true { return (200, bytes, "application/octet-stream") }
             return (404, Data(#"{"error":"not-found","message":"missing","retryable":false}"#.utf8), "application/json")
         }
-        let store = StoryWorkspaceState.placedTreeObjects("tr_notes", reads: stubbedClient().reads())
+        let store = ObjectSourceChain([HostObjectStore(client: stubbedClient().reads(), tree: "tr_notes")])
 
         #expect(try await store.bytes(hash) == bytes)
         let request = try #require(await LoopbackStub.state.requests().first)

@@ -120,7 +120,6 @@ final class StorySyncClientTests: XCTestCase {
         XCTAssertEqual(placed?.placement, "placed")
         let opening = try await StoryWorkspaceState.readPlacedTree(tree, client: client)
         XCTAssertEqual(opening.current.tree.id, tree)
-        XCTAssertEqual(opening.spine.root, opening.current.tree.root)
         let reads = client.reads()
         let root = try await reads.object(tree: tree, hash: opening.current.tree.root)
         XCTAssertFalse(root.isEmpty)
