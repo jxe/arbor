@@ -61,6 +61,19 @@ Left from Agents 001 ([status](../status.md#agents-001-presence-and-agent-tasks-
   return; a Mac on the same page sees both.
 - [ ] Run the app-hosted Story tests for presence and agent runs with Story quit.
 
+### Agents 002
+
+Built 2026-11-07 ([status](../status.md#agents-002-run-tasks-from-anywhere--2026-11-07)). Needs
+Story Sync restarted after the rebuild, and a TestFlight build on the iPhone.
+
+- [ ] **Run from the iPhone:** dictate a task on a page of a placed tree, press Run with the Mac
+  awake: "Starting on <your Mac>…", then Claude's bubble, then the task checked off with its
+  result. With Story Sync stopped (or `story agent runner off`), Run is greyed out and says why.
+- [ ] **What runner streams cost:** with every placed tree holding a runner stream, check
+  Story Sync's CPU and memory on the Mac and the stream count on the host over a day.
+- [ ] **By hand:** in a placed folder, `story agent start --task '<request JSON>'`, let Claude
+  Code do it and say `story agent done "…"`: one agent shows (not two) and the block is checked off.
+
 ### Read-only placements and domain names
 
 Built 2026-11-05 and deployed ([visitor sessions](../status.md#visitor-sessions-and-read-only-placements--2026-11-05),

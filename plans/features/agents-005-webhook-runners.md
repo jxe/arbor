@@ -2,7 +2,7 @@
 
 **Why:** Run should work with the Mac asleep. A webhook runner is a URL and a secret Story POSTs the run request to (Joe, 2026-11-06). Split from Agents 002 (Joe, 2026-11-07): it depends on the claude.ai routine API trigger, still a beta header, and each person allowing their host's domain in their claude.ai environment.
 
-**Order:** after [Agents 002](../soon/agents-002-run-tasks-from-anywhere.md), which defines the run
+**Order:** after [Agents 002](../../status.md#agents-002-run-tasks-from-anywhere--2026-11-07), which defines the run
 request, `story agent start --task` and the Runners list.
 
 ## Status
