@@ -314,8 +314,11 @@ and 5, and step 3's image and template definition. Not yet published or rehearse
   `ghcr.io/jxe/overstoryd:<version>` and `:latest` from each release tag; the template's
   definition (variables, `/data` volume, generated domain, `secret()` founder code) is in the
   deploy README's "The template (maintainers)".
-- **Left:** publishing the image and the template and a rehearsal from a fresh Railway account
-  are in [Joe's to-do](plans/joe.md#sharing-004-railway-template); what Story says to a host too
+- **Published** 2026-11-08 (Joe): the image was public as soon as v0.1.8 published it
+  (`0.1.8` and `latest` pull without signing in), and the template is
+  [railway.com/deploy/overstoryd](https://railway.com/deploy/overstoryd), linked from the deploy
+  README (`a7e9a3e`).
+- **Left:** a rehearsal from a fresh Railway account is in [Joe's to-do](plans/joe.md#sharing-004-railway-template); what Story says to a host too
   old for it was built [2026-11-07](#invite-from-the-command-line-and-hosts-older-than-story--2026-11-07).
 
 ## Story Path (White) icon — 2026-11-02

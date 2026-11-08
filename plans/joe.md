@@ -136,10 +136,6 @@ Built 2026-11-07 ([status](../status.md#trees-at-your-own-domain--2026-11-07)).
 
 Built 2026-11-05 ([status](../status.md#start-your-own-community-from-a-railway-template--2026-11-05)).
 
-- [ ] Make the `ghcr.io/jxe/overstoryd` package public after the first image publishes (a
-  release tag, or running Publish host image by hand).
-- [ ] Create the template in Railway's dashboard as the deploy README's "The template
-  (maintainers)" says, and put its link in that README (or give it to a session to add).
 - [ ] Rehearse from a fresh Railway account: deploy, find the founder link in the logs, open it
   in Story on a Mac with no identity, invite a second person, and restart the service.
 
