@@ -412,6 +412,9 @@ is **implemented** on main and closed; its plan is deleted. It absorbed Live 001
   [Agents 004](plans/features/agents-004-talk-to-the-agent.md) and
   [Agents 002](#agents-002-run-tasks-from-anywhere--2026-11-07)).
 
+Joe, 2026-11-08 (rebuilt Story): a real task on a day plan, started with Run on the Mac,
+works well (bubble, checked off with its result, Undo Run).
+
 ## Merge as blocks and elements — 2026-11-01
 
 Prompted by the 2026-10-31 todos conflicts (a Mac waking with a 6½-hour-old page repeated
