@@ -85,6 +85,11 @@ Story Sync has the tree placed here, a replica when the person can write and it 
 disk (twice the replica already kept plus 1 GB), Browse otherwise; `defaults write
 <Story's domain> treeWay.<tree id> browse|replica|alongside` overrides it when the way can work.
 
+Closed 2026-11-08 (Joe): the Mac's launch preview (`LocalFolderPreview`) stays. Across five
+warm launches (2026-11-07 and 2026-11-08), `tree-open` landed 0.5-1.4 s after
+`launch-preview`, so opening the session in its place would show nothing for that long. A
+new plan is worth it only if `tree-open` comes within about 200 ms of the preview.
+
 Removed: `DaemonObjectStore`, `StorySyncCredentialProvider`, `StoryVisitSnapshot`,
 `StoryVisitFollower`, `WorkingTreePlacementService`, `UpdateCoordinator.sparseDirectoryGraph`,
 `TreeSpine`, `SpineFetch`, and the bootstrap, object and credential routes and client calls.
