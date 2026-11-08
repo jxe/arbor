@@ -14,8 +14,8 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 
 ## Views on the host, and declared views — 2026-11-08
 
-**Implemented** on branch `claude/project-thread-k7qauu` (9ebac37, ebfbc48, cc395f6 and the
-declared-view serving commit); not on main, not deployed. Apps 005 (now closed)
+**Implemented** on main (merged 49cfced, 2026-11-08; overstoryd redeployed, but it serves no
+views until `OVERSTORYD_ACTIVATIONS` is set). Apps 005 (now closed)
 steps 1-4 and [Apps 012](plans/soon/apps-012-one-kind-of-view.md) steps 1-2 (host side).
 
 - **Views replace queries** (spec 07 §4.1, spec 08 §3). A view is plain JavaScript over rows:
@@ -38,6 +38,9 @@ steps 1-4 and [Apps 012](plans/soon/apps-012-one-kind-of-view.md) steps 1-2 (hos
   activation. Each presented-views vector gives the same through it as through
   `presentView`.
 - **A person whose profile can't be read** reads as null through a to-one, not an error.
+- **Connection models in presented views** (both stacks): a line or group shows a pure
+  connection model (`Item`, `Reaction`) by what it connects to, and names any other row keyed
+  by several columns (`Tag (list, id)`) by its row key. Supplies' default views all present.
 - **Left:** [Security 013](plans/features/security-013-row-read-rules.md) (fine-grained read
   rules), [Apps 013](plans/later/apps-013-one-plan-per-view.md) (one plan per view); Story Sync answering and Story
   drawing declared views ([Apps 012](plans/soon/apps-012-one-kind-of-view.md)); hand checks
