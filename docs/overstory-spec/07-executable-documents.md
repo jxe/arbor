@@ -68,7 +68,7 @@ A source tree is identified by its existing `TreeID`; Overstory adds no applicat
 
 For each exported handle, compilation exposes stable function identity, input validation, code version, declared or inferred tree access, and public result metadata without disclosing privileged implementation code. Literal tree paths contribute precise prefixes; computed paths require explicit declarations. Compilation fails when code can address an undeclared path, closes over UI-only state, or imports ambient host authority.
 
-A handle may declare an input schema in the [authoring API](08-authoring-api.md#3-handles)'s
+A handle may declare an input schema in the [authoring API](08-authoring-api.md#4-handles)'s
 Standard Schema form. The handle's call input is the schema input type; the
 query plan or mutation handler receives its validated, transformed output, and
 validation occurs before data access.
@@ -93,11 +93,11 @@ with the same meaning for expanded directories, Markdown records, collection fil
 SQLite tables, and later external or replicated providers. Every result retains
 tree-scoped provenance internally even when the authored projection omits it.
 
-`query.one`, `query.maybe`, and `query.many` assert the cardinality of any typed
-node source; they do not imply a database relation. The portable callback
-returns predicates and explicit field picks/aliases. Predicates that prevent
-private nodes or rows from being disclosed stay
-in the server plan and are never delegated to a component.
+Authors don't write plans. A [view](#41-views) is written as code over typed node
+sources, and the host derives its plan from what the view reads. `Model.one` and
+`Model.all` assert the cardinality of a typed node source; they do not imply a database
+relation. Facts that prevent private nodes or rows from being disclosed stay in the server
+plan and are never delegated to a component.
 
 The initial universal symbolic surface is the source's schema-declared
 properties. Filtering and field picking behave identically across providers.
@@ -107,11 +107,11 @@ not a separate query universe. A provider may compile a plan to SQL, indexes,
 or tree traversal but cannot change its meaning. Backing-specific relational
 operations require an explicitly backing-coupled handle.
 Results have automatic deterministic ordering by canonical stable
-key, falling back to canonical path; authored ordering is not portable yet
-([deferred 8](README.md#deferred)).
-Relationships, joins, grouping, aggregates, explicit ordering, pagination
-operators, and unbounded traversal are capability extensions rather than
-baseline semantics ([deferred 8](README.md#deferred)). A provider may push a portable plan into SQL, indexes, or
+key, falling back to canonical path. Other ordering is the view's own code, except
+that a limit (`.orderBy(…).take(n)`) orders in the plan.
+Relationship reads, joins through facts, counts and limits are baseline (§4.1). Grouping,
+other aggregates, pagination operators, and unbounded traversal are capability extensions
+rather than baseline semantics ([deferred 8](README.md#deferred)). A provider may push a portable plan into SQL, indexes, or
 tree traversal, but cannot change its meaning. An unavailable capability fails
 before data access rather than silently loading an entire tree into executable
 memory. There is no authored `database()` source or `.relations` namespace.
@@ -175,19 +175,94 @@ query discovery, delegated authorization, or server-to-server routing
 ### 4.1 Views
 
 A **view** is a function over typed node sources that returns data or a view tree
-([§10](#10-rendering-actions-and-live-data)).
+([§10](#10-rendering-actions-and-live-data)). A **data view** returns JSON. A **JSX view**
+returns a view tree. Both are written the same way, directly over rows, and neither is
+derived from the other.
 
-Its **shape** compiles to the plan of §4. The shape is which sources the view reads,
-which relationships it follows, which fields it selects, and how each read is narrowed
-(filtered, ordered, limited). The view's other code runs over that plan's authorized
-results, on the host for data and on the client for a view tree. That code covers
-values, filtering and sorting, and layout. Narrowing that keeps private nodes or rows
-from being disclosed belongs to the plan and never to that code.
+#### Reading rows
 
-A view that takes a row or node is part of the view that calls it, and its reads join
-the caller's plan. A view exported with an input schema is **addressable**: a link, an
-embed or a [request](#121-evaluate-and-stream-views) can name it. Views are
-replacing the select-object queries above ([Apps 005](../../plans/soon/apps-005-views-on-the-host.md)).
+A view reaches rows in three ways:
+- **A model's rows**, through facts: `List.all(l => [facts])` or `List.one(l => [facts])`.
+  `List` is a typed node source such as `node("./data/List").children`.
+- **A relationship's rows**, by reading it: `l.items`, `p.tags`, `l.owner`. A plain
+  relationship read needs no facts.
+- **A relationship narrowed by facts**: `p.tags.all(t => [facts])`.
+
+A row's fields are ordinary values (`l.name`), and `.length` on a relationship is a count.
+Inside `.orderBy(…)`, which runs in the plan, the same count is spelled `count()`;
+everywhere else it is `.length`.
+
+#### Facts
+
+Facts are the view's narrowing. They are Datalog-style clauses over a row variable:
+
+| Fact | Means |
+|---|---|
+| `l.visibility.is("Public")` | a field equals a value |
+| `p.name.contains(text)` | a text field contains text |
+| `l.owner.is(person)` | a to-one relationship points at a row, a key, or `null` |
+| `p.authors.has(person)` | a to-many relationship includes a row or a key |
+| `l.items.practice.authors.has(person)` | a **path fact**: some item's practice has this author |
+| `or([facts], [facts])`, `not(fact)` | alternatives and negation |
+| `curatedBy({ l, person })` | a **rule**: named facts, defined once with `rule(…)` |
+
+Rows from enclosing code act as placeholders that are already filled in. In
+`p.tags.all(t => [t.list.is(l)])` inside a loop over a list's items, `l` is the list being
+drawn. So an inner block's matches nest under each outer row, and the result is
+tree-shaped.
+
+A variable that appears in two facts is a **helper variable**, named with an object of
+sources: `Person.all({ p: Practice }, (other, { p }) => [p.authors.has(person),
+p.authors.has(other), not(other.id.is(id))])`. Its type comes from its source.
+
+Facts are the only narrowing. A view's other code (`.filter`, `.sort`, `===`, branches)
+runs over rows it has already read and can't change what the plan reads.
+
+A model's **read rules** keep private rows from being disclosed. They belong to the data,
+not to any view: the host adds them, as facts, to every read of that model, whether the
+read is a `Model.all`, a `Model.one`, a relationship read or a path fact. A view can narrow
+further but never past them, and a view that forgets them still can't see a hidden row.
+Supplies' rule is "a list is readable when it is public, or by its owner".
+
+Ordering is the view's own code (`sorted(rows, byName)`). The one exception is a limit:
+`List.all(…).orderBy(l => l.reactions.count().desc()).take(12)` orders and cuts in the
+plan, because the cut depends on the order.
+
+#### Implicit shape and dual evaluation
+
+A view's **shape** is which sources it reads, which relationships it follows, which
+fields it selects, and the facts that narrow each read. It isn't declared. The host finds
+it by evaluating the view twice:
+1. **The plan pass**, on the host. The view runs over stand-in rows that record each read.
+   Every `.all`, `.one` and relationship read, every field read, and every fact becomes
+   part of the plan of §4. A function the view calls with a row (a component, or a helper
+   that returns JSON) joins the caller's plan.
+2. **The value pass**, over the plan's authorized results.
+
+A read the plan pass missed, such as one behind a branch it didn't take, widens the plan
+once and reruns. View code must therefore be deterministic and free of side effects, as
+§4 already requires, and must be safe to run over stand-ins: a stand-in row is never
+`null`, and a stand-in relationship has one row.
+
+Where the value pass runs depends on the kind of view:
+- **A data view** runs its value pass on the host. The result is JSON, annotated with
+  **field types** and **row identity**: each value copied unchanged from a row field
+  carries that field's schema type, and each object built while reading a row carries
+  that row's model and key ([§12.1](#121-evaluate-and-stream-views)). A client with no
+  view code of its own draws a data view with its default renderer (Story uses
+  Quagmire's), using those annotations.
+- **A JSX view** runs its value pass on the client. The host answers with the plan's
+  authorized rows, in the same annotated form, and the client runs the view over them.
+  State changes on the client, such as controls and local selection, rerun the view there
+  without asking the host. If the client's run reaches a read the rows lack, it asks the
+  host to widen the plan. A client that can't run view code may ask the host for the view
+  tree instead.
+
+A view exported with an input schema is **addressable**: a link, an embed or a
+[request](#121-evaluate-and-stream-views) can name it. Views are replacing the
+select-object queries of earlier drafts ([Apps 005](../../plans/soon/apps-005-views-on-the-host.md)).
+
+#### Declared views
 
 A schema's `~views` ([schema language §8](11-schema-language.md#8-views)) are
 **declared views**. Each one is the built-in list view applied to its model with that
@@ -340,7 +415,7 @@ presents its own session UI before user-dependent queries mount, and an
 authored tree never receives credentials or implements authentication. A query
 plan may dereference the nullable user profile, or declare that anonymous
 execution must fail before data access even when the handle is invoked outside
-a component ([authoring API](08-authoring-api.md#5-user)).
+a component ([authoring API](08-authoring-api.md#6-user)).
 
 Anonymous, Overstory-user, and tree-principal executions are separate cache and subscription contexts. User-dependent queries record the identity and access decision as dependencies. Public executions may be shared only when their inputs, authorization, capabilities, and output are genuinely user-independent.
 
@@ -350,7 +425,11 @@ The host resolves the requested Overstory path, loads one coherent executable-do
 
 Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [protocol](#121-evaluate-and-stream-views) and its separate named-mutation operation.
 
-Mutation handles are callable as form actions as well as typed imperative handles. The [authoring API](08-authoring-api.md#4-actions-and-forms)'s action adapter validates form input through the handle's schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. For a single-domain action, successful return commits its transaction and throwing rolls it back. Workflow actions expose pending, blocked, failed, or completed state; failure does not erase committed steps.
+A JSX view ([§4.1](#41-views)) runs on the client over its `rows` answer, so state changes
+on the client rerender without a round trip to the host. The host keeps the rows current
+through the same live stream, and the client reruns the view when they change.
+
+Mutation handles are callable as form actions as well as typed imperative handles. The [authoring API](08-authoring-api.md#5-actions-and-forms)'s action adapter validates form input through the handle's schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. For a single-domain action, successful return commits its transaction and throwing rolls it back. Workflow actions expose pending, blocked, failed, or completed state; failure does not erase committed steps.
 
 Server exceptions, database diagnostics, private values, and stack traces never become action state. Expected public errors have stable codes, safe messages, retryability, and optional field errors. The durable receipt and authoritative query result may arrive in either order and are correlated idempotently. Optimistic presentation never displaces the subscribed result as the source of truth.
 
@@ -416,10 +495,41 @@ type ViewsRequest = {
     id: string;
     handle: HandleRef;
     input: unknown;
+    /**
+     * What to answer (§4.1). `value`: a data view's JSON. `rows`: a JSX
+     * view's plan results, for a client that runs the view itself. `tree`:
+     * a JSX view's view tree, run on the host. Defaults to `value` for a data
+     * view and `rows` for a JSX view.
+     */
+    form?: "value" | "rows" | "tree";
+    /** Reads a client's run of a `rows` answer reached and didn't find. */
+    missed?: ReadPath[];
     knownOutputHash?: Hash;
   }>;
 };
+
+/** A read as a path from a root of the plan, such as ["lists", "items", "practice", "tags"]. */
+type ReadPath = string[];
+
+/**
+ * Annotations on a `value` or `rows` answer, parallel to its JSON.
+ * `row` is set on an object built while reading a row (its model and key).
+ * `type` is set on a value copied unchanged from a field (that field's
+ * schema type, as in schema language §3). `fields` and `items` describe an
+ * object's members and an array's elements.
+ */
+type ResultShape = {
+  row?: { model: LogicalPath; key: string };
+  type?: string;
+  fields?: Record<string, ResultShape>;
+  items?: ResultShape[];
+};
 ```
+
+A `missed` list widens the plan for that view and input. The host can't check a path
+against the view's code, because a missed read is one its own trace didn't see. What
+bounds a widened plan is the caller's authority and the read rules of each model it
+reaches (§4.1): a forged path reads nothing those don't already allow.
 
 `document.tree` must equal the route `SourceTreeID`. The `views` array is nonempty
 and its IDs are nonempty and unique within this request. A handle from another
@@ -459,6 +569,8 @@ type ViewEvent =
       observedThrough: ViewCursor;
       outputHash: Hash;
       value: unknown;
+      /** Field types and row identity for `value` and `rows` answers (§4.1). */
+      shape?: ResultShape;
       error?: never;
     }
   | {

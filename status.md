@@ -12,6 +12,37 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Agents 002: run tasks from anywhere — 2026-11-07
+
+**Implemented** on main (f172e0a, ef2fb3a, 67d831a, 9234fb8, c4f4a58; overstoryd redeployed with
+phase 1). Story only sends a task to a *runner*; whatever runs it, the run looks the same.
+
+- **Runners and messages** ([spec 12 §6](docs/overstory-spec/12-presence.md#6-runners-and-messages)):
+  a visible person stream opened with `runner=<label>` is a present runner; `POST
+  …/presence/{id}/messages` passes `run`, `stop` and `done` between one person's own streams
+  (4 KiB, kept nowhere); an agent's entry carries `agent.run`; `presence.ready` gives the
+  stream's own ID even when hidden. Hosts state `protocol` 2.
+- **`story agent start --task <run request>`** (JSON, `@file` or `STORY_RUN_REQUEST`), in a tree
+  placed here or a fresh checkout from a bundle: Story Sync shows the agent with the run's ID
+  from then on (the agent's own session takes over the stand-in) and marks the block done
+  when it says done. Story's own Run uses the same bookkeeping: the request's run ID, the
+  sender's range to pick the block ([agents](docs/architecture/story-sync/agents.md)).
+- **The Mac as a runner:** the device's Story Sync keeps a runner stream labelled with the
+  Mac's name on every placed tree, runs `run` messages as Run on the Mac does and answers
+  `done`; `story agent runner on|off` (on by default).
+- **Run on the iPhone** sends the task to the newest of your runners (a long press picks
+  another), shows "Starting on <Mac>…" until the agent joins, then Stop; greyed out with a
+  reason when no Mac is running Story Sync. Rosters list runners apart from people.
+- **`story agent` help** is grouped into the commands for you and those for the agent (Joe kept
+  one name, 2026-11-07).
+- **Moved out:** webhook runners and the runners list to
+  [Agents 005](plans/features/agents-005-webhook-runners.md); Codex to
+  [Agents 006](plans/features/agents-006-codex.md); talking to the agent is
+  [Agents 004](plans/features/agents-004-talk-to-the-agent.md). Undo Run stays a Mac-run
+  feature until [overstoryd 007](plans/later/history-007-page-history.md) step 7.
+  `story sync status --wait` was not built.
+- **Left:** hand checks in [Joe's to-do](plans/joe.md#agents-002).
+
 ## Clients 003: one client library, three ways to hold a tree — 2026-11-07
 
 **Implemented** on main fa661f3 (merged 2026-11-07 on Joe's word, which redeployed
@@ -365,7 +396,7 @@ is **implemented** on main and closed; its plan is deleted. It absorbed Live 001
 - **Left over:** hand checks are in [Joe's to-do](plans/joe.md#agents-001); sidebar
   presence dots and `story sync status --wait` were not built (noted in
   [Agents 004](plans/features/agents-004-talk-to-the-agent.md) and
-  [Agents 002](plans/soon/agents-002-run-tasks-from-anywhere.md)).
+  [Agents 002](#agents-002-run-tasks-from-anywhere--2026-11-07)).
 
 ## Merge as blocks and elements — 2026-11-01
 

@@ -1,7 +1,7 @@
 # Agents 004: talk to the agent while it works
 
 **Why and when:** the other half of what Joe described on 2026-10-30 (thread "Bring AI into
-Story smoothly"), split from [Agents 002](../soon/agents-002-run-tasks-from-anywhere.md) by Joe
+Story smoothly"), split from [Agents 002](../../status.md#agents-002-run-tasks-from-anywhere--2026-11-07) by Joe
 on 2026-11-07. Presence for an agent should support more back and forth than presence in
 Google Docs or Notion: the agent can ask, and Joe answers right at its cursor, from whichever
 device he's on. Exact carets ([Live 002](live-002-exact-carets.md)) and suggestions

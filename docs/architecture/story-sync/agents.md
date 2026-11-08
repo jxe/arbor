@@ -56,3 +56,40 @@ command that installed them, so `story agent start` from the npm package writes
   the snapshot, kept for a day and saved in `agent-runs/runs.json` so they
   survive a restart. [overstoryd 007](../../../plans/later/history-007-page-history.md)
   step 7 plans to replace this with a history restore.
+- **Run requests.** A run can be named by a run request (spec 12 §6): its
+  `run` becomes the run's ID, so the same request sent twice runs once, and
+  the agent's presence entry carries it as `agent.run`. When the folder holds
+  the sender's version of the page (the range's `source` hash matches), the
+  block under the range is the task; otherwise the first block with the
+  task's text. At the end the block is found again by text, nearest the line
+  it started on.
+
+## Runs someone else starts
+
+`story agent start --task <run request>` (JSON, `@file` or
+`STORY_RUN_REQUEST`) posts the request to `/v1/agents/runs` with
+`external: true`, at the Story Sync serving the tree's folder: this machine's,
+or a fresh checkout's when a bundle is given too. Story Sync starts nothing.
+It holds the tree, opens the agent's presence entry with the run's ID as a
+*stand-in*, and prints what the agent should be told. The first other agent
+session to report in that tree (Claude Code's hooks name their own session)
+takes the stand-in over rather than showing twice. When that session says
+`story agent done`, the block is marked done and published before the command
+returns, so a `story agent finish` right after sends it; a session that ends
+without `done` leaves the block and the run fails with why. External runs keep
+no snapshot, so they have no Undo Run.
+
+## The Mac as a runner
+
+`TaskRunner` (`packages/story-sync/src/task-runner.ts`) runs in the device's
+own long-lived Story Sync (`--control`, not a cloud session's), unless
+`story agent runner off` (kept in `.state/runner.json`) or
+`STORY_SYNC_RUNNER=0`. It keeps one presence stream per placed tree, opened
+with `runner=<the Mac's name>` and `device=mac`, and every 30 seconds reopens
+any that ended and follows placements that came or went. A `run` message
+catches the folder up with the host, then starts the run as Run on the Mac
+does, on the stream's own tree whatever URL the request names; when the run
+ends, the sender is told `done` with the result ("Stopped", or "Failed: …"
+for a run that failed or could not start). `stop` stops a run on that tree.
+Clients list runner entries apart from people: the iPhone sends Run to the
+newest of the person's own runners and offers the others on a long press.

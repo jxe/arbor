@@ -81,7 +81,9 @@ discussion. Where it says *query* or *endpoint*, read *view*
   - The old tree stays on screen until the new run is ready.
   - Story waits up to about 100 ms so all of a run's streams are at one tree version.
 - Views on a placed tree are planned and run against Story Sync's local SQLite. Otherwise
-  Story asks the host for the plan's results (the form Apps 005 step 2 decides).
+  Story asks the host for the view's `rows` answer
+  ([executable documents §12.1](../../docs/overstory-spec/07-executable-documents.md#121-evaluate-and-stream-views))
+  and runs the view itself, so state changes stay on the device.
 
 ## 3. The SwiftUI renderer
 

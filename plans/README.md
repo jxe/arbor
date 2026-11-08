@@ -6,7 +6,7 @@ other plans for things you would notice in Story; [`later/`](later) and
 [`when-needed/`](when-needed) hold the rest, the latter for plans that wait on a trigger ("when
 merges bite", "when size hurts") rather than a date. Plans and their paragraphs here don't say
 soon or later; they may say what they come after. A file
-is named by its topic and number, such as `soon/agents-002-run-tasks-from-anywhere.md`. When a plan's timing
+is named by its topic and number, such as `soon/release-003-app-store.md`. When a plan's timing
 changes, move the file and its paragraph here.
 
 Each plan starts with why Joe wants it and what it comes after; the same paragraph is below. Things only
@@ -153,12 +153,6 @@ and block, and policy pages. The sample pages are the reviewer's way in.
 After Apps 005. Small apps embedded in pages by a link to a `.tsx`, written as views
 in TSX and drawn natively in SwiftUI (no web view, no React), with state owned by the app,
 the page or the reader. Absorbs Apps 001 and 003; an HTML renderer comes later.
-
-**[Agents 002: run tasks from anywhere](soon/agents-002-run-tasks-from-anywhere.md).**
-Run sends a task to a *runner* the person chooses (Joe, 2026-11-06):
-a present runner such as their Mac, reached through presence messages, or a webhook runner
-such as a claude.ai scheduled task, GitHub Actions or their own server; whatever runs it uses
-`story agent start --task`, so every run looks the same. Run from the iPhone goes to your Mac.
 
 ## Later
 

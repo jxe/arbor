@@ -2541,6 +2541,10 @@ final class StoryWorkspaceState {
         return presenceRoster.peers(onPage: Self.presencePage(reference).path)
     }
 
+    nonisolated static func agentRunKey(tree: String, page: String, task: String) -> String {
+        "\(tree)|\(page)|\(task)"
+    }
+
 #if os(macOS)
     // MARK: Agent runs (Agents 001 phase 6)
 
@@ -2567,10 +2571,6 @@ final class StoryWorkspaceState {
         } catch let error as StorySyncServerError where error.status == 405 {
             storySyncIsOutdated = true
         } catch {}
-    }
-
-    nonisolated static func agentRunKey(tree: String, page: String, task: String) -> String {
-        "\(tree)|\(page)|\(task)"
     }
 
     /// The run, if any, of `task` on `reference`'s page.

@@ -2,7 +2,7 @@
 
 **Why:** Codex should work as well as Claude Code (Joe, 2026-10-30). Split from Agents 002 (Joe, 2026-11-07).
 
-**Order:** after [Agents 002](../soon/agents-002-run-tasks-from-anywhere.md), which defines the run
+**Order:** after [Agents 002](../../status.md#agents-002-run-tasks-from-anywhere--2026-11-07), which defines the run
 request, `story agent start --task` and the Runners list.
 
 ## Status
