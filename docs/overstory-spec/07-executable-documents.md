@@ -202,7 +202,7 @@ Facts are the view's narrowing. They are Datalog-style clauses over a row variab
 | `p.authors.has(person)` | a to-many relationship includes a row or a key |
 | `l.items.practice.authors.has(person)` | a **path fact**: some item's practice has this author |
 | `or([facts], [facts])`, `not(fact)` | alternatives and negation |
-| `visible({ l, me })` | a **rule**: named facts, defined once with `rule(…)` |
+| `curatedBy({ l, person })` | a **rule**: named facts, defined once with `rule(…)` |
 
 Rows from enclosing code act as placeholders that are already filled in. In
 `p.tags.all(t => [t.list.is(l)])` inside a loop over a list's items, `l` is the list being
