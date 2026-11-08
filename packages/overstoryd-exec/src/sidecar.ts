@@ -76,12 +76,6 @@ export interface ExecSidecarOptions {
   origin: string;
   views?: readonly ExecEntry<View<unknown, unknown>>[];
   mutations?: readonly ExecEntry<MutationHandle<unknown, unknown>>[];
-  /**
-   * Answer `rows` for JSX views. Off by default: until read rules can hide
-   * rows by value, a `rows` answer would send a device rows a view's own
-   * check left out (Apps 005 step 4), so JSX views answer trees.
-   */
-  rowsAnswers?: boolean;
 }
 
 /** How many times the same changes are resubmitted on a newer head that left their collection as it was. */
@@ -291,9 +285,6 @@ export class ExecSidecar implements AsyncDisposable {
       ? { ref: question.view, handle: undefined, sources: [dirname(question.view.path)] }
       : this.views.get(refKey(question.view));
     if (!entry) return inactive;
-    if (question.form === "rows" && !this.options.rowsAnswers) {
-      return { id, refusal: { code: "unsupported-operation", message: "This host answers JSX views as view trees, not rows", retryable: false } };
-    }
     const collection = collectionFor(entry, question.collections);
     if (!collection) return { id, refusal: { code: "invalid-request", message: "The view's collection was not given", retryable: false } };
     const opened = await this.open(collection);

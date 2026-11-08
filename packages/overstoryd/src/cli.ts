@@ -112,7 +112,6 @@ function pagesOption(value: string | undefined): boolean | string[] {
  * `OVERSTORYD_ACTIVATIONS`: a JSON file listing the modules the host runs
  * (Apps 005), each `{tree, path, root}`. Read when the execution sidecar first
  * starts. Unset, the views and mutate routes answer `unsupported-operation`.
- * `OVERSTORYD_ROWS_ANSWERS=1` lets JSX views answer `rows`.
  */
 function collectionsOption(): HostCollectionsOptions | undefined {
   const file = process.env.OVERSTORYD_ACTIVATIONS?.trim();
@@ -125,7 +124,6 @@ function collectionsOption(): HostCollectionsOptions | undefined {
       }
       return value as Activation[];
     },
-    rowsAnswers: process.env.OVERSTORYD_ROWS_ANSWERS === "1",
   };
 }
 

@@ -240,8 +240,6 @@ export interface HostCollectionsOptions {
    * mutation is refused as not active.
    */
   activations?: readonly Activation[] | (() => readonly Activation[] | Promise<readonly Activation[]>);
-  /** Let JSX views answer `rows` (the sidecar's `--rows-answers`); off until read rules can hide rows by value. */
-  rowsAnswers?: boolean;
   /** How to start the sidecar; by default `bun` running `@ovst/overstoryd-exec`. The host adds its arguments. */
   command?: readonly string[];
   /** A mutation's logical time; tests fix it. */
@@ -347,7 +345,6 @@ export class HostCollections implements AsyncDisposable {
     return [
       ...base,
       "--activations", this.manifest,
-      ...(this.options.rowsAnswers ? ["--rows-answers"] : []),
       "--materialized", join(this.dataRoot, "materialized"),
       "--state", join(this.dataRoot, "exec"),
       "--host", this.origin,

@@ -105,6 +105,11 @@ The AFS half of the global namespace: every tree you can read is a path under
 `~/Overstory/<host>/…`, fetched when opened, through a File Provider extension on the Mac (and
 the Files app on the iPhone). Builds on visitor sessions and read-only placements (2026-11-05).
 
+**[Security 013: fine-grained read rules](features/security-013-row-read-rules.md).**
+A model's read rules in access policy (`who: {property: owner}`, later value predicates),
+applied by the host to every view, so a view or a `rows` answer never sees a row its reader
+may not. Until then, views see whatever their caller can read in the tree (Joe, 2026-11-08).
+
 **[Security 012: get back into an account with the admin's help](features/security-012-get-back-in-with-the-admins-help.md).**
 A person who has lost every device gets back in through the host's administrator, as the
 spec has it; Joe wants that to be as easy as possible for both. The administrator makes a
@@ -123,12 +128,6 @@ phrase split one pinch recording into several bullets, so a day plan of time row
 can be dictated in one go. A recording without commands stays one paragraph.
 
 ## Soon
-
-**[Apps 005: read rules from access policy, and one plan per view](soon/apps-005-views-on-the-host.md).**
-Views, code loaded from trees and the host switch are built
-([status](../status.md#views-on-the-host-and-declared-views--2026-11-08)). Left: the host
-reads models' read rules from access policy and applies them to every view, and a view's
-plan is traced once, not per input.
 
 **[Clients 003: the launch preview as the session](soon/clients-003-launch-preview-as-the-session.md).**
 What is left of the one client library: once Joe's launch timings are in, the Mac's launch
@@ -159,6 +158,9 @@ the page or the reader. Absorbs Apps 001 and 003; an HTML renderer comes later.
 Rows only their authors edit, as access policy (`who: {property: authors}`, one
 `unless`/`when` predicate), with device updates authorized by effect. Formerly 002's
 milestone 5.
+
+**[Apps 013: one plan per view](later/apps-013-one-plan-per-view.md).**
+Trace views with tagged inputs, so a plan is cached per view instead of per input.
 
 **[Apps 010: activation and lending](later/apps-010-activation-and-lending.md).**
 After Apps 005: code runs as an activated app under an execution token with lenders, not as

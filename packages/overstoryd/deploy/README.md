@@ -160,7 +160,6 @@ overstoryd reads these variables at start; all are optional.
 | `OVERSTORYD_STORY_MAC_URL` | unset | Where to get Story for Mac. The page at a reserved, unclaimed `/~handle` offers it as "Get Story for Mac" to a person who opened an invitation link; no link when unset. |
 | `OVERSTORYD_STORY_IPHONE_URL` | unset | The same for "Get Story for iPhone". |
 | `OVERSTORYD_ACTIVATIONS` | unset | A JSON file listing the modules the host runs as views and mutations, each `{"tree", "path", "root"}`; see [views and mutations](#views-and-mutations). Unset, the views and mutate routes answer `unsupported-operation`. |
-| `OVERSTORYD_ROWS_ANSWERS` | off | `1` lets JSX views answer `rows`. Leave it off until read rules can hide rows by value. |
 | `OVERSTORYD_MERGE_EXECUTABLE` | the workspace `overstoryd-merge` | Alternate merge sidecar implementing `serve`; see [writing a sidecar](../../../docs/architecture/overstoryd/writing-a-sidecar.md) and [the merge sidecar](../../../docs/architecture/overstoryd/merge-tool.md#running-and-configuring). |
 
 ### Response headers and stored files

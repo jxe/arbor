@@ -237,7 +237,7 @@ describe.serial("rows on the host", () => {
     } finally { controller.abort(); }
   }, 30_000);
 
-  test("a JSX view runs on the host and answers its view tree, and rows are refused until read rules can hide them", async () => {
+  test("a JSX view runs on the host and answers its view tree, or the rows a client runs it over", async () => {
     process.env.STORY_HOME = state;
     // A list whose owner is a person on this host, so the page can show them.
     const made = await mutate({ name: "Drawn on the host", visibility: "Public" }, "drawn-list");
@@ -252,7 +252,10 @@ describe.serial("rows on the host", () => {
       expect(result.value).toMatchObject({ type: "Column" });
       expect(JSON.stringify(result.value)).toContain("Drawn on the host");
       const rows = await openView(host.url, controller, "ListPage", { id }, "rows");
-      expect((await nextResult(rows)).error).toMatchObject({ code: "unsupported-operation" });
+      const answer = await nextResult(rows);
+      expect(answer.error).toBeUndefined();
+      expect(answer.value.roots.length).toBeGreaterThan(0);
+      expect(JSON.stringify(answer.value)).toContain("Drawn on the host");
       // A data view's value carries its shape.
       const data = await openView(host.url, controller, "listName");
       const value = await nextResult(data);

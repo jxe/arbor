@@ -1,6 +1,6 @@
 # Apps 010: Activation and lending
 
-**Why and when:** after [Apps 005](../soon/apps-005-views-on-the-host.md). Joe wants to test the permissions and lending models against real code. Joe split this out of Apps 005 on 2026-11-06. Once Apps 005 runs views and mutations from trees as their caller, this plan makes them run as an app, under the authority an activation grants.
+**Why and when:** after [Apps 005](../../status.md#views-on-the-host-and-declared-views--2026-11-08). Joe wants to test the permissions and lending models against real code. Joe split this out of Apps 005 on 2026-11-06. Once Apps 005 runs views and mutations from trees as their caller, this plan makes them run as an app, under the authority an activation grants.
 
 ## Status
 

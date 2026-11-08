@@ -142,10 +142,12 @@ type ExecMutationAnswer =
 - **Reading the right state.** The sidecar compares the file's recorded update with
   `update` before and after it reads. If the file has moved on, it answers `stale`, and
   overstoryd asks again with the newer update.
-- **Answers.** A data view answers its value and shape. A JSX view answers its view
-  tree, run on the host. `rows` answers are refused unless the host sets
-  `OVERSTORYD_ROWS_ANSWERS=1` (`--rows-answers`): until read rules can hide rows by
-  value, a `rows` answer would send a device rows a view's own check left out.
+- **Answers.** A data view answers its value and shape. A JSX view answers the rows its
+  plans read, for the client to run it (`rows`, its default), or its view tree run on the
+  host (`tree`). A `rows` answer holds every row the plans read, including any a view's
+  own check then leaves out; until row-level read rules exist
+  ([Security 013](../../../plans/features/security-013-row-read-rules.md)), it is bounded only by
+  what the caller can read in the tree.
 - **People.** A view that reaches a person reads their profile tree through the
   standard API with the question's token: the descriptor names the root, and the root's
   `_index.md` declares the card (`readRootProfile` in `@ovst/protocol`). A tree the token

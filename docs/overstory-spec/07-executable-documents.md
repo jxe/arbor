@@ -500,8 +500,7 @@ type ViewsRequest = {
      * What to answer (§4.1). `value`: a data view's JSON. `rows`: a JSX
      * view's plan results, for a client that runs the view itself. `tree`:
      * a JSX view's view tree, run on the host. Defaults to `value` for a data
-     * view and `rows` for a JSX view. A host that can't yet hide the rows a
-     * reader may not see refuses `rows` with `unsupported-operation`.
+     * view and `rows` for a JSX view.
      */
     form?: "value" | "rows" | "tree";
     /** Reads a client's run of a `rows` answer reached and didn't find. */

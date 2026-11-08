@@ -5,7 +5,7 @@
 ## Status and ownership
 
 **PLANNED · after Apps
-[005](../soon/apps-005-views-on-the-host.md); coordinates [011](../soon/apps-011-widgets-in-story.md).**
+[005](../../status.md#views-on-the-host-and-declared-views--2026-11-08); coordinates [011](../soon/apps-011-widgets-in-story.md).**
 Replace unused query/mutation authoring as needed. Own final authoring signatures,
 workflow progress/receipt encoding and implementation in the sidecar, not another
 overstoryd execution engine. Portable semantics live in [executable documents](../../docs/overstory-spec/07-executable-documents.md)

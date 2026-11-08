@@ -13,7 +13,6 @@ import { ExecSidecar } from "./sidecar.ts";
 const { values } = parseArgs({
   options: {
     activations: { type: "string" },
-    "rows-answers": { type: "boolean" },
     materialized: { type: "string" },
     state: { type: "string" },
     host: { type: "string" },
@@ -37,7 +36,6 @@ const sidecar = new ExecSidecar({
   origin: values.host!,
   views: code.views,
   mutations: code.mutations,
-  rowsAnswers: values["rows-answers"] ?? false,
 });
 
 const write = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);

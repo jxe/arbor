@@ -8,7 +8,7 @@
 - **Risk:** MEDIUM. A placement host enforces lends it read from another host.
 - **State:** PLANNED 2026-09-27, split from the portable-profiles design
   (Security 008). Waits until apps run on hosts at all
-  ([Apps 005](../soon/apps-005-views-on-the-host.md)). One decision is Joe's
+  ([Apps 005](../../status.md#views-on-the-host-and-declared-views--2026-11-08)). One decision is Joe's
   (marked **Decide**).
 - **Builds on:** [Security 007](../../status.md#trees-on-other-hosts--2026-09-28) and
   [Security 009](../../status.md#trees-on-other-hosts--2026-09-28) (its refresh and

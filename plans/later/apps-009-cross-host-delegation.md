@@ -9,7 +9,7 @@
   spec defers.
 - **State:** DESIGN SKETCH 2026-09-27, split from the portable-profiles design
   (Security 008). Waits on hosted code
-  ([Apps 005](../soon/apps-005-views-on-the-host.md)) and
+  ([Apps 005](../../status.md#views-on-the-host-and-declared-views--2026-11-08)) and
   [Apps 008](apps-008-app-approvals-on-placement-hosts.md). One decision is Joe's
   (marked **Decide**).
 - **Closes:** the spec's deferred item 2, delegated authorization and

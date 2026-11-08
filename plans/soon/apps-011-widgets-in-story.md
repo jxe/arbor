@@ -1,6 +1,6 @@
 # Apps 011: Widgets in Story
 
-**Order:** after [Apps 005](../soon/apps-005-views-on-the-host.md). Joe's own widgets can be
+**Order:** after [Apps 005](../../status.md#views-on-the-host-and-declared-views--2026-11-08). Joe's own widgets can be
 built and tried while [Apps 010](../later/apps-010-activation-and-lending.md) lands. Widgets from
 other people wait for Apps 010.
 
@@ -12,7 +12,7 @@ are in git history, and the parts that still apply are below.
 
 The design and its open questions are in the Claude Doc "Story widgets" from the apps
 discussion. Where it says *query* or *endpoint*, read *view*
-([Apps 005](../soon/apps-005-views-on-the-host.md)).
+([Apps 005](../../status.md#views-on-the-host-and-declared-views--2026-11-08)).
 
 ## What Joe decided
 
