@@ -449,14 +449,44 @@ final class USLRowCollection {
     let byModel: [String: USLTable]
     var rows: USLRowsByTable
     let people: [PresentedPerson]
+    /// Fields that reach through a connection model, read as a join to its other end.
+    let connections: [String: USLFieldAccess]
 
     init(_ schema: USLCheckResult, _ rows: USLRowsByTable, _ people: [PresentedPerson]) throws {
         if !schema.diagnostics.isEmpty { throw ViewError(message: "The schema has errors; check it first") }
-        var models: [String: USLResolvedModel] = [:]
-        for model in schema.models { models[model.name] = model }
         let tables = try uslLayout(schema, store: .files)
         var byModel: [String: USLTable] = [:]
         for table in tables where table.ends == nil { byModel[table.stores] = table }
+        // A connection model (its key is its two ends, like `Item` between a list and a
+        // practice) is shown from either side by what it connects to: `List.items` lists
+        // practices. Its rows are read and written as a join table's.
+        var connections: [String: USLFieldAccess] = [:]
+        var connectionTargets: [String: String] = [:]
+        for model in schema.models {
+            guard let table = byModel[model.name], model.ends.count == 2 else { continue }
+            func columnsOf(_ end: USLResolvedEnd) -> [String]? { table.fields.first { $0.name == end.as }?.columns }
+            let columns = model.ends.map(columnsOf)
+            guard columns.allSatisfy({ $0?.count == 1 }), table.primaryKey.count == 2,
+                  columns.allSatisfy({ table.primaryKey.contains($0![0]) }) else { continue }
+            for (index, end) in model.ends.enumerated() {
+                let other = model.ends[1 - index]
+                let mine = USLJoinEnd(model: end.model, field: end.field, columns: columnsOf(end)!, position: end.ordered ? "\(end.field)_position" : nil, fold: false)
+                let theirs = USLJoinEnd(model: other.model, field: other.field, columns: columnsOf(other)!, position: nil, fold: false)
+                connections["\(end.model).\(end.field)"] = .join(table: table, mine: mine, theirs: theirs, target: other.model)
+                connectionTargets["\(end.model).\(end.field)"] = other.model
+            }
+        }
+        var models: [String: USLResolvedModel] = [:]
+        for var model in schema.models {
+            model.fields = model.fields.map { field in
+                guard let target = connectionTargets["\(model.name).\(field.name)"] else { return field }
+                var through = field
+                through.type = target
+                return through
+            }
+            models[model.name] = model
+        }
+        self.connections = connections
         self.schema = schema
         self.models = models
         self.tables = tables
@@ -485,11 +515,15 @@ final class USLRowCollection {
 
     func isFixed(_ model: String) -> Bool { models[model]?.rows == .fixed }
 
-    /// The value naming a row of `model` in a reference: its one key column's value.
+    /// The value naming a row of `model` in a reference: its one key column's value,
+    /// or for a key of several columns the row key (`uslRowKey`).
     func memberOf(_ model: String, _ row: USLRow) throws -> JSONValue {
         if model == "Person" { return row["id"] ?? .null }
         let table = tableOf(model)!
-        if table.primaryKey.count != 1 { throw ViewError(message: "`\(model)` has a key of several columns; a view refers to rows by one") }
+        if table.primaryKey.count != 1 {
+            guard let key = uslRowKey(table, row) else { throw ViewError(message: "A row of `\(model)` has no key") }
+            return .string(key)
+        }
         guard let value = row[table.primaryKey[0]], value.isScalar else { throw ViewError(message: "A row of `\(model)` has no key") }
         return value
     }
@@ -501,10 +535,12 @@ final class USLRowCollection {
     /// The row of `model` a reference names.
     func rowByMember(_ model: String, _ member: JSONValue) -> USLRow? {
         guard let table = tableOf(model) else { return nil }
+        if table.primaryKey.count != 1 { return rowsOf(table).first { uslRowKey(table, $0).map(JSONValue.string) == member } }
         return rowsOf(table).first { sameJSON($0[table.primaryKey[0]], member) }
     }
 
     func access(_ model: USLResolvedModel, _ field: USLResolvedField) throws -> USLFieldAccess {
+        if let joined = connections["\(model.name).\(field.name)"] { return joined }
         // Person has no table: its fields are the other ends of connections.
         let table = tableOf(model.name)
         if table == nil && model.name != "Person" { throw ViewError(message: "`\(model.name)` has no rows") }

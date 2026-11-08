@@ -64,7 +64,10 @@ export function findDeclaredView(schema: CheckResult, name: DeclaredViewName): {
   return null;
 }
 
-/** The models an entry reaches: its own, and each model its line, group, sort and rows paths pass through. */
+/**
+ * The models an entry reaches: its own, each model its line, group, sort and
+ * rows paths pass through, and the ends of a connection model they reach.
+ */
 export function reachedModels(schema: CheckResult, model: string, entry: ResolvedView): Set<string> {
   const models = new Map(schema.models.map((candidate) => [candidate.name, candidate]));
   const reached = new Set([model]);
@@ -75,6 +78,8 @@ export function reachedModels(schema: CheckResult, model: string, entry: Resolve
       const field = current?.fields.find((candidate) => candidate.name === segment);
       if (!field) return;
       if (models.has(field.type) || field.type === PERSON_RELATION) reached.add(field.type);
+      // A connection model is shown by what it connects to: both its ends are reached.
+      for (const end of models.get(field.type)?.ends ?? []) reached.add(end.model);
       current = models.get(field.type);
     }
   };

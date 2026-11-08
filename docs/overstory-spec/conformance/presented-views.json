@@ -352,6 +352,87 @@
           }
         ]
       }
+    },
+    "connections": {
+      "schema": "// Connection models (Supplies' shape): a list's items connect it to practices,\n// its tags are keyed within it, and reactions connect it to people. A line\n// shows a connection by what it connects to, and a tag by its name.\n\nmain model List {\n  name      Text\n  items     Item[]\n  tags      Tag[]\n  reactions Reaction[]\n}\n\nmodel Practice {\n  name Text\n}\n\nmodel Item {\n  ordered List.items[]\n  Practice.items[]\n}\n\nmodel Tag (list, id) {\n  name  Text\n  color Text?\n}\n\n{ Tag.list, List.tags[] }\n\nmodel Reaction {\n  List.reactions[]\n  Person.reactions[]\n  emoji Text\n}\n\nre Tag {\n  color ~color\n}\n",
+      "rows": {
+        "List": [
+          {
+            "id": "l1",
+            "name": "Care"
+          },
+          {
+            "id": "l2",
+            "name": "Craft"
+          }
+        ],
+        "Practice": [
+          {
+            "id": "p1",
+            "name": "Mutual aid"
+          },
+          {
+            "id": "p2",
+            "name": "Listening"
+          },
+          {
+            "id": "p3",
+            "name": "Weaving"
+          }
+        ],
+        "Item": [
+          {
+            "list": "l1",
+            "practice": "p2",
+            "items_position": 0
+          },
+          {
+            "list": "l1",
+            "practice": "p1",
+            "items_position": 1
+          },
+          {
+            "list": "l2",
+            "practice": "p3",
+            "items_position": 0
+          }
+        ],
+        "Tag": [
+          {
+            "list": "l1",
+            "id": "local",
+            "name": "Local",
+            "color": "#ef4444"
+          },
+          {
+            "list": "l2",
+            "id": "local",
+            "name": "Nearby"
+          }
+        ],
+        "Reaction": [
+          {
+            "list": "l1",
+            "person": "tr_ada",
+            "emoji": "❤️"
+          },
+          {
+            "list": "l2",
+            "person": "tr_bo",
+            "emoji": "👍"
+          }
+        ]
+      },
+      "people": [
+        {
+          "id": "tr_ada",
+          "name": "Ada"
+        },
+        {
+          "id": "tr_bo",
+          "name": "Bo"
+        }
+      ]
     }
   },
   "presentations": [
@@ -4757,6 +4838,647 @@
           }
         }
       }
+    },
+    {
+      "name": "connections: items shown as their practices in order, tags by name within their list, reactions as people",
+      "fixture": "connections",
+      "model": "List",
+      "view": 0,
+      "expected": {
+        "model": "List",
+        "table": "List",
+        "tabs": [
+          {
+            "label": "All"
+          },
+          {
+            "label": "By items"
+          },
+          {
+            "label": "By tags"
+          },
+          {
+            "label": "By reactions"
+          }
+        ],
+        "tab": 0,
+        "groups": [
+          {
+            "id": "",
+            "kind": "flat",
+            "heading": "",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"l1\"]]",
+                "occurrence": "[\"All\",\"\",\"[[\\\"id\\\",\\\"l1\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Care"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "items",
+                    "chips": [
+                      {
+                        "member": "p2",
+                        "name": "Listening"
+                      },
+                      {
+                        "member": "p1",
+                        "name": "Mutual aid"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tags",
+                    "chips": [
+                      {
+                        "member": "[[\"list\",\"l1\"],[\"id\",\"local\"]]",
+                        "name": "Local",
+                        "color": "#ef4444"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "reactions",
+                    "chips": [
+                      {
+                        "member": "tr_ada",
+                        "name": "Ada",
+                        "person": true
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "row": "[[\"id\",\"l2\"]]",
+                "occurrence": "[\"All\",\"\",\"[[\\\"id\\\",\\\"l2\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Craft"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "items",
+                    "chips": [
+                      {
+                        "member": "p3",
+                        "name": "Weaving"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tags",
+                    "chips": [
+                      {
+                        "member": "[[\"list\",\"l2\"],[\"id\",\"local\"]]",
+                        "name": "Nearby"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "reactions",
+                    "chips": [
+                      {
+                        "member": "tr_bo",
+                        "name": "Bo",
+                        "person": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "items": [
+            {
+              "member": "p1",
+              "name": "Mutual aid"
+            },
+            {
+              "member": "p2",
+              "name": "Listening"
+            },
+            {
+              "member": "p3",
+              "name": "Weaving"
+            }
+          ],
+          "tags": [
+            {
+              "member": "[[\"list\",\"l1\"],[\"id\",\"local\"]]",
+              "name": "Local",
+              "color": "#ef4444"
+            },
+            {
+              "member": "[[\"list\",\"l2\"],[\"id\",\"local\"]]",
+              "name": "Nearby"
+            }
+          ],
+          "reactions": [
+            {
+              "member": "tr_ada",
+              "name": "Ada",
+              "person": true
+            },
+            {
+              "member": "tr_bo",
+              "name": "Bo",
+              "person": true
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"l1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          },
+          "[[\"id\",\"l2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": []
+          }
+        }
+      }
+    },
+    {
+      "name": "connections: grouped by a connection model, a group per practice",
+      "fixture": "connections",
+      "model": "List",
+      "view": 1,
+      "expected": {
+        "model": "List",
+        "table": "List",
+        "tabs": [
+          {
+            "label": "All"
+          },
+          {
+            "label": "By items"
+          },
+          {
+            "label": "By tags"
+          },
+          {
+            "label": "By reactions"
+          }
+        ],
+        "tab": 1,
+        "group": "items",
+        "groups": [
+          {
+            "id": "\"p1\"",
+            "kind": "connection",
+            "heading": "Mutual aid",
+            "member": "p1",
+            "table": "Practice",
+            "row": "[[\"id\",\"p1\"]]",
+            "headingField": "name",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"l1\"]]",
+                "occurrence": "[\"By items\",\"\\\"p1\\\"\",\"[[\\\"id\\\",\\\"l1\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Care"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "items",
+                    "chips": [
+                      {
+                        "member": "p2",
+                        "name": "Listening"
+                      },
+                      {
+                        "member": "p1",
+                        "name": "Mutual aid"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tags",
+                    "chips": [
+                      {
+                        "member": "[[\"list\",\"l1\"],[\"id\",\"local\"]]",
+                        "name": "Local",
+                        "color": "#ef4444"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "reactions",
+                    "chips": [
+                      {
+                        "member": "tr_ada",
+                        "name": "Ada",
+                        "person": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"p2\"",
+            "kind": "connection",
+            "heading": "Listening",
+            "member": "p2",
+            "table": "Practice",
+            "row": "[[\"id\",\"p2\"]]",
+            "headingField": "name",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"l1\"]]",
+                "occurrence": "[\"By items\",\"\\\"p2\\\"\",\"[[\\\"id\\\",\\\"l1\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Care"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "items",
+                    "chips": [
+                      {
+                        "member": "p2",
+                        "name": "Listening"
+                      },
+                      {
+                        "member": "p1",
+                        "name": "Mutual aid"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tags",
+                    "chips": [
+                      {
+                        "member": "[[\"list\",\"l1\"],[\"id\",\"local\"]]",
+                        "name": "Local",
+                        "color": "#ef4444"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "reactions",
+                    "chips": [
+                      {
+                        "member": "tr_ada",
+                        "name": "Ada",
+                        "person": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"p3\"",
+            "kind": "connection",
+            "heading": "Weaving",
+            "member": "p3",
+            "table": "Practice",
+            "row": "[[\"id\",\"p3\"]]",
+            "headingField": "name",
+            "ordered": false,
+            "remove": "disconnect",
+            "lines": [
+              {
+                "row": "[[\"id\",\"l2\"]]",
+                "occurrence": "[\"By items\",\"\\\"p3\\\"\",\"[[\\\"id\\\",\\\"l2\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Craft"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "items",
+                    "chips": [
+                      {
+                        "member": "p3",
+                        "name": "Weaving"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tags",
+                    "chips": [
+                      {
+                        "member": "[[\"list\",\"l2\"],[\"id\",\"local\"]]",
+                        "name": "Nearby"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "reactions",
+                    "chips": [
+                      {
+                        "member": "tr_bo",
+                        "name": "Bo",
+                        "person": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "items": [
+            {
+              "member": "p1",
+              "name": "Mutual aid"
+            },
+            {
+              "member": "p2",
+              "name": "Listening"
+            },
+            {
+              "member": "p3",
+              "name": "Weaving"
+            }
+          ],
+          "tags": [
+            {
+              "member": "[[\"list\",\"l1\"],[\"id\",\"local\"]]",
+              "name": "Local",
+              "color": "#ef4444"
+            },
+            {
+              "member": "[[\"list\",\"l2\"],[\"id\",\"local\"]]",
+              "name": "Nearby"
+            }
+          ],
+          "reactions": [
+            {
+              "member": "tr_ada",
+              "name": "Ada",
+              "person": true
+            },
+            {
+              "member": "tr_bo",
+              "name": "Bo",
+              "person": true
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"l1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"p1\"",
+              "\"p2\""
+            ]
+          },
+          "[[\"id\",\"l2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"p3\""
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "connections: grouped by tags keyed within a list",
+      "fixture": "connections",
+      "model": "List",
+      "view": 2,
+      "expected": {
+        "model": "List",
+        "table": "List",
+        "tabs": [
+          {
+            "label": "All"
+          },
+          {
+            "label": "By items"
+          },
+          {
+            "label": "By tags"
+          },
+          {
+            "label": "By reactions"
+          }
+        ],
+        "tab": 2,
+        "group": "tags",
+        "groups": [
+          {
+            "id": "\"[[\\\"list\\\",\\\"l1\\\"],[\\\"id\\\",\\\"local\\\"]]\"",
+            "kind": "connection",
+            "heading": "Local",
+            "member": "[[\"list\",\"l1\"],[\"id\",\"local\"]]",
+            "color": "#ef4444",
+            "table": "Tag",
+            "row": "[[\"list\",\"l1\"],[\"id\",\"local\"]]",
+            "headingField": "name",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"l1\"]]",
+                "occurrence": "[\"By tags\",\"\\\"[[\\\\\\\"list\\\\\\\",\\\\\\\"l1\\\\\\\"],[\\\\\\\"id\\\\\\\",\\\\\\\"local\\\\\\\"]]\\\"\",\"[[\\\"id\\\",\\\"l1\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Care"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "items",
+                    "chips": [
+                      {
+                        "member": "p2",
+                        "name": "Listening"
+                      },
+                      {
+                        "member": "p1",
+                        "name": "Mutual aid"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tags",
+                    "chips": [
+                      {
+                        "member": "[[\"list\",\"l1\"],[\"id\",\"local\"]]",
+                        "name": "Local",
+                        "color": "#ef4444"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "reactions",
+                    "chips": [
+                      {
+                        "member": "tr_ada",
+                        "name": "Ada",
+                        "person": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "\"[[\\\"list\\\",\\\"l2\\\"],[\\\"id\\\",\\\"local\\\"]]\"",
+            "kind": "connection",
+            "heading": "Nearby",
+            "member": "[[\"list\",\"l2\"],[\"id\",\"local\"]]",
+            "table": "Tag",
+            "row": "[[\"list\",\"l2\"],[\"id\",\"local\"]]",
+            "headingField": "name",
+            "ordered": false,
+            "remove": "delete",
+            "lines": [
+              {
+                "row": "[[\"id\",\"l2\"]]",
+                "occurrence": "[\"By tags\",\"\\\"[[\\\\\\\"list\\\\\\\",\\\\\\\"l2\\\\\\\"],[\\\\\\\"id\\\\\\\",\\\\\\\"local\\\\\\\"]]\\\"\",\"[[\\\"id\\\",\\\"l2\\\"]]\"]",
+                "cells": [
+                  {
+                    "kind": "text",
+                    "field": "name",
+                    "type": "Text",
+                    "value": "Craft"
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "items",
+                    "chips": [
+                      {
+                        "member": "p3",
+                        "name": "Weaving"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "tags",
+                    "chips": [
+                      {
+                        "member": "[[\"list\",\"l2\"],[\"id\",\"local\"]]",
+                        "name": "Nearby"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "chips",
+                    "field": "reactions",
+                    "chips": [
+                      {
+                        "member": "tr_bo",
+                        "name": "Bo",
+                        "person": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "options": {
+          "items": [
+            {
+              "member": "p1",
+              "name": "Mutual aid"
+            },
+            {
+              "member": "p2",
+              "name": "Listening"
+            },
+            {
+              "member": "p3",
+              "name": "Weaving"
+            }
+          ],
+          "tags": [
+            {
+              "member": "[[\"list\",\"l1\"],[\"id\",\"local\"]]",
+              "name": "Local",
+              "color": "#ef4444"
+            },
+            {
+              "member": "[[\"list\",\"l2\"],[\"id\",\"local\"]]",
+              "name": "Nearby"
+            }
+          ],
+          "reactions": [
+            {
+              "member": "tr_ada",
+              "name": "Ada",
+              "person": true
+            },
+            {
+              "member": "tr_bo",
+              "name": "Bo",
+              "person": true
+            }
+          ]
+        },
+        "capabilities": {
+          "[[\"id\",\"l1\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"[[\\\"list\\\",\\\"l1\\\"],[\\\"id\\\",\\\"local\\\"]]\""
+            ]
+          },
+          "[[\"id\",\"l2\"]]": {
+            "edit": true,
+            "delete": true,
+            "groups": [
+              "\"[[\\\"list\\\",\\\"l2\\\"],[\\\"id\\\",\\\"local\\\"]]\""
+            ]
+          }
+        }
+      }
     }
   ],
   "intents": [
@@ -8008,6 +8730,287 @@
           }
         ]
       }
+    },
+    {
+      "name": "connect a practice to a list through its connection model",
+      "fixture": "connections",
+      "model": "List",
+      "view": 0,
+      "intent": {
+        "kind": "connect",
+        "row": "[[\"id\",\"l2\"]]",
+        "field": "items",
+        "member": "p1",
+        "at": "2026-10-15T10:00:00Z"
+      },
+      "operations": [
+        {
+          "kind": "rowCreate",
+          "table": "Item",
+          "row": "[[\"list\",\"l2\"],[\"practice\",\"p1\"]]",
+          "values": {
+            "list": "l2",
+            "practice": "p1",
+            "items_position": 1
+          },
+          "at": "2026-10-15T10:00:00Z"
+        }
+      ],
+      "rows": {
+        "List": [
+          {
+            "id": "l1",
+            "name": "Care"
+          },
+          {
+            "id": "l2",
+            "name": "Craft"
+          }
+        ],
+        "Practice": [
+          {
+            "id": "p1",
+            "name": "Mutual aid"
+          },
+          {
+            "id": "p2",
+            "name": "Listening"
+          },
+          {
+            "id": "p3",
+            "name": "Weaving"
+          }
+        ],
+        "Item": [
+          {
+            "list": "l1",
+            "practice": "p2",
+            "items_position": 0
+          },
+          {
+            "list": "l1",
+            "practice": "p1",
+            "items_position": 1
+          },
+          {
+            "list": "l2",
+            "practice": "p3",
+            "items_position": 0
+          },
+          {
+            "list": "l2",
+            "practice": "p1",
+            "items_position": 1,
+            "created": "2026-10-15T10:00:00Z",
+            "modified": "2026-10-15T10:00:00Z"
+          }
+        ],
+        "Tag": [
+          {
+            "list": "l1",
+            "id": "local",
+            "name": "Local",
+            "color": "#ef4444"
+          },
+          {
+            "list": "l2",
+            "id": "local",
+            "name": "Nearby"
+          }
+        ],
+        "Reaction": [
+          {
+            "list": "l1",
+            "person": "tr_ada",
+            "emoji": "❤️"
+          },
+          {
+            "list": "l2",
+            "person": "tr_bo",
+            "emoji": "👍"
+          }
+        ]
+      }
+    },
+    {
+      "name": "disconnect a practice: its connection row goes",
+      "fixture": "connections",
+      "model": "List",
+      "view": 0,
+      "intent": {
+        "kind": "disconnect",
+        "row": "[[\"id\",\"l1\"]]",
+        "field": "items",
+        "member": "p2"
+      },
+      "operations": [
+        {
+          "kind": "rowDelete",
+          "table": "Item",
+          "row": "[[\"list\",\"l1\"],[\"practice\",\"p2\"]]"
+        }
+      ],
+      "rows": {
+        "List": [
+          {
+            "id": "l1",
+            "name": "Care"
+          },
+          {
+            "id": "l2",
+            "name": "Craft"
+          }
+        ],
+        "Practice": [
+          {
+            "id": "p1",
+            "name": "Mutual aid"
+          },
+          {
+            "id": "p2",
+            "name": "Listening"
+          },
+          {
+            "id": "p3",
+            "name": "Weaving"
+          }
+        ],
+        "Item": [
+          {
+            "list": "l1",
+            "practice": "p1",
+            "items_position": 1
+          },
+          {
+            "list": "l2",
+            "practice": "p3",
+            "items_position": 0
+          }
+        ],
+        "Tag": [
+          {
+            "list": "l1",
+            "id": "local",
+            "name": "Local",
+            "color": "#ef4444"
+          },
+          {
+            "list": "l2",
+            "id": "local",
+            "name": "Nearby"
+          }
+        ],
+        "Reaction": [
+          {
+            "list": "l1",
+            "person": "tr_ada",
+            "emoji": "❤️"
+          },
+          {
+            "list": "l2",
+            "person": "tr_bo",
+            "emoji": "👍"
+          }
+        ]
+      }
+    },
+    {
+      "name": "regroup a list from one practice to another",
+      "fixture": "connections",
+      "model": "List",
+      "view": 1,
+      "intent": {
+        "kind": "regroup",
+        "row": "[[\"id\",\"l2\"]]",
+        "from": "\"p3\"",
+        "to": "\"p2\"",
+        "after": null
+      },
+      "operations": [
+        {
+          "kind": "rowDelete",
+          "table": "Item",
+          "row": "[[\"list\",\"l2\"],[\"practice\",\"p3\"]]"
+        },
+        {
+          "kind": "rowCreate",
+          "table": "Item",
+          "row": "[[\"list\",\"l2\"],[\"practice\",\"p2\"]]",
+          "values": {
+            "list": "l2",
+            "practice": "p2",
+            "items_position": 0
+          }
+        }
+      ],
+      "rows": {
+        "List": [
+          {
+            "id": "l1",
+            "name": "Care"
+          },
+          {
+            "id": "l2",
+            "name": "Craft"
+          }
+        ],
+        "Practice": [
+          {
+            "id": "p1",
+            "name": "Mutual aid"
+          },
+          {
+            "id": "p2",
+            "name": "Listening"
+          },
+          {
+            "id": "p3",
+            "name": "Weaving"
+          }
+        ],
+        "Item": [
+          {
+            "list": "l1",
+            "practice": "p2",
+            "items_position": 0
+          },
+          {
+            "list": "l1",
+            "practice": "p1",
+            "items_position": 1
+          },
+          {
+            "list": "l2",
+            "practice": "p2",
+            "items_position": 0
+          }
+        ],
+        "Tag": [
+          {
+            "list": "l1",
+            "id": "local",
+            "name": "Local",
+            "color": "#ef4444"
+          },
+          {
+            "list": "l2",
+            "id": "local",
+            "name": "Nearby"
+          }
+        ],
+        "Reaction": [
+          {
+            "list": "l1",
+            "person": "tr_ada",
+            "emoji": "❤️"
+          },
+          {
+            "list": "l2",
+            "person": "tr_bo",
+            "emoji": "👍"
+          }
+        ]
+      }
     }
   ],
   "logical": [
@@ -8878,6 +9881,326 @@
             "id": "v3",
             "at": "2026-10-25T10:00:00Z",
             "tree": "tr-b",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "connections",
+      "tables": {
+        "Item": [
+          {
+            "key": [
+              [
+                "list",
+                "l1"
+              ],
+              [
+                "practice",
+                "p1"
+              ]
+            ],
+            "fields": {},
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "list",
+                "l1"
+              ],
+              [
+                "practice",
+                "p2"
+              ]
+            ],
+            "fields": {},
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "list",
+                "l2"
+              ],
+              [
+                "practice",
+                "p3"
+              ]
+            ],
+            "fields": {},
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "List": [
+          {
+            "key": [
+              [
+                "id",
+                "l1"
+              ]
+            ],
+            "fields": {
+              "name": "Care",
+              "items": [
+                [
+                  [
+                    "list",
+                    "l1"
+                  ],
+                  [
+                    "practice",
+                    "p2"
+                  ]
+                ],
+                [
+                  [
+                    "list",
+                    "l1"
+                  ],
+                  [
+                    "practice",
+                    "p1"
+                  ]
+                ]
+              ]
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "l2"
+              ]
+            ],
+            "fields": {
+              "name": "Craft",
+              "items": [
+                [
+                  [
+                    "list",
+                    "l2"
+                  ],
+                  [
+                    "practice",
+                    "p3"
+                  ]
+                ]
+              ]
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Practice": [
+          {
+            "key": [
+              [
+                "id",
+                "p1"
+              ]
+            ],
+            "fields": {
+              "name": "Mutual aid"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "p2"
+              ]
+            ],
+            "fields": {
+              "name": "Listening"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "id",
+                "p3"
+              ]
+            ],
+            "fields": {
+              "name": "Weaving"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Reaction": [
+          {
+            "key": [
+              [
+                "list",
+                "l1"
+              ],
+              [
+                "person",
+                "tr_ada"
+              ]
+            ],
+            "fields": {
+              "emoji": "❤️"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "list",
+                "l2"
+              ],
+              [
+                "person",
+                "tr_bo"
+              ]
+            ],
+            "fields": {
+              "emoji": "👍"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Tag": [
+          {
+            "key": [
+              [
+                "list",
+                "l1"
+              ],
+              [
+                "id",
+                "local"
+              ]
+            ],
+            "fields": {
+              "name": "Local",
+              "color": "#ef4444"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "key": [
+              [
+                "list",
+                "l2"
+              ],
+              [
+                "id",
+                "local"
+              ]
+            ],
+            "fields": {
+              "name": "Nearby"
+            },
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ]
+      },
+      "rows": {
+        "List": [
+          {
+            "id": "l1",
+            "name": "Care",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "l2",
+            "name": "Craft",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Practice": [
+          {
+            "id": "p1",
+            "name": "Mutual aid",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "p2",
+            "name": "Listening",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "p3",
+            "name": "Weaving",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Item": [
+          {
+            "list": "l1",
+            "practice": "p1",
+            "items_position": 1,
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "list": "l1",
+            "practice": "p2",
+            "items_position": 0,
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "list": "l2",
+            "practice": "p3",
+            "items_position": 0,
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Tag": [
+          {
+            "list": "l1",
+            "id": "local",
+            "name": "Local",
+            "color": "#ef4444",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "list": "l2",
+            "id": "local",
+            "name": "Nearby",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          }
+        ],
+        "Reaction": [
+          {
+            "list": "l1",
+            "person": "tr_ada",
+            "emoji": "❤️",
+            "created": "2026-01-01T00:00:00.000Z",
+            "modified": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "list": "l2",
+            "person": "tr_bo",
+            "emoji": "👍",
             "created": "2026-01-01T00:00:00.000Z",
             "modified": "2026-01-01T00:00:00.000Z"
           }

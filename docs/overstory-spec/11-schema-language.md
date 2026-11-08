@@ -239,6 +239,12 @@ the same way. A view without a `line` uses the first view's. A model without
 `Person` field. A page may override any of a schema's views; views never
 change data.
 
+A field whose model is a **connection model**, one whose key is exactly its two
+ends (`Item` between a list and a practice), shows and groups by what it connects
+to: a list's `items` are its practices, in the connection's order, and connecting
+or regrouping writes the connection's rows. Any other row whose key has several
+columns (`Tag (list, id)`) is named in a view by its whole key.
+
 A line, `group` or `sort` item may be a **path** through connections: each
 step but the last is a connection field, followed to the rows it reaches
 (`ties.group`, `visits.at`). A path that crosses a many-valued field reaches
