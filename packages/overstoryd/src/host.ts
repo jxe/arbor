@@ -474,6 +474,7 @@ export async function serveHost(options: {
       const shownOrigin = servedDomain ? domainOrigin(servedDomain.domain) : publicOrigin;
       // The one authentication of this request; routes below reuse it.
       const authentication = overstoryd.authenticateToken(token);
+      if (authentication) overstoryd.noteDeviceClient(authentication, request.headers.get("overstory-client") ?? request.headers.get("user-agent"));
       // A visitor (accounts §5.6) has no account: every route reads it as
       // anonymous except the tree reads, which ask what it may read.
       const visitor = authentication || execution ? null : overstoryd.authenticateVisitor(token);

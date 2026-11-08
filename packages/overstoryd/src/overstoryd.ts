@@ -829,6 +829,12 @@ export class HostDaemon implements AsyncDisposable {
     return this.accounts.authenticateToken(token);
   }
 
+  /** Log the client a device's request names when it is new for the device (`AccountDirectory.noteClient`). */
+  noteDeviceClient(authentication: HostAuthentication, client: string | null): void {
+    const named = this.accounts.noteClient(authentication.device, client);
+    if (named) console.log(`overstoryd device ${authentication.device} (~${authentication.account.handle}) client: ${named}`);
+  }
+
   /** The time-dependent half of `authenticationIsActive`: the session has not expired. */
   authenticationIsCurrent(authentication: HostAuthentication): boolean {
     return authentication.expiresAt > Date.now();

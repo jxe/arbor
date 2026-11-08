@@ -45,3 +45,14 @@ test("only a revoked device may have no key", () => {
   db.run("INSERT INTO devices (id, account_id, label, created_at, revoked_at) VALUES ('dv_2', 'ac_1', 'Phone', 1, 2)");
   db.close();
 });
+
+test("a device's clients are noted when one names a new version", () => {
+  const { db, accounts } = directory();
+  expect(accounts.noteClient("dv_1", null)).toBeNull();
+  expect(accounts.noteClient("dv_1", " story-sync/0.1.8+12 ")).toBe("story-sync/0.1.8+12");
+  expect(accounts.noteClient("dv_1", "Story/0.1.8 (12; macOS)")).toBe("Story/0.1.8 (12; macOS)");
+  expect(accounts.noteClient("dv_1", "story-sync/0.1.8+12")).toBeNull();
+  expect(accounts.noteClient("dv_1", "story-sync/0.1.9+13")).toBe("story-sync/0.1.9+13");
+  expect(accounts.deviceClients("dv_1")).toEqual(["story-sync/0.1.9+13", "Story/0.1.8 (12; macOS)"]);
+  db.close();
+});

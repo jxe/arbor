@@ -694,9 +694,27 @@ public actor ProtocolClient {
         if let credential = try await credentialProvider.credential() {
             guard !credential.isEmpty else { throw ProtocolValidationError.invalidValue("Credential is empty") }
             request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
+            request.setValue(Self.clientName, forHTTPHeaderField: "Overstory-Client")
         }
         return request
     }
+
+    /// The app and version a host is told it serves, e.g. `Story/0.1.8 (42; iOS)`,
+    /// so its operator can tell which Story each device runs.
+    static let clientName: String = {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let name = info["CFBundleName"] as? String ?? "Overstory"
+        let version = info["StoryDevelopmentVersion"] as? String ?? info["CFBundleShortVersionString"] as? String ?? "0"
+        let build = info["StoryDevelopmentBuild"] as? String ?? info["CFBundleVersion"] as? String ?? "0"
+        #if os(iOS)
+        let platform = "iOS"
+        #elseif os(macOS)
+        let platform = "macOS"
+        #else
+        let platform = "other"
+        #endif
+        return "\(name)/\(version) (\(build); \(platform))"
+    }()
 
     private func url(_ path: String) -> URL { URL(string: path, relativeTo: origin)!.absoluteURL }
 

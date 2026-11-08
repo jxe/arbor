@@ -262,6 +262,13 @@ export class ProtocolTransportError extends TypeError {
   }
 }
 
+let clientName: string | undefined;
+
+/** The name and version every ProtocolClient sends as `Overstory-Client`, e.g. `story-sync/0.1.8`, so a host can tell which client each device runs. */
+export function setProtocolClientName(name: string | undefined): void {
+  clientName = name;
+}
+
 export class ProtocolClient {
   private readonly timeoutMs: number;
   private readonly watchIdleTimeoutMs: number;
@@ -295,9 +302,12 @@ export class ProtocolClient {
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
     try {
+      const headers = new Headers(init.headers);
+      if (clientName) headers.set("overstory-client", clientName);
       return await fetch(`${this.origin}${path}`, {
         ...(this.redirect ? { redirect: this.redirect } : {}),
         ...init,
+        headers,
         signal: init.signal ?? AbortSignal.timeout(this.timeoutMs),
       });
     } catch (error) {

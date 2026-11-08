@@ -2,6 +2,8 @@
 import { resolve } from "node:path";
 import { serveStorySync, serveStorySyncControl } from "./index.ts";
 import { allowCloudPlaceholderDownloads } from "./cloud-placeholders.ts";
+import { setProtocolClientName } from "@ovst/protocol";
+import { STORY_VERSION } from "./version.ts";
 
 function usage(): never {
   console.error(`Usage:
@@ -11,6 +13,7 @@ function usage(): never {
 }
 
 export async function runStorySyncDaemon(args = process.argv.slice(2)): Promise<void> {
+  setProtocolClientName(`story-sync/${STORY_VERSION}`);
   const control = args.includes("--control");
   // The launch agent's log has no times of its own; a stall is only legible with them.
   if (control) for (const method of ["log", "warn", "error"] as const) {

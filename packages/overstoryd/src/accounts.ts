@@ -79,6 +79,30 @@ export class AccountDirectory {
     return { account: this.account(device.account_id)!, subject: `device:${device.device_id}` as const, device: device.device_id, expiresAt: device.expires_at };
   }
 
+  /** Each device's clients by product (the name before `/`), as each last named itself since this process started. */
+  private readonly clients = new Map<string, Map<string, string>>();
+
+  /**
+   * Note the client a device's request names (its `Overstory-Client`, else its
+   * `User-Agent`), so the operator can tell which Story each device runs. A
+   * Mac's Story and its Story Sync share a device and are noted apart.
+   * Returns the name when it is new for that product on the device, else null.
+   */
+  noteClient(device: string, client: string | null): string | null {
+    const named = client?.trim().slice(0, 200);
+    if (!named) return null;
+    const product = named.split(/[/ ]/, 1)[0]!;
+    const clients = this.clients.get(device) ?? new Map<string, string>();
+    if (clients.get(product) === named) return null;
+    this.clients.set(device, clients.set(product, named));
+    return named;
+  }
+
+  /** The clients a device last named, since this process started. */
+  deviceClients(device: string): string[] {
+    return [...(this.clients.get(device)?.values() ?? [])];
+  }
+
   private deviceRow(value: unknown): ServerDevice | null {
     if (!value) return null;
     const row = value as {

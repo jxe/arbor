@@ -731,6 +731,11 @@ is deleted, a recovery included, whichever comes first, and it cannot open anoth
 session; the device signs a new challenge instead. A watch ends when its
 session does ([access control §3.2](05-access-control.md#32-watches-and-revocation)).
 
+A request with a session may also send `Overstory-Client: <name>/<version>…`
+(for example `Story/0.1.8 (42; iOS)` or `story-sync/0.1.8+42`). It changes
+nothing a host serves; a host may record it so its operator can tell which
+client each device runs.
+
 ### 5.2 A device's key
 
 A device's key is fixed when it enrolls, by claiming an account (§1.2) or
