@@ -90,12 +90,14 @@ Mutations stay as they are, and a view refers to one as an action value.
   doesn't count as protecting it.
 - **Read rules belong to the model, and the host applies them** to every read, as facts
   (Joe, 2026-11-08). A view never has to call Supplies' `visible`, and one that forgets it
-  still can't see a private list. Proposed home: access policy (spec 05, `access.yaml`),
+  still can't see a private list. Their home is access policy (spec 05, `access.yaml`),
   next to [Schema language 010](../later/schema-language-010-row-ownership.md)'s row
-  ownership, as row-level read rules (`who: {property: owner}`, and a value predicate such
-  as `when: {property: visibility, is: Public}`). The host compiles a model's read rules
-  into facts once per caller and joins them into every plan that reads the model. Settle
-  the home with Joe before building it.
+  ownership, as row-level read rules such as `who: {property: owner}`. The host compiles a
+  model's read rules into facts once per caller and joins them into every plan that reads
+  the model.
+  - Value predicates (`when: {property: visibility, is: Public}`) aren't supported yet
+    (Joe, 2026-11-08). Until they are, Supplies' public/private check stays an app rule
+    its views call, and it isn't a security boundary.
 
 **Verify:** the spike's tests, plus every Supplies query ported to a view.
 - Each data view answers what its old query answered, with the same SQL statement count.
