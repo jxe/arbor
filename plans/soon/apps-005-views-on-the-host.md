@@ -163,6 +163,10 @@ is out of scope.
 - `cli.ts` reads activations and passes `collections`, including how the deployed image
   starts the sidecar (`collections.command`). With no activations, the routes keep
   answering `unsupported-operation` and nothing else changes.
+- Value predicates in read rules land before any real host enables views over a model
+  whose privacy depends on a value (like Supplies' public/private lists). Until then, JSX
+  views over such models answer `tree`, run on the host, never `rows`: a `rows` answer
+  would ship private rows to the device whenever a view forgets the app's check.
 - Code still runs as its caller until Apps 010. So only Joe's own apps are activated, and
   only on a disposable host or one he names.
 - Document configuration, limits (body size, concurrent executions, deadlines, stream

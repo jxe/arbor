@@ -189,6 +189,8 @@ A view reaches rows in three ways:
 - **A relationship narrowed by facts**: `p.tags.all(t => [facts])`.
 
 A row's fields are ordinary values (`l.name`), and `.length` on a relationship is a count.
+Inside `.orderBy(…)`, which runs in the plan, the same count is spelled `count()`;
+everywhere else it is `.length`.
 
 #### Facts
 
@@ -524,9 +526,10 @@ type ResultShape = {
 };
 ```
 
-A `missed` list widens the plan for that view and input. The host verifies each path
-against the view's code version, so it can't widen past what the view's own code reads
-or past the caller's authority.
+A `missed` list widens the plan for that view and input. The host can't check a path
+against the view's code, because a missed read is one its own trace didn't see. What
+bounds a widened plan is the caller's authority and the read rules of each model it
+reaches (§4.1): a forged path reads nothing those don't already allow.
 
 `document.tree` must equal the route `SourceTreeID`. The `views` array is nonempty
 and its IDs are nonempty and unique within this request. A handle from another
