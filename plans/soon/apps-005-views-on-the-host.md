@@ -87,15 +87,23 @@ Mutations stay as they are, and a view refers to one as an action value.
   - **Brand keys by model,** so a fact can't be given a List where it expects a Person.
 - Access is narrowing, never JS. A view can't read past the authority it runs with (here
   the caller's, and an activation's in Apps 010). An `if` that hides a private row
-  doesn't count as protecting it. Whether a model's access rule (like Supplies' `visible`)
-  should be applied by the host to every read, instead of called by each view, is open.
+  doesn't count as protecting it.
+- **Read rules belong to the model, and the host applies them** to every read, as facts
+  (Joe, 2026-11-08). A view never has to call Supplies' `visible`, and one that forgets it
+  still can't see a private list. Proposed home: access policy (spec 05, `access.yaml`),
+  next to [Schema language 010](../later/schema-language-010-row-ownership.md)'s row
+  ownership, as row-level read rules (`who: {property: owner}`, and a value predicate such
+  as `when: {property: visibility, is: Public}`). The host compiles a model's read rules
+  into facts once per caller and joins them into every plan that reads the model. Settle
+  the home with Joe before building it.
 
 **Verify:** the spike's tests, plus every Supplies query ported to a view.
 - Each data view answers what its old query answered, with the same SQL statement count.
 - The view-tree forms snapshot, and a JSX view's `rows` answer reruns on a client to the
   same tree.
 - A branch the trace skipped widens once, and so does a `missed` read from a client.
-- A forged input or `missed` path can't read a row the facts exclude.
+- A forged input or `missed` path can't read a row the facts exclude, and a view that
+  omits a model's read rule still gets only the rows the rule allows.
 - Field types and row identity in a data result match the schema.
 
 ## 2. The wire format and the spec

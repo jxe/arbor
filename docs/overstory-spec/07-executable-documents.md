@@ -214,8 +214,13 @@ sources: `Person.all({ p: Practice }, (other, { p }) => [p.authors.has(person),
 p.authors.has(other), not(other.id.is(id))])`. Its type comes from its source.
 
 Facts are the only narrowing. A view's other code (`.filter`, `.sort`, `===`, branches)
-runs over rows it has already read and can't change what the plan reads. Narrowing that
-keeps private nodes or rows from being disclosed is written as facts, never as that code.
+runs over rows it has already read and can't change what the plan reads.
+
+A model's **read rules** keep private rows from being disclosed. They belong to the data,
+not to any view: the host adds them, as facts, to every read of that model, whether the
+read is a `Model.all`, a `Model.one`, a relationship read or a path fact. A view can narrow
+further but never past them, and a view that forgets them still can't see a hidden row.
+Supplies' rule is "a list is readable when it is public, or by its owner".
 
 Ordering is the view's own code (`sorted(rows, byName)`). The one exception is a limit:
 `List.all(…).orderBy(l => l.reactions.count().desc()).take(12)` orders and cuts in the

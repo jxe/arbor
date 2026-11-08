@@ -54,7 +54,7 @@ A view ([executable documents §4.1](07-executable-documents.md#41-views)) is a 
 from validated input and the user to JSON or a view tree, made addressable with `view`:
 
 ```tsx
-import { node, not, or, rule, view } from "overstory/data"
+import { node, or, rule, view } from "overstory/data"
 import { z } from "zod"
 
 // Components (Shell, PracticeGrid, ListGrid), row types and sorting helpers are omitted.
@@ -62,15 +62,16 @@ const List = node("./data/List").children
 const Person = node("./data/Person").children
 const Practice = node("./data/Practice").children
 
-/** Who may see a list. */
-const visible = rule<{ l: ListRow; me: PersonRow }>(({ l, me }) => [
-  or([l.visibility.is("Public")], [l.owner.is(me)]),
+// Who may see a list is a read rule on the List model, which the host applies to every
+// read (executable documents §4.1). Views don't repeat it. `rule` is for an app's own
+// reusable facts, such as this one:
+const curatedBy = rule<{ l: ListRow; person: PersonRow }>(({ l, person }) => [
+  or([l.owner.is(person)], [l.contributors.person.is(person)]),
 ])
 
 // A data view: JSON, drawn by a client's default renderer when it has no code of its own.
-export const list = view(z.object({ id: z.string() }), ({ id }, { user }) => {
-  const me = user?.profile ?? null
-  const l = List.one(l => [l.id.is(id), visible({ l, me })])
+export const list = view(z.object({ id: z.string() }), ({ id }) => {
+  const l = List.one(l => [l.id.is(id)])
   if (!l) return null
   return {
     name: l.name,
@@ -84,15 +85,14 @@ export const list = view(z.object({ id: z.string() }), ({ id }, { user }) => {
 })
 
 // A JSX view: the same reads, drawn. Components take rows and read what they show.
-export const ProfilePage = view(z.object({ id: z.string() }), ({ id }, { user }) => {
+export const ProfilePage = view(z.object({ id: z.string() }), ({ id }) => {
   const person = Person.one(p => [p.id.is(id)])
   if (!person) return <Shell title="Profile not found" />
   return (
     <Shell title={person.name}>
       <PracticeGrid practices={sorted(Practice.all(p => [p.authors.has(person)]), byName)} />
-      <ListGrid lists={List.all(l => [
-        l.items.practice.authors.has(person), visible({ l, me: user?.profile ?? null }),
-      ])} />
+      <ListGrid lists={List.all(l => [l.items.practice.authors.has(person)])} />
+      <ListGrid lists={List.all(l => [curatedBy({ l, person })])} />
     </Shell>
   )
 })
