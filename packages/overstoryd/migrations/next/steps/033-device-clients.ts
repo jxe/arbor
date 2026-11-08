@@ -1,4 +1,3 @@
-import type { Database } from "bun:sqlite";
 import type { MigrationStep } from "../../tools/batch.ts";
 
 /**
