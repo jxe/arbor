@@ -59,6 +59,8 @@ export interface Rows<Row> extends ReadonlyArray<Row> {
 /** A model's rows, as `node("./data/List").children`. */
 export interface Source<Row> {
   readonly __row?: Row;
+  /** Every row the reader may see. */
+  all(): Rows<Row>;
   all(facts: (row: FactRow<Row>) => Facts): Rows<Row>;
   all<H extends Helpers>(helpers: H, facts: (row: FactRow<Row>, helpers: HelperVars<H>) => Facts): Rows<Row>;
   one(facts: (row: FactRow<Row>) => Facts): Row | null;
@@ -250,6 +252,11 @@ interface RowIdentity {
 function schemaOf(): StoreSchema {
   if (!active) throw new QueryCompileError("Facts are written only inside a view");
   return active.schema;
+}
+
+/** The store schema of the view that is running: for host code, such as the built-in list view, that reads any model. */
+export function runningSchema(): StoreSchema {
+  return schemaOf();
 }
 
 function relationshipOf(schema: StoreSchema, relation: string, name: string): RelationshipMetadata | undefined {
@@ -665,6 +672,7 @@ function checkedTake(take: number): number {
 
 /** Compile `(row, helpers) => facts` for rows of `relation`. Helper variables become joins. */
 function listFacts(relation: string, args: unknown[]): PredicateExpression | undefined {
+  if (args.length === 0) return undefined;
   const [first, second] = args;
   const helpers = typeof first === "function" ? {} : first as Record<string, unknown>;
   const body = (typeof first === "function" ? first : second) as (row: unknown, helpers: Record<string, unknown>) => Facts;

@@ -884,8 +884,10 @@ export class SQLiteQueryEngine implements AsyncDisposable {
         if (metadata.cardinality === "many") shaped[parent]![name] = values;
         else {
           if (values.length > 1) throw new QueryCompileError(`Relationship ${metadata.source}.${metadata.name} returned more than one row`);
-          // A filtered to-one (a read rule hid the row) reads as null; an unfiltered one must exist.
-          if (metadata.cardinality === "one" && values.length !== 1 && !selected.plan.where) throw new QueryCompileError(`Required relationship ${metadata.source}.${metadata.name} is missing`);
+          // A filtered to-one (a read rule hid the row) reads as null, and so does a person whose
+          // profile this reader can't read; any other unfiltered one must exist.
+          const hidden = Boolean(selected.plan.where) || this.schema.relations[metadata.target]?.source === "overstory-profile";
+          if (metadata.cardinality === "one" && values.length !== 1 && !hidden) throw new QueryCompileError(`Required relationship ${metadata.source}.${metadata.name} is missing`);
           shaped[parent]![name] = values[0] ?? null;
         }
       });
