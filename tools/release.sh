@@ -228,10 +228,18 @@ if wants mac; then
 fi
 if wants ios; then
   step "Uploading the iPhone app"
-  swift/scripts/release-ios.sh "$version" "$build" --upload-only
+  # With the API key, the upload doesn't depend on Xcode's own sign-in, which lapses.
+  (
+    if [ -f "$HOME/.appstoreconnect/story.env" ]; then
+      set -a
+      . "$HOME/.appstoreconnect/story.env"
+      set +a
+    fi
+    swift/scripts/release-ios.sh "$version" "$build" --upload-only
+  )
   if [ -f "$HOME/.appstoreconnect/story.env" ]; then
     step "Waiting for Apple, then adding the build to TestFlight"
-    # In a subshell: the key is for this step, and the upload above signs in through Xcode.
+    # In a subshell, so the key stays with the steps that use it.
     (
       set -a
       . "$HOME/.appstoreconnect/story.env"
