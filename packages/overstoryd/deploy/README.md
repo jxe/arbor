@@ -16,7 +16,9 @@ For multi-machine synchronization, outage, and conflict testing rather than a si
 Story is joined by invitation. If nobody you know runs a host, you can run your own on
 [Railway](https://railway.com) and invite people to it.
 
-1. **Deploy the template.** *(Template link goes here once it is published.)* Railway asks for two
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/overstoryd)
+
+1. **Deploy the template** at [railway.com/deploy/overstoryd](https://railway.com/deploy/overstoryd). Railway asks for two
    names: your community's handle (`OVERSTORYD_COMMUNITY_HANDLE`, such as `garden`) and yours
    (`OVERSTORYD_FIRST_WRITER_HANDLE`, such as `alice`). Each is lowercase letters, digits and
    hyphens. The template generates the founder code itself, attaches a volume at `/data` and
