@@ -27,7 +27,7 @@ async function closure(entrypoint: string): Promise<string[]> {
   }
 }
 
-const EXECUTION = /packages\/(?:apps-runtime|overstoryd-exec)\/|node_modules\/(?:react|react-dom|typescript|esbuild|@babel|quickjs[^/]*|vite)\//i;
+const EXECUTION = /packages\/(?:apps-runtime|overstoryd-exec)\/|node_modules\/(?:react|react-dom|typescript|esbuild|@babel|quickjs[^/]*|vite|sucrase)\//i;
 
 describe("execution sidecar boundary", () => {
   test("overstoryd's closure, from its command and its library, has no evaluator, compiler, React or QuickJS", async () => {

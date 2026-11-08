@@ -414,7 +414,7 @@ export class SQLiteMutationBroker {
 }
 
 function refKey(ref: MutationHandleRef): string {
-  return `${ref.tree}\0${ref.module}\0${ref.export}\0${ref.version}`;
+  return `${ref.tree}\0${ref.path}\0${ref.name}\0${ref.version}`;
 }
 
 export class RegisteredMutationRuntime implements MutationCallRuntime {

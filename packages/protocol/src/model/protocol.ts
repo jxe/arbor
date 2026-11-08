@@ -20,49 +20,75 @@ export function hostProtocolOf(health: unknown): number {
 
 
 
-export interface QueryHandleRef {
+/**
+ * Names a view or a mutation: a name in a file in a tree (07 §12.1). For an
+ * authored handle, `path` is its module and `name` its export. For a declared
+ * view, `path` is a schema and `name` a `~views` label. `version` is the
+ * module's code version or the schema's fingerprint.
+ */
+export interface HandleRef {
   tree: TreeID;
-  module: LogicalPath;
-  export: string;
+  path: LogicalPath;
+  name: string;
   version: string;
 }
 
-export type MutationHandleRef = QueryHandleRef;
+export type MutationHandleRef = HandleRef;
 
-export interface QueryStreamDocumentRef {
+export interface ViewsDocumentRef {
   tree: TreeID;
   path: LogicalPath;
   version: string;
 }
 
-export interface QueryStreamMount {
+/** What a view request answers (07 §4.1): a data view's JSON, a JSX view's plan rows, or its view tree. */
+export type ViewAnswerForm = "value" | "rows" | "tree";
+
+/** A read as a path from a root of a view's plan. */
+export type ReadPath = string[];
+
+/**
+ * Annotations on a `value` or `rows` answer, parallel to its JSON (07 §12.1):
+ * row identity on objects built while reading a row, schema types on values
+ * copied unchanged from a field.
+ */
+export interface ResultShape {
+  row?: { model: string; key: string };
+  type?: string;
+  fields?: Record<string, ResultShape>;
+  items?: ResultShape[];
+}
+
+export interface ViewMount {
   id: string;
-  handle: QueryHandleRef;
+  handle: HandleRef;
   input?: unknown;
+  form?: ViewAnswerForm;
+  missed?: ReadPath[];
   knownOutputHash?: Hash;
 }
 
-export interface QueryStreamRequest {
-  document: QueryStreamDocumentRef;
-  queries: QueryStreamMount[];
+export interface ViewsRequest {
+  document: ViewsDocumentRef;
+  views: ViewMount[];
 }
 
-export type QueryStreamEvent =
-  | { type: "result"; id: string; observedThrough: EventCursor; outputHash: Hash; value: unknown }
+export type ViewEvent =
+  | { type: "result"; id: string; observedThrough: EventCursor; outputHash: Hash; value: unknown; shape?: ResultShape }
   | { type: "result"; id: string; observedThrough: EventCursor; error: { code: string; message: string; retryable: boolean } }
-  | { type: "ready"; queries: Array<{ id: string; observedThrough: EventCursor; outputHash?: Hash }> }
+  | { type: "ready"; views: Array<{ id: string; observedThrough: EventCursor; outputHash?: Hash }> }
   | { type: "reload"; reason: "source-changed" | "access-changed" };
 
-/** Server-side adapter shared by Local REST and tree-scoped Overstory protocol queries. */
-export interface QueryStreamRuntime {
+/** Server-side adapter shared by Local REST and tree-scoped Overstory protocol views. */
+export interface ViewsRuntime {
   stream(
-    request: QueryStreamRequest,
+    request: ViewsRequest,
     context: { signal: AbortSignal; user: { profile: string } | null },
-  ): ReadableStream<QueryStreamEvent> | Promise<ReadableStream<QueryStreamEvent>>;
+  ): ReadableStream<ViewEvent> | Promise<ReadableStream<ViewEvent>>;
 }
 
 export interface MutationCallRequest {
-  document: QueryStreamDocumentRef;
+  document: ViewsDocumentRef;
   handle: MutationHandleRef;
   mutationID: string;
   input: unknown;

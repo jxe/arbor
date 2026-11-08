@@ -4,8 +4,8 @@ import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
 import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, decodePresenceMessagePost, decodePresenceRunnerLabel, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID, DOMAIN_PROFILE_PATH } from "@ovst/protocol";
 import { decodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
-import type { AccountChallenge, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
-import { treeMutationResponse, treeQueryResponse } from "./exec-routes.ts";
+import type { AccountChallenge, LocatorResolution, MutationCallRuntime, ViewsRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
+import { treeMutationResponse, treeViewsResponse } from "./exec-routes.ts";
 import { HostCollections, type HostCollectionsOptions } from "./collections.ts";
 import {
   HostDaemon,
@@ -371,9 +371,9 @@ export async function serveHost(options: {
   accounts?: HostBootstrapAccount[];
   port?: number;
   hostname?: string;
-  queryRuntime?: QueryStreamRuntime;
+  viewsRuntime?: ViewsRuntime;
   mutationRuntime?: MutationCallRuntime;
-  /** Serve named queries and mutations through the execution sidecar, from the host's collection materializations, unless a runtime above is given. */
+  /** Serve named views and mutations through the execution sidecar, from the host's collection materializations, unless a runtime above is given. */
   collections?: HostCollectionsOptions;
   /** Session and placement device-key lifetimes; tests shorten them. */
   lifetimes?: Omit<HostDaemonOptions, "servedOverHTTP" | "pages" | "provenanceFill">;
@@ -412,9 +412,9 @@ export async function serveHost(options: {
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
   }, options.mergeTool, { ...options.lifetimes, servedOverHTTP: new URL(publicOrigin).protocol === "http:", pages: options.pages ?? false, provenanceFill: options.provenanceFill ?? false });
   if (!dynamicLoopbackOrigin) overstoryd.setCommunityHost(new URL(publicOrigin).host);
-  // Named queries and mutations over the host's collection materializations.
+  // Named views and mutations over the host's collection materializations.
   const collections = options.collections ? overstoryd.disposeWith(new HostCollections(overstoryd, resolve(options.dataRoot), options.collections)) : null;
-  const queryRuntime = options.queryRuntime ?? collections?.queryRuntime();
+  const viewsRuntime = options.viewsRuntime ?? collections?.viewsRuntime();
   const mutationRuntime = options.mutationRuntime ?? collections?.mutationRuntime();
   const onAuthorizationTick = authorizationTicker(overstoryd);
   const presence = new PresenceHub();
@@ -535,13 +535,13 @@ export async function serveHost(options: {
             cancel() { cleanup(); },
           }), { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
         }
-        const queryRoute = /^\/\.overstory\/trees\/([^/]+)\/queries$/.exec(url.pathname);
-        if (request.method === "QUERY" && queryRoute) {
-          if (!queryRuntime) return protocolError("unsupported-operation", "No query runtime is active", 422);
-          const treeID = readableTree(queryRoute[1]!).tree.id;
+        const viewsRoute = /^\/\.overstory\/trees\/([^/]+)\/views$/.exec(url.pathname);
+        if (request.method === "QUERY" && viewsRoute) {
+          if (!viewsRuntime) return protocolError("unsupported-operation", "No view runtime is active", 422);
+          const treeID = readableTree(viewsRoute[1]!).tree.id;
           server.timeout(request, 0);
-          return treeQueryResponse(
-            queryRuntime,
+          return treeViewsResponse(
+            viewsRuntime,
             request,
             treeID,
             account ? { profile: account.id } : null,

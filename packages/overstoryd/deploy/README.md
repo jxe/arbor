@@ -159,6 +159,8 @@ overstoryd reads these variables at start; all are optional.
 | `OVERSTORYD_TRUSTED_PROXY_HOPS` | 0 | How many reverse proxies in front of overstoryd append to `X-Forwarded-For`; see [rate limits and proxies](#rate-limits-and-proxies). |
 | `OVERSTORYD_STORY_MAC_URL` | unset | Where to get Story for Mac. The page at a reserved, unclaimed `/~handle` offers it as "Get Story for Mac" to a person who opened an invitation link; no link when unset. |
 | `OVERSTORYD_STORY_IPHONE_URL` | unset | The same for "Get Story for iPhone". |
+| `OVERSTORYD_ACTIVATIONS` | unset | A JSON file listing the modules the host runs as views and mutations, each `{"tree", "path", "root"}`; see [views and mutations](#views-and-mutations). Unset, the views and mutate routes answer `unsupported-operation`. |
+| `OVERSTORYD_ROWS_ANSWERS` | off | `1` lets JSX views answer `rows`. Leave it off until read rules can hide rows by value. |
 | `OVERSTORYD_MERGE_EXECUTABLE` | the workspace `overstoryd-merge` | Alternate merge sidecar implementing `serve`; see [writing a sidecar](../../../docs/architecture/overstoryd/writing-a-sidecar.md) and [the merge sidecar](../../../docs/architecture/overstoryd/merge-tool.md#running-and-configuring). |
 
 ### Response headers and stored files
@@ -234,6 +236,33 @@ IP address, overstoryd falls back to the connection's address. Caddy in the
 Compose recipe below is one hop. Before setting the value for a Railway or
 CDN deployment, look at the `X-Forwarded-For` a request through the public
 domain actually arrives with, and count from that.
+
+### Views and mutations
+
+A host runs authored views and mutations only for the modules `OVERSTORYD_ACTIVATIONS`
+names ([the execution sidecar](../../../docs/architecture/overstoryd/execution-sidecar.md)).
+Each entry pins a module to a root object of its tree:
+
+```json
+[{ "tree": "tr_…", "path": "/supplies/List.tsx", "root": "sha256:…" }]
+```
+
+- **Who runs.** The code runs with each caller's own authority until Apps 010, so
+  activate only your own apps, on a host you're willing to test them on.
+- **When it loads.** overstoryd reads the file and the modules' code the first time a
+  view or mutation is asked for, and starts the sidecar then. Health, readiness, reads
+  and updates never wait for it. An activation that doesn't load is logged and left out;
+  its handles answer "not active". To change what runs, edit the file and restart.
+- **Limits.** One question may run for 30 seconds before the sidecar is restarted and
+  every question in flight fails as retryable. At most 64 questions are in flight; more
+  answer 503. A stream buffers 64 events and closes when a client can't keep up. A
+  materialization's disk budget is 1 GiB, beyond which idle ones are evicted.
+- **Shutdown and rollback.** Stopping the host stops the sidecar. A mutation stopped
+  between the host accepting it and the sidecar writing its receipt is answered from
+  the host's receipt on retry. To roll back, unset `OVERSTORYD_ACTIVATIONS` and restart:
+  the routes answer `unsupported-operation` and nothing else changes.
+  `<data>/exec/code`, `<data>/exec/compiled` and `<data>/materialized` are caches;
+  `<data>/exec/mutation-receipts.sqlite3` is kept with the host's data.
 
 ### Health and readiness
 

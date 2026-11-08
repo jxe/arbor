@@ -8,5 +8,6 @@ export * from "./retention.ts";
 export * from "./pack-maintenance.ts";
 export * from "./report.ts";
 export * from "./collections.ts";
+export { loadActivation, type Activation } from "./activations.ts";
 export { domainProfileResolver, type DomainProfileResolver } from "./locator-pins.ts";
 export * from "./custom-domains.ts";

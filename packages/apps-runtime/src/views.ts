@@ -35,8 +35,10 @@ import {
   type ValueExpression,
 } from "./authoring.ts";
 import { QueryCompileError, QueryInputError, validateQueryInput } from "./query-core.ts";
+import { isViewNode } from "./ui/jsx-runtime.ts";
 import type { RelationshipMetadata, ResolvedStorySource, StoreSchema } from "./schema.ts";
 import type { SQLiteQueryEngine } from "./sqlite.ts";
+import type { ReadPath, ResultShape, ViewAnswerForm } from "@ovst/protocol";
 
 // ---------------------------------------------------------------- public types
 
@@ -140,15 +142,7 @@ export function isView(value: unknown): value is View {
 }
 
 /** A read as a path from a root of the plan: the root's key, then link keys, then a field. */
-export type ReadPath = string[];
-
-/** Field types and row identity for a result, parallel to its JSON (executable documents §12.1). */
-export interface ResultShape {
-  row?: { model: string; key: string };
-  type?: string;
-  fields?: Record<string, ResultShape>;
-  items?: ResultShape[];
-}
+export type { ReadPath, ResultShape } from "@ovst/protocol";
 
 /** A model's read rules: facts the host adds to every read of it. */
 export type ReadRules = Record<string, (row: any, context: ViewContext) => Facts>;
@@ -1114,7 +1108,7 @@ export interface ViewRunOptions<Input> {
   /** Reads a client's run of a `rows` answer missed. */
   missed?: ReadPath[];
   /** Run the value pass here (`value`, `tree`) or leave it to the client (`rows`). */
-  form?: "value" | "rows" | "tree";
+  form?: ViewAnswerForm;
   /** Model paths for row identity, by relation (defaults to the relation's name). */
   modelPaths?: Record<string, string>;
   maxWidenings?: number;
@@ -1127,7 +1121,7 @@ export interface RowsAnswer {
 }
 
 export interface ViewRun<Output> {
-  form: "value" | "rows" | "tree";
+  form: ViewAnswerForm;
   /** The value (`value`, `tree`), or the rows (`rows`). */
   output: Output | RowsAnswer;
   shape?: ResultShape;
@@ -1137,8 +1131,10 @@ export interface ViewRun<Output> {
   widened: ReadPath[];
   reruns: number;
   statements: number;
-  /** What the answer depends on, merged across plans. */
+  /** Every execution, one per root and binding. */
   executions: Array<Awaited<ReturnType<SQLiteQueryEngine["execute"]>>>;
+  /** Each execution with the plan it ran, for live sensitivity. */
+  ran: Array<{ plan: QueryHandle<unknown, unknown>; execution: Awaited<ReturnType<SQLiteQueryEngine["execute"]>> }>;
 }
 
 function newRun(schema: StoreSchema, user: ViewContext["user"]): Run {
@@ -1178,9 +1174,10 @@ export async function runView<Input, Output>(handle: View<Input, Output>, option
   let statements = 0;
   for (let attempt = 0; ; attempt += 1) {
     const plans: QueryHandle<unknown, unknown>[] = [];
-    const executions: ViewRun<Output>["executions"] = [];
+    const ran: ViewRun<Output>["ran"] = [];
     run.results.clear();
-    statements += await executeRoots(run, options, plans, executions);
+    statements += await executeRoots(run, options, plans, ran);
+    const executions = ran.map((entry) => entry.execution);
     // A `rows` answer is settled here too: the host runs the value pass with the client's
     // input and user, so the client only widens for its own state.
     run.mode = "value";
@@ -1197,11 +1194,13 @@ export async function runView<Input, Output>(handle: View<Input, Output>, option
     }
     if (run.misses.length === 0 && form === "rows") {
       const answer = rowsAnswer(run);
-      return { form, output: answer, shape: rowsShape(run, answer, options.modelPaths), plans, widened, reruns: attempt, statements, executions };
+      return { form, output: answer, shape: rowsShape(run, answer, options.modelPaths), plans, widened, reruns: attempt, statements, executions, ran };
     }
     if (run.misses.length === 0) {
-      const shape = form === "value" ? annotate(run, output, options.modelPaths) : undefined;
-      return { form, output, ...(shape ? { shape } : {}), plans, widened, reruns: attempt, statements, executions };
+      // A JSX view asked for its value answers its view tree.
+      const answered = form === "value" && isViewNode(output) ? "tree" : form;
+      const shape = answered === "value" ? annotate(run, output, options.modelPaths) : undefined;
+      return { form: answered, output, ...(shape ? { shape } : {}), plans, widened, reruns: attempt, statements, executions, ran };
     }
     widened.push(...run.misses);
     run.mode = "trace";
@@ -1213,7 +1212,7 @@ async function executeRoots(
   run: Run,
   options: ViewRunOptions<unknown>,
   plans: QueryHandle<unknown, unknown>[],
-  executions: ViewRun<unknown>["executions"],
+  ran: ViewRun<unknown>["ran"],
 ): Promise<number> {
   let statements = 0;
   const pending = new Map(run.roots);
@@ -1249,7 +1248,7 @@ async function executeRoots(
         options.engine.bind(plan, await options.resolve(root.source));
         const execution = await options.engine.execute(plan, { user: run.user, bindings: combination.bindings });
         statements += execution.statements.length;
-        executions.push(execution);
+        ran.push({ plan, execution });
         results.set(combination.key, execution.result);
       }
       run.results.set(key, results);

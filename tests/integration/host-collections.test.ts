@@ -1,6 +1,6 @@
-// Schema language 005 milestone 6, rows on the host. Done when: a named query
-// over Supplies runs on the host without loading table files, and a
-// subscriber sees a device's edit; a named mutation commits as an accepted
+// Schema language 005 milestone 6 and Apps 005, rows on the host. Done when: a
+// view in Supplies' own code, loaded from the tree, runs on the host without
+// loading table files, and a subscriber sees a device's edit; a named mutation commits as an accepted
 // update that both devices' databases receive, and its retry returns the same
 // receipt; dropping the host materialization and restarting rebuilds it to
 // the same rows.
@@ -8,7 +8,7 @@
 import { installAccountHome } from "../helpers/account-home.ts";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
@@ -17,7 +17,7 @@ import { StorySyncDaemon } from "@ovst/story-sync";
 import { CollectionProjections } from "@ovst/story-sync/state";
 import { serveHost, type HostCollectionsOptions } from "@ovst/overstoryd";
 import { materializeTree, resolveSnapshot, snapshotDirectory } from "@ovst/fs";
-import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, HostAccountStore, type MutationCallRequest, type ObjectHash, type QueryStreamRequest } from "@ovst/protocol";
+import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, HostAccountStore, type HandleRef, type MutationCallRequest, type ObjectHash, type ViewsRequest } from "@ovst/protocol";
 import { deviceClient, deviceSession, testAccount, testDevice } from "../helpers/devices.ts";
 
 const token = "host-collections-owner";
@@ -26,13 +26,40 @@ const LIST = "10000000-0000-4000-8000-000000000001";
 let sandbox: string, state: string, folder: string, dataRoot: string, tree: string;
 let host: Awaited<ReturnType<typeof serveHost>>;
 let apps: HostCollectionsOptions;
-const document = (id: string) => ({ tree: id, path: "/List", version: "doc-v1" });
-const listName = { module: "/queries.ts", export: "listName", version: "sha256:listName" };
-const listOwner = { module: "/queries.ts", export: "listOwner", version: "sha256:listOwner" };
-const createList = { module: "/MyLists.tsx", export: "createList", version: "sha256:createList" };
+const document = (id: string) => ({ tree: id, path: "/supplies/List.tsx", version: "doc-v1" });
+/** Views the test adds beside Supplies' own code; its helpers keep their own places. */
+const TEST_VIEWS = `import { view } from "overstory/data"
+import { z } from "zod"
+import { List } from "./scripts/views"
+
+export const listName = view(() => {
+  const l = List.one(l => [l.id.is("${LIST}")])
+  return l && { id: l.id, name: l.name, openToEdits: l.openToEdits }
+})
+
+export const listOwner = view(z.object({ id: z.string() }), ({ id }) => {
+  const l = List.one(l => [l.id.is(id)])
+  return l && { id: l.id, owner: { id: l.owner.id, name: l.owner.name, handle: l.owner.handle } }
+})
+`;
+/** A module whose node() path leaves its tree: it never loads. */
+const ESCAPE = `import { node, view } from "overstory/data"
+const Outside = node("../../outside").children as any
+export const outside = view(() => Outside.all(() => []))
+`;
+/** The modules the host runs, at the root they were pinned to. */
+const MODULES = ["/supplies/test-views.ts", "/supplies/MyLists.tsx", "/supplies/views/list.tsx", "/supplies/escape.ts"];
+let pinned: string | undefined;
+let handles: Record<string, HandleRef>;
 
 const serve = () => serveHost({ dataRoot, accounts: [testAccount("owner", token, { communityWriter: true })],
   publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0, collections: apps });
+
+/** Each active handle by name, from the host. */
+async function activeHandles(): Promise<Record<string, HandleRef>> {
+  const active = await host.collections!.active();
+  return Object.fromEntries([...active.views, ...active.mutations].map(({ sources: _sources, ...ref }) => [ref.name, ref]));
+}
 
 beforeAll(async () => {
   sandbox = await mkdtemp(join(tmpdir(), "story-host-collections-"));
@@ -40,10 +67,20 @@ beforeAll(async () => {
   folder = join(sandbox, "tree");
   dataRoot = join(sandbox, "host");
   await Promise.all([state, join(folder, "supplies")].map((path) => mkdir(path, { recursive: true })));
-  await writeFile(join(folder, "supplies", "schema.usl"), await readFile(join(SUPPLIES, "data", "schema.usl")));
-  await copyFile(join(SUPPLIES, "data", "_store.sqlite3"), join(folder, "supplies", "_store.sqlite3"));
+  // Supplies' code and data, as a tree holds them.
+  for (const name of ["List.tsx", "MyLists.tsx", "Practice.tsx", "Profile.tsx", "components", "scripts", "views"]) {
+    await cp(join(SUPPLIES, name), join(folder, "supplies", name), { recursive: true });
+  }
+  await mkdir(join(folder, "supplies", "data"));
+  for (const name of ["schema.usl", "_store.sqlite3"]) await cp(join(SUPPLIES, "data", name), join(folder, "supplies", "data", name));
+  await writeFile(join(folder, "supplies", "test-views.ts"), TEST_VIEWS);
+  await writeFile(join(folder, "supplies", "escape.ts"), ESCAPE);
   apps = {
-    handles: join(import.meta.dir, "../fixtures/execution-sidecar/supplies-handles.ts"),
+    // Pinned to the tree's root when the host first runs code.
+    activations: () => {
+      pinned ??= host.overstoryd.currentUpdate(tree)!.root;
+      return MODULES.map((path) => ({ tree, path, root: pinned! }));
+    },
     now: () => new Date(Date.UTC(2026, 9, 24, 12, 0, 0)),
   };
   host = await serve();
@@ -55,6 +92,7 @@ beforeAll(async () => {
   const { values } = await readTreeConfig(owner, profile, "person");
   const device = Object.values(values.devices!).find((candidate) => candidate.administrator)!.id;
   await installAccountHome(state, owner, device, testDevice(token).seed, { [folder]: tree });
+  handles = await activeHandles();
 });
 
 afterAll(async () => {
@@ -65,7 +103,8 @@ afterAll(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
-const materialized = () => join(dataRoot, "materialized", tree, encodeURIComponent("/supplies"), "_store.sqlite3");
+const materialized = () => join(dataRoot, "materialized", tree, encodeURIComponent("/supplies/data"), "_store.sqlite3");
+const deviceStore = () => join(folder, "supplies", "data", "_store.sqlite3");
 
 function rows(path: string, sql = "select * from List order by id"): unknown[] {
   const database = new Database(path, { readonly: true });
@@ -86,7 +125,7 @@ function sortedDump(path: string): Record<string, unknown[]> {
   return Object.fromEntries(Object.entries(dump(path)).map(([name, rows]) => [name, rows.map((row) => JSON.stringify(row)).sort()]));
 }
 
-/** The events of an open query stream, as they arrive. */
+/** The events of an open view stream, as they arrive. */
 async function* events(response: Response): AsyncGenerator<{ event: string; data: any }> {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
@@ -108,30 +147,34 @@ async function* events(response: Response): AsyncGenerator<{ event: string; data
 }
 
 async function nextResult(stream: AsyncGenerator<{ event: string; data: any }>): Promise<any> {
-  const timeout = Bun.sleep(10_000).then(() => { throw new Error("Timed out waiting for a query result"); });
+  const timeout = Bun.sleep(10_000).then(() => { throw new Error("Timed out waiting for a view result"); });
   while (true) {
     const next = await Promise.race([stream.next(), timeout]);
-    if (next.done) throw new Error("The query stream closed");
+    if (next.done) throw new Error("The view stream closed");
     if (next.value.event === "result") return next.value.data;
   }
 }
 
-async function openQuery(origin: string, controller: AbortController, handle = listName, input?: unknown) {
+async function requestViews(origin: string, controller: AbortController, views: ViewsRequest["views"]) {
   const session = await deviceSession(origin, token);
-  const request: QueryStreamRequest = { document: document(tree), queries: [{ id: "list", handle: { tree, ...handle }, ...(input ? { input } : {}) }] };
-  const response = await fetch(`${origin}/.overstory/trees/${tree}/queries`, {
+  const request: ViewsRequest = { document: document(tree), views };
+  return fetch(`${origin}/.overstory/trees/${tree}/views`, {
     method: "QUERY",
     headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
     body: JSON.stringify(request),
     signal: controller.signal,
   });
+}
+
+async function openView(origin: string, controller: AbortController, name = "listName", input?: unknown, form?: "value" | "rows" | "tree") {
+  const response = await requestViews(origin, controller, [{ id: "list", handle: handles[name]!, ...(input ? { input } : {}), ...(form ? { form } : {}) }]);
   expect(response.status).toBe(200);
   return events(response);
 }
 
 async function mutate(input: unknown, mutationID: string) {
   const session = await deviceSession(host.url, token);
-  const request: MutationCallRequest = { document: document(tree), handle: { tree, ...createList }, mutationID, input };
+  const request: MutationCallRequest = { document: document(tree), handle: handles.createList!, mutationID, input };
   const response = await fetch(`${host.url}/.overstory/trees/${tree}/mutate`, {
     method: "POST",
     headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
@@ -141,19 +184,19 @@ async function mutate(input: unknown, mutationID: string) {
 }
 
 describe.serial("rows on the host", () => {
-  test("a named query runs on the host's materialization, and a subscriber sees a device's edit", async () => {
+  test("a view loaded from the tree runs on the host's materialization, and a subscriber sees a device's edit", async () => {
     process.env.STORY_HOME = state;
     const controller = new AbortController();
     const daemon = await StorySyncDaemon.openControl({ autoSync: false });
     try {
       await daemon.synchronizeNow();
-      const stream = await openQuery(host.url, controller);
+      const stream = await openView(host.url, controller);
       expect((await nextResult(stream)).value).toEqual({ id: LIST, name: "Community care", openToEdits: true });
-      // The query read the host's own database, built from the accepted rows.
+      // The view read the host's own database, built from the accepted rows.
       expect(existsSync(materialized())).toBe(true);
 
       // A device edits the row with sqlite3; the host accepts it as row operations.
-      const mine = new Database(join(folder, "supplies", "_store.sqlite3"));
+      const mine = new Database(deviceStore());
       mine.query("update List set name = 'Neighbors' where id = ?").run(LIST);
       mine.close();
       await daemon.synchronizeNow();
@@ -162,6 +205,47 @@ describe.serial("rows on the host", () => {
       controller.abort();
       await daemon[Symbol.asyncDispose]();
     }
+  }, 30_000);
+
+  test("the host loads each module's code at its pinned root, names it by code version, and refuses what leaves the tree", async () => {
+    // Every export of each loaded module, by its code version; the escaping module loaded nothing.
+    expect(Object.keys(handles).sort()).toEqual(expect.arrayContaining(["ListPage", "PracticeSearch", "createList", "listName", "listOwner"]));
+    expect(handles.outside).toBeUndefined();
+    expect(handles.listName!.version).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(handles.listName!.version).not.toBe(handles.createList!.version);
+    // The helper keeps its own place: scripts/views.ts names ../data/List.
+    const active = await host.collections!.active();
+    expect(active.views.find((view) => view.name === "listName")!.sources).toContain("/supplies/data/List");
+    // Another code version is not active, whatever its name.
+    const controller = new AbortController();
+    try {
+      const stale = await requestViews(host.url, controller, [{ id: "list", handle: { ...handles.listName!, version: `sha256:${"0".repeat(64)}` } }]);
+      expect(stale.status).toBe(400);
+      expect((await stale.json() as any).message).toContain("not active");
+    } finally { controller.abort(); }
+  }, 30_000);
+
+  test("a JSX view runs on the host and answers its view tree, and rows are refused until read rules can hide them", async () => {
+    process.env.STORY_HOME = state;
+    // A list whose owner is a person on this host, so the page can show them.
+    const made = await mutate({ name: "Drawn on the host", visibility: "Public" }, "drawn-list");
+    expect(made.status).toBe(200);
+    const id = made.body.result.id as string;
+    const controller = new AbortController();
+    try {
+      const stream = await openView(host.url, controller, "ListPage", { id });
+      const result = await nextResult(stream);
+      expect(result.error).toBeUndefined();
+      expect(result.shape).toBeUndefined();
+      expect(result.value).toMatchObject({ type: "Column" });
+      expect(JSON.stringify(result.value)).toContain("Drawn on the host");
+      const rows = await openView(host.url, controller, "ListPage", { id }, "rows");
+      expect((await nextResult(rows)).error).toMatchObject({ code: "unsupported-operation" });
+      // A data view's value carries its shape.
+      const data = await openView(host.url, controller, "listName");
+      const value = await nextResult(data);
+      expect(value.shape).toMatchObject({ row: { model: "List", key: LIST }, fields: { name: { type: "Text" } } });
+    } finally { controller.abort(); }
   }, 30_000);
 
   test("a named mutation commits as one accepted update that both devices receive, and its retry returns the same receipt", async () => {
@@ -190,7 +274,7 @@ describe.serial("rows on the host", () => {
     const daemon = await StorySyncDaemon.openControl({ autoSync: false });
     try {
       await daemon.synchronizeNow();
-      expect(rows(join(folder, "supplies", "_store.sqlite3"), sql)).toEqual([created]);
+      expect(rows(deviceStore(), sql)).toEqual([created]);
     } finally { await daemon[Symbol.asyncDispose](); }
 
     // Device B places the accepted tree into a fresh folder.
@@ -201,11 +285,11 @@ describe.serial("rows on the host", () => {
     const projections = new CollectionProjections({ form: () => ({ kind: "sqlite" }) });
     await materializeTree(other, snapshot.root as ObjectHash, (async (hash: string) => objects.get(hash as ObjectHash)!) as never, undefined, [], undefined,
       (directory, object, read) => projections.write(directory, object, read));
-    expect(rows(join(other, "supplies", "_store.sqlite3"), sql)).toEqual([created]);
-    expect(rows(join(other, "supplies", "_store.sqlite3"))).toEqual(rows(join(folder, "supplies", "_store.sqlite3")));
+    expect(rows(join(other, "supplies", "data", "_store.sqlite3"), sql)).toEqual([created]);
+    expect(rows(join(other, "supplies", "data", "_store.sqlite3"))).toEqual(rows(deviceStore()));
   }, 30_000);
 
-  test("a query reads its people's profile cards through the API with its stream's token, and sees a profile edit", async () => {
+  test("a view reads its people's profile cards through the API with its stream's token, and sees a profile edit", async () => {
     process.env.STORY_HOME = state;
     const tokens = () => (host.overstoryd.execution as unknown as { tokens: Map<string, unknown> }).tokens.size;
     const before = tokens();
@@ -216,7 +300,7 @@ describe.serial("rows on the host", () => {
     const profile = (await owner.account()).account.profileTree!;
     const controller = new AbortController();
     try {
-      const stream = await openQuery(host.url, controller, listOwner, { id });
+      const stream = await openView(host.url, controller, "listOwner", { id });
       expect((await nextResult(stream)).value).toEqual({ id, owner: { id: profile, name: "owner", handle: "owner" } });
       // One token for the stream, however many questions it asks.
       expect(tokens()).toBe(before + 1);
@@ -320,22 +404,22 @@ describe.serial("rows on the host", () => {
     expect(host.overstoryd.acceptedUpdates(tree).length).toBe(before + 2);
   }, 30_000);
 
-  test("a stopped sidecar fails only queries and mutations, and the next question starts a new one that picks up open streams", async () => {
+  test("a stopped sidecar fails only views and mutations, and the next question starts a new one that picks up open streams", async () => {
     process.env.STORY_HOME = state;
     const controller = new AbortController();
     const daemon = await StorySyncDaemon.openControl({ autoSync: false });
     try {
-      const stream = await openQuery(host.url, controller);
+      const stream = await openView(host.url, controller);
       expect((await nextResult(stream)).value).toEqual({ id: LIST, name: "Neighbors", openToEdits: true });
       await host.collections!.sidecar.kill();
       // Reads, watches and updates don't need it: a device's edit is accepted.
-      const mine = new Database(join(folder, "supplies", "_store.sqlite3"));
+      const mine = new Database(deviceStore());
       mine.query("update List set name = 'Neighbors again' where id = ?").run(LIST);
       mine.close();
       await daemon.synchronizeNow();
       // The stream asks again, which starts a new sidecar.
       expect((await nextResult(stream)).value).toEqual({ id: LIST, name: "Neighbors again", openToEdits: true });
-      const back = new Database(join(folder, "supplies", "_store.sqlite3"));
+      const back = new Database(deviceStore());
       back.query("update List set name = 'Neighbors' where id = ?").run(LIST);
       back.close();
       await daemon.synchronizeNow();
@@ -369,7 +453,7 @@ describe.serial("rows on the host", () => {
     try {
       // An open stream keeps it.
       const controller = new AbortController();
-      const stream = await openQuery(host.url, controller);
+      const stream = await openView(host.url, controller);
       await nextResult(stream);
       await collections.evictIdle();
       expect(existsSync(materialized())).toBe(true);
@@ -383,7 +467,7 @@ describe.serial("rows on the host", () => {
     }
     const controller = new AbortController();
     try {
-      const stream = await openQuery(host.url, controller);
+      const stream = await openView(host.url, controller);
       expect((await nextResult(stream)).value).toEqual({ id: LIST, name: "Neighbors", openToEdits: true });
     } finally { controller.abort(); }
     expect(sortedDump(materialized())).toEqual(held);
@@ -397,7 +481,7 @@ describe.serial("rows on the host", () => {
     host = await serve();
     const controller = new AbortController();
     try {
-      const stream = await openQuery(host.url, controller);
+      const stream = await openView(host.url, controller);
       expect((await nextResult(stream)).value).toEqual({ id: LIST, name: "Neighbors", openToEdits: true });
     } finally { controller.abort(); }
     expect(dump(materialized())).toEqual(held);

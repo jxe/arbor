@@ -1,6 +1,7 @@
-// overstoryd's execution sidecar (Apps 005 step 4): it runs named queries and
+// overstoryd's execution sidecar (Apps 005): it runs named views and
 // mutations for overstoryd, which keeps the materializations and holds the
-// clients' streams. A query reads a materialization and answers a value. A
+// clients' streams. A view reads a materialization and answers its value, its
+// plan's rows, or its view tree. A
 // mutation runs in a transaction on one that always rolls back, and its row
 // changes are committed as a guarded, row-only update through the standard
 // API, with the receipt kept here. People's profile cards are read through the
@@ -15,7 +16,7 @@ import {
   decodeProtocolDirectory,
   HANDLE_PATH,
   logicalRowKey,
-  outputHash,
+  viewOutputHash,
   ProtocolClient,
   ProtocolHTTPError,
   ProtocolUpdateConflict,
@@ -32,14 +33,17 @@ import {
 } from "@ovst/protocol";
 import {
   MutationCallError,
+  QueryCompileError,
+  runView,
   SQLiteMutationBroker,
   SQLiteQueryEngine,
   SQLiteStoreBroker,
   type MutationHandle,
+  type NodeHandle,
   type ProfileResolver,
-  type QueryHandle,
   type ResolvedStorySource,
   type SQLiteRowChange,
+  type View,
 } from "@ovst/apps-runtime";
 import { rowOperationsBetween, sharedCollectionSchemaCache, sqliteRow, type CollectionSchema, type LogicalSchema } from "@ovst/collection-schema";
 import { layoutOf, logicalFromRows, type LogicalTables, type RowsByTable, type Table } from "@ovst/usl";
@@ -50,23 +54,16 @@ import {
   type ExecHandleRef,
   type ExecMutationAnswer,
   type ExecMutationQuestion,
-  type ExecQueryAnswer,
-  type ExecQueryQuestion,
   type ExecQuestion,
   type ExecReady,
+  type ExecViewAnswer,
+  type ExecViewQuestion,
 } from "@ovst/exec-protocol";
+import type { ExecEntry } from "./load.ts";
+
+export type { ExecEntry } from "./load.ts";
 
 type Row = Record<string, JSONValue>;
-
-/** A handle the sidecar runs: its name, and the collection its code reads. */
-export interface ExecEntry<Handle> {
-  ref: ExecHandleRef;
-  handle: Handle;
-  /** The collection directory's path in the handle's tree. */
-  collection: string;
-  /** The `node()` path the handle's module names the collection by, such as `./data`. */
-  authoredRoot: string;
-}
 
 export interface ExecSidecarOptions {
   /** overstoryd's materialization directory. */
@@ -75,8 +72,14 @@ export interface ExecSidecarOptions {
   state: string;
   /** The host's standard API. */
   origin: string;
-  queries?: readonly ExecEntry<QueryHandle<unknown, unknown>>[];
+  views?: readonly ExecEntry<View<unknown, unknown>>[];
   mutations?: readonly ExecEntry<MutationHandle<unknown, unknown>>[];
+  /**
+   * Answer `rows` for JSX views. Off by default: until read rules can hide
+   * rows by value, a `rows` answer would send a device rows a view's own
+   * check left out (Apps 005 step 4), so JSX views answer trees.
+   */
+  rowsAnswers?: boolean;
 }
 
 /** How many times the same changes are resubmitted on a newer head that left their collection as it was. */
@@ -84,7 +87,13 @@ const MUTATION_REBASES = 16;
 /** The materialization's own record (overstoryd's), which names the update it reflects. */
 const META = "__arbor_materialized";
 
-const refKey = (ref: ExecHandleRef) => `${ref.module}\0${ref.export}\0${ref.version}`;
+const refKey = (ref: ExecHandleRef) => `${ref.tree}\0${ref.path}\0${ref.name}\0${ref.version}`;
+
+/** The collection a handle reads, among those a question gives: one its `node()` paths name, or one of its tables. */
+function collectionFor(entry: ExecEntry<unknown>, collections: readonly ExecCollection[]): ExecCollection | undefined {
+  return collections.find((collection) => collection.tree === entry.ref.tree
+    && entry.sources.some((source) => source === collection.path || dirname(source) === collection.path));
+}
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 
 /** How many profile objects are kept: they are named by hash, so a kept one never goes stale. */
@@ -133,7 +142,7 @@ interface Opened {
 }
 
 export class ExecSidecar implements AsyncDisposable {
-  private readonly queries = new Map<string, ExecEntry<QueryHandle<unknown, unknown>>>();
+  private readonly views = new Map<string, ExecEntry<View<unknown, unknown>>>();
   private readonly mutationEntries = new Map<string, ExecEntry<MutationHandle<unknown, unknown>>>();
   private readonly opened = new Map<string, Opened>();
   private readonly turns = new Map<string, Promise<unknown>>();
@@ -144,7 +153,7 @@ export class ExecSidecar implements AsyncDisposable {
   private readonly profileObjects = new Map<string, Uint8Array>();
 
   constructor(private readonly options: ExecSidecarOptions) {
-    for (const entry of options.queries ?? []) this.queries.set(refKey(entry.ref), entry);
+    for (const entry of options.views ?? []) this.views.set(refKey(entry.ref), entry);
     for (const entry of options.mutations ?? []) this.mutationEntries.set(refKey(entry.ref), entry);
     this.receipts = new Database(join(options.state, "mutation-receipts.sqlite3"), { create: true, strict: true });
     this.receipts.exec("pragma journal_mode = wal");
@@ -155,13 +164,13 @@ export class ExecSidecar implements AsyncDisposable {
 
   /** The handshake: what this sidecar can run. */
   ready(): ExecReady {
-    const list = (entries: Iterable<ExecEntry<unknown>>) => [...entries].map((entry) => ({ ...entry.ref, collection: entry.collection, authored: entry.authoredRoot }));
-    return { ready: { version: EXEC_PROTOCOL_VERSION, queries: list(this.queries.values()), mutations: list(this.mutationEntries.values()) } };
+    const list = (entries: Iterable<ExecEntry<unknown>>) => [...entries].map((entry) => ({ ...entry.ref, sources: entry.sources }));
+    return { ready: { version: EXEC_PROTOCOL_VERSION, views: list(this.views.values()), mutations: list(this.mutationEntries.values()) } };
   }
 
   async answer(question: ExecQuestion): Promise<ExecAnswer> {
     try {
-      return question.kind === "query" ? await this.query(question) : await this.mutate(question);
+      return question.kind === "view" ? await this.view(question) : await this.mutate(question);
     } catch (error) {
       console.error("overstoryd-exec question failed", error);
       return { id: question.id, error: { message: "The question could not be answered" } };
@@ -241,46 +250,60 @@ export class ExecSidecar implements AsyncDisposable {
     return opened;
   }
 
-  /** The bindings of a `node()` root authored as `authoredRoot` to the collection and each of its tables. */
-  private sources(opened: Opened, collection: ExecCollection, authoredRoot: string): ResolvedStorySource[] {
+  /** The bindings of the collection's logical path, and each of its tables', to the collection. */
+  private sources(opened: Opened, collection: ExecCollection): ResolvedStorySource[] {
+    const authoredRoot = collection.path;
     const schemaFingerprint = opened.engine.schema.fingerprint;
     const prefix = collection.path === "/" ? "" : collection.path;
     return [
       { authoredPath: authoredRoot, tree: collection.tree, path: collection.path, schemaFingerprint },
       ...Object.values(opened.engine.schema.relations).filter((relation) => relation.source === "sqlite").map((relation) => ({
-        authoredPath: `${authoredRoot}/${relation.name}`, tree: collection.tree, path: `${prefix}/${relation.name}`, schemaFingerprint,
+        authoredPath: `${authoredRoot === "/" ? "" : authoredRoot}/${relation.name}`, tree: collection.tree, path: `${prefix}/${relation.name}`, schemaFingerprint,
       })),
     ];
   }
 
-  private async query(question: ExecQueryQuestion): Promise<ExecQueryAnswer> {
+  private async view(question: ExecViewQuestion): Promise<ExecViewAnswer> {
     const { id } = question;
-    const entry = this.queries.get(refKey(question.query));
-    if (!entry) return { id, refusal: { code: "not-found", message: "A mounted query handle or version is not active", retryable: false } };
-    const collection = question.collections.find((candidate) => candidate.authored === entry.authoredRoot);
-    if (!collection) return { id, refusal: { code: "invalid-request", message: "The query's collection was not given", retryable: false } };
+    const entry = this.views.get(refKey(question.view));
+    if (!entry) return { id, refusal: { code: "not-found", message: "A mounted view handle or version is not active", retryable: false } };
+    if (question.form === "rows" && !this.options.rowsAnswers) {
+      return { id, refusal: { code: "unsupported-operation", message: "This host answers JSX views as view trees, not rows", retryable: false } };
+    }
+    const collection = collectionFor(entry, question.collections);
+    if (!collection) return { id, refusal: { code: "invalid-request", message: "The view's collection was not given", retryable: false } };
     const opened = await this.open(collection);
     if (reflected(opened.file) !== collection.update) return { id, stale: true };
-    const source = this.sources(opened, collection, entry.authoredRoot).find((candidate) => candidate.authoredPath === entry.handle.source.path);
-    if (!source) return { id, refusal: { code: "invalid-request", message: "The query's node() source is not in its collection", retryable: false } };
-    opened.engine.bind(entry.handle, source);
+    const bindings = this.sources(opened, collection);
+    const resolve = async (source: NodeHandle) => {
+      const found = bindings.find((candidate) => candidate.authoredPath === source.path);
+      if (!found) throw new QueryCompileError("A view's node() source is not in its collection");
+      return found;
+    };
     const client = new ProtocolClient(this.options.origin, question.token, { timeoutMs: 30_000 });
-    let execution;
+    let run;
     try {
-      execution = await this.asked.run(client, () => opened.engine.execute(entry.handle, { input: question.input, user: question.viewer }));
+      run = await this.asked.run(client, () => runView(entry.handle, {
+        engine: opened.engine,
+        resolve,
+        input: question.input,
+        user: question.viewer,
+        ...(question.form ? { form: question.form } : {}),
+        ...(question.missed ? { missed: question.missed } : {}),
+      }));
     } catch (error) {
       if (error instanceof ProfileReadFailure) return { id, error: { message: "A profile could not be read", code: "unavailable" } };
-      return { id, refusal: safeQueryError(error) };
+      return { id, refusal: safeViewError(error) };
     }
-    // Caught up while the query ran: what it read may not be the update named.
+    // Caught up while the view ran: what it read may not be the update named.
     if (reflected(opened.file) !== collection.update) return { id, stale: true };
     const reads = {
       collections: [{ tree: collection.tree, path: collection.path }],
-      profiles: execution.dependencies.profiles.map(({ profile, tree, ref }) => ({ profile, tree, ref })),
+      profiles: run.executions.flatMap((execution) => execution.dependencies.profiles.map(({ profile, tree, ref }) => ({ profile, tree, ref }))),
     };
-    const hash = outputHash(execution.result);
+    const hash = viewOutputHash(run.output, run.shape);
     if (hash === question.knownOutputHash) return { id, unchanged: true, reads };
-    return { id, outputHash: hash, value: execution.result, reads };
+    return { id, outputHash: hash, value: run.output, ...(run.shape ? { shape: run.shape } : {}), reads };
   }
 
   /** Run `work` as the only mutation on one materialization. */
@@ -299,11 +322,12 @@ export class ExecSidecar implements AsyncDisposable {
    * comes from the request digest. The receipt is kept once the host accepts.
    */
   private async mutate(question: ExecMutationQuestion): Promise<ExecMutationAnswer> {
-    const { id, tree } = question;
+    const { id } = question;
+    const tree = question.mutation.tree;
     const entry = this.mutationEntries.get(refKey(question.mutation));
     if (!entry) return { id, refusal: { code: "not-found", message: "The mutation handle or version is not active", retryable: false } };
-    const collection = question.collections.find((candidate) => candidate.authored === entry.authoredRoot);
-    if (!collection || collection.tree !== tree) return { id, refusal: { code: "invalid-request", message: "The mutation's collection was not given", retryable: false } };
+    const collection = collectionFor(entry, question.collections);
+    if (!collection) return { id, refusal: { code: "invalid-request", message: "The mutation's collection was not given", retryable: false } };
     const opened = await this.open(collection);
     return this.turn(opened.file, async () => {
       const store = new SQLiteStoreBroker(opened.file, opened.engine.schema, { watchExternal: false, trialOnly: true });
@@ -311,11 +335,11 @@ export class ExecSidecar implements AsyncDisposable {
         const broker = new SQLiteMutationBroker(opened.engine.schema, store, { tree, path: collection.path }, { now: () => new Date(question.now) });
         const call = {
           scope: tree,
-          handle: { tree, ...question.mutation },
+          handle: question.mutation,
           mutationID: question.mutationID,
           input: question.input,
           user: question.viewer,
-          sources: this.sources(opened, collection, entry.authoredRoot),
+          sources: this.sources(opened, collection),
         };
         const subject = question.viewer?.profile ?? "anonymous";
         const client = new ProtocolClient(this.options.origin, question.token, { timeoutMs: 30_000 });
@@ -464,11 +488,11 @@ export class ExecSidecar implements AsyncDisposable {
   }
 }
 
-/** A query's failure as the caller may see it. */
-function safeQueryError(error: unknown) {
-  const message = error instanceof Error && /input|required|not found|missing/i.test(error.message)
+/** A view's failure as the caller may see it. */
+function safeViewError(error: unknown) {
+  const message = error instanceof Error && /input|required|not found|missing|missed/i.test(error.message)
     ? error.message
-    : "The query could not be evaluated";
+    : "The view could not be evaluated";
   return { code: "invalid-request", message, retryable: false };
 }
 

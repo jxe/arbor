@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { AccountDirectory } from "./accounts.ts";
-import { HostDaemon, SchemaMismatchError, serveHost, type HostBootstrapAccount } from "./index.ts";
+import { HostDaemon, SchemaMismatchError, serveHost, type Activation, type HostBootstrapAccount, type HostCollectionsOptions } from "./index.ts";
 import { formatHostReport, hostReport } from "./report.ts";
 import { hardenResponse } from "./response-policy.ts";
 
@@ -106,6 +106,27 @@ function pagesOption(value: string | undefined): boolean | string[] {
   if (!trimmed) return false;
   if (trimmed === "1") return true;
   return trimmed.split(",").map((tree) => tree.trim()).filter(Boolean);
+}
+
+/**
+ * `OVERSTORYD_ACTIVATIONS`: a JSON file listing the modules the host runs
+ * (Apps 005), each `{tree, path, root}`. Read when the execution sidecar first
+ * starts. Unset, the views and mutate routes answer `unsupported-operation`.
+ * `OVERSTORYD_ROWS_ANSWERS=1` lets JSX views answer `rows`.
+ */
+function collectionsOption(): HostCollectionsOptions | undefined {
+  const file = process.env.OVERSTORYD_ACTIVATIONS?.trim();
+  if (!file) return undefined;
+  return {
+    activations: async () => {
+      const value = JSON.parse(await Bun.file(resolve(file)).text()) as unknown;
+      if (!Array.isArray(value) || value.some((entry) => typeof entry?.tree !== "string" || typeof entry?.path !== "string" || typeof entry?.root !== "string")) {
+        throw new Error("OVERSTORYD_ACTIVATIONS must name a JSON list of {tree, path, root}");
+      }
+      return value as Activation[];
+    },
+    rowsAnswers: process.env.OVERSTORYD_ROWS_ANSWERS === "1",
+  };
 }
 
 function trustedProxyHops(): number {
@@ -242,6 +263,7 @@ export async function serveCommunity(args: string[]): Promise<void> {
       provenanceFill: process.env.OVERSTORYD_PROVENANCE_FILL?.trim() !== "0",
       trustedProxyHops: trustedProxyHops(),
       storyDownloads: storyDownloads(),
+      ...(collectionsOption() ? { collections: collectionsOption()! } : {}),
     });
   } catch (error) {
     // A data root whose schema this build does not serve is not served and

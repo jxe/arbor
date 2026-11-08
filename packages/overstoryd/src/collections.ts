@@ -1,19 +1,19 @@
 // The host's own projection of its trees' collections (Schema language 005
 // milestone 6): one SQLite file per collection, in its schema's database
-// layout, derived from accepted state. Its execution sidecar (Apps 005 step 4)
-// runs named queries on the files and mutations in rolled-back transactions on
-// them; overstoryd keeps the files, holds the clients' query streams and asks
-// the sidecar again when a file changes. The files are a cache: never backed
+// layout, derived from accepted state. Its execution sidecar (Apps 005) runs
+// views on the files and mutations in rolled-back transactions on them, from
+// code the host loads from trees; overstoryd keeps the files, holds the
+// clients' view streams and asks the sidecar again when a file changes. The files are a cache: never backed
 // up, retained or audited. Deleting one only means the next use rebuilds it,
 // and nothing in it changes what a root means.
 
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   decodeProtocolDirectory,
-  liveQueryStream,
+  liveViewStream,
   stableJSONString,
   stableKeyFromProperties,
   type AcceptedUpdate,
@@ -24,9 +24,12 @@ import {
   type MutationResultReceipt,
   type ObjectHash,
   type ProtocolDirectory,
-  type QueryStreamEvent,
-  type QueryStreamRequest,
-  type QueryStreamRuntime,
+  type ReadPath,
+  type ResultShape,
+  type ViewAnswerForm,
+  type ViewEvent,
+  type ViewsRequest,
+  type ViewsRuntime,
 } from "@ovst/protocol";
 import {
   loadDirectoryCollection,
@@ -36,7 +39,8 @@ import {
   type LogicalSchema,
 } from "@ovst/collection-schema";
 import { layoutOf, rowsFromLogical, setupSql, type Table } from "@ovst/usl";
-import type { ExecCollection, ExecHandle, ExecPublicError, ExecReads } from "@ovst/exec-protocol";
+import type { ExecActivations, ExecCollection, ExecHandle, ExecHandleRef, ExecPublicError, ExecReads } from "@ovst/exec-protocol";
+import { loadActivation, type Activation } from "./activations.ts";
 import { ExecProcess, ExecUnavailableError } from "./exec-process.ts";
 import { ANY_TREE } from "./execution-authority.ts";
 import type { HostDaemon, UpdateCaller } from "./overstoryd.ts";
@@ -49,7 +53,7 @@ const DATABASE = "_store.sqlite3";
 const META = "__arbor_materialized";
 /** How many times a question is asked again when its collection changes under it. */
 const ATTEMPTS = 5;
-/** How long a query stream's token lasts before the stream is issued another. */
+/** How long a view stream's token lasts before the stream is issued another. */
 const QUERY_TOKEN_MS = 10 * 60_000;
 /** The disk the host's materializations may use before idle ones are evicted. */
 const MATERIALIZED_BYTES = 1 << 30;
@@ -126,9 +130,8 @@ export class MaterializedCollection implements AsyncDisposable {
   get applied(): AcceptedUpdate { return this.current.update; }
 
   /** The collection as a question names it to the sidecar. */
-  question(authored: string, dataRoot: string): ExecCollection {
+  question(dataRoot: string): ExecCollection {
     return {
-      authored,
       tree: this.tree,
       path: this.path,
       file: this.databasePath.slice(join(dataRoot, "materialized").length + 1),
@@ -231,8 +234,14 @@ function readMeta(path: string): { update: string; schema: string; collection: s
 }
 
 export interface HostCollectionsOptions {
-  /** The module the execution sidecar loads its handles from, until handles are read from trees (Apps 005 step 2). */
-  handles: string;
+  /**
+   * The modules the host runs, each read from its tree at a pinned root (Apps 005
+   * step 3). Asked for when the sidecar first starts; with none, every view and
+   * mutation is refused as not active.
+   */
+  activations?: readonly Activation[] | (() => readonly Activation[] | Promise<readonly Activation[]>);
+  /** Let JSX views answer `rows` (the sidecar's `--rows-answers`); off until read rules can hide rows by value. */
+  rowsAnswers?: boolean;
   /** How to start the sidecar; by default `bun` running `@ovst/overstoryd-exec`. The host adds its arguments. */
   command?: readonly string[];
   /** A mutation's logical time; tests fix it. */
@@ -251,8 +260,8 @@ export interface HostMutationContext {
   caller?: UpdateCaller;
 }
 
-/** The context the host's query route gives a stream: the caller whose access its token reads with. */
-export interface HostQueryContext {
+/** The context the host's views route gives a stream: the caller whose access its token reads with. */
+export interface HostViewsContext {
   signal: AbortSignal;
   user: { profile: string } | null;
   caller?: UpdateCaller;
@@ -276,10 +285,22 @@ type Change =
 interface Evaluation {
   outputHash: Hash;
   value: unknown;
+  shape?: ResultShape;
   reads: ExecReads;
 }
 
-const refKey = (ref: { module: string; export: string; version: string }) => `${ref.module}\0${ref.export}\0${ref.version}`;
+/** A view mounted on a stream: its request, the handle the sidecar runs, and the collection it reads. */
+interface Mount {
+  id: string;
+  input?: unknown;
+  form?: ViewAnswerForm;
+  missed?: ReadPath[];
+  knownOutputHash?: Hash;
+  entry: ExecHandle;
+  collection: string;
+}
+
+const refKey = (ref: ExecHandleRef) => `${ref.tree}\0${ref.path}\0${ref.name}\0${ref.version}`;
 
 /**
  * The host's collection materializations, at `<dataRoot>/materialized/<tree>/<path>/`,
@@ -323,7 +344,43 @@ export class HostCollections implements AsyncDisposable {
 
   private command(base: readonly string[]): string[] {
     if (!this.origin) throw new ExecUnavailableError("The host is not listening yet");
-    return [...base, "--handles", this.options.handles, "--materialized", join(this.dataRoot, "materialized"), "--state", join(this.dataRoot, "exec"), "--host", this.origin];
+    return [
+      ...base,
+      "--activations", this.manifest,
+      ...(this.options.rowsAnswers ? ["--rows-answers"] : []),
+      "--materialized", join(this.dataRoot, "materialized"),
+      "--state", join(this.dataRoot, "exec"),
+      "--host", this.origin,
+    ];
+  }
+
+  private get manifest(): string { return join(this.dataRoot, "exec", "activations.json"); }
+
+  private loading?: Promise<void>;
+
+  /** Read the activated modules from their trees, once, before the sidecar first starts. */
+  private loaded(): Promise<void> {
+    this.loading ??= (async () => {
+      let activations: readonly Activation[] = [];
+      try {
+        activations = typeof this.options.activations === "function" ? await this.options.activations() : this.options.activations ?? [];
+      } catch (error) {
+        console.error(`overstoryd: the activations could not be read: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      const code = join(this.dataRoot, "exec", "code");
+      await rm(code, { recursive: true, force: true });
+      const manifest: ExecActivations = { code, activations: [] };
+      for (const activation of activations) {
+        try {
+          manifest.activations.push(await loadActivation(this.read, activation, code));
+        } catch (error) {
+          console.error(`overstoryd: activation ${activation.path} in ${activation.tree} did not load: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      await mkdir(dirname(this.manifest), { recursive: true });
+      await writeFile(this.manifest, JSON.stringify(manifest));
+    })();
+    return this.loading;
   }
 
   private get idleMs(): number { return this.options.materializedIdleMs ?? MATERIALIZED_IDLE_MS; }
@@ -477,21 +534,53 @@ export class HostCollections implements AsyncDisposable {
     return MaterializedCollection.open(tree, path, directory, applied);
   }
 
+  /** What the sidecar runs, from its handshake: each view and mutation's name and code version. */
+  async active(): Promise<{ views: ExecHandle[]; mutations: ExecHandle[] }> {
+    await this.loaded();
+    const { views, mutations } = await this.sidecar.handles();
+    return { views, mutations };
+  }
+
   /** The handle the sidecar runs under this name, from its handshake. */
-  private async handle(kind: "queries" | "mutations", ref: { module: string; export: string; version: string }): Promise<ExecHandle | undefined> {
+  private async handle(kind: "views" | "mutations", ref: ExecHandleRef): Promise<ExecHandle | undefined> {
+    await this.loaded();
     return (await this.sidecar.handles())[kind].find((candidate) => refKey(candidate) === refKey(ref));
   }
 
-  /** One query's current value, asked of the sidecar against the caught-up file. */
-  private async evaluate(tree: string, entry: ExecHandle, mount: { input?: unknown }, user: { profile: string } | null, token: () => string, known: Hash | undefined, signal: AbortSignal): Promise<Evaluation | { unchanged: Hash; reads: ExecReads }> {
+  /**
+   * The collection a handle reads at the tree's head: the one directory with a
+   * schema that its `node()` paths name, either itself or as one of its tables.
+   */
+  private async collectionOf(entry: ExecHandle): Promise<string> {
+    const head = this.daemon.currentUpdate(entry.tree);
+    if (!head) throw new ExecRefusal({ code: "not-found", message: "The tree has no accepted state", retryable: false });
+    const found = new Set<string>();
+    for (const source of entry.sources) {
+      for (const path of [source, dirname(source)]) {
+        const located = await locate(this.read, head.root as ObjectHash, path);
+        const at = located?.spine.at(-1)?.directory;
+        if (at?.collection && schemaEntry(at)) { found.add(path); break; }
+      }
+    }
+    if (found.size !== 1) {
+      throw new ExecRefusal({ code: "invalid-request", message: found.size ? "A view or mutation reads one collection" : "The code names no collection in its tree", retryable: false });
+    }
+    return [...found][0]!;
+  }
+
+  /** One view's current answer, asked of the sidecar against the caught-up file. */
+  private async evaluate(mount: Mount, user: { profile: string } | null, token: () => string, known: Hash | undefined, signal: AbortSignal): Promise<Evaluation | { unchanged: Hash; reads: ExecReads }> {
+    const { entry } = mount;
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-      const collection = await this.current(tree, entry.collection);
+      const collection = await this.current(entry.tree, mount.collection);
       const answer = await this.sidecar.ask({
-        kind: "query",
-        query: { module: entry.module, export: entry.export, version: entry.version },
+        kind: "view",
+        view: { tree: entry.tree, path: entry.path, name: entry.name, version: entry.version },
         input: mount.input,
+        ...(mount.form ? { form: mount.form } : {}),
+        ...(mount.missed ? { missed: mount.missed } : {}),
         viewer: user,
-        collections: [collection.question(entry.authored, this.dataRoot)],
+        collections: [collection.question(this.dataRoot)],
         token: token(),
         ...(known ? { knownOutputHash: known } : {}),
       }, signal);
@@ -499,38 +588,46 @@ export class HostCollections implements AsyncDisposable {
       if ("refusal" in answer) throw new ExecRefusal(answer.refusal);
       if ("error" in answer) throw new ExecUnavailableError(answer.error.message);
       if ("unchanged" in answer) return { unchanged: known!, reads: answer.reads };
-      if ("outputHash" in answer) return { outputHash: answer.outputHash, value: answer.value, reads: answer.reads };
-      throw new ExecUnavailableError("The execution sidecar answered a query with a receipt");
+      if ("outputHash" in answer) return { outputHash: answer.outputHash, value: answer.value, ...(answer.shape ? { shape: answer.shape } : {}), reads: answer.reads };
+      throw new ExecUnavailableError("The execution sidecar answered a view with a receipt");
     }
-    throw new ExecUnavailableError("The collection kept changing while the query ran");
+    throw new ExecUnavailableError("The collection kept changing while the view ran");
   }
 
-  /** The query runtime the host's `/queries` route serves: overstoryd holds the stream and asks the sidecar again when what a result read changes. */
-  queryRuntime(): QueryStreamRuntime {
+  /** The view runtime the host's `/views` route serves: overstoryd holds the stream and asks the sidecar again when what a result read changes. */
+  viewsRuntime(): ViewsRuntime {
     return {
-      stream: async (request: QueryStreamRequest, context): Promise<ReadableStream<QueryStreamEvent>> => {
+      stream: async (request: ViewsRequest, context): Promise<ReadableStream<ViewEvent>> => {
         const tree = request.document.tree;
-        if (!Array.isArray(request.queries)) throw new Error("queries must be an array");
+        if (!Array.isArray(request.views) || request.views.length === 0) throw new Error("views must be a nonempty array");
         const ids = new Set<string>();
-        const mounts = await Promise.all(request.queries.map(async (mount) => {
-          if (!mount.id || ids.has(mount.id)) throw new Error("Mounted query ids must be non-empty and unique");
+        const mounts: Mount[] = [];
+        for (const mount of request.views) {
+          if (typeof mount.id !== "string" || !mount.id || ids.has(mount.id)) throw new Error("Mounted view ids must be non-empty and unique");
           ids.add(mount.id);
-          const entry = await this.handle("queries", mount.handle);
-          if (!entry) throw new Error("A mounted query handle or version is not active");
-          return { id: mount.id, input: mount.input, ...(mount.knownOutputHash ? { knownOutputHash: mount.knownOutputHash } : {}), entry };
-        }));
-        const paths = new Set(mounts.map((mount) => mount.entry.collection));
-        if (paths.size !== 1) throw new Error("A query stream reads one collection");
-        const path = [...paths][0]!;
-        await this.current(tree, path);
-        const key = `${tree}\0${path}`;
+          if (mount.form !== undefined && !["value", "rows", "tree"].includes(mount.form)) throw new Error("A view's form must be value, rows or tree");
+          if (mount.missed !== undefined && !Array.isArray(mount.missed)) throw new Error("missed must be an array of read paths");
+          const entry = await this.handle("views", mount.handle);
+          if (!entry) throw new Error("A mounted view handle or version is not active");
+          mounts.push({
+            id: mount.id,
+            input: mount.input,
+            ...(mount.form ? { form: mount.form } : {}),
+            ...(mount.missed ? { missed: mount.missed } : {}),
+            ...(mount.knownOutputHash ? { knownOutputHash: mount.knownOutputHash } : {}),
+            entry,
+            collection: await this.collectionOf(entry),
+          });
+        }
+        const keys = [...new Set(mounts.map((mount) => `${tree}\0${mount.collection}`))];
+        for (const mount of mounts) await this.current(tree, mount.collection);
         // The last value the sidecar sent for each mount, so an unchanged answer has one.
         const last = new Map<string, Evaluation>();
         const evaluating = new AbortController();
         // One token for the stream's questions, so the sidecar can read the
-        // profiles its queries reach with the caller's access; revoked when
+        // profiles its views reach with the caller's access; revoked when
         // the stream ends, and issued again only when it has lapsed.
-        const caller = (context as HostQueryContext).caller;
+        const caller = (context as HostViewsContext).caller;
         const authentication = caller?.authentication;
         let token: string | undefined;
         const streamToken = (): string => {
@@ -538,10 +635,10 @@ export class HostCollections implements AsyncDisposable {
           if (token) this.daemon.execution.revoke(token);
           token = this.daemon.execution.issue({
             code: tree,
-            version: "query",
+            version: "view",
             caller: caller?.account?.id ?? null,
             ...(caller?.linkDigest ? { linkDigest: caller.linkDigest } : {}),
-            subject: `query:${caller?.account?.id ?? "anonymous"}`,
+            subject: `view:${caller?.account?.id ?? "anonymous"}`,
             expiresAt: Date.now() + QUERY_TOKEN_MS,
             grants: [{ tree: ANY_TREE, within: "/", allow: ["read"], lender: null }],
             active: () => !authentication || this.daemon.authenticationIsActive(authentication),
@@ -552,37 +649,41 @@ export class HostCollections implements AsyncDisposable {
           evaluating.abort();
           if (token) this.daemon.execution.revoke(token);
         }, { once: true });
-        type Mount = typeof mounts[number];
-        return liveQueryStream<Evaluation, ExecReads, Change, Mount>(mounts, context, {
-          currentCursor: () => `query:${this.sequence}`,
+        return liveViewStream<Evaluation, ExecReads, Change, Mount>(mounts, context, {
+          currentCursor: () => `view:${this.sequence}`,
           subscribe: (listener) => {
-            const set = this.listeners.get(key) ?? new Set();
-            set.add(listener);
-            this.listeners.set(key, set);
-            return () => {
-              set.delete(listener);
-              if (!set.size && this.listeners.get(key) === set) this.listeners.delete(key);
-            };
+            const stops = keys.map((key) => {
+              const set = this.listeners.get(key) ?? new Set();
+              set.add(listener);
+              this.listeners.set(key, set);
+              return () => {
+                set.delete(listener);
+                if (!set.size && this.listeners.get(key) === set) this.listeners.delete(key);
+              };
+            });
+            return () => { for (const stop of stops) stop(); };
           },
-          initialSensitivity: () => ({ collections: [{ tree, path }], profiles: [] }),
+          initialSensitivity: (mount) => ({ collections: [{ tree, path: mount.collection }], profiles: [] }),
           execute: async (mount) => {
             const known = last.get(mount.id)?.outputHash ?? mount.knownOutputHash;
-            const answer = await this.evaluate(tree, mount.entry, mount, context.user, streamToken, known, evaluating.signal);
+            const answer = await this.evaluate(mount, context.user, streamToken, known, evaluating.signal);
             if ("unchanged" in answer) {
               const held = last.get(mount.id);
-              return { outputHash: answer.unchanged, value: held?.outputHash === answer.unchanged ? held.value : undefined, reads: answer.reads };
+              const kept = held?.outputHash === answer.unchanged ? held : undefined;
+              return { outputHash: answer.unchanged, value: kept?.value, ...(kept?.shape ? { shape: kept.shape } : {}), reads: answer.reads };
             }
             last.set(mount.id, answer);
             return answer;
           },
           sensitivity: (_mount, execution) => execution.reads,
-          relevant: (change, _mount, reads) => change.kind === "reload"
-            || (change.kind === "collection" && (reads?.collections ?? [{ tree, path }]).some((read) => read.tree === change.tree && read.path === change.path))
+          relevant: (change, mount, reads) => change.kind === "reload"
+            || (change.kind === "collection" && (reads?.collections ?? [{ tree, path: mount.collection }]).some((read) => read.tree === change.tree && read.path === change.path))
             || (change.kind === "profile" && (reads?.profiles ?? []).some((read) => read.tree === change.tree)),
           result: (execution) => execution.value,
+          shape: (execution) => execution.shape,
           outputHash: (execution) => execution.outputHash,
           safeError: (error) => error instanceof ExecRefusal ? error.value
-            : { code: "unavailable", message: "The query could not be evaluated now", retryable: true },
+            : { code: "unavailable", message: "The view could not be evaluated now", retryable: true },
           reload: (change) => change.kind === "reload" ? "source-changed" : undefined,
         });
       },
@@ -607,9 +708,10 @@ export class HostCollections implements AsyncDisposable {
     const account = context.caller?.account;
     if (!account) throw new ExecRefusal({ code: "permission-denied", message: "A mutation needs a caller who can write the tree", retryable: false });
     const tree = request.handle.tree;
+    const path = await this.collectionOf(entry);
     const authentication = context.caller?.authentication;
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-      const collection = await this.current(tree, entry.collection);
+      const collection = await this.current(tree, path);
       const deadline = this.options.deadlineMs ?? 30_000;
       const token = this.daemon.execution.issue({
         code: tree,
@@ -625,12 +727,11 @@ export class HostCollections implements AsyncDisposable {
       try {
         answer = await this.sidecar.ask({
           kind: "mutation",
-          tree,
-          mutation: { module: request.handle.module, export: request.handle.export, version: request.handle.version },
+          mutation: { tree, path: request.handle.path, name: request.handle.name, version: request.handle.version },
           mutationID: request.mutationID,
           input: request.input,
           viewer: context.user,
-          collections: [collection.question(entry.authored, this.dataRoot)],
+          collections: [collection.question(this.dataRoot)],
           token,
           now: (this.options.now?.() ?? new Date()).toISOString(),
         });
@@ -643,7 +744,7 @@ export class HostCollections implements AsyncDisposable {
       if ("error" in answer) throw new ExecUnavailableError(answer.error.message);
       if (!("receipt" in answer)) throw new ExecUnavailableError("The execution sidecar answered a mutation with a query result");
       // Reads after the receipt see the accepted rows.
-      await this.current(tree, entry.collection);
+      await this.current(tree, path);
       return answer.receipt;
     }
     throw new ExecUnavailableError("The tree kept changing while the mutation ran");

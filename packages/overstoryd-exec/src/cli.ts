@@ -4,35 +4,40 @@
 // and never shares more than the questions say.
 
 import { mkdirSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import type { ExecCancel, ExecQuestion } from "@ovst/exec-protocol";
-import { ExecSidecar, type ExecEntry } from "./sidecar.ts";
+import { loadActivations } from "./load.ts";
+import { ExecSidecar } from "./sidecar.ts";
 
 const { values } = parseArgs({
   options: {
-    handles: { type: "string" },
+    activations: { type: "string" },
+    "rows-answers": { type: "boolean" },
     materialized: { type: "string" },
     state: { type: "string" },
     host: { type: "string" },
   },
 });
-for (const name of ["handles", "materialized", "state", "host"] as const) {
+for (const name of ["materialized", "state", "host"] as const) {
   if (!values[name]) {
     console.error(`overstoryd-exec: --${name} is required`);
     process.exit(2);
   }
 }
 const absolute = (path: string) => isAbsolute(path) ? path : resolve(path);
-const module = await import(absolute(values.handles!)) as { queries?: ExecEntry<never>[]; mutations?: ExecEntry<never>[]; default?: { queries?: ExecEntry<never>[]; mutations?: ExecEntry<never>[] } };
-const handles = module.default ?? module;
 for (const name of ["materialized", "state"] as const) mkdirSync(absolute(values[name]!), { recursive: true });
+// The views and mutations overstoryd loaded from trees; with none, every question is refused.
+const code = values.activations
+  ? await loadActivations(absolute(values.activations), join(absolute(values.state!), "compiled"))
+  : { views: [], mutations: [] };
 const sidecar = new ExecSidecar({
   materialized: absolute(values.materialized!),
   state: absolute(values.state!),
   origin: values.host!,
-  queries: handles.queries ?? [],
-  mutations: handles.mutations ?? [],
+  views: code.views,
+  mutations: code.mutations,
+  rowsAnswers: values["rows-answers"] ?? false,
 });
 
 const write = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);

@@ -1,22 +1,22 @@
-// The `/queries` and `/mutate` routes' HTTP side: a query stream as SSE, a
+// The `/views` and `/mutate` routes' HTTP side: a view stream as SSE, a
 // mutation's receipt as JSON, and refusals and an unavailable sidecar as the
 // errors a client can act on.
 
-import { encodeSSEFrame, type MutationCallRequest, type MutationCallRuntime, type QueryStreamEvent, type QueryStreamRequest, type QueryStreamRuntime } from "@ovst/protocol";
+import { encodeSSEFrame, type MutationCallRequest, type MutationCallRuntime, type ViewEvent, type ViewsRequest, type ViewsRuntime } from "@ovst/protocol";
 import { ExecRefusal } from "./collections.ts";
 import { ExecUnavailableError } from "./exec-process.ts";
 
 function failed(error: unknown, fallback: string, tree: string): Response {
   const headers = { "cache-control": "no-store" };
   if (error instanceof ExecUnavailableError) {
-    return Response.json({ error: "internal-error", message: "Queries and mutations are unavailable for now", retryable: true, tree }, { status: 503, headers });
+    return Response.json({ error: "internal-error", message: "Views and mutations are unavailable for now", retryable: true, tree }, { status: 503, headers });
   }
   if (error instanceof ExecRefusal) return Response.json({ error: error.value.code, message: error.value.message, retryable: error.value.retryable, tree }, { status: 400, headers });
   return Response.json({ error: "invalid-request", message: error instanceof Error ? error.message : fallback, retryable: false, tree }, { status: 400, headers });
 }
 
-export async function treeQueryResponse(
-  runtime: QueryStreamRuntime,
+export async function treeViewsResponse(
+  runtime: ViewsRuntime,
   request: Request,
   tree: string,
   user: { profile: string } | null,
@@ -24,13 +24,13 @@ export async function treeQueryResponse(
   context: Record<string, unknown> = {},
 ): Promise<Response> {
   try {
-    const input = await request.json() as QueryStreamRequest;
-    if (input.document.tree !== tree || input.queries.some((query) => query.handle.tree !== tree)) {
-      throw new Error("The route tree must own the document and every query handle");
+    const input = await request.json() as ViewsRequest;
+    if (!input?.document || input.document.tree !== tree || !Array.isArray(input.views) || input.views.some((view) => view?.handle?.tree !== tree)) {
+      throw new Error("The route tree must own the document and every view handle");
     }
     const encoder = new TextEncoder();
-    const events: ReadableStream<QueryStreamEvent> = await runtime.stream(input, { ...context, signal: request.signal, user });
-    return new Response(events.pipeThrough(new TransformStream<QueryStreamEvent, Uint8Array>({
+    const events: ReadableStream<ViewEvent> = await runtime.stream(input, { ...context, signal: request.signal, user });
+    return new Response(events.pipeThrough(new TransformStream<ViewEvent, Uint8Array>({
       transform(event, controller) {
         const { type, ...data } = event;
         controller.enqueue(encoder.encode(encodeSSEFrame({ event: type, data })));
@@ -39,7 +39,7 @@ export async function treeQueryResponse(
       headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" },
     });
   } catch (error) {
-    return failed(error, "Invalid query stream request", tree);
+    return failed(error, "Invalid views request", tree);
   }
 }
 

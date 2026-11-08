@@ -6,7 +6,6 @@ import type {
   PredicateExpression,
   QueryCardinality,
   QueryPlan,
-  SelectionValue,
   StandardSchemaV1,
   ValueExpression,
 } from "./authoring.ts";
@@ -148,35 +147,6 @@ export function finishCardinality(
   if (rows.length > 1) throw new QueryCompileError(`query.${cardinality} returned more than one ${noun}`);
   if (cardinality === "one" && rows.length !== 1) throw new QueryCompileError(`query.one returned no ${noun}`);
   return rows[0] ?? null;
-}
-
-export function shapeQueryRow(
-  row: Record<string, unknown>,
-  selection: Record<string, SelectionValue>,
-): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(selection).map(([name, selected]) => [
-    name,
-    row[selected.kind === "field" ? selected.field : name],
-  ]));
-}
-
-/** Property fields whose changes can affect one portable node-query result. */
-export function portableQueryFields(plan: QueryPlan): ReadonlySet<string> {
-  const fields = new Set<string>();
-  const visitValue = (value: ValueExpression) => {
-    if (value.kind === "field") fields.add(value.field);
-  };
-  const visitPredicate = (predicate: PredicateExpression) => {
-    if (predicate.kind === "logical") predicate.operands.forEach(visitPredicate);
-    else if (predicate.kind === "not") visitPredicate(predicate.operand);
-    else if (predicate.kind === "comparison") {
-      visitValue(predicate.left);
-      visitValue(predicate.right);
-    }
-  };
-  if (plan.where) visitPredicate(plan.where);
-  for (const selected of Object.values(plan.select)) visitValue(selected as ValueExpression);
-  return fields;
 }
 
 /** Validate the deliberately small provider-neutral query algebra. */
