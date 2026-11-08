@@ -64,6 +64,8 @@ done
 tag="v$version"
 [ "$(git branch --show-current)" = "main" ] || { echo "error: release from main" >&2; exit 1; }
 [ -z "$(git status --short)" ] || { echo "error: the working tree has changes; commit or stash them" >&2; exit 1; }
+# Start from origin's main, so the push at the end isn't refused.
+git pull -q --rebase origin main
 if wants mac && git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
   echo "error: $tag already exists" >&2; exit 1
 fi
@@ -155,6 +157,8 @@ if [ "$current" != "$version" ]; then
   git commit -q -m "Release $version"
 fi
 build=$(git rev-list --count HEAD)
+# What is built, tagged and published, even if the push below picks up later commits.
+built=$(git rev-parse HEAD)
 
 step "Checking"
 bun run typecheck
@@ -202,12 +206,13 @@ read answer
 [ "$answer" = "yes" ] || { echo "Nothing published. The builds are in dist/."; exit 1; }
 
 step "Pushing main"
-git push origin main
+# Others may push while this builds; merge their commits, so what was built stays on main.
+git push origin main || { git pull -q --no-rebase --no-edit origin main && git push origin main; }
 npm_run=
 if wants npm; then
   step "Starting the npm publish on GitHub Actions"
   previous_run=$(gh run list --workflow publish-npm.yml --limit 1 --json databaseId --jq '.[0].databaseId // 0')
-  gh workflow run publish-npm.yml --ref main -f commit="$(git rev-parse HEAD)"
+  gh workflow run publish-npm.yml --ref main -f commit="$built"
   for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
     sleep 5
     npm_run=$(gh run list --workflow publish-npm.yml --limit 1 --json databaseId --jq '.[0].databaseId // 0')
@@ -218,7 +223,7 @@ if wants npm; then
 fi
 if wants mac; then
   step "Publishing the GitHub release"
-  git tag -a "$tag" -m "Story $version"
+  git tag -a "$tag" -m "Story $version" "$built"
   git push origin "refs/tags/$tag"
   # The DMG upload sometimes times out, and gh then removes the release; one retry.
   gh release create "$tag" --title "Story $version" --generate-notes \
