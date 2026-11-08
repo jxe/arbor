@@ -98,7 +98,9 @@ working tree: a group member written as a bare link (no longer a member since de
 child links refreshing over an in-memory provider; neither was checked against main.
 TypeScript: object sources, path reads and a Browse session
 (`tests/unit/object-sources.test.ts`, `tests/integration/overstoryd/path-read.test.ts`).
-iPhone checked by Joe 2026-11-07 (works fine); Mac hand checks and launch timings in [joe.md](plans/joe.md#clients-003).
+iPhone checked by Joe 2026-11-07 (works fine). Mac, 2026-11-08 (Joe, rebuilt Story): the
+Keychain prompt for Story Sync's device key showed once at first launch and never came
+back. Other Mac hand checks and launch timings in [joe.md](plans/joe.md#clients-003).
 
 ## Coalesced typing bursts (Merge 002 case 1) — 2026-11-07
 
@@ -128,7 +130,9 @@ test:affected` on Linux: typecheck, 380 product tests, build and 425 TypeScript 
 pass; the Swift half of the protocol gate needs xcodebuild, and the object-index timing bench
 missed its startup bound on the container disk (unrelated). On Joe's Mac,
 `swift test --filter PublicationTests` in `OverstoryWorkingTree` compiles and passes all 22
-tests, including the shared vectors (worktree `~/src/arbor-merge-002`; the app was not built). Remaining cases are in
+tests, including the shared vectors (worktree `~/src/arbor-merge-002`; the app was not built). Joe checked it in a rebuilt
+Story on 2026-11-08 (typing, a deleted word and an Option-arrow move on a long page; the
+iPhone showed the same text): it works. Remaining cases are in
 [Clients 002](plans/when-needed/merge-002-coalesce-moves-with-edits-copies-and-undo.md).
 
 ## Domain locators: your own domain names your profile — 2026-11-05
