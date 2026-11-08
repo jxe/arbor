@@ -43,48 +43,60 @@ relying on this plan. It authorizes no live-data, installed-app or public-host c
 
 ## 1. Views replace queries
 
-A **view** is any function over tables or rows that returns JSX or data.
-- The host learns its shape by running it once over tracing stand-ins:
-  - `.map` over a relationship is a nested selection.
-  - A property read is a field.
-  - `.length` alone is a count.
-  - `.where`, `.orderBy` and `.take` narrow on the host.
-- Everything else, such as values, `.filter`, `.sort` and ternaries, runs as ordinary JS over
-  the results: on the host for data, on the device for a view tree.
-- A read the trace missed widens the plan once.
-- A view that takes a row (a component) joins its caller's plan.
-- `view(Schema, fn)` makes a view addressable: links, embeds and HTTP can name it, and its
-  reads are its declared scope.
+The view language is specified in
+[executable documents §4.1](../../docs/overstory-spec/07-executable-documents.md#41-views)
+and the [authoring API §3](../../docs/overstory-spec/08-authoring-api.md#3-views). Joe settled
+it on 2026-11-08, after comparing tracing, pipelines, Datalog and shape-first forms
+(project files `view-notations/`; the chosen form is `shapes/candidates/facts.tsx`). In
+short:
+- **Facts are the narrowing.** `Model.all(facts)`, `Model.one(facts)` and
+  `relationship.all(facts)` are written inline, wherever rows are needed. Rows from
+  enclosing code are filled-in placeholders, so results are tree-shaped. The shorthands are
+  path facts (`l.items.practice.authors.has(x)`), helper variables named with an object of
+  sources, and `rule`, `or` and `not`.
+- **Relationship reads stay reads** (`l.items`, `p.tags`), with no facts needed.
+- **Shapes are implicit.** Components take rows and read what they show, and the host
+  learns the shape in a plan pass over stand-ins.
+- **Ordering is JS,** except a limit (`.orderBy(…).take(n)`), which orders in the plan.
+- **Data views and JSX views are written separately,** both directly over rows. A data
+  view's value pass runs on the host, and its JSON carries field types and row identity, so
+  Story can draw it with Quagmire's default renderer. A JSX view's value pass runs on the
+  client over the plan's rows, so state changes stay on the device.
 
 Mutations stay as they are, and a view refers to one as an action value.
 
-- Move the spike from its branch into apps-runtime, under `overstory/data`. Remove
-  `query.many/one/maybe` and the select-object builder once Supplies is ported. Keep the
-  plan IR (`QueryPlan`) and `SQLiteQueryEngine`, because traced views compile to them.
-- Fix the spike's pinches:
+- Move the spike from its branch into apps-runtime, under `overstory/data`, and replace
+  its select-dialect narrowing (`.where`, `.eq`, `.some`) with facts. Facts need a
+  compiler from clauses to `QueryPlan`: path facts and helper variables become joins,
+  `not` becomes an anti-join, and a rule is inlined where it's used.
+  Remove `query.many/one/maybe` and the select-object builder once Supplies is ported. Keep
+  the plan IR (`QueryPlan`) and `SQLiteQueryEngine`, because traced views compile to them.
+- Annotate data results: the value pass tracks which values came unchanged from a row
+  field and which objects were built while reading a row, and the host sends that as the
+  result's `shape`.
+- Fix the spike's remaining pinches:
   - **A field that is also a relationship** (`owner`). Expose only the relationship, and
     answer `.id` on a direct to-one from the foreign-key column, without a join. Today
-    `l.owner === user.profile` is silently false.
+    `l.owner === user.profile` is silently false. In facts, `l.owner.is(me)` is the
+    intended spelling.
   - **Inputs as parameters.** Trace with tagged input values, so a plan is cached per view
     and not per input.
-  - **Counts over a narrowed relationship** (`l.items.where(…).length`). This needs a
-    `where` on the engine's count.
-  - **Narrowing callbacks get a row type without JS string methods**, so using JS where SQL
-    is needed fails to typecheck.
+  - **Counts over facts** (`p.tags.all(…).length`). This needs a `where` on the engine's
+    count.
   - **Lift `key` out of an intrinsic view's props.**
-- A view lays out its rows in code: what each line shows, grouping and sort are plain JS.
-  There is no separate arrangement model (Joe, 2026-11-06, for the first cut). A reader's
-  choice of sort or grouping is a `keep` control the view reads (Apps 011). USL `~views`
-  stays as it is and keeps driving Story's built-in collection lists.
+  - **Brand keys by model,** so a fact can't be given a List where it expects a Person.
 - Access is narrowing, never JS. A view can't read past the authority it runs with (here
   the caller's, and an activation's in Apps 010). An `if` that hides a private row
-  doesn't count as protecting it.
+  doesn't count as protecting it. Whether a model's access rule (like Supplies' `visible`)
+  should be applied by the host to every read, instead of called by each view, is open.
 
 **Verify:** the spike's tests, plus every Supplies query ported to a view.
 - Each data view answers what its old query answered, with the same SQL statement count.
-- The view-tree forms snapshot.
-- A branch the trace skipped widens once.
-- A forged input can't read a row the narrowing excludes.
+- The view-tree forms snapshot, and a JSX view's `rows` answer reruns on a client to the
+  same tree.
+- A branch the trace skipped widens once, and so does a `missed` read from a client.
+- A forged input or `missed` path can't read a row the facts exclude.
+- Field types and row identity in a data result match the schema.
 
 ## 2. The wire format and the spec
 
@@ -95,10 +107,13 @@ Mutations stay as they are, and a view refers to one as an action value.
   `QUERY …/views`, renamed from `…/queries` (Joe, 2026-11-06).
   - A view tree is `{type, props, children, key}`, plus action values naming a mutation and
     its input.
-  - A device that runs the view itself asks for the plan's results instead. Decide that
-    form here, because Apps 011 needs it.
-- Spec 08: `overstory/react` gives way to the view API (`view`, tables, JSX runtime, action
-  values). Leave widget-only parts (controls, `keep`, `mine`, `setup`) to Apps 011.
+  - The answer forms are specified: `value` (data views), `rows` (JSX views, run on the
+    client), `tree` (JSX views run on the host), with `missed` for widening and a
+    `ResultShape` for field types and row identity. Build them here, because Apps 011
+    needs `rows`.
+- Spec 08: `overstory/react` gives way to the view API (§3 Views: `view`, sources with
+  `.all`/`.one`, facts, JSX runtime, action values). Leave widget-only parts (controls,
+  `keep`, `mine`, `setup`) to Apps 011.
 - [Executable documents §8](../../docs/overstory-spec/07-executable-documents.md#8-host-and-server-boundaries)
   and the execution-sidecar doc: questions name views as well as mutations.
 

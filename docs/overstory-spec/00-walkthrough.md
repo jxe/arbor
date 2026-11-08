@@ -150,7 +150,7 @@ mutation changed an Overstory-canonical tree, the receipt's `affected` names the
 new accepted update, and Alice's watch sees an ordinary `tree.update` frame. A
 retry with the same `mutationID` returns the original receipt and does nothing
 twice ([mutations](07-executable-documents.md#5-mutations),
-[executable documents §12.2](07-executable-documents.md#122-execute-named-mutations), [actions](08-authoring-api.md#4-actions-and-forms)).
+[executable documents §12.2](07-executable-documents.md#122-execute-named-mutations), [actions](08-authoring-api.md#5-actions-and-forms)).
 
 ## 9. Rename the canonical URL
 
