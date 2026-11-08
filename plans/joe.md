@@ -17,15 +17,8 @@ when it was a gate for something.
 On main since fa661f3, 2026-11-07
 ([status](../status.md#clients-003-one-client-library-three-ways-to-hold-a-tree--2026-11-07)).
 
-- [ ] Launch timings on the Mac with the branch's Story: `tree-open`, `launch-preview` and
-  `editor-drawn` in `~/Library/Application Support/Story/Logs/network-<date>.jsonl`, against
-  main's. The placed tree must not open slower. The numbers decide
-  [Clients 003](soon/clients-003-launch-preview-as-the-session.md).
 - [ ] Open pages in folders you haven't opened yet, edit one while Story Sync is behind, and
   check a folder file edited outside Story never shows as the accepted page.
-- [ ] Visit a large tree: the first page opens without a snapshot download (network log
-  shows a path read).
-
 ### Inviting and joining
 
 Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-people-and-joining-by-invitation--2026-10-11)).
