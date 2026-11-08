@@ -726,7 +726,7 @@
 			repositoryURL = "https://github.com/jxe/quagmire.git";
 			requirement = {
 				kind = exactVersion;
-				version = 0.15.0;
+				version = 0.16.0;
 			};
 		};
 		97E52E48EF9329B6E13CFB4D /* XCRemoteSwiftPackageReference "Sparkle" */ = {
