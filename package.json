@@ -10,7 +10,9 @@
     "examples/*"
   ],
   "exports": {
-    "./data": "./packages/apps-runtime/src/index.ts"
+    "./data": "./packages/apps-runtime/src/index.ts",
+    "./ui/jsx-runtime": "./packages/apps-runtime/src/ui/jsx-runtime.ts",
+    "./ui/jsx-dev-runtime": "./packages/apps-runtime/src/ui/jsx-dev-runtime.ts"
   },
   "bin": {
     "story": "./packages/cli/src/index.ts",

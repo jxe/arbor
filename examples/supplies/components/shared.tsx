@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactNode } from "react"
 import { Markdown, useUser, type MutationActionError } from "overstory/react"
 import type { ResultOf } from "overstory/data"
-import type { myLists } from "../scripts/queries"
+import type { myLists } from "../scripts/views"
 import type { practiceSearch } from "./PracticeSearch"
 
 type MyList = ResultOf<typeof myLists>[number]

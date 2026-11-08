@@ -10,6 +10,13 @@ export interface FieldExpression {
   id: number;
   relation: string;
   field: string;
+  /**
+   * Whose field this is, when it isn't the current row's. `self` is the row a
+   * plan or a view's facts are about, a helper variable's scope is its own,
+   * and any other scope names a row the caller binds (an enclosing row of a
+   * view, read before this plan runs).
+   */
+  scope?: string;
 }
 
 export interface ParameterExpression {
@@ -36,6 +43,8 @@ export interface CountExpression {
   id: number;
   relation: string;
   relationship: string;
+  /** Count only the related rows that match (a count over facts). */
+  where?: PredicateExpression;
 }
 
 export type ValueExpression =
@@ -66,10 +75,33 @@ export interface ExistsExpression {
   id: number;
   relation: string;
   relationship: string;
+  /** Start from this scope's row (the block's own row, or a helper variable) instead of the current one. */
+  scope?: string;
   where?: PredicateExpression;
+  /**
+   * The reached row's key is exactly these values, in the target's key order (a view's
+   * `has(row)`). A joined relationship answers this from its join table alone, so it
+   * works for people too.
+   */
+  keys?: ValueExpression[];
 }
 
-export type PredicateExpression = ComparisonExpression | LogicalExpression | ExistsExpression;
+export interface NotExpression {
+  kind: "not";
+  id: number;
+  operand: PredicateExpression;
+}
+
+/** Some row of `relation`, called `scope`, matches `where`: a view's helper variable. */
+export interface SomeExpression {
+  kind: "some";
+  id: number;
+  relation: string;
+  scope: string;
+  where: PredicateExpression;
+}
+
+export type PredicateExpression = ComparisonExpression | LogicalExpression | ExistsExpression | NotExpression | SomeExpression;
 
 export interface OrderExpression {
   kind: "order";
@@ -90,6 +122,8 @@ export type SelectionValue = ValueExpression | RelationshipSelection;
 export type Selection = Record<string, SelectionValue>;
 
 export interface SelectionPlan {
+  /** The scope this plan's rows bind for the predicates beneath it (a view's enclosing row). */
+  scope?: string;
   where?: PredicateExpression;
   orderBy: OrderExpression[];
   take?: number;
@@ -149,6 +183,8 @@ export interface MutationHandle<Result = unknown, Input = unknown> {
 export type RowOf<Source> = Source extends NodeSetHandle<infer Row> ? Row : never;
 export type ResultOf<Handle> = Handle extends QueryHandle<infer Result, any>
   ? Result
+  : Handle extends { readonly kind: "view"; readonly body: (...args: any[]) => infer Output }
+    ? Output
   : Handle extends MutationHandle<infer Result, any>
     ? Awaited<Result>
     : never;
@@ -248,12 +284,21 @@ function member(relation: string, field: string): unknown {
   });
 }
 
+type SourceMethods = (relation: string, source: NodeHandle, name: "all" | "one") => unknown;
+let sourceMethods: SourceMethods | undefined;
+
+/** Views (views.ts) give a node source its `all` and `one`. */
+export function registerSourceMethods(methods: SourceMethods): void {
+  sourceMethods = methods;
+}
+
 function rowScope(relation: string, source?: NodeHandle): NodeSetHandle {
   const target = {};
   return new Proxy(target, {
     get(_target, property) {
       if (property === RELATION) return relation;
       if (property === SOURCE) return source;
+      if (source && sourceMethods && (property === "all" || property === "one")) return sourceMethods(relation, source, property);
       if (property === "pick") return (...fields: string[]) => Object.fromEntries(fields.map((field) => [field, member(relation, field)]));
       if (property === "then") return undefined;
       if (typeof property === "string") return member(relation, property);

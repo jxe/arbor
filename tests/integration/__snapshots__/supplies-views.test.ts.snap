@@ -1,6 +1,6 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
-exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: practiceSearch result 1`] = `
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: practiceSearch result 1`] = `
 [
   {
     "about": "A turn-taking practice for careful group attention.",
@@ -18,7 +18,7 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
 ]
 `;
 
-exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: popularLists result 1`] = `
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: popularLists result 1`] = `
 [
   {
     "about": "Practices for showing up for one another.",
@@ -68,7 +68,7 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
 ]
 `;
 
-exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: profile result 1`] = `
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: profile result 1`] = `
 {
   "bio": "Makes tools for neighborhood cooperation.",
   "handle": "ada",
@@ -111,7 +111,7 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
 }
 `;
 
-exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: list result 1`] = `
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: list result 1`] = `
 {
   "about": "Practices for showing up for one another.",
   "contributors": [
@@ -213,7 +213,7 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
 }
 `;
 
-exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: practiceChoices result 1`] = `
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: practiceChoices result 1`] = `
 [
   {
     "about": "A turn-taking practice for careful group attention.",
@@ -250,7 +250,7 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
 ]
 `;
 
-exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: practice result 1`] = `
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: practice result 1`] = `
 {
   "about": "A turn-taking practice for careful group attention.",
   "authors": [
@@ -266,7 +266,7 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
 }
 `;
 
-exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: practiceLists result 1`] = `
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: practiceLists result 1`] = `
 [
   {
     "about": "Practices for showing up for one another.",
@@ -316,7 +316,7 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
 ]
 `;
 
-exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: myLists result 1`] = `
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: myLists result 1`] = `
 [
   {
     "about": "A private working list.",
@@ -375,7 +375,7 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
 ]
 `;
 
-exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: SQLite query plans 1`] = `
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: SQLite query plans 1`] = `
 {
   "list": [
     [
@@ -386,7 +386,6 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
     ],
     [
       "SEARCH related USING INDEX sqlite_autoindex_Item_1 (list=?)",
-      "USE TEMP B-TREE FOR ORDER BY",
     ],
     [
       "SEARCH related USING INDEX sqlite_autoindex_Practice_1 (id=?)",
@@ -404,24 +403,19 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
     ],
     [
       "SEARCH related USING INDEX sqlite_autoindex_Tag_1 (list=?)",
-      "USE TEMP B-TREE FOR ORDER BY",
     ],
   ],
   "myLists": [
     [
       "SEARCH root USING INDEX List_owner_modified_idx (owner=?)",
-      "CORRELATED SCALAR SUBQUERY 1",
-      "SEARCH counted USING COVERING INDEX sqlite_autoindex_Item_1 (list=?)",
-      "CORRELATED SCALAR SUBQUERY 2",
-      "SEARCH counted USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
-      "USE TEMP B-TREE FOR LAST TERM OF ORDER BY",
-    ],
-    [
-      "SEARCH related USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
       "USE TEMP B-TREE FOR ORDER BY",
     ],
     [
       "SEARCH related USING INDEX sqlite_autoindex_Item_1 (list=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+    [
+      "SEARCH related USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
       "USE TEMP B-TREE FOR ORDER BY",
     ],
   ],
@@ -449,7 +443,7 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
   ],
   "practiceChoices": [
     [
-      "SCAN root USING INDEX sqlite_autoindex_Practice_2",
+      "SCAN root USING INDEX sqlite_autoindex_Practice_1",
     ],
     [
       "SEARCH link USING COVERING INDEX sqlite_autoindex_Practice_authors_1 (practice=?)",
@@ -457,13 +451,10 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
   ],
   "practiceLists": [
     [
-      "SCAN root",
+      "SCAN root USING INDEX sqlite_autoindex_List_1",
       "SEARCH root_some EXISTS USING COVERING INDEX sqlite_autoindex_Item_1 (list=? AND practice=?)",
       "CORRELATED SCALAR SUBQUERY 1",
       "SEARCH counted USING COVERING INDEX sqlite_autoindex_Item_1 (list=?)",
-      "CORRELATED SCALAR SUBQUERY 2",
-      "SEARCH counted USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
-      "USE TEMP B-TREE FOR ORDER BY",
     ],
     [
       "SEARCH related USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
@@ -488,13 +479,390 @@ exports[`Supplies SQLite query engine executes every checked-in Supplies query w
       "SEARCH related USING INDEX List_owner_modified_idx (owner=?)",
       "CORRELATED SCALAR SUBQUERY 1",
       "SEARCH counted USING COVERING INDEX sqlite_autoindex_Item_1 (list=?)",
-      "CORRELATED SCALAR SUBQUERY 2",
-      "SEARCH counted USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
       "USE TEMP B-TREE FOR ORDER BY",
     ],
     [
       "SEARCH related USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
     ],
   ],
+}
+`;
+
+exports[`JSX views a branch the plan pass skipped widens once: ListPage tree 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        "Community care",
+      ],
+      "props": {
+        "style": "title",
+      },
+      "type": "Text",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            "a list by",
+          ],
+          "props": {
+            "style": "secondary",
+          },
+          "type": "Text",
+        },
+        {
+          "children": [
+            "Ada Adebayo",
+          ],
+          "key": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "props": {
+            "href": "Profile?id=tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          },
+          "type": "Link",
+        },
+        {
+          "children": [
+            "Bo Berg",
+          ],
+          "key": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "props": {
+            "href": "Profile?id=tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+          },
+          "type": "Link",
+        },
+      ],
+      "props": {},
+      "type": "Row",
+    },
+    {
+      "children": [],
+      "props": {
+        "source": "Practices for showing up for one another.",
+      },
+      "type": "Markdown",
+    },
+    {
+      "children": [
+        "Edit",
+      ],
+      "props": {
+        "href": "List?id=10000000-0000-4000-8000-000000000001&edit",
+      },
+      "type": "Link",
+    },
+    {
+      "children": [
+        "👍 ",
+        2,
+      ],
+      "props": {
+        "action": {
+          "input": {
+            "listId": "10000000-0000-4000-8000-000000000001",
+          },
+          "mutation": "toggleListReaction",
+        },
+      },
+      "type": "Button",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "children": [
+                "Mutual aid",
+              ],
+              "props": {
+                "href": "Practice?id=00000000-0000-4000-8000-000000000001",
+                "style": "heading",
+              },
+              "type": "Link",
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    "by",
+                  ],
+                  "props": {
+                    "style": "secondary",
+                  },
+                  "type": "Text",
+                },
+                {
+                  "children": [
+                    "Ada Adebayo",
+                  ],
+                  "key": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "props": {
+                    "href": "Profile?id=tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  },
+                  "type": "Link",
+                },
+              ],
+              "props": {},
+              "type": "Row",
+            },
+            {
+              "children": [],
+              "props": {
+                "lines": 6,
+                "source": "Neighbors share practical help and resources.",
+              },
+              "type": "Markdown",
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    "Care",
+                  ],
+                  "key": "care",
+                  "props": {
+                    "color": "#ef4444",
+                  },
+                  "type": "Badge",
+                },
+              ],
+              "props": {},
+              "type": "Row",
+            },
+          ],
+          "key": "00000000-0000-4000-8000-000000000001",
+          "props": {},
+          "type": "Column",
+        },
+        {
+          "children": [
+            {
+              "children": [
+                "Listening circles",
+              ],
+              "props": {
+                "href": "Practice?id=00000000-0000-4000-8000-000000000002",
+                "style": "heading",
+              },
+              "type": "Link",
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    "by",
+                  ],
+                  "props": {
+                    "style": "secondary",
+                  },
+                  "type": "Text",
+                },
+                {
+                  "children": [
+                    "Bo Berg",
+                  ],
+                  "key": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "props": {
+                    "href": "Profile?id=tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  },
+                  "type": "Link",
+                },
+              ],
+              "props": {},
+              "type": "Row",
+            },
+            {
+              "children": [],
+              "props": {
+                "lines": 6,
+                "source": "A turn-taking practice for careful group attention.",
+              },
+              "type": "Markdown",
+            },
+            {
+              "children": [],
+              "props": {},
+              "type": "Row",
+            },
+          ],
+          "key": "00000000-0000-4000-8000-000000000002",
+          "props": {},
+          "type": "Column",
+        },
+      ],
+      "props": {},
+      "type": "Grid",
+    },
+  ],
+  "props": {},
+  "type": "Column",
+}
+`;
+
+exports[`JSX views a second root names a row of the first, and runs once per row it names: PracticePage tree 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        "Listening circles",
+      ],
+      "props": {
+        "style": "title",
+      },
+      "type": "Text",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            "by",
+          ],
+          "props": {
+            "style": "secondary",
+          },
+          "type": "Text",
+        },
+        {
+          "children": [
+            "Bo Berg",
+          ],
+          "key": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "props": {
+            "href": "Profile?id=tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+          },
+          "type": "Link",
+        },
+      ],
+      "props": {},
+      "type": "Row",
+    },
+    {
+      "children": [],
+      "props": {
+        "source": "A turn-taking practice for careful group attention.",
+      },
+      "type": "Markdown",
+    },
+    {
+      "children": [
+        "On these lists",
+      ],
+      "props": {
+        "style": "heading",
+      },
+      "type": "Text",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            "Community care",
+          ],
+          "props": {
+            "href": "List?id=10000000-0000-4000-8000-000000000001",
+          },
+          "type": "Link",
+        },
+        {
+          "children": [
+            2,
+            " practices · 👍 ",
+            2,
+          ],
+          "props": {
+            "style": "secondary",
+          },
+          "type": "Text",
+        },
+      ],
+      "key": "10000000-0000-4000-8000-000000000001",
+      "props": {},
+      "type": "Row",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            "Ways to listen",
+          ],
+          "props": {
+            "href": "List?id=10000000-0000-4000-8000-000000000003",
+          },
+          "type": "Link",
+        },
+        {
+          "children": [
+            1,
+            " practices · 👍 ",
+            1,
+          ],
+          "props": {
+            "style": "secondary",
+          },
+          "type": "Text",
+        },
+      ],
+      "key": "10000000-0000-4000-8000-000000000003",
+      "props": {},
+      "type": "Row",
+    },
+  ],
+  "props": {},
+  "type": "Column",
+}
+`;
+
+exports[`JSX views search trims in JS before narrowing, and an empty search reads nothing: PracticeSearch tree 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        "Matching practices",
+      ],
+      "props": {
+        "style": "heading",
+      },
+      "type": "Text",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "children": [
+                "Neighborhood walks",
+              ],
+              "props": {
+                "href": "Practice?id=00000000-0000-4000-8000-000000000003",
+              },
+              "type": "Link",
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    "by",
+                  ],
+                  "props": {
+                    "style": "secondary",
+                  },
+                  "type": "Text",
+                },
+              ],
+              "props": {},
+              "type": "Row",
+            },
+          ],
+          "key": "00000000-0000-4000-8000-000000000003",
+          "props": {},
+          "type": "Column",
+        },
+      ],
+      "props": {},
+      "type": "Grid",
+    },
+  ],
+  "props": {},
+  "type": "Column",
 }
 `;

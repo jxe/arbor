@@ -65,6 +65,8 @@ export interface StoreSchema {
   relations: Record<string, RelationMetadata>;
   relationships: Record<string, RelationshipMetadata>;
   fingerprint: string;
+  /** Each field's schema type (schema language §3), by relation, for result shapes. Not fingerprinted: it follows from the schema. */
+  fieldTypes?: Record<string, Record<string, string>>;
 }
 
 /** The fields of the virtual relation of people (Story profiles) that a schema's `Person` references reach. */
@@ -299,6 +301,25 @@ function validateRelationship(relation: RelationshipMetadata, relations: Record<
   }
 }
 
+/** Each stored column's schema type: its field's declared type, or what the column holds. */
+function fieldTypesOf(schema: ReturnType<typeof compileUsl>, tables: ReturnType<typeof layoutOf>): Record<string, Record<string, string>> {
+  const result: Record<string, Record<string, string>> = {};
+  for (const table of tables) {
+    const model = schema.models.find((candidate) => (candidate.table ?? candidate.name) === table.name);
+    const types: Record<string, string> = {};
+    for (const column of table.columns) {
+      const declared = model?.fields.find((candidate) => (candidate.column ?? candidate.name) === column.name);
+      if (declared && declared.arity !== "many") types[column.name] = declared.type;
+      else if (column.name === "id") types[column.name] = "Text";
+      else if (column.name === "created" || column.name === "modified") types[column.name] = "Date";
+      else if (column.profile) types[column.name] = "Person";
+    }
+    result[table.name] = types;
+  }
+  result[PERSON_RELATION] = { id: "Person", name: "Text", handle: "Text", portrait: "Text", bio: "Markdown" };
+  return result;
+}
+
 /**
  * Check a database against the schema.usl beside it and describe it: its
  * tables, the virtual `Person` relation when the schema refers to people, and
@@ -352,5 +373,5 @@ export async function introspectStoreSchema(
   }
 
   const fingerprintInput = { version: 1, schema: source, relations, relationships };
-  return { version: 1, relations, relationships, fingerprint: canonicalCBORHash(fingerprintInput) };
+  return { version: 1, relations, relationships, fingerprint: canonicalCBORHash(fingerprintInput), fieldTypes: fieldTypesOf(schema, tables) };
 }

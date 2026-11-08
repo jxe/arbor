@@ -10,7 +10,7 @@ import {
   node,
   mutation,
   publicError,
-  query,
+  view,
 } from "overstory/data"
 import { z } from "zod"
 import {
@@ -32,83 +32,58 @@ import {
   TextArea,
   TextInput,
 } from "./components/shared"
+import { byName, byText, card, List, Practice, sorted, visible, type TagRow } from "./scripts/views"
 
 const suppliesData = node("./data")
 const items = node("./data/Item").children
 const lists = node("./data/List").children
-const people = node("./data/Person").children
 const practices = node("./data/Practice").children
 const practiceAuthors = node("./data/Practice_authors").children
 const reactions = node("./data/Reaction").children
 const tags = node("./data/Tag").children
 const tagPractices = node("./data/Tag_practices").children
-const profileCard = people.pick("id", "name", "handle", "portrait")
 
-export const list = query.maybe(
-  lists,
-  z.object({ id: z.string().uuid() }),
-  (list, { input, user }) => ({
-    where: [
-      list.id.eq(input.id),
-      list.visibility.eq("Public").or(
-        list.owner.eq(user.profile),
-      ),
-    ],
-    select: {
-      ...list.pick("id", "name", "about", "visibility", "kind", "openToEdits"),
-      ownerProfile: list.owner,
-      owner: list.owner(profileCard),
-      // Ordered by name in React: a query orders by its own fields only.
-      contributors: list.contributors({
-        select: contribution => ({ person: contribution.person(profileCard) }),
-      }),
-      items: list.items({
-        orderBy: item => item.items_position,
-        select: item => ({
-          position: item.items_position,
-          practice: item.practice(practice => ({
-            ...practice.pick("id", "name", "about"),
-            authors: practice.authors({
-              orderBy: author => author.name,
-              select: profileCard,
-            }),
-            // A practice's tags on this list.
-            tags: practice.tags({
-              where: tag => tag.list.eq(input.id),
-              orderBy: tag => tag.name,
-              select: tag => tag.pick("id", "name", "color"),
-            }),
-          })),
-        }),
-      }),
-      reactions: list.reactions({
-        orderBy: reaction => reaction.person,
-        select: reaction => ({
-          profile: reaction.person(profileCard),
-          emoji: reaction.emoji,
-        }),
-      }),
-      tags: list.tags({
-        orderBy: tag => tag.name,
-        select: tag => tag.pick("id", "name", "color"),
-      }),
-    },
-  }),
-)
+export const list = view(z.object({ id: z.string().uuid() }), ({ id }, { user }) => {
+  const l = List.one(l => [l.id.is(id), visible({ l, me: user?.profile ?? null })])
+  if (!l) return null
+  const tag = (t: TagRow) => ({ id: t.id, name: t.name, color: t.color })
+  return {
+    id: l.id,
+    name: l.name,
+    about: l.about,
+    visibility: l.visibility,
+    kind: l.kind,
+    openToEdits: l.openToEdits,
+    ownerProfile: l.owner.id,
+    owner: card(l.owner),
+    // Ordered by name in React.
+    contributors: sorted(l.contributors, (left, right) => byText(left.person.id, right.person.id))
+      .map(contribution => ({ person: card(contribution.person) })),
+    items: sorted(l.items, (left, right) => left.items_position - right.items_position || byText(left.practice.id, right.practice.id))
+      .map(item => ({
+        position: item.items_position,
+        practice: {
+          id: item.practice.id,
+          name: item.practice.name,
+          about: item.practice.about,
+          authors: sorted(item.practice.authors, byName).map(card),
+          // A practice's tags on this list.
+          tags: sorted(item.practice.tags.all(t => [t.list.is(l)]), byName).map(tag),
+        },
+      })),
+    reactions: sorted(l.reactions, (left, right) => byText(left.person.id, right.person.id))
+      .map(reaction => ({ profile: card(reaction.person), emoji: reaction.emoji })),
+    tags: sorted(l.tags, byName).map(tag),
+  }
+})
 
-export const practiceChoices = query.many(
-  practices,
-  practice => ({
-    orderBy: practice.name,
-    select: {
-      ...practice.pick("id", "name", "about"),
-      authors: practice.authors({
-        orderBy: author => author.name,
-        select: profileCard,
-      }),
-    },
-  }),
-)
+export const practiceChoices = view(() =>
+  sorted(Practice.all(() => []), byName).map(p => ({
+    id: p.id,
+    name: p.name,
+    about: p.about,
+    authors: sorted(p.authors, byName).map(card),
+  })))
 
 export const renameList = mutation(
   suppliesData,
@@ -324,7 +299,7 @@ export const duplicateList = mutation(
   },
 )
 
-export default function List({ search }: { search: URLSearchParams }) {
+export default function ListPage({ search }: { search: URLSearchParams }) {
   const id = search.get("id")
   if (!id) {
     return (

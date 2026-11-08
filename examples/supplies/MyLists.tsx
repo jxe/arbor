@@ -7,7 +7,7 @@ import {
 } from "overstory/react"
 import { node, mutation, publicError } from "overstory/data"
 import { z } from "zod"
-import { myLists } from "./scripts/queries"
+import { myLists } from "./scripts/views"
 import {
   Button,
   ListGrid,

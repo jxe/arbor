@@ -7,3 +7,4 @@ export * from "./live-stream.ts";
 export * from "./live.ts";
 export * from "./mutation.ts";
 export * from "./node-query.ts";
+export * from "./views.ts";

@@ -33,9 +33,20 @@ function refKey(ref: QueryHandleRef): string {
 }
 
 function addValue(fields: Set<string>, value: ValueExpression, schema: StoreSchema, relation: string, relations: Map<string, RelationSensitivity>): void {
-  if (value.kind === "field") fields.add(value.field);
+  if (value.kind === "field") {
+    if (!value.scope || value.scope === "self") fields.add(value.field);
+    // Another row's field: that row's own plan depends on it. A helper variable's field
+    // makes its whole relation opaque (see addPredicate).
+    return;
+  }
   if (value.kind !== "count") return;
   const metadata = schema.relationships[`${relation}.${value.relationship}`]!;
+  if (value.where) {
+    const target = relationSensitivity(relations, metadata.target, false);
+    target.opaque = true;
+    target.unfiltered = true;
+    for (const field of Object.keys(schema.relations[metadata.target]!.fields)) target.fields.add(field);
+  }
   for (const pair of metadata.direct ?? metadata.through!.source) fields.add(pair.source);
   if (metadata.direct) {
     const target = relationSensitivity(relations, metadata.target, false);
@@ -49,8 +60,18 @@ function addValue(fields: Set<string>, value: ValueExpression, schema: StoreSche
 function addPredicate(fields: Set<string>, predicate: PredicateExpression, schema: StoreSchema, relation: string, relations: Map<string, RelationSensitivity>): void {
   if (predicate.kind === "logical") {
     for (const operand of predicate.operands) addPredicate(fields, operand, schema, relation, relations);
+  } else if (predicate.kind === "not") {
+    addPredicate(fields, predicate.operand, schema, relation, relations);
+  } else if (predicate.kind === "some") {
+    // A helper variable: any change to its relation may change which rows match.
+    const helper = relationSensitivity(relations, predicate.relation, false);
+    helper.opaque = true;
+    helper.unfiltered = true;
+    for (const field of Object.keys(schema.relations[predicate.relation]!.fields)) helper.fields.add(field);
+    addPredicate(fields, predicate.where, schema, relation, relations);
   } else if (predicate.kind === "exists") {
-    const metadata = schema.relationships[`${relation}.${predicate.relationship}`]!;
+    const from = predicate.scope && predicate.scope !== "self" ? predicate.relation : relation;
+    const metadata = schema.relationships[`${from}.${predicate.relationship}`]!;
     for (const pair of metadata.direct ?? metadata.through!.source) fields.add(pair.source);
     const target = relationSensitivity(relations, metadata.target, false);
     target.opaque = true;
@@ -61,6 +82,10 @@ function addPredicate(fields: Set<string>, predicate: PredicateExpression, schem
       through.unfiltered = true;
       for (const pair of [...metadata.through!.source, ...metadata.through!.target]) through.fields.add(pair.through);
       for (const pair of metadata.through!.target) target.fields.add(pair.target);
+    }
+    if (predicate.keys) {
+      target.unfiltered = true;
+      if (metadata.through) relationSensitivity(relations, metadata.through.relation, false).unfiltered = true;
     }
     if (predicate.where) {
       target.predicates.push(predicate.where);
@@ -117,9 +142,12 @@ function sensitivity(schema: StoreSchema, plan: QueryPlan, input: unknown, user:
 function predicateMatches(predicate: PredicateExpression | undefined, row: Record<string, unknown> | null, query: QuerySensitivity): boolean {
   if (!row) return false;
   // A count or some() depends on other rows, so the row alone cannot rule the predicate out.
+  const scoped = (value: ValueExpression) => value.kind === "count" || (value.kind === "field" && Boolean(value.scope) && value.scope !== "self");
   const containsCount = (value: PredicateExpression): boolean => value.kind === "logical"
     ? value.operands.some(containsCount)
-    : value.kind === "exists" || value.left.kind === "count" || value.right.kind === "count";
+    : value.kind === "not"
+      ? containsCount(value.operand)
+      : value.kind === "exists" || value.kind === "some" || scoped(value.left) || scoped(value.right);
   if (predicate && containsCount(predicate)) return true;
   return evaluateQueryPredicate(predicate, row, query);
 }

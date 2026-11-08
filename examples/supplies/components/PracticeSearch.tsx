@@ -1,29 +1,21 @@
 import { useState } from "react"
 import { skipQuery, useQuery } from "overstory/react"
-import { node, query } from "overstory/data"
+import { view } from "overstory/data"
+import { byName, card, Practice, sorted } from "../scripts/views"
 import { z } from "zod"
 import { PracticeGrid, TextInput } from "./shared"
 
-const people = node("../data/Person").children
-const practices = node("../data/Practice").children
-const profileCard = people.pick("id", "name", "handle", "portrait")
 
-export const practiceSearch = query.many(
-  practices,
-  z.object({ search: z.string() }),
-  (practice, { input }) => ({
-    where: practice.name.contains(input.search),
-    orderBy: practice.name,
-    take: 24,
-    select: {
-      ...practice.pick("id", "name", "about"),
-      authors: practice.authors({
-        orderBy: author => author.name,
-        select: profileCard,
-      }),
-    },
-  }),
-)
+export const practiceSearch = view(z.object({ search: z.string() }), ({ search }) =>
+  Practice.all(p => [p.name.contains(search)])
+    .orderBy(p => p.name)
+    .take(24)
+    .map(p => ({
+      id: p.id,
+      name: p.name,
+      about: p.about,
+      authors: sorted(p.authors, byName).map(card),
+    })))
 
 export function PracticeSearch() {
   const [search, setSearch] = useState("")
