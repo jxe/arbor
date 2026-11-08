@@ -1,21 +1,21 @@
-# Apps 012: One kind of view
+# Apps 012: Story asks for declared views like any view
 
-**Why and when:** after [Apps 005](../soon/apps-005-views-on-the-host.md). Joe wants USL
-`~views` and views written in code to be one concept, both in Story and in overstoryd. He
-agreed on 2026-11-06 that this isn't needed now.
+**Why and when:** Joe wants USL `~views` and views written in code to be one concept, both in
+Story and in overstoryd. The host side is built
+([status](../../status.md#views-on-the-host-and-declared-views--2026-11-08)): a `~views` entry
+is the built-in list view, served through the same route as an authored view. What's left is
+Story's side.
 
-The spec already describes the target:
+The spec describes the target:
 - [Executable documents §4.1](../../docs/overstory-spec/07-executable-documents.md#41-views)
-  makes a `~views` entry a **declared view**: the built-in list view with that entry's
-  settings.
+  makes a `~views` entry a **declared view**.
 - [§12.1](../../docs/overstory-spec/07-executable-documents.md#121-evaluate-and-stream-views)
-  names both kinds with one `HandleRef` (tree, path, name, version).
-- [Schema language §8](../../docs/overstory-spec/11-schema-language.md#8-views) points there.
+  names both kinds with one `HandleRef`: for a declared view, the collection's `schema.usl`,
+  a label, and the schema file's hash.
 
 ## Status
 
 **PLANNED · M effort · low risk.**
-- Needs Apps 005's views and route.
 - Coordinates with
   [Schema language 007](../features/schema-language-007-editing-in-the-collection-view.md)
   (editing in the collection view) and
@@ -24,39 +24,25 @@ The spec already describes the target:
 
 ## What exists now
 
-- `packages/usl/src/present.ts` (`presentView`) and StoryKit's `PresentedView.swift` turn a
-  collection's rows and one `~views` entry into lines and groups.
-- Story draws that result natively. Story Sync supplies the rows from the placed tree.
-- overstoryd doesn't serve declared views at all.
+- `declaredView` (`packages/apps-runtime/src/declared.ts`) is the built-in list view: it
+  reads the tables an entry reaches through plans and answers `presentView`'s lines and
+  groups. It takes `{ query }` as input.
+- overstoryd and the sidecar answer a `HandleRef` whose path is a `schema.usl`, with no
+  activation (`tests/integration/host-collections.test.ts`).
+- Story draws `presentView`'s result natively (`PresentedView.swift`), from rows Story Sync
+  reads from the placed tree.
+- `presentView` refuses a line that shows a model whose key has several columns, such as
+  Supplies' default line (`items`).
 
-## 1. The built-in list view
+## 1. Story Sync answers locally
 
-- Write the built-in list view as a view over the model (Apps 005's runtime), so it has a
-  plan like any other view.
-  - Its plan is the model's rows plus the fields and connections that the entry's line,
-    group, sort and paths reach.
-  - Its result is `presentView`'s.
-- Story's native list stays the renderer for it. Only where the rows and the presentation
-  come from changes.
+- On a placed tree, Story Sync answers the same views request from its own SQLite stores,
+  so Story asks for a declared view the same way it asks for an authored one.
 
-**Verify:** `tests/unit/presented-views.test.ts` vectors give the same presentations through
-the built-in view as through `presentView` directly. The plan reads no field the entry
-doesn't use.
+**Verify:** a declared view streams the same lines from Story Sync as from the host, and
+updates on the same row changes.
 
-## 2. Served like any view
-
-- The sidecar and the query route answer a `HandleRef` whose path is a schema.
-- They use the same authority, live replacement stream and output hash as an authored view.
-- No code activation is needed, because the built-in view is host code. Reads follow the
-  caller's access now, and the tree's rules once Apps 010 lands.
-- On a placed tree, Story Sync answers the same request locally, so Story asks for a
-  declared view the same way it asks for an authored one.
-
-**Verify:** a declared view and an equivalent authored view stream the same rows and
-update on the same row changes. A reader without access to a row doesn't receive it in
-either.
-
-## 3. Story draws both the same way
+## 2. Story draws both the same way
 
 - A page that presents a collection (the
   [pages that present other collections](../spec-extensions/pages-that-present-other-collections.md)

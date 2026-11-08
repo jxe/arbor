@@ -259,8 +259,8 @@ Where the value pass runs depends on the kind of view:
   tree instead.
 
 A view exported with an input schema is **addressable**: a link, an embed or a
-[request](#121-evaluate-and-stream-views) can name it. Views are replacing the
-select-object queries of earlier drafts ([Apps 005](../../plans/soon/apps-005-views-on-the-host.md)).
+[request](#121-evaluate-and-stream-views) can name it. Views replaced the
+select-object queries of earlier drafts.
 
 #### Declared views
 
@@ -408,7 +408,7 @@ type OverstoryUser = null | {
 
 Server-local account IDs, device IDs, credentials, and mutable handles are not document user identities. Handlers never accept a caller-supplied profile or account ID as proof of identity. Authored rows referring to a person store that profile tree's `TreeID`; current display name, handle, portrait, and other public profile fields are resolved from that profile tree at query time. Profile reads are live dependencies, so a profile edit updates subscribed documents.
 
-A query or mutation may require `user !== null`, but source documents never implement sign-in. Establishing, renewing, switching, and revoking the server browser session is Overstory platform UI. The server rechecks the session on render, each `queries` request, and mutation; revocation terminates existing streams and prevents an unauthorized value from being treated as current.
+A query or mutation may require `user !== null`, but source documents never implement sign-in. Establishing, renewing, switching, and revoking the server browser session is Overstory platform UI. The server rechecks the session on render, each views request, and mutation; revocation terminates existing streams and prevents an unauthorized value from being treated as current.
 
 A component may declare that it cannot execute anonymously; the host then
 presents its own session UI before user-dependent queries mount, and an
@@ -474,9 +474,10 @@ type ViewCursor = string;
 /**
  * Names a view or a mutation: a name in a file in a tree. For an authored
  * handle, `path` is its module and `name` its export. For a declared view
- * (§4.1), `path` is a schema and `name` a `~views` label. `version` is the
- * module's code version or the schema's fingerprint. The host tells which kind
- * it is from the file at `path`.
+ * (§4.1), `path` is a collection's `schema.usl` and `name` a `~views` label.
+ * `version` is the module's code version (SHA-256 over the paths and bytes of
+ * the files its imports reach in the tree, in path order) or the schema
+ * file's object hash. The host tells which kind it is from the file at `path`.
  */
 type HandleRef = {
   tree: TreeID;
@@ -499,7 +500,8 @@ type ViewsRequest = {
      * What to answer (§4.1). `value`: a data view's JSON. `rows`: a JSX
      * view's plan results, for a client that runs the view itself. `tree`:
      * a JSX view's view tree, run on the host. Defaults to `value` for a data
-     * view and `rows` for a JSX view.
+     * view and `rows` for a JSX view. A host that can't yet hide the rows a
+     * reader may not see refuses `rows` with `unsupported-operation`.
      */
     form?: "value" | "rows" | "tree";
     /** Reads a client's run of a `rows` answer reached and didn't find. */

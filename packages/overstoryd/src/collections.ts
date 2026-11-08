@@ -548,6 +548,22 @@ export class HostCollections implements AsyncDisposable {
   }
 
   /**
+   * A declared view (07 §4.1): a `~views` label in a collection's `schema.usl`,
+   * versioned by that file's hash. The built-in list view is the sidecar's own
+   * code, so it needs no activation; the version must be the schema at the head.
+   */
+  private async declared(ref: ExecHandleRef): Promise<ExecHandle | undefined> {
+    if (ref.path.split("/").at(-1) !== "schema.usl" || !ref.name) return undefined;
+    const head = this.daemon.currentUpdate(ref.tree);
+    if (!head) return undefined;
+    const collection = dirname(ref.path);
+    const located = await locate(this.read, head.root as ObjectHash, collection);
+    const at = located?.spine.at(-1)?.directory;
+    if (!at?.collection || schemaEntry(at) !== ref.version) return undefined;
+    return { tree: ref.tree, path: ref.path, name: ref.name, version: ref.version, sources: [collection] };
+  }
+
+  /**
    * The collection a handle reads at the tree's head: the one directory with a
    * schema that its `node()` paths name, either itself or as one of its tables.
    */
@@ -607,7 +623,8 @@ export class HostCollections implements AsyncDisposable {
           ids.add(mount.id);
           if (mount.form !== undefined && !["value", "rows", "tree"].includes(mount.form)) throw new Error("A view's form must be value, rows or tree");
           if (mount.missed !== undefined && !Array.isArray(mount.missed)) throw new Error("missed must be an array of read paths");
-          const entry = await this.handle("views", mount.handle);
+          if (!mount.handle || typeof mount.handle.path !== "string") throw new Error("A mounted view names a handle");
+          const entry = mount.handle.path.endsWith(".usl") ? await this.declared(mount.handle) : await this.handle("views", mount.handle);
           if (!entry) throw new Error("A mounted view handle or version is not active");
           mounts.push({
             id: mount.id,

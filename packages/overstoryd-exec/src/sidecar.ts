@@ -32,6 +32,8 @@ import {
   type RowOperation,
 } from "@ovst/protocol";
 import {
+  declaredView,
+  findDeclaredView,
   MutationCallError,
   QueryCompileError,
   runView,
@@ -90,7 +92,7 @@ const META = "__arbor_materialized";
 const refKey = (ref: ExecHandleRef) => `${ref.tree}\0${ref.path}\0${ref.name}\0${ref.version}`;
 
 /** The collection a handle reads, among those a question gives: one its `node()` paths name, or one of its tables. */
-function collectionFor(entry: ExecEntry<unknown>, collections: readonly ExecCollection[]): ExecCollection | undefined {
+function collectionFor(entry: Pick<ExecEntry<unknown>, "ref" | "sources">, collections: readonly ExecCollection[]): ExecCollection | undefined {
   return collections.find((collection) => collection.tree === entry.ref.tree
     && entry.sources.some((source) => source === collection.path || dirname(source) === collection.path));
 }
@@ -103,11 +105,11 @@ const PROFILE_OBJECTS = 2048;
 class ProfileReadFailure extends Error {}
 
 /** The update a materialization reflects, or null when it has no record. */
-function reflected(path: string): string | null {
+function reflected(path: string, key: "update" | "schema" = "update"): string | null {
   try {
     const database = new Database(path, { readonly: true });
     try {
-      return (database.query(`select value from ${META} where key = 'update'`).get() as { value: string } | null)?.value ?? null;
+      return (database.query(`select value from ${META} where key = ?`).get(key) as { value: string } | null)?.value ?? null;
     } finally {
       database.close();
     }
@@ -139,6 +141,8 @@ interface Opened {
   logical: LogicalSchema;
   layout: Table[];
   schemas: readonly CollectionSchema[];
+  /** The declared views built for this schema, by label. */
+  declared: Map<string, View<unknown, unknown>>;
 }
 
 export class ExecSidecar implements AsyncDisposable {
@@ -245,6 +249,7 @@ export class ExecSidecar implements AsyncDisposable {
       logical,
       layout: layoutOf(logical.result, { store: "database" }),
       schemas: sharedCollectionSchemaCache.compileTables(schemaBytes, "database").tables,
+      declared: new Map(),
     };
     this.opened.set(file, opened);
     return opened;
@@ -263,10 +268,29 @@ export class ExecSidecar implements AsyncDisposable {
     ];
   }
 
+  /**
+   * A declared view (07 §4.1): the built-in list view for a `~views` label in
+   * the collection's schema, when the handle's version is the schema the
+   * materialization was built from.
+   */
+  private declared(ref: ExecHandleRef, opened: Opened, collection: ExecCollection): View<unknown, unknown> | null {
+    if (reflected(opened.file, "schema") !== ref.version) return null;
+    const existing = opened.declared.get(ref.name);
+    if (existing) return existing;
+    if (!findDeclaredView(opened.logical.result, { label: ref.name })) return null;
+    const handle = declaredView(opened.logical.result, collection.path, { label: ref.name }) as View<unknown, unknown>;
+    opened.declared.set(ref.name, handle);
+    return handle;
+  }
+
   private async view(question: ExecViewQuestion): Promise<ExecViewAnswer> {
     const { id } = question;
-    const entry = this.views.get(refKey(question.view));
-    if (!entry) return { id, refusal: { code: "not-found", message: "A mounted view handle or version is not active", retryable: false } };
+    const inactive = { id, refusal: { code: "not-found", message: "A mounted view handle or version is not active", retryable: false } };
+    const isDeclared = question.view.path.split("/").at(-1) === "schema.usl";
+    const entry = isDeclared
+      ? { ref: question.view, handle: undefined, sources: [dirname(question.view.path)] }
+      : this.views.get(refKey(question.view));
+    if (!entry) return inactive;
     if (question.form === "rows" && !this.options.rowsAnswers) {
       return { id, refusal: { code: "unsupported-operation", message: "This host answers JSX views as view trees, not rows", retryable: false } };
     }
@@ -274,6 +298,8 @@ export class ExecSidecar implements AsyncDisposable {
     if (!collection) return { id, refusal: { code: "invalid-request", message: "The view's collection was not given", retryable: false } };
     const opened = await this.open(collection);
     if (reflected(opened.file) !== collection.update) return { id, stale: true };
+    const handle = isDeclared ? this.declared(question.view, opened, collection) : entry.handle;
+    if (!handle) return inactive;
     const bindings = this.sources(opened, collection);
     const resolve = async (source: NodeHandle) => {
       const found = bindings.find((candidate) => candidate.authoredPath === source.path);
@@ -283,7 +309,7 @@ export class ExecSidecar implements AsyncDisposable {
     const client = new ProtocolClient(this.options.origin, question.token, { timeoutMs: 30_000 });
     let run;
     try {
-      run = await this.asked.run(client, () => runView(entry.handle, {
+      run = await this.asked.run(client, () => runView(handle, {
         engine: opened.engine,
         resolve,
         input: question.input,

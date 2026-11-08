@@ -73,6 +73,9 @@ beforeAll(async () => {
   }
   await mkdir(join(folder, "supplies", "data"));
   for (const name of ["schema.usl", "_store.sqlite3"]) await cp(join(SUPPLIES, "data", name), join(folder, "supplies", "data", name));
+  // A declared view for the test (Supplies declares none, and its default line shows items, whose key has two columns).
+  const schemaPath = join(folder, "supplies", "data", "schema.usl");
+  await writeFile(schemaPath, (await Bun.file(schemaPath).text()).replace("main model List {", 'main model List {\n  ~views([{ label: "Names", line: [name, owner] }])'));
   await writeFile(join(folder, "supplies", "test-views.ts"), TEST_VIEWS);
   await writeFile(join(folder, "supplies", "escape.ts"), ESCAPE);
   apps = {
@@ -102,6 +105,15 @@ afterAll(async () => {
   await host.overstoryd[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });
 });
+
+/** The hash of a collection's schema.usl at the tree's head: a declared view's version. */
+async function schemaHash(collection: string): Promise<string> {
+  let directory = decodeProtocolDirectory(await host.overstoryd.object(host.overstoryd.currentUpdate(tree)!.root as ObjectHash));
+  for (const name of collection.split("/").filter(Boolean)) {
+    directory = decodeProtocolDirectory(await host.overstoryd.object(directory.entries.find((entry) => entry.name === name)!.directory as ObjectHash));
+  }
+  return directory.entries.find((entry) => entry.name === "schema.usl")!.file!;
+}
 
 const materialized = () => join(dataRoot, "materialized", tree, encodeURIComponent("/supplies/data"), "_store.sqlite3");
 const deviceStore = () => join(folder, "supplies", "data", "_store.sqlite3");
@@ -246,6 +258,54 @@ describe.serial("rows on the host", () => {
       const value = await nextResult(data);
       expect(value.shape).toMatchObject({ row: { model: "List", key: LIST }, fields: { name: { type: "Text" } } });
     } finally { controller.abort(); }
+  }, 30_000);
+
+  test("a schema's declared view streams from the host like an authored view, and both update on the same row edit", async () => {
+    process.env.STORY_HOME = state;
+    const controller = new AbortController();
+    const daemon = await StorySyncDaemon.openControl({ autoSync: false });
+    try {
+      await daemon.synchronizeNow();
+      const version = await schemaHash("/supplies/data");
+      const declared: HandleRef = { tree, path: "/supplies/data/schema.usl", name: "Names", version };
+      const response = await requestViews(host.url, controller, [
+        { id: "declared", handle: declared },
+        { id: "authored", handle: handles.listName! },
+      ]);
+      expect(response.status).toBe(200);
+      const stream = events(response);
+      const latest = new Map<string, any>();
+      const until = async (done: () => boolean) => { while (!done()) { const result = await nextResult(stream); latest.set(result.id, result); } };
+      const name = () => (latest.get("authored")?.value as { name?: string } | undefined)?.name;
+      const lines = () => JSON.stringify(latest.get("declared")?.value ?? null);
+      await until(() => latest.has("declared") && latest.has("authored"));
+      expect(latest.get("declared").error).toBeUndefined();
+      expect(latest.get("declared").value).toMatchObject({ model: "List" });
+      expect(lines()).toContain(JSON.stringify(name()));
+
+      // A device renames the list; both views answer again with the new name.
+      const mine = new Database(deviceStore());
+      mine.query("update List set name = 'Declared and authored' where id = ?").run(LIST);
+      mine.close();
+      await daemon.synchronizeNow();
+      await until(() => name() === "Declared and authored" && lines().includes("Declared and authored"));
+      // And back, as the later tests expect it.
+      const again = new Database(deviceStore());
+      again.query("update List set name = 'Neighbors' where id = ?").run(LIST);
+      again.close();
+      await daemon.synchronizeNow();
+      await until(() => name() === "Neighbors" && lines().includes("Neighbors") && !lines().includes("Declared and authored"));
+
+      // A stale schema version, or a label the schema doesn't declare, is not active.
+      for (const handle of [{ ...declared, version: "sha256:00" }, { ...declared, name: "Nowhere" }]) {
+        const refused = await requestViews(host.url, controller, [{ id: "declared", handle }]);
+        if (refused.status === 200) expect((await nextResult(events(refused))).error).toMatchObject({ code: "not-found" });
+        else expect(refused.status).toBeGreaterThanOrEqual(400);
+      }
+    } finally {
+      controller.abort();
+      await daemon[Symbol.asyncDispose]();
+    }
   }, 30_000);
 
   test("a named mutation commits as one accepted update that both devices receive, and its retry returns the same receipt", async () => {

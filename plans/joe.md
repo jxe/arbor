@@ -12,6 +12,18 @@ when it was a gate for something.
 
 ## Hand checks
 
+### Views on the host (Apps 005 and 012)
+
+On branch `claude/project-thread-k7qauu`, 2026-11-08
+([status](../status.md#views-on-the-host-and-declared-views--2026-11-08)). Not deployed: the
+host serves views only with `OVERSTORYD_ACTIVATIONS` set.
+
+- [ ] On a disposable host (or one you name), activate Supplies' `views/list.tsx` and
+  `MyLists.tsx` at a pinned root, open a view and call `createList` from a script, and check
+  that a second device sees the new list.
+- [ ] Ask the same host for a declared view of a schema with `~views`, and check it updates
+  when a device edits a row.
+
 ### Clients 003
 
 On main since fa661f3, 2026-11-07

@@ -77,6 +77,14 @@ activations } })`), and the code runs with each caller's own authority.
   one collection they name at the tree's head, either a directory with a schema or one of
   its tables, and passes that collection with each question.
 
+**Declared views** need no activation: the built-in list view is the sidecar's own code
+(`declaredView` in `@ovst/apps-runtime`). A handle whose path is a collection's
+`schema.usl` names one of that schema's `~views` labels, and its version is the schema
+file's object hash. overstoryd checks the version against the schema at the tree's head;
+the sidecar checks it against the schema the materialization was built from, and answers
+`not-found` for a label the schema doesn't declare. Its value is `presentView`'s lines and
+groups, read through plans over the tables the entry reaches.
+
 ## The questions
 
 The sidecar's first line is its handshake: the protocol version (2) and each view and

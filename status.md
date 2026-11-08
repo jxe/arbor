@@ -12,6 +12,41 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Views on the host, and declared views — 2026-11-08
+
+**Implemented** on branch `claude/project-thread-k7qauu` (9ebac37, ebfbc48, cc395f6 and the
+declared-view serving commit); not on main, not deployed. [Apps 005](plans/soon/apps-005-views-on-the-host.md)
+steps 1-4 and [Apps 012](plans/soon/apps-012-one-kind-of-view.md) steps 1-2 (host side).
+
+- **Views replace queries** (spec 07 §4.1, spec 08 §3). A view is plain JavaScript over rows:
+  `Model.all/one(facts)`, relationship reads and `relationship.all(facts)` are traced into
+  `QueryPlan`s, and the value pass runs over the results, widening once for a read the trace
+  missed. Facts become joins, `not()` an anti-join, rules are inlined. Data views carry
+  `ResultShape` (field types and row identity); JSX views answer `rows` or a view `tree`.
+  `query.many/one/maybe`, the select-object builder and the unused portable node-query
+  engine are gone. Supplies' queries are data views with the same results and SQL statement
+  counts.
+- **On the wire:** `HandleRef {tree, path, name, version}`, `QUERY …/views`, the live stream
+  with shapes. Exec protocol 2 names handles the same way.
+- **Code from trees:** overstoryd reads an activated module's import graph at its pinned root
+  (`OVERSTORYD_ACTIVATIONS`); the sidecar compiles it with Sucrase and gives each module its
+  own `node()`, resolved from its logical path and refused outside its tree. The code version
+  is SHA-256 of the graph's files. `rows` answers are off unless `OVERSTORYD_ROWS_ANSWERS=1`.
+- **Declared views:** a schema's `~views` entry is the built-in list view (`declaredView`),
+  reading only the tables the entry reaches and answering `presentView`'s result. A handle
+  whose path is a `schema.usl` names one, versioned by the schema file's hash, with no
+  activation. Each presented-views vector gives the same through it as through
+  `presentView`.
+- **A person whose profile can't be read** reads as null through a to-one, not an error.
+- **Left:** read rules from access policy and one plan per view
+  ([Apps 005](plans/soon/apps-005-views-on-the-host.md)); Story Sync answering and Story
+  drawing declared views ([Apps 012](plans/soon/apps-012-one-kind-of-view.md)); hand checks
+  in [Joe's to-do](plans/joe.md#views-on-the-host-apps-005-and-012).
+
+Tests: `tests/integration/host-collections.test.ts` (views and mutations from a tree, JSX
+trees, a declared view beside an authored one), `tests/unit/declared-views.test.ts`,
+`tests/integration/data-live-query.test.ts`, `tests/integration/supplies-mutations.test.ts`.
+
 ## Agents 002: run tasks from anywhere — 2026-11-07
 
 **Implemented** on main (f172e0a, ef2fb3a, 67d831a, 9234fb8, c4f4a58; overstoryd redeployed with

@@ -124,12 +124,11 @@ can be dictated in one go. A recording without commands stays one paragraph.
 
 ## Soon
 
-**[Apps 005: views on the host](soon/apps-005-views-on-the-host.md).**
-Joe wants queries and mutations running on hosts fairly soon, to test the permissions and
-lending models against real code. Views (functions over rows that return JSX or data, traced
-into plans, laying out rows in code) replace queries; the sidecar runs
-them from trees, and they are turned on in the host, still as their caller. First of the
-three apps plans Joe split on 2026-11-06.
+**[Apps 005: read rules from access policy, and one plan per view](soon/apps-005-views-on-the-host.md).**
+Views, code loaded from trees and the host switch are built
+([status](../status.md#views-on-the-host-and-declared-views--2026-11-08)). Left: the host
+reads models' read rules from access policy and applies them to every view, and a view's
+plan is traced once, not per input.
 
 **[Clients 003: the launch preview as the session](soon/clients-003-launch-preview-as-the-session.md).**
 What is left of the one client library: once Joe's launch timings are in, the Mac's launch
@@ -141,10 +140,10 @@ converted on Joe's todos tree ([status](../status.md#pages-as-logical-nodes-buil
 Left: provenance for page bodies, the front-matter merge cases it closes, and removing the
 `.md` file-entry path once every tree is converted.
 
-**[Apps 012: one kind of view](soon/apps-012-one-kind-of-view.md).**
-Joe, 2026-11-06: a schema's `~views` entry is the built-in list view with its settings (spec
-07 §4.1), so overstoryd serves declared and authored views alike and Story draws both the
-same way. After Apps 005.
+**[Apps 012: Story asks for declared views like any view](soon/apps-012-one-kind-of-view.md).**
+overstoryd serves a schema's `~views` entries as declared views through the same route as
+authored ones. Left: Story Sync answers them locally on a placed tree, and Story draws both
+kinds the same way.
 
 **[Release 003: the iPhone app on the App Store](soon/release-003-app-store.md).** So Story can be found without a TestFlight invitation. A sketch of what review requires: account deletion, report
 and block, and policy pages. The sample pages are the reviewer's way in.
