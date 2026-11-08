@@ -129,10 +129,6 @@ can be dictated in one go. A recording without commands stays one paragraph.
 
 ## Soon
 
-**[Clients 003: the launch preview as the session](soon/clients-003-launch-preview-as-the-session.md).**
-What is left of the one client library: once Joe's launch timings are in, the Mac's launch
-preview becomes the Alongside Story Sync session itself.
-
 **[Filesystem 026: page provenance, and dropping Markdown file entries](soon/filesystem-026-page-provenance-and-cleanup.md).**
 Pages are logical nodes, written to disk by each placement: built, released in 0.1.6 and
 converted on Joe's todos tree ([status](../status.md#pages-as-logical-nodes-built--2026-10-28)).

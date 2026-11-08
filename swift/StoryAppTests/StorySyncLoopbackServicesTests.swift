@@ -192,6 +192,14 @@ struct LoopbackServicesTests {
         #expect(!StorySyncProcessSupervisor.isStaleHelper(running: "0.1.0+3", bundled: nil))
     }
 
+    @Test("A running launch agent is recognized from launchctl print, so a starting one is waited for")
+    func servicePIDFromPrint() {
+        let running = "gui/501/org.nxhx.story.sync = {\n\tactive count = 1\n\tstate = running\n\tpid = 785\n\truns = 1\n}\n"
+        #expect(StorySyncProcessSupervisor.servicePID(running) == 785)
+        let stopped = "gui/501/org.nxhx.story.sync = {\n\tstate = not running\n\truns = 0\n}\n"
+        #expect(StorySyncProcessSupervisor.servicePID(stopped) == nil)
+    }
+
     @Test("Attach-only control supervisor never launches a helper")
     func attachOnlyControlSupervisor() async throws {
         let supervisor = StorySyncProcessSupervisor(launchPolicy: .attachOnly)

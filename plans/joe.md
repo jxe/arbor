@@ -29,27 +29,8 @@ host serves views only with `OVERSTORYD_ACTIVATIONS` set.
 On main since fa661f3, 2026-11-07
 ([status](../status.md#clients-003-one-client-library-three-ways-to-hold-a-tree--2026-11-07)).
 
-- [ ] Launch timings on the Mac with the branch's Story: `tree-open`, `launch-preview` and
-  `editor-drawn` in `~/Library/Application Support/Story/Logs/network-<date>.jsonl`, against
-  main's. The placed tree must not open slower. The numbers decide
-  [Clients 003](soon/clients-003-launch-preview-as-the-session.md).
-- [ ] First launch: allow the Keychain prompt for Story Sync's device key once; Story then
-  opens sessions itself.
 - [ ] Open pages in folders you haven't opened yet, edit one while Story Sync is behind, and
   check a folder file edited outside Story never shows as the accepted page.
-- [ ] Visit a large tree: the first page opens without a snapshot download (network log
-  shows a path read).
-- [ ] iPhone: a placed tree and the personal directory open and sync as before.
-
-### Coalesced typing (Merge 002)
-
-Merged to main 2026-11-07 ([status](../status.md#coalesced-typing-bursts-merge-002-case-1--2026-11-07)).
-The Swift publication tests pass on the Mac; Story itself has not been rebuilt with it.
-
-- [ ] After rebuilding Story (and restarting Story Sync): type a sentence, backspace a word and Option-arrow a block
-  on a long page, then check the request in the network log is one update with one or a few frames,
-  and that a second device shows the same text.
-
 ### Inviting and joining
 
 Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-people-and-joining-by-invitation--2026-10-11)).
@@ -66,9 +47,6 @@ Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-peop
 
 Left from Agents 001 ([status](../status.md#agents-001-presence-and-agent-tasks--2026-11-01)).
 
-- [ ] A real task on a day plan, started with Run on the Mac and watched from the iPhone: the
-  agent's mark and bubble move as it reads and edits, the task ends checked off with its
-  result, and Undo Run takes the change back.
 - [ ] The iPhone leaves the roster within a second of going to the background and rejoins on
   return; a Mac on the same page sees both.
 - [ ] Run the app-hosted Story tests for presence and agent runs with Story quit.

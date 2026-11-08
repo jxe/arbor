@@ -30,6 +30,16 @@ output="$repository_root/dist/mac"
 work="$output/build"
 rm -rf "$work"
 mkdir -p "$work"
+# The release's own Story.app copies are build outputs, not apps to open: keep
+# them out of Launch Services, so a story:// link or Spotlight never opens an
+# old release instead of the Story in use.
+lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+unregister_build() {
+  for built in "$work/Story.app" "$work/Story.xcarchive/Products/Applications/Story.app"; do
+    [ -d "$built" ] && "$lsregister" -u "$built" 2>/dev/null || true
+  done
+}
+trap unregister_build EXIT
 
 # The helper is the Bun the repository pins, from its release, not whichever is on PATH.
 bun_version=$(cat .bun-version)
