@@ -371,48 +371,52 @@ type ObjectEnvelope = { hash: Hash; bytes: string };
 
 Section 4.1 defines the common encoding and hash rules.
 
-#### 1.1.2a Reading entry metadata
+#### 1.1.2a Entry times
 
 ```text
-GET /.overstory/trees/{TreeID}/entry-metadata[?path={logical path}]
+GET /.overstory/trees/{TreeID}/snapshots/{root}?times
+GET /.overstory/trees/{TreeID}/snapshots/{root}/path/{logical path}?times
 ```
 
-Descriptive metadata about the file entries of the tree's current accepted
-root. It is never part of any object or hash: identical content hashes
-identically whenever and wherever it was written, and metadata can change
-without changing a root.
+An entry's time is when its content first appeared at its path: the
+`acceptedAt` of the earliest retained accepted update of this tree whose root
+holds that entry's object at that directory-entry path. It is a function of the
+root alone, like everything else the snapshot read answers, so it is immutable
+with it. A move is new content at its new path and is dated by the move;
+content changed and later restored keeps the time it first had there, and the
+restore is visible in history, not in the time.
+
+With `times`, a snapshot read (§1.1.2) or a path read (§1.2.4) answers the same
+bundle with one more member:
 
 ```ts
-type EntryMetadataResponse = {
-  update: UpdateId; // the accepted update the entries describe
-  entries: Record<EntryPath, { modifiedAt?: number }>; // "/Trips/_index.md" → Unix ms
+type TimedBundle = {
+  version: 1;
+  objects: Uint8Array[];
+  times: Record<EntryPath, number>; // "/Trips/_index.md" → Unix ms
 };
 ```
 
-Keys are directory-entry paths of files, not logical page paths; a client maps
-a page to its body entry. `modifiedAt` is the `acceptedAt` of the accepted
-update that last wrote that entry's object at that path, so a move is a change
-at its new path. A host MAY omit entries it cannot date. Clients ignore unknown
-fields inside an entry; later descriptive fields are added there. Read access is
-the same as for the snapshot read. The response is not immutable: it describes
-`update`, which a client may compare with the snapshot it installed and let the
-watch correct.
+`times` holds every file and page entry of every directory object in the
+bundle, keyed by its directory-entry path (not its logical page path; a client
+maps a page to its body entry), and no other key. Nested-tree boundaries have no
+time. Without `times` the bundle is exactly §1.1.2's. The response's access,
+`404`s, `Vary` and `Cache-Control` are those of the read it extends; its quoted
+`ETag` is that read's followed by `;times`.
 
-With `path`, the response holds only the entries of the directories a path read
-of that node walks (§1.2.4): the root, each directory down to the node, and
-the node's own directory when it is one. Any spelling of the node (`x`, `x.md`,
-`x/_index.md`) selects the same entries. A client that opens a tree page by page
-sends it beside the path read, as NFS's `READDIRPLUS` returns attributes with a
-listing, and never needs the whole tree's times; one that holds a whole snapshot
-reads them all once. After that, each watch frame's `acceptedAt` keeps them
-current.
+Times are never part of an object or a hash: identical content hashes
+identically wherever and whenever it was written, and a time is always the
+host's acceptance time. A date a person means as content, such as when a page
+was written, is a page property. A host keeps what it needs to date a root's
+entries for as long as it serves that root, so retention never moves a time.
+After an install, each watch frame's `acceptedAt` dates the entries it
+changes.
 
-Entry times are never part of an object or a hash, and they are not stored in
-the path read's bundle either: the bundle is named by its root and cached for
-good, while the host keeps times for the current root only, derived from
-accepted history. Identical content therefore hashes identically, and a time is
-always the host's acceptance time; a date a person means as content, such as
-when a page was written, is a page property.
+`GET /.overstory/trees/{TreeID}/entry-metadata[?path=]`, which answered the
+current root's times as `{ update, entries: { [path]: { modifiedAt } } }`, is
+answered only for released clients until
+[Protocol 001](../../plans/soon/protocol-001-spec-review-route-changes.md)
+removes it.
 
 #### 1.1.3 Watching
 

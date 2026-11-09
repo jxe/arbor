@@ -129,6 +129,11 @@ can be dictated in one go. A recording without commands stays one paragraph.
 
 ## Soon
 
+**[Protocol 002: entry times with the content](soon/protocol-002-entry-times-with-the-content.md).**
+An entry's time becomes when its content first appeared at its path, so snapshot and path
+reads can carry `times` for any retained root. Left: the first-appearance index, filling it
+from history, serving `?times`, and moving clients off `entry-metadata`.
+
 **[Protocol 001: retire the old routes the spec review replaced](soon/protocol-001-spec-review-route-changes.md).**
 Joe's spec review changes routes on both ends at once: overstoryd answers old and new forms,
 clients move and are released, then the old forms go. Left: removing the old forms after the

@@ -15,9 +15,7 @@ review makes it.
 | The people directory is an optional read under the account | locators §5 | `GET /.overstory/directory` | `GET /.overstory/account/directory` | TS and Swift clients (moved) |
 | Host-to-host routes under `/.overstory/peer/` | README route index, accounts §5.4, locators §5.1 | `/.overstory/profiles/{id}/device-keys`, `/.overstory/domain-check` | `/.overstory/peer/profiles/{id}/device-keys`, `/.overstory/peer/domain-check` | overstoryd and the `story` CLI (moved); the old paths are answered for released CLIs |
 
-Additions with no old form to retire: `entry-metadata?path=` (tree operations §1.1.2a)
-returns only the times of the directories a path read walks. Swift's page-by-page
-`TreeSession` may adopt it in place of the whole-tree read; nothing has to.
+| Entry times come with the content | tree operations §1.1.2a | `GET /trees/{id}/entry-metadata[?path=]` | `?times` on snapshot and path reads | Not yet: built by [Protocol 002](protocol-002-entry-times-with-the-content.md), then TS, Story Sync and Swift move |
 
 `/.overstory/execution/authority-watch` had no caller, so it was removed outright rather
 than moved.
@@ -27,7 +25,7 @@ than moved.
 Swift moved to `PUT /accounts` in dc76eab (Overstory and OverstoryClient tests and the Mac
 app build pass on Joe's Mac). The release is on [Joe's to-do](../joe.md).
 
-1. **Remove the old forms** once that release is out: the `/.overstory/placements` and `/.overstory/directory` routes, the unprefixed device-keys and
+1. **Remove the old forms** once that release is out: the `/.overstory/placements`, `/.overstory/directory` and `entry-metadata` routes (after Protocol 002), the unprefixed device-keys and
    domain-check paths, `LEGACY_DOMAIN_CHECK_PATH`, and the tests'
    "old path" checks. There is one host and it updates on push, so only released clients
    need the old forms (Joe, 2026-11-09).
