@@ -53,8 +53,10 @@ afterAll(async () => {
 
 describe("a person's domain", () => {
   test("is served only once her profile lists it and it reaches the host", async () => {
-    const source = await (await fetch(`${running.url}/.overstory/domain-check`)).json() as { host: string };
+    const source = await (await fetch(`${running.url}/.overstory/peer/domain-check`)).json() as { host: string };
     expect(source.host).toBe(running.overstoryd.customDomains.token);
+    // The old path answers the same until plans/soon/protocol-001 removes it.
+    expect(await (await fetch(`${running.url}/.overstory/domain-check`)).json()).toEqual(source);
     await running.overstoryd.customDomains.refresh();
     expect(running.overstoryd.customDomains.list()).toEqual([]);
     expect((await alice.descriptor(profile)).tree.canonical?.url).toBeUndefined();

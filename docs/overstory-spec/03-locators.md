@@ -381,7 +381,7 @@ host in DNS (usually a CNAME to the host's name) and lists it in their profile's
 The host serves the domain only while both directions hold:
 
 1. **The domain reaches the host.** The host fetches
-   `https://<domain>/.overstory/domain-check`, without following redirects,
+   `https://<domain>/.overstory/peer/domain-check`, without following redirects,
    and gets back its own answer: `{ "host": "<token>" }`, a value it chose
    and serves at every name it answers to. That proves DNS, the certificate
    and any proxy in front at once. A loopback test domain is fetched over

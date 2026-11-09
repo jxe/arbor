@@ -575,6 +575,10 @@ describe("accepting an invitation as a placement (accounts §1.4)", () => {
     expect(c.overstoryd.accountReservation(`${origin}/~alice`)).not.toHaveProperty("inviteDigest");
     // An exact retry returns the same account; the code is spent.
     expect((await client.acceptInvitationAsPlacement(request)).placementRoot.id).toBe(placed.placementRoot.id);
+    // The old route answers the retry too, until plans/soon/protocol-001 removes it.
+    const legacy = await fetch(`${c.url}/.overstory/placements`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
+    expect(legacy.status).toBe(201);
+    expect(((await legacy.json()) as { placementRoot: { id: string } }).placementRoot.id).toBe(placed.placementRoot.id);
     const macAtC = await openSession(c.url, alice.profileTree, macID, mac);
     expect((await macAtC.placementAccount()).account.placementRoot.id).toBe(placed.placementRoot.id);
   });

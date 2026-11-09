@@ -51,27 +51,13 @@ export class ExecutionAuthority {
       operation: AccessOperation
     ) => boolean
   ) {}
-  private readonly listeners = new Set<() => void>();
   private invalidations = 0;
-  /** Advances on every invalidation, before listeners run. */
+  /** Advances on every invalidation. */
   get epoch(): number {
     return this.invalidations;
   }
   invalidate(): void {
     this.invalidations++;
-    for (const listener of [...this.listeners]) {
-      try {
-        listener();
-      } catch {
-        this.listeners.delete(listener);
-      }
-    }
-  }
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
   }
   covered(context: ExecutionContext): boolean {
     return (

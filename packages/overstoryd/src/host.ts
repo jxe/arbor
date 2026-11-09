@@ -32,7 +32,7 @@ import {
 import { escapeHTML, publicTreePath, renderNoticePage, renderPublicDataPage, renderPublicMarkdownPage, renderReservedPage, RESERVED_PAGE_SCRIPT, PAGE_ASSETS, type PublicPageChild, type StoryDownloads } from "./public-page.ts";
 import { ProtocolProjection, protocolCollectionRowMarkdown, protocolCollectionRowTitle, type ProtocolCollectionRow } from "./projection.ts";
 import { buildDirectory } from "./directory.ts";
-import { DOMAIN_CHECK_PATH, domainOrigin, type CustomDomains } from "./custom-domains.ts";
+import { DOMAIN_CHECK_PATH, LEGACY_DOMAIN_CHECK_PATH, domainOrigin, type CustomDomains } from "./custom-domains.ts";
 import { clientAddress, hardenResponse, htmlContentSecurityPolicy, storedFileHeaders, type PageScript } from "./response-policy.ts";
 
 
@@ -524,32 +524,6 @@ export async function serveHost(options: {
       const notFound = (message = "Not found") => protocolError("not-found", message, 404);
       const methodNotAllowed = () => protocolError("invalid-request", "Method not allowed", 405);
       try {
-        if (url.pathname === "/.overstory/execution/authority-watch" && request.method === "GET") {
-          if (!execution) return protocolError("unauthenticated", "Execution authorization is required", 401);
-          server.timeout(request, 0);
-          let cleanup = () => {};
-          // Token validity (revocation, expiry, its host callback) is checked
-          // every time; the grants' database-backed permissions only on change.
-          const permitted = cachedAuthorization(overstoryd, () => overstoryd.execution.covered(execution));
-          const covered = (epoch?: string) => overstoryd.execution.valid(execution) && permitted(epoch);
-          return new Response(new ReadableStream<Uint8Array>({
-            start(controller) {
-              let closed = false;
-              const publish = () => {
-                if (closed) return;
-                const allowed = covered();
-                controller.enqueue(new TextEncoder().encode(`event: ${allowed ? "refresh" : "revoked"}\ndata: {}\n\n`));
-                if (!allowed) { closed = true; cleanup(); controller.close(); }
-              };
-              const stop = overstoryd.execution.subscribe(publish);
-              const stopTicks = onAuthorizationTick((epoch) => { if (!covered(epoch)) publish(); });
-              cleanup = () => { closed = true; stop(); stopTicks(); };
-              request.signal.addEventListener("abort", () => { cleanup(); try { controller.close(); } catch {} }, { once: true });
-              publish();
-            },
-            cancel() { cleanup(); },
-          }), { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
-        }
         const viewsRoute = /^\/\.overstory\/trees\/([^/]+)\/views$/.exec(url.pathname);
         if (request.method === "QUERY" && viewsRoute) {
           if (!viewsRuntime) return protocolError("unsupported-operation", "No view runtime is active", 422);
@@ -583,7 +557,7 @@ export async function serveHost(options: {
             headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" },
           });
         }
-        if (request.method === "GET" && url.pathname === DOMAIN_CHECK_PATH) {
+        if (request.method === "GET" && (url.pathname === DOMAIN_CHECK_PATH || url.pathname === LEGACY_DOMAIN_CHECK_PATH)) {
           return json({ host: overstoryd.customDomains.token });
         }
         if (request.method === "GET" && url.pathname === "/.overstory/health") {
@@ -622,7 +596,9 @@ export async function serveHost(options: {
         if (url.pathname === "/.overstory/pairings" && request.method === "POST") {
           return json(overstoryd.createPairing(requireAccount(authentication)), 201);
         }
-        const publishedKeys = /^\/\.overstory\/profiles\/(tr_[a-z2-7]+)\/device-keys$/.exec(url.pathname);
+        // Host-to-host routes live under `/.overstory/peer/`; the old path is
+        // answered until plans/soon/protocol-001 removes it.
+        const publishedKeys = /^\/\.overstory\/(?:peer\/)?profiles\/(tr_[a-z2-7]+)\/device-keys$/.exec(url.pathname);
         if (publishedKeys && request.method === "GET") {
           // Public: a placement host reads it without authenticating (accounts §5.4).
           return json(await overstoryd.publishedDeviceKeys(publishedKeys[1]!), 200, { "cache-control": "no-cache" });
@@ -655,9 +631,9 @@ export async function serveHost(options: {
             profile: body.profile as string | undefined,
           }), 201);
         }
-        // An invitation accepted by a profile homed at another host (accounts §1.4).
-        if (url.pathname === "/.overstory/placements" && request.method === "PUT") {
-          const body = await bodyFields(request) as {
+        /** An invitation accepted by a profile homed at another host (accounts §1.4). */
+        const acceptAsPlacement = async (fields: unknown) => {
+          const body = fields as {
             account?: unknown;
             profile?: unknown;
             profileTree?: unknown;
@@ -685,7 +661,12 @@ export async function serveHost(options: {
             signature: body.signature,
             inviteCode: body.inviteCode,
           });
-          return json(accountDescriptor(publicOrigin, overstoryd, placed), 201);
+          return placed;
+        };
+        // The old route, kept until clients send `PUT /accounts` with `profile`
+        // (plans/soon/protocol-001-spec-review-route-changes.md).
+        if (url.pathname === "/.overstory/placements" && request.method === "PUT") {
+          return json(accountDescriptor(publicOrigin, overstoryd, await acceptAsPlacement(await bodyFields(request))), 201);
         }
         const pairingClaim = /^\/\.overstory\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
         if (pairingClaim && request.method === "PUT") {
@@ -733,6 +714,11 @@ export async function serveHost(options: {
         }
         if (url.pathname === "/.overstory/accounts" && request.method === "PUT") {
           const { value, encoding } = await wireBody(request);
+          // Joining with a profile homed at another host: a membership here (accounts §1.4).
+          if ((value as { profile?: unknown }).profile !== undefined) {
+            const placed = await acceptAsPlacement(value);
+            return wire({ account: accountDescriptor(publicOrigin, overstoryd, placed) }, answerEncoding(request), 201);
+          }
           const body = value as {
             account?: unknown;
             profileTree?: unknown;

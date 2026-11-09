@@ -367,10 +367,12 @@ there, and nobody else's.
 
 ```text
 POST /.overstory/account-challenges
-PUT /.overstory/placements
+PUT /.overstory/accounts
 ```
 
-A person has one profile identity and one home host. An invitation link
+Joining a community is one route in two forms: a claim (§1.2) makes the host
+the profile's home, and a body carrying `profile` makes it a member whose home
+is elsewhere. A person has one profile identity and one home host. An invitation link
 (§1.2) opened by a client whose profile is already claimed at another host
 is accepted as a placement: the pending entry becomes a member naming the
 profile by its canonical locator at its home host, exactly as if the
@@ -383,7 +385,7 @@ its code as `inviteCode`, `profileTree`, its derived `configurationTree`, and
 a `profile` whose authority is itself. The challenge has the same fields as a
 claim's and is signed the same way with the profile key.
 
-The acceptance body carries `account`, `profile`, `profileTree`,
+The acceptance is `PUT /.overstory/accounts`, and its body carries `account`, `profile`, `profileTree`,
 `configurationTree`, `inviteCode`, the `challenge`, the raw `publicKey` and
 the Ed25519 `signature`. It carries no device and no configuration: those stay
 at the home host.
@@ -411,8 +413,9 @@ the same commit as for any member a community adds by locator (§1.3). A
 refused. The challenge is consumed in that commit.
 A home host that does not publish the profile's device keys refuses the
 acceptance as §1.3 refuses the update, naming it in `details.homeHost`, and
-changes nothing. The response is the placement account's descriptor (§1.3).
-Exact retry after success returns the same descriptor; any other attempt on
+changes nothing. The response is `{ "account": … }`, the placement
+account's descriptor (§1.3), with no `configuration`: that stays at the home
+host. Exact retry after success returns the same answer; any other attempt on
 the consumed invitation returns `already-claimed`.
 
 A client that already holds the profile's key needs no new device step: the
@@ -765,7 +768,7 @@ pairing expires like any other.
 ### 5.4 Published device keys
 
 ```text
-GET /.overstory/profiles/{ProfileTreeID}/device-keys
+GET /.overstory/peer/profiles/{ProfileTreeID}/device-keys
 ```
 
 A home host serves, for each profile it is home to and to anyone without

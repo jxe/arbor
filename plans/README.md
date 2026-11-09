@@ -129,6 +129,11 @@ can be dictated in one go. A recording without commands stays one paragraph.
 
 ## Soon
 
+**[Protocol 001: retire the old routes the spec review replaced](soon/protocol-001-spec-review-route-changes.md).**
+Joe's spec review changes routes on both ends at once: overstoryd answers old and new forms,
+clients move and are released, then the old forms go. Left: Swift's join route, the release,
+and removing the old forms.
+
 **[Filesystem 026: page provenance, and dropping Markdown file entries](soon/filesystem-026-page-provenance-and-cleanup.md).**
 Pages are logical nodes, written to disk by each placement: built, released in 0.1.6 and
 converted on Joe's todos tree ([status](../status.md#pages-as-logical-nodes-built--2026-10-28)).

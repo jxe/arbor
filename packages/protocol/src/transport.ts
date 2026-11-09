@@ -406,18 +406,22 @@ export class ProtocolClient {
     publicKey: string;
     signature: string;
   }): Promise<RemotePlacementAccountDescriptor> {
-    const response = await this.checked(await this.request("/.overstory/placements", {
+    // One route joins a community, as a new home or, with `profile`, as a member (accounts §1.4).
+    const response = await this.checked(await this.request("/.overstory/accounts", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
     }));
-    return response.json();
+    return ((await response.json()) as { account: RemotePlacementAccountDescriptor }).account;
   }
 
   /** A profile's key devices, as its home host publishes them for placement hosts (accounts §5.4). */
   async publishedDeviceKeys(profileTree: TreeID): Promise<PublishedDeviceKeys> {
-    const response = await this.checked(await this.request(`/.overstory/profiles/${encodeURIComponent(profileTree)}/device-keys`, {}));
-    return decodePublishedDeviceKeys(await response.json(), profileTree);
+    const path = `/profiles/${encodeURIComponent(profileTree)}/device-keys`;
+    let response = await this.request(`/.overstory/peer${path}`, {});
+    // A home host not yet updated answers only the old path (plans/soon/protocol-001).
+    if (response.status === 404) { await response.body?.cancel(); response = await this.request(`/.overstory${path}`, {}); }
+    return decodePublishedDeviceKeys(await (await this.checked(response)).json(), profileTree);
   }
 
   async createDeviceSessionChallenge(input: { profileTree?: TreeID; device: string; homeHost?: string }): Promise<DeviceSessionChallenge> {

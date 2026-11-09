@@ -128,7 +128,7 @@ test("execution bearer tokens enforce create-only effects, guards, replay and re
   }
 });
 
-test("authority invalidation stream and whole-tree watch stop on execution revocation", async () => {
+test("a whole-tree watch stops on execution revocation", async () => {
   const dataRoot = await mkdtemp(join(tmpdir(), "story-execution-watch-"));
   const running = await serveHost({
     dataRoot,
@@ -157,14 +157,6 @@ test("authority invalidation stream and whole-tree watch stop on execution revoc
       ],
     });
     const headers = { authorization: `Bearer ${token}` };
-    const response = await fetch(
-      `${running.url}/.overstory/execution/authority-watch`,
-      { headers, signal: abort.signal }
-    );
-    const reader = response.body!.getReader();
-    expect(new TextDecoder().decode((await reader.read()).value)).toContain(
-      "event: refresh"
-    );
     const watch = await fetch(
       `${running.url}/.overstory/trees/${account.id}/watch`,
       { headers, signal: abort.signal }
@@ -173,10 +165,6 @@ test("authority invalidation stream and whole-tree watch stop on execution revoc
     const watchReader = watch.body!.getReader();
     await watchReader.read();
     running.overstoryd.execution.revoke(token);
-    expect(new TextDecoder().decode((await reader.read()).value)).toContain(
-      "event: revoked"
-    );
-    expect((await reader.read()).done).toBe(true);
     // The revoked watch closes without resync-required.
     const revoked = await Promise.race([
       watchReader.read(),

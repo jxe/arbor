@@ -10,7 +10,9 @@ import type { LocatorPinLifetimes } from "./locator-pins.ts";
  */
 
 /** The route every name this host answers to serves its token at. */
-export const DOMAIN_CHECK_PATH = "/.overstory/domain-check";
+export const DOMAIN_CHECK_PATH = "/.overstory/peer/domain-check";
+/** The route's old path, still answered until plans/soon/protocol-001 removes it. */
+export const LEGACY_DOMAIN_CHECK_PATH = "/.overstory/domain-check";
 
 /** A domain a local person profile lists, with the path its profile is mounted at. */
 export interface DomainCandidate {

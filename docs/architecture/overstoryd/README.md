@@ -125,7 +125,7 @@ configurations have their shape, and the tests for each refused case, are in
   listener append to it, and then only the entry the outermost of them wrote
   (`clientAddress` in `response-policy.ts`). As a
   home host overstoryd publishes each profile's key devices at
-  `GET /.overstory/profiles/{ProfileTreeID}/device-keys` without authentication
+  `GET /.overstory/peer/profiles/{ProfileTreeID}/device-keys` without authentication
   (`publishedDeviceKeys`; accounts §5.4): the listed, unrevoked devices'
   DeviceIDs, keys and administrator flags, never labels.
 - **Placement role.** overstoryd is also a placement host

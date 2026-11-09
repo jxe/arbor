@@ -13,7 +13,7 @@ import { accountProtocolClient, addLocalPlacement, cancelInvitation, createInvit
 import type { Document } from "yaml";
 import { STORY_SYNC_PORT, storyDaemonSupervisor } from "./daemon.ts";
 import { compiledExecutable, storyCommand } from "./package-runtime.ts";
-import { DOMAIN_CHECK_PATH, domainOrigin, domainProfileResolver, validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@ovst/overstoryd";
+import { DOMAIN_CHECK_PATH, LEGACY_DOMAIN_CHECK_PATH, domainOrigin, domainProfileResolver, validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@ovst/overstoryd";
 import { DOMAIN_PROFILE_PATH, domainTXTName, parseMarkdown, parseProfileLocator, profileDomains, resolveDomainDelegation, treeConfigurationID } from "@ovst/protocol";
 import {
   cloudPlacementPath,
@@ -2032,7 +2032,9 @@ async function domainCommand(store: ProfileIdentityStore, operands: string[]): P
 
 /** What a host answers at its domain check route. */
 async function domainCheckToken(origin: string): Promise<string | null> {
-  const response = await fetch(`${origin}${DOMAIN_CHECK_PATH}`, { redirect: "manual", signal: AbortSignal.timeout(10_000) });
+  let response = await fetch(`${origin}${DOMAIN_CHECK_PATH}`, { redirect: "manual", signal: AbortSignal.timeout(10_000) });
+  // A host not yet updated answers only the old path (plans/soon/protocol-001).
+  if (response.status === 404) response = await fetch(`${origin}${LEGACY_DOMAIN_CHECK_PATH}`, { redirect: "manual", signal: AbortSignal.timeout(10_000) });
   if (!response.ok) return null;
   const body = await response.json().catch(() => null) as { host?: unknown } | null;
   return typeof body?.host === "string" ? body.host : null;
