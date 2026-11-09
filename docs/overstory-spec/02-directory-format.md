@@ -121,7 +121,9 @@ from a writer that has not converted lands as a page.
 A placement reads its Markdown as pages once the root it builds on holds a
 `page` entry, and as files before that. A writer converts by reading its
 folder as pages while the folder holds exactly that root and the tree's
-descriptor says `pages`; local edits are published first.
+descriptor says `pages`; local edits are published first. A host may also
+convert a tree itself, with the same update recorded as its own; a placement
+whose files already read as the pages it receives leaves them as they are.
 
 A materialized Markdown document may carry an opaque durable `id`. This
 projection historically calls its value a `PageID`; in the common data model it

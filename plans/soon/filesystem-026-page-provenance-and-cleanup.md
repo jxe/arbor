@@ -8,7 +8,9 @@ built, released and converted on Joe's todos tree
 [spec 01](../../docs/overstory-spec/01-tree-operations.md#pages) and
 [spec 02 §3](../../docs/overstory-spec/02-directory-format.md#3-properties-markdown-content-and-identity).
 This is the cleanup it left. Soon, after the other trees are converted (a go-ahead in
-[Joe's to-do](../joe.md#go-aheads)).
+[Joe's to-do](../joe.md#go-aheads)). Since 2026-11-09 the live host takes pages in every
+tree, and at startup converts any tree that still holds none (Joe: "maybe the host should
+convert them"), so directory trees and Oliver's trees convert without a placement.
 
 ## Status
 
@@ -24,7 +26,8 @@ This is the cleanup it left. Soon, after the other trees are converted (a go-ahe
    file bytes. Until then a copy out of a page's body goes as a snapshot.
 2. **Front-matter merge cases.** Close the overstoryd 014/015 front-matter cases that per-property
    merge now covers (the "Per-key frontmatter conflicts" candidate moved here).
-3. **Drop the code that writes `.md` file entries,** once every tree is converted.
+3. **Drop the code that writes `.md` file entries,** once every tree is converted, with
+   Story Sync's conversion and the host's startup conversion (`convertTreesToPages`).
 
 Known simplification to revisit while here: page lists merge member by member as ordered
 lists.

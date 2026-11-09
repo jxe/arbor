@@ -9,14 +9,14 @@ import { CustomDomains, type DomainCandidate } from "./custom-domains.ts";
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
-import { checkPageConversion } from "./page-conversion.ts";
+import { checkPageConversion, convertedToPages } from "./page-conversion.ts";
 import { MergeHistory } from "./updates/merge-history.ts";
 import { ProvenanceStore } from "./updates/provenance-store.ts";
 import { Recent } from "./recent.ts";
 import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { retainedObjects } from "./retention.ts";
-import { pathReadObjects, checkPlainTrace, deriveTrace, encodeProtocolPage, isRowOperation, loadProtocolContent, parsePage, protocolContentObject, isStatedUpdate, TreeReader, UnsupportedDerivation, type DecisionPage, type ProtocolDirectory, type DerivableUpdateRequest } from "@ovst/protocol";
+import { pathReadObjects, checkPlainTrace, deriveTrace, encodeProtocolPage, isRowOperation, loadProtocolContent, parsePage, protocolContentObject, isStatedUpdate, TreeReader, treeHoldsPages, UnsupportedDerivation, type DecisionPage, type ProtocolDirectory, type DerivableUpdateRequest } from "@ovst/protocol";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -542,12 +542,38 @@ export class HostDaemon implements AsyncDisposable {
       }
     }
     await overstoryd.resumeFounding();
+    if (overstoryd.pages === true) await overstoryd.convertTreesToPages();
     overstoryd.scheduleDeviceKeyRefresh();
     overstoryd.scheduleRemoteGroupRefresh();
     void overstoryd.refreshRemoteGroups();
     overstoryd.packing.start();
     if (overstoryd.provenanceFill) for (const tree of overstoryd.list()) overstoryd.fillProvenance(tree.id);
     return overstoryd;
+  }
+
+  /**
+   * Spec 02 §3: convert every ordinary tree that holds no pages yet, as the
+   * host's own update, so trees no Story Sync places (a profile's directory)
+   * convert too. Runs at startup, before serving, when every tree takes pages;
+   * a tree with pages or without Markdown is left alone, so it runs once.
+   * Goes with the old Markdown writing (Filesystem 026 step 6).
+   */
+  private async convertTreesToPages(): Promise<void> {
+    const load = (hash: ObjectHash, generated?: ReadonlyMap<ObjectHash, Uint8Array>) => this.objects.load(hash, generated);
+    for (const tree of this.list()) {
+      if (tree.kind !== "ordinary" || await treeHoldsPages(tree.ref, load, this.pageDirectories)) continue;
+      try {
+        const converted = await convertedToPages(tree.ref, load);
+        if (!converted) continue;
+        await checkPageConversion(tree.ref, converted.root, (hash) => load(hash, converted.objects), this.pageDirectories, true);
+        const prepared = await this.prepareParentAdvance({ parent: tree, nextRoot: converted.root, generated: converted.objects }, `pages:${tree.id}`);
+        const accepted = this.db.transaction(() => this.advanceParent(prepared, Date.now(), null))();
+        this.notifyAccepted(accepted);
+        console.info(`Pages: converted ${tree.id} (update ${accepted.id})`);
+      } catch (error) {
+        console.warn(`Pages: could not convert ${tree.id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
   }
 
   /** Whether missing provenance indexes are computed in the background. */
@@ -2989,11 +3015,11 @@ export class HostDaemon implements AsyncDisposable {
   /** Everything a server-side rewrite of a canonical parent's boundaries needs
    * before its transaction: the stored objects, the entry changes, and a log
    * entry after the parent's current update. */
-  private async prepareParentAdvance(rewrite: { parent: HostTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }) {
+  private async prepareParentAdvance(rewrite: { parent: HostTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }, change = `boundary:${crypto.randomUUID()}`) {
     const from = this.currentUpdate(rewrite.parent.id);
     if (!from || from.root !== rewrite.parent.ref) throw new RefConflictError(this.get(rewrite.parent.id)?.ref ?? null);
     const staged = new Map(rewrite.generated);
-    const entry = await this.internalEntry(rewrite.parent.id, from, rewrite.nextRoot, `boundary:${crypto.randomUUID()}`, staged);
+    const entry = await this.internalEntry(rewrite.parent.id, from, rewrite.nextRoot, change, staged);
     const changes = await this.entryChanges(rewrite.parent.ref, rewrite.nextRoot);
     const profile = await this.profileUpdate(rewrite.parent.id, rewrite.nextRoot, changes, staged);
     const community = rewrite.parent.canonicalPath === "/";
