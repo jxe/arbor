@@ -14,6 +14,10 @@ review makes it.
 | Joining with an existing identity is `PUT /accounts` with `profile` | accounts §1.4 | `PUT /.overstory/placements`, answering the bare descriptor | `PUT /.overstory/accounts`, answering `{ account }` | TS and Swift clients (moved) |
 | Host-to-host routes under `/.overstory/peer/` | README route index, accounts §5.4, locators §5.1 | `/.overstory/profiles/{id}/device-keys`, `/.overstory/domain-check` | `/.overstory/peer/profiles/{id}/device-keys`, `/.overstory/peer/domain-check` | overstoryd and the `story` CLI (moved); the old paths are answered for released CLIs |
 
+Additions with no old form to retire: `entry-metadata?path=` (tree operations §1.1.2a)
+returns only the times of the directories a path read walks. Swift's page-by-page
+`TreeSession` may adopt it in place of the whole-tree read; nothing has to.
+
 `/.overstory/execution/authority-watch` had no caller, so it was removed outright rather
 than moved.
 

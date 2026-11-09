@@ -793,11 +793,18 @@ export class HostDaemon implements AsyncDisposable {
 
   /** Descriptive metadata of the current accepted root's file entries, keyed
    * by entry path. Not part of any hash; read in one turn with its update. */
-  entryMetadata(treeID: string): { update: string; entries: Record<string, { modifiedAt: number }> } | null {
+  entryMetadata(treeID: string, along?: string): { update: string; entries: Record<string, { modifiedAt: number }> } | null {
     const current = this.acceptedStore.current(treeID);
     if (!current) return null;
+    // `along`: only the entries of the directories a path read of it walks
+    // (tree operations §1.1.2a), the root's and each one down to the node's own.
+    const segments = along === undefined ? null : along.split("/").filter(Boolean);
+    const directories = segments ? new Set(["/", ...segments.map((_, index) => `/${segments.slice(0, index + 1).join("/")}`)]) : null;
     const entries: Record<string, { modifiedAt: number }> = {};
-    for (const [path, entry] of new EntryMetadataStore(this.db).entries(treeID)) entries[path] = { modifiedAt: entry.modifiedAt };
+    for (const [path, entry] of new EntryMetadataStore(this.db).entries(treeID)) {
+      if (directories && !directories.has(path.slice(0, path.lastIndexOf("/")) || "/")) continue;
+      entries[path] = { modifiedAt: entry.modifiedAt };
+    }
     return { update: current.id, entries };
   }
 

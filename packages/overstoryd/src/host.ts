@@ -3,7 +3,7 @@ import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
 import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, decodePresenceMessagePost, decodePresenceRunnerLabel, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID, DOMAIN_PROFILE_PATH } from "@ovst/protocol";
-import { decodePathReadPath, encodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
+import { canonicalNodePath, decodePathReadPath, encodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { AccountChallenge, LocatorResolution, MutationCallRuntime, ViewsRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeViewsResponse } from "./exec-routes.ts";
 import { HostCollections, type HostCollectionsOptions } from "./collections.ts";
@@ -854,7 +854,13 @@ export async function serveHost(options: {
         const metadata = /^\/\.overstory\/trees\/([^/]+)\/entry-metadata$/.exec(url.pathname);
         if (metadata && request.method === "GET") {
           const { tree } = readableTree(metadata[1]!);
-          const value = overstoryd.entryMetadata(tree.id);
+          const along = url.searchParams.get("path");
+          let path: string | undefined;
+          if (along !== null) {
+            try { path = canonicalNodePath(along); }
+            catch { return protocolError("invalid-request", "The path is not a valid logical path", 400); }
+          }
+          const value = overstoryd.entryMetadata(tree.id, path);
           return value ? json(value) : notFound("Entry metadata not found");
         }
         const updates = /^\/\.overstory\/trees\/([^/]+)\/updates$/.exec(url.pathname);

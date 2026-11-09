@@ -527,8 +527,10 @@ export class ProtocolClient {
   }
 
   /** Descriptive dates of the current accepted root's file entries (tree operations §1.1.2a). */
-  async entryMetadata(tree: string): Promise<{ update: string; entries: Record<string, { modifiedAt?: number }> }> {
-    const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/entry-metadata`, { headers: this.headers() }));
+  /** The current root's entry times; with `path`, only those of the directories a path read of it walks (§1.1.2a). */
+  async entryMetadata(tree: string, options: { path?: string } = {}): Promise<{ update: string; entries: Record<string, { modifiedAt?: number }> }> {
+    const query = options.path === undefined ? "" : `?path=${encodeURIComponent(options.path)}`;
+    const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/entry-metadata${query}`, { headers: this.headers() }));
     return response.json();
   }
 

@@ -374,7 +374,7 @@ Section 4.1 defines the common encoding and hash rules.
 #### 1.1.2a Reading entry metadata
 
 ```text
-GET /.overstory/trees/{TreeID}/entry-metadata
+GET /.overstory/trees/{TreeID}/entry-metadata[?path={logical path}]
 ```
 
 Descriptive metadata about the file entries of the tree's current accepted
@@ -397,6 +397,22 @@ fields inside an entry; later descriptive fields are added there. Read access is
 the same as for the snapshot read. The response is not immutable: it describes
 `update`, which a client may compare with the snapshot it installed and let the
 watch correct.
+
+With `path`, the response holds only the entries of the directories a path read
+of that node walks (§1.2.4): the root, each directory down to the node, and
+the node's own directory when it is one. Any spelling of the node (`x`, `x.md`,
+`x/_index.md`) selects the same entries. A client that opens a tree page by page
+sends it beside the path read, as NFS's `READDIRPLUS` returns attributes with a
+listing, and never needs the whole tree's times; one that holds a whole snapshot
+reads them all once. After that, each watch frame's `acceptedAt` keeps them
+current.
+
+Entry times are never part of an object or a hash, and they are not stored in
+the path read's bundle either: the bundle is named by its root and cached for
+good, while the host keeps times for the current root only, derived from
+accepted history. Identical content therefore hashes identically, and a time is
+always the host's acceptance time; a date a person means as content, such as
+when a page was written, is a page property.
 
 #### 1.1.3 Watching
 
