@@ -54,9 +54,6 @@ Story Sync restarted after the rebuild, and a TestFlight build on the iPhone.
   result. With Story Sync stopped (or `story agent runner off`), Run is greyed out and says why.
 - [ ] **What runner streams cost:** with every placed tree holding a runner stream, check
   Story Sync's CPU and memory on the Mac and the stream count on the host over a day.
-- [ ] **By hand:** in a placed folder, `story agent start --task '<request JSON>'`, let Claude
-  Code do it and say `story agent done "…"`: one agent shows (not two) and the block is checked off.
-
 ### Read-only placements and domain names
 
 Built 2026-11-05 and deployed ([visitor sessions](../status.md#visitor-sessions-and-read-only-placements--2026-11-05),

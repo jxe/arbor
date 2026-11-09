@@ -81,6 +81,12 @@ phase 1). Story only sends a task to a *runner*; whatever runs it, the run looks
   `story sync status --wait` was not built.
 - **Left:** hand checks in [Joe's to-do](plans/joe.md#agents-002).
 
+Joe, 2026-11-09: by hand on the Mac, `story agent start --task` in the todos folder and a
+fresh `claude -p` doing it showed one agent and checked the block off. The first try, on the
+tree's own page (Console, "/"), finished without marking the block and showed the agent as
+"+1" elsewhere: Story Sync's `pageFile` had no file for "/" (fixed 073e55d, with a test); the
+retry showed the sparkle on Console and checked the block off. A run request needs its `run` ID.
+
 ## Clients 003: one client library, three ways to hold a tree — 2026-11-07
 
 **Implemented** on main fa661f3 (merged 2026-11-07 on Joe's word, which redeployed
