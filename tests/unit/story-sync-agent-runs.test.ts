@@ -177,6 +177,16 @@ describe("external runs (story agent start --task)", () => {
     expect(updates.some((update) => update.run === "run-ext")).toBe(true);
   });
 
+  test("a task on the tree's own page is found in _index.md and marked done", async () => {
+    await writeFile(join(folder, "_index.md"), "# Console\n\n> [!agent] list lunch ideas\n");
+    const started = await runs.start({ ...request, page: "/", task: "list lunch ideas", run: "run-root" });
+    expect(started.file).toBe(join(folder, "_index.md"));
+    expect(started.prompt).toContain(join(folder, "_index.md"));
+    await sessions.report({ cwd: folder, done: "Listed three" });
+    expect(runs.get("run-root")).toMatchObject({ state: "finished", changed: ["_index.md"] });
+    expect(await readFile(join(folder, "_index.md"), "utf8")).toBe("# Console\n\n> [!agent-done] list lunch ideas\n");
+  });
+
   test("an agent that leaves without saying done leaves the block, and says why", async () => {
     await runs.start(request);
     await sessions.report({ cwd: folder, session: "claude-session", hook: { hook_event_name: "SessionEnd" } });

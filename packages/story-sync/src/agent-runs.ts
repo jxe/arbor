@@ -669,8 +669,9 @@ export class AgentRuns {
   /** The page's file in the folder: the path itself, or its `.md` sibling. */
   private pageFile(folder: string, page: string): string | null {
     const trimmed = page.replace(/^\/+/, "");
-    if (!trimmed) return null;
-    for (const candidate of [trimmed, `${trimmed}.md`, `${trimmed}/_index.md`]) {
+    // The tree's own page ("/") is the folder's `_index.md`.
+    const candidates = trimmed ? [trimmed, `${trimmed}.md`, `${trimmed}/_index.md`] : ["_index.md"];
+    for (const candidate of candidates) {
       const path = join(folder, candidate);
       if (!relative(folder, path).startsWith("..") && existsSync(path) && !isDirectory(path)) return path;
     }
