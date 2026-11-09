@@ -11,7 +11,7 @@ review makes it.
 
 | Change | Spec | Old form, still answered | New form | Who moves |
 |---|---|---|---|---|
-| Joining with an existing identity is `PUT /accounts` with `profile` | accounts §1.4 | `PUT /.overstory/placements`, answering the bare descriptor | `PUT /.overstory/accounts`, answering `{ account }` | TS client (moved), Swift `ProtocolClient.acceptInvitationAsPlacement` |
+| Joining with an existing identity is `PUT /accounts` with `profile` | accounts §1.4 | `PUT /.overstory/placements`, answering the bare descriptor | `PUT /.overstory/accounts`, answering `{ account }` | TS and Swift clients (moved) |
 | Host-to-host routes under `/.overstory/peer/` | README route index, accounts §5.4, locators §5.1 | `/.overstory/profiles/{id}/device-keys`, `/.overstory/domain-check` | `/.overstory/peer/profiles/{id}/device-keys`, `/.overstory/peer/domain-check` | overstoryd and the `story` CLI (moved); the old paths are answered for released CLIs |
 
 `/.overstory/execution/authority-watch` had no caller, so it was removed outright rather
@@ -19,12 +19,10 @@ than moved.
 
 ## Steps
 
-1. **Swift.** Move `ProtocolClient.acceptInvitationAsPlacement` in
-   `swift/Packages/Overstory` to `PUT /.overstory/accounts` and read `account` from the
-   answer. Build and test on Joe's Mac.
-2. **Release.** The next Story release (Mac, iPhone, npm CLI) carries the new forms; it
-   goes on Joe's list when step 1 lands.
-3. **Remove the old forms** once that release is out: the `/.overstory/placements` route, the unprefixed device-keys and
+Swift moved to `PUT /accounts` in dc76eab (Overstory and OverstoryClient tests and the Mac
+app build pass on Joe's Mac). The release is on [Joe's to-do](../joe.md).
+
+1. **Remove the old forms** once that release is out: the `/.overstory/placements` route, the unprefixed device-keys and
    domain-check paths, `LEGACY_DOMAIN_CHECK_PATH`, and the tests'
    "old path" checks. There is one host and it updates on push, so only released clients
    need the old forms (Joe, 2026-11-09).
