@@ -151,8 +151,8 @@ That launch read one descriptor and one 5 KB objects request before the first pa
 path reads; no snapshot request appears in the logs since 2026-11-06. 2026-11-09: with the
 todos folder paused (`story sync pause`), a line appended to Sample-Tree.md outside Story was
 held as pending and Story showed the accepted page without it; on `story sync resume` it
-appeared. (Stopping Story Sync is not a test of this: launching Story restarts it.) Mac hand
-checks and launch timings in [joe.md](plans/joe.md#clients-003).
+appeared. (Stopping Story Sync is not a test of this: launching Story restarts it.) All
+of Joe's Clients 003 hand checks are done.
 
 ## Coalesced typing bursts (Merge 002 case 1) — 2026-11-07
 
