@@ -15,22 +15,36 @@ afterEach(async () => { for (const path of cleanup.splice(0)) await rm(path, { r
  * host accepted with `v2`. `beforeVerify` runs just before the scan that proves
  * a write, as another program writing the folder would.
  */
-async function fixture(beforeVerify?: (folder: string) => Promise<void>) {
+async function fixture(beforeVerify?: (folder: string) => Promise<void>, options: {
+  /** Runs after the install's first scan and before it writes, as an editor saving then would. */
+  afterCheck?: (folder: string) => Promise<void>;
+  /** A second file, `c.md`, the folder knows; the accepted root keeps it unless `dropC`. */
+  withC?: boolean;
+  dropC?: boolean;
+} = {}) {
   const folder = await realpath(await mkdtemp(join(tmpdir(), "story-install-folder-")));
   const state = await realpath(await mkdtemp(join(tmpdir(), "story-install-state-")));
   cleanup.push(folder, state);
   await writeFile(join(folder, "a.md"), "v1\n");
+  if (options.withC) await writeFile(join(folder, "c.md"), "c1\n");
   const known = await resolveSnapshot(await snapshotDirectory(folder));
   const objects = new Map<string, Uint8Array>(known.objects);
   const scratch = await realpath(await mkdtemp(join(tmpdir(), "story-install-next-")));
   cleanup.push(scratch);
   await writeFile(join(scratch, "a.md"), "v2\n");
+  if (options.withC && !options.dropC) await writeFile(join(scratch, "c.md"), "c1\n");
   const next = await resolveSnapshot(await snapshotDirectory(scratch));
   for (const [hash, bytes] of next.objects) objects.set(hash, bytes);
 
   await Bun.write(join(state, "sync", "folder.json"), JSON.stringify({ root: known.root, basis: { kind: "accepted", root: known.root, update: "1" } }));
   let placement = { tree, ref: known.root, update: "1" } as never as ReturnType<FolderSyncHost["placement"]>;
   let scans = 0;
+  const scanFolder: FolderSyncHost["scan"] = async (tracked, also) => {
+    const policy = await loadIgnorePolicy(folder);
+    const skip = membershipSkip(policy, tracked ? trackedEntries(tracked.root, tracked.load) : null);
+    return snapshotDirectory(folder, new Map(), [], undefined, undefined, async (path, isDirectory) =>
+      await skip(path, isDirectory) || (also ? await also(path, isDirectory) : false));
+  };
   const host: FolderSyncHost = {
     placement: () => placement,
     client: async () => { throw new Error("offline in this test"); },
@@ -40,12 +54,12 @@ async function fixture(beforeVerify?: (folder: string) => Promise<void>) {
     scan: async (tracked, also) => {
       // The install scans once before writing and once to prove the write.
       if (++scans === 2) await beforeVerify?.(folder);
-      const policy = await loadIgnorePolicy(folder);
-      const skip = membershipSkip(policy, tracked ? trackedEntries(tracked.root, tracked.load) : null);
-      return snapshotDirectory(folder, new Map(), [], undefined, undefined, async (path, isDirectory) =>
-        await skip(path, isDirectory) || (also ? await also(path, isDirectory) : false));
+      const result = await scanFolder(tracked, also);
+      if (scans === 1) await options.afterCheck?.(folder);
+      return result;
     },
     root: folder,
+
     excludedMounts: () => [],
     objectBytes: async (hash: ObjectHash) => objects.get(hash),
     materialized: () => {},
@@ -85,5 +99,31 @@ describe("installing an accepted root into a folder", () => {
     await expect(f.install()).rejects.toThrow("The folder does not hold the accepted root it was given");
     await f.sync.close();
     expect(await f.knownRoot()).toBe(f.known);
+  });
+
+  test("a file saved after the install checked the folder is kept, not overwritten", async () => {
+    const f = await fixture(undefined, { withC: true, afterCheck: async (folder) => { await writeFile(join(folder, "c.md"), "edited outside\n"); } });
+    await f.install();
+    await f.sync.close();
+    expect(await readFile(join(f.folder, "a.md"), "utf8")).toBe("v2\n");
+    expect(await readFile(join(f.folder, "c.md"), "utf8")).toBe("edited outside\n");
+    // The folder still claims its old root, so the edit publishes as a local change.
+    expect(await f.knownRoot()).toBe(f.known);
+  });
+
+  test("a file the accepted root removes is kept when it was changed here meanwhile", async () => {
+    const f = await fixture(undefined, { withC: true, dropC: true, afterCheck: async (folder) => { await writeFile(join(folder, "c.md"), "edited outside\n"); } });
+    await f.install();
+    await f.sync.close();
+    expect(await readFile(join(f.folder, "c.md"), "utf8")).toBe("edited outside\n");
+    expect(await f.knownRoot()).toBe(f.known);
+  });
+
+  test("a file the accepted root removes is removed when it still holds what the folder held", async () => {
+    const f = await fixture(undefined, { withC: true, dropC: true });
+    await f.install();
+    await f.sync.close();
+    await expect(readFile(join(f.folder, "c.md"), "utf8")).rejects.toThrow();
+    expect(await f.knownRoot()).toBe(f.next);
   });
 });

@@ -3,6 +3,8 @@ import { lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promise
 import { dirname, join } from "node:path";
 import {
   decodeProtocolPage,
+  encodeProtocolPage,
+  parsePage,
   isProtocolContentKind,
   writePageFile,
   overstoryPrivateRoot,
@@ -485,8 +487,19 @@ export class FolderSync implements AcceptedTree {
     });
     const before = membershipSkip(await rulesOf(held), lookup);
     const after = membershipSkip(await rulesOf(tracked), lookup);
+    // A file that no longer holds what the folder last held was changed here
+    // since the last scan: keep it, and the scan below says so.
+    const keep = held ? async (path: string, existing: Uint8Array): Promise<boolean> => {
+      const entry = await entryAt(held.root, path, held.load).catch(() => null);
+      if (entry?.page) {
+        const page = parsePage(existing);
+        return !page || hashObject(encodeProtocolPage(page)) !== entry.page;
+      }
+      if (entry?.file) return hashObject(existing) !== entry.file;
+      return true;
+    } : undefined;
     await materializeTree(this.host.root, root as ObjectHash, load, undefined, [...mounts, ...points.map((point) => this.osPath(point))],
-      async (path, isDirectory) => await after(path, isDirectory) || await before(path, isDirectory), this.host.collections);
+      async (path, isDirectory) => await after(path, isDirectory) || await before(path, isDirectory), this.host.collections, keep);
     let uncovered = false;
     const written = await this.host.scan(tracked, async (path, isDirectory) => {
       if (!(await before(path, isDirectory))) return false;
