@@ -465,6 +465,8 @@ is **implemented** on main and closed; its plan is deleted. It absorbed Live 001
 
 Joe, 2026-11-08 (rebuilt Story): a real task on a day plan, started with Run on the Mac,
 works well (bubble, checked off with its result, Undo Run).
+Joe, 2026-11-09: the iPhone leaves the roster when it goes to the background and rejoins on
+return, as the Mac sees it.
 
 ## Merge as blocks and elements — 2026-11-01
 
