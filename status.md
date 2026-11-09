@@ -148,7 +148,11 @@ the last one on 2026-11-06 (ms since launch): launch-preview 925 vs 1066, editor
 vs 1391, tree-open 1416 vs 1599 (open took 491 vs 533 ms), page ready 1592 vs 1691; earlier
 launches on 11-07 and 11-08 drew the first page at 1.4-2.5 s. The placed tree opens no slower.
 That launch read one descriptor and one 5 KB objects request before the first page, then four
-path reads; no snapshot request appears in the logs since 2026-11-06. Other Mac hand checks and launch timings in [joe.md](plans/joe.md#clients-003).
+path reads; no snapshot request appears in the logs since 2026-11-06. 2026-11-09: with the
+todos folder paused (`story sync pause`), a line appended to Sample-Tree.md outside Story was
+held as pending and Story showed the accepted page without it; on `story sync resume` it
+appeared. (Stopping Story Sync is not a test of this: launching Story restarts it.) Mac hand
+checks and launch timings in [joe.md](plans/joe.md#clients-003).
 
 ## Coalesced typing bursts (Merge 002 case 1) — 2026-11-07
 

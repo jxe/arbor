@@ -24,13 +24,6 @@ views only with `OVERSTORYD_ACTIVATIONS` set.
 - [ ] Ask the same host for a declared view of a schema with `~views`, and check it updates
   when a device edits a row.
 
-### Clients 003
-
-On main since fa661f3, 2026-11-07
-([status](../status.md#clients-003-one-client-library-three-ways-to-hold-a-tree--2026-11-07)).
-
-- [ ] Open pages in folders you haven't opened yet, edit one while Story Sync is behind, and
-  check a folder file edited outside Story never shows as the accepted page.
 ### Inviting and joining
 
 Left from the 2026-10-11 invitation work ([status](../status.md#cli-package-people-and-joining-by-invitation--2026-10-11)).
