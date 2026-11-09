@@ -200,7 +200,7 @@ public struct ProtocolAccountSnapshot: Codable, Sendable, Equatable {
     public var account: ProtocolAccountDescriptor
 }
 
-/// A host list read, `/.overstory/trees` or `/.overstory/directory`: no observation
+/// A host list read, `/.overstory/trees` or `/.overstory/account/directory`: no observation
 /// cursor, unlike Story Sync's local `ProtocolSnapshotEnvelope`.
 public struct ProtocolRemoteSnapshot<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
     public var snapshot: Value

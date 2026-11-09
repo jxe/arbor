@@ -171,7 +171,7 @@ test("a tree that gains type: group is a group for authorization in the same acc
   expect(running.overstoryd.rootProfileType(ids.club)).toBe("group");
   expect(running.overstoryd.canRead(bob, ids.notes)).toBe(true);
   // The directory finds the group through its stored row.
-  const response = await fetch(`${running.url}/.overstory/directory`, { headers: { authorization: `Bearer ${await deviceSession(running.url, ownerToken)}` } });
+  const response = await fetch(`${running.url}/.overstory/account/directory`, { headers: { authorization: `Bearer ${await deviceSession(running.url, ownerToken)}` } });
   expect(response.status).toBe(200);
   const directory = await response.json() as { snapshot: Array<{ profile: string; kind: string; sources: string[] }> };
   const club = directory.snapshot.find((entry) => entry.profile === ids.club)!;

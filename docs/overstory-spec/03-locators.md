@@ -424,6 +424,7 @@ names a person by their domain.
 GET /.overstory/health
 GET /.overstory/integrity
 GET /.overstory/account
+GET /.overstory/account/directory
 GET /.overstory/trees
 GET /.well-known/overstory[/{path}]
 ```
@@ -453,6 +454,28 @@ API. The accepted-update ID remains the content synchronization base;
 `observedThrough` independently records the read/watch boundary. Clients must
 not substitute one for the other, even if an implementation happens to encode
 them identically.
+
+`account/directory` is an optional convenience read: the people and groups
+the authenticated account can see from this host, as
+`{ snapshot: DirectoryEntry[] }`. Everything in it a member could compute from
+trees they already read: the community profile's members, the groups that
+name them, and the profiles named by their own trees' rules
+([access control §4](05-access-control.md#4-reading-access)). A host MAY
+serve it, and it adds nothing a client could not compute itself.
+
+```ts
+type DirectoryEntry = {
+  profile: TreeID;
+  kind: "person" | "group" | "unknown";
+  handle?: string;
+  locator?: string;              // the profile's canonical locator
+  displayName?: string;
+  description?: string;
+  avatar?: { tree: TreeID; path: string; hash: Hash };
+  domain?: string;               // the domain the host serves its trees at (§5.1)
+  sources: ("community" | `group:${TreeID}` | "access")[];
+};
+```
 
 Well-known and canonical-path resolution return `LocatorResolution`, using the
 longest readable registered boundary. Inaccessible nested boundaries cannot be

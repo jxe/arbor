@@ -119,7 +119,7 @@ export interface RemotePlacementAccountSnapshot {
   account: RemotePlacementAccountDescriptor;
 }
 
-/** A host list read: `/.overstory/trees` and `/.overstory/directory`. */
+/** A host list read: `/.overstory/trees` and `/.overstory/account/directory`. */
 export interface RemoteSnapshot<T> {
   snapshot: T;
 }
@@ -446,7 +446,7 @@ export class ProtocolClient {
   }
 
   async directory(): Promise<RemoteSnapshot<RemoteDirectoryEntry[]>> {
-    const response = await this.checked(await this.request("/.overstory/directory", { headers: this.headers() }));
+    const response = await this.checked(await this.request("/.overstory/account/directory", { headers: this.headers() }));
     return response.json();
   }
 

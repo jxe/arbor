@@ -418,7 +418,7 @@ public actor ProtocolClient {
     }
 
     public func directory() async throws -> ProtocolRemoteSnapshot<[ProtocolProfileDirectoryEntry]> {
-        try await get(path: "/.overstory/directory")
+        try await get(path: "/.overstory/account/directory")
     }
 
     /// How long a watch stream may go without a byte before it is taken for

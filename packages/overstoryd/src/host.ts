@@ -705,7 +705,8 @@ export async function serveHost(options: {
           }
           return methodNotAllowed();
         }
-        if (url.pathname === "/.overstory/directory") {
+        // `/.overstory/directory` is the old path, answered until plans/soon/protocol-001 removes it.
+        if (url.pathname === "/.overstory/account/directory" || url.pathname === "/.overstory/directory") {
           if (request.method !== "GET") return methodNotAllowed();
           const authenticated = requireAccount(authentication);
           return json({

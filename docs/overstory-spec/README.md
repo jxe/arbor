@@ -90,7 +90,7 @@ Every HTTP route an Overstory host exposes, and the section that defines it.
 
 | Route | Defined in |
 |---|---|
-| `GET /.overstory/health`, `GET /.overstory/integrity`, `GET /.overstory/account`, `GET /.overstory/trees`, `GET /.well-known/overstory[/{path}]` | [locators §5](03-locators.md#5-finding-trees) |
+| `GET /.overstory/health`, `GET /.overstory/integrity`, `GET /.overstory/account`, `GET /.overstory/account/directory` (optional), `GET /.overstory/trees`, `GET /.well-known/overstory[/{path}]` | [locators §5](03-locators.md#5-finding-trees) |
 | `GET /.overstory/trees/{TreeID}`, `/snapshots/{root}`, `/entry-metadata`, `/objects/{hash}` | [tree reads §1.1–1.2](01-tree-operations.md#1-reading-trees) |
 | `GET /.overstory/trees/{TreeID}/snapshots/{root}/path/{path}` | [path reads §1.2.4](01-tree-operations.md#124-reading-a-path) |
 | `GET /.overstory/trees/{TreeID}/conflicts` | [reading conflicts §1.2.3](01-tree-operations.md#123-reading-conflicts) |
