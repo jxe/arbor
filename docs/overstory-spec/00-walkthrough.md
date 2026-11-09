@@ -110,7 +110,7 @@ operations, and the authority replays them and recomputes the model
 fingerprint and the collection's logical hash
 ([what the tree holds](06-child-backings.md#21-what-the-tree-holds)).
 Each row has an ordinary public address such as
-`/~joe/atlas/practices/walking;overstory-key=…` ([public projection](03-locators.md#6-public-http-projection)).
+`/~joe/atlas/practices/walking;overstory-key=…` ([reading at the canonical URL](01-tree-operations.md#13-reading-at-the-canonical-url)).
 
 ## 7. Query it from a page
 

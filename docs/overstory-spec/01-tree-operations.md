@@ -828,6 +828,58 @@ body, so it is as immutable as the snapshot. Its quoted `ETag` is the root
 followed by the normalized path, each segment percent-encoded once as in the
 URL, such as `"sha256:…/Trips/Caf%C3%A9"`.
 
+### 1.3 Reading at the canonical URL
+
+```text
+GET {canonical URL}{/logical path}[;overstory-key={key}][?{query}]
+```
+
+A tree's canonical URL ([locators §5](03-locators.md#5-finding-trees)) and
+every logical path below it can also be read over plain HTTP, by anyone who
+can read the tree and with no Overstory client. This read is a view of the
+current accepted root, not a new identity: it carries the same canonical
+tree and path, and it never grants more than the tree's access does
+([access control](05-access-control.md)). Only the current root is read
+this way; historical roots stay with the snapshot read (§1.1.2), and tree
+configurations are never published here.
+
+**Markdown is required.** A request whose `Accept` names `text/markdown`
+is answered `200` with `Content-Type: text/markdown; charset=utf-8`:
+
+- a page: its source, byte for byte, frontmatter included
+  ([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity));
+- a folder with a page of its own (`_index.md`, or a sibling `x.md`): that
+  page's source;
+- a folder with no page of its own, or a collection's table: a generated
+  list, its name as an H1 and then one item per child, `- [name](<url>)`,
+  each link the child's canonical path (a row's with its stable key), in
+  name order. Generated text is not a page and is never written back;
+- a row of a logical collection: its Markdown data projection
+  ([child backings §2](06-child-backings.md)). A row is never materialized
+  as a Markdown file and its table or rows objects are never children.
+
+**Other formats are optional.** A host MAY answer a browser (`Accept`
+naming `text/html`, or no Markdown) with an HTML rendering of the same node,
+and MAY offer other representations; their form is the host's choice.
+An ordinary file answers its bytes under a type a browser will not run or
+sniff into something else: a type the host knows to be inert, or opaque bytes
+offered as a download, which is what HTML and SVG are. Stored content is
+data to the host's origin, never code. Every response forbids content-type
+sniffing and framing and sends no referrer; a page the host renders loads
+only what its own policy names, and a script on it is permitted by its hash.
+
+**Moves and stable keys.** A request carrying a stable key
+([locators §2](03-locators.md#2-stable-keys-revisions-and-fragments)) whose
+node now lives at another path is answered `308` to the current path, keeping
+the key, the application query and the content fragment. A path that names
+nothing, or a tree the caller cannot read, is `404`, as for every other read.
+A host MAY answer a browser that cannot read the tree with a page that
+offers to open it with an access link instead.
+
+These responses describe the current root, so they are `Cache-Control:
+no-cache`. A client that needs the exact accepted state reads the descriptor
+and a path read (§1.2.4) instead.
+
 ## 2. Updates and writes
 
 Every update, exact-state guard, retry receipt, object read, and watch is subject

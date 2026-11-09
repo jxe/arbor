@@ -92,14 +92,21 @@ Every HTTP route an Overstory host exposes, and the section that defines it.
 |---|---|
 | `GET /.overstory/health`, `GET /.overstory/integrity`, `GET /.overstory/account`, `GET /.overstory/trees`, `GET /.well-known/overstory[/{path}]` | [locators §5](03-locators.md#5-finding-trees) |
 | `GET /.overstory/trees/{TreeID}`, `/snapshots/{root}`, `/entry-metadata`, `/objects/{hash}` | [tree reads §1.1–1.2](01-tree-operations.md#1-reading-trees) |
+| `GET /.overstory/trees/{TreeID}/snapshots/{root}/path/{path}` | [path reads §1.2.4](01-tree-operations.md#124-reading-a-path) |
+| `GET /.overstory/trees/{TreeID}/conflicts` | [reading conflicts §1.2.3](01-tree-operations.md#123-reading-conflicts) |
+| `GET {canonical URL}{/path}` (Markdown; HTML optional) | [reading at the canonical URL §1.3](01-tree-operations.md#13-reading-at-the-canonical-url) |
 | `POST /.overstory/trees/{TreeID}/updates` | [updates §2.1](01-tree-operations.md#21-the-update-request) |
 | `GET /.overstory/trees/{TreeID}/watch` | [watching §1.1.3](01-tree-operations.md#113-watching) |
-| `GET /.overstory/trees/{TreeID}/presence`, `POST /.overstory/trees/{TreeID}/presence/{PresenceID}` | [presence §3](12-presence.md#3-routes) |
+| `GET /.overstory/trees/{TreeID}/presence`, `POST /.overstory/trees/{TreeID}/presence/{PresenceID}[/messages]` | [presence §3](12-presence.md#3-routes) |
 | `QUERY /.overstory/trees/{TreeID}/views` | [executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-views) |
 | `POST /.overstory/trees/{TreeID}/mutate` | [executable documents §12.2](07-executable-documents.md#122-execute-named-mutations) |
 | `GET /.overstory/trees/{TreeID}/access` | [access control §4](05-access-control.md#4-reading-access) |
 | `POST /.overstory/account-challenges`, `PUT /.overstory/accounts` | [accounts §1.1–1.3](04-accounts-and-devices.md#11-beginning-a-person-identity) |
 | `POST /.overstory/pairings`, `PUT /.overstory/pairings/{PairingID}/claim` | [accounts §5](04-accounts-and-devices.md#5-device-pairing) |
+| `PUT /.overstory/placements` | [accounts §1.4](04-accounts-and-devices.md#14-accepting-an-invitation-as-a-placement) |
+| `POST /.overstory/device-sessions/challenges`, `POST /.overstory/device-sessions` | [accounts §5.1](04-accounts-and-devices.md#51-device-sessions) |
+| `GET /.overstory/profiles/{ProfileTreeID}/device-keys` | [accounts §5.4](04-accounts-and-devices.md#54-published-device-keys) |
+| `GET https://{domain}/.overstory/domain-check` | [locators §5.1](03-locators.md#51-trees-at-a-persons-domain) |
 
 Authentication headers apply to every route ([access control §2](05-access-control.md#2-authentication-and-secrets)); shared read values are introduced with [tree reads §1.1](01-tree-operations.md#1-reading-trees), while SSE framing and common errors are in [encoding §4.2](01-tree-operations.md#42-stream-framing-and-errors).
 

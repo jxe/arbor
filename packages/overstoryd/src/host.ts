@@ -48,6 +48,20 @@ function collectionRowChildren(prefix: string, rows: readonly ProtocolCollection
   }));
 }
 
+/**
+ * The Markdown a folder with no index page, or a collection table, answers
+ * (tree operations §1.3): its name as a title, then a link to each child.
+ */
+function childListMarkdown(title: string, children: readonly PublicPageChild[]): string {
+  const text = (value: string) => value.replace(/[\\`*_[\]<>#]/g, "\\$&");
+  const lines = children.map((child) => `- [${text(child.name)}](<${child.href}>)`);
+  return `# ${text(title)}\n${lines.length ? `\n${lines.join("\n")}\n` : ""}`;
+}
+
+function markdown(value: string): Response {
+  return new Response(value, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
+}
+
 function json(value: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store", ...headers } });
 }
@@ -1216,6 +1230,10 @@ export async function serveHost(options: {
           }
           if (resolution.kind === "collection-table") {
             const prefix = publicPath.replace(/\/$/, "");
+            if (request.headers.get("accept")?.includes("text/markdown")) {
+              return markdown(childListMarkdown(resolution.table.table!, collectionRowChildren(prefix, resolution.table.rows, requestLocator.applicationQuery)
+                .sort((left, right) => left.name.localeCompare(right.name))));
+            }
             return html(renderPublicMarkdownPage({
               source: "",
               fallbackTitle: resolution.table.table!,
@@ -1258,9 +1276,9 @@ export async function serveHost(options: {
           }
           const prefix = publicPath.replace(/\/$/, "");
           const source = logical.body ? new TextDecoder().decode(logical.body) : "";
-          if (request.headers.get("accept")?.includes("text/markdown")) {
-            return new Response(source, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
-          }
+          const wantsMarkdown = request.headers.get("accept")?.includes("text/markdown");
+          // A folder's page is its source, byte for byte.
+          if (wantsMarkdown && logical.body) return markdown(source);
           const collectionTables = await projection.collectionTables(logical.directory);
           const physicalChildren = (await Promise.all(logical.directory.entries
             // A collection's schema is its contract, not one of its children.
@@ -1283,9 +1301,12 @@ export async function serveHost(options: {
             : [{ name: table.table, href: `${prefix}/${encodeURIComponent(table.table)}${url.search}`, kind: "folder" as const }]);
           const children = [...physicalChildren, ...collectionChildren]
             .sort((left, right) => left.name.localeCompare(right.name));
+          const fallbackTitle = logicalPath.split("/").filter(Boolean).at(-1) ?? canonicalPath.split("/").filter(Boolean).at(-1) ?? overstoryd.communityHandle();
+          // A folder with no page of its own answers a list of its children.
+          if (wantsMarkdown) return markdown(childListMarkdown(fallbackTitle, children));
           return html(renderPublicMarkdownPage({
             source,
-            fallbackTitle: logicalPath.split("/").filter(Boolean).at(-1) ?? canonicalPath.split("/").filter(Boolean).at(-1) ?? overstoryd.communityHandle(),
+            fallbackTitle,
             origin: shownOrigin,
             treeCanonicalPath: shown(canonicalPath),
             sourceDirectory: markdownSourceDirectory(logicalPath, logical.bodyOrigin ?? null),

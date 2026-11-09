@@ -470,24 +470,7 @@ type LocatorResolution = {
 
 ## 6. Public HTTP projection
 
-Readable canonical paths have safe HTTP and `overstory://` projections. HTML,
-Markdown, files, and redirects retain canonical tree/path provenance and never
-broaden access. Historical roots remain immutable and read-only. The server
-does not publish or resolve tree configurations.
-
-Stored content is data to the host's origin, never code. A host serves an
-ordinary file under a type a browser will not run or sniff into something
-else: a type it knows to be inert, or opaque bytes offered as a download,
-which is what HTML and SVG are. Every response forbids content-type sniffing
-and framing, and sends no referrer. A page the host renders loads only what
-its own policy names; a script on such a page is permitted by its hash.
-
-Rows of a logical collection have the same ordinary public path and
-stable-key locator projection as expanded children. The parent page lists
-those logical rows rather than `schema.usl` or any placement's projection
-files.
-A path lookup or stable-key lookup may render a row as an HTML property page or
-a Markdown data projection; a stale readable path redirects permanently to the
-current row path while preserving the key, application query, and content
-fragment. Public projection never materializes a row as a Markdown file and
-never exposes the collection's table or rows objects as children.
+Readable canonical paths are also served over plain HTTP: Markdown always,
+HTML and other formats at the host's choice, with stable-key redirects. Those
+reads, and the rules that keep stored content inert, are defined with the
+other reads in [tree operations §1.3](01-tree-operations.md#13-reading-at-the-canonical-url).
