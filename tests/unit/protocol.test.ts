@@ -6,7 +6,7 @@ import type {
   OverstoryError,
   WorkspaceEvent,
 } from "@ovst/protocol";
-import { applySourceEdits, canonicalOverstoryLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, decodePresenceEvent, PresenceDecodeError, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeUpdateConflictJSON, decodeSnapshotBundle, decodeUpdateRequestJSON, hashObject, updateRequestDigests } from "@ovst/protocol";
+import { applySourceEdits, canonicalOverstoryLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, decodePresenceEvent, PresenceDecodeError, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeUpdateConflictJSON, decodeSnapshotBundle, decodeUpdateRequestJSON, updateRequestDigests } from "@ovst/protocol";
 import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@ovst/protocol";
 import type { StorySyncStatus } from "../../packages/cli/src/daemon-client.ts";
 
@@ -263,7 +263,7 @@ describe("REST v1 protocol fixtures", () => {
     const snapshotBody = new Uint8Array(Buffer.from(snapshotCase.response.bodyBase64!, "base64"));
     const snapshotRoot = snapshotCase.request.path!.split("/").at(-1)!;
     expect(decodeSnapshotBundle(snapshotRoot, snapshotBody).root).toBe(snapshotRoot);
-    expect(`\"${hashObject(snapshotBody)}\"`).toBe(snapshotCase.response.headers!.ETag!);
+    expect(`\"${snapshotRoot}\"`).toBe(snapshotCase.response.headers!.ETag!);
     const activate = byName.get("activate-with-null-base")!;
     const activation = decodeUpdateRequestJSON(activate.request.body);
     const activationUpdate = activation.updates[0]!;

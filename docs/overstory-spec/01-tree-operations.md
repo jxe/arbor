@@ -238,9 +238,10 @@ unreachable extras, stopping at nested-tree boundaries. The definite-length
 `objects` array supplies the object count; the snapshot carries no tree,
 accepted-update, or observation-cursor metadata.
 
-The quoted `ETag` is the SHA-256 hash of the exact response bytes and is only an
-HTTP representation validator; it does not introduce a second snapshot
-identity.
+The quoted `ETag` is the requested root. The bundle is a deterministic
+encoding of the root's graph, so the root already names the body; a host
+does not hash the response bytes again, and the ETag introduces no second
+snapshot identity.
 
 The server returns a snapshot only when the caller can currently read the
 named tree and the requested root belongs to one of that tree's retained
@@ -823,7 +824,9 @@ a bundle that lacks an object the walk reaches or holds one it does not.
 
 Access, `404` for an unknown or unretained root, `Vary` and `Cache-Control`
 are those of the snapshot read; the root and the path together name the
-body, so it is as immutable as the snapshot.
+body, so it is as immutable as the snapshot. Its quoted `ETag` is the root
+followed by the normalized path, each segment percent-encoded once as in the
+URL, such as `"sha256:…/Trips/Caf%C3%A9"`.
 
 ## 2. Updates and writes
 

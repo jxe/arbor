@@ -260,7 +260,6 @@ struct ProtocolObjectTests {
             })
             let encoded = try ProtocolSnapshotBundleCodec.encode(snapshot)
             #expect(encoded.base64EncodedString() == vector["canonicalCborBase64"] as? String)
-            #expect(ProtocolObjectCodec.hash(encoded) == vector["etag"] as? String)
             #expect(try ProtocolSnapshotBundleCodec.decode(encoded, root: root) == snapshot.sorted())
         }
     }

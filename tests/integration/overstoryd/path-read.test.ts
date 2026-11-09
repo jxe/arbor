@@ -110,6 +110,11 @@ describe("path reads", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("application/cbor");
     expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(response.headers.get("etag")).toBe(`"${root}/Trips/Paris"`);
+    // A header holds only ASCII: the path is percent-encoded as in the URL.
+    const accented = await fetch(`${running.url}/.overstory/trees/${community}/snapshots/${root}/path/Trips/Caf%C3%A9`);
+    expect(accented.status).toBe(200);
+    expect(accented.headers.get("etag")).toBe(`"${root}/Trips/Caf%C3%A9"`);
     const unknown = await fetch(`${running.url}/.overstory/trees/${community}/snapshots/sha256:${"0".repeat(64)}/path/Trips`);
     expect(unknown.status).toBe(404);
     const escape = await fetch(`${running.url}/.overstory/trees/${community}/snapshots/${root}/path/Trips%2FParis`);

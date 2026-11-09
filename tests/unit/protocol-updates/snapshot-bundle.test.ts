@@ -25,7 +25,6 @@ describe("immutable snapshot bundle", () => {
         root: string;
         objects: Array<{ hash: string; canonicalCborBase64: string }>;
         canonicalCborBase64: string;
-        etag: string;
       }>;
     };
     for (const vector of fixture.valid) {
@@ -38,7 +37,6 @@ describe("immutable snapshot bundle", () => {
       };
       const body = encodeSnapshotBundle(snapshot);
       expect(Buffer.from(body).toString("base64")).toBe(vector.canonicalCborBase64);
-      expect(hashObject(body)).toBe(vector.etag);
       expect(decodeSnapshotBundle(vector.root, body)).toEqual(snapshot);
     }
   });
