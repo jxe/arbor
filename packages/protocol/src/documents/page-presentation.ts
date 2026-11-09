@@ -1,10 +1,10 @@
-import type { OverstoryBlock, Diagnostic, MarkdownDocument } from "../index.ts";
+import type { OverstoryBlock, MarkdownDocument } from "../index.ts";
 import { canonicalNodePath, nodeDisplayName } from "../model/logical-path.ts";
 import { placeDirectoryChildren, type DirectoryPlacementChild, type PlacementDirectory } from "./directory-document.ts";
 import { serializeBlocks } from "./markdown.ts";
 
-/** The text of the presented Children heading. */
-export const PRESENTED_CHILDREN_HEADING = "Children";
+/** The text of the presented Subpages heading. */
+export const PRESENTED_CHILDREN_HEADING = "Subpages";
 
 export type PresentedHeading = "title" | "children";
 
@@ -13,7 +13,6 @@ export interface PagePresentation {
   document: MarkdownDocument;
   placedChildren: string[];
   generatedChildren: string[];
-  diagnostics: Diagnostic[];
 }
 
 /**
@@ -61,10 +60,8 @@ function presented(kind: PresentedHeading, text: string): OverstoryBlock {
  * Every client shows a page through this function rather than through
  * directory placement. It adds what the page shows and its source lacks: a
  * title when the body does not begin with an H1, and, for a node with
- * children whose document has no explicit marker, the children no authored
- * link names at the page's end: under the body's last H1 when that is an
- * authored `# Children`, otherwise in a presented Children section. With an
- * explicit marker those children stand at the marker and no heading is added.
+ * children, the children no authored link names at the page's end, in a
+ * presented Subpages section.
  * `children` is null for a node that has none to place.
  *
  * Everything added carries `storyGenerated`, which the Markdown serializer
@@ -78,7 +75,7 @@ export function presentPage(
 ): PagePresentation {
   const placement = children
     ? placeDirectoryChildren(node, document, children)
-    : { document, remainder: [], placedChildren: [], generatedChildren: [], diagnostics: [] };
+    : { document, remainder: [], placedChildren: [], generatedChildren: [] };
   const blocks = [...placement.document.blocks];
   const title = presentedPageTitle(node.path);
   if (title !== null && !beginsWithTitle(blocks)) {
@@ -87,18 +84,12 @@ export function presentPage(
     blocks.splice(first === -1 ? blocks.length : first, 0, presented("title", title));
   }
   if (placement.remainder.length) {
-    // An authored `# Children` that is the body's last H1 holds the remainder at its end.
-    const lastH1 = blocks.findLast((block) => isH1(block));
-    const authoredChildren = lastH1 !== undefined && presentedHeading(lastH1) === null
-      && (lastH1.content ?? "") === PRESENTED_CHILDREN_HEADING;
-    if (!authoredChildren) blocks.push(presented("children", PRESENTED_CHILDREN_HEADING));
-    blocks.push(...placement.remainder);
+    blocks.push(presented("children", PRESENTED_CHILDREN_HEADING), ...placement.remainder);
   }
   return {
     document: { ...placement.document, blocks },
     placedChildren: placement.placedChildren,
     generatedChildren: placement.generatedChildren,
-    diagnostics: placement.diagnostics,
   };
 }
 
@@ -113,7 +104,7 @@ function authoredProps(block: OverstoryBlock): OverstoryBlock {
  *
  * A presented heading the reader left alone stays out of the source. An
  * edited title (new text, or another kind of block) is written where it
- * stands, which is the head of the body. A Children section the reader
+ * stands, which is the head of the body. A Subpages section the reader
  * edited (renamed, added content under, or reordered) is written whole: its
  * heading, then everything under it in the order shown, each generated link
  * as an authored link. Generated links are otherwise never written.

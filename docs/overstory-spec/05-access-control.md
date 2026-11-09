@@ -1,7 +1,7 @@
 # Access control
 *Part of the [Overstory spec](README.md): resource policy, execution authority, authentication, and authorization of reads, updates, and observations.*
 
-*Owns: `who` / `app` / `allow` rules, administrators and lending. References: [tree configurations](04-accounts-and-devices.md), [executable documents](07-executable-documents.md), and [locator resolution](03-locators.md#4-resolution-rules). This is the target contract; the deployed subset is in [status](../../status.md), and provider enforcement is [Apps 005](../../plans/soon/apps-005-source-resolution-and-sidecar.md).*
+*Owns: `who` / `app` / `allow` rules, administrators and lending. References: [tree configurations](04-accounts-and-devices.md), [executable documents](07-executable-documents.md), and [locator resolution](03-locators.md#4-resolution-rules). This is the target contract; the deployed subset is in [status](../../status.md), and provider enforcement is [Apps 010](../../plans/later/apps-010-activation-and-lending.md).*
 
 ## 1. Subjects and rules
 
@@ -46,6 +46,15 @@ the TreeID it first resolved to
 read there (§3.3). The pinned TreeID is the subject and its merge key. A link subject matches a
 valid presented secret's digest. `me` and `members` name the profile whose
 `apps.yaml` holds a rule (§1.1) and are invalid in `access.yaml`.
+
+A visitor ([accounts §5.6](04-accounts-and-devices.md#56-visitor-sessions))
+is the profile only as its home host names it: a profile subject matches it
+when it is a locator at that home host pinned to the visitor's TreeID, and a
+group matches it through such a member locator, or as a group that home host
+holds whose copy lists it. A domain locator
+([locators §1.1](03-locators.md#11-domain-locators)) is at the home host its
+records named when last confirmed, so it matches a visitor vouched for by
+that host. Whatever a matching rule allows, a visitor only reads.
 
 `admin` names the tree's **administrators**. It may be granted only to a
 person or group profile, in a rule with no `app` and no `within`; a group
@@ -212,6 +221,12 @@ each granted capability with its lender. It can refer
 to authenticated claims or host-private records; its encoding and issuance transport
 are implementation details, not authored data or a durable query-session protocol.
 
+A grant names one tree, except a read grant over any tree, which a host may issue
+when code cannot know in advance which trees it will read (the profiles a query
+reaches, for example). Each read under it is checked at the tree read, as the
+caller's own access with no lender. It never writes, never covers part of a tree,
+and is never lent.
+
 The runtime authenticates host calls with:
 
 ```http
@@ -286,6 +301,8 @@ escape after revocation. Terminate or invalidate affected streams without
 revealing private details. Reconnect repeats authorization; a cursor is not a grant.
 A stream opened with a device session ends no later than the session expires,
 and when its device is deleted; the client reopens it with a fresh session.
+[Presence](12-presence.md) streams are admitted and kept the same way, and an
+entry is never disclosed outside what a subscriber may read.
 
 Hosts notify trusted runtimes of policy, device/session, and group-membership
 changes affecting active execution. A disconnected invalidation channel blocks

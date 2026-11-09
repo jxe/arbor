@@ -1,4 +1,4 @@
-import { ProtocolError, HostAccountStore, HostPlacementStore, ProtocolClient } from "@ovst/protocol";
+import { ProtocolError, HostAccountStore, HostPlacementStore, HostVisitorStore, ProtocolClient } from "@ovst/protocol";
 
 /**
  * Which claimed account a protocol call should speak for: an explicit account
@@ -16,6 +16,8 @@ export interface AccountProtocolClient {
   configurationTree?: string;
   /** Set when `client` speaks for a placement account (accounts §1.3) rather than the profile's home account. */
   placement?: { homeHost: string; placementRoot: string };
+  /** Set when `client` holds a visitor session (accounts §5.6): it reads, and never writes. */
+  visitor?: true;
   /** The session token `client` sends, when authenticated. */
   token?: string;
   authenticated: boolean;
@@ -54,6 +56,19 @@ export async function accountProtocolClient(
       // Another host than the home, with no placement connection there: never send the home's session to it.
       if (options.required || await new HostPlacementStore(selector.configurationTree, selector.origin).safe()) {
         throw new ProtocolError("credential-unavailable", `Credential unavailable for account ${selector.configurationTree} at ${selector.origin}`, 409);
+      }
+      // No account there: visit, which reads what that host's rules grant
+      // the profile (accounts §5.6), or read as anyone where it cannot.
+      const visiting = await new HostVisitorStore(selector.configurationTree, selector.origin).token();
+      if (visiting) {
+        return {
+          client: new ProtocolClient(selector.origin, visiting, clientOptions),
+          origin: selector.origin,
+          configurationTree: selector.configurationTree,
+          visitor: true,
+          token: visiting,
+          authenticated: true,
+        };
       }
       return { client: new ProtocolClient(selector.origin, undefined, clientOptions), origin: selector.origin, authenticated: false };
     }

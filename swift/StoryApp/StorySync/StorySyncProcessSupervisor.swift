@@ -132,6 +132,24 @@ actor StorySyncProcessSupervisor {
         return try await start(executable: executable, preferredPort: preferredPort)
     }
 
+    /// Restart Story Sync itself. A helper the launch agent runs is no child of
+    /// ours, so `restartControl` would only reattach to it: kickstart it instead.
+    func restartService() async throws -> StorySyncControlRuntime {
+        guard process == nil, let current = controlRuntime, current.status.runtimeKind == "persistent",
+              await installedServiceExists() else { return try await restartControl() }
+        controlRuntime = nil
+        _ = await launchctl(["kickstart", "-k", serviceTarget()])
+        for _ in 0..<100 {
+            if let restarted = try await attachOwn(preferredPort: preferredPort),
+               restarted.status.instanceID != current.status.instanceID {
+                controlRuntime = restarted
+                return restarted
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        throw StorySyncSupervisorError.readinessTimedOut(canonicalServiceLog())
+    }
+
     func logs() -> String {
         guard let logURL, let data = try? Data(contentsOf: logURL) else {
             let persistent = canonicalServiceLog()
@@ -167,12 +185,12 @@ actor StorySyncProcessSupervisor {
 
         if explicitExecutable == nil, preferredPort == Self.defaultPort, shouldUsePersistentService {
             if await restartInstalledService() {
-                if let attached = try await waitForService(preferredPort: preferredPort) { return attached }
+                if let attached = try await waitForService(preferredPort: preferredPort, upTo: Self.serviceStartLimit) { return attached }
                 throw StorySyncSupervisorError.readinessTimedOut(canonicalServiceLog())
             }
             do {
                 if try registerBundledService() {
-                    if let attached = try await waitForService(preferredPort: preferredPort) { return attached }
+                    if let attached = try await waitForService(preferredPort: preferredPort, upTo: Self.serviceStartLimit) { return attached }
                     throw StorySyncSupervisorError.readinessTimedOut(canonicalServiceLog())
                 }
             } catch {
@@ -243,12 +261,22 @@ actor StorySyncProcessSupervisor {
         return nil
     }
 
-    private func waitForService(preferredPort: Int) async throws -> StorySyncControlRuntime? {
-        for _ in 0..<100 {
+    /// How long a starting service may take to answer. Right after a reboot
+    /// the launch agent's Story Sync took 81 s to listen (2026-11-08).
+    static let serviceStartLimit: Duration = .seconds(180)
+
+    /// Ask until this data home's Story Sync answers or `limit` passes: every
+    /// 100 ms at first, then less often, up to once a second.
+    private func waitForService(preferredPort: Int, upTo limit: Duration = .seconds(10)) async throws -> StorySyncControlRuntime? {
+        let clock = ContinuousClock()
+        let deadline = clock.now + limit
+        var pause: Duration = .milliseconds(100)
+        while clock.now < deadline {
             if let attached = try await attachOwn(preferredPort: preferredPort) { return attached }
-            try await Task.sleep(for: .milliseconds(100))
+            try await Task.sleep(for: pause)
+            pause = min(pause * 2, .seconds(1))
         }
-        return nil
+        return try await attachOwn(preferredPort: preferredPort)
     }
 
     private var shouldUsePersistentService: Bool {
@@ -284,37 +312,69 @@ actor StorySyncProcessSupervisor {
     }
 
     private func installedServiceExists() async -> Bool {
-        await launchctl(["print", serviceTarget()]) == 0
+        await launchctl(["print", serviceTarget()]).status == 0
     }
 
-    /// Start the installed service, restarting it if it runs: reaching here means it
-    /// did not answer this data home's token, so it is stopped, wedged, or an older build.
+    /// Start the installed service. One that is running but did not answer is
+    /// usually still starting (after a reboot, launchd starts it as the app
+    /// opens), so it is waited for, not restarted: a restart would begin its
+    /// cold start again. A stopped one is started.
     private func restartInstalledService() async -> Bool {
-        guard await installedServiceExists() else { return false }
-        _ = await launchctl(["kickstart", "-k", serviceTarget()])
+        let printed = await launchctl(["print", serviceTarget()])
+        guard printed.status == 0 else { return false }
+        if Self.servicePID(printed.output) == nil {
+            _ = await launchctl(["kickstart", serviceTarget()])
+        }
         return true
+    }
+
+    /// The pid `launchctl print` reports for a running service.
+    static func servicePID(_ printed: String) -> Int? {
+        for line in printed.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("pid = ") else { continue }
+            return Int(trimmed.dropFirst("pid = ".count))
+        }
+        return nil
     }
 
     private func serviceTarget() -> String {
         "gui/\(getuid())/\(Self.serviceLabel)"
     }
 
-    /// Run `launchctl`, awaiting its exit instead of blocking the actor's thread.
-    private func launchctl(_ arguments: [String]) async -> Int32 {
+    /// Run `launchctl`, awaiting its exit instead of blocking the actor's
+    /// thread, with its output. One that has not exited after `limit` is
+    /// stopped and reads as failed, so a busy launchd (just after a reboot)
+    /// cannot hold the connection forever.
+    private func launchctl(_ arguments: [String], limit: Duration = .seconds(10)) async -> (status: Int32, output: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
+        let output = Pipe()
+        let reader = output.fileHandleForReading
+        process.standardOutput = output
         process.standardError = FileHandle.nullDevice
-        return await withCheckedContinuation { continuation in
-            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                continuation.resume(returning: -1)
-            }
+        let finished = LaunchctlResult()
+        process.terminationHandler = { finished.resume($0.terminationStatus) }
+        do {
+            try process.run()
+        } catch {
+            process.terminationHandler = nil
+            return (-1, "")
         }
+        // Drained while it runs, so a long listing never fills the pipe and stalls it.
+        let reading = Task.detached { (try? reader.readToEnd()) ?? Data() }
+        let pid = process.processIdentifier
+        let timeout = Task {
+            try? await Task.sleep(for: limit)
+            guard !Task.isCancelled else { return }
+            kill(pid, SIGKILL)
+            finished.resume(-1)
+        }
+        let status = await withCheckedContinuation { finished.set($0) }
+        timeout.cancel()
+        guard status == 0 else { return (status, "") }
+        return (status, String(decoding: await reading.value, as: UTF8.self))
     }
 
     private func canonicalServiceLog() -> String {
@@ -384,6 +444,39 @@ actor StorySyncProcessSupervisor {
               let resources = Bundle.main.resourceURL else { return nil }
         let script = resources.appending(path: "story-sync/story-sync.js")
         return FileManager.default.fileExists(atPath: script.path) ? script : nil
+    }
+}
+/// Resumes a continuation once, with whichever of the exit and the time limit comes first.
+private final class LaunchctlResult: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Int32, Never>?
+    private var early: Int32?
+    private var done = false
+
+    func set(_ continuation: CheckedContinuation<Int32, Never>) {
+        lock.lock()
+        if let early, !done {
+            done = true
+            lock.unlock()
+            continuation.resume(returning: early)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func resume(_ status: Int32) {
+        lock.lock()
+        guard !done else { lock.unlock(); return }
+        guard let continuation else {
+            if early == nil { early = status }
+            lock.unlock()
+            return
+        }
+        done = true
+        self.continuation = nil
+        lock.unlock()
+        continuation.resume(returning: status)
     }
 }
 #endif

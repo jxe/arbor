@@ -42,6 +42,9 @@ public struct ProtocolNetworkLogEntry: Codable, Sendable, Identifiable, Equatabl
     public var afterResponseMs: Double?
     /// Server phase timings copied from the `Server-Timing` response header.
     public var serverTiming: [String: Double]?
+    /// Client-side phase timings in milliseconds, for a note that times
+    /// local work (for example the parts of a change-log append).
+    public var phases: [String: Double]?
     /// What a note observed when nothing failed (for example a sync state change).
     public var detail: String?
     public var error: String?

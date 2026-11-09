@@ -5,7 +5,7 @@ import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
-import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, encodeCandidateUpdateJSON, decodeCandidateUpdateJSON, encodeTreeSnapshotJSON, encodeWireBody, type CandidateUpdate, type ObjectHash } from "@ovst/protocol";
+import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, encodeCandidateUpdateJSON, decodeCandidateUpdateJSON, encodeTreeSnapshotJSON, decodeTreeSnapshotJSON, encodeWireBody, type CandidateUpdate, type ObjectHash } from "@ovst/protocol";
 import { executeExactSourceEdits } from "../../support/source-edits.ts";
 import { appendSource, editorView, MemoryWorkingTree, readSource } from "../../support/memory-working-tree.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
@@ -200,8 +200,7 @@ const rangeCases: Array<{ name: string; left: RangeEdit[]; right: RangeEdit[] }>
   { name: "several operations and Unicode replacements", left: [{ range: [0,1], text: "🪴" }, { range: [2,3], text: "C" }],
     right: [{ range: [0,1], text: "🌲" }, { range: [1,2], text: "B" }] },
 
-  { name: "format rule declines disjoint Markdown edits", left: [{ range: [0,1], text: "**A**" }], right: [{ range: [2,3], text: "C" }] },
-  { name: "equal-byte overlapping intent", left: [{ range: [1,2], text: "b" }], right: [{ range: [1,2], text: "b" }] },
+  { name: "format rule declines disjoint Markdown edits", left: [{ range: [0,1], text: "**A**" }], right: [{ range: [2,3], text: "`C`" }] },
 ];
 for (const scenario of rangeCases) for (const reverse of [false, true]) {
   test(`root range choices preserve complete provenance through restart: ${scenario.name}, reverse=${reverse}`, async () => {
@@ -228,6 +227,16 @@ for (const scenario of rangeCases) for (const reverse of [false, true]) {
     await running.overstoryd.verifyIntegrity();
   });
 }
+for (const reverse of [false, true])
+  test(`the same edit made on both sides is not a conflict, reverse=${reverse}`, async () => {
+    const pair = [await rangeCandidate([{ range: [1, 2], text: "b" }]), await rangeCandidate([{ range: [1, 2], text: "b" }])];
+    if (reverse) pair.reverse();
+    await client.submitUpdates(tree, { base, updates: [pair[0]!] });
+    const accepted = (await client.submitUpdates(tree, { base, updates: [pair[1]!] })).results[0]!.update;
+    expect(accepted.conflicted).toBe(false);
+    expect(accepted.root).toBe(pair[0]!.candidate);
+    await running.overstoryd.verifyIntegrity();
+  });
 test("nested range collisions create a decision at the physical file", async () => {
   const directory = decodeProtocolDirectory(objects.get(root)!);
   const original = directory.entries.find(e => e.name === "note.md")!;
@@ -1258,5 +1267,44 @@ test("a later element may carry by delta an object an earlier element of the req
   const doubled = {...compact(await edit("W", first.candidate, [0, 1]), first.candidate), change: crypto.randomUUID()};
   doubled.deltas = [...doubled.deltas, doubled.deltas[0]!];
   await expect(client.submitUpdates(tree, {base: accepted.results[2]!.update.id, updates: [doubled]})).rejects.toThrow(/Duplicate object delta result/);
+  await running.overstoryd.verifyIntegrity();
+});
+
+test.each([false, true])("a batch of edits to one large file sends only the final file, as a delta (peer edit first: %s)", async (peer) => {
+  const { prepareSourceChange } = await import("@ovst/working-tree");
+  const { publication } = await import("../../../packages/working-tree/src/publication.ts");
+  const large = await edit("a".repeat(70_000), root, [0, 3]);
+  base = (await client.submitUpdates(tree, { base, updates: [large] })).results[0]!.update.id;
+  root = large.candidate;
+  const accepted = await client.snapshot(tree, root);
+  let graph = accepted, source = "a".repeat(70_000) + "\r\n";
+  const local: import("@ovst/working-tree").LocalChange[] = [];
+  // Typing "hello" one character at a time, each its own record.
+  for (const [index, letter] of [..."hello"].entries()) {
+    const next = source.slice(0, 100 + index) + letter + source.slice(100 + index);
+    const record = prepareSourceChange({ tree, change: `type-${index}`, graph, sourcePath: "/note.md",
+      basis: index ? { kind: "authored", change: `type-${index - 1}` } : { kind: "accepted", root, update: base },
+      intent: { basis: { tree, path: "/note", revision: `r${index}`, source }, edits: [{ offset: 100 + index, length: 0, replacement: letter }], source: next } });
+    local.push(record); graph = decodeTreeSnapshotJSON(record.candidate); source = next;
+  }
+  const published = publication(local, [])!;
+  // Merge 002: the five keystrokes publish as one edit of the first basis.
+  expect(published.update.trace!.flatMap(frame => frame.operations).map(op => op.kind === "editSource" ? [op.source.range, op.text] : op.kind)).toEqual([[[100, 100], "hello"]]);
+  // The composed update names every record's objects; the host needs only
+  // the final candidate's, and regenerates the rest by executing the frames.
+  const whole = published.update.objects.reduce((sum, object) => sum + object.bytes.length, 0);
+  expect(whole).toBeGreaterThan(5 * 70_000);
+  const update = decodeCandidateUpdateJSON(compactTransport(published.update, local[0]!.graph, local.at(-1)!.candidate));
+  expect(update.objects).toHaveLength(0);
+  expect(update.deltas.length).toBeGreaterThan(0);
+  expect(encodeWireBody({ base, updates: [update] }, "cbor").byteLength).toBeLessThan(5_000);
+  if (peer) await client.submitUpdates(tree, { base, updates: [await edit("Z", root, [2, 3])] });
+  const result = (await client.submitUpdates(tree, { base, updates: [update] })).results[0]!;
+  expect(result.outcome).toBe("accepted");
+  const snapshot = await client.snapshot(tree, result.update.root);
+  const file = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!).entries.find(e => e.name === "note.md")!.file!;
+  const expected = peer ? source.slice(0, 2) + "Z" + source.slice(3) : source;
+  expect(new TextDecoder().decode(snapshot.objects.get(file)!)).toBe(expected);
+  await stop(); await start();
   await running.overstoryd.verifyIntegrity();
 });

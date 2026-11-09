@@ -301,7 +301,7 @@ export class ProfileIdentityStore {
     });
   }
 
-  async updateProfile(patch: { displayName?: string; avatar?: string; description?: string }): Promise<ProfileIdentityStatus> {
+  async updateProfile(patch: { displayName?: string; avatar?: string; description?: string; domains?: string[] | null }): Promise<ProfileIdentityStatus> {
     const status = await this.status();
     if (!status) throw new Error("No person identity exists; run `story me create`");
     const path = join(status.profilePath, "_index.md");

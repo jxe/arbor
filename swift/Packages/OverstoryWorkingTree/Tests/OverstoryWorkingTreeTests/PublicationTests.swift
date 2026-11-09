@@ -1,3 +1,4 @@
+import OverstoryWorkspace
 import StoryKit
 import Overstory
 @testable import OverstoryWorkingTree
@@ -19,7 +20,7 @@ struct PublicationTests {
     }
     @Test("Shared move and mixed-edit vectors preserve the original records and publish one update")
     func sharedPublications() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../tests/fixtures/coalesced-publication.json")
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance/coalesced-publication.json")
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
         for value in fixture.cases {
             let file = try ProtocolObjectCodec.object(.file(Data(value.source.utf8)))
@@ -102,6 +103,38 @@ struct PublicationTests {
             #expect(compact.deltas.allSatisfy { delta in base.objects.contains { $0.hash == delta.base } })
             print("move payload offset=\(offset): \(old.body.count) -> \(next.body.count) bytes")
         }
+    }
+
+    @Test("A batch of edits to one large file sends only the final file, as a delta")
+    func editBatchPayload() throws {
+        var source = String(repeating: "a", count: 70_000) + "\r\n"
+        let file = try ProtocolObjectCodec.object(.file(Data(source.utf8)))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let base = ProtocolSnapshot(root: root.hash, objects: [file, root])
+        var graph = base, records: [LocalChange] = []
+        // Typing "hello" one character at a time, each its own record.
+        for (index, letter) in "hello".enumerated() {
+            let basis = WorkspaceDocumentSnapshot(reference: .init(tree: "tr_publication", path: "/note"), source: source, contentRevision: "r\(index)")
+            let patch = WorkspaceDocumentPatch(baseContentRevision: basis.contentRevision, edits: [.init(utf8Range: (100 + index)..<(100 + index), replacement: String(letter))])
+            source = try patch.applying(to: source)
+            let record = try LocalChange(change: "c\(index)", tree: "tr_publication", basis: records.last.map { .authored(change: $0.change) } ?? .accepted(.init(root: base.root, update: "up_initial")), graph: graph, sourcePath: "/note.md", intent: .init(basis: basis, patch: patch, source: source))
+            records.append(record); graph = record.candidate
+        }
+        let published = try #require(try LocalChange.publication(records, previous: []))
+        // Merge 002: the five keystrokes publish as one edit of the first basis.
+        #expect(published.update.trace?.count == 1)
+        #expect(published.update.trace?.first?.operations.map { $0.fields["text"] } == [.string("hello")])
+        #expect(published.update.objects.reduce(0) { $0 + $1.bytes.count } > 4 * 70_000)
+        let compact = try LocalChange.compactTransport(published.update, basis: base, candidate: graph)
+        #expect(compact.objects.allSatisfy { $0.bytes.count < 1_024 })
+        #expect(!compact.deltas.isEmpty)
+        let request = try UpdateCoordinator.attempt(tree: "tr_publication", base: .init(root: base.root, update: "up_initial"), request: .init(base: "up_initial", updates: [compact]))
+        #expect(request.body.count < 5_000)
+        let replayed = try ProtocolTransitionReplay.applying(.init(objects: compact.objects, deltas: compact.deltas), to: base, root: compact.candidate)
+        #expect(try replayed.rootFile(named: "note.md") == Data(source.utf8))
+        // Without a basis graph the intermediates still stay home.
+        let dropped = try LocalChange.dropIntermediates(published.update, candidate: graph)
+        #expect(dropped.objects.map(\.hash).sorted() == graph.objects.filter { !base.objects.map(\.hash).contains($0.hash) }.map(\.hash).sorted())
     }
 
     static func branchFixture(tree: String = "tr_publication") throws -> [LocalChange] {

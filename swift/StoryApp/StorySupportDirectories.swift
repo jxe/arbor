@@ -49,6 +49,11 @@ enum StorySupportDirectories {
     static let visitedTrees = root.appending(path: "Visits.json")
     static let directory = root.appending(path: "Directory.json")
     static let avatars = root.appending(path: "Avatars", directoryHint: .isDirectory)
+    /// The page dates each tree's host reported last, one file per tree, so a
+    /// launch can date the sidebar before the host answers again.
+    static let entryDates = root.appending(path: "Entry Dates", directoryHint: .isDirectory)
+    /// The sidebar's page list as last loaded for each tree, one file per tree.
+    static let sidebarLists = root.appending(path: "Sidebar Lists", directoryHint: .isDirectory)
     /// Per-tree working-tree state: the durable iOS tree, or on the Mac only the
     /// coordinator's `sync/update-control.json` beneath `WorkingTrees/<key>`.
     static let workingTrees = root.appending(path: "WorkingTrees", directoryHint: .isDirectory)
@@ -106,9 +111,12 @@ actor NativePlacementStore {
         } ?? collection.placements.first
     }
 
-    func loadAll() throws -> [NativePlacementRecord] {
+    func loadAll() throws -> [NativePlacementRecord] { try Self.all(at: url) }
+
+    /// Every placement, read synchronously (see `selected(at:)`).
+    nonisolated static func all(at url: URL = StorySupportDirectories.nativePlacement) throws -> [NativePlacementRecord] {
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
-        return try Self.loadCollection(at: url).placements
+        return try loadCollection(at: url).placements
     }
 
     func save(_ record: NativePlacementRecord) throws {

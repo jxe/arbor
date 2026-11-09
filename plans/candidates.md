@@ -1,10 +1,10 @@
 # Candidates
 
 Work nobody has decided on yet, whether or how: features, fixes and measurements that might
-be worth doing. Nothing here is committed. Decided small tasks are [chores](chores.md); proposed
+be worth doing. Nothing here is committed. Things only Joe can do are in [Joe's to-do](joe.md); proposed
 additions to the spec are [spec extensions](spec-extensions/README.md). Before promoting a
 candidate, check current source and tests: an old audit finding does not prove a current gap.
-When one is decided, write a plan (or add it to [chores](chores.md)) and delete it here.
+When one is decided, write a plan (or add it to the plan it belongs to) and delete it here.
 
 ## Product design needed
 
@@ -15,6 +15,12 @@ When one is decided, write a plan (or add it to [chores](chores.md)) and delete 
 
 ## Small features
 
+- **A domain that stops checking** (Names 001, 2026-11-07). When a person's domain stops
+  reaching their host, Story falls back to `~alice · host`. Should people whose rules name
+  her by the domain be warned?
+- **Founding a community off Railway.** Fly and the docker-compose VPS recipe could get the
+  same founder-code path as the Railway template (Sharing 004, 2026-11-05). Railway only for
+  now.
 - **`story untrack`.** Ignore rules never untrack an already-published path; today the
   recipe is move out, sync the deletion, move back. One command could publish the deletion
   and leave the bytes. The bytes stay in accepted history, so a leaked secret still needs
@@ -73,8 +79,16 @@ Measure before promoting any of these.
 
 ## Cleanup
 
+- **The rest of the CLI on the client library** (after `story invite`, 2026-11-07): `story
+  agent revoke` edits `devices.yaml` on the host through `@ovst/client` instead of in the
+  checkout; `story place` and `story mv <url> <url>` make their `mounts.yaml` edits the same
+  way and stop requiring Story Sync when nothing local changes; `story agent create` drops its
+  `withStorySync` precondition. What stays with Story Sync: `story status`, `story sync …`,
+  `story mv` of a local folder, waiting for a new placement. Correct the comment in
+  `packages/protocol/src/config/device-key.ts` and `docs/architecture/story-sync/data-home.md`
+  to say which processes read the key. Overlaps Clients 003's account-setup note.
+
 - **Shared runtime protocol decoding.** When a second trusted boundary besides Story Sync
   needs runtime decoding, colocate pure decoders in `@ovst/protocol`.
 - **Provider scalar normalization** and **bounded-placement conformance** belong to the
-  Postgres plans and [Apps 010](later/apps-010-native-offline-collection-file-projection.md)
-  (formerly Native 003) when they start.
+  Postgres plans when they start.

@@ -87,7 +87,7 @@ A backing preserves these logical child-set facts:
   followed by the unpadded base64url encoding of the canonical row key. This
   is the one surface that still uses base64url rather than the locator key
   token; the rule is under review in
-  [Postgres 005](../../plans/later/postgres-005-representation-equivalence.md).
+  [Postgres 001](../../plans/later/postgres-001-postgres-backed-collections.md#open-from-the-old-plans).
 - **Ordering.** Collection-file and database rows enumerate in canonical stable-key
   order, falling back to canonical path, using the portable comparison; a
   backing's default collation is not an acceptable substitute. Where a

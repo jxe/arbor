@@ -10,6 +10,8 @@ export interface SharedTreePlacement {
   tree: TreeID;
   canonical?: string;
   canonicalPath?: string;
+  /** The canonical URL at a person's domain, when the host serves one (locators §5.1). */
+  canonicalURL?: string;
   kind?: TreeKind;
   access: "read" | "write";
   endpoint: string;
@@ -17,6 +19,8 @@ export interface SharedTreePlacement {
   update?: string;
   cursor?: string;
   replica?: boolean;
+  /** A read-only placement (`access: read` in placements.yaml): it follows the tree and never publishes. */
+  readOnly?: true;
 }
 
 export type TreePlacement = SharedTreePlacement;

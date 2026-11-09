@@ -12,4 +12,5 @@ swift/Packages/*/Packages/
 swift/*.local.xcworkspace/
 swift/*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 xcuserdata/
-.claude/
+.claude/*
+!.claude/skills/

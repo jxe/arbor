@@ -283,6 +283,13 @@ export async function materializeTree(
   skip?: SkipPath,
   /** Writes each collection's projection; without it a collection's rows stay in the tree only. */
   collections?: MaterializeCollection,
+  /**
+   * Whether the file at a tree path holds a local change that must not be
+   * replaced or removed: asked only of a file whose bytes differ from what
+   * would be written. A kept file is left as it is, so the folder then differs
+   * from `rootHash` there and the caller's scan finds the change.
+   */
+  keep?: (path: string, existing: Uint8Array) => Promise<boolean>,
 ): Promise<void> {
   const destination = resolve(root);
   await mkdir(destination, { recursive: true });
@@ -308,6 +315,7 @@ export async function materializeTree(
       // changed; a file that already reads as the page is left alone.
       const content = kind === "page" ? writePageFile(decodeProtocolPage(bytes), existing ?? null) : bytes;
       if (existing?.equals(Buffer.from(content))) return;
+      if (existing && keep && await keep(toTreePath(canonicalDestination, path), existing)) return;
       await writeAtomic(path, content);
       return;
     }
@@ -320,6 +328,10 @@ export async function materializeTree(
     for (const existing of await readdir(path, { withFileTypes: true })) {
       if (MANDATORY_DIRECTORY_NAMES.has(existing.name) || isPlatformMetadataName(existing.name) || expected.has(existing.name) || isExcluded(join(path, existing.name))) continue;
       if (skip && await skip(toTreePath(canonicalDestination, join(path, existing.name)), existing.isDirectory())) continue;
+      if (keep && existing.isFile()) {
+        const bytes = await readFile(join(path, existing.name)).catch(() => undefined);
+        if (bytes && await keep(toTreePath(canonicalDestination, join(path, existing.name)), bytes)) continue;
+      }
       await rm(contained(canonicalDestination, join(path, existing.name)), { recursive: true, force: true });
     }
     for (const entry of object.entries) {

@@ -1,7 +1,7 @@
 # Performance 007: keep collections in SQLite on the host
 
 **Why and when:** Joe, 2026-10-28, while settling the execution sidecar
-([Apps 005](../soon/apps-005-source-resolution-and-sidecar.md)): it is more efficient for
+([Apps 005](../../status.md#views-on-the-host-and-declared-views--2026-11-08)): it is more efficient for
 overstoryd to work with a collection's SQLite file than to keep the equivalent table and
 rows objects around. Later, after the sidecar.
 
@@ -17,7 +17,7 @@ Today the canonical table and rows objects are what overstoryd stores and retain
 SQLite materialization beside them is a disposable cache. This plan turns that round. The
 SQLite file becomes overstoryd's working form of a collection, and replaying a row-only
 update applies it to SQLite instead of rebuilding chunk objects. That matches what
-[Filesystem 026](../soon/filesystem-026-pages-as-logical-nodes.md) settled for pages: a
+[Filesystem 026](../../status.md#pages-as-logical-nodes-built--2026-10-28) settled for pages: a
 host may store any logically equivalent form, and only the hashed canonical encoding is
 shared.
 
@@ -30,8 +30,8 @@ shared.
   history budget, or none, or history kept some other way (row versions in SQLite, for
   example). Decide which before building, and what an old root that can no longer be
   rebuilt answers.
-- **Merges and provenance.** Field-level merge, [Performance 004](../soon/performance-004-provenance-index.md)
-  and chunk-hash skipping all assume objects. Each needs a path that reads SQLite.
+- **Merges and provenance.** Field-level merge, the [provenance index](../../docs/architecture/overstoryd/provenance-index.md)
+  and chunk-hash skipping ([Performance 008](../when-needed/performance-008-merge-cost-by-edit.md)) all assume objects. Each needs a path that reads SQLite.
 
 ## Decide first
 

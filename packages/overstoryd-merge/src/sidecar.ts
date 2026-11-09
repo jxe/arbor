@@ -1,4 +1,4 @@
-import { hashObject, isPropertyOperation, pageValueJSON, stableJSONString, type PageValue, validateSourceTrace, type SourceFrame, type SourceOperation } from "@ovst/protocol";
+import { encodeProvenance, entryProvenance, hashObject, rebindProvenance, type ObjectHash, type ProvenanceNode, isPropertyOperation, pageValueJSON, stableJSONString, type PageValue, validateSourceTrace, type SourceFrame, type SourceOperation } from "@ovst/protocol";
 import { replayCollectionRows } from "@ovst/collection-schema";
 import {
   decodeLogEntry,
@@ -12,8 +12,9 @@ import {
   type MergeQuestion,
   type MergeRules,
 } from "@ovst/merge-protocol";
-import { EvaluationFailure, treeDefaultConfig, type CheckpointRequest, type MergeObjects, type TreeDefaultRules } from "./engine-contract.ts";
-import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
+import { treeDefaultConfig, type CheckpointRequest, type MergeObjects, type TreeDefaultRules } from "./engine-contract.ts";
+import { checkpointIntent, indexedIntent, mergeIntent, stateIndex } from "./intent-engine.ts";
+import type { ProvenanceIndexes } from "./provenance.ts";
 import type { Node } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
 import { mergeProtocolTrees, type CollectionFieldConflict, type PagePropertyConflict } from "@ovst/tree-merge";
@@ -21,12 +22,16 @@ import { lookup, type RetainedState } from "./retained-state.ts";
 import { snapshotDecisions } from "./snapshot.ts";
 import { absentClosure, changedEntryPaths, type TreeIO } from "./trees.ts";
 
-/** A replayed or evaluated retained state: its projection, the engine's state
- * object, and its decisions as a log entry records them. */
+/** An entry's or a result's retained state: its projection, the engine's
+ * state object, and its decisions as a log entry records them. */
 interface Cached {
   object: string;
   state: string;
   decisions: LogDecision[];
+  /** The entry whose provenance index this state was replayed from; its
+   * history covers only what came after. Absent: replayed from a state that
+   * covers everything since it. */
+  seed?: string;
 }
 
 /** Where the sidecar reads accepted objects and writes an answer's new ones.
@@ -36,36 +41,11 @@ interface Cached {
 export interface SidecarStores {
   shared: { find(hash: string): Promise<Uint8Array | null>; has(hash: string): Promise<boolean> };
   staging: { find(hash: string): Promise<Uint8Array | null>; stage(values: Array<{ hash: string; bytes: Uint8Array }>): Promise<void> };
-  /** Where the sidecar saves some entries' states, so that a restart replays
-   * from the nearest saved entry instead of the chain's start. Optional, and
-   * a cache like the rest: anything missing or unreadable is replayed. */
-  saved?: SavedStates;
+  /** Entries' provenance indexes, which overstoryd keeps beside accepted
+   * history. Optional: an index it lacks is computed from the nearest one
+   * before it, as overstoryd's backfill computes it. */
+  provenance?: ProvenanceIndexes;
 }
-
-/** Saved entry states, one value per entry, grouped by tree. */
-export interface SavedStates {
-  list(): Promise<Array<{ tree: string; entry: string; savedAt: number }>>;
-  remove(tree: string, entry: string): Promise<void>;
-  readCheckpoint(tree: string, entry: string): Promise<SavedCheckpoint | null>;
-  writeCheckpoint(checkpoint: SavedCheckpoint): Promise<void>;
-}
-
-/** Native private checkpoint, with shared retained states and binary objects. */
-export interface SavedCheckpoint {
-  tree: string;
-  entry: string;
-  object: string;
-  state: string;
-  decisions: LogDecision[];
-  states: Map<string, RetainedState>;
-  objects: Array<[string, Uint8Array]>;
-}
-
-/** Save a head after this many replayed entries. Also retain a requested
- * historical basis: a new head alone cannot answer that basis after restart.
- * This does not bound replay for bases outside the retained checkpoints. */
-const SAVE_AFTER = 32;
-const SAVES_KEPT = 2;
 
 /** Change identities a client can see as contributions. overstoryd's own
  * acceptances (tree creation, pairing, boundary rewrites) are not changes an
@@ -74,19 +54,18 @@ const CLIENT_CHANGE = /^[A-Za-z0-9_-]{1,128}$/;
 
 /**
  * The reference merge sidecar. It answers each question as a deterministic
- * function of objects and its rules. Everything it keeps is a cache: engine
- * states for log entries, rebuilt by replaying entries from each chain's
- * start (trace, then align to the accepted root and decisions), and the
- * objects its answers generate, all held in memory only. A cache wipe
- * changes no answer.
- *
- * With a `saved` store it also writes some entries' states, after answering
- * (`save`), and reads them back when replay reaches one. A saved state is the
- * state replay built, byte for byte, so this too changes no answer.
+ * function of objects, provenance indexes and its rules. An entry's state
+ * replays from a recent cached state, or starts from the entry's provenance
+ * index aligned to the decisions its log entry records (Performance 004);
+ * history is never replayed from a chain's start. Everything it keeps is a
+ * cache in memory: entry states, computed indexes, and the objects its
+ * answers generate.
  */
-/** How long one question may replay history before it answers retryably
- * (`OVERSTORYD_MERGE_REPLAY_MS` overrides it). With overstoryd's evaluation budget
- * it stays inside overstoryd's 45-second worker timeout. */
+/** How far back a cached state may be for an entry to replay from it rather
+ * than start from its own index. */
+const SEED_WITHIN = 8;
+/** How long one question may replay entries before the entry it needs starts
+ * from its index instead (`OVERSTORYD_MERGE_REPLAY_MS` overrides it). */
 export const REPLAY_MILLIS = 10_000;
 
 export class Sidecar {
@@ -95,6 +74,8 @@ export class Sidecar {
   /** Engine states by identity, decoded; each is counted in `memoryBytes`
    * by its estimated size. */
   private recorded = new Map<string, RetainedState>();
+  /** Index records overstoryd holds, so answers skip them. */
+  private readonly heldRecords = new Set<string>();
   private states = new Map<string, Cached>();
   private entries = new Map<string, LogEntry>();
   /** Paths each entry changed from its previous entry's root. Entries are
@@ -107,26 +88,19 @@ export class Sidecar {
   /** Entries the current question replayed (a solved question reused counts); a diagnostic. */
   replayed = 0;
   private replayDeadline = Infinity;
-  /** Entries the current question read back from saved states; a diagnostic. */
-  restored = 0;
-  /** Saved entries by hash, listed once; kept across `clear`. */
-  private savedEntries?: Map<string, { tree: string; savedAt: number }>;
-  /** Entries replayed per tree since its last save. */
-  private unsaved = new Map<string, number>();
-  /** The last question's head, whose state `save` may write. */
-  private lastHead?: string;
-  private lastBase?: string;
-  private saveBasis = false;
-  /** Latest verified replay frontier, including an interrupted rebuild. */
-  private frontier?: string;
-  private interrupted = false;
+  /** Indexes this sidecar computed for entries overstoryd has none for. */
+  private computed = new Map<string, ProvenanceNode>();
+  /** States the current question started from an entry's index; a diagnostic. */
+  seededCount = 0;
+  /** Indexes the current question computed itself; a diagnostic. */
+  indexedCount = 0;
 
   constructor(
     private readonly stores: SidecarStores,
     private readonly cacheBytes = 512 * 1024 * 1024,
     /** The snapshot tree merge; replaceable so a test can make it fail. */
     private readonly treeMerge = mergeProtocolTrees,
-    /** How long one question may spend replaying history (see `stateOf`). */
+    /** How long one question may spend replaying entries (see `stateOf`). */
     private readonly replayMillis = REPLAY_MILLIS,
   ) {}
 
@@ -139,6 +113,7 @@ export class Sidecar {
     this.entries.clear();
     this.changed.clear();
     this.solved.clear();
+    this.computed.clear();
   }
 
   readonly objects: MergeObjects = {
@@ -191,17 +166,10 @@ export class Sidecar {
     const rules = this.rules(question);
     if (this.memoryBytes > this.cacheBytes) this.clear();
     this.replayed = 0;
-    this.restored = 0;
-    this.lastHead = question.head;
-    this.lastBase = question.base;
-    this.saveBasis = question.base !== question.head && !this.states.has(question.base);
-    this.frontier = undefined;
-    this.interrupted = false;
+    this.seededCount = 0;
+    this.indexedCount = 0;
     this.replayDeadline = performance.now() + this.replayMillis;
-    let solved: Awaited<ReturnType<Sidecar["solve"]>>;
-    try { solved = await this.solve(question, rules); }
-    catch (error) { this.interrupted = true; throw error; }
-    const { result, evidence } = solved;
+    const { result, evidence } = await this.solve(question, rules);
     // An authored prefix can hide an unresolved ancestor. Its private state is
     // valid evidence, but its choices are not decisions in an accepted root.
     // Preflight checks execution only; acceptance produces and records choices.
@@ -209,7 +177,31 @@ export class Sidecar {
       return { root: result.object, objects: await this.export(result.object, []), decisions: [], evidence };
     const { decisions } = await this.cached(result);
     this.rememberSolved(question, { ...result, decisions });
-    return { root: result.object, objects: await this.export(result.object, decisions), decisions, evidence };
+    const objects = await this.export(result.object, decisions);
+    const provenance = await this.exportIndex(result.state);
+    return { root: result.object, objects: [...objects, ...provenance.objects], decisions, evidence, provenance: provenance.root };
+  }
+
+  /** Stage the provenance index of a result's state, so that overstoryd
+   * keeps the engine's own lineage beside the entry it records: the root
+   * record, and the records overstoryd does not hold yet. */
+  private async exportIndex(state: string): Promise<{ root: ObjectHash; objects: string[] }> {
+    const recorded = this.recorded.get(state);
+    if (!recorded) throw new Error(`Unrecorded engine state ${state}`);
+    const records = new Map<ObjectHash, Uint8Array>();
+    const root = encodeProvenance(stateIndex(recorded), (bytes) => {
+      const hash = hashObject(bytes);
+      records.set(hash, bytes);
+      return hash;
+    });
+    if (this.heldRecords.size > 200_000) this.heldRecords.clear();
+    const missing = (await Promise.all([...records].map(async ([hash, bytes]) => {
+      if (this.heldRecords.has(hash)) return null;
+      if (await this.stores.shared.has(hash)) { this.heldRecords.add(hash); return null; }
+      return { hash, bytes };
+    }))).filter((v) => v !== null);
+    await this.stores.staging.stage(missing);
+    return { root, objects: missing.map((v) => v.hash) };
   }
 
   private rememberSolved(question: MergeQuestion, state: Cached): void {
@@ -228,7 +220,9 @@ export class Sidecar {
     const head = await this.entry(question.head);
     const base = await this.entry(question.base);
     if (head.tree !== base.tree) throw new MergeRefusal("invalid", "Question entries belong to different trees");
-    const current = await this.stateOf(question.head, rules);
+    // The head replays from its basis, which starts from its index when it
+    // is not cached.
+    const current = await this.stateOf(question.head, rules, question.base);
     let basis: { object: string; state: string } = await this.stateOf(question.base, rules);
     for (const prior of question.prefix ?? []) basis = await this.authored(head.tree, basis, prior, rules);
     const candidate = question.candidate;
@@ -246,48 +240,74 @@ export class Sidecar {
     return { id: "tree-default", revision: 1, ...(rules.config === undefined ? {} : { config: parsed.data }) };
   }
 
-  /** The retained state of an entry, replaying from the nearest cached entry
-   * or the chain's start. */
-  private async stateOf(hash: string, rules: TreeDefaultRules): Promise<Cached> {
+  /** An entry's retained state. A cached state whose history covers the
+   * question's `basis` (given for a head) is used as it is. A head replays
+   * the entries after its basis, starting the basis from its index when it
+   * is not cached; any other entry replays from a cached state within
+   * `SEED_WITHIN` entries, else starts from its own index. Nothing is
+   * replayed from a chain's start, and a replay that runs past its budget
+   * starts the entry from its index instead. */
+  private async stateOf(hash: string, rules: TreeDefaultRules, basis?: string): Promise<Cached> {
+    if (basis === hash) basis = undefined;
     const chain: string[] = [];
-    let at: string | null = hash;
-    while (at && !this.states.has(at) && !(await this.restore(at))) {
+    let previous: Cached | null = null;
+    for (let at: string | null = hash; at;) {
+      const cached = this.states.get(at);
+      if (cached && await this.covers(cached, at, basis ?? at)) { previous = cached; break; }
+      if (at === basis) { previous = await this.stateOf(at, rules); break; }
       chain.push(at);
       at = (await this.entry(at)).previous;
+      if (!at || (basis === undefined && chain.length > SEED_WITHIN)) return this.seeded(hash);
     }
-    let previous = at ? this.states.get(at)! : null;
     chain.reverse();
     for (const [index, entry] of chain.entries()) {
-      // A long rebuild (a cold cache over a long chain) stops at the budget,
-      // keeping every state it built, and asks overstoryd to retry: the next
-      // attempt continues from there. An overstoryd timeout would instead end
-      // the process and lose them, so a long chain could never be rebuilt.
-      // Every attempt replays at least one entry, so retries always progress.
-      if (index > 0 && performance.now() > this.replayDeadline)
-        throw new EvaluationFailure(`Rebuilding accepted history: ${index} of ${chain.length} entries replayed; retry to continue`, "unavailable");
-      previous = await this.replay(entry, previous, rules);
+      if (index > 0 && performance.now() > this.replayDeadline) return this.seeded(hash);
+      const seed = previous!.seed;
+      previous = { ...(await this.replay(entry, previous!, rules)), ...(seed ? { seed } : {}) };
       this.states.set(entry, previous);
-      this.frontier = entry;
       this.replayed++;
-      const tree = (await this.entry(entry)).tree;
-      this.unsaved.set(tree, (this.unsaved.get(tree) ?? 0) + 1);
     }
     return previous!;
+  }
+
+  /** Whether `cached`, the state of entry `at`, has history covering
+   * `basis`: it was not seeded, or its seed is `basis` or before it. `at`
+   * is `basis` or after it. */
+  private async covers(cached: Cached, at: string, basis: string): Promise<boolean> {
+    if (!cached.seed || cached.seed === basis || at === basis) return true;
+    for (let walk: string | null = at; walk; walk = (await this.entry(walk)).previous) {
+      if (walk === basis) return true;
+      if (walk === cached.seed) return false;
+    }
+    return false;
+  }
+
+  /** An entry's state from its provenance index (decision 6: its decisions
+   * from the log). An index that does not match the entry's root is
+   * replaced by a fresh import of the root. */
+  private async seeded(hash: string): Promise<Cached> {
+    const entry = await this.entry(hash);
+    let imported: Cached;
+    try {
+      imported = await this.cached(await indexedIntent({ tree: entry.tree, root: entry.root, index: await this.indexOf(hash) }, this.objects));
+    } catch (error) {
+      if (!(error instanceof MergeRefusal)) throw error;
+      process.stderr.write(`Importing ${hash} without its index: ${error.message}\n`);
+      imported = await this.checkpoint({ tree: entry.tree, current: { object: entry.root }, projection: entry.root,
+        change: entry.change, decisions: entry.decisions, align: true });
+    }
+    const state = { ...(await this.align(entry, imported)), seed: hash };
+    this.states.set(hash, state);
+    this.seededCount++;
+    return state;
   }
 
   /** Entries are facts. Ask the entry's question again with its previous
    * entry as the head, as the entry records it; then align to the recorded
    * root and decisions, which a replay under other rules or an overstoryd
    * decision the sidecar did not make can differ from. */
-  private async replay(hash: string, previous: Cached | null, rules: TreeDefaultRules): Promise<Cached> {
+  private async replay(hash: string, previous: Cached, rules: TreeDefaultRules): Promise<Cached> {
     const entry = await this.entry(hash);
-    if (!previous) {
-      const imported = await this.checkpoint({
-        tree: entry.tree, current: { object: entry.root }, projection: entry.root,
-        change: entry.change, decisions: entry.decisions, align: true,
-      });
-      return this.align(entry, imported);
-    }
     let state: Cached = previous;
     try {
       const asked = entry.asked;
@@ -319,125 +339,36 @@ export class Sidecar {
     return this.align(entry, state);
   }
 
-  /** Save the last question's head state if its tree replayed enough since
-   * its last save, and drop that tree's older saves. Called after answering;
-   * a failure here affects no answer. */
-  async save(): Promise<void> {
-    if (this.interrupted) {
-      // A rebuild may reach today's head, then need an older authored basis.
-      // Keep both frontiers, or saving the old basis can evict the new head
-      // and force the next attempt to rebuild it again.
-      if (this.lastHead && this.states.has(this.lastHead)) await this.saveEntry(this.lastHead);
-      if (this.frontier && this.frontier !== this.lastHead) await this.saveEntry(this.frontier);
-    } else if (this.lastHead) {
-      await this.saveEntry(this.lastHead);
-      // Saving the head resets the replay counter. The independently requested
-      // older basis is useful even when it needed fewer than SAVE_AFTER steps.
-      if (this.saveBasis && this.lastBase && this.states.has(this.lastBase))
-        await this.saveEntry(this.lastBase, true);
+  /** An entry's provenance index: overstoryd's, or else computed as its
+   * backfill computes it, from the nearest earlier entry that has one. */
+  private async indexOf(hash: string): Promise<ProvenanceNode> {
+    const stored = async (at: string) => this.computed.get(at) ?? await this.stores.provenance?.index(at) ?? null;
+    const own = await stored(hash);
+    if (own) return own;
+    const chain: Array<{ hash: string; entry: LogEntry }> = [];
+    let previous: { index: ProvenanceNode; root: string } | null = null;
+    for (let at: string | null = hash; at;) {
+      const entry = await this.entry(at);
+      const index = chain.length ? await stored(at) : null;
+      if (index) { previous = { index, root: entry.root }; break; }
+      chain.push({ hash: at, entry });
+      at = entry.previous;
     }
-  }
-
-  private async saveEntry(head: string, requestedBasis = false): Promise<void> {
-    const saved = this.stores.saved;
-    // When replay stops before the head, persist the verified frontier. A
-    // retry after eviction/restart can then advance instead of starting over.
-    if (!saved || !head) return;
-    if ((this.interrupted || requestedBasis) && (await this.savedIndex()).has(head)) return;
-    const cached = this.states.get(head), tree = (await this.entry(head)).tree;
-    if (!cached || (!this.interrupted && !requestedBasis && (this.unsaved.get(tree) ?? 0) < SAVE_AFTER)) return;
-    // The state and every state its decisions name, and the objects they
-    // name that only this sidecar holds.
-    const states = new Map<string, RetainedState>();
-    for (const pending = [cached.state]; pending.length;) {
-      const id = pending.pop()!;
-      if (states.has(id)) continue;
-      const retained = this.recorded.get(id);
-      if (!retained) return;
-      states.set(id, retained);
-      for (const decision of retained.decisions) {
-        if (decision.context) pending.push(decision.context);
-        for (const alternative of decision.alternatives) pending.push(alternative.state);
-      }
+    const load = async (object: ObjectHash) => this.objects.read(object);
+    for (const { hash: at, entry } of chain.reverse()) {
+      const rebind = (prior: { index: ProvenanceNode; root: string }) =>
+        rebindProvenance(prior.index, prior.root as ObjectHash, entry.root as ObjectHash, entry.change, load);
+      const index: ProvenanceNode = entry.asked && previous ? await rebind(previous)
+        : await entryProvenance(previous as never, entry as never, load).catch((error) => {
+          // A trace the index cannot follow is taken as the snapshot it made.
+          if (!previous) throw error;
+          return rebind(previous);
+        });
+      this.computed.set(at, index);
+      this.indexedCount++;
+      previous = { index, root: entry.root };
     }
-    // Discover object dependencies once per shared value, without expanding
-    // the persistent maps into a snapshot string.
-    const objects: Array<[string, Uint8Array]> = [];
-    const named = new Set<string>();
-    const seen = new WeakSet<object>();
-    const visit = (value: unknown): void => {
-      if (typeof value === "string") {
-        if (/^sha256:[a-f0-9]{64}$/.test(value)) named.add(value);
-      } else if (value && typeof value === "object" && !seen.has(value)) {
-        seen.add(value);
-        for (const child of Object.values(value)) visit(child);
-      }
-    };
-    for (const state of states.values()) visit(state);
-    const candidates = [...named].flatMap((hash): Array<[string, Uint8Array]> => {
-      const bytes = this.memory.get(hash); return bytes ? [[hash, bytes]] : [];
-    });
-    for (let offset = 0; offset < candidates.length; offset += 64) {
-      const batch = candidates.slice(offset, offset + 64);
-      const shared = await Promise.all(batch.map(([hash]) => this.stores.shared.has(hash)));
-      for (const [index, value] of batch.entries()) if (!shared[index]) objects.push(value);
-    }
-    const checkpoint: SavedCheckpoint = { tree, entry: head, object: cached.object, state: cached.state, decisions: cached.decisions, states, objects };
-    await saved.writeCheckpoint(checkpoint);
-    const index = await this.savedIndex();
-    index.set(head, { tree, savedAt: Date.now() });
-    this.unsaved.set(tree, 0);
-    const protectedEntries = new Set([this.lastHead, ...(!this.interrupted ? [this.lastBase] : [])]
-      .filter((entry): entry is string => !!entry && index.get(entry)?.tree === tree));
-    const remaining = this.interrupted ? SAVES_KEPT : Math.max(0, SAVES_KEPT - protectedEntries.size);
-    const ordered = [...index].filter(([, s]) => s.tree === tree).sort((a, b) => b[1].savedAt - a[1].savedAt);
-    let kept = 0;
-    for (const [entry] of ordered) {
-      if (protectedEntries.has(entry) || kept++ < remaining) continue;
-      index.delete(entry);
-      await saved.remove(tree, entry);
-    }
-  }
-
-  private async savedIndex() {
-    if (!this.savedEntries) {
-      this.savedEntries = new Map();
-      for (const { tree, entry, savedAt } of (await this.stores.saved?.list()) ?? []) this.savedEntries.set(entry, { tree, savedAt });
-    }
-    return this.savedEntries;
-  }
-
-  /** Read an entry's saved state into the cache. Anything unreadable, or
-   * whose states or objects do not match their identities, is removed and
-   * replayed instead. */
-  private async restore(hash: string): Promise<boolean> {
-    const saved = this.stores.saved;
-    if (!saved) return false;
-    const index = await this.savedIndex(), known = index.get(hash);
-    if (!known) return false;
-    try {
-      const checkpoint = await saved.readCheckpoint(known.tree, hash);
-      if (!checkpoint) throw new Error("Saved state is missing");
-      if (checkpoint.entry !== hash || checkpoint.tree !== known.tree || !checkpoint.states.has(checkpoint.state))
-        throw new Error("Saved state does not match its entry");
-      for (const state of checkpoint.states.values()) if (state.tree !== checkpoint.tree) throw new Error("Saved state belongs to another tree");
-      for (const [id, bytes] of checkpoint.objects) if (hashObject(bytes) !== id) throw new Error("Saved object does not match its hash");
-      const entry = await this.entry(hash);
-      const current = checkpoint.states.get(checkpoint.state)!;
-      if (checkpoint.object !== entry.root || current.object !== entry.root || !sameDecisions(checkpoint.decisions, entry.decisions))
-        throw new Error("Saved state does not match accepted entry");
-      if (this.states.has(hash)) return true;
-      for (const [id, state] of checkpoint.states) this.objects.states.set(id, state);
-      for (const [object, bytes] of checkpoint.objects) this.remember(object, bytes);
-      this.states.set(hash, { object: checkpoint.object, state: checkpoint.state, decisions: checkpoint.decisions });
-      this.restored++;
-      return true;
-    } catch (error) {
-      process.stderr.write(`Discarding a saved state: ${error instanceof Error ? error.message : String(error)}\n`);
-      index.delete(hash);
-      await saved.remove(known.tree, hash).catch(() => {});
-      return false;
-    }
+    return previous!.index;
   }
 
   /** Make a state's projection and decisions the entry's. Decisions that
@@ -651,4 +582,3 @@ export class Sidecar {
   }
 }
 
-function sameDecisions(a: LogDecision[], b: LogDecision[]): boolean { return stableJSONString(a) === stableJSONString(b); }

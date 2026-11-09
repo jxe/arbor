@@ -1,8 +1,8 @@
 import { Markdown, useMutationAction, useQuery, useUser } from "overstory/react"
-import { node, mutation, publicError, query } from "overstory/data"
+import { node, mutation, publicError, view } from "overstory/data"
 import { z } from "zod"
 import { setListPractice } from "./scripts/mutations"
-import { myLists } from "./scripts/queries"
+import { byName, byText, card, List, listSummary, myLists, Practice, sorted, visible } from "./scripts/views"
 import {
   Attribution,
   Button,
@@ -16,53 +16,26 @@ import {
 } from "./components/shared"
 
 const suppliesData = node("./data")
-const lists = node("./data/List").children
-const people = node("./data/Person").children
 const practiceAuthors = node("./data/Practice_authors").children
 const practices = node("./data/Practice").children
-const profileCard = people.pick("id", "name", "handle", "portrait")
 
-export const practice = query.maybe(
-  practices,
-  z.object({ id: z.string().uuid() }),
-  (practice, { input }) => ({
-    where: practice.id.eq(input.id),
-    select: {
-      ...practice.pick("id", "name", "about"),
-      authors: practice.authors({
-        orderBy: author => author.name,
-        select: profileCard,
-      }),
-    },
-  }),
-)
+export const practice = view(z.object({ id: z.string().uuid() }), ({ id }) => {
+  const p = Practice.one(p => [p.id.is(id)])
+  return p && {
+    id: p.id,
+    name: p.name,
+    about: p.about,
+    authors: sorted(p.authors, byName).map(card),
+  }
+})
 
 // The lists a practice is on reach it through their items, so they are
 // queried from List: a practice's items cannot filter or order by their list.
-export const practiceLists = query.many(
-  lists,
-  z.object({ id: z.string().uuid() }),
-  (list, { input, user }) => ({
-    where: [
-      list.items.some(item => item.practice.eq(input.id)),
-      list.visibility.eq("Public").or(
-        list.owner.eq(user.profile),
-      ),
-    ],
-    orderBy: list.reactions.count.desc(),
-    select: {
-      ...list.pick("id", "name", "about", "visibility", "kind"),
-      ownerProfile: list.owner,
-      owner: list.owner(profileCard),
-      practiceCount: list.items.count,
-      reactionCount: list.reactions.count,
-      reactionProfiles: list.reactions({
-        orderBy: reaction => reaction.person,
-        select: reaction => ({ profile: reaction.person }),
-      }),
-    },
-  }),
-)
+export const practiceLists = view(z.object({ id: z.string().uuid() }), ({ id }, { user }) => {
+  const including = List.all(l => [l.items.practice.is(id), visible({ l, me: user?.profile ?? null })])
+  return sorted(including, (left, right) => right.reactions.length - left.reactions.length || byText(left.id, right.id))
+    .map(listSummary)
+})
 
 export const updatePractice = mutation(
   suppliesData,
@@ -86,7 +59,7 @@ export const updatePractice = mutation(
   },
 )
 
-export default function Practice({ search }: { search: URLSearchParams }) {
+export default function PracticePage({ search }: { search: URLSearchParams }) {
   const id = search.get("id")
   if (!id) {
     return (

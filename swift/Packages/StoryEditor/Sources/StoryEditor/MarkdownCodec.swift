@@ -42,14 +42,6 @@ public struct StoryMarkdownOpenedDocument: Sendable {
 }
 
 public enum StoryMarkdownCodec {
-    static let childrenMarker = "<!-- overstory:children -->"
-    private static func isChildrenMarkerText(_ text: String) -> Bool {
-        text == childrenMarker
-    }
-    static let projectedChildMetadataKey = "story.projected-child"
-    /// Where a generated child link was placed among its siblings, so a reorder can be told.
-    static let projectedOrdinalMetadataKey = "story.projected-ordinal"
-
     private struct ParsedBlock {
         var block: Block
         var raw: String
@@ -66,19 +58,16 @@ public enum StoryMarkdownCodec {
     }
 
     /// Authored blocks with a directory's unmentioned immediate children
-    /// placed against them. With an explicit children marker they stand after
-    /// it in `blocks`; without one they are the `remainder` of the implicit
-    /// marker after authored source, and `StoryPagePresentation.present`
-    /// decides how that reads.
+    /// placed against them: those children are the `remainder`, which
+    /// `StoryPagePresentation.subpages` shows after the page.
     struct DirectoryPlacement {
         var blocks: [Block]
         var remainder: [Block]
     }
 
-    /// Place unmentioned immediate children against the operational document.
-    /// The generated links are ordinary Quagmire blocks carrying host-owned
-    /// metadata until a transfer explicitly places them. Rows resolve from,
-    /// and generated rows are written from, the directory's source directory:
+    /// Place unmentioned immediate children against the operational document,
+    /// as links to them. Rows resolve from, and generated rows are written
+    /// from, the directory's source directory:
     /// the directory itself for `_index.md`, its parent for a sibling `x.md`
     /// body.
     static func placeDirectoryChildren(
@@ -90,7 +79,6 @@ public enum StoryMarkdownCodec {
         let authored = StoryPagePresentation.authored(blocks)
         var mentionedIdentities = Set<WorkspaceIdentity>()
         var mentionedPaths = Set<String>()
-        var markerCount = 0
 
         func pathKey(tree: TreeID, path: String) -> String {
             "\(tree.rawValue)\u{0}\(path)"
@@ -105,12 +93,10 @@ public enum StoryMarkdownCodec {
                     }
                     mentionedPaths.insert(pathKey(tree: tree, path: target.path))
                 }
-                if isChildrenMarker(block) { markerCount += 1 }
                 inspect(block.children)
             }
         }
         inspect(authored)
-        guard markerCount <= 1 else { return DirectoryPlacement(blocks: authored, remainder: []) }
 
         let missing = children
             .filter {
@@ -120,7 +106,7 @@ public enum StoryMarkdownCodec {
             .sorted { Array($0.reference.path.utf8).lexicographicallyPrecedes(Array($1.reference.path.utf8)) }
         guard !missing.isEmpty else { return DirectoryPlacement(blocks: authored, remainder: []) }
 
-        let generated = missing.enumerated().map { ordinal, child -> Block in
+        let generated = missing.map { child -> Block in
             let rawReference = if child.reference.tree != directory.tree {
                 StoryDocumentReferenceCodec.encode(child.reference).rawValue
             } else {
@@ -128,17 +114,14 @@ public enum StoryMarkdownCodec {
                     ?? relativeFileReference(from: sourceDirectory, toFile: child.reference.path)
             }
             return Block(
-                id: projectedChildID(child.reference),
+                id: childLinkID(child.reference),
                 kind: .documentLink(
                     label: AttributedString(child.title),
                     reference: DocumentReference(rawReference)
-                ),
-                metadata: [projectedChildMetadataKey: "true", projectedOrdinalMetadataKey: String(ordinal)]
+                )
             )
         }
 
-        var result = authored
-        if insert(generated, afterChildrenMarkerIn: &result) { return DirectoryPlacement(blocks: result, remainder: []) }
         return DirectoryPlacement(blocks: authored, remainder: generated)
     }
 
@@ -195,6 +178,15 @@ public enum StoryMarkdownCodec {
                     cursor += 1
                     if closing { break }
                 }
+            } else if structuralFirst.hasPrefix("> ") {
+                // A `>` line ending in a hard break continues into the next `>`
+                // line at its indentation; any other `>` line is a quote of its own.
+                let indentation = first.prefix { $0 == " " || $0 == "\t" }
+                cursor += 1
+                while cursor < lines.count, endsInHardBreak(lines[cursor - 1].content), isQuoteLine(lines[cursor].content),
+                      lines[cursor].content.prefix(while: { $0 == " " || $0 == "\t" }) == indentation {
+                    cursor += 1
+                }
             } else if structuralLine(first) {
                 cursor += 1
             } else {
@@ -217,8 +209,10 @@ public enum StoryMarkdownCodec {
             let leafBytes = Data(lines[start..<contentEnd].map(\.raw).joined().utf8)
             let kind = cachedKinds[leafBytes] ?? parseBlock(Array(lines[start..<contentEnd]), id: id).kind
             parsedKinds[leafBytes] = kind
+            // An agent task opens as a quote of the task's text, marked by metadata.
+            let task = StoryAgentTask.opened(kind)
             parsed.append(ParsedBlock(
-                block: Block(id: id, kind: kind),
+                block: Block(id: id, kind: task.kind, metadata: task.metadata),
                 raw: raw,
                 indent: indentationDepth(lines[start].content)
             ))
@@ -268,8 +262,8 @@ public enum StoryMarkdownCodec {
     }
 
     static func admission(blocks: [Block], ledger: StorySourceLedger, copies: [BlockID: BlockID] = [:], moved: Set<BlockID> = [], foreignCopies: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]) -> (StoryMarkdownAdmission, StorySourceLedger) {
-        // Only authored source is written: presented headings and generated
-        // child links are not, and an edited presented heading is.
+        // Only authored source is written: a presented title is not, and an
+        // edited one is.
         let blocks = StoryPagePresentation.authored(blocks)
         if copies.isEmpty, foreignCopies.isEmpty, let arranged = arrangement(blocks: blocks, ledger: ledger, moved: moved) { return arranged }
         var chunks: [String] = [ledger.envelope]
@@ -306,13 +300,12 @@ public enum StoryMarkdownCodec {
         let originallyLast = ledger.records.values.max { $0.range.lowerBound < $1.range.lowerBound }?.block.id
         var previousEmitted: BlockID?
         func append(_ block: Block, depth: Int, containerDepth: Int) {
-            guard !isProjectedChild(block) else { return }
             let emptyParagraph = isEmptyParagraph(block)
             if !emptyParagraph { remainingNonemptyBlocks -= 1 }
             var raw: String
             var copied: SourceRecord?
             if let record = ledger.records[block.id] ?? copiedRecord(block.id),
-               record.block.kind == block.kind,
+               sameSource(record.block, block),
                (record.depth == depth || foreignCopies[block.id] != nil),
                record.indent == containerDepth {
                 raw = record.raw
@@ -431,8 +424,7 @@ public enum StoryMarkdownCodec {
         var placed: [Placed] = []
         var seen = Set<BlockID>()
         func place(_ block: Block, depth: Int, indent: Int) -> Bool {
-            guard !isProjectedChild(block) else { return true }
-            guard let record = ledger.records[block.id], record.block.kind == block.kind, seen.insert(block.id).inserted,
+            guard let record = ledger.records[block.id], sameSource(record.block, block), seen.insert(block.id).inserted,
                   let shifted = reindented(record, by: indent - record.indent) else { return false }
             placed.append(Placed(record: record, depth: depth, indent: indent, raw: shifted.raw, edits: shifted.edits))
             let child = indent + (isIndentContainer(block) ? 1 : 0)
@@ -511,7 +503,7 @@ public enum StoryMarkdownCodec {
         // The bytes must mean the editor's tree: separators and indentation
         // that read differently in the new order are not a rearrangement.
         let reopened = open(source: source, revision: ledger.revision, identitySeed: "arrangement", reusing: ledger.parsedKinds)
-        guard sameShape(reopened.blocks, removingProjectedBlocks(from: blocks)) else { return nil }
+        guard sameShape(reopened.blocks, blocks) else { return nil }
         var records: [BlockID: SourceRecord] = [:]
         var position = envelope
         for item in placed {
@@ -602,20 +594,13 @@ public enum StoryMarkdownCodec {
     static func transfer(_ roots: [Block], from blocks: [Block], ledger: StorySourceLedger,
                          into destination: StoryMarkdownOpenedDocument,
                          relink: (from: String, to: String)? = nil) -> PlannedTransfer? {
-        // A page's generated child links reach here materialized (they lose
-        // their projected mark in `materializingProjectedChildren`). They have
-        // no source to move and the origin generates them again, so they stay.
-        // A presented heading in the selection gives way to the authored
-        // source under it, so a page's last section moves without its
-        // Children heading.
-        var projected: Set<BlockID> = []
-        walk(blocks) { block, _ in if isProjectedChild(block) { projected.insert(block.id) } }
-        let roots = removingSubtrees(projected, from: StoryPagePresentation.transferable(roots, in: blocks))
+        // A presented title in the selection gives way to the authored source
+        // under it.
+        let roots = StoryPagePresentation.transferable(roots, in: blocks)
         typealias Placed = (record: SourceRecord, raw: String, edits: [WorkspaceSourceEdit])
         var placed: [Placed] = []
         func place(_ block: Block, indent: Int) -> Bool {
-            guard !isProjectedChild(block) else { return true }
-            guard let record = ledger.records[block.id], record.block.kind == block.kind,
+            guard let record = ledger.records[block.id], sameSource(record.block, block),
                   let shifted = reindented(record, by: indent - record.indent) else { return false }
             placed.append((record, shifted.raw, shifted.edits))
             let child = indent + (isIndentContainer(block) ? 1 : 0)
@@ -731,7 +716,7 @@ public enum StoryMarkdownCodec {
             let remaining = removingSubtrees(removed, from: StoryPagePresentation.authored(blocks))
             guard sameShape(open(source: originSource, revision: "transfer", identitySeed: "origin").blocks, remaining),
                   sameShape(open(source: destinationSource, revision: "transfer", identitySeed: "destination").blocks,
-                            foldHeadingsInScopes(removingProjectedBlocks(from: destination.blocks) + roots.map(stripped))) else { return nil }
+                            foldHeadingsInScopes(destination.blocks + roots)) else { return nil }
             return PlannedTransfer(moves: moves, edits: edits, originSource: originSource,
                 originLedger: StorySourceLedger(source: originSource, revision: ledger.revision, envelope: ledger.envelope, newline: ledger.newline, records: records),
                 destinationSource: relinked.map { landingSource + $0.joined() } ?? destinationSource)
@@ -754,19 +739,15 @@ public enum StoryMarkdownCodec {
     static func transfer(_ roots: [Block], from blocks: [Block], ledger: StorySourceLedger,
                          into destination: StorySourceLedger, landing: [Block],
                          relink: (from: String, to: String)? = nil) -> PlannedTransfer? {
-        var projected: Set<BlockID> = []
-        walk(blocks) { block, _ in if isProjectedChild(block) { projected.insert(block.id) } }
-        let roots = removingSubtrees(projected, from: StoryPagePresentation.transferable(roots, in: blocks))
+        let roots = StoryPagePresentation.transferable(roots, in: blocks)
         var movedIDs: Set<BlockID> = []
         walk(roots) { block, _ in movedIDs.insert(block.id) }
-        let landing = removingSubtrees(projected, from: landing)
         struct Placed { var record: SourceRecord; var raw: String; var edits: [WorkspaceSourceEdit]; var moved: Bool; var indent: Int }
         var placed: [Placed] = []
         var seen: Set<BlockID> = []
         func place(_ block: Block, indent: Int) -> Bool {
-            guard !isProjectedChild(block) else { return true }
             let moved = movedIDs.contains(block.id)
-            guard let record = (moved ? ledger : destination).records[block.id], record.block.kind == block.kind,
+            guard let record = (moved ? ledger : destination).records[block.id], sameSource(record.block, block),
                   seen.insert(block.id).inserted,
                   let shifted = reindented(record, by: indent - record.indent),
                   moved || shifted.edits.isEmpty else { return false }
@@ -803,7 +784,7 @@ public enum StoryMarkdownCodec {
             ledger.records.values.sorted { $0.range.lowerBound < $1.range.lowerBound }.dropFirst().map(\.block.id).map(Optional.some) + [nil]))
         let removed = Set(placed[first...last].map(\.record.block.id))
         let remaining = removingSubtrees(removed, from: StoryPagePresentation.authored(blocks))
-        let intended = foldHeadingsInScopes(removingProjectedBlocks(from: landing.map(stripped)))
+        let intended = foldHeadingsInScopes(landing)
         // The origin without the moved span, and its ledger.
         let original = Data(ledger.source.utf8)
         var originBytes = Data(original[..<span.lowerBound])
@@ -874,16 +855,16 @@ public enum StoryMarkdownCodec {
         }
     }
 
-    private static func stripped(_ block: Block) -> Block {
-        var value = block
-        value.children = removingProjectedBlocks(from: block.children)
-        return value
-    }
-
     /// Whether two trees have the same content and nesting, ignoring
     /// identities and host metadata.
     private static func sameShape(_ a: [Block], _ b: [Block]) -> Bool {
-        a.count == b.count && zip(a, b).allSatisfy { $0.kind == $1.kind && sameShape($0.children, $1.children) }
+        a.count == b.count && zip(a, b).allSatisfy { sameSource($0, $1) && sameShape($0.children, $1.children) }
+    }
+
+    /// Whether two blocks are written the same way: the same kind, and both
+    /// or neither an agent task (the one metadata tag that changes source).
+    static func sameSource(_ a: Block, _ b: Block) -> Bool {
+        a.kind == b.kind && StoryAgentTask.isMarked(a) == StoryAgentTask.isMarked(b) && StoryAgentTask.isDone(a) == StoryAgentTask.isDone(b)
     }
 
     static func rebased(_ opened: StoryMarkdownOpenedDocument, preserving current: [Block]) -> StoryMarkdownOpenedDocument {
@@ -942,12 +923,12 @@ public enum StoryMarkdownCodec {
         return result
     }
 
-    private struct SourceLine {
+    struct SourceLine {
         var content: String
         var raw: String
     }
 
-    private static func sourceLines(_ source: String) -> [SourceLine] {
+    static func sourceLines(_ source: String) -> [SourceLine] {
         var result: [SourceLine] = []
         forEachSourceLine(source) { result.append($0); return true }
         return result
@@ -955,19 +936,30 @@ public enum StoryMarkdownCodec {
 
     /// Visits the source's lines in order until `body` returns false.
     private static func forEachSourceLine(_ source: String, _ body: (SourceLine) -> Bool) {
-        var raw = ""
-        for character in source {
-            raw.append(character)
-            guard character.unicodeScalars.contains(where: { $0.value == 0x0A }) else { continue }
-            var contentScalars = Array(raw.unicodeScalars)
-            if contentScalars.last?.value == 0x0A { contentScalars.removeLast() }
-            if contentScalars.last?.value == 0x0D { contentScalars.removeLast() }
-            let content = String(String.UnicodeScalarView(contentScalars))
-            guard body(SourceLine(content: content, raw: raw)) else { return }
-            raw = ""
+        // Lines end at each LF byte, which is always the end of a grapheme
+        // (a CR before it is dropped from `content`), so splitting the UTF-8
+        // matches walking Characters at a fraction of the cost.
+        let utf8 = source.utf8
+        var start = utf8.startIndex
+        var index = start
+        while index < utf8.endIndex {
+            if utf8[index] == 0x0A {
+                let next = utf8.index(after: index)
+                var contentEnd = index
+                if contentEnd > start, utf8[utf8.index(before: contentEnd)] == 0x0D {
+                    contentEnd = utf8.index(before: contentEnd)
+                }
+                let line = SourceLine(content: String(source[start..<contentEnd]), raw: String(source[start..<next]))
+                guard body(line) else { return }
+                start = next
+                index = next
+            } else {
+                index = utf8.index(after: index)
+            }
         }
-        if !raw.isEmpty {
-            _ = body(SourceLine(content: raw, raw: raw))
+        if start < utf8.endIndex {
+            let rest = String(source[start...])
+            _ = body(SourceLine(content: rest, raw: rest))
         }
     }
 
@@ -999,8 +991,36 @@ public enum StoryMarkdownCodec {
             || leadingTrimmed.hasPrefix("▸ ")
             || leadingTrimmed.hasPrefix("> ") || trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")
             || trimmed.hasPrefix("<") || trimmed.hasPrefix("$$") || trimmed.hasPrefix("[^_")
-            || leadingTrimmed.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil
+            || numberedMarkerEnd(leadingTrimmed) != nil
             || trimmed == "---" || trimmed == "***" || trimmed == "___"
+    }
+
+    /// Where the text after a leading `^\d+\.\s` list marker starts, if
+    /// `value` begins with one. A hand-written match: a regular expression
+    /// per line was a large share of parsing a long page. Foundation's `\d`
+    /// accepts exactly what `Character.isNumber` does, `一` and `½` included.
+    static func numberedMarkerEnd(_ value: String) -> String.Index? {
+        var index = value.startIndex
+        while index < value.endIndex, value[index].isNumber { index = value.index(after: index) }
+        guard index > value.startIndex, index < value.endIndex, value[index] == "." else { return nil }
+        index = value.index(after: index)
+        guard index < value.endIndex, value[index].isWhitespace else { return nil }
+        return value.index(after: index)
+    }
+
+    /// A leading `^#{1,6}(?:\s+|$)` heading marker: its level and where the
+    /// heading's text starts.
+    static func headingMarker(_ value: String) -> (level: Int, textStart: String.Index)? {
+        var index = value.startIndex
+        var level = 0
+        while index < value.endIndex, value[index] == "#" {
+            level += 1
+            index = value.index(after: index)
+        }
+        guard (1...6).contains(level) else { return nil }
+        guard index == value.endIndex || value[index].isWhitespace else { return nil }
+        while index < value.endIndex, value[index].isWhitespace { index = value.index(after: index) }
+        return (level, index)
     }
 
     private static func parseBlock(_ lines: [SourceLine], id: BlockID) -> Block {
@@ -1019,9 +1039,8 @@ public enum StoryMarkdownCodec {
         // heading (`# ` becomes `#` after the trim above). Treating it as a
         // paragraph makes an accepted save visibly turn the heading back into
         // a literal marker when the authoritative snapshot is observed.
-        if let match = trimmed.range(of: #"^#{1,6}(?:\s+|$)"#, options: .regularExpression) {
-            let level = trimmed[..<match.upperBound].filter { $0 == "#" }.count
-            return .heading(level: level, text: parseInline(String(trimmed[match.upperBound...])), id: id)
+        if let (level, textStart) = headingMarker(trimmed) {
+            return .heading(level: level, text: parseInline(String(trimmed[textStart...])), id: id)
         }
         if trimmed.hasPrefix("```" ) || trimmed.hasPrefix("~~~") {
             let language = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
@@ -1039,10 +1058,17 @@ public enum StoryMarkdownCodec {
         if leadingTrimmed.hasPrefix("- ") || leadingTrimmed.hasPrefix("* ") {
             return .bullet(text: parseInline(String(leadingTrimmed.dropFirst(2))), id: id)
         }
-        if let match = leadingTrimmed.range(of: #"^\d+\.\s"#, options: .regularExpression) {
-            return .numbered(text: parseInline(String(leadingTrimmed[match.upperBound...])), id: id)
+        if let textStart = numberedMarkerEnd(leadingTrimmed) {
+            return .numbered(text: parseInline(String(leadingTrimmed[textStart...])), id: id)
         }
-        if leadingTrimmed.hasPrefix("> ") { return .quote(text: parseInline(String(leadingTrimmed.dropFirst(2))), id: id) }
+        if leadingTrimmed.hasPrefix("> ") {
+            // Each line after the first followed a hard break.
+            let quoted = contents.map { line -> String in
+                let body = line.drop(while: { $0 == " " || $0 == "\t" }).dropFirst()
+                return String(body.hasPrefix(" ") ? body.dropFirst() : body)
+            }
+            return .quote(text: parseInline(quoted.map(withoutHardBreak).joined(separator: "\n")), id: id)
+        }
         if ["---", "***", "___"].contains(trimmed) { return .divider(id: id) }
         if let pair = wholeLink(trimmed) {
             return .documentLink(label: parseInline(pair.label), reference: DocumentReference(pair.target), id: id)
@@ -1051,12 +1077,34 @@ public enum StoryMarkdownCodec {
         if trimmed.hasPrefix("<") || trimmed.hasPrefix("$$") || trimmed.hasPrefix("|") || trimmed.hasPrefix("[^") {
             return .unsupported(
                 payload: lines.map(\.raw).joined(),
-                display: isChildrenMarkerText(trimmed) ? "Children" : "Raw Markdown",
+                display: "Raw Markdown",
                 id: id
             )
         }
-        let text = contents.filter { !$0.isEmpty }.joined(separator: "\n")
+        let text = contents.filter { !$0.isEmpty }.map(withoutHardBreak).joined(separator: "\n")
         return .paragraph(text: parseInline(text), id: id)
+    }
+
+    /// A `>` line continuing a quote: `> text`, or a bare `>` for an empty line.
+    private static func isQuoteLine(_ value: String) -> Bool {
+        let leadingTrimmed = value.drop(while: { $0 == " " || $0 == "\t" })
+        return leadingTrimmed.hasPrefix("> ") || leadingTrimmed == ">"
+    }
+
+    /// `line` without the `\` that ends it as a CommonMark hard break; an escaped
+    /// backslash (an even run) is text.
+    private static func withoutHardBreak(_ line: String) -> String {
+        endsInHardBreak(line) ? String(line.dropLast()) : line
+    }
+
+    private static func endsInHardBreak(_ line: String) -> Bool {
+        line.reversed().prefix { $0 == "\\" }.count % 2 == 1
+    }
+
+    /// Inline Markdown for `text` with each line break written as a CommonMark
+    /// hard break (`\` and a newline), the next line starting with `continuation`.
+    private static func inline(_ text: AttributedString, newline: String, continuation: String) -> String {
+        inline(text).components(separatedBy: "\n").joined(separator: "\\" + newline + continuation)
     }
 
     private static func indentationDepth(_ value: String) -> Int {
@@ -1118,7 +1166,7 @@ public enum StoryMarkdownCodec {
         let nested = blocks.map { block in
             block.children.isEmpty
                 ? block
-                : Block(id: block.id, kind: block.kind, children: foldHeadingsInScopes(block.children))
+                : Block(id: block.id, kind: block.kind, children: foldHeadingsInScopes(block.children), metadata: block.metadata)
         }
         return foldHeadings(nested)
     }
@@ -1147,12 +1195,26 @@ public enum StoryMarkdownCodec {
             if text.characters.isEmpty {
                 return explicitEmptyMarker ? prefix + "\u{00A0}" + newline + newline : prefix + newline
             }
-            line = prefix + inline(text)
+            // Dictation makes a task as a paragraph; it is written, and reads back, as a task quote.
+            if let task = StoryAgentTask.taskText(of: text) {
+                line = prefix + "> " + StoryAgentTask.marker + (task.characters.isEmpty ? "" : " " + inline(task, newline: newline, continuation: prefix + "> "))
+            } else {
+                line = prefix + inline(text, newline: newline, continuation: prefix)
+            }
         case let .heading(level, text): line = prefix + String(repeating: "#", count: level.rawValue) + " " + inline(text)
         case let .bullet(text): line = prefix + "- " + inline(text)
         case let .numbered(text): line = prefix + "1. " + inline(text)
         case let .todo(text, done): line = prefix + "- [\(done ? "x" : " ")] " + inline(text)
-        case let .quote(text): line = prefix + "> " + inline(text)
+        case let .quote(text) where StoryAgentTask.isMarked(block):
+            let marker = StoryAgentTask.isDone(block) ? StoryAgentTask.doneMarker : StoryAgentTask.marker
+            line = prefix + "> " + marker + (text.characters.isEmpty ? "" : " " + inline(text, newline: newline, continuation: prefix + "> "))
+        case let .quote(text):
+            // An agent task's marker is written as authored, never escaped.
+            if let task = StoryAgentTask.taskText(of: text) {
+                line = prefix + "> " + StoryAgentTask.marker + (task.characters.isEmpty ? "" : " " + inline(task, newline: newline, continuation: prefix + "> "))
+            } else {
+                line = prefix + "> " + inline(text, newline: newline, continuation: prefix + "> ")
+            }
         case let .code(source, language):
             let body = source
                 .components(separatedBy: "\n")
@@ -1189,8 +1251,16 @@ public enum StoryMarkdownCodec {
         return result
     }
 
-    private static func parseInline(_ source: String) -> AttributedString {
+    static func parseInline(_ source: String) -> AttributedString {
         var result = AttributedString()
+        // Plain text gathers here and joins `result` as one run: appending an
+        // AttributedString per character made opening a large page slow.
+        var plain = ""
+        func flush() {
+            guard !plain.isEmpty else { return }
+            result.append(AttributedString(plain))
+            plain = ""
+        }
         var cursor = source.startIndex
 
         func closing(_ delimiter: String, after start: String.Index) -> Range<String.Index>? {
@@ -1198,9 +1268,17 @@ public enum StoryMarkdownCodec {
         }
 
         while cursor < source.endIndex {
+            let character = source[cursor]
             let next = source.index(after: cursor)
-            if source[cursor] == "\\", next < source.endIndex {
-                result.append(AttributedString(String(source[next])))
+            // Only these characters can begin an escape, emphasis, code or a link.
+            guard character == "\\" || character == "*" || character == "_" || character == "~"
+                    || character == "`" || character == "[" else {
+                plain.append(character)
+                cursor = next
+                continue
+            }
+            if character == "\\", next < source.endIndex {
+                plain.append(source[next])
                 cursor = source.index(after: next)
                 continue
             }
@@ -1223,35 +1301,68 @@ public enum StoryMarkdownCodec {
                 if let close = closing(delimiter, after: contentStart), close.lowerBound > contentStart {
                     var piece = parseInline(String(source[contentStart..<close.lowerBound]))
                     attribute(&piece)
+                    flush()
                     result.append(piece)
                     cursor = close.upperBound
                     continue
                 }
             }
 
-            if source[cursor] == "`", let close = closing("`", after: next), close.lowerBound > next {
+            if character == "`", let close = closing("`", after: next), close.lowerBound > next {
                 var piece = AttributedString(String(source[next..<close.lowerBound]).replacingOccurrences(of: "\\`", with: "`"))
                 piece[InlineAttributes.CodeAttribute.self] = true
+                flush()
                 result.append(piece)
                 cursor = close.upperBound
                 continue
             }
 
-            if source[cursor] == "[",
-               let middle = source.range(of: "](", range: next..<source.endIndex),
+            if character == "[",
+               let middle = linkTextEnd(in: source, after: next),
                let close = source[middle.upperBound...].firstIndex(of: ")"),
                let url = URL(string: String(source[middle.upperBound..<close])) {
                 var piece = parseInline(String(source[next..<middle.lowerBound]))
                 piece.link = url
+                flush()
                 result.append(piece)
                 cursor = source.index(after: close)
                 continue
             }
 
-            result.append(AttributedString(String(source[cursor])))
+            plain.append(character)
             cursor = next
         }
+        flush()
         return result
+    }
+
+    /// The `](` that ends a link's text opened just before `start`: the `]`
+    /// matching that `[`, counting nested brackets and skipping escapes, when
+    /// `(` follows it. Nil otherwise, so a bracket that opens no link (such as
+    /// `[!agent]`) stays text instead of swallowing a later link.
+    private static func linkTextEnd(in source: String, after start: String.Index) -> Range<String.Index>? {
+        var depth = 0
+        var index = start
+        while index < source.endIndex {
+            switch source[index] {
+            case "\\":
+                index = source.index(after: index)
+                if index == source.endIndex { return nil }
+            case "[":
+                depth += 1
+            case "]":
+                if depth == 0 {
+                    let after = source.index(after: index)
+                    guard after < source.endIndex, source[after] == "(" else { return nil }
+                    return index..<source.index(after: after)
+                }
+                depth -= 1
+            default:
+                break
+            }
+            index = source.index(after: index)
+        }
+        return nil
     }
 
     private static func escapeInline(_ value: String) -> String {
@@ -1302,7 +1413,7 @@ public enum StoryMarkdownCodec {
         digestID("\(seed):\(ordinal)")
     }
 
-    private static func projectedChildID(_ reference: WorkspaceReference) -> BlockID {
+    private static func childLinkID(_ reference: WorkspaceReference) -> BlockID {
         digestID("arbor-child:\(String(describing: reference.identity))")
     }
 
@@ -1315,23 +1426,6 @@ public enum StoryMarkdownCodec {
         )))
     }
 
-    static func isChildrenMarker(_ block: Block) -> Bool {
-        guard case let .unsupported(payload, _) = block.kind else { return false }
-        return isChildrenMarkerText(payload.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    private static func removingProjectedBlocks(from blocks: [Block]) -> [Block] {
-        blocks.compactMap { block in
-            guard !isProjectedChild(block) else { return nil }
-            var value = block
-            value.children = removingProjectedBlocks(from: block.children)
-            return value
-        }
-    }
-
-    static func isProjectedChild(_ block: Block) -> Bool {
-        block.metadata[projectedChildMetadataKey] == "true"
-    }
 
     /// Blocks retyped or copied into a page in another directory, with their
     /// relative links (link rows, images, links in text) rewritten to name
@@ -1368,28 +1462,6 @@ public enum StoryMarkdownCodec {
             return value
         }
         return blocks.map(rebase)
-    }
-
-    static func materializingProjectedChildren(_ blocks: [Block]) -> [Block] {
-        func materialize(_ block: Block) -> Block {
-            var value = block
-            value.metadata.removeValue(forKey: projectedChildMetadataKey)
-            value.metadata.removeValue(forKey: projectedOrdinalMetadataKey)
-            value.children = block.children.map(materialize)
-            return value
-        }
-        return blocks.map(materialize)
-    }
-
-    private static func insert(_ generated: [Block], afterChildrenMarkerIn blocks: inout [Block]) -> Bool {
-        for index in blocks.indices {
-            if isChildrenMarker(blocks[index]) {
-                blocks.insert(contentsOf: generated, at: index + 1)
-                return true
-            }
-            if insert(generated, afterChildrenMarkerIn: &blocks[index].children) { return true }
-        }
-        return false
     }
 
     private static func foldHeadings(_ blocks: [Block]) -> [Block] {
@@ -1450,9 +1522,7 @@ public enum StoryMarkdownCodec {
 
     private static func flattenedBlocks(_ blocks: [Block]) -> [Block] {
         var result: [Block] = []
-        walk(blocks) { block, _ in
-            if !isProjectedChild(block) { result.append(block) }
-        }
+        walk(blocks) { block, _ in result.append(block) }
         return result
     }
 }

@@ -12,16 +12,14 @@ describe("bounded directory child placement", () => {
         children: DirectoryPlacementChild[];
         expectedBlockPaths: string[];
         expectedGeneratedChildren: string[];
-        expectedDiagnosticCodes: string[];
       }>;
     };
     for (const item of fixture.cases) {
       const authored = parseMarkdown(item.source);
       const result = placeDirectoryChildren(item.directory, authored, item.children);
-      // A document without a marker has an implicit one after its authored source.
+      // Unclaimed children stand after the authored source.
       expect([...result.document.blocks, ...result.remainder].filter((block) => block.type === "standaloneLink").map((block) => block.props?.path)).toEqual(item.expectedBlockPaths);
       expect(result.generatedChildren).toEqual(item.expectedGeneratedChildren);
-      expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(item.expectedDiagnosticCodes);
       expect(serializeMarkdown(result.document, result.document.blocks)).toBe(item.source);
     }
   });
@@ -42,9 +40,9 @@ describe("bounded directory child placement", () => {
   });
 
   test("moving a generated child makes it an authored placement", () => {
-    const source = "# Directory\n\n<!-- overstory:children -->\n";
+    const source = "# Directory\n";
     const placed = placeDirectoryChildren({ path: "/dir", body: "index" }, parseMarkdown(source), [{ name: "child", path: "/dir/child", body: "sibling" }]);
-    const moved = reorderChildLinks(placed.document.blocks, {
+    const moved = reorderChildLinks([...placed.document.blocks, ...placed.remainder], {
       sourceDirectory: "/dir",
       removePaths: ["/dir/child"],
       insertMoves: [{ oldPath: "/dir/child", newPath: "/dir/child", newBody: "sibling" }],

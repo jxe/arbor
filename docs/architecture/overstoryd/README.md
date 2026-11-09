@@ -8,7 +8,7 @@ handling separates decision, causal reconciliation, and transactional storage
 from rule computation. Accepted history is a chain of log entries in the
 object store; the [merge sidecar](merge-tool.md) answers one question about
 it when concurrent work must combine, and keeps whatever it caches in its own
-memory ([writing a sidecar](writing-a-sidecar.md)). overstoryd accepts plain
+memory ([writing a sidecar](writing-a-sidecar.md)). Who is in a tree right now is [presence](presence.md), kept in memory only. overstoryd accepts plain
 edits on the head itself, checks each answer's shape and objects, merges
 tree configurations itself, and owns acceptance. Table definitions, the schema stamp, and the startup schema
 assertion live in `schema.ts`; the [schema history](../../../packages/overstoryd/migrations/README.md#schema-history)
@@ -125,7 +125,7 @@ configurations have their shape, and the tests for each refused case, are in
   listener append to it, and then only the entry the outermost of them wrote
   (`clientAddress` in `response-policy.ts`). As a
   home host overstoryd publishes each profile's key devices at
-  `GET /.overstory/profiles/{ProfileTreeID}/device-keys` without authentication
+  `GET /.overstory/peer/profiles/{ProfileTreeID}/device-keys` without authentication
   (`publishedDeviceKeys`; accounts §5.4): the listed, unrevoked devices'
   DeviceIDs, keys and administrator flags, never labels.
 - **Placement role.** overstoryd is also a placement host
@@ -232,8 +232,11 @@ configurations have their shape, and the tests for each refused case, are in
 ## Durability and observation
 
 overstoryd runs SQLite in WAL mode with `synchronous = NORMAL`; objects are
-fsynced before the commit that names them, so a lost commit leaves only
-unreferenced objects ([deployment](../../../packages/overstoryd/deploy/README.md#durability)). Each
+synced before the commit that names them, so a lost commit leaves only
+unreferenced objects. An accepted update's new objects are appended to the
+host's object journal in one write and one `fdatasync`, whatever their number
+(see [packed objects](#packed-objects)); nothing about a request is written
+before its acceptance ([deployment](../../../packages/overstoryd/deploy/README.md#durability)). Each
 update request logs one structured line (tree, status, batch size, total and
 per-phase milliseconds, objects considered, files written, fsyncs, body
 bytes, trace frames and operations, accepted update ids) and returns the
@@ -262,8 +265,9 @@ It reads the database read-only, keeps every unreferenced object used within a
 grace period (24 hours by default), and deletes the rest. "Used" is the file's
 modification time: `ObjectStore` sets it when it stores bytes that already
 exist, and acceptance freshens every stored object a candidate or merge answer
-takes without uploading it before committing the row that names it. The
-collector renames each candidate aside and checks its time again, putting back
+takes without uploading it before committing the row that names it; for a
+packed object it is the index row's `used_at`. The collector renames each loose
+candidate aside and checks its time again, putting back
 one freshened in between; a freshen that finds the file gone fails its
 acceptance rather than committing a reference to a missing object.
 
@@ -281,19 +285,42 @@ acceptance order; an object of 1 MiB or more is packed alone, and no object
 depends on another. The index belongs to the object store, so overstoryd's
 schema is untouched and the merge sidecar opens it read-only.
 
+`ObjectStore.store` (every durable write) appends new objects to a journal,
+`journal-<uuid>.pack`, a pack that grows: each record is a 36-byte header (the
+body's length as a big-endian u32, then the 32-byte hash) and the raw body.
+One call is one write at the journal's indexed end, one `fdatasync`, and one
+index transaction committed with `synchronous = NORMAL`; an object already
+packed only has its `used_at` freshened. No loose file or directory is
+created, which on Railway's disk is what cost: a fast-forward took 7 to 9
+fsyncs and about 25 ms storing objects before journals (2026-11-02), and
+takes one sync. The
+journal is durable before its rows commit, so a lost commit loses nothing:
+`Packs.recover`, run as the host starts and before a store's first append,
+indexes every complete, hash-checked record past a journal's indexed length,
+including a journal whose `packs` row was lost. A torn last record is never
+named and is ignored. A journal is a pack like any other for reads, the
+collector and rewrites; if a rewrite or collection removes the journal a
+store is appending to, the append finds its row gone and is made again in a
+new journal. Journals rotate at 16 MiB. Loose files remain for scratch
+staging and for objects stored before journals.
+
 `pack-maintenance.ts` runs one pass at a time in the serving process: at
 startup, after acceptances pass 4,000 loose objects or 64 MiB (debounced 30 s),
 and on a 30-minute idle check; an accepted update never waits for one. A pass
-packs loose objects older than an hour, outside every tree's current closure,
+packs loose and journaled objects unused for an hour, outside every tree's
+current closure,
 in batches of 4,000 objects or 32 MiB, deferring when free disk is under twice
 a batch. Each batch checks every candidate's hash, writes and syncs the pack
 under its content's name, indexes it in one transaction, reads every object
-back through the index, and only then removes the loose files. A crash at any
+back through the index, and only then removes the loose files. A packed copy
+replaces a journal's row; a journal no row names any more is removed, and one
+(other than the journal being appended to) whose remaining records fill less
+than half of it is rewritten. A crash at any
 point leaves each object loose, packed, or both: an unindexed pack or
 temporary file older than an hour is removed by the next pass, and a loose
-file whose object is already packed is removed by it too. What stays loose:
-every tree's current closure (the hot set), anything younger than an hour, and
-whatever arrives between passes.
+file whose object is already packed is removed by it too. What stays loose or
+in a journal: every tree's current closure (the hot set), anything used within
+the hour, and whatever arrives between passes.
 
 The collector applies the same retention and grace period to packed rows:
 `Packs.collect` deletes a dead row only while its `used_at` is still before the
@@ -301,7 +328,8 @@ cutoff, so a concurrent freshen wins, then rewrites any pack whose remaining
 records are under half its bytes and removes packs no row uses. Its report's
 `packed.stored` gives what the packs hold afterwards (files and bytes on disk,
 objects and their canonical bytes). Because a read checks only the objects it
-decodes, the idle check hashes every pack against its name once a day and
+decodes, the idle check hashes every pack against its name (a journal, which
+has no content name, is checked for its indexed length) once a day and
 reports a damaged one on stderr, and the integrity audit does the same and
 returns the same counts.
 

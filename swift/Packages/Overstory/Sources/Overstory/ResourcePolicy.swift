@@ -59,9 +59,14 @@ public enum ProtocolResourceWho: Hashable, Sendable, Codable {
 /// (`overstory://` becomes the HTTP locator it resolves through, the host is
 /// lowercase, and no port the scheme implies is written); `origin` is where
 /// the profile is read. Nil for anything else, a TreeID included.
+///
+/// A locator with no path is a **domain locator** (locators §1.1): the domain
+/// names a profile through its own records, so `domain` is set and `origin`
+/// is the domain's, not the profile's home host.
 public struct ProfileLocator: Hashable, Sendable {
     public let locator: String
     public let origin: String
+    public let domain: String?
 
     public init?(_ input: String) {
         // A join link names the account it invites to: its `#overstory-invite=`
@@ -91,10 +96,20 @@ public struct ProfileLocator: Hashable, Sendable {
         let port = components.port.flatMap { $0 == implied ? nil : ":\($0)" } ?? ""
         var path = components.percentEncodedPath
         while path.hasSuffix("/") { path.removeLast() }
-        guard !path.isEmpty, !path.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }),
+        origin = "\(output)://\(host)\(port)"
+        if path.isEmpty {
+            // A domain locator names a DNS name (or, for local hosts, a
+            // loopback address), never another IP address.
+            guard loopback || (host.contains(".") && !host.contains(":")
+                && host.range(of: #"^[0-9.]+$"#, options: .regularExpression) == nil) else { return nil }
+            locator = origin
+            domain = host + port
+            return
+        }
+        domain = nil
+        guard !path.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }),
               path.split(separator: "/", omittingEmptySubsequences: false).dropFirst().allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." })
         else { return nil }
-        origin = "\(output)://\(host)\(port)"
         locator = origin + path
     }
 }

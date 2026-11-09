@@ -1,0 +1,868 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: practiceSearch result 1`] = `
+[
+  {
+    "about": "A turn-taking practice for careful group attention.",
+    "authors": [
+      {
+        "handle": "bo",
+        "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "Bo Berg",
+        "portrait": "https://example.test/bo.jpg",
+      },
+    ],
+    "id": "00000000-0000-4000-8000-000000000002",
+    "name": "Listening circles",
+  },
+]
+`;
+
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: popularLists result 1`] = `
+[
+  {
+    "about": "Practices for showing up for one another.",
+    "id": "10000000-0000-4000-8000-000000000001",
+    "kind": "Tagged",
+    "name": "Community care",
+    "owner": {
+      "handle": "ada",
+      "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "Ada Adebayo",
+      "portrait": null,
+    },
+    "ownerProfile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "practiceCount": 2,
+    "reactionCount": 2,
+    "reactionProfiles": [
+      {
+        "profile": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      },
+      {
+        "profile": "tr_cccccccccccccccccccccccccc",
+      },
+    ],
+    "visibility": "Public",
+  },
+  {
+    "about": "Practices that make attention tangible.",
+    "id": "10000000-0000-4000-8000-000000000003",
+    "kind": "Standard",
+    "name": "Ways to listen",
+    "owner": {
+      "handle": "bo",
+      "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "Bo Berg",
+      "portrait": "https://example.test/bo.jpg",
+    },
+    "ownerProfile": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "practiceCount": 1,
+    "reactionCount": 1,
+    "reactionProfiles": [
+      {
+        "profile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    ],
+    "visibility": "Public",
+  },
+]
+`;
+
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: profile result 1`] = `
+{
+  "bio": "Makes tools for neighborhood cooperation.",
+  "handle": "ada",
+  "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "lists": [
+    {
+      "about": "Practices for showing up for one another.",
+      "id": "10000000-0000-4000-8000-000000000001",
+      "kind": "Tagged",
+      "name": "Community care",
+      "owner": {
+        "handle": "ada",
+        "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "name": "Ada Adebayo",
+        "portrait": null,
+      },
+      "ownerProfile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "practiceCount": 2,
+      "reactionCount": 2,
+      "reactionProfiles": [
+        {
+          "profile": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        },
+        {
+          "profile": "tr_cccccccccccccccccccccccccc",
+        },
+      ],
+      "visibility": "Public",
+    },
+  ],
+  "name": "Ada Adebayo",
+  "portrait": null,
+  "practices": [
+    {
+      "about": "Neighbors share practical help and resources.",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "Mutual aid",
+    },
+  ],
+}
+`;
+
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: list result 1`] = `
+{
+  "about": "Practices for showing up for one another.",
+  "contributors": [
+    {
+      "person": {
+        "handle": "bo",
+        "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "Bo Berg",
+        "portrait": "https://example.test/bo.jpg",
+      },
+    },
+  ],
+  "id": "10000000-0000-4000-8000-000000000001",
+  "items": [
+    {
+      "position": 0,
+      "practice": {
+        "about": "Neighbors share practical help and resources.",
+        "authors": [
+          {
+            "handle": "ada",
+            "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "name": "Ada Adebayo",
+            "portrait": null,
+          },
+        ],
+        "id": "00000000-0000-4000-8000-000000000001",
+        "name": "Mutual aid",
+        "tags": [
+          {
+            "color": "#ef4444",
+            "id": "care",
+            "name": "Care",
+          },
+        ],
+      },
+    },
+    {
+      "position": 1,
+      "practice": {
+        "about": "A turn-taking practice for careful group attention.",
+        "authors": [
+          {
+            "handle": "bo",
+            "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "name": "Bo Berg",
+            "portrait": "https://example.test/bo.jpg",
+          },
+        ],
+        "id": "00000000-0000-4000-8000-000000000002",
+        "name": "Listening circles",
+        "tags": [],
+      },
+    },
+  ],
+  "kind": "Tagged",
+  "name": "Community care",
+  "openToEdits": true,
+  "owner": {
+    "handle": "ada",
+    "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "name": "Ada Adebayo",
+    "portrait": null,
+  },
+  "ownerProfile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "reactions": [
+    {
+      "emoji": "👍",
+      "profile": {
+        "handle": "bo",
+        "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "Bo Berg",
+        "portrait": "https://example.test/bo.jpg",
+      },
+    },
+    {
+      "emoji": "❤️",
+      "profile": {
+        "handle": "cy",
+        "id": "tr_cccccccccccccccccccccccccc",
+        "name": "Cy Chen",
+        "portrait": null,
+      },
+    },
+  ],
+  "tags": [
+    {
+      "color": "#ef4444",
+      "id": "care",
+      "name": "Care",
+    },
+    {
+      "color": null,
+      "id": "local",
+      "name": "Local",
+    },
+  ],
+  "visibility": "Public",
+}
+`;
+
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: practiceChoices result 1`] = `
+[
+  {
+    "about": "A turn-taking practice for careful group attention.",
+    "authors": [
+      {
+        "handle": "bo",
+        "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "Bo Berg",
+        "portrait": "https://example.test/bo.jpg",
+      },
+    ],
+    "id": "00000000-0000-4000-8000-000000000002",
+    "name": "Listening circles",
+  },
+  {
+    "about": "Neighbors share practical help and resources.",
+    "authors": [
+      {
+        "handle": "ada",
+        "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "name": "Ada Adebayo",
+        "portrait": null,
+      },
+    ],
+    "id": "00000000-0000-4000-8000-000000000001",
+    "name": "Mutual aid",
+  },
+  {
+    "about": "Walk together and notice the place you share.",
+    "authors": [],
+    "id": "00000000-0000-4000-8000-000000000003",
+    "name": "Neighborhood walks",
+  },
+]
+`;
+
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: practice result 1`] = `
+{
+  "about": "A turn-taking practice for careful group attention.",
+  "authors": [
+    {
+      "handle": "bo",
+      "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "Bo Berg",
+      "portrait": "https://example.test/bo.jpg",
+    },
+  ],
+  "id": "00000000-0000-4000-8000-000000000002",
+  "name": "Listening circles",
+}
+`;
+
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: practiceLists result 1`] = `
+[
+  {
+    "about": "Practices for showing up for one another.",
+    "id": "10000000-0000-4000-8000-000000000001",
+    "kind": "Tagged",
+    "name": "Community care",
+    "owner": {
+      "handle": "ada",
+      "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "Ada Adebayo",
+      "portrait": null,
+    },
+    "ownerProfile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "practiceCount": 2,
+    "reactionCount": 2,
+    "reactionProfiles": [
+      {
+        "profile": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      },
+      {
+        "profile": "tr_cccccccccccccccccccccccccc",
+      },
+    ],
+    "visibility": "Public",
+  },
+  {
+    "about": "Practices that make attention tangible.",
+    "id": "10000000-0000-4000-8000-000000000003",
+    "kind": "Standard",
+    "name": "Ways to listen",
+    "owner": {
+      "handle": "bo",
+      "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "Bo Berg",
+      "portrait": "https://example.test/bo.jpg",
+    },
+    "ownerProfile": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "practiceCount": 1,
+    "reactionCount": 1,
+    "reactionProfiles": [
+      {
+        "profile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    ],
+    "visibility": "Public",
+  },
+]
+`;
+
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: myLists result 1`] = `
+[
+  {
+    "about": "A private working list.",
+    "id": "10000000-0000-4000-8000-000000000002",
+    "kind": "Standard",
+    "name": "Quiet experiments",
+    "owner": {
+      "handle": "ada",
+      "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "Ada Adebayo",
+      "portrait": null,
+    },
+    "ownerProfile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "practiceCount": 1,
+    "practiceMemberships": [
+      {
+        "practice": "00000000-0000-4000-8000-000000000003",
+      },
+    ],
+    "reactionCount": 0,
+    "reactionProfiles": [],
+    "visibility": "Private",
+  },
+  {
+    "about": "Practices for showing up for one another.",
+    "id": "10000000-0000-4000-8000-000000000001",
+    "kind": "Tagged",
+    "name": "Community care",
+    "owner": {
+      "handle": "ada",
+      "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "Ada Adebayo",
+      "portrait": null,
+    },
+    "ownerProfile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "practiceCount": 2,
+    "practiceMemberships": [
+      {
+        "practice": "00000000-0000-4000-8000-000000000001",
+      },
+      {
+        "practice": "00000000-0000-4000-8000-000000000002",
+      },
+    ],
+    "reactionCount": 2,
+    "reactionProfiles": [
+      {
+        "profile": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      },
+      {
+        "profile": "tr_cccccccccccccccccccccccccc",
+      },
+    ],
+    "visibility": "Public",
+  },
+]
+`;
+
+exports[`Supplies views every data view answers what its query answered, with the same SQL statement count: SQLite query plans 1`] = `
+{
+  "list": [
+    [
+      "SEARCH root USING INDEX sqlite_autoindex_List_1 (id=?)",
+    ],
+    [
+      "SEARCH related USING COVERING INDEX sqlite_autoindex_Contribution_1 (list=?)",
+    ],
+    [
+      "SEARCH related USING INDEX sqlite_autoindex_Item_1 (list=?)",
+    ],
+    [
+      "SEARCH related USING INDEX sqlite_autoindex_Practice_1 (id=?)",
+    ],
+    [
+      "SEARCH link USING COVERING INDEX sqlite_autoindex_Practice_authors_1 (practice=?)",
+    ],
+    [
+      "SEARCH link USING COVERING INDEX sqlite_autoindex_Tag_practices_1 (tag_list=?)",
+      "SEARCH related USING INDEX sqlite_autoindex_Tag_1 (list=? AND id=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+    [
+      "SEARCH related USING INDEX sqlite_autoindex_Reaction_1 (list=?)",
+    ],
+    [
+      "SEARCH related USING INDEX sqlite_autoindex_Tag_1 (list=?)",
+    ],
+  ],
+  "myLists": [
+    [
+      "SEARCH root USING INDEX List_owner_modified_idx (owner=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+    [
+      "SEARCH related USING INDEX sqlite_autoindex_Item_1 (list=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+    [
+      "SEARCH related USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+  ],
+  "popularLists": [
+    [
+      "SCAN root",
+      "CORRELATED SCALAR SUBQUERY 2",
+      "SEARCH counted USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH counted USING COVERING INDEX sqlite_autoindex_Item_1 (list=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+    [
+      "SEARCH related USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+  ],
+  "practice": [
+    [
+      "SEARCH root USING INDEX sqlite_autoindex_Practice_1 (id=?)",
+    ],
+    [
+      "SEARCH link USING COVERING INDEX sqlite_autoindex_Practice_authors_1 (practice=?)",
+    ],
+  ],
+  "practiceChoices": [
+    [
+      "SCAN root USING INDEX sqlite_autoindex_Practice_1",
+    ],
+    [
+      "SEARCH link USING COVERING INDEX sqlite_autoindex_Practice_authors_1 (practice=?)",
+    ],
+  ],
+  "practiceLists": [
+    [
+      "SCAN root USING INDEX sqlite_autoindex_List_1",
+      "SEARCH root_some EXISTS USING COVERING INDEX sqlite_autoindex_Item_1 (list=? AND practice=?)",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH counted USING COVERING INDEX sqlite_autoindex_Item_1 (list=?)",
+    ],
+    [
+      "SEARCH related USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+  ],
+  "practiceSearch": [
+    [
+      "SCAN root USING INDEX sqlite_autoindex_Practice_2",
+    ],
+    [
+      "SEARCH link USING COVERING INDEX sqlite_autoindex_Practice_authors_1 (practice=?)",
+    ],
+  ],
+  "profile": [
+    [
+      "SEARCH link USING INDEX Practice_authors_person_idx (person=?)",
+      "SEARCH related USING INDEX sqlite_autoindex_Practice_1 (id=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+    [
+      "SEARCH related USING INDEX List_owner_modified_idx (owner=?)",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH counted USING COVERING INDEX sqlite_autoindex_Item_1 (list=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+    [
+      "SEARCH related USING COVERING INDEX sqlite_autoindex_Reaction_1 (list=?)",
+    ],
+  ],
+}
+`;
+
+exports[`JSX views a branch the plan pass skipped widens once: ListPage tree 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        "Community care",
+      ],
+      "props": {
+        "style": "title",
+      },
+      "type": "Text",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            "a list by",
+          ],
+          "props": {
+            "style": "secondary",
+          },
+          "type": "Text",
+        },
+        {
+          "children": [
+            "Ada Adebayo",
+          ],
+          "key": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "props": {
+            "href": "Profile?id=tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          },
+          "type": "Link",
+        },
+        {
+          "children": [
+            "Bo Berg",
+          ],
+          "key": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "props": {
+            "href": "Profile?id=tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+          },
+          "type": "Link",
+        },
+      ],
+      "props": {},
+      "type": "Row",
+    },
+    {
+      "children": [],
+      "props": {
+        "source": "Practices for showing up for one another.",
+      },
+      "type": "Markdown",
+    },
+    {
+      "children": [
+        "Edit",
+      ],
+      "props": {
+        "href": "List?id=10000000-0000-4000-8000-000000000001&edit",
+      },
+      "type": "Link",
+    },
+    {
+      "children": [
+        "👍 ",
+        2,
+      ],
+      "props": {
+        "action": {
+          "input": {
+            "listId": "10000000-0000-4000-8000-000000000001",
+          },
+          "mutation": "toggleListReaction",
+        },
+      },
+      "type": "Button",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "children": [
+                "Mutual aid",
+              ],
+              "props": {
+                "href": "Practice?id=00000000-0000-4000-8000-000000000001",
+                "style": "heading",
+              },
+              "type": "Link",
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    "by",
+                  ],
+                  "props": {
+                    "style": "secondary",
+                  },
+                  "type": "Text",
+                },
+                {
+                  "children": [
+                    "Ada Adebayo",
+                  ],
+                  "key": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "props": {
+                    "href": "Profile?id=tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  },
+                  "type": "Link",
+                },
+              ],
+              "props": {},
+              "type": "Row",
+            },
+            {
+              "children": [],
+              "props": {
+                "lines": 6,
+                "source": "Neighbors share practical help and resources.",
+              },
+              "type": "Markdown",
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    "Care",
+                  ],
+                  "key": "care",
+                  "props": {
+                    "color": "#ef4444",
+                  },
+                  "type": "Badge",
+                },
+              ],
+              "props": {},
+              "type": "Row",
+            },
+          ],
+          "key": "00000000-0000-4000-8000-000000000001",
+          "props": {},
+          "type": "Column",
+        },
+        {
+          "children": [
+            {
+              "children": [
+                "Listening circles",
+              ],
+              "props": {
+                "href": "Practice?id=00000000-0000-4000-8000-000000000002",
+                "style": "heading",
+              },
+              "type": "Link",
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    "by",
+                  ],
+                  "props": {
+                    "style": "secondary",
+                  },
+                  "type": "Text",
+                },
+                {
+                  "children": [
+                    "Bo Berg",
+                  ],
+                  "key": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "props": {
+                    "href": "Profile?id=tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  },
+                  "type": "Link",
+                },
+              ],
+              "props": {},
+              "type": "Row",
+            },
+            {
+              "children": [],
+              "props": {
+                "lines": 6,
+                "source": "A turn-taking practice for careful group attention.",
+              },
+              "type": "Markdown",
+            },
+            {
+              "children": [],
+              "props": {},
+              "type": "Row",
+            },
+          ],
+          "key": "00000000-0000-4000-8000-000000000002",
+          "props": {},
+          "type": "Column",
+        },
+      ],
+      "props": {},
+      "type": "Grid",
+    },
+  ],
+  "props": {},
+  "type": "Column",
+}
+`;
+
+exports[`JSX views a second root names a row of the first, and runs once per row it names: PracticePage tree 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        "Listening circles",
+      ],
+      "props": {
+        "style": "title",
+      },
+      "type": "Text",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            "by",
+          ],
+          "props": {
+            "style": "secondary",
+          },
+          "type": "Text",
+        },
+        {
+          "children": [
+            "Bo Berg",
+          ],
+          "key": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "props": {
+            "href": "Profile?id=tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+          },
+          "type": "Link",
+        },
+      ],
+      "props": {},
+      "type": "Row",
+    },
+    {
+      "children": [],
+      "props": {
+        "source": "A turn-taking practice for careful group attention.",
+      },
+      "type": "Markdown",
+    },
+    {
+      "children": [
+        "On these lists",
+      ],
+      "props": {
+        "style": "heading",
+      },
+      "type": "Text",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            "Community care",
+          ],
+          "props": {
+            "href": "List?id=10000000-0000-4000-8000-000000000001",
+          },
+          "type": "Link",
+        },
+        {
+          "children": [
+            2,
+            " practices · 👍 ",
+            2,
+          ],
+          "props": {
+            "style": "secondary",
+          },
+          "type": "Text",
+        },
+      ],
+      "key": "10000000-0000-4000-8000-000000000001",
+      "props": {},
+      "type": "Row",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            "Ways to listen",
+          ],
+          "props": {
+            "href": "List?id=10000000-0000-4000-8000-000000000003",
+          },
+          "type": "Link",
+        },
+        {
+          "children": [
+            1,
+            " practices · 👍 ",
+            1,
+          ],
+          "props": {
+            "style": "secondary",
+          },
+          "type": "Text",
+        },
+      ],
+      "key": "10000000-0000-4000-8000-000000000003",
+      "props": {},
+      "type": "Row",
+    },
+  ],
+  "props": {},
+  "type": "Column",
+}
+`;
+
+exports[`JSX views search trims in JS before narrowing, and an empty search reads nothing: PracticeSearch tree 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        "Matching practices",
+      ],
+      "props": {
+        "style": "heading",
+      },
+      "type": "Text",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "children": [
+                "Neighborhood walks",
+              ],
+              "props": {
+                "href": "Practice?id=00000000-0000-4000-8000-000000000003",
+              },
+              "type": "Link",
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    "by",
+                  ],
+                  "props": {
+                    "style": "secondary",
+                  },
+                  "type": "Text",
+                },
+              ],
+              "props": {},
+              "type": "Row",
+            },
+          ],
+          "key": "00000000-0000-4000-8000-000000000003",
+          "props": {},
+          "type": "Column",
+        },
+      ],
+      "props": {},
+      "type": "Grid",
+    },
+  ],
+  "props": {},
+  "type": "Column",
+}
+`;

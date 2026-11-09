@@ -36,20 +36,30 @@ public final class StoryEditorWorkspace {
         }
     }
 
+    /// How long the last `lease` took to open its document session, in
+    /// milliseconds: `doc-session` in all, and its resolve and open parts.
+    public private(set) var lastSessionOpenTiming: [String: Double] = [:]
+
     public init(provider: any WorkspaceProvider) {
         self.provider = provider
         self.coordinator = WorkspaceCoordinator(provider: provider)
     }
 
-    public func lease(_ reference: WorkspaceReference) async throws -> StoryEditorLease {
+    /// `reusing` is an earlier editor of the same page (from a provider this
+    /// one replaced); its parse is reused for unchanged blocks.
+    public func lease(_ reference: WorkspaceReference, reusing earlier: StoryDocumentBinding? = nil) async throws -> StoryEditorLease {
+        let began = ContinuousClock.now
         let workspaceLease = try await coordinator.leaseDocument(reference)
+        let elapsed = ContinuousClock.now - began
+        lastSessionOpenTiming = workspaceLease.timing
+        lastSessionOpenTiming["doc-session"] = Double(elapsed.components.seconds) * 1_000 + Double(elapsed.components.attoseconds) / 1e15
         let id = UUID()
         if var entry = entries[workspaceLease.identity] {
             entry.workspaceLeases[id] = workspaceLease
             entries[workspaceLease.identity] = entry
             return StoryEditorLease(id: id, identity: workspaceLease.identity, binding: entry.binding)
         }
-        let binding = try await StoryDocumentBinding.open(reference: reference, session: workspaceLease.session)
+        let binding = try await StoryDocumentBinding.open(reference: reference, session: workspaceLease.session, reusing: earlier)
         observeRetentions(of: binding, identity: workspaceLease.identity)
         entries[workspaceLease.identity] = Entry(binding: binding, workspaceLeases: [id: workspaceLease])
         return StoryEditorLease(id: id, identity: workspaceLease.identity, binding: binding)
@@ -266,7 +276,7 @@ public final class StoryEditorWorkspace {
         to stableKey: String,
         in tree: TreeID
     ) async throws {
-        let block = Block.paragraph(text: AttributedString(transcript))
+        let block = Block.paragraph(text: AttributedString(StoryAgentTask.dictated(transcript)))
 
         if let binding = entries.values.lazy.map(\.binding).first(where: {
             $0.reference.tree == tree && $0.reference.stableKey == stableKey

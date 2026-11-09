@@ -5,7 +5,7 @@
 ## Status and ownership
 
 **PLANNED · after Apps
-[005](../soon/apps-005-source-resolution-and-sidecar.md); coordinates [003](apps-003-development-compiler-and-editor-tooling.md).**
+[005](../../status.md#views-on-the-host-and-declared-views--2026-11-08); coordinates [011](../soon/apps-011-widgets-in-story.md).**
 Replace unused query/mutation authoring as needed. Own final authoring signatures,
 workflow progress/receipt encoding and implementation in the sidecar, not another
 overstoryd execution engine. Portable semantics live in [executable documents](../../docs/overstory-spec/07-executable-documents.md)
@@ -104,7 +104,7 @@ No stacks, private SQL/schema, tokens or replay-principal digests reach the brow
 
 Update Supplies source/fixtures intentionally to the new language; retire the old
 "unchanged corpus" constraint for API migration while preserving application behavior.
-Update Apps 001/002/003 consumers and language service declarations/source maps.
+Update Apps 002/011 consumers and language service declarations/source maps.
 Hosted agents use the same authorization and durable handles; agent/external effects
 remain separately specified, not a new ambient capability. Do not require production
 Supplies data cutover to prove the new language.

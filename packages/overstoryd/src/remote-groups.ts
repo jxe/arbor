@@ -29,31 +29,41 @@ function transient(error: unknown): TransientFailure {
 }
 
 /**
- * A publicly readable group's members at its host, read anonymously: the
- * tree's descriptor, then its root directory and root `_index.md`, each
- * object checked against its hash. The group is trusted to its host, over
- * HTTPS, as a placement host trusts a home host for device keys.
+ * A publicly readable tree's root front matter at another host, read
+ * anonymously: the tree's descriptor, then its root directory and root
+ * `_index.md`, each object checked against its hash. Null when the host
+ * refuses (the tree is private, unknown or gone) or the root has no
+ * `_index.md`; throws a `TransientFailure` for an outage.
  */
-export const fetchRemoteGroupMembers: RemoteGroupLoader = async (homeHost, group) => {
-  const host = otherHost(homeHost);
+export async function fetchRootFrontmatter(origin: string, tree: string): Promise<Record<string, unknown> | null> {
+  const host = otherHost(origin);
   let root: string;
   try {
-    root = (await host.descriptor(group)).tree.root;
+    root = (await host.descriptor(tree)).tree.root;
   } catch (error) {
-    // A refusal (the tree is private, unknown or gone) is the host's answer;
-    // anything else, such as a 5xx or an unreadable descriptor, is an outage.
-    if (refusedByHost(error)) return NOBODY;
+    // A refusal is the host's answer; anything else, such as a 5xx or an
+    // unreadable descriptor, is an outage.
+    if (refusedByHost(error)) return null;
     throw transient(error);
   }
-  if (!/^sha256:[a-f0-9]{64}$/.test(root)) throw new TransientFailure(`${homeHost} described ${group} unreadably`);
+  if (!/^sha256:[a-f0-9]{64}$/.test(root)) throw new TransientFailure(`${origin} described ${tree} unreadably`);
   // Every object the descriptor's root reaches is served and matches its hash.
-  const load = (hash: ObjectHash): Promise<Uint8Array> => host.object(group, hash).catch((error: unknown) => { throw transient(error); });
+  const load = (hash: ObjectHash): Promise<Uint8Array> => host.object(tree, hash).catch((error: unknown) => { throw transient(error); });
   const directory = decodeProtocolDirectory(await load(root as ObjectHash));
-  if (directory.type !== "directory") return NOBODY;
+  if (directory.type !== "directory") return null;
   const index = directory.entries.find((entry) => entry.name === "_index.md");
-  if (!protocolContentObject(index)) return NOBODY;
-  const { frontmatter } = parseMarkdown(new TextDecoder().decode(await loadProtocolContent(index!, load)));
-  if (frontmatter.type !== "group") return NOBODY;
+  if (!protocolContentObject(index)) return null;
+  return parseMarkdown(new TextDecoder().decode(await loadProtocolContent(index!, load))).frontmatter;
+}
+
+/**
+ * A publicly readable group's members at its host, read anonymously
+ * (`fetchRootFrontmatter`). The group is trusted to its host, over HTTPS, as
+ * a placement host trusts a home host for device keys.
+ */
+export const fetchRemoteGroupMembers: RemoteGroupLoader = async (homeHost, group) => {
+  const frontmatter = await fetchRootFrontmatter(homeHost, group);
+  if (frontmatter?.type !== "group") return NOBODY;
   return new Set(structuredMembers(frontmatter.members).flatMap((member) => {
     const profile = profileLocatorTree(member.profile);
     return profile ? [profile] : [];

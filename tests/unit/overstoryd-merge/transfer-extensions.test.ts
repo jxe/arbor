@@ -349,14 +349,16 @@ test("a destination range's chosen side is its anchor", async () => {
     { "n.md": "Beta\n\nAlpha\n\nGamma\n\n" });
 });
 
-test("same-anchor transfers keep review where the insertion policy does", async () => {
+test("a moved paragraph and a heading at one anchor merge when no text changes section", async () => {
   const note = "Alpha\n\nBeta\n\n";
   const files = { "n.md": note };
-  // A heading changes the scope of what follows it.
-  await reviews(
+  // A heading changes the scope of what follows it. In contribution order the
+  // moved paragraph comes first, so it stays outside the new section.
+  await merges(
     files,
     transfer(files, "moveSource", "n.md", [0, at(note, "Beta")], "n.md", size(note)),
     edit(files, "n.md", [size(note), size(note)], "# Gamma\n\n"),
+    { "n.md": "Beta\n\nAlpha\n\n# Gamma\n\n" },
   );
   // Plain text defaults to review for competing insertions.
   const text = { "n.txt": "one two" };

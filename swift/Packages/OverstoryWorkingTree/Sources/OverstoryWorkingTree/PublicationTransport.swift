@@ -6,6 +6,7 @@ extension LocalChange {
     /// reachable envelopes may become deltas, and every base is in the element's
     /// basis graph (accepted for the first, preceding candidate thereafter).
     static func compactTransport(_ update: ProtocolCandidateUpdate, basis: ProtocolSnapshot, candidate: ProtocolSnapshot) throws -> ProtocolCandidateUpdate {
+        let update = try dropIntermediates(update, candidate: candidate)
         guard !update.objects.isEmpty else { return update }
         var result = update
         var envelopes = Dictionary(update.objects.map { ($0.hash, $0) }, uniquingKeysWith: { first, _ in first })
@@ -36,6 +37,53 @@ extension LocalChange {
         }
         try visit(basis.root, candidate.root, directory: true)
         result.objects = envelopes.values.sorted { $0.hash < $1.hash }
+        return result
+    }
+
+    /// Only the final candidate's new objects travel. The authority
+    /// regenerates every intermediate frame's objects by executing the frames
+    /// (spec 10 §2.2), so a batch of N edits to one page must not send N whole
+    /// copies of it. The value of an added or replaced entry is kept, because
+    /// execution reads it rather than producing it. Snapshots and resolutions
+    /// are left as they are.
+    static func dropIntermediates(_ update: ProtocolCandidateUpdate, candidate: ProtocolSnapshot) throws -> ProtocolCandidateUpdate {
+        guard let trace = update.trace, update.resolves.isEmpty, !update.objects.isEmpty else { return update }
+        let envelopes = Dictionary(update.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
+        let after = Dictionary(candidate.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
+        let deltas = Set(update.deltas.map(\.result))
+        // What the request carries: whole objects and delta results. Anything
+        // else the final root reaches is already the host's, and so is all
+        // that it reaches in turn.
+        func carried(_ hash: String) -> Data? { envelopes[hash] ?? (deltas.contains(hash) ? after[hash] : nil) }
+        var kept = Set<String>()
+        func reach(_ hash: String, _ kind: ProtocolObjectKind) throws {
+            guard !kept.contains(hash), let bytes = carried(hash) else { return }
+            kept.insert(hash)
+            guard !kind.isContent else { return }
+            switch try ProtocolObjectCodec.decode(bytes, kind: kind) {
+            case let .directory(entries, collection):
+                for entry in entries {
+                    if let file = entry.file { try reach(file, .file) }
+                    else if let page = entry.page { try reach(page, .page) }
+                    else if let child = entry.directory { try reach(child, .directory) }
+                }
+                for table in collection?.tables ?? [] { try reach(table.table, .table) }
+            case let .table(table):
+                for chunk in table.chunks { try reach(chunk.chunk, .rows) }
+            default: break
+            }
+        }
+        try reach(update.candidate, .directory)
+        // An added or replaced entry's value is the one object an operation
+        // names that execution cannot produce; it travels with what it reaches.
+        for operation in trace.flatMap(\.operations) where operation.kind == "addEntry" || operation.kind == "replaceEntry" {
+            guard case let .object(value)? = operation.fields["value"] else { continue }
+            if case let .string(file)? = value["file"] { try reach(file, .file) }
+            else if case let .string(page)? = value["page"] { try reach(page, .page) }
+            else if case let .string(directory)? = value["directory"] { try reach(directory, .directory) }
+        }
+        var result = update
+        result.objects = update.objects.filter { kept.contains($0.hash) }
         return result
     }
 

@@ -152,3 +152,38 @@ test("a paused folder publishes nothing across a restart, pending shows the exac
     await daemon.close();
   }
 }, 30_000);
+
+test("an agent's edits wait while it works and go up as one change when it stops", async () => {
+  const systemFetch = globalThis.fetch;
+  const requests: UpdateRequest[] = [];
+  globalThis.fetch = (async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const request = url.includes(`/.overstory/trees/${tree}/updates`) ? interceptedUpdateRequest(init) : undefined;
+    if (request) requests.push(request);
+    return systemFetch(input, init);
+  }) as typeof fetch;
+  const daemon = await launch();
+  try {
+    await waitFor(async () => await daemon.sync() === "idle");
+    const file = join(folder, "large.md");
+    const first = large("An agent's first edit."), second = large("An agent's second edit.");
+    const edit = (text: string, hook_event_name: string) => ({
+      session_id: "agent-hold", cwd: folder, hook_event_name, tool_name: "Edit", tool_input: { file_path: file, new_string: text },
+    });
+    await daemon.client.agentReport({ cwd: folder, agent: "Claude", hook: edit("first", "PreToolUse") });
+    await writeFile(file, first);
+    await daemon.client.agentReport({ cwd: folder, agent: "Claude", hook: edit("first", "PostToolUse") });
+    await daemon.client.agentReport({ cwd: folder, agent: "Claude", hook: edit("second", "PreToolUse") });
+    await writeFile(file, second);
+    await daemon.client.synchronizeNow();
+    await Bun.sleep(600);
+    expect(requests).toHaveLength(0);
+
+    await daemon.client.agentReport({ cwd: folder, agent: "Claude", hook: { session_id: "agent-hold", cwd: folder, hook_event_name: "Stop" } });
+    await waitFor(async () => await accepted() === second);
+    expect(requests).toHaveLength(1);
+  } finally {
+    globalThis.fetch = systemFetch;
+    await daemon.close();
+  }
+}, 30_000);

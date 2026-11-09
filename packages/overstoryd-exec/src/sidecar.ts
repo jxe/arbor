@@ -1,10 +1,12 @@
-// overstoryd's execution sidecar (Apps 005 step 4): it runs named queries and
+// overstoryd's execution sidecar (Apps 005): it runs named views and
 // mutations for overstoryd, which keeps the materializations and holds the
-// clients' streams. A query reads a materialization and answers a value. A
+// clients' streams. A view reads a materialization and answers its value, its
+// plan's rows, or its view tree. A
 // mutation runs in a transaction on one that always rolls back, and its row
 // changes are committed as a guarded, row-only update through the standard
-// API, with the receipt kept here. Nothing here is overstoryd's: its files are
-// only read, and its API is used like any client's.
+// API, with the receipt kept here. People's profile cards are read through the
+// same API. Nothing here is overstoryd's: its files are only read, and its API
+// is used like any client's.
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Database } from "bun:sqlite";
@@ -12,11 +14,13 @@ import { stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   decodeProtocolDirectory,
+  HANDLE_PATH,
   logicalRowKey,
-  outputHash,
+  viewOutputHash,
   ProtocolClient,
   ProtocolHTTPError,
   ProtocolUpdateConflict,
+  readRootProfile,
   sha256,
   stableJSONString,
   stableKeyFromProperties,
@@ -28,15 +32,20 @@ import {
   type RowOperation,
 } from "@ovst/protocol";
 import {
+  declaredView,
+  findDeclaredView,
   MutationCallError,
+  QueryCompileError,
+  runView,
   SQLiteMutationBroker,
   SQLiteQueryEngine,
   SQLiteStoreBroker,
   type MutationHandle,
+  type NodeHandle,
   type ProfileResolver,
-  type QueryHandle,
   type ResolvedStorySource,
   type SQLiteRowChange,
+  type View,
 } from "@ovst/apps-runtime";
 import { rowOperationsBetween, sharedCollectionSchemaCache, sqliteRow, type CollectionSchema, type LogicalSchema } from "@ovst/collection-schema";
 import { layoutOf, logicalFromRows, type LogicalTables, type RowsByTable, type Table } from "@ovst/usl";
@@ -47,24 +56,16 @@ import {
   type ExecHandleRef,
   type ExecMutationAnswer,
   type ExecMutationQuestion,
-  type ExecProfile,
-  type ExecQueryAnswer,
-  type ExecQueryQuestion,
   type ExecQuestion,
   type ExecReady,
+  type ExecViewAnswer,
+  type ExecViewQuestion,
 } from "@ovst/exec-protocol";
+import type { ExecEntry } from "./load.ts";
+
+export type { ExecEntry } from "./load.ts";
 
 type Row = Record<string, JSONValue>;
-
-/** A handle the sidecar runs: its name, and the collection its code reads. */
-export interface ExecEntry<Handle> {
-  ref: ExecHandleRef;
-  handle: Handle;
-  /** The collection directory's path in the handle's tree. */
-  collection: string;
-  /** The `node()` path the handle's module names the collection by, such as `./data`. */
-  authoredRoot: string;
-}
 
 export interface ExecSidecarOptions {
   /** overstoryd's materialization directory. */
@@ -73,7 +74,7 @@ export interface ExecSidecarOptions {
   state: string;
   /** The host's standard API. */
   origin: string;
-  queries?: readonly ExecEntry<QueryHandle<unknown, unknown>>[];
+  views?: readonly ExecEntry<View<unknown, unknown>>[];
   mutations?: readonly ExecEntry<MutationHandle<unknown, unknown>>[];
 }
 
@@ -82,18 +83,27 @@ const MUTATION_REBASES = 16;
 /** The materialization's own record (overstoryd's), which names the update it reflects. */
 const META = "__arbor_materialized";
 
-const refKey = (ref: ExecHandleRef) => `${ref.module}\0${ref.export}\0${ref.version}`;
+const refKey = (ref: ExecHandleRef) => `${ref.tree}\0${ref.path}\0${ref.name}\0${ref.version}`;
+
+/** The collection a handle reads, among those a question gives: one its `node()` paths name, or one of its tables. */
+function collectionFor(entry: Pick<ExecEntry<unknown>, "ref" | "sources">, collections: readonly ExecCollection[]): ExecCollection | undefined {
+  return collections.find((collection) => collection.tree === entry.ref.tree
+    && entry.sources.some((source) => source === collection.path || dirname(source) === collection.path));
+}
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 
-/** A query asked for profiles it wasn't given: the question is answered with `need`. */
-class NeedProfiles extends Error {}
+/** How many profile objects are kept: they are named by hash, so a kept one never goes stale. */
+const PROFILE_OBJECTS = 2048;
+
+/** The host's API failed while a query read a profile: the question can be asked again. */
+class ProfileReadFailure extends Error {}
 
 /** The update a materialization reflects, or null when it has no record. */
-function reflected(path: string): string | null {
+function reflected(path: string, key: "update" | "schema" = "update"): string | null {
   try {
     const database = new Database(path, { readonly: true });
     try {
-      return (database.query(`select value from ${META} where key = 'update'`).get() as { value: string } | null)?.value ?? null;
+      return (database.query(`select value from ${META} where key = ?`).get(key) as { value: string } | null)?.value ?? null;
     } finally {
       database.close();
     }
@@ -125,19 +135,23 @@ interface Opened {
   logical: LogicalSchema;
   layout: Table[];
   schemas: readonly CollectionSchema[];
+  /** The declared views built for this schema, by label. */
+  declared: Map<string, View<unknown, unknown>>;
 }
 
 export class ExecSidecar implements AsyncDisposable {
-  private readonly queries = new Map<string, ExecEntry<QueryHandle<unknown, unknown>>>();
+  private readonly views = new Map<string, ExecEntry<View<unknown, unknown>>>();
   private readonly mutationEntries = new Map<string, ExecEntry<MutationHandle<unknown, unknown>>>();
   private readonly opened = new Map<string, Opened>();
   private readonly turns = new Map<string, Promise<unknown>>();
   private readonly receipts: Database;
-  /** The profiles the current question carries, for the engines' shared resolver. */
-  private readonly asked = new AsyncLocalStorage<{ profiles: Record<string, ExecProfile | null>; missing: Set<string> }>();
+  /** The current question's API client, for the engines' shared profile resolver. */
+  private readonly asked = new AsyncLocalStorage<ProtocolClient>();
+  /** Profile roots' directory and `_index.md` objects, by hash. */
+  private readonly profileObjects = new Map<string, Uint8Array>();
 
   constructor(private readonly options: ExecSidecarOptions) {
-    for (const entry of options.queries ?? []) this.queries.set(refKey(entry.ref), entry);
+    for (const entry of options.views ?? []) this.views.set(refKey(entry.ref), entry);
     for (const entry of options.mutations ?? []) this.mutationEntries.set(refKey(entry.ref), entry);
     this.receipts = new Database(join(options.state, "mutation-receipts.sqlite3"), { create: true, strict: true });
     this.receipts.exec("pragma journal_mode = wal");
@@ -148,37 +162,67 @@ export class ExecSidecar implements AsyncDisposable {
 
   /** The handshake: what this sidecar can run. */
   ready(): ExecReady {
-    const list = (entries: Iterable<ExecEntry<unknown>>) => [...entries].map((entry) => ({ ...entry.ref, collection: entry.collection, authored: entry.authoredRoot }));
-    return { ready: { version: EXEC_PROTOCOL_VERSION, queries: list(this.queries.values()), mutations: list(this.mutationEntries.values()) } };
+    const list = (entries: Iterable<ExecEntry<unknown>>) => [...entries].map((entry) => ({ ...entry.ref, sources: entry.sources }));
+    return { ready: { version: EXEC_PROTOCOL_VERSION, views: list(this.views.values()), mutations: list(this.mutationEntries.values()) } };
   }
 
   async answer(question: ExecQuestion): Promise<ExecAnswer> {
     try {
-      return question.kind === "query" ? await this.query(question) : await this.mutate(question);
+      return question.kind === "view" ? await this.view(question) : await this.mutate(question);
     } catch (error) {
       console.error("overstoryd-exec question failed", error);
       return { id: question.id, error: { message: "The question could not be answered" } };
     }
   }
 
-  /** People's card fields from the question, recording any it lacks. */
+  /**
+   * People's card fields, read through the standard API with the question's
+   * token: each profile tree's descriptor names its root, and the root's
+   * `_index.md` declares the card. A tree the token cannot read, or one that
+   * declares no profile type, is no person here.
+   */
   private readonly profiles: ProfileResolver = {
     resolve: async (ids, fields) => {
-      const asked = this.asked.getStore();
-      if (!asked) throw new Error("Profiles were read outside a question");
+      const client = this.asked.getStore();
+      if (!client) throw new Error("Profiles were read outside a question");
       const rows: Record<string, unknown>[] = [], dependencies: Array<{ profile: string; tree: string; ref: string }> = [];
       for (const id of ids) {
-        if (!Object.hasOwn(asked.profiles, id)) { asked.missing.add(id); continue; }
-        const card = asked.profiles[id];
+        const card = await this.profileCard(client, id);
         if (!card) continue;
-        const person: Record<string, unknown> = { ...card };
-        rows.push(Object.fromEntries(fields.map((field) => [field, person[field] ?? null])));
-        dependencies.push({ profile: card.id, tree: card.tree, ref: card.ref });
+        rows.push(Object.fromEntries(fields.map((field) => [field, card.person[field] ?? null])));
+        dependencies.push({ profile: id, tree: id, ref: card.root });
       }
-      if (asked.missing.size) throw new NeedProfiles();
       return { rows, dependencies };
     },
   };
+
+  private async profileCard(client: ProtocolClient, id: string): Promise<{ person: Record<string, unknown>; root: string } | null> {
+    let current;
+    try {
+      current = await client.descriptor(id);
+    } catch (error) {
+      if (error instanceof ProtocolHTTPError && (error.status === 404 || error.status === 403 || error.status === 400)) return null;
+      throw new ProfileReadFailure(error instanceof Error ? error.message : String(error));
+    }
+    const { root } = current.tree;
+    const load = async (hash: ObjectHash): Promise<Uint8Array> => {
+      const kept = this.profileObjects.get(hash);
+      if (kept) return kept;
+      let bytes;
+      try {
+        bytes = await client.object(id as never, hash);
+      } catch (error) {
+        throw new ProfileReadFailure(error instanceof Error ? error.message : String(error));
+      }
+      if (this.profileObjects.size >= PROFILE_OBJECTS) this.profileObjects.delete(this.profileObjects.keys().next().value!);
+      this.profileObjects.set(hash, bytes);
+      return bytes;
+    };
+    const { facts } = await readRootProfile(root, load, { avatar: false });
+    if (!facts.type) return null;
+    const handle = (current.tree.canonical && HANDLE_PATH.exec(current.tree.canonical.path)?.[1]) ?? id;
+    return { person: { id, name: facts.displayName ?? handle, handle, portrait: null, bio: facts.description ?? null }, root };
+  }
 
   /** The materialization a question names, opened for its current file and schema. */
   private async open(collection: ExecCollection): Promise<Opened> {
@@ -199,51 +243,84 @@ export class ExecSidecar implements AsyncDisposable {
       logical,
       layout: layoutOf(logical.result, { store: "database" }),
       schemas: sharedCollectionSchemaCache.compileTables(schemaBytes, "database").tables,
+      declared: new Map(),
     };
     this.opened.set(file, opened);
     return opened;
   }
 
-  /** The bindings of a `node()` root authored as `authoredRoot` to the collection and each of its tables. */
-  private sources(opened: Opened, collection: ExecCollection, authoredRoot: string): ResolvedStorySource[] {
+  /** The bindings of the collection's logical path, and each of its tables', to the collection. */
+  private sources(opened: Opened, collection: ExecCollection): ResolvedStorySource[] {
+    const authoredRoot = collection.path;
     const schemaFingerprint = opened.engine.schema.fingerprint;
     const prefix = collection.path === "/" ? "" : collection.path;
     return [
       { authoredPath: authoredRoot, tree: collection.tree, path: collection.path, schemaFingerprint },
       ...Object.values(opened.engine.schema.relations).filter((relation) => relation.source === "sqlite").map((relation) => ({
-        authoredPath: `${authoredRoot}/${relation.name}`, tree: collection.tree, path: `${prefix}/${relation.name}`, schemaFingerprint,
+        authoredPath: `${authoredRoot === "/" ? "" : authoredRoot}/${relation.name}`, tree: collection.tree, path: `${prefix}/${relation.name}`, schemaFingerprint,
       })),
     ];
   }
 
-  private async query(question: ExecQueryQuestion): Promise<ExecQueryAnswer> {
+  /**
+   * A declared view (07 §4.1): the built-in list view for a `~views` label in
+   * the collection's schema, when the handle's version is the schema the
+   * materialization was built from.
+   */
+  private declared(ref: ExecHandleRef, opened: Opened, collection: ExecCollection): View<unknown, unknown> | null {
+    if (reflected(opened.file, "schema") !== ref.version) return null;
+    const existing = opened.declared.get(ref.name);
+    if (existing) return existing;
+    if (!findDeclaredView(opened.logical.result, { label: ref.name })) return null;
+    const handle = declaredView(opened.logical.result, collection.path, { label: ref.name }) as View<unknown, unknown>;
+    opened.declared.set(ref.name, handle);
+    return handle;
+  }
+
+  private async view(question: ExecViewQuestion): Promise<ExecViewAnswer> {
     const { id } = question;
-    const entry = this.queries.get(refKey(question.query));
-    if (!entry) return { id, refusal: { code: "not-found", message: "A mounted query handle or version is not active", retryable: false } };
-    const collection = question.collections.find((candidate) => candidate.authored === entry.authoredRoot);
-    if (!collection) return { id, refusal: { code: "invalid-request", message: "The query's collection was not given", retryable: false } };
+    const inactive = { id, refusal: { code: "not-found", message: "A mounted view handle or version is not active", retryable: false } };
+    const isDeclared = question.view.path.split("/").at(-1) === "schema.usl";
+    const entry = isDeclared
+      ? { ref: question.view, handle: undefined, sources: [dirname(question.view.path)] }
+      : this.views.get(refKey(question.view));
+    if (!entry) return inactive;
+    const collection = collectionFor(entry, question.collections);
+    if (!collection) return { id, refusal: { code: "invalid-request", message: "The view's collection was not given", retryable: false } };
     const opened = await this.open(collection);
     if (reflected(opened.file) !== collection.update) return { id, stale: true };
-    const source = this.sources(opened, collection, entry.authoredRoot).find((candidate) => candidate.authoredPath === entry.handle.source.path);
-    if (!source) return { id, refusal: { code: "invalid-request", message: "The query's node() source is not in its collection", retryable: false } };
-    opened.engine.bind(entry.handle, source);
-    const asked = { profiles: question.profiles ?? {}, missing: new Set<string>() };
-    let execution;
+    const handle = isDeclared ? this.declared(question.view, opened, collection) : entry.handle;
+    if (!handle) return inactive;
+    const bindings = this.sources(opened, collection);
+    const resolve = async (source: NodeHandle) => {
+      const found = bindings.find((candidate) => candidate.authoredPath === source.path);
+      if (!found) throw new QueryCompileError("A view's node() source is not in its collection");
+      return found;
+    };
+    const client = new ProtocolClient(this.options.origin, question.token, { timeoutMs: 30_000 });
+    let run;
     try {
-      execution = await this.asked.run(asked, () => opened.engine.execute(entry.handle, { input: question.input, user: question.viewer }));
+      run = await this.asked.run(client, () => runView(handle, {
+        engine: opened.engine,
+        resolve,
+        input: question.input,
+        user: question.viewer,
+        ...(question.form ? { form: question.form } : {}),
+        ...(question.missed ? { missed: question.missed } : {}),
+      }));
     } catch (error) {
-      if (asked.missing.size) return { id, need: { profiles: [...asked.missing].sort() } };
-      return { id, refusal: safeQueryError(error) };
+      if (error instanceof ProfileReadFailure) return { id, error: { message: "A profile could not be read", code: "unavailable" } };
+      return { id, refusal: safeViewError(error) };
     }
-    // Caught up while the query ran: what it read may not be the update named.
+    // Caught up while the view ran: what it read may not be the update named.
     if (reflected(opened.file) !== collection.update) return { id, stale: true };
     const reads = {
       collections: [{ tree: collection.tree, path: collection.path }],
-      profiles: execution.dependencies.profiles.map(({ profile, tree, ref }) => ({ profile, tree, ref })),
+      profiles: run.executions.flatMap((execution) => execution.dependencies.profiles.map(({ profile, tree, ref }) => ({ profile, tree, ref }))),
     };
-    const hash = outputHash(execution.result);
+    const hash = viewOutputHash(run.output, run.shape);
     if (hash === question.knownOutputHash) return { id, unchanged: true, reads };
-    return { id, outputHash: hash, value: execution.result, reads };
+    return { id, outputHash: hash, value: run.output, ...(run.shape ? { shape: run.shape } : {}), reads };
   }
 
   /** Run `work` as the only mutation on one materialization. */
@@ -262,11 +339,12 @@ export class ExecSidecar implements AsyncDisposable {
    * comes from the request digest. The receipt is kept once the host accepts.
    */
   private async mutate(question: ExecMutationQuestion): Promise<ExecMutationAnswer> {
-    const { id, tree } = question;
+    const { id } = question;
+    const tree = question.mutation.tree;
     const entry = this.mutationEntries.get(refKey(question.mutation));
     if (!entry) return { id, refusal: { code: "not-found", message: "The mutation handle or version is not active", retryable: false } };
-    const collection = question.collections.find((candidate) => candidate.authored === entry.authoredRoot);
-    if (!collection || collection.tree !== tree) return { id, refusal: { code: "invalid-request", message: "The mutation's collection was not given", retryable: false } };
+    const collection = collectionFor(entry, question.collections);
+    if (!collection) return { id, refusal: { code: "invalid-request", message: "The mutation's collection was not given", retryable: false } };
     const opened = await this.open(collection);
     return this.turn(opened.file, async () => {
       const store = new SQLiteStoreBroker(opened.file, opened.engine.schema, { watchExternal: false, trialOnly: true });
@@ -274,11 +352,11 @@ export class ExecSidecar implements AsyncDisposable {
         const broker = new SQLiteMutationBroker(opened.engine.schema, store, { tree, path: collection.path }, { now: () => new Date(question.now) });
         const call = {
           scope: tree,
-          handle: { tree, ...question.mutation },
+          handle: question.mutation,
           mutationID: question.mutationID,
           input: question.input,
           user: question.viewer,
-          sources: this.sources(opened, collection, entry.authoredRoot),
+          sources: this.sources(opened, collection),
         };
         const subject = question.viewer?.profile ?? "anonymous";
         const client = new ProtocolClient(this.options.origin, question.token, { timeoutMs: 30_000 });
@@ -427,11 +505,11 @@ export class ExecSidecar implements AsyncDisposable {
   }
 }
 
-/** A query's failure as the caller may see it. */
-function safeQueryError(error: unknown) {
-  const message = error instanceof Error && /input|required|not found|missing/i.test(error.message)
+/** A view's failure as the caller may see it. */
+function safeViewError(error: unknown) {
+  const message = error instanceof Error && /input|required|not found|missing|missed/i.test(error.message)
     ? error.message
-    : "The query could not be evaluated";
+    : "The view could not be evaluated";
   return { code: "invalid-request", message, retryable: false };
 }
 

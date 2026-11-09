@@ -1,18 +1,20 @@
 #!/usr/bin/env bun
-import { agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, treeHoldsPages, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient } from "@ovst/protocol";
+import { HANDLE_PATH, decodeRunRequest, type RunRequest, agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, treeHoldsPages, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient, setProtocolClientName } from "@ovst/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { constants as osConstants } from "node:os";
 import { resolveUserPath, STORY_VERSION } from "@ovst/story-sync";
 import { runStorySyncDaemon } from "@ovst/story-sync/cli";
-import { StorySyncRESTClient, type DeclinedChanges } from "./daemon-client.ts";
+import { StorySyncRESTClient, type AgentRunView, type DeclinedChanges } from "./daemon-client.ts";
+import { agentLabel, hasClaudeCode, hookReport, installAgentPresence, textReport, uninstallAgentPresence } from "./agent-presence.ts";
 import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@ovst/fs";
 import { listLocalAccounts } from "@ovst/story-sync/state";
-import { addLocalPlacement, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
+import { accountProtocolClient, addLocalPlacement, cancelInvitation, createInvitation, pendingInvitations, renewInvitation, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
 import type { Document } from "yaml";
 import { STORY_SYNC_PORT, storyDaemonSupervisor } from "./daemon.ts";
 import { compiledExecutable, storyCommand } from "./package-runtime.ts";
-import { validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@ovst/overstoryd";
+import { DOMAIN_CHECK_PATH, domainOrigin, domainProfileResolver, validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@ovst/overstoryd";
+import { DOMAIN_PROFILE_PATH, domainTXTName, parseMarkdown, parseProfileLocator, profileDomains, resolveDomainDelegation, treeConfigurationID } from "@ovst/protocol";
 import {
   cloudPlacementPath,
   cloudSessionDirectory,
@@ -92,23 +94,47 @@ const USAGE = `Usage:
 Folders
   story place [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
   story place <canonical-url> <local-path>
+  story place --read-only <canonical-url> <local-path>
+      Follow a tree you can read at any host, without an account there; edits in the folder are never sent.
       Put a local folder at a URL, or check a URL out to a local folder.
       (the URL may be on the home host or under a placement root, such as https://<placement-host>/~<handle>/<name>)
   story mv [--dry-run] <placed-local-root> <new-local-path>
   story mv [--dry-run] <source-canonical-url> <destination-canonical-url>
       Move a placed folder on this device, or rename it on its host.
 
-Agents
+Agents, for you
   story agent create [--name <label>] --place <canonical-url> <relative-path> [...]
       Make an agent bundle: a revocable string that lets an agent work in the chosen folders and nothing else.
   story agent list [--json]
   story agent revoke <bundle-id>
   story agent run [<bundle-string>] [--root <directory>] [--timeout <duration>] [-- <command> [<argument>...]]
       In the agent's workspace: check those folders out, run the command there, then send what is left and stop.
-  story agent start [<bundle-string>] [--root <directory>] [--timeout <duration>] [--json]
+  story agent runner [on|off]
+      Whether this Mac runs tasks you send from your other devices (Run on the iPhone). On by default.
+  story agent install [--command <path>] [--agent <label>]
+  story agent uninstall
+      Add (or remove) the hooks, the skill and the permission that let Claude Code sessions in placed folders show up in Story.
+
+Agents, for the agent
+  story agent start [<bundle-string>] [--task <run request>] [--root <directory>] [--timeout <duration>] [--json]
       Check those folders out and keep them syncing, for a harness that starts the agent itself.
+      With --task (JSON, or @file, or STORY_RUN_REQUEST): also take on that task, in a tree placed here
+      if there is no bundle. Story shows the agent from then on and marks the task done when it says done.
   story agent finish [--root <directory>] [--timeout <duration>] [--json]
       Send what is left and stop.
+  story agent status <text> [--at <text on the page>]
+  story agent done <text>
+      From an agent in a placed folder: say what it is doing, or what it did; Story shows it beside the agent's cursor.
+  story agent hook [--agent <label>]
+      Read a Claude Code hook's JSON on stdin and show the agent's page and cursor. Never fails the agent.
+
+People
+  story invite <account-url>
+      Invite someone to your community: reserve https://<host>/~<handle> and print its join link.
+  story invite list [<host-url>]
+  story invite renew <account-url>
+      Print a new join link for a pending invitation; the old link stops working.
+  story invite cancel <account-url>
 
 Browser
   story open [<locator>]
@@ -117,6 +143,8 @@ Identity
   story me
   story me create [<profile-folder>] [--name <display-name>]
   story me set [--name <display-name>] [--avatar <relative-path>] [--description <text>]
+  story me domain [<domain>] [--remove <domain>] [--check]
+      Name your profile by a domain you control, or have your home host serve your trees there: add it to your profile, print the records to publish, and check.
   story me backup <file>
   story me restore <file> [<profile-folder>]
   story me accounts
@@ -145,6 +173,8 @@ Notes:
     from the command's environment, passes the command's exit status through, and exits ${AGENT_RUN_UNSENT_EXIT} when the command
     succeeded but its last changes could not be sent. With no command it runs $SHELL, on a terminal only.
   story open  opens the daemon-hosted web editor, which is being rebuilt and may be unavailable.
+  story invite  talks to the host with this device's key; it needs no Story Sync. The link is printed once and
+    stored nowhere: lose it and use renew. list prints pending invitations, not members.
   story me accounts  lists your home account and your placement accounts at other hosts.
   story sync status  reports Story Sync itself (state, supervision, origin) and every placed folder.
     story status is short for it.
@@ -266,12 +296,15 @@ function accessOperations(value: string): CliAudienceOperation[] {
   });
 }
 
-function placeArguments(args: string[]): { operands: string[]; audience: CliAudienceOperation[] } {
+function placeArguments(args: string[]): { operands: string[]; audience: CliAudienceOperation[]; readOnly: boolean } {
   const operands: string[] = [];
   const audience: CliAudienceOperation[] = [];
+  let readOnly = false;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
-    if (arg === "--access" || arg.startsWith("--access=")) {
+    if (arg === "--read-only") {
+      readOnly = true;
+    } else if (arg === "--access" || arg.startsWith("--access=")) {
       const inline = arg.startsWith("--access=") ? arg.slice("--access=".length) : undefined;
       const value = inline ?? args[index + 1];
       if (value === undefined || (!inline && value.startsWith("-"))) {
@@ -287,7 +320,7 @@ function placeArguments(args: string[]): { operands: string[]; audience: CliAudi
       operands.push(arg);
     }
   }
-  return { operands, audience };
+  return { operands, audience, readOnly };
 }
 
 function accessSubject(subject: string, target: CanonicalTarget): { kind: "everyone" } | { kind: "profile"; locator: string } {
@@ -544,6 +577,7 @@ async function pendingCommand(args: string[]): Promise<void> {
     console.log(`Accepted base: update ${pending.request.base}, root ${pending.base.root}`);
     // Earlier elements' objects serve later elements' bases; the rest come from the daemon.
     const objects = new Map<string, Uint8Array>();
+    const reads = await client.reads();
     let before = pending.base.root;
     for (const [index, element] of updates.entries()) {
       const update = decodeCandidateUpdateJSON(element);
@@ -551,7 +585,7 @@ async function pendingCommand(args: string[]): Promise<void> {
       console.log(`\nUpdate ${index + 1} of ${updates.length}: ${update.change}${update.trace === null ? "" : " (traced)"}`);
       console.log(await describeTransitionPayload({
         before, after: update.candidate, payload: update,
-        load: async (hash) => objects.get(hash) ?? await client.object(tree.id, hash).catch(() => undefined),
+        load: async (hash) => objects.get(hash) ?? await reads.object(tree.id, hash).catch(() => undefined),
       }));
       before = update.candidate;
     }
@@ -844,10 +878,15 @@ async function placeLocal(
 }
 
 async function placeCommand(args: string[]): Promise<void> {
-  const { operands, audience } = placeArguments(args);
+  const { operands, audience, readOnly } = placeArguments(args);
   if (operands.length !== 2) usage();
   const [first, second] = operands as [string, string];
   const firstIsURL = CANONICAL_INPUT.test(first);
+  if (readOnly) {
+    if (!firstIsURL || audience.length) throw new Error("story place --read-only takes a canonical URL and a local path, and no audience options");
+    await placeReadOnly(first, second);
+    return;
+  }
   if (!firstIsURL) {
     await placeLocal(first, second, audience);
     return;
@@ -880,6 +919,44 @@ async function placeCommand(args: string[]): Promise<void> {
     await service.synchronizeNow(selected.configuration.configurationTree);
     await waitForLocalPlacement(client, descriptor.id, selected.configuration.configurationTree, destination);
     console.log(`${canonicalOverstoryLocator(descriptor.canonical)} ↔ ${destination} (${descriptor.access})`);
+  });
+}
+
+/**
+ * Follow a tree this profile can read, at any host, into a local folder that
+ * never publishes (placements.yaml `access: read`). Story Sync reads it with
+ * the account there if the profile has one, else a visitor session
+ * (accounts §5.6), else as anyone.
+ */
+async function placeReadOnly(url: string, path: string): Promise<void> {
+  const target = canonicalTarget(url);
+  const requestedDestination = resolve(path);
+  await mkdir(dirname(requestedDestination), { recursive: true });
+  const destination = await realpath(requestedDestination).catch(async () =>
+    join(await realpath(dirname(requestedDestination)), basename(requestedDestination))
+  );
+  const records = await HostAccountStore.list();
+  const home = records.length === 1 ? records[0]! : records.find((record) => record.origin === target.endpoint);
+  if (!home) throw new Error(records.length ? "Several accounts are claimed here; none is at that host to choose by" : "No profile is claimed on this device; run `story me create` first");
+  await withStorySync(dirname(destination), async (client, service) => {
+    const selected = await accountProtocolClient({ configurationTree: home.configurationTree, origin: target.endpoint }, { timeoutMs: 60_000 });
+    const remote = await selected.client.resolve(target.canonicalPath);
+    const descriptor = remote.enclosingTree;
+    if (!descriptor?.canonical) throw new Error("Server resolution omitted its canonical tree");
+    if (descriptor.canonical.path !== target.canonicalPath) {
+      throw new Error(`${canonicalHTTPURL(descriptor.canonical)} is the tree at that address, not ${target.supplied}`);
+    }
+    await addLocalPlacement({
+      configurationTree: home.configurationTree,
+      path: destination,
+      tree: descriptor.id,
+      ...(target.endpoint !== home.origin ? { host: target.endpoint } : {}),
+      readOnly: true,
+    });
+    await service.synchronizeNow(home.configurationTree);
+    await waitForLocalPlacement(client, descriptor.id, home.configurationTree, destination);
+    const how = selected.visitor ? "as a visitor" : selected.authenticated ? "with your account there" : "as anyone";
+    console.log(`${canonicalOverstoryLocator(descriptor.canonical)} → ${destination} (read only, ${how})`);
   });
 }
 
@@ -1079,17 +1156,24 @@ async function revokeCloudBundle(bundleID: string): Promise<void> {
 
 interface CloudStartOptions { bundle: string; root: string; timeoutMs: number; json: boolean }
 
-function cloudStartArguments(args: string[], verb: "start" | "run" = "start"): CloudStartOptions {
+/** `story agent start`'s options: a bundle, a run request, or both. */
+interface AgentStartOptions extends Omit<CloudStartOptions, "bundle"> { bundle?: string; task?: string }
+
+function cloudStartArguments(args: string[], verb: "run"): CloudStartOptions;
+function cloudStartArguments(args: string[], verb?: "start"): AgentStartOptions;
+function cloudStartArguments(args: string[], verb: "start" | "run" = "start"): AgentStartOptions {
   let bundleArgument: string | undefined;
   let root = process.cwd();
   let timeout: string | undefined;
+  let task: string | undefined;
   let json = false;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
-    if (arg === "--root" || arg === "--timeout") {
+    if (arg === "--root" || arg === "--timeout" || (arg === "--task" && verb === "start")) {
       const value = args[index + 1];
       if (!value || value.startsWith("--")) usageError(`${arg} requires a value`);
       if (arg === "--root") root = value;
+      else if (arg === "--task") task = value;
       else timeout = value;
       index += 1;
     } else if (arg === "--json" && verb === "start") json = true;
@@ -1100,8 +1184,23 @@ function cloudStartArguments(args: string[], verb: "start" | "run" = "start"): C
   const environmentBundle = process.env.STORY_CLOUD_BUNDLE;
   if (bundleArgument && environmentBundle) usageError("Supply the agent bundle as an argument or STORY_CLOUD_BUNDLE, not both");
   const bundle = bundleArgument ?? environmentBundle;
+  if (verb === "start") {
+    if (task && process.env.STORY_RUN_REQUEST) usageError("Supply the run request as --task or STORY_RUN_REQUEST, not both");
+    task ??= process.env.STORY_RUN_REQUEST;
+    // A task alone runs in a tree already placed on this machine.
+    if (!bundle && !task) usageError("story agent start requires a bundle argument, STORY_CLOUD_BUNDLE, or --task");
+    return { ...(bundle ? { bundle } : {}), ...(task ? { task } : {}), root: resolve(root), timeoutMs: parseDuration(timeout), json };
+  }
   if (!bundle) usageError(`story agent ${verb} requires a bundle argument or STORY_CLOUD_BUNDLE`);
   return { bundle, root: resolve(root), timeoutMs: parseDuration(timeout), json };
+}
+
+/** A run request as `--task` or STORY_RUN_REQUEST gives it: its JSON, or `@` and a file holding it. */
+async function readRunRequest(value: string): Promise<RunRequest> {
+  const text = value.startsWith("@") ? await readFile(resolve(value.slice(1)), "utf8") : value;
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { throw new Error("The run request is not JSON"); }
+  return decodeRunRequest(parsed);
 }
 
 async function directoryIsEmpty(path: string): Promise<boolean> {
@@ -1266,6 +1365,10 @@ interface CloudStartResult {
   bundleID: string;
   root: string;
   origin: string;
+  /** The data home the session's Story Sync answers for. */
+  dataHome: string;
+  /** The agent's name in presence: the bundle's label. */
+  label: string;
   placements: CloudSessionRecord["placements"];
   /** What an agent needs to know to work in the checkout, as `story agent start` prints it. */
   instructions: string;
@@ -1277,7 +1380,7 @@ function storyInvocation(): string {
 }
 
 /** The working rules for an agent session, said once where the agent will read them: start's output. */
-function agentInstructions(root: string, placements: CloudSessionRecord["placements"]): string {
+function agentInstructions(root: string, placements: CloudSessionRecord["placements"], presence?: { label: string; hooks: boolean }): string {
   const story = storyInvocation();
   const folders = placements.map((placement) => `  ${placement.path}  (${placement.canonicalURL})`).join("\n");
   return [
@@ -1292,15 +1395,45 @@ function agentInstructions(root: string, placements: CloudSessionRecord["placeme
     `    ${story} agent finish --root ${root}`,
     `  and wait for it to succeed. Until then your last edits may exist only on this machine.`,
     `- If something seems stuck, "${story} status ${root}" says what is held back.`,
+    ...(presence ? [
+      ``,
+      `People may be reading these pages in Story while you work; Story shows you to them as "${presence.label}".`,
+      `- Say what you are doing, in a few words, whenever it changes: ${story} agent status "merging duplicates"`,
+      `- When you are weighing one part of a page, point at it: ${story} agent status "checking which are dairy" --at "oat milk"`,
+      `- When you are done, say what you did in one line: ${story} agent done "Merged 3 duplicates"`,
+      presence.hooks
+        ? `- Claude Code's hooks for this are installed, so your reads and edits also move your place on the page.`
+        : `- Run these from inside a synced folder.`,
+    ] : []),
   ].join("\n");
 }
 
+/**
+ * `story agent start`: check a bundle's folders out, or start a run request
+ * (Agents 002), or both: a run in a fresh checkout. A run goes to the Story
+ * Sync serving the tree's folder, which shows the agent with the run's ID and
+ * marks the task block done when the agent says done.
+ */
 async function startCloud(args: string[]): Promise<void> {
   const options = cloudStartArguments(args);
-  const result = await startCloudSession(options);
-  if (options.json) console.log(JSON.stringify(result, null, 2));
+  const request = options.task ? await readRunRequest(options.task) : undefined;
+  const result = options.bundle ? await startCloudSession({ ...options, bundle: options.bundle }) : undefined;
+  let run: AgentRunView | undefined;
+  if (request) {
+    const client = result
+      ? new StorySyncRESTClient({ baseURL: result.origin, dataHome: result.dataHome })
+      : new StorySyncRESTClient({ baseURL: process.env.STORY_SYNC_URL ?? await storySyncOrigin() });
+    const label = result?.label ?? agentLabel(process.env.STORY_AGENT_LABEL ?? "Claude");
+    run = await client.startRun(request, { external: true, label });
+  }
+  if (options.json) console.log(JSON.stringify({ ...(result ?? { schemaVersion: 1 }), ...(run ? { run } : {}) }, null, 2));
   else {
-    console.log(result.instructions);
+    if (result) console.log(result.instructions);
+    if (run) {
+      if (result) console.log("");
+      console.log(run.prompt ?? run.task);
+      if (run.state !== "running") console.log(`\n(Run ${run.id} is ${run.state}${run.result ? `: ${run.result}` : ""}.)`);
+    }
   }
 }
 
@@ -1425,9 +1558,16 @@ async function startCloudSession(options: CloudStartOptions): Promise<CloudStart
     await waitForCloudPlacements(session, await cloudAccountAccess(session), deadline);
     session = { ...session, phase: "ready", updatedAt: new Date().toISOString(), lastError: undefined };
     await saveCloudSession(session);
+    // Show this agent in presence under the bundle's own label: Claude Code
+    // reports through hooks; any agent can say status and done itself.
+    const label = agentLabel(payload.label);
+    let hooks = false;
+    if (hasClaudeCode()) {
+      try { await installAgentPresence({ command: storyInvocation(), agent: label }); hooks = true; } catch { hooks = false; }
+    }
     return {
-      schemaVersion: 1, ready: true, sessionID: session.sessionID, bundleID: session.bundleID, root, origin,
-      placements: session.placements, instructions: agentInstructions(root, session.placements),
+      schemaVersion: 1, ready: true, sessionID: session.sessionID, bundleID: session.bundleID, root, origin, dataHome: session.dataHome, label,
+      placements: session.placements, instructions: agentInstructions(root, session.placements, { label, hooks }),
     };
   } catch (error) {
     if (spawnedPID) await stopOwnedProcess(spawnedPID);
@@ -1741,6 +1881,163 @@ async function accountsCommand(args: string[]): Promise<void> {
   }
 }
 
+/** A domain as `domains` front matter writes it, or null: a DNS name (with a port only for a loopback test host). */
+function domainName(input: string): string | null {
+  const value = input.trim().replace(/^(https?|overstory):\/\//, "").replace(/\/+$/, "").toLowerCase();
+  const parsed = parseProfileLocator(`https://${value}`);
+  return parsed?.domain === value ? value : null;
+}
+
+/**
+ * `story invite`: invitations to the community at the account URL's host,
+ * made through \`@ovst/client\` with this device's key. Story Sync is not
+ * involved (Sharing 002).
+ */
+async function inviteCommand(args: string[]): Promise<void> {
+  const [first, ...rest] = args;
+  const sub = first === "list" || first === "renew" || first === "cancel" ? first : undefined;
+  const operands = sub ? rest : args;
+  if (operands.some((operand) => operand.startsWith("-"))) usage();
+  if (sub === "list") {
+    if (operands.length > 1) usage();
+    const client = await inviteClient(operands[0]);
+    const pending = await pendingInvitations(client);
+    for (const invitation of pending) console.log(invitation.account);
+    if (!pending.length) console.error("No invitations are pending.");
+    return;
+  }
+  if (operands.length !== 1) usage();
+  const target = inviteTarget(operands[0]!);
+  const client = await inviteClient(target.origin);
+  if (sub === "cancel") {
+    await cancelInvitation(client, target.handle);
+    console.error(`The invitation for ${target.origin}/~${target.handle} is cancelled; its link no longer works.`);
+    return;
+  }
+  const invitation = sub === "renew" ? await renewInvitation(client, target.handle) : await createInvitation(client, target.handle);
+  console.log(invitation.link);
+}
+
+/** The host origin and handle of an account URL, `https://<host>/~<handle>`. */
+function inviteTarget(input: string): { origin: string; handle: string } {
+  let url: URL;
+  try { url = new URL(input.replace(/^overstory:/, "https:")); } catch { usageError(`Not an account URL: ${input}`); }
+  if (url.hash || url.search) usageError(`An account URL has no query or fragment: ${input}`);
+  const match = HANDLE_PATH.exec(url.pathname);
+  if (!match) usageError(`Not an account URL (https://<host>/~<handle>): ${input}`);
+  return { origin: url.origin, handle: match[1]! };
+}
+
+/** A client speaking for this device's home account at `host`, or at its only home host. */
+async function inviteClient(host?: string): Promise<ProtocolClient> {
+  let origin: string | undefined;
+  if (host) {
+    try { origin = new URL(host.replace(/^overstory:/, "https:")).origin; } catch { usageError(`Not a host URL: ${host}`); }
+  }
+  const records = await HostAccountStore.list();
+  if (!records.length) throw new Error("No account is claimed on this device; join a community or run `story me create` first");
+  const record = origin ? records.find((candidate) => candidate.origin === origin) : records.length === 1 ? records[0] : undefined;
+  if (!record) {
+    throw new Error(origin
+      ? `You have no account whose home is ${new URL(origin).host}; only its community's administrators can invite people there`
+      : "Several accounts are claimed here; name the host: story invite list <host-url>");
+  }
+  return (await accountProtocolClient({ configurationTree: record.configurationTree, origin: record.origin }, { required: true, timeoutMs: 60_000 })).client;
+}
+
+/**
+ * `story me domain` (locators §1.1): with a domain, list it in the profile's
+ * front matter; with `--remove`, take it out; with `--check`, resolve each
+ * listed domain both ways, as a host would. Prints the records to publish,
+ * which name the profile by its locator at its home host, or the CNAME that
+ * also has the home host serve the person's trees there (locators §5.1).
+ */
+async function domainCommand(store: ProfileIdentityStore, operands: string[]): Promise<void> {
+  let add: string | undefined;
+  let remove: string | undefined;
+  let check = false;
+  for (let index = 0; index < operands.length; index += 1) {
+    const operand = operands[index]!;
+    if (operand === "--check") check = true;
+    else if (operand === "--remove" && operands[index + 1] && !remove) remove = operands[++index];
+    else if (!operand.startsWith("-") && !add) add = operand;
+    else usage();
+  }
+  if (add && remove) usage();
+  const status = await store.status();
+  if (!status) throw new Error("No person identity exists; run `story me create`");
+  const home = (await HostAccountStore.list()).find((candidate) => candidate.configurationTree === treeConfigurationID(status.profileTree));
+  const read = async () => profileDomains(parseMarkdown(await readFile(join(status.profilePath, "_index.md"), "utf8")).frontmatter);
+  let domains = await read();
+  const named = add ?? remove;
+  if (named !== undefined) {
+    const domain = domainName(named);
+    if (!domain) usageError(`Not a domain name: ${named}`);
+    const next = add ? [...new Set([...domains, domain])] : domains.filter((candidate) => candidate !== domain);
+    if (remove && next.length === domains.length) throw new Error(`Your profile does not list ${domain}`);
+    await store.updateProfile({ domains: next.length ? next : null });
+    domains = next;
+    console.log(add ? `Your profile now names ${domain}.` : `Your profile no longer names ${domain}; remove its record too.`);
+  }
+  if (!domains.length) {
+    if (named === undefined) console.log("Your profile names no domain. Add one with `story me domain <domain>`.");
+    return;
+  }
+  if (!check) {
+    if (named === undefined) console.log(`Your profile names ${domains.join(", ")}.`);
+    if (!home) {
+      console.log("Connect a home account first: the records name your profile by its locator there.");
+      return;
+    }
+    for (const domain of add ? [domainName(add)!] : domains) {
+      console.log(`\n${domain}: publish one of these, then let Story Sync publish your profile and run \`story me domain --check\`.`);
+      console.log(`  To name you:  DNS TXT   ${domainTXTName(domain)}  "profile=${home.account}"`);
+      console.log(`            or  HTTPS     https://${domain}${DOMAIN_PROFILE_PATH}  {"profile": "${home.account}"}`);
+      console.log(`  To also serve your trees at https://${domain}/:  DNS CNAME  ${domain}  ${new URL(home.origin).host}`);
+      console.log(`    (whoever runs ${new URL(home.origin).host} must also route ${domain} to it with a certificate)`);
+    }
+    return;
+  }
+  const resolve = domainProfileResolver();
+  let failed = false;
+  const hostToken = home ? await domainCheckToken(home.origin).catch(() => null) : null;
+  for (const domain of domains) {
+    const locator = parseProfileLocator(`https://${domain}`)!.locator;
+    if (hostToken) {
+      const answer = await domainCheckToken(domainOrigin(domain)).catch(() => null);
+      if (answer === hostToken) console.log(`${domain}: reaches ${new URL(home!.origin).host}, which serves your trees there`);
+    }
+    try {
+      const named = await resolve(locator, domain);
+      if (named?.profile === status.profileTree) {
+        console.log(`${domain}: names your profile, homed at ${named.home}`);
+        continue;
+      }
+      failed = true;
+      if (named) {
+        console.log(`${domain}: names another profile (${named.profile})`);
+        continue;
+      }
+      const delegated = await resolveDomainDelegation(locator);
+      console.log(!delegated
+        ? `${domain}: its records name no profile (or disagree)`
+        : `${domain}: its records name ${delegated}, but the profile there does not list ${domain} yet; let Story Sync publish your profile, which must be publicly readable`);
+    } catch (error) {
+      failed = true;
+      console.log(`${domain}: cannot be read now: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  if (failed) process.exitCode = 1;
+}
+
+/** What a host answers at its domain check route. */
+async function domainCheckToken(origin: string): Promise<string | null> {
+  const response = await fetch(`${origin}${DOMAIN_CHECK_PATH}`, { redirect: "manual", signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) return null;
+  const body = await response.json().catch(() => null) as { host?: unknown } | null;
+  return typeof body?.host === "string" ? body.host : null;
+}
+
 /** `story me device` prints this installation's device for one home account. */
 async function deviceCommand(args: string[]): Promise<void> {
   let configurationTree: string | undefined;
@@ -1762,8 +2059,68 @@ async function deviceCommand(args: string[]): Promise<void> {
   console.log(`Signs in with key: ${record.deviceKey}`);
 }
 
+/** The Story Sync an agent's reports go to: the one serving its folder. */
+async function agentSyncClient(cwd: string): Promise<StorySyncRESTClient> {
+  const cloud = !process.env.STORY_SYNC_URL && !process.env.STORY_HOME ? await cloudSessionForPath(cwd) : null;
+  const origin = process.env.STORY_SYNC_URL ?? cloud?.origin ?? await storySyncOrigin();
+  return new StorySyncRESTClient({ baseURL: origin, ...(cloud ? { dataHome: cloud.dataHome } : {}) });
+}
+
+async function agentTextCommand(kind: "status" | "done", operands: string[]): Promise<void> {
+  let at: string | undefined;
+  const words: string[] = [];
+  for (let index = 0; index < operands.length; index += 1) {
+    if (kind === "status" && operands[index] === "--at" && operands[index + 1] !== undefined) at = operands[++index];
+    else words.push(operands[index]!);
+  }
+  const text = words.join(" ").trim();
+  if (!text) usageError(`story agent ${kind} needs some text`);
+  const cwd = process.cwd();
+  const result = await (await agentSyncClient(cwd)).agentReport(textReport(kind, text, cwd, process.env, at));
+  if (!result) console.error("This folder is not placed, so Story shows nothing.");
+}
+
+/** A hook must never fail the agent: every problem is swallowed. */
+async function agentHookCommand(operands: string[]): Promise<void> {
+  let agent: string | undefined;
+  for (let index = 0; index < operands.length; index += 1) {
+    if (operands[index] === "--agent" && operands[index + 1] !== undefined) agent = operands[++index];
+  }
+  try {
+    const input = await new Response(Bun.stdin.stream()).text();
+    const body = hookReport(input, process.cwd(), agent, process.env);
+    if (body) await (await agentSyncClient(body.cwd)).agentReport(body);
+  } catch {
+    // Story Sync not running, the folder not placed, a malformed payload: nothing to show.
+  }
+}
+
+/** `story agent runner [on|off]`: whether this Mac's Story Sync runs tasks sent from the person's other devices. */
+async function agentRunnerCommand(operands: string[]): Promise<void> {
+  if (operands.length > 1 || (operands[0] !== undefined && operands[0] !== "on" && operands[0] !== "off")) usageError("story agent runner takes on, off, or nothing");
+  const client = new StorySyncRESTClient({ baseURL: process.env.STORY_SYNC_URL ?? await storySyncOrigin() });
+  const status = await client.runner(operands[0] === undefined ? undefined : operands[0] === "on");
+  if (!status.enabled) console.log(`"${status.label}" does not run tasks from your other devices. Turn it on with: story agent runner on`);
+  else if (!status.trees.length) console.log(`"${status.label}" runs tasks from your other devices, but is not offered on any tree yet: it is offered on each tree placed here while Story Sync is connected.`);
+  else console.log(`"${status.label}" runs tasks from your other devices, on ${status.trees.length} tree${status.trees.length === 1 ? "" : "s"} placed here.`);
+}
+
+async function agentInstallCommand(operands: string[]): Promise<void> {
+  const options: { command?: string; agent?: string } = {};
+  for (let index = 0; index < operands.length; index += 1) {
+    const arg = operands[index]!;
+    if ((arg === "--command" || arg === "--agent") && operands[index + 1] !== undefined) options[arg === "--command" ? "command" : "agent"] = operands[++index];
+    else usageError(`Unknown agent install option: ${arg}`);
+  }
+  const installed = await installAgentPresence(options);
+  console.log(`Added Story's hooks and permission to ${installed.settings}`);
+  console.log(`Added the skill at ${installed.skill}`);
+  console.log("Claude Code sessions in placed folders now show up in Story as agents.");
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
+  setProtocolClientName(`story/${STORY_VERSION}`);
   if (command === "__cloud-story-sync") {
     await runStorySyncDaemon(args);
     return;
@@ -1788,6 +2145,15 @@ async function main(): Promise<void> {
     } else if (action === "run") await runAgent(operands);
     else if (action === "start") await startCloud(operands);
     else if (action === "finish") await finishCloud(operands);
+    else if (action === "status" || action === "done") await agentTextCommand(action, operands);
+    else if (action === "hook") await agentHookCommand(operands);
+    else if (action === "runner") await agentRunnerCommand(operands);
+    else if (action === "install") await agentInstallCommand(operands);
+    else if (action === "uninstall") {
+      if (operands.length) usage();
+      await uninstallAgentPresence();
+      console.log("Removed Story's hooks, skill and permission from Claude Code's settings.");
+    }
     else usage();
     return;
   }
@@ -1878,6 +2244,10 @@ async function main(): Promise<void> {
       await accountsCommand(operands);
       return;
     }
+    if (action === "domain") {
+      await domainCommand(store, operands);
+      return;
+    }
     if (action === "device") {
       await deviceCommand(operands);
       return;
@@ -1939,6 +2309,10 @@ async function main(): Promise<void> {
       return;
     }
     throw new Error(`A compatible Story Sync is not reachable at ${selectedOrigin ?? await storySyncOrigin()}; run \`story sync status\` for details`);
+  }
+  if (command === "invite") {
+    await inviteCommand(args);
+    process.exit(0);
   }
   if (command === "place") {
     await placeCommand(args);

@@ -6,10 +6,9 @@ import type {
   OverstoryError,
   WorkspaceEvent,
 } from "@ovst/protocol";
-import { applySourceEdits, canonicalOverstoryLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeUpdateConflictJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeProtocolDirectory, hashObject, updateRequestDigests } from "@ovst/protocol";
+import { applySourceEdits, canonicalOverstoryLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, decodePresenceEvent, PresenceDecodeError, type PlainSourceEdit, ProtocolClient, decodeAcceptedUpdateJSON, decodeUpdateConflictJSON, decodeSnapshotBundle, decodeUpdateRequestJSON, updateRequestDigests } from "@ovst/protocol";
 import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@ovst/protocol";
-import { decodeCanonicalCBOR } from "@ovst/protocol";
-import type { StorySyncStatus, TreeBootstrap, TreeCredential } from "../../packages/cli/src/daemon-client.ts";
+import type { StorySyncStatus } from "../../packages/cli/src/daemon-client.ts";
 
 // Test-local checks mirroring Overstory's `ProtocolTreeDescriptor.validated()` and
 // `ProtocolSafeAccessSubject` decoding; the TypeScript packages export no descriptor
@@ -56,9 +55,6 @@ const conformance = join(import.meta.dir, "../../docs/overstory-spec/conformance
 const overstorydFixtures = join(import.meta.dir, "../fixtures/overstoryd");
 const json = async <T>(name: string): Promise<T> =>
   JSON.parse(await readFile(join(fixtures, name), "utf8")) as T;
-/** A bootstrap body exactly as `GET /v1/bootstrap` sends it: canonical CBOR. */
-const bootstrapBody = async (name: string): Promise<TreeBootstrap> =>
-  decodeCanonicalCBOR(new Uint8Array(await readFile(join(fixtures, name)))) as TreeBootstrap;
 const conformanceJSON = async <T>(name: string): Promise<T> =>
   JSON.parse(await readFile(join(conformance, name), "utf8")) as T;
 
@@ -74,31 +70,6 @@ describe("REST v1 protocol fixtures", () => {
       instanceID: "instance-fixture-01",
       runtimeKind: "cloud",
     });
-  });
-
-  test("decodes the bootstrap and credential fixtures", async () => {
-    const clean = await bootstrapBody("bootstrap.cbor");
-    const legacy = await bootstrapBody("bootstrap-pending.cbor");
-    // The CBOR body is the JSON fixture's value with the spine as bytes.
-    const readable = await json<Omit<TreeBootstrap, "spine"> & { spine: string }>("bootstrap.json");
-    expect({ ...clean, spine: Buffer.from(clean.spine).toString("base64") }).toEqual(readable);
-    const credential = await json<TreeCredential>("credential.json");
-    expect(clean.tree.id).toBe("tr_notes7f3q2ab7c");
-    expect(clean.accepted.cursor).toBeNull();
-    expect("modifiedAtByPath" in clean).toBe(false);
-    // The spine is sparse: the root directory and its Markdown child are present, the binary is not.
-    const spine = decodeSparseSnapshotBundle(clean.spine);
-    const root = decodeProtocolDirectory(spine.get(clean.accepted.root as never)!);
-    if (root.type !== "directory") throw new Error("Expected a directory root");
-    expect(root.entries.map((entry) => entry.name)).toEqual(["_index.md", "photo.bin"]);
-    expect(spine.has(root.entries[0]!.file!)).toBe(true);
-    expect(spine.has(root.entries[1]!.file!)).toBe(false);
-    expect("files" in clean).toBe(false);
-    // New clients use only accepted-root fields if an older daemon includes local pending metadata.
-    expect(legacy.spine).toEqual(clean.spine);
-    expect(legacy.accepted.root).toBe(clean.accepted.root);
-    expect(legacy.accepted.update).toBe(clean.accepted.update);
-    expect(credential.token).toBe("overstoryd-account-token-fixture");
   });
 
   test("covers every current error code, cursor shape, and the control routes' fixtures", async () => {
@@ -165,6 +136,42 @@ describe("REST v1 protocol fixtures", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  test("presence-events.sse frames decode, in order, with no id", async () => {
+    const source = await readFile(join(conformance, "presence-events.sse"), "utf8");
+    const frames = await Array.fromAsync(parseSSEStream(new Response(source).body!));
+    const events = frames.map((frame) => {
+      expect(frame.id).toBeUndefined();
+      return decodePresenceEvent(frame.event, JSON.parse(frame.data));
+    });
+    expect(events.map((event) => event.kind)).toEqual(["presence.ready", "presence.peer", "presence.cursor", "presence.peer", "presence.cursor", "presence.leave"]);
+    const agent = events[3]!;
+    expect(agent.kind === "presence.peer" && agent.peer.agent).toEqual({ label: "Claude", status: "merging duplicates", run: null });
+    const [first, moved] = events;
+    expect(first!.kind === "presence.ready" && first!.ready.peers[0]!.device).toBeNull();
+    expect(moved!.kind === "presence.peer" && moved!.peer.device).toBe("ios");
+  });
+
+  test("presence-runners.sse frames decode: a runner, a run, the agent doing it, stop and done", async () => {
+    const source = await readFile(join(conformance, "presence-runners.sse"), "utf8");
+    const frames = await Array.fromAsync(parseSSEStream(new Response(source).body!));
+    const events = frames.map((frame) => decodePresenceEvent(frame.event, JSON.parse(frame.data)));
+    expect(events.map((event) => event.kind)).toEqual(["presence.ready", "presence.message", "presence.peer", "presence.message", "presence.message"]);
+    const [ready, run, agent, stop, done] = events;
+    expect(ready!.kind === "presence.ready" && ready!.ready.peers[0]!.runner).toBe("Ana's Mac");
+    expect(run!.kind === "presence.message" && run!.message).toEqual({ from: "pr_phone", body: { kind: "run", request: {
+      tree: "https://garden.example/~ana/days", page: { path: "/Today", stableKey: null },
+      task: { text: "Sort the shopping list by aisle", range: null }, run: "run_7Kq2" } } });
+    expect(agent!.kind === "presence.peer" && agent!.peer.agent?.run).toBe("run_7Kq2");
+    expect(stop!.kind === "presence.message" && stop!.message.body).toEqual({ kind: "stop", run: "run_7Kq2" });
+    expect(done!.kind === "presence.message" && done!.message.body).toEqual({ kind: "done", run: "run_7Kq2", result: "Sorted 14 items into 5 aisles." });
+  });
+
+  test("presence-events-invalid.json frames are rejected", async () => {
+    const { cases } = await conformanceJSON<{ cases: Array<{ name: string; event: string; data: unknown }> }>("presence-events-invalid.json");
+    expect(cases.length).toBeGreaterThan(0);
+    for (const item of cases) expect(() => decodePresenceEvent(item.event, item.data), item.name).toThrow(PresenceDecodeError);
   });
 
   test("protocol-values.json values decode and every invalid value is rejected", async () => {
@@ -256,7 +263,7 @@ describe("REST v1 protocol fixtures", () => {
     const snapshotBody = new Uint8Array(Buffer.from(snapshotCase.response.bodyBase64!, "base64"));
     const snapshotRoot = snapshotCase.request.path!.split("/").at(-1)!;
     expect(decodeSnapshotBundle(snapshotRoot, snapshotBody).root).toBe(snapshotRoot);
-    expect(`\"${hashObject(snapshotBody)}\"`).toBe(snapshotCase.response.headers!.ETag!);
+    expect(`\"${snapshotRoot}\"`).toBe(snapshotCase.response.headers!.ETag!);
     const activate = byName.get("activate-with-null-base")!;
     const activation = decodeUpdateRequestJSON(activate.request.body);
     const activationUpdate = activation.updates[0]!;
@@ -341,9 +348,9 @@ describe("canonical descriptor helpers", () => {
     const canonical = values.valid.remoteTreeDescriptor.canonical!;
     expect(canonicalHTTPURL(canonical)).toBe("https://community.example/~joe");
     expect(canonicalOverstoryLocator(canonical)).toBe("overstory://community.example/~joe");
-    const bootstrap = await bootstrapBody("bootstrap.cbor");
-    expect(canonicalHTTPURL(bootstrap.tree.canonical!)).toBe("https://notes.example/~joe/notes");
-    expect(canonicalOverstoryLocator(bootstrap.tree.canonical!)).toBe("overstory://notes.example/~joe/notes");
+    const nested = { path: "/~joe/notes", endpoint: "https://notes.example", parentTree: null };
+    expect(canonicalHTTPURL(nested)).toBe("https://notes.example/~joe/notes");
+    expect(canonicalOverstoryLocator(nested)).toBe("overstory://notes.example/~joe/notes");
   });
 });
 

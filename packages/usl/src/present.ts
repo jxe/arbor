@@ -27,7 +27,7 @@
 // (`checkFieldValue`, `checkRows`). Ownership (`canEdit`) is access policy,
 // so a host supplies it as `canEdit`.
 
-import type { CheckResult, LineItem, ResolvedField, ResolvedModel, ResolvedView } from "./check.ts";
+import type { CheckResult, LineItem, ResolvedEnd, ResolvedField, ResolvedModel, ResolvedView } from "./check.ts";
 import { layoutOf, type Column, type JoinEnd, type Table } from "./layout.ts";
 import type { RowsByTable } from "./records.ts";
 import { PERSON_RELATION, personPlaceholderKey } from "./relationships.ts";
@@ -261,11 +261,37 @@ class Collection {
   constructor(readonly schema: CheckResult, rows: RowsByTable, people: Person[] = []) {
     this.people = people;
     if (schema.diagnostics.length > 0) throw new ViewError("The schema has errors; check it first");
-    this.models = new Map(schema.models.map((m) => [m.name, m]));
     this.tables = layoutOf(schema, { store: "files" });
     for (const table of this.tables) if (!table.ends) this.byModel.set(table.stores, table);
     this.rows = rows;
+    // A connection model (its key is its two ends, like `Item` between a list and a
+    // practice) is shown from either side by what it connects to: `List.items` lists
+    // practices. Its rows are read and written as a join table's.
+    for (const model of schema.models) {
+      const table = this.byModel.get(model.name);
+      if (!table || model.ends.length !== 2) continue;
+      const columnOf = (end: ResolvedEnd) => table.fields.find((f) => f.name === end.as)?.columns;
+      const columns = model.ends.map(columnOf);
+      if (columns.some((c) => c?.length !== 1) || table.primaryKey.length !== 2
+        || !columns.every((c) => table.primaryKey.includes(c![0]!))) continue;
+      model.ends.forEach((end, index) => {
+        const other = model.ends[1 - index]!;
+        const mine: JoinEnd = { model: end.model, field: end.field, columns: columnOf(end)!, fold: false, ...(end.ordered ? { position: `${end.field}_position` } : {}) };
+        const theirs: JoinEnd = { model: other.model, field: other.field, columns: columnOf(other)!, fold: false };
+        this.connections.set(`${end.model}.${end.field}`, { kind: "join", table, mine, theirs, target: other.model });
+      });
+    }
+    this.models = new Map(schema.models.map((m) => [m.name, {
+      ...m,
+      fields: m.fields.map((f) => {
+        const through = this.connections.get(`${m.name}.${f.name}`);
+        return through ? { ...f, type: through.target } : f;
+      }),
+    }]));
   }
+
+  /** Fields that reach through a connection model, read as a join to its other end. */
+  private readonly connections = new Map<string, Extract<Access, { kind: "join" }>>();
 
   model(name: string): ResolvedModel {
     const model = this.models.get(name);
@@ -297,11 +323,18 @@ class Collection {
     return this.models.get(model)?.rows === "fixed";
   }
 
-  /** The value naming a row of `model` in a reference: its one key column's value. */
+  /**
+   * The value naming a row of `model` in a reference: its one key column's
+   * value, or for a key of several columns the row key (`rowKey`).
+   */
   memberOf(model: string, row: Row): Scalar {
     if (model === PERSON_RELATION) return row.id as Scalar;
     const table = this.tableOf(model)!;
-    if (table.primaryKey.length !== 1) throw new ViewError(`\`${model}\` has a key of several columns; a view refers to rows by one`);
+    if (table.primaryKey.length !== 1) {
+      const key = rowKey(table, row);
+      if (key === null) throw new ViewError(`A row of \`${model}\` has no key`);
+      return key;
+    }
     const value = row[table.primaryKey[0]!];
     if (!isScalar(value)) throw new ViewError(`A row of \`${model}\` has no key`);
     return value;
@@ -315,10 +348,13 @@ class Collection {
   rowByMember(model: string, member: Scalar): Row | undefined {
     const table = this.tableOf(model);
     if (!table) return undefined;
+    if (table.primaryKey.length !== 1) return this.rowsOf(table).find((r) => rowKey(table, r) === member);
     return this.rowsOf(table).find((r) => same(r[table.primaryKey[0]!], member));
   }
 
   access(model: ResolvedModel, field: ResolvedField): Access {
+    const joined = this.connections.get(`${model.name}.${field.name}`);
+    if (joined) return joined;
     const table = this.tableOf(model.name);
     // Person has no table: its fields are the other ends of connections.
     if (!table && model.name !== PERSON_RELATION) throw new ViewError(`\`${model.name}\` has no rows`);

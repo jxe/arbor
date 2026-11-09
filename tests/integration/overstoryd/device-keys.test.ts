@@ -207,9 +207,11 @@ describe("published device keys (accounts §5.4)", () => {
       devices: Object.values(listed).flatMap((device) => device.key ? [{ id: device.id, key: device.key, administrator: device.administrator }] : []),
     });
     expect(published.devices.map((device) => device.id)).toEqual([ownerMac()]);
-    const response = await fetch(`${running.url}/.overstory/profiles/${ownerProfile()}/device-keys`);
+    const response = await fetch(`${running.url}/.overstory/peer/profiles/${ownerProfile()}/device-keys`);
     expect(response.headers.get("cache-control")).toBe("no-cache");
     expect(JSON.stringify(await response.json())).not.toContain("label");
+    // The old path answers the same until plans/soon/protocol-001 removes it.
+    expect(await (await fetch(`${running.url}/.overstory/profiles/${ownerProfile()}/device-keys`)).json()).toEqual(published);
     await expect(new ProtocolClient(running.url).publishedDeviceKeys("tr_aaaaaaaaaaaaaaaaaaaaaaaaaa")).rejects.toThrow("not-found");
   });
 });

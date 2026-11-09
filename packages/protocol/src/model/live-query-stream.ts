@@ -1,9 +1,9 @@
-// The race-free live query state machine every query backing shares: the
+// The race-free live view state machine every view backing shares: the
 // runtime's own brokers, and overstoryd streaming answers from its execution
 // sidecar. It knows nothing about how a query is evaluated.
 
 import type { Hash } from "./identifiers.ts";
-import { semanticRequestDigest, type QueryStreamEvent } from "./protocol.ts";
+import { semanticRequestDigest, type ResultShape, type ViewEvent } from "./protocol.ts";
 
 /** What the state machine needs of a mounted query. */
 export interface LiveMount {
@@ -11,9 +11,9 @@ export interface LiveMount {
   knownOutputHash?: Hash;
 }
 
-export type QueryStreamError = Extract<QueryStreamEvent, { error: unknown }>["error"];
+export type ViewStreamError = Extract<ViewEvent, { error: unknown }>["error"];
 
-export interface LiveQueryContext {
+export interface LiveViewContext {
   signal: AbortSignal;
   user: { profile: string } | null;
 }
@@ -23,7 +23,7 @@ export interface LiveQueryContext {
  * sensitive to, and which observed events are relevant to it. The shared
  * stream owns the race-free snapshot-then-follow state machine.
  */
-export interface LiveQueryAdapter<Execution, Sensitivity, Event, Mount extends LiveMount = LiveMount> {
+export interface LiveViewAdapter<Execution, Sensitivity, Event, Mount extends LiveMount = LiveMount> {
   currentCursor(): string;
   subscribe(listener: (event: Event) => void): () => void;
   /** Sensitivity derivable before the first evaluation (for example from the plan). */
@@ -32,9 +32,11 @@ export interface LiveQueryAdapter<Execution, Sensitivity, Event, Mount extends L
   sensitivity(mount: Mount, execution: Execution): Sensitivity;
   relevant(event: Event, mount: Mount, sensitivity: Sensitivity | undefined, execution: Execution | undefined): boolean;
   result(execution: Execution): unknown;
+  /** The result's field types and row identity, when it has them. */
+  shape?(execution: Execution): ResultShape | undefined;
   /** The result's hash, when the backing knows it without the value; otherwise {@link outputHash} of the result. */
   outputHash?(execution: Execution): Hash;
-  safeError(error: unknown): QueryStreamError;
+  safeError(error: unknown): ViewStreamError;
   /** When an event demands a complete reload, its reason; the stream then closes. */
   reload?(event: Event): "source-changed" | "access-changed" | undefined;
 }
@@ -43,19 +45,24 @@ export function outputHash(value: unknown): Hash {
   return semanticRequestDigest(value);
 }
 
+/** A view result's hash: its value, and its shape when it has one (07 §12.1). */
+export function viewOutputHash(value: unknown, shape?: ResultShape): Hash {
+  return outputHash(shape ? { value, shape } : value);
+}
+
 /**
  * Race-free live evaluation shared by every backing: the listener is attached
  * before the initial snapshot, events racing an evaluation are checked against
  * both the former and the new sensitivities, identical output hashes publish
  * nothing, and `ready` follows every established snapshot boundary.
  */
-export function liveQueryStream<Execution, Sensitivity, Event, Mount extends LiveMount = LiveMount>(
+export function liveViewStream<Execution, Sensitivity, Event, Mount extends LiveMount = LiveMount>(
   mounts: readonly Mount[],
-  context: LiveQueryContext,
-  adapter: LiveQueryAdapter<Execution, Sensitivity, Event, Mount>,
-): ReadableStream<QueryStreamEvent> {
+  context: LiveViewContext,
+  adapter: LiveViewAdapter<Execution, Sensitivity, Event, Mount>,
+): ReadableStream<ViewEvent> {
   let cancelStream: (() => void) | undefined;
-  return new ReadableStream<QueryStreamEvent>({
+  return new ReadableStream<ViewEvent>({
     start(controller) {
       let closed = false;
       let ready = false;
@@ -69,8 +76,12 @@ export function liveQueryStream<Execution, Sensitivity, Event, Mount extends Liv
         cursor: adapter.currentCursor(),
       }));
       type State = typeof states[number];
+      const resultEvent = (id: string, cursor: string, hash: Hash, execution: Execution): ViewEvent => {
+        const shape = adapter.shape?.(execution);
+        return { type: "result", id, observedThrough: cursor, outputHash: hash, value: adapter.result(execution), ...(shape ? { shape } : {}) };
+      };
       const closeStream = () => { try { controller.close(); } catch {} };
-      const emit = (event: QueryStreamEvent) => {
+      const emit = (event: ViewEvent) => {
         if (closed) return;
         if ((controller.desiredSize ?? 1) <= 0) {
           cleanup();
@@ -103,9 +114,9 @@ export function liveQueryStream<Execution, Sensitivity, Event, Mount extends Liv
             state.execution = execution;
             state.sensitivity = sensitivity;
             state.cursor = adapter.currentCursor();
-            const hash = adapter.outputHash?.(execution) ?? outputHash(adapter.result(execution));
+            const hash = adapter.outputHash?.(execution) ?? viewOutputHash(adapter.result(execution), adapter.shape?.(execution));
             if (publish && hash !== state.hash) {
-              emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, outputHash: hash, value: adapter.result(execution) });
+              emit(resultEvent(state.mount.id, state.cursor, hash, execution));
             }
             state.hash = hash;
             return;
@@ -151,11 +162,11 @@ export function liveQueryStream<Execution, Sensitivity, Event, Mount extends Liv
         for (const state of states) {
           if (!state.execution || !state.hash) continue;
           if (state.hash !== state.mount.knownOutputHash) {
-            emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, outputHash: state.hash, value: adapter.result(state.execution) });
+            emit(resultEvent(state.mount.id, state.cursor, state.hash, state.execution));
           }
         }
         ready = true;
-        emit({ type: "ready", queries: states.map((state) => ({
+        emit({ type: "ready", views: states.map((state) => ({
           id: state.mount.id,
           observedThrough: state.cursor,
           ...(state.hash ? { outputHash: state.hash } : {}),

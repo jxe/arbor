@@ -34,7 +34,7 @@ func render(_ source: NSImage, size: Int, mac: Bool, to url: URL) throws {
     try bitmap.representation(using: .png, properties: [:])!.write(to: url)
 }
 
-for name in ["PageS", "StoryPath", "Doorway"] {
+for name in ["PageS", "StoryPath", "StoryPathWhite", "Doorway"] {
     let master = root.appendingPathComponent("IconPreviews/Story-\(name)-master.png")
     guard let source = NSImage(contentsOf: master) else { fatalError("Missing master: \(master.path)") }
     let set = catalog.appendingPathComponent("\(name == "StoryPath" ? "AppIcon" : name).appiconset")
@@ -62,7 +62,35 @@ for name in ["PageS", "StoryPath", "Doorway"] {
 }
 
 // Retain the previous iOS alternate name across upgrades. The UI still has
-// three choices; fresh/default selection uses the primary AppIcon artwork.
+// four choices; fresh/default selection uses the primary AppIcon artwork.
 let legacy = catalog.appendingPathComponent("StoryPath.appiconset")
 if fm.fileExists(atPath: legacy.path) { try fm.removeItem(at: legacy) }
 try fm.copyItem(at: catalog.appendingPathComponent("AppIcon.appiconset"), to: legacy)
+
+// One alternate icon with native iOS appearance variants. SpringBoard chooses
+// the rendition even while Story is closed; no scheduled alternate-icon calls.
+let automatic = catalog.appendingPathComponent("StoryPathAutomatic.appiconset")
+let automaticPreview = catalog.appendingPathComponent("StoryIconStoryPathAutomatic.imageset")
+try fm.createDirectory(at: automatic, withIntermediateDirectories: true)
+try fm.createDirectory(at: automaticPreview, withIntermediateDirectories: true)
+var automaticImages: [[String: Any]] = []
+var previewImages: [[String: Any]] = []
+for (name, dark) in [("StoryPathWhite", false), ("StoryPath", true)] {
+    let source = NSImage(contentsOf: root.appendingPathComponent("IconPreviews/Story-\(name)-master.png"))!
+    let filename = dark ? "dark.png" : "light.png"
+    try render(source, size: 1024, mac: false, to: automatic.appendingPathComponent(filename))
+    try render(source, size: 1024, mac: true, to: automaticPreview.appendingPathComponent(filename))
+    var icon: [String: Any] = ["idiom": "universal", "platform": "ios", "size": "1024x1024", "filename": filename]
+    var preview: [String: Any] = ["idiom": "universal", "filename": filename]
+    if dark {
+        let appearance = [["appearance": "luminosity", "value": "dark"]]
+        icon["appearances"] = appearance
+        preview["appearances"] = appearance
+    }
+    automaticImages.append(icon)
+    previewImages.append(preview)
+}
+try writeJSON(["images": automaticImages, "info": ["author": "xcode", "version": 1]],
+              to: automatic.appendingPathComponent("Contents.json"))
+try writeJSON(["images": previewImages, "info": ["author": "xcode", "version": 1]],
+              to: automaticPreview.appendingPathComponent("Contents.json"))

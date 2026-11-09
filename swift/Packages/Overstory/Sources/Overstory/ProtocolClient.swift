@@ -196,6 +196,19 @@ public actor ProtocolClient {
         return try ProtocolSnapshotBundleCodec.decode(data, root: root)
     }
 
+    /// A path read (tree operations §1.2.4): the directories from `root` down to
+    /// `path` and the objects of the entries it names, checked against the walk.
+    public func pathRead(tree: String, root: String, path: String) async throws -> [String: Data] {
+        try validateObjectHash(root)
+        var request = try await authorizedRequest(
+            path: "/.overstory/trees/\(component(tree))/snapshots/\(component(root))/path\(try ProtocolPathRead.urlSuffix(path))"
+        )
+        request.setValue("application/cbor", forHTTPHeaderField: "Accept")
+        let (data, response) = try await logged(request, kind: .read, name: "path-read", tree: tree)
+        try validate(data: data, status: try statusCode(response))
+        return try await ProtocolPathRead.decode(data, root: root, path: path)
+    }
+
     /// Descriptive metadata of the current root's file entries: never part of
     /// any hash, and describing `update`, which may be newer than a snapshot
     /// just installed (the watch corrects that).
@@ -353,8 +366,9 @@ public actor ProtocolClient {
         publicKey: String,
         signature: String
     ) async throws {
+        // One route joins a community: with `profile`, as a member homed elsewhere (accounts §1.4).
         let _: PlacementAcceptance = try await put(
-            path: "/.overstory/placements",
+            path: "/.overstory/accounts",
             body: PlacementAcceptanceRequest(
                 account: account, profile: profile, profileTree: profileTree, configurationTree: configurationTree,
                 inviteCode: inviteCode, challenge: challenge, publicKey: publicKey, signature: signature
@@ -404,7 +418,7 @@ public actor ProtocolClient {
     }
 
     public func directory() async throws -> ProtocolRemoteSnapshot<[ProtocolProfileDirectoryEntry]> {
-        try await get(path: "/.overstory/directory")
+        try await get(path: "/.overstory/account/directory")
     }
 
     /// How long a watch stream may go without a byte before it is taken for
@@ -421,9 +435,14 @@ public actor ProtocolClient {
         tree: String,
         after: String? = nil,
         idleTimeout: Duration = ProtocolClient.watchIdleTimeout,
+        withoutObjects: Bool = false,
         onOpen: (@Sendable () async -> Void)? = nil
     ) async throws -> AsyncThrowingStream<ProtocolWatchEvent, Error> {
-        let query = after.map { "?after=\($0.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._~")))!)" } ?? ""
+        // `objects=none` (§1.1.3): frames without objects, for a client that refetches what it holds.
+        var parameters: [String] = []
+        if let after { parameters.append("after=\(after.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._~")))!)") }
+        if withoutObjects { parameters.append("objects=none") }
+        let query = parameters.isEmpty ? "" : "?" + parameters.joined(separator: "&")
         var request = try await authorizedRequest(path: "/.overstory/trees/\(component(tree))/watch\(query)")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         let session = session
@@ -523,6 +542,100 @@ public actor ProtocolClient {
         }
     }
 
+    /// A tree's presence stream (spec 12). Opening it joins the tree's roster
+    /// and closing it leaves; `visible: false` watches without being listed.
+    /// `agent` names an agent entry under the caller's person. Fails with
+    /// `URLError(.timedOut)` after `idleTimeout` without a byte, like `watch`.
+    public func presence(
+        tree: String,
+        visible: Bool = true,
+        agent: String? = nil,
+        device: String? = nil,
+        runner: String? = nil,
+        idleTimeout: Duration = ProtocolClient.watchIdleTimeout,
+        onOpen: (@Sendable () async -> Void)? = nil
+    ) async throws -> AsyncThrowingStream<ProtocolPresenceEvent, Error> {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+        var query: [String] = []
+        if !visible { query.append("visible=false") }
+        if let agent { query.append("agent=\(agent.addingPercentEncoding(withAllowedCharacters: allowed)!)") }
+        if let device { query.append("device=\(device.addingPercentEncoding(withAllowedCharacters: allowed)!)") }
+        if let runner { query.append("runner=\(runner.addingPercentEncoding(withAllowedCharacters: allowed)!)") }
+        let suffix = query.isEmpty ? "" : "?" + query.joined(separator: "&")
+        var request = try await authorizedRequest(path: "/.overstory/trees/\(component(tree))/presence\(suffix)")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        let session = session
+        let credentialProvider = credentialProvider
+        let finalRequest = request
+        return AsyncThrowingStream { continuation in
+            let idle = WatchIdleClock()
+            let task = Task {
+                do {
+                    let (bytes, response) = try await session.bytes(for: finalRequest)
+                    idle.heard()
+                    guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+                    guard http.statusCode < 400 else {
+                        if http.statusCode == 401 { await credentialProvider.invalidate() }
+                        var body = Data()
+                        for try await byte in bytes { body.append(byte) }
+                        throw Self.httpError(data: body, status: http.statusCode)
+                    }
+                    guard http.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("text/event-stream") == true else {
+                        throw ProtocolValidationError.malformedSSE("Presence response is not an event stream")
+                    }
+                    await onOpen?()
+                    var parser = ProtocolSSEParser()
+                    for try await byte in bytes {
+                        idle.heard()
+                        for frame in try parser.append(byte: byte) {
+                            continuation.yield(try ProtocolPresence.decodeEvent(event: frame.event, data: Data(frame.data.utf8)))
+                        }
+                    }
+                    _ = try parser.finish()
+                    continuation.finish()
+                } catch where idle.expired {
+                    continuation.finish(throwing: URLError(.timedOut))
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            let watchdog = Task {
+                await idle.expire(after: idleTimeout)
+                if idle.expired { task.cancel() }
+            }
+            continuation.onTermination = { _ in task.cancel(); watchdog.cancel() }
+        }
+    }
+
+    /// Move this stream's entry: its page, its caret, or (an agent's) status.
+    /// `id` is the `self` the stream's ready event named.
+    public func updatePresence(tree: String, id: String, update: ProtocolPresenceUpdate) async throws {
+        var request = try await authorizedRequest(path: "/.overstory/trees/\(component(tree))/presence/\(component(id))")
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(update)
+        let (data, response) = try await session.data(for: request)
+        let status = try statusCode(response)
+        if status == 401 { await credentialProvider.invalidate() }
+        try validate(data: data, status: status)
+    }
+
+    /// Send `body` from this stream (`from`, its ready event's `stream`) to
+    /// another of the caller's own streams (spec 12 §6).
+    public func sendPresenceMessage(tree: String, from: String, to: String, body: ProtocolPresenceMessageBody) async throws {
+        struct Post: Encodable { var to: String; var body: ProtocolPresenceMessageBody }
+        var request = try await authorizedRequest(path: "/.overstory/trees/\(component(tree))/presence/\(component(from))/messages")
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(Post(to: to, body: body))
+        let (data, response) = try await session.data(for: request)
+        let status = try statusCode(response)
+        if status == 401 { await credentialProvider.invalidate() }
+        try validate(data: data, status: status)
+    }
+
     private func get<T: Decodable>(path: String) async throws -> T {
         try await perform(authorizedRequest(path: path))
     }
@@ -582,9 +695,27 @@ public actor ProtocolClient {
         if let credential = try await credentialProvider.credential() {
             guard !credential.isEmpty else { throw ProtocolValidationError.invalidValue("Credential is empty") }
             request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
+            request.setValue(Self.clientName, forHTTPHeaderField: "Overstory-Client")
         }
         return request
     }
+
+    /// The app and version a host is told it serves, e.g. `Story/0.1.8 (42; iOS)`,
+    /// so its operator can tell which Story each device runs.
+    static let clientName: String = {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let name = info["CFBundleName"] as? String ?? "Overstory"
+        let version = info["StoryDevelopmentVersion"] as? String ?? info["CFBundleShortVersionString"] as? String ?? "0"
+        let build = info["StoryDevelopmentBuild"] as? String ?? info["CFBundleVersion"] as? String ?? "0"
+        #if os(iOS)
+        let platform = "iOS"
+        #elseif os(macOS)
+        let platform = "macOS"
+        #else
+        let platform = "other"
+        #endif
+        return "\(name)/\(version) (\(build); \(platform))"
+    }()
 
     private func url(_ path: String) -> URL { URL(string: path, relativeTo: origin)!.absoluteURL }
 
@@ -753,6 +884,7 @@ private struct PlacementAcceptanceRequest: Encodable {
     var signature: String
 }
 /// The host answers the placement's descriptor; the caller connects to it next.
+/// The answer, `{ account }`; the caller reads the account through a session afterwards.
 private struct PlacementAcceptance: Decodable {}
 private struct DeviceSessionChallengeRequest: Encodable {
     var profileTree: String

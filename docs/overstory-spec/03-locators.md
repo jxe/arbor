@@ -67,6 +67,60 @@ TreeID. A new person-profile TreeID is
 self-certifying as defined by [accounts §1.1](04-accounts-and-devices.md#11-beginning-a-person-identity);
 ordinary and group-profile TreeIDs remain opaque identifiers.
 
+### 1.1 Domain locators
+
+A person may name their profile by a DNS name they control, so that
+`https://alice.example` (or `overstory://alice.example`) names them wherever
+their profile is homed. A profile locator with no path is a **domain
+locator**. Its authority is a DNS name of at least two labels, never an IP
+address; a loopback authority (`127.0.0.1`, `localhost`, `[::1]`, with a port)
+is accepted for local test hosts. Its canonical spelling is its origin, with a
+lowercase host and no implied port.
+
+A domain names a profile only when both directions agree:
+
+1. **The domain names the profile** by its locator at its home host, in a DNS
+   TXT record at `_overstory.<domain>`:
+
+   ```text
+   _overstory.alice.example.  TXT  "profile=https://garden.example/~alice"
+   ```
+
+   or in a JSON file at `https://<domain>/.well-known/overstory-profile`,
+   fetched without following redirects:
+
+   ```json
+   { "profile": "https://garden.example/~alice" }
+   ```
+
+   A record's locator must be a locator at a home host, never another
+   domain. TXT records not beginning `profile=` are ignored. When both forms
+   are published, every `profile=` record and the file must name the same
+   locator; records that disagree, or a malformed one, name nobody. A
+   loopback domain has only the file. When neither can be read, or one cannot
+   and the other names nothing, the lookup is an outage, not an answer.
+2. **The profile names the domain.** The named locator resolves (as any
+   profile locator does) to a person-profile TreeID whose root front matter is
+   `type: person` and lists the domain, as written, in `domains`
+   ([accounts §1](04-accounts-and-devices.md#1-profiles-and-host-accounts)),
+   read anonymously at the home host.
+
+The first stops a profile from claiming a domain it does not control; the
+second stops a domain from claiming a profile that does not want it. A domain
+locator is accepted wherever a profile locator names a person: a rule's
+subject and a group's member. A host pins it to the TreeID it resolved to, as
+above, and resolves it again on the same schedule; the **home host** the
+domain names is remembered with the resolution. When the person moves home
+hosts and updates the record, the pin keeps the same TreeID, so every rule and
+membership written with the domain keeps naming them. A resolution that names
+another TreeID, or none, makes the entry match nobody, as for any pin.
+
+A domain names a person, never a group. A community reservation and an
+invitation accepted as a placement
+([accounts §1.3–1.4](04-accounts-and-devices.md#13-placement-accounts))
+still name the profile by its locator at its home host, since a placement
+account records that home host.
+
 Every successfully resolved node locator yields the same information:
 
 ```text
@@ -114,7 +168,7 @@ The token appears in exactly two places, one per kind of surface:
 | `overstory://`, canonical HTTP, and tree-rooted locators; any locator that also carries a revision or a content fragment | `;overstory-key=<key-token>` on the final path segment |
 | Relative link written in Markdown | `<file>#overstory-key=<key-token>` (§2.1) |
 | Markdown document identity | frontmatter `id: x7f3q2`, which is the key `[["id","x7f3q2"]]` ([directory format](02-directory-format.md#3-properties-markdown-content-and-identity)) |
-| Collection row child segment | the row segment rule of [child backings](06-child-backings.md) (still under review, [Postgres 005](../../plans/later/postgres-005-representation-equivalence.md)) |
+| Collection row child segment | the row segment rule of [child backings](06-child-backings.md) (still under review, [Postgres 001](../../plans/later/postgres-001-postgres-backed-collections.md#open-from-the-old-plans)) |
 
 The suffix supplies the third component of `(TreeID, path, stable key or
 null)`; it is not part of the decoded logical path.
@@ -316,10 +370,61 @@ DNS origin changes neither. A raw `overstory://<TreeID>/...` locator remains the
 primary address when a canonical name is absent, unknown, inaccessible, or
 changing.
 
+### 5.1 Trees at a person's domain
+
+A host may serve one person's trees at a domain they control, so the
+canonical URL of what the host holds at `/~alice/drafts` is
+`https://notes.alice.example/drafts`, and survives a move to another host
+that keeps her trees at the same names. The person points the domain at the
+host in DNS (usually a CNAME to the host's name) and lists it in their profile's
+`domains` ([accounts §1](04-accounts-and-devices.md#1-profiles-and-host-accounts)).
+The host serves the domain only while both directions hold:
+
+1. **The domain reaches the host.** The host fetches
+   `https://<domain>/.overstory/peer/domain-check`, without following redirects,
+   and gets back its own answer: `{ "host": "<token>" }`, a value it chose
+   and serves at every name it answers to. That proves DNS, the certificate
+   and any proxy in front at once. A loopback test domain is fetched over
+   `http`.
+2. **The profile lists the domain.** The profile is a person profile the host
+   holds for one of its own accounts, mounted at a path, and exactly one such
+   profile lists the domain.
+
+The host checks again on the schedule it resolves profile locators on
+(§1), and stops serving a domain when a check gets another answer, when the
+profile no longer lists it, or when it has gone unconfirmed past the grace.
+
+While a domain is served, with the profile's path as its **prefix**:
+
+- **Requests at the domain** have the prefix put in front of their path:
+  `GET /drafts` at the domain is `GET /~alice/drafts`, and
+  `/.well-known/overstory/drafts` is `/.well-known/overstory/~alice/drafts`.
+  `/.overstory/*` routes, which name trees by TreeID, are the same at every
+  name. A path at the domain whose first segment begins with `~` names
+  another account and is redirected to the host's own name.
+  `/.well-known/overstory-profile` at the domain names the profile's
+  locator at the host, so the domain also names the person (§1.1) with no
+  TXT record.
+- **One canonical URL.** A descriptor's `canonical` gains `url`, the tree's
+  canonical HTTP URL, for every tree whose path is at or below the prefix: the
+  domain's origin followed by the path below the prefix. The longest served
+  prefix covering a path decides; with none, there is no `url` and the
+  canonical URL is the endpoint's origin and path, as before. `path` and
+  `endpoint` keep naming the tree at the host, which still resolves and
+  serves it there, so a client that does not know `url` keeps working.
+- **Browsers are sent to it.** An HTML request for a path at or below the
+  prefix at the host's own name is redirected (`301`) to the same path at
+  the domain.
+
+A domain names one profile's trees. Profile locators in rules and group
+members keep their spelling; a domain locator (§1.1) is still how a rule
+names a person by their domain.
+
 ```text
 GET /.overstory/health
 GET /.overstory/integrity
 GET /.overstory/account
+GET /.overstory/account/directory
 GET /.overstory/trees
 GET /.well-known/overstory[/{path}]
 ```
@@ -328,7 +433,14 @@ GET /.well-known/overstory[/{path}]
 server's own database is consistent; poll it freely. It may add `features`, the
 optional protocol features the host serves, such as `"pages-v1"`
 ([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity));
-a host that lists none serves none. `integrity` audits every
+a host that lists none serves none. It states `protocol`, the host protocol level it
+implements, a positive integer; a host that states none is level 1. A level rises when a
+host gains something clients may depend on. A client that needs a higher level than a host
+states must refuse that host and say the host needs updating, rather than talk to it and
+fail in other ways. It adds `"founding": true` while the
+community was founded by code and nobody has claimed it yet
+([accounts §1.2](04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)).
+`integrity` audits every
 object reachable from retained history and can take minutes on a large server;
 concurrent requests share one audit, and it is for operators, not polling.
 
@@ -342,6 +454,28 @@ API. The accepted-update ID remains the content synchronization base;
 `observedThrough` independently records the read/watch boundary. Clients must
 not substitute one for the other, even if an implementation happens to encode
 them identically.
+
+`account/directory` is an optional convenience read: the people and groups
+the authenticated account can see from this host, as
+`{ snapshot: DirectoryEntry[] }`. Everything in it a member could compute from
+trees they already read: the community profile's members, the groups that
+name them, and the profiles named by their own trees' rules
+([access control §4](05-access-control.md#4-reading-access)). A host MAY
+serve it, and it adds nothing a client could not compute itself.
+
+```ts
+type DirectoryEntry = {
+  profile: TreeID;
+  kind: "person" | "group" | "unknown";
+  handle?: string;
+  locator?: string;              // the profile's canonical locator
+  displayName?: string;
+  description?: string;
+  avatar?: { tree: TreeID; path: string; hash: Hash };
+  domain?: string;               // the domain the host serves its trees at (§5.1)
+  sources: ("community" | `group:${TreeID}` | "access")[];
+};
+```
 
 Well-known and canonical-path resolution return `LocatorResolution`, using the
 longest readable registered boundary. Inaccessible nested boundaries cannot be
@@ -359,24 +493,7 @@ type LocatorResolution = {
 
 ## 6. Public HTTP projection
 
-Readable canonical paths have safe HTTP and `overstory://` projections. HTML,
-Markdown, files, and redirects retain canonical tree/path provenance and never
-broaden access. Historical roots remain immutable and read-only. The server
-does not publish or resolve tree configurations.
-
-Stored content is data to the host's origin, never code. A host serves an
-ordinary file under a type a browser will not run or sniff into something
-else: a type it knows to be inert, or opaque bytes offered as a download,
-which is what HTML and SVG are. Every response forbids content-type sniffing
-and framing, and sends no referrer. A page the host renders loads only what
-its own policy names; a script on such a page is permitted by its hash.
-
-Rows of a logical collection have the same ordinary public path and
-stable-key locator projection as expanded children. The parent page lists
-those logical rows rather than `schema.usl` or any placement's projection
-files.
-A path lookup or stable-key lookup may render a row as an HTML property page or
-a Markdown data projection; a stale readable path redirects permanently to the
-current row path while preserving the key, application query, and content
-fragment. Public projection never materializes a row as a Markdown file and
-never exposes the collection's table or rows objects as children.
+Readable canonical paths are also served over plain HTTP: Markdown always,
+HTML and other formats at the host's choice, with stable-key redirects. Those
+reads, and the rules that keep stored content inert, are defined with the
+other reads in [tree operations §1.3](01-tree-operations.md#13-reading-at-the-canonical-url).

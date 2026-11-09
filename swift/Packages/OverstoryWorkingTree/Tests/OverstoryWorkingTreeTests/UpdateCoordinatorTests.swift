@@ -1,3 +1,4 @@
+import OverstoryWorkspace
 import StoryKit
 import OverstoryObjectStore
 @testable import OverstoryWorkingTree
@@ -558,6 +559,44 @@ struct UpdateCoordinatorTests {
         }
     }
 
+    /// A held Option-arrow on a page (its moves address the body) and on a
+    /// block with children (several adjacent spans per step) still publishes
+    /// one move, as a drag to the same place would.
+    @Test("Move bursts on pages and of several spans publish one move", arguments: [false, true])
+    func moveBurstShapes(asPage: Bool) async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_move_shapes"
+            let text = "A\n\nB\n\nC\n\nD\n\nE\n\n"
+            let initial = asPage ? try pageSnapshot(markdown: text) : try snapshot(markdown: text)
+            let transport = acceptingTransport(tree: tree, initial: initial)
+            let workingTree = try await placeWorkingTree(tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"), at: root.appending(path: "replica"), transport: transport)
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root.appending(path: "sync"), publicationDelay: .milliseconds(200), pollInterval: .milliseconds(20))
+            let session = try await noteSession(workingTree, coordinator, tree: tree)
+            // A and B move together, as two spans, down past C and then D.
+            for offset in [0, 3] {
+                let basis = try await session.snapshot()
+                let patch = WorkspaceDocumentPatch(baseContentRevision: basis.contentRevision, edits: [], moves: [
+                    .init(source: offset..<(offset + 3), anchor: (offset + 6)..<(offset + 9), side: .after),
+                    .init(source: (offset + 3)..<(offset + 6), anchor: offset..<(offset + 3), side: .after),
+                ])
+                _ = try await session.admit(intent: .init(basis: basis, patch: patch, source: patch.applying(to: basis.source)))
+                try await Task.sleep(for: .milliseconds(80))
+            }
+            #expect(try await session.snapshot().source == "C\n\nD\n\nA\n\nB\n\nE\n\n")
+            try await waitUntil { let sent = await transport.requests.count; return await coordinator.syncState.kind == "current" && sent > 0 }
+            let requests = await transport.requests
+            #expect(requests.count == 1)
+            let update = try #require(try requests.first?.decodedRequest().updates.first)
+            #expect(update.trace?.count == 1)
+            #expect(update.trace?.first?.operations.count == 1)
+            let operation = try #require(update.trace?.first?.operations.first)
+            #expect(operation.kind == "moveSource")
+            let object = initial.objects.first { $0.hash != initial.root }!.hash
+            #expect(operation.fields["source"] == .object(["material": .object(["kind": .string("basis"), "path": .string("/note.md"), "object": .string(object)]), "range": .array([.integer(0), .integer(6)])]))
+            await coordinator.close()
+        }
+    }
+
     @Test("Captured activity holds publication across slow admission and overlapping sessions")
     func sourceActivityWaitsForDrain() async throws {
         try await withTemporaryRoot { root in
@@ -652,7 +691,10 @@ struct UpdateCoordinatorTests {
             #expect(following.updates.count == 2)
             #expect(Array(requests[1].requestDigests.prefix(1)) == requests[0].requestDigests)
             #expect(following.updates[0].objects.isEmpty)
-            #expect(following.updates[1].trace?.count == 37)
+            // The 37 offline appends compose into one edit of the first basis (Merge 002).
+            #expect(following.updates[1].trace?.count == 1)
+            #expect(following.updates[1].trace?.first?.operations.map(\.kind) == ["editSource"])
+            #expect(following.updates[1].trace?.first?.operations.first?.fields["text"] == .string((1...37).map { "Offline \($0)\n" }.joined()))
 
             await reconnect.value
             try await waitUntil { await coordinator.syncState.kind == "current" }
@@ -1534,6 +1576,36 @@ private func snapshot(markdown: String) throws -> ProtocolSnapshot {
     return ProtocolSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
 }
 
+/// `note.md` beside `siblings` small pages spread over folders of ten.
+private func benchmarkSnapshot(markdown: String, siblings: Int) throws -> ProtocolSnapshot {
+    var objects: [ProtocolObjectEnvelope] = []
+    let note = try ProtocolObjectCodec.object(.file(Data(markdown.utf8)))
+    objects.append(note)
+    var entries = [ProtocolDirectoryEntry(name: "note.md", file: note.hash)]
+    for folder in stride(from: 0, to: siblings, by: 10) {
+        var children: [ProtocolDirectoryEntry] = []
+        for index in folder..<min(folder + 10, siblings) {
+            let body = "# Page \(index)\n\n" + String(repeating: "Some words on page \(index).\n", count: 40)
+            let file = try ProtocolObjectCodec.object(.file(Data(body.utf8)))
+            objects.append(file)
+            children.append(.init(name: "page-\(index).md", file: file.hash))
+        }
+        let directory = try ProtocolObjectCodec.object(.directory(children.sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }))
+        objects.append(directory)
+        entries.append(.init(name: "folder-\(folder / 10)", directory: directory.hash))
+    }
+    let root = try ProtocolObjectCodec.object(.directory(entries.sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }))
+    objects.append(root)
+    return ProtocolSnapshot(root: root.hash, objects: Dictionary(objects.map { ($0.hash, $0) }, uniquingKeysWith: { a, _ in a }).values.sorted { $0.hash < $1.hash })
+}
+
+/// `note.md` stored as a page object, as in a tree converted to pages.
+private func pageSnapshot(markdown: String) throws -> ProtocolSnapshot {
+    let page = try ProtocolObjectCodec.object(.page(try #require(ProtocolPage.parse(Data(markdown.utf8)))))
+    let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", page: page.hash)]))
+    return ProtocolSnapshot(root: root.hash, objects: [page, root].sorted { $0.hash < $1.hash })
+}
+
 private func snapshot(files: [String: String]) throws -> ProtocolSnapshot {
     var objects: [ProtocolObjectEnvelope] = []
     let entries = try files.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }.map { name in
@@ -1648,8 +1720,8 @@ private func accepted(id: String, tree: String, root: String, base: String, cand
 }
 
 /// Test-local placement: install the transport's current complete snapshot as
-/// the accepted base of a fresh durable working tree (what the app's
-/// `WorkingTreePlacementService` in `OverstoryClient` does).
+/// the accepted base of a fresh durable working tree (what a Replica `TreeSession`
+/// in `OverstoryClient` does when it places a tree).
 private func placeWorkingTree(
     tree: ProtocolTreeDescriptor,
     at root: URL,
@@ -1812,6 +1884,54 @@ struct SourceSessionPublicationTests {
             #expect(try await session.snapshot().source == "Fourth\n")
             #expect(try await coordinator.presentation().state == .current)
             await coordinator.close(); await session.close(); await tree.close()
+        }
+    }
+
+    /// Benchmark, run on request: `STORY_APPEND_BENCH=1 swift test --filter appendCost`.
+    /// Typing into a 64 KB page, one character per append, with nothing
+    /// published, so the change log keeps growing as it does while offline or
+    /// between batches. Prints the median append and its phases.
+    @Test("Append cost on a large page")
+    func appendCost() async throws {
+        guard ProcessInfo.processInfo.environment["STORY_APPEND_BENCH"] != nil else { return }
+        try await withTemporaryRoot { root in
+            var lines: [String] = []
+            for index in 0..<2_000 where lines.joined(separator: "\n").utf8.count < 64 * 1024 {
+                lines.append(index % 12 == 0 ? "\n## Section \(index)\n" : "- [ ] Item \(index): " + String(repeating: "some words about the task ", count: 1 + index % 4))
+            }
+            // STORY_APPEND_BENCH_SIBLINGS=N adds N small pages in folders
+            // beside the large one, shaped like a real tree.
+            let siblings = Int(ProcessInfo.processInfo.environment["STORY_APPEND_BENCH_SIBLINGS"] ?? "0") ?? 0
+            let initial = try benchmarkSnapshot(markdown: lines.joined(separator: "\n") + "\n", siblings: siblings)
+            let tree = try await makeTree(initial, update: "up_initial")
+            let transport = SourceModeTransport(initial: initial, peer: initial)
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let log = ProtocolNetworkLog(directory: root.appending(path: "network"))
+            ProtocolNetworkLog.install(log)
+            defer { ProtocolNetworkLog.install(nil) }
+            var basis = try await coordinator.sourceSnapshot(.init(tree: treeID, path: "/note"))
+            var durations: [Double] = []
+            let count = Int(ProcessInfo.processInfo.environment["STORY_APPEND_BENCH_N"] ?? "60") ?? 60
+            for index in 0..<count {
+                let at = 2_000 + index, source = String(basis.source.utf8.prefix(at))! + "x" + String(basis.source.utf8.dropFirst(at))!
+                let intent = try WorkspaceDocumentIntent(basis: basis, patch: .init(baseContentRevision: basis.contentRevision,
+                    edits: [.init(utf8Range: at..<at, replacement: "x", expected: "")]), source: source)
+                let started = Date()
+                basis = try await coordinator.appendSourceIntent(intent)
+                durations.append(Date().timeIntervalSince(started) * 1000)
+            }
+            let notes = log.entries().filter { $0.name == "change-log-append" }
+            var phases: [String: [Double]] = [:]
+            for note in notes {
+                let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(note)) as? [String: Any]
+                for (name, value) in json?["phases"] as? [String: Double] ?? [:] { phases[name, default: []].append(value) }
+            }
+            func median(_ values: [Double]) -> Double { let sorted = values.sorted(); return sorted.isEmpty ? 0 : sorted[sorted.count / 2] }
+            let journal = try FileManager.default.attributesOfItem(atPath: root.appending(path: "sync/change-log.json").path)[.size] as? Int ?? 0
+            print("append-cost appends=\(count) median=\(median(durations)) ms p90=\(durations.sorted()[count * 9 / 10]) ms journal=\(journal) bytes")
+            print("append-cost phases " + phases.keys.sorted().map { "\($0)=\(median(phases[$0]!))" }.joined(separator: " "))
+            #expect(try await coordinator.sourceSnapshot(.init(tree: treeID, path: "/note")).source == basis.source)
+            await coordinator.close(); await tree.close()
         }
     }
 

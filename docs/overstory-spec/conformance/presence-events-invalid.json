@@ -1,0 +1,148 @@
+{
+  "description": "Presence frames a client must reject (spec 12 \u00a73).",
+  "cases": [
+    {
+      "name": "unknown-event",
+      "event": "presence.typing",
+      "data": {
+        "id": "pr_ana"
+      }
+    },
+    {
+      "name": "negative-offset",
+      "event": "presence.cursor",
+      "data": {
+        "id": "pr_ana",
+        "selection": {
+          "source": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "anchor": -1,
+          "head": 0
+        }
+      }
+    },
+    {
+      "name": "offset-past-bound",
+      "event": "presence.cursor",
+      "data": {
+        "id": "pr_ana",
+        "selection": {
+          "source": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "anchor": 4294967296,
+          "head": 0
+        }
+      }
+    },
+    {
+      "name": "missing-source",
+      "event": "presence.cursor",
+      "data": {
+        "id": "pr_ana",
+        "selection": {
+          "anchor": 0,
+          "head": 0
+        }
+      }
+    },
+    {
+      "name": "status-over-bound",
+      "event": "presence.peer",
+      "data": {
+        "id": "pr_agent",
+        "profile": "tr_anaprofile",
+        "name": null,
+        "page": null,
+        "agent": {
+          "label": "Claude",
+          "status": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      }
+    },
+    {
+      "name": "multi-line-status",
+      "event": "presence.peer",
+      "data": {
+        "id": "pr_agent",
+        "profile": "tr_anaprofile",
+        "name": null,
+        "page": null,
+        "agent": {
+          "label": "Claude",
+          "status": "one\ntwo"
+        }
+      }
+    },
+    {
+      "name": "ready-without-peers",
+      "event": "presence.ready",
+      "data": {
+        "self": null
+      }
+    },
+    {
+      "name": "message-unknown-kind",
+      "event": "presence.message",
+      "data": {
+        "from": "pr_mac",
+        "body": {
+          "kind": "answer",
+          "question": "q1",
+          "text": "yes"
+        }
+      }
+    },
+    {
+      "name": "message-run-with-space",
+      "event": "presence.message",
+      "data": {
+        "from": "pr_mac",
+        "body": {
+          "kind": "stop",
+          "run": "run 1"
+        }
+      }
+    },
+    {
+      "name": "message-run-without-page",
+      "event": "presence.message",
+      "data": {
+        "from": "pr_phone",
+        "body": {
+          "kind": "run",
+          "request": {
+            "tree": "https://garden.example/~ana",
+            "page": null,
+            "task": {
+              "text": "x",
+              "range": null
+            },
+            "run": "r1"
+          }
+        }
+      }
+    },
+    {
+      "name": "message-done-without-result",
+      "event": "presence.message",
+      "data": {
+        "from": "pr_mac",
+        "body": {
+          "kind": "done",
+          "run": "r1"
+        }
+      }
+    },
+    {
+      "name": "runner-label-two-lines",
+      "event": "presence.peer",
+      "data": {
+        "id": "pr_mac",
+        "profile": "tr_a",
+        "name": null,
+        "page": null,
+        "agent": null,
+        "device": "mac",
+        "runner": "Ana's\nMac"
+      }
+    }
+  ]
+}

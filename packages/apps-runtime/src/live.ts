@@ -1,8 +1,19 @@
-import { stableJSONString, type QueryHandleRef, type QueryStreamEvent, type QueryStreamRequest, type QueryStreamRuntime } from "@ovst/protocol";
-import { liveQueryStream, type LiveQueryAdapter, type LiveQueryContext, type MountedQuery } from "./live-stream.ts";
-
-export type { MountedQuery } from "./live-stream.ts";
-import type { OverstoryUser, PredicateExpression, QueryHandle, QueryPlan, SelectionPlan, ValueExpression } from "./authoring.ts";
+import {
+  liveViewStream,
+  stableJSONString,
+  type Hash,
+  type HandleRef,
+  type LiveViewAdapter,
+  type LiveViewContext,
+  type ReadPath,
+  type ViewAnswerForm,
+  type ViewEvent,
+  type ViewMount,
+  type ViewsRequest,
+  type ViewsRuntime,
+} from "@ovst/protocol";
+import type { NodeHandle, OverstoryUser, PredicateExpression, QueryPlan, SelectionPlan, ValueExpression } from "./authoring.ts";
+import { runView, type ReadRules, type View, type ViewRun } from "./views.ts";
 import type { ResolvedStorySource, StoreSchema } from "./schema.ts";
 import { SQLiteQueryEngine, type QueryExecution } from "./sqlite.ts";
 import { SQLiteStoreBroker, type SQLiteRowChange, type SQLiteStoreChange } from "./observer.ts";
@@ -28,14 +39,25 @@ interface QuerySensitivity {
   user: OverstoryUser | null;
 }
 
-function refKey(ref: QueryHandleRef): string {
-  return `${ref.tree}\0${ref.module}\0${ref.export}\0${ref.version}`;
+export function handleRefKey(ref: HandleRef): string {
+  return `${ref.tree}\0${ref.path}\0${ref.name}\0${ref.version}`;
 }
 
 function addValue(fields: Set<string>, value: ValueExpression, schema: StoreSchema, relation: string, relations: Map<string, RelationSensitivity>): void {
-  if (value.kind === "field") fields.add(value.field);
+  if (value.kind === "field") {
+    if (!value.scope || value.scope === "self") fields.add(value.field);
+    // Another row's field: that row's own plan depends on it. A helper variable's field
+    // makes its whole relation opaque (see addPredicate).
+    return;
+  }
   if (value.kind !== "count") return;
   const metadata = schema.relationships[`${relation}.${value.relationship}`]!;
+  if (value.where) {
+    const target = relationSensitivity(relations, metadata.target, false);
+    target.opaque = true;
+    target.unfiltered = true;
+    for (const field of Object.keys(schema.relations[metadata.target]!.fields)) target.fields.add(field);
+  }
   for (const pair of metadata.direct ?? metadata.through!.source) fields.add(pair.source);
   if (metadata.direct) {
     const target = relationSensitivity(relations, metadata.target, false);
@@ -49,8 +71,18 @@ function addValue(fields: Set<string>, value: ValueExpression, schema: StoreSche
 function addPredicate(fields: Set<string>, predicate: PredicateExpression, schema: StoreSchema, relation: string, relations: Map<string, RelationSensitivity>): void {
   if (predicate.kind === "logical") {
     for (const operand of predicate.operands) addPredicate(fields, operand, schema, relation, relations);
+  } else if (predicate.kind === "not") {
+    addPredicate(fields, predicate.operand, schema, relation, relations);
+  } else if (predicate.kind === "some") {
+    // A helper variable: any change to its relation may change which rows match.
+    const helper = relationSensitivity(relations, predicate.relation, false);
+    helper.opaque = true;
+    helper.unfiltered = true;
+    for (const field of Object.keys(schema.relations[predicate.relation]!.fields)) helper.fields.add(field);
+    addPredicate(fields, predicate.where, schema, relation, relations);
   } else if (predicate.kind === "exists") {
-    const metadata = schema.relationships[`${relation}.${predicate.relationship}`]!;
+    const from = predicate.scope && predicate.scope !== "self" ? predicate.relation : relation;
+    const metadata = schema.relationships[`${from}.${predicate.relationship}`]!;
     for (const pair of metadata.direct ?? metadata.through!.source) fields.add(pair.source);
     const target = relationSensitivity(relations, metadata.target, false);
     target.opaque = true;
@@ -61,6 +93,10 @@ function addPredicate(fields: Set<string>, predicate: PredicateExpression, schem
       through.unfiltered = true;
       for (const pair of [...metadata.through!.source, ...metadata.through!.target]) through.fields.add(pair.through);
       for (const pair of metadata.through!.target) target.fields.add(pair.target);
+    }
+    if (predicate.keys) {
+      target.unfiltered = true;
+      if (metadata.through) relationSensitivity(relations, metadata.through.relation, false).unfiltered = true;
     }
     if (predicate.where) {
       target.predicates.push(predicate.where);
@@ -117,9 +153,12 @@ function sensitivity(schema: StoreSchema, plan: QueryPlan, input: unknown, user:
 function predicateMatches(predicate: PredicateExpression | undefined, row: Record<string, unknown> | null, query: QuerySensitivity): boolean {
   if (!row) return false;
   // A count or some() depends on other rows, so the row alone cannot rule the predicate out.
+  const scoped = (value: ValueExpression) => value.kind === "count" || (value.kind === "field" && Boolean(value.scope) && value.scope !== "self");
   const containsCount = (value: PredicateExpression): boolean => value.kind === "logical"
     ? value.operands.some(containsCount)
-    : value.kind === "exists" || value.left.kind === "count" || value.right.kind === "count";
+    : value.kind === "not"
+      ? containsCount(value.operand)
+      : value.kind === "exists" || value.kind === "some" || scoped(value.left) || scoped(value.right);
   if (predicate && containsCount(predicate)) return true;
   return evaluateQueryPredicate(predicate, row, query);
 }
@@ -151,68 +190,94 @@ function relevant(event: Invalidation, query: QuerySensitivity, execution?: Quer
 }
 
 function safeError(error: unknown) {
-  const message = error instanceof Error && /input|required|not found|missing/i.test(error.message)
+  const message = error instanceof Error && /input|required|not found|missing|missed/i.test(error.message)
     ? error.message
-    : "The query could not be evaluated";
+    : "The view could not be evaluated";
   return { code: "invalid-request", message, retryable: false } as const;
 }
 
+/** A view mounted on a stream, with how its sources resolve. */
+export interface MountedView {
+  id: string;
+  handle: View<any, unknown>;
+  input?: unknown;
+  form?: ViewAnswerForm;
+  missed?: ReadPath[];
+  knownOutputHash?: Hash;
+  /** Binds each source the view reads, as its activation does. */
+  resolve: (source: NodeHandle) => Promise<ResolvedStorySource>;
+}
+
+export interface LiveViewBrokerOptions {
+  /** The host's read rules, by model. */
+  readRules?: ReadRules;
+  /** Model paths for row identity, by relation. */
+  modelPaths?: Record<string, string>;
+}
+
+/** What one run of a view is sensitive to: each plan it ran, with that execution. */
+type ViewSensitivity = Array<{ query: QuerySensitivity; execution: QueryExecution<unknown> }>;
+
 /** Coordinates store/profile cursors and owns the race-free subscription state machines. */
-export class LiveQueryBroker implements AsyncDisposable {
+export class LiveViewBroker implements AsyncDisposable {
   private readonly listeners = new Set<(event: Invalidation) => void>();
   private sequence = 0;
   private readonly stopStore: () => void;
   private readonly stopProfiles: () => void;
 
-  constructor(readonly engine: SQLiteQueryEngine, readonly store: SQLiteStoreBroker) {
+  constructor(readonly engine: SQLiteQueryEngine, readonly store: SQLiteStoreBroker, readonly options: LiveViewBrokerOptions = {}) {
     this.stopStore = store.subscribe((change) => this.publish({ cursor: this.nextCursor(), kind: "store", change }));
     this.stopProfiles = engine.subscribeProfiles((change) => this.publish({ cursor: this.nextCursor(), kind: "profile", ...change }));
   }
 
-  currentCursor(): string { return `query:${this.sequence}`; }
+  currentCursor(): string { return `view:${this.sequence}`; }
 
-  /** How many query streams are open on this broker. */
+  /** How many view streams are open on this broker. */
   get listening(): number { return this.listeners.size; }
 
   reload(reason: "source-changed" | "access-changed"): void {
     this.publish({ cursor: this.nextCursor(), kind: "reload", reason });
   }
 
-  stream(mounts: readonly MountedQuery[], context: LiveQueryContext): ReadableStream<QueryStreamEvent> {
+  /** One run of a view, as a stream evaluates it. */
+  run(mount: Omit<MountedView, "id">, user: OverstoryUser | null): Promise<ViewRun<unknown>> {
+    return runView(mount.handle, {
+      engine: this.engine,
+      resolve: mount.resolve,
+      input: mount.input,
+      user,
+      ...(this.options.readRules ? { readRules: this.options.readRules } : {}),
+      ...(mount.missed ? { missed: mount.missed } : {}),
+      ...(mount.form ? { form: mount.form } : {}),
+      ...(this.options.modelPaths ? { modelPaths: this.options.modelPaths } : {}),
+    });
+  }
+
+  stream(mounts: readonly MountedView[], context: LiveViewContext): ReadableStream<ViewEvent> {
     const broker = this;
-    const sensitivities = new Map<MountedQuery, QuerySensitivity>();
-    const querySensitivity = (mount: MountedQuery): QuerySensitivity => {
-      let value = sensitivities.get(mount);
-      if (!value) {
-        value = sensitivity(broker.engine.schema, mount.handle.plan, mount.input, context.user);
-        sensitivities.set(mount, value);
-      }
-      return value;
-    };
-    const adapter: LiveQueryAdapter<QueryExecution<unknown>, QuerySensitivity, Invalidation, MountedQuery> = {
+    const adapter: LiveViewAdapter<ViewRun<unknown>, ViewSensitivity, Invalidation, MountedView> = {
       currentCursor: () => broker.currentCursor(),
       subscribe(listener) {
         broker.listeners.add(listener);
         return () => broker.listeners.delete(listener);
       },
-      initialSensitivity: querySensitivity,
-      execute: (mount) => broker.engine.execute(mount.handle, { input: mount.input, user: context.user }),
-      sensitivity: (mount) => querySensitivity(mount),
-      relevant: (event, mount, query, execution) => relevant(event, query ?? querySensitivity(mount), execution),
-      result: (execution) => execution.result,
+      execute: (mount) => broker.run(mount, context.user),
+      sensitivity: (mount, run) => run.ran.map(({ plan, execution }) => ({
+        query: sensitivity(broker.engine.schema, plan.plan, mount.input, context.user),
+        execution,
+      })),
+      // Before a view's first run its plan is unknown, so every event is relevant.
+      relevant: (event, _mount, plans) => !plans || event.kind === "reload" || plans.some(({ query, execution }) => relevant(event, query, execution)),
+      result: (run) => run.output,
+      shape: (run) => run.shape,
       safeError,
       reload: (event) => event.kind === "reload" ? event.reason : undefined,
     };
-    return liveQueryStream(mounts, context, adapter);
+    return liveViewStream(mounts, context, adapter);
   }
 
   private nextCursor(): string { this.sequence += 1; return this.currentCursor(); }
   private publish(event: Invalidation): void { for (const listener of [...this.listeners]) listener(event); }
-
-  bind(handle: QueryHandle<unknown, unknown>, source?: ResolvedStorySource): void {
-    if (!source) throw new Error("SQLite query handles require a resolved source binding");
-    this.engine.bind(handle, source);
-  }
 
   async [Symbol.asyncDispose](): Promise<void> {
     this.stopStore();
@@ -221,31 +286,39 @@ export class LiveQueryBroker implements AsyncDisposable {
   }
 }
 
-export class RegisteredQueryRuntime implements QueryStreamRuntime {
-  private readonly handles = new Map<string, QueryHandle<unknown, unknown>>();
+/** The views of one document, by handle: what a `views` request may mount. */
+export class RegisteredViewRuntime implements ViewsRuntime {
+  private readonly views = new Map<string, { handle: View<any, unknown>; resolve: MountedView["resolve"] }>();
 
   constructor(
-    readonly document: QueryStreamRequest["document"],
-    readonly broker: Pick<LiveQueryBroker, "bind" | "stream">,
-    entries: readonly { ref: QueryHandleRef; handle: QueryHandle<unknown, unknown>; source?: ResolvedStorySource }[],
+    readonly document: ViewsRequest["document"],
+    readonly broker: Pick<LiveViewBroker, "stream">,
+    entries: readonly { ref: HandleRef; handle: View<any, unknown>; resolve: MountedView["resolve"] }[],
   ) {
-    for (const entry of entries) {
-      this.broker.bind(entry.handle, entry.source);
-      this.handles.set(refKey(entry.ref), entry.handle);
-    }
+    for (const entry of entries) this.views.set(handleRefKey(entry.ref), { handle: entry.handle, resolve: entry.resolve });
   }
 
-  stream(request: QueryStreamRequest, context: { signal: AbortSignal; user: OverstoryUser | null }): ReadableStream<QueryStreamEvent> {
+  stream(request: ViewsRequest, context: { signal: AbortSignal; user: OverstoryUser | null }): ReadableStream<ViewEvent> {
     if (stableJSONString(request.document) !== stableJSONString(this.document)) throw new Error("The mounted document version is not active");
-    if (!Array.isArray(request.queries)) throw new Error("queries must be an array");
-    const ids = new Set<string>();
-    const mounts = request.queries.map((mount): MountedQuery => {
-      if (!mount.id || ids.has(mount.id)) throw new Error("Mounted query ids must be non-empty and unique");
-      ids.add(mount.id);
-      const handle = this.handles.get(refKey(mount.handle));
-      if (!handle) throw new Error("A mounted query handle or version is not active");
-      return { id: mount.id, tree: mount.handle.tree, handle, input: mount.input, knownOutputHash: mount.knownOutputHash };
-    });
-    return this.broker.stream(mounts, context);
+    return this.broker.stream(viewMounts(request, (ref) => this.views.get(handleRefKey(ref))), context);
   }
+}
+
+/** Check a `views` request's mounts and pair each with its view. */
+export function viewMounts<Entry>(
+  request: ViewsRequest,
+  find: (ref: HandleRef) => Entry | undefined,
+): Array<Omit<ViewMount, "handle"> & { ref: HandleRef } & Entry> {
+  if (!Array.isArray(request.views) || request.views.length === 0) throw new Error("views must be a nonempty array");
+  const ids = new Set<string>();
+  return request.views.map((mount) => {
+    if (typeof mount.id !== "string" || !mount.id || ids.has(mount.id)) throw new Error("Mounted view ids must be non-empty and unique");
+    ids.add(mount.id);
+    if (mount.form !== undefined && mount.form !== "value" && mount.form !== "rows" && mount.form !== "tree") throw new Error("A view's form must be value, rows or tree");
+    if (mount.missed !== undefined && !Array.isArray(mount.missed)) throw new Error("missed must be an array of read paths");
+    const entry = find(mount.handle);
+    if (!entry) throw new Error("A mounted view handle or version is not active");
+    const { handle: ref, ...rest } = mount;
+    return { ...rest, ref, ...entry };
+  });
 }

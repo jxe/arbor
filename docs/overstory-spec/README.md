@@ -69,6 +69,7 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 | [authoring API](08-authoring-api.md) | The `overstory/react` and `overstory/data` packages, React Actions, hooks, and styling an executable document is written against |
 | [working-tree updates](09-client-synchronization.md), with [the update machine's runner](../implementing-sync-services/update-machine.md) | The update machine a working tree runs against Overstory: durable heads with their objects, sparse install entry, one self-contained prepared request in flight, one retained successor, validated apply, accepted conflicts as ordinary acceptance, and exact ambiguous recovery |
 | [schema language](11-schema-language.md) | Ultimate Schema Language (`.usl`): models, enums, connections and keys; the model, storage (`@`) and presentation (`~`) layers; default views; fingerprints; the relational layout; and limits |
+| [presence](12-presence.md) | Who else is in a tree: the roster, the page each person or agent is on, cursors between people on one page, and an agent's status; ephemeral, never part of a tree |
 
 The specification map does not report implementation progress. See
 [status.md](../../status.md) for that boundary and [`conformance/`](conformance) for
@@ -89,15 +90,32 @@ Every HTTP route an Overstory host exposes, and the section that defines it.
 
 | Route | Defined in |
 |---|---|
-| `GET /.overstory/health`, `GET /.overstory/integrity`, `GET /.overstory/account`, `GET /.overstory/trees`, `GET /.well-known/overstory[/{path}]` | [locators §5](03-locators.md#5-finding-trees) |
+| `GET /.overstory/health`, `GET /.overstory/integrity`, `GET /.overstory/account`, `GET /.overstory/account/directory` (optional), `GET /.overstory/trees`, `GET /.well-known/overstory[/{path}]` | [locators §5](03-locators.md#5-finding-trees) |
 | `GET /.overstory/trees/{TreeID}`, `/snapshots/{root}`, `/entry-metadata`, `/objects/{hash}` | [tree reads §1.1–1.2](01-tree-operations.md#1-reading-trees) |
+| `GET /.overstory/trees/{TreeID}/snapshots/{root}/path/{path}` | [path reads §1.2.4](01-tree-operations.md#124-reading-a-path) |
+| `GET /.overstory/trees/{TreeID}/conflicts` | [reading conflicts §1.2.3](01-tree-operations.md#123-reading-conflicts) |
+| `GET {canonical URL}{/path}` (Markdown; HTML optional) | [reading at the canonical URL §1.3](01-tree-operations.md#13-reading-at-the-canonical-url) |
 | `POST /.overstory/trees/{TreeID}/updates` | [updates §2.1](01-tree-operations.md#21-the-update-request) |
 | `GET /.overstory/trees/{TreeID}/watch` | [watching §1.1.3](01-tree-operations.md#113-watching) |
-| `QUERY /.overstory/trees/{TreeID}/queries` | [executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-named-queries) |
+| `GET /.overstory/trees/{TreeID}/presence`, `POST /.overstory/trees/{TreeID}/presence/{PresenceID}[/messages]` | [presence §3](12-presence.md#3-routes) |
+| `QUERY /.overstory/trees/{TreeID}/views` | [executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-views) |
 | `POST /.overstory/trees/{TreeID}/mutate` | [executable documents §12.2](07-executable-documents.md#122-execute-named-mutations) |
 | `GET /.overstory/trees/{TreeID}/access` | [access control §4](05-access-control.md#4-reading-access) |
-| `POST /.overstory/account-challenges`, `PUT /.overstory/accounts` | [accounts §1.1–1.3](04-accounts-and-devices.md#11-beginning-a-person-identity) |
+| `POST /.overstory/account-challenges`, `PUT /.overstory/accounts` (a new home, or with `profile` a member) | [accounts §1.1–1.4](04-accounts-and-devices.md#11-beginning-a-person-identity) |
 | `POST /.overstory/pairings`, `PUT /.overstory/pairings/{PairingID}/claim` | [accounts §5](04-accounts-and-devices.md#5-device-pairing) |
+| `POST /.overstory/device-sessions/challenges`, `POST /.overstory/device-sessions` | [accounts §5.1](04-accounts-and-devices.md#51-device-sessions) |
+
+Routes one host calls on another live under `/.overstory/peer/`; no client
+needs them:
+
+| Route | Defined in |
+|---|---|
+| `GET /.overstory/peer/profiles/{ProfileTreeID}/device-keys` | [accounts §5.4](04-accounts-and-devices.md#54-published-device-keys) |
+| `GET https://{domain}/.overstory/peer/domain-check` | [locators §5.1](03-locators.md#51-trees-at-a-persons-domain) |
+
+A host also reads another host's public trees (a remote group's members) with
+the ordinary tree reads above. A host's own processes, such as its execution
+sidecar, never reach it through a public route.
 
 Authentication headers apply to every route ([access control §2](05-access-control.md#2-authentication-and-secrets)); shared read values are introduced with [tree reads §1.1](01-tree-operations.md#1-reading-trees), while SSE framing and common errors are in [encoding §4.2](01-tree-operations.md#42-stream-framing-and-errors).
 
@@ -145,7 +163,7 @@ inline mention links here; accepted implementation work is indexed under
 5. **External-store change log and checkpoint format** for synchronizing Postgres placements. Logical collections, SQLite projections included, synchronize as row operations with a logical hash ([child backings §2](06-child-backings.md#2-logical-collections)); an external store has no such form yet ([child backings §1.1](06-child-backings.md#11-child-backings)).
 6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](07-executable-documents.md#131-agent-files)).
 7. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#overstory-key=` alias has no room for a heading; such a link uses the `;overstory-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](03-locators.md#21-links-written-in-markdown)).
-8. **Portable authored ordering, relationships, joins, aggregates, and pagination** in the query language; today they are capability extensions ([executable documents](07-executable-documents.md#4-queries)).
+8. **Grouping, aggregates other than counts, pagination, and unbounded traversal** in views; today they are capability extensions ([executable documents](07-executable-documents.md#4-queries)).
 9. **A capability field that may reference a `system:` address** without making it a content locator ([locators](03-locators.md#1-forms)).
 10. **Additional fine-grained operation families** beyond the resource operations defined in access control. Scoped grants are now specified; exact-state preconditions remain concurrency guards, not permissions ([updates §2.2](01-tree-operations.md#22-reconciliation-and-exact-state-preconditions), [access control §4](05-access-control.md#4-reading-access)).
 11. **Several simultaneous local placements of one TreeID**, including the ownership and conflict rules needed when more than one path is writable.

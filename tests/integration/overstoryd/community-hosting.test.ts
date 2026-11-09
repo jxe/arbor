@@ -1,4 +1,4 @@
-import { activationElement, decodeProtocolDirectory, encodeProtocolDirectory, generateOverstoryID, hashObject, sha256, safeResourceRule, HostAccountStore, ProtocolClient } from "@ovst/protocol";
+import { activationElement, decodeProtocolDirectory, encodeProtocolDirectory, generateOverstoryID, hashObject, inviteCodeDigest, sha256, safeResourceRule, HostAccountStore, ProtocolClient } from "@ovst/protocol";
 import { LocalAccountService } from "../../../packages/story-sync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
 import { StorySyncDaemon } from "@ovst/story-sync";
-import { loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
+import { editTreeFile, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
 import { initialPersonConfig, readTreeConfigGraph, snapshotTreeConfig, snapshotTreeConfigFiles, treeConfigurationID, type TreeConfigValues } from "@ovst/protocol";
 import { editTreeConfig, hostTree, readTreeConfig } from "../../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
@@ -92,23 +92,14 @@ describe("client-generated profile and account bootstrap", () => {
    */
   async function inviteAndClaim(handle: string, inviteCode: string, rewrite: (source: string, digest: string) => string) {
     const origin = new URL(running.url).origin;
-    const digest = `sha256:${sha256(inviteCode)}`;
+    const digest = inviteCodeDigest(inviteCode);
     const community = running.overstoryd.community();
-    const head = await owner.descriptor(community.id);
-    const snapshot = await owner.snapshot(community.id, head.tree.root);
-    const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
-    const index = root.entries.find((entry) => entry.name === "_index.md")!.file!;
-    const source = new TextDecoder().decode(snapshot.objects.get(index)!);
-    const invited_source = rewrite(source, digest);
-    expect(invited_source).not.toBe(source);
-    const bytes = new TextEncoder().encode(invited_source);
-    const file = hashObject(bytes);
-    const rootBytes = encodeProtocolDirectory({
-      type: "directory",
-      entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file } : entry),
+    let invited_source = "";
+    await editTreeFile(owner, community.id, "_index.md", (source) => {
+      invited_source = rewrite(source, digest);
+      expect(invited_source).not.toBe(source);
+      return invited_source;
     });
-    const candidate = { root: hashObject(rootBytes), objects: new Map([...snapshot.objects, [file, bytes], [hashObject(rootBytes), rootBytes]]) };
-    await owner.submitUpdate(community.id, head.tree.update, candidate, { ifCurrent: head.tree.update });
     expect(running.overstoryd.accountReservation(`${origin}/~${handle}`)?.inviteDigest).toBe(digest);
 
     const identity = testProfileIdentity();
@@ -372,7 +363,7 @@ describe("client-generated profile and account bootstrap", () => {
       expect(await readFile(join(home, "configurations", configurationTree, "devices.yaml"), "utf8")).toContain(`key: ${claimed.deviceKey}`);
 
       // A recovered profile still needs a new authorized device on a claimed account.
-      const originalCredential = await bootstrap.credentialToken(configurationTree);
+      const originalCredential = (await new HostAccountStore(configurationTree).get())!.accountToken;
       const offer = await new ProtocolClient(running.url, originalCredential).createPairing();
       const backupPath = join(sandbox, "charlie-identity-backup.json");
       await new ProfileIdentityStore().backup(backupPath, "charlie's passphrase");
@@ -396,7 +387,7 @@ describe("client-generated profile and account bootstrap", () => {
         await paired.claimPairing();
         expect(await paired.pendingPairing()).toBeNull();
         expect(await paired.accountList()).toMatchObject([{ configurationTree, profileTree: localProfileTree, credentialAvailable: true }]);
-        const token = await paired.credentialToken(configurationTree);
+        const token = (await new HostAccountStore(configurationTree).get())!.accountToken;
         expect(token).not.toBe(originalCredential);
         // Pairing gives the new device its own key, not a credential.
         const pairedRecord = (await new HostAccountStore(configurationTree).safe())!;
@@ -793,6 +784,54 @@ describe("membership does not administer the host", () => {
       expect(host.overstoryd.ruleProfiles(community.id).sort()).toEqual([founderIdentity.profileTree]);
       // The founder still can.
       expect((await founder.treeConfiguration(community.id)).tree.id).toBe(configuration);
+    } finally {
+      host.server.stop(true);
+      await host.overstoryd[Symbol.asyncDispose]();
+    }
+  });
+
+  test("a host founded by code makes the first claimer of its founder invitation the administrator", async () => {
+    const founderCode = "founderfounderfounderf";
+    const host = await serveHost({
+      dataRoot: join(sandbox, "code-founded-host"),
+      publicOrigin: "http://127.0.0.1:0",
+      hostname: "127.0.0.1",
+      port: 0,
+      community: { handle: "commons", name: "Commons", firstWriter: { handle: "founder", inviteCode: founderCode } },
+    });
+    try {
+      const community = host.overstoryd.community();
+      const health = async () => await (await fetch(`${host.url}/.overstory/health`)).json() as { founding?: boolean };
+      // Before the claim nobody's profile is named, and the host says it is founding.
+      expect(host.overstoryd.founding()).toBe(true);
+      expect(host.overstoryd.unclaimedFounderHandle()).toBe("founder");
+      expect(await health()).toMatchObject({ status: "ok", founding: true });
+      expect(host.overstoryd.ruleProfiles(community.id)).toEqual([community.id]);
+
+      const founderIdentity = testProfileIdentity();
+      await expect(claimAccount(host, founderIdentity, "founder", "wrongwrongwrongwrongwr")).rejects.toThrow();
+      const founder = await claimAccount(host, founderIdentity, "founder", founderCode);
+      const founderAccount = host.overstoryd.account(founderIdentity.profileTree)!;
+      expect(host.overstoryd.canAdminister(founderAccount, community)).toBe(true);
+      expect((await readTreeConfig(founder, community.id, "group")).values.access).toEqual([
+        { who: { profile: founderIdentity.profileTree }, allow: ["admin"] },
+        { who: "everyone", allow: ["read"] },
+      ]);
+      expect(host.overstoryd.founding()).toBe(false);
+      expect(host.overstoryd.unclaimedFounderHandle()).toBeNull();
+      expect((await health()).founding).toBeUndefined();
+      expect(host.overstoryd.communityMembers()).toContainEqual({ profile: `overstory://${founderIdentity.profileTree}/`, handle: "founder" });
+
+      // A later invitation makes a member who administers nothing.
+      const inviteCode = "secondsecondsecondseco";
+      const invitation = await communityWith(founder, community.id, (source) =>
+        source.replace("members:\n", `members:\n  - handle: "second"\n    inviteDigest: "sha256:${sha256(inviteCode)}"\n`));
+      await founder.submitUpdate(community.id, invitation.head.tree.update, invitation.candidate);
+      const secondIdentity = testProfileIdentity();
+      await claimAccount(host, secondIdentity, "second", inviteCode);
+      const secondAccount = host.overstoryd.account(secondIdentity.profileTree)!;
+      expect(host.overstoryd.canAdminister(secondAccount, community)).toBe(false);
+      expect(host.overstoryd.ruleProfiles(community.id)).toEqual([founderIdentity.profileTree]);
     } finally {
       host.server.stop(true);
       await host.overstoryd[Symbol.asyncDispose]();

@@ -4,12 +4,6 @@ import { json } from "./http.ts";
 
 export function accountHandler(service: LocalAccountService) {
   return async (request: Request, url: URL): Promise<Response | undefined> => {
-    if (request.method === "GET" && url.pathname === "/v1/credential") {
-      // Deliberate loopback exposure (see docs/architecture/story-sync/data-home.md).
-      const configurationTree = url.searchParams.get("configurationTree") ?? undefined;
-      const origin = url.searchParams.get("origin") ?? undefined;
-      return json({ token: await service.credentialToken(configurationTree, origin) });
-    }
     if (request.method === "GET" && url.pathname === "/v1/accounts") {
       const [accounts, identity, pendingClaim, pendingPairing] = await Promise.all([service.accountList(), service.profileIdentity(), service.pendingClaim(), service.pendingPairing()]);
       return json({ accounts, identity, pendingClaim, pendingPairing });

@@ -1,4 +1,4 @@
-import StoryKit
+import OverstoryWorkspace
 import Foundation
 
 /// A workspace over one working tree. With a coordinator, every write is a
@@ -39,17 +39,24 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
     }
 
     public func resolve(_ reference: WorkspaceReference) async throws -> WorkspaceNode {
+        try await workingTree.ensureLoaded(reference.path)
         if let coordinator {
             return try await coordinator
                 .sourceReadProvider(readOnly: readOnly, materializedRoot: materializedRoot)
                 .resolve(reference)
         }
         if let diagnostic = try await diagnostic(for: reference) { return diagnostic }
-        let record = try await workingTree.resolve(reference)
+        let record: WorkingTreeNode
+        if let found = try? await workingTree.resolve(reference) { record = found } else {
+            // A page that moved is found by its ID, which may be anywhere.
+            if reference.stableKey != nil, await workingTree.hasUnloadedDirectories() { try await workingTree.loadEverything() }
+            record = try await workingTree.resolve(reference)
+        }
         return try await workspaceNode(record)
     }
 
     public func children(of reference: WorkspaceReference) async throws -> [WorkspaceNode] {
+        try await workingTree.ensureLoaded(reference.path, children: true)
         if let coordinator {
             return try await coordinator
                 .sourceReadProvider(readOnly: readOnly, materializedRoot: materializedRoot)
@@ -67,6 +74,8 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
         let replicaTree = await workingTree.treeID()
         guard tree == replicaTree else { return [] }
         guard try await workingTree.heads().generation >= 0 else { return [] }
+        // Search reads every page, so a lazy tree loads them all once.
+        try await workingTree.loadEverything()
         let entries = try await workingTree.search(query)
         let backlinkCounts = try await workingTree.backlinkCountsByPath()
         var results: [WorkspaceSearchResult] = []
@@ -106,6 +115,18 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
 
     public func perform(_ action: WorkspaceStructuralAction) async throws -> WorkspaceNode? {
         if readOnly { throw WorkspaceProviderError.invalidAction("This tree is read-only") }
+        switch action {
+        case let .createMarkdown(parent, _, _), let .createDirectory(parent, _):
+            try await workingTree.ensureLoaded(parent.path)
+        case let .rename(reference, _), let .trash(reference), let .restore(reference):
+            try await workingTree.ensureLoaded(reference.path)
+        case let .move(reference, destination):
+            try await workingTree.ensureLoaded(reference.path)
+            try await workingTree.ensureLoaded(destination.path)
+        case let .copy(reference, destination):
+            try await workingTree.loadSubtree(reference.path)
+            try await workingTree.ensureLoaded(destination.path)
+        }
         if let coordinator { return try await coordinator.appendStructure(.action(action)) }
         let node: WorkingTreeNode
         switch action {
@@ -129,6 +150,7 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
 
     public func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceStoredAsset {
         if readOnly { throw WorkspaceProviderError.readOnly(parent) }
+        try await workingTree.ensureLoaded(parent.path)
         if let coordinator {
             let node = try await coordinator.appendStructure(.asset(asset, parent: parent))
             return WorkspaceStoredAsset(reference: node.reference, markdownSource: node.reference.path)
@@ -139,12 +161,16 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
     }
 
     public func readFile(_ reference: WorkspaceReference) async throws -> Data {
+        try await workingTree.ensureLoaded(reference.path)
         if let coordinator { return try await coordinator.sourceReadProvider(readOnly: readOnly).readFile(reference) }
         return try await workingTree.fileBytes(reference)
     }
 
     public func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession {
-        let node = try await resolve(reference)
+        try await openDocument(resolved: try await resolve(reference))
+    }
+
+    public func openDocument(resolved node: WorkspaceNode) async throws -> any WorkspaceDocumentSession {
         guard node.surface.supportsDocumentSession else { throw WorkspaceProviderError.notDocument(node.reference) }
         return WorkingTreeDocumentSession(
             workingTree: workingTree,
@@ -155,6 +181,7 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
     }
 
     public func collectionRows(_ reference: WorkspaceReference) async throws -> WorkspaceCollectionRows {
+        try await workingTree.ensureLoaded(reference.path)
         if let coordinator {
             var collection = try await coordinator
                 .sourceReadProvider(readOnly: readOnly, materializedRoot: materializedRoot)
@@ -172,6 +199,7 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
 
     public func appendRowEdits(_ edits: [RowEdit], to reference: WorkspaceReference) async throws {
         guard !readOnly, let coordinator else { throw WorkspaceProviderError.readOnly(reference) }
+        try await workingTree.ensureLoaded(reference.path)
         let node = try await workingTree.resolve(reference)
         guard node.kind == .directory, node.collection != nil else { throw WorkspaceCollectionError.notCollection }
         try await coordinator.appendRows(collection: node.path, edits)
@@ -185,6 +213,7 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
         in parent: WorkspaceReference
     ) async throws -> WorkspaceNode {
         if readOnly { throw WorkspaceProviderError.readOnly(parent) }
+        try await workingTree.ensureLoaded(parent.path)
         if let coordinator {
             return try await coordinator.appendStructure(.imported(name: name, bytes: bytes, mediaType: mediaType, parent: parent))
         }

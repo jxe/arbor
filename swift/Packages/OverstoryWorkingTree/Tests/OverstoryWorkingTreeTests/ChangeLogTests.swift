@@ -1,3 +1,4 @@
+import OverstoryWorkspace
 import StoryKit
 import OverstoryObjectStore
 import Overstory
@@ -193,6 +194,15 @@ struct ChangeLogTests {
         #expect(created.update.trace?.count == 1 && created.update.trace?.first?.operations.count == 1)
         #expect(added.kind == "addEntry")
         #expect(added.fields["value"] == .object(["file": .string(ProtocolObjectCodec.hash(file))]))
+        // In a tree that holds pages, the created Markdown is a page entry.
+        var pageBytes = Data()
+        let pageEntry = ProtocolDirectoryEntry.markdown(name: String(f.createdPath.dropFirst()), bytes: file, pages: true) { pageBytes = $0; return ProtocolObjectCodec.hash($0) }
+        let pageHash = try #require(pageEntry.page)
+        let pageRoot = try ProtocolObjectCodec.encode(.directory([pageEntry] + entries))
+        let pageCandidate = ProtocolSnapshot(root: ProtocolObjectCodec.hash(pageRoot), objects: graph.objects.filter { $0.hash != graph.root } + [pageBytes, pageRoot].map { .init(hash: ProtocolObjectCodec.hash($0), bytes: $0) })
+        let createdPage = try LocalChange(change: "page-creation", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: pageCandidate,
+            creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: [f.createdPath]))
+        #expect(createdPage.update.trace?.first?.operations.first?.fields["value"] == .object(["page": .string(pageHash)]))
         #expect(throws: (any Error).self) {
             try LocalChange(change: "wrong", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: candidate,
                 creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: ["/elsewhere"]))
@@ -431,5 +441,42 @@ extension ChangeLogTests {
             #expect(record.update.trace?.first?.operations.first?.kind == kind.rawValue)
             #expect(throws:(any Error).self) { try EntryTransfer(kind:kind,source:"/nested",parent:"/nested",name:"loop").prepare(graph:graph) }
         }
+    }
+}
+
+extension ChangeLogTests {
+    @Test("Each retain appends one line; restarts, torn tails and schema 4 journals still load")
+    func appendOnlyJournal() async throws {
+        let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+        let all = try records(f), path = root.appending(path: "sync/change-log.json")
+        let queue = try await ChangeLog(tree: f.tree, stateRoot: root)
+        for record in all { try await queue.retain(record) }
+        func lines() throws -> [Substring] { String(decoding: try Data(contentsOf: path), as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false).map { $0 } }
+        var text = try lines()
+        #expect(text.count == all.count + 2)
+        #expect(text.first?.contains("\"schema\":5") == true)
+        #expect(text.last == "")
+        #expect(try await ChangeLog(tree: f.tree, stateRoot: root).retained() == all)
+
+        // A line whose fsync never returned was never acknowledged: dropped
+        // on load, and the next retain rewrites the journal without it.
+        let handle = try FileHandle(forWritingTo: path)
+        try handle.seekToEnd(); try handle.write(contentsOf: Data("{\"change\":\"half".utf8)); try handle.close()
+        let reopened = try await ChangeLog(tree: f.tree, stateRoot: root)
+        #expect(try await reopened.retained() == all)
+        try await reopened.retain(all[0])
+        text = try lines()
+        #expect(text.count == all.count + 2)
+        #expect(!text.contains { $0.contains("half") })
+
+        // Schema 4 kept every record in one document; it loads, and the
+        // first retain rewrites it as schema 5.
+        let records = text.dropFirst().dropLast().joined(separator: ",")
+        try Data("{\"records\":[\(records)],\"schema\":4,\"tree\":\"\(f.tree)\"}".utf8).write(to: path)
+        let legacy = try await ChangeLog(tree: f.tree, stateRoot: root)
+        #expect(try await legacy.retained() == all)
+        try await legacy.retain(all[0])
+        #expect(try lines().first?.contains("\"schema\":5") == true)
+        #expect(try await ChangeLog(tree: f.tree, stateRoot: root).retained() == all)
     }
 }

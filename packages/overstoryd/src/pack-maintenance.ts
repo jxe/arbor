@@ -5,18 +5,18 @@ import { ObjectStore, type PackCandidate } from "@ovst/object-store";
 import { decodeProtocolDirectory, protocolObjectReferences, type ObjectHash } from "@ovst/protocol";
 
 /**
- * overstoryd 001: packs cold loose objects in the background. One coordinator
+ * overstoryd 001: packs cold loose and journaled objects in the background. One coordinator
  * per process owns packing; at most one pass runs at a time and an accepted
  * update never waits for it.
  *
- * - **Trigger.** Loose objects are counted at startup and as this process
+ * - **Trigger.** Unpacked objects are counted at startup and as this process
  *   writes them. After an acceptance (`notify`) a pass is scheduled once the
  *   count or bytes cross the high thresholds; notifications coalesce, and the
  *   pass waits for `debounceMs` without new ones. A startup check and a
  *   low-frequency idle check pick up leftovers; neither scans when the counts
  *   show nothing to do.
- * - **What is packed.** Loose objects older than `minAgeMs`, outside every
- *   tree's current closure (the hot set stays loose), in batches of at most
+ * - **What is packed.** Loose and journaled objects unused for `minAgeMs`,
+ *   outside every tree's current closure (the hot set stays where it is), in batches of at most
  *   `batchObjects` / `batchBytes`, yielding between batches. Each object's
  *   document is its `document_versions` stable key, else its path in the
  *   accepted root that introduced it, or its tree's log for log entries; each
@@ -146,7 +146,12 @@ export class PackMaintenance {
     // Recover anything an interrupted pass left: unindexed packs.
     await this.objects.packs.removeOrphans();
     const cutoff = Date.now() - this.options.minAgeMs;
+    // Accepted objects arrive in journals, uncompressed; older objects (and
+    // scratch) may be loose files. Both are packed the same way.
     const files = await looseObjects(this.root);
+    const loose = new Set(files.map((f) => f.hash));
+    for (const j of this.objects.packs.journaled())
+      if (!loose.has(j.hash)) files.push({ hash: j.hash, size: j.size, mtimeMs: j.usedAt });
     report.scanned = files.length;
     this.loose = { objects: files.length, bytes: files.reduce((n, f) => n + f.size, 0), counted: true };
     this.written = this.objects.writes.written;
@@ -176,6 +181,9 @@ export class PackMaintenance {
       this.loose.objects -= result.packed; this.loose.bytes -= result.bytes;
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
+    // Journals packing emptied go; mostly emptied ones are rewritten.
+    await this.objects.packs.removeOrphans();
+    await this.objects.packs.compactJournals();
     return finish();
   }
 

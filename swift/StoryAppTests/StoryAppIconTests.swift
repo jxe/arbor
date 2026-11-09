@@ -9,6 +9,17 @@ import UIKit
 
 @MainActor
 struct StoryAppIconTests {
+    @Test("Automatic follows appearance while manual choices keep their artwork")
+    func appearanceArtwork() {
+        #expect(StoryAppIcon.storyPathAutomatic.artwork(dark: false) == .storyPathWhite)
+        #expect(StoryAppIcon.storyPathAutomatic.artwork(dark: true) == .storyPath)
+        #expect(StoryAppIcon.storyPathAutomatic.alternateName == "StoryPathAutomatic")
+        for icon in StoryAppIcon.allCases where icon != .storyPathAutomatic {
+            #expect(icon.artwork(dark: false) == icon)
+            #expect(icon.artwork(dark: true) == icon)
+        }
+    }
+
     @Test("Every selectable icon ships with its artwork")
     func bundledArtwork() throws {
         for icon in StoryAppIcon.allCases {

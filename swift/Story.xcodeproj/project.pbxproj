@@ -44,8 +44,8 @@
 		C8A9FA9F81FECD5E612F0AA2 /* StoryAgentBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4988444CA00D5B4D30BFBF9 /* StoryAgentBundle.swift */; };
 		CA85B46BB61B308F925E9604 /* StoryKeyboardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE70BB2343F0C606EBDF1758 /* StoryKeyboardShortcuts.swift */; };
 		DC195F88AFB0BFE2E6B25729 /* StoryStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C14AB815B7145C5339991F4C /* StoryStyle.swift */; };
+		E3BA4D6DB172720A64B7F725 /* StoryPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F06684E0194970A0FFCCBB4E /* StoryPresence.swift */; };
 		E4481610264F1B4CAAB5BAE9 /* StoryCommandLineTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008227DF4607F9664CCB42A5 /* StoryCommandLineTool.swift */; };
-		E4BF163FE09061A7048C47A2 /* StorySyncLoopbackServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2310FA6DF2AC58696C3C95AF /* StorySyncLoopbackServices.swift */; };
 		E87B9ECB8BFADFF66D64855D /* StoryMenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E461AB2FE619EC60E92149F0 /* StoryMenuBar.swift */; };
 		F0D0D4EA48061940AE8B1FE4 /* OverstoryWorkingTree in Frameworks */ = {isa = PBXBuildFile; productRef = 8AE1991A365BDE555AEF9AD2 /* OverstoryWorkingTree */; };
 		F5A083DC712E9DDC2FB183A2 /* HostAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA3B5A57DFF35B1C2881F8B /* HostAccountService.swift */; };
@@ -72,7 +72,6 @@
 		0FDE2E5423C22378EE9EAC6B /* StoryUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryUpdates.swift; sourceTree = "<group>"; };
 		184C527B9CD3A7F77F069911 /* StoryAppIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryAppIcon.swift; sourceTree = "<group>"; };
 		1EBBD6708255637AC1839184 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		2310FA6DF2AC58696C3C95AF /* StorySyncLoopbackServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncLoopbackServices.swift; sourceTree = "<group>"; };
 		2497A2CC0E8257903E8DD80B /* StoryKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = StoryKit; path = Packages/StoryKit; sourceTree = SOURCE_ROOT; };
 		287F638B398B35FFB4041DD4 /* StorySyncAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySyncAccountService.swift; sourceTree = "<group>"; };
 		28B12A0A099353DC70B96556 /* StoryOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryOnboarding.swift; sourceTree = "<group>"; };
@@ -110,6 +109,7 @@
 		ECF67517026BEB4C160F1B29 /* StorySaveDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorySaveDiagnostics.swift; sourceTree = "<group>"; };
 		EEFC87D3C02AC6C37B8443A9 /* StoryConflictReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryConflictReview.swift; sourceTree = "<group>"; };
 		F061F4EB3A1DDA2E7D8C0AB2 /* StoryRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryRootView.swift; sourceTree = "<group>"; };
+		F06684E0194970A0FFCCBB4E /* StoryPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryPresence.swift; sourceTree = "<group>"; };
 		F6B87FA2419E6805DE2A2DD2 /* VoiceRecordingIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecordingIntents.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -149,7 +149,6 @@
 			isa = PBXGroup;
 			children = (
 				287F638B398B35FFB4041DD4 /* StorySyncAccountService.swift */,
-				2310FA6DF2AC58696C3C95AF /* StorySyncLoopbackServices.swift */,
 				9B8C17FDB69A068E8A9CECD2 /* StorySyncProcessSupervisor.swift */,
 				0DC1C9155C6415735EFB900D /* StorySyncProtocol.swift */,
 				570CA5BE42A3C7740713926E /* StorySyncRESTClient.swift */,
@@ -193,6 +192,7 @@
 				E461AB2FE619EC60E92149F0 /* StoryMenuBar.swift */,
 				50109D993611D59CF73FE0A4 /* StoryNetworkLogView.swift */,
 				28B12A0A099353DC70B96556 /* StoryOnboarding.swift */,
+				F06684E0194970A0FFCCBB4E /* StoryPresence.swift */,
 				D3BA07DA90783DCD9751C14D /* StoryPresentedCollection.swift */,
 				F061F4EB3A1DDA2E7D8C0AB2 /* StoryRootView.swift */,
 				ECF67517026BEB4C160F1B29 /* StorySaveDiagnostics.swift */,
@@ -405,13 +405,13 @@
 				E87B9ECB8BFADFF66D64855D /* StoryMenuBar.swift in Sources */,
 				8DD71641C8A544EDA9AF2731 /* StoryNetworkLogView.swift in Sources */,
 				2389F5B89ABF83893F8BFCED /* StoryOnboarding.swift in Sources */,
+				E3BA4D6DB172720A64B7F725 /* StoryPresence.swift in Sources */,
 				AA89544D1E5D6CBF675BD8B1 /* StoryPresentedCollection.swift in Sources */,
 				4DBBBC75E90C949DA011A17B /* StoryRootView.swift in Sources */,
 				25D14DC831AB83257FF4873C /* StorySaveDiagnostics.swift in Sources */,
 				DC195F88AFB0BFE2E6B25729 /* StoryStyle.swift in Sources */,
 				59689CDA70B7E65EB5053F64 /* StorySupportDirectories.swift in Sources */,
 				8D88B8400395C24C848086F9 /* StorySyncAccountService.swift in Sources */,
-				E4BF163FE09061A7048C47A2 /* StorySyncLoopbackServices.swift in Sources */,
 				6A886DB15992427E3D306299 /* StorySyncProcessSupervisor.swift in Sources */,
 				43B73395F5BC136A8F372B5B /* StorySyncProtocol.swift in Sources */,
 				7E28C9228D2AD90BA27BBCC8 /* StorySyncRESTClient.swift in Sources */,
@@ -459,7 +459,7 @@
 		17BE8B39E81FDB4DE146193A /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "PageS Doorway StoryPath";
+				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "PageS Doorway StoryPath StoryPathWhite StoryPathAutomatic";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = StoryApp/Story.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
@@ -637,7 +637,7 @@
 		A52BA58663741C732CE6D70E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "PageS Doorway StoryPath";
+				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "PageS Doorway StoryPath StoryPathWhite StoryPathAutomatic";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = StoryApp/Story.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
@@ -726,7 +726,7 @@
 			repositoryURL = "https://github.com/jxe/quagmire.git";
 			requirement = {
 				kind = exactVersion;
-				version = 0.13.0;
+				version = 0.16.0;
 			};
 		};
 		97E52E48EF9329B6E13CFB4D /* XCRemoteSwiftPackageReference "Sparkle" */ = {

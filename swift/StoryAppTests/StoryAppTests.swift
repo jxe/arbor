@@ -14,6 +14,31 @@ import AppKit
 
 @MainActor
 struct StoryAppTests {
+    @Test("An invitation code's digest matches the shared vectors")
+    func invitationVectors() throws {
+        struct Vectors: Decodable {
+            struct Invitation: Decodable { let code: String; let digest: String }
+            let invitations: [Invitation]
+        }
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appending(path: "../../docs/overstory-spec/conformance/invitations.json")
+        let vectors = try JSONDecoder().decode(Vectors.self, from: Data(contentsOf: url))
+        #expect(!vectors.invitations.isEmpty)
+        for vector in vectors.invitations {
+            #expect(StoryInvitation(code: vector.code).digest == vector.digest)
+        }
+        #expect(StoryInvitation().code.count == 22)
+    }
+
+    @Test("A host's health states its protocol level; none is level 1, and a non-health answer none")
+    func hostProtocolLevels() {
+        #expect(StoryHostCompatibility.hostProtocol(fromHealth: Data(#"{"status":"ok","protocol":2}"#.utf8)) == 2)
+        #expect(StoryHostCompatibility.hostProtocol(fromHealth: Data(#"{"status":"ok"}"#.utf8)) == 1)
+        #expect(StoryHostCompatibility.hostProtocol(fromHealth: Data(#"{"status":"ok","protocol":0}"#.utf8)) == 1)
+        #expect(StoryHostCompatibility.hostProtocol(fromHealth: Data("<html>".utf8)) == nil)
+        #expect(StoryHostCompatibility.message(.init(host: "garden.example", hostProtocol: 1)).contains("garden.example"))
+    }
+
 #if os(macOS)
     @Test("Focus regions include native sibling controls and field-editor owners, but exclude document focus")
     func surfaceFocusOwnership() throws {
@@ -442,21 +467,6 @@ struct StoryAppTests {
     }
 
 #if os(macOS)
-    @Test("A placement host's refused credential reads as a refusal naming the home host")
-    func placementCredentialRefusal() {
-        func refusal(_ status: Int, retryable: Bool) -> ProtocolHTTPError {
-            StorySyncServerError(status: status, value: StorySyncErrorValue(
-                code: status == 409 ? "unauthenticated" : "internal-error", message: "refused", retryable: retryable,
-                tree: nil, path: nil, details: .object(["homeHost": .string("https://garden.example")])
-            )).credentialRefusal
-        }
-        let unreachable = refusal(503, retryable: true)
-        #expect(unreachable.status == 503 && unreachable.retryable)
-        #expect(unreachable.localizedDescription.contains("can't reach the account's home host, garden.example"))
-        let unlisted = refusal(409, retryable: false)
-        #expect(unlisted.status == 401 && unlisted.homeHost == "https://garden.example")
-    }
-
     @Test("Bootstrap rejection banner includes the daemon's explanation")
     func rejectedBootstrapShowsServerExplanation() throws {
         let error = StorySyncServerError(
@@ -581,6 +591,7 @@ struct StoryAppTests {
         #expect(!StorySupportDirectories.pendingVoiceRecordings.path.contains("Hunch"))
     }
 
+#if os(macOS)
     @Test("An agent code derives the device the shared vectors name")
     func agentCodeVectors() throws {
         struct Vectors: Decodable {
@@ -600,6 +611,7 @@ struct StoryAppTests {
         #expect(StoryAgentCode("short") == nil)
         #expect(StoryAgentCode().code.count == 22)
     }
+#endif
 
     @Test("The sample pages open on a page that edits, with the others beside it")
     func tourProvider() async throws {
@@ -805,35 +817,6 @@ struct StoryAppTests {
         #expect(StoryIncomingLocator(try #require(URL(string: "overstory://tr_alice/#overstory-invite=c0de"))) == nil)
         // The old segment parameter is gone, with no alias.
         #expect(StoryIncomingLocator(try #require(URL(string: "overstory://arb.example/~alice;overstory-invite=c0de"))) == nil)
-    }
-
-    @Test("A visit sparsifies a complete snapshot to directories and Markdown")
-    func visitSnapshotSparsification() throws {
-        let markdown = try ProtocolObjectCodec.object(.file(Data("# Note\n".utf8)))
-        let image = try ProtocolObjectCodec.object(.file(Data([0x89, 0x50, 0x4E, 0x47])))
-        let nestedDirectory = try ProtocolObjectCodec.object(.directory([
-            ProtocolDirectoryEntry(name: "photo.png", file: image.hash),
-        ]))
-        let root = try ProtocolObjectCodec.object(.directory([
-            ProtocolDirectoryEntry(name: "assets", directory: nestedDirectory.hash),
-            ProtocolDirectoryEntry(name: "cover.png", file: image.hash),
-            ProtocolDirectoryEntry(name: "note.md", file: markdown.hash),
-        ]))
-        let complete = ProtocolSnapshot(root: root.hash, objects: [root, nestedDirectory, markdown, image])
-        let sparse = try StoryVisitSnapshot.sparsified(complete)
-        #expect(Set(sparse.spine.objects.map(\.hash)) == [root.hash, nestedDirectory.hash, markdown.hash])
-        let objects = try ProtocolObjectGraph.validate(sparse.spine, mode: .sparseFiles)
-        #expect(objects[image.hash] == nil)
-        guard case let .directory(rootEntries, _)? = objects[root.hash],
-              case let .directory(nestedEntries, _)? = objects[nestedDirectory.hash] else {
-            Issue.record("Sparse snapshot must retain both directories")
-            return
-        }
-        #expect(rootEntries.first { $0.name == "cover.png" }?.file == image.hash)
-        #expect(nestedEntries.first { $0.name == "photo.png" }?.file == image.hash)
-        let replacement = try StoryVisitSnapshot.replacement(complete, tree: "tr_visit", update: "up_visit", cursor: "up_visit")
-        #expect(replacement.root == root.hash)
-        #expect(replacement.nodes.map(\.path).sorted() == ["/", "/assets", "/assets/photo.png", "/cover.png", "/note"])
     }
 #endif
 
@@ -1833,7 +1816,7 @@ struct StoryAppTests {
     /// claims an account into the test data home, places a disposable folder,
     /// and runs this suite with `STORY_TEST_TREE` naming that tree. The signed
     /// app supervises its bundled control-mode helper on the test port, opens
-    /// the tree through `/v1/bootstrap`, edits its own working tree, and the
+    /// the tree through Story Sync's standard reads, edits its own working tree, and the
     /// edit reaches the folder through the host and the daemon.
     @Test("The signed app opens a placed tree through its bundled control daemon and edits it")
     func hostedPlacedTreeSmoke() async throws {

@@ -15,6 +15,12 @@ export interface LocalPlacement {
    * Absent means the home host.
    */
   host?: string;
+  /**
+   * A read-only placement: the folder follows a tree this profile may only
+   * read, at any host, through an account there, a visitor session
+   * (accounts §5.6), or anonymously. Story Sync never publishes its edits.
+   */
+  readOnly?: true;
 }
 
 export interface LocalPlacementsSnapshot {
@@ -51,23 +57,26 @@ export function placementsFilePath(): string {
  * One placement's value: a TreeID, hosted at the profile's home host, or a
  * mapping `{ tree, host }` naming the placement host's origin.
  */
-function placementEntry(value: unknown, label: string): { tree: TreeID; host?: string } {
+function placementEntry(value: unknown, label: string): { tree: TreeID; host?: string; readOnly?: true } {
   if (typeof value === "string") return { tree: configurationTreeID(value, label) };
   const entry = record(value, label);
   for (const key of Object.keys(entry)) {
-    if (key !== "tree" && key !== "host") throw new Error(`${label} has an unknown field: ${key}`);
+    if (key !== "tree" && key !== "host" && key !== "access") throw new Error(`${label} has an unknown field: ${key}`);
   }
   const tree = configurationTreeID(entry.tree, `${label}.tree`);
-  if (entry.host === undefined) return { tree };
+  if (entry.access !== undefined && entry.access !== "read") throw new Error(`${label}.access may only be read`);
+  const readOnly = entry.access === "read" ? { readOnly: true as const } : {};
+  if (entry.host === undefined) return { tree, ...readOnly };
   if (typeof entry.host !== "string" || !isHomeHostOrigin(entry.host)) {
     throw new Error(`${label}.host must be an HTTPS origin such as https://host.example`);
   }
-  return { tree, host: entry.host };
+  return { tree, host: entry.host, ...readOnly };
 }
 
-/** The YAML value `placements.yaml` stores for a placement: its TreeID, or `{ tree, host }` on a placement host. */
-function placementValue(placement: LocalPlacement): string | { tree: string; host: string } {
-  return placement.host ? { tree: placement.tree, host: placement.host } : placement.tree;
+/** The YAML value `placements.yaml` stores for a placement: its TreeID, or a mapping on a placement host or read only. */
+function placementValue(placement: LocalPlacement): string | { tree: string; host?: string; access?: "read" } {
+  if (!placement.host && !placement.readOnly) return placement.tree;
+  return { tree: placement.tree, ...(placement.host ? { host: placement.host } : {}), ...(placement.readOnly ? { access: "read" as const } : {}) };
 }
 
 export function parseLocalPlacements(source: string): LocalPlacement[] {
@@ -85,10 +94,10 @@ export function parseLocalPlacements(source: string): LocalPlacement[] {
       if (!isAbsolute(path) || normalize(path) !== path) throw new Error(`Placement path must be canonical and absolute: ${path}`);
       if (paths.has(path)) throw new Error(`Placement path appears in several accounts: ${path}`);
       paths.add(path);
-      const { tree, host } = placementEntry(treeValue, `placements.yaml.${configurationTree}.${path}`);
+      const { tree, host, readOnly } = placementEntry(treeValue, `placements.yaml.${configurationTree}.${path}`);
       if (trees.has(tree)) throw new Error(`Tree appears in several placements: ${tree}`);
       trees.add(tree);
-      placements.push({ configurationTree, path, tree, ...(host ? { host } : {}) });
+      placements.push({ configurationTree, path, tree, ...(host ? { host } : {}), ...(readOnly ? { readOnly } : {}) });
     }
   }
   return placements;
@@ -128,6 +137,7 @@ export async function addLocalPlacement(placement: LocalPlacement): Promise<void
     && candidate.path === placement.path
     && candidate.tree === placement.tree
     && candidate.host === placement.host
+    && candidate.readOnly === placement.readOnly
   );
   if (exact) return;
   const occupiedPath = parsed.find((candidate) => candidate.path === placement.path);

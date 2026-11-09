@@ -14,6 +14,8 @@ export interface DirectoryEntry {
   description?: string;
   avatar?: { tree: TreeID; path: string; hash: string };
   sources: DirectorySource[];
+  /** The domain this host serves the person's trees at (locators §5.1). */
+  domain?: string;
 }
 
 function treeLocator(origin: string, tree: HostTree): string | undefined {
@@ -52,6 +54,7 @@ export function buildDirectory(overstoryd: HostDaemon, account: HostAccount, ori
     for (const profile of overstoryd.ruleProfiles(tree.id)) include(profile, "access");
   }
 
+  const served = new Map(overstoryd.customDomains.list().map((domain) => [domain.profile, domain.domain]));
   for (const entry of entries.values()) {
     const tree = trees.get(entry.profile);
     const handle = overstoryd.handleForProfile(entry.profile);
@@ -65,6 +68,8 @@ export function buildDirectory(overstoryd: HostDaemon, account: HostAccount, ori
     else if (card.type === "group" && card.headingTitle) entry.displayName = card.headingTitle;
     if (card.description !== undefined) entry.description = card.description;
     if (card.avatar) entry.avatar = { tree: tree.id, ...card.avatar };
+    const domain = served.get(entry.profile);
+    if (domain) entry.domain = domain;
   }
 
   const key = (entry: DirectoryEntry) => entry.displayName ?? entry.handle ?? entry.locator ?? entry.profile;

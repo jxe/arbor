@@ -1,6 +1,6 @@
 import { buildNetworkLocator, resolveLogicalURL } from "@ovst/protocol/logical-url";
 import type { OverstoryBlock, JSONValue } from "@ovst/protocol";
-import { PRESENTED_CHILDREN_HEADING, isChildrenMarker, beginsWithTitle, markdownDisplayTitle, parseMarkdown } from "@ovst/protocol";
+import { PRESENTED_CHILDREN_HEADING, beginsWithTitle, isPageID, markdownDisplayTitle, markdownStableKey, parseMarkdown } from "@ovst/protocol";
 
 export interface PublicPageChild {
   name: string;
@@ -16,6 +16,9 @@ export interface PublicMarkdownPageOptions {
   /** The tree directory holding the page's Markdown file; its relative links resolve against it. */
   sourceDirectory: string;
   children?: PublicPageChild[];
+  /** The page's own public path. With it the page gets a link preview and an Open in Story bar. */
+  publicPath?: string;
+  storyDownloads?: StoryDownloads;
 }
 
 export function escapeHTML(value: string): string {
@@ -164,15 +167,50 @@ function childIcon(folder: boolean): string {
     : `<svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 1.75h6l4 4v8.5H3z"/><path d="M9 1.75v4h4M5.25 9h5.5M5.25 11.5h4"/></svg>`;
 }
 
-function childRow(label: string, href: string, detail: string, folder: boolean, context: RenderContext, hrefIsPublic = false): string {
-  const resolved = hrefIsPublic ? href : linkHref(href, context) ?? href;
-  return `<a class="child-page" href="${escapeHTML(resolved)}"><span class="child-page-kind">${childIcon(folder)}</span><strong>${renderInline(label, context)}</strong><small>${escapeHTML(detail)}</small></a>`;
+// Drawn to stand in for the symbols Story's editor uses, which browsers don't have.
+const SPARKLES_ICON = `<svg aria-hidden="true" viewBox="0 0 13 13"><path d="M5.5 1.5 6.7 5l3.3 1.2-3.3 1.2-1.2 3.5-1.2-3.5L1 6.2 4.3 5zM10.5.5l.5 1.5 1.5.5-1.5.5-.5 1.5-.5-1.5-1.5-.5 1.5-.5zM10.5 8.5l.5 1.5 1.5.5-1.5.5-.5 1.5-.5-1.5-1.5-.5 1.5-.5z"/></svg>`;
+const CHECK_CIRCLE_ICON = `<svg aria-hidden="true" viewBox="0 0 13 13"><path fill-rule="evenodd" d="M6.5.5a6 6 0 1 1 0 12 6 6 0 0 1 0-12zM9.6 4.2 5.7 8 3.6 6l-.8.8 2.9 2.8 4.7-4.6z"/></svg>`;
+const CHECK_BOX_ICON = `<svg aria-hidden="true" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M3.5 1h9A2.5 2.5 0 0 1 15 3.5v9a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 1 12.5v-9A2.5 2.5 0 0 1 3.5 1zm8.3 4L7 10.3 4.3 7.8l-.8.9L7 12l5.7-6.2z"/></svg>`;
+const OPEN_BOX_ICON = `<svg aria-hidden="true" viewBox="0 0 16 16"><rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.2" fill="none" stroke="currentColor" stroke-width="1"/></svg>`;
+const TOGGLE_ICON = `<svg aria-hidden="true" viewBox="0 0 12 12"><path d="M1 .5v11l10.5-5.5z"/></svg>`;
+
+/** A title's leading emoji, which Story draws as the page's icon, and the text after it. */
+function splitLeadingEmoji(source: string): { emoji: string | null; rest: string } {
+  const match = source.match(/^\s*(\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic})*)\s+(?=\S)/u);
+  return match ? { emoji: match[1]!, rest: source.slice(match[0].length) } : { emoji: null, rest: source };
 }
 
-function renderList(items: OverstoryBlock[], ordered: boolean, checked: boolean, context: RenderContext): string {
-  const tag = ordered ? "ol" : "ul";
-  const className = checked ? ' class="check-list"' : "";
-  return `<${tag}${className}>${items.map((block) => `<li>${checked ? `<input type="checkbox" disabled${block.props?.checked ? " checked" : ""}>` : ""}<span>${renderInline(block.content ?? "", context)}</span>${renderBlocks(block.children, context)}</li>`).join("")}</${tag}>`;
+function childRow(label: string, href: string, detail: string, folder: boolean, context: RenderContext, hrefIsPublic = false): string {
+  const resolved = hrefIsPublic ? href : linkHref(href, context) ?? href;
+  const { emoji, rest } = splitLeadingEmoji(label);
+  const icon = emoji ? `<span class="child-page-emoji">${escapeHTML(emoji)}</span>` : childIcon(folder);
+  return `<a class="child-page" href="${escapeHTML(resolved)}"><span class="child-page-kind">${icon}</span><strong>${renderInline(rest, context)}</strong><small>${escapeHTML(detail)}</small></a>`;
+}
+
+function renderChildren(children: OverstoryBlock[], context: RenderContext): string {
+  return children.length ? `<div class="children">${renderBlocks(children, context)}</div>` : "";
+}
+
+function renderList(items: OverstoryBlock[], kind: "bullet" | "number" | "check", context: RenderContext): string {
+  const tag = kind === "number" ? "ol" : "ul";
+  return `<${tag}>${items.map((block, index) => {
+    const done = kind === "check" && Boolean(block.props?.checked);
+    const marker = kind === "bullet"
+      ? `<span class="marker bullet"></span>`
+      : kind === "number"
+        ? `<span class="marker number">${index + 1}.</span>`
+        : `<span class="marker checkbox${done ? " done" : ""}" role="img" aria-label="${done ? "Done" : "Not done"}">${done ? CHECK_BOX_ICON : OPEN_BOX_ICON}</span>`;
+    return `<li><div class="list-row">${marker}<span class="row-text${done ? " finished" : ""}">${renderInline(block.content ?? "", context)}</span></div>${renderChildren(block.children, context)}</li>`;
+  }).join("")}</${tag}>`;
+}
+
+/** An agent task as Story draws it: a tinted panel, not a quote. */
+function renderCallout(block: OverstoryBlock, context: RenderContext): string | null {
+  const match = (block.content ?? "").match(/^\[!agent(-done)?\]\s*/i);
+  if (!match) return null;
+  const done = Boolean(match[1]);
+  const text = renderInline((block.content ?? "").slice(match[0].length), context);
+  return `<div class="callout"><div class="callout-panel${done ? " done" : ""}"><span class="marker callout-marker">${done ? CHECK_CIRCLE_ICON : SPARKLES_ICON}</span><span class="row-text${done ? " finished" : ""}">${text}</span></div></div>`;
 }
 
 function renderBlocks(blocks: OverstoryBlock[], context: RenderContext): string {
@@ -182,7 +220,7 @@ function renderBlocks(blocks: OverstoryBlock[], context: RenderContext): string 
     if (["bulletListItem", "numberedListItem", "checkListItem"].includes(block.type)) {
       const items: OverstoryBlock[] = [];
       while (blocks[index]?.type === block.type) items.push(blocks[index++]!);
-      html += renderList(items, block.type === "numberedListItem", block.type === "checkListItem", context);
+      html += renderList(items, block.type === "numberedListItem" ? "number" : block.type === "checkListItem" ? "check" : "bullet", context);
       continue;
     }
     switch (block.type) {
@@ -191,19 +229,23 @@ function renderBlocks(blocks: OverstoryBlock[], context: RenderContext): string 
         html += `<h${level}>${renderInline(block.content ?? "", context)}</h${level}>${renderBlocks(block.children, context)}`;
         break;
       }
+      case "pageTitle" as OverstoryBlock["type"]:
+        html += `${String(block.props?.html ?? "")}${renderBlocks(block.children, context)}`;
+        break;
       case "paragraph":
-        html += `<p>${renderInline(block.content ?? "", context)}</p>${renderBlocks(block.children, context)}`;
+        html += `<p>${renderInline(block.content ?? "", context)}</p>${renderChildren(block.children, context)}`;
         break;
       case "quote":
-        html += `<blockquote>${renderInline(block.content ?? "", context)}</blockquote>`;
+        html += renderCallout(block, context) ?? `<div class="quote"><blockquote>${renderInline(block.content ?? "", context)}</blockquote></div>`;
+        html += renderChildren(block.children, context);
         break;
       case "codeBlock": {
         const language = String(block.props?.language ?? "");
-        html += `<div class="code-block">${language ? `<small>${escapeHTML(language)}</small>` : ""}<pre><code>${escapeHTML(block.content ?? "")}</code></pre></div>`;
+        html += `<div class="code-block"><div class="code-panel">${language ? `<small>${escapeHTML(language)}</small>` : ""}<pre><code>${escapeHTML(block.content ?? "")}</code></pre></div></div>`;
         break;
       }
       case "divider":
-        html += "<hr>";
+        html += `<div class="divider"><hr></div>`;
         break;
       case "mathBlock":
         html += `<div class="math-block">${escapeHTML(block.content ?? "")}</div>`;
@@ -211,12 +253,11 @@ function renderBlocks(blocks: OverstoryBlock[], context: RenderContext): string 
       case "image": {
         const raw = String(block.props?.url ?? "");
         const href = linkHref(raw, context);
-        const caption = String(block.props?.caption ?? "");
-        html += href ? `<figure><img src="${escapeHTML(href)}" alt="${escapeHTML(caption)}">${caption ? `<figcaption>${renderInline(caption, context)}</figcaption>` : ""}</figure>` : "";
+        html += href ? `<figure><img src="${escapeHTML(href)}" alt="${escapeHTML(String(block.props?.caption ?? ""))}"></figure>` : "";
         break;
       }
       case "toggle":
-        html += `<details><summary>${renderInline(block.content ?? "", context)}</summary><div class="nested-blocks">${renderBlocks(block.children, context)}</div></details>`;
+        html += `<details><summary><span class="marker toggle-marker">${TOGGLE_ICON}</span><span class="row-text">${renderInline(block.content ?? "", context)}</span></summary>${renderChildren(block.children, context)}</details>`;
         break;
       case "footnoteDefinition": {
         const label = String(block.props?.label ?? "1");
@@ -230,7 +271,7 @@ function renderBlocks(blocks: OverstoryBlock[], context: RenderContext): string 
         break;
       }
       case "rawMarkdown":
-        if (!block.props?.blank) html += `<div class="raw-markdown"><span>Markdown</span><pre>${escapeHTML((block.content ?? "").trimEnd())}</pre></div>`;
+        if (!block.props?.blank) html += `<div class="raw-markdown"><div class="raw-panel"><small>Raw Markdown</small><pre>${escapeHTML((block.content ?? "").trimEnd())}</pre></div></div>`;
         break;
     }
     index += 1;
@@ -264,11 +305,26 @@ function referencedChildren(blocks: OverstoryBlock[], context: RenderContext): S
 }
 
 const PUBLIC_STYLES = `
-:root{color-scheme:light;--fg:#37352f;--muted:rgba(55,53,47,.5);--bg:#fff;--hover:rgba(55,53,47,.08);--border:rgba(55,53,47,.12);--strong-border:rgba(55,53,47,.22);--code-fg:#eb5757;--code-bg:rgba(135,131,120,.15);--divider:#e9e9e7;--link:#2383e2}
-@media(prefers-color-scheme:dark){:root{color-scheme:dark;--fg:#dad8d3;--muted:rgba(255,255,255,.46);--bg:#191919;--hover:rgba(255,255,255,.08);--border:rgba(255,255,255,.13);--strong-border:rgba(255,255,255,.24);--code-fg:#ff7369;--code-bg:rgba(255,255,255,.08);--divider:rgba(255,255,255,.13);--link:#529cff}}
-*{box-sizing:border-box}html,body{min-height:100%}body{margin:0;background:var(--bg);color:var(--fg);font:400 16px/24px Inter,ui-sans-serif,system-ui,sans-serif}.public-page{width:708px;max-width:calc(100% - 64px);margin:76px auto 96px}.story-document{overflow-wrap:anywhere}.story-document h1,.story-document h2,.story-document h3,.story-document h4,.story-document h5,.story-document h6{margin:0;padding:0;font-weight:600;line-height:1.2}.story-document h1{font-size:40px;line-height:48px}.story-document h2{margin-top:40px;font-size:24px}.story-document h3{margin-top:30px;font-size:20px}.story-document h4,.story-document h5,.story-document h6{margin-top:24px;font-size:16px}.story-document h1+*,.story-document h2+*,.story-document h3+*{margin-top:8px}.story-document p{margin:4px 0}.story-document a{color:inherit;text-decoration:underline;text-decoration-color:var(--strong-border);text-underline-offset:2px}.story-document a:hover{color:var(--link);text-decoration-color:var(--link)}.story-document strong{font-weight:600}.story-document code{padding:1.5px 4px;border-radius:3px;background:var(--code-bg);color:var(--code-fg);font:400 13.6px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.story-document ul,.story-document ol{margin:1px 0;padding-left:34px}.story-document li{padding:3px 0}.story-document li>ul,.story-document li>ol{margin-top:2px}.check-list{padding-left:0;list-style:none}.check-list li{display:grid;grid-template-columns:24px minmax(0,1fr);align-items:start}.check-list input{width:16px;height:16px;margin:5px 8px 0 0;accent-color:var(--link)}blockquote{margin:4px 0;padding-left:14px;border-left:3px solid var(--fg);font-size:19.2px;line-height:1.45}.code-block{position:relative;margin:8px 0;padding:16px;border-radius:8px;background:var(--code-bg)}.code-block small{position:absolute;top:7px;right:10px;color:var(--muted);font-size:10px}.code-block pre{margin:0;overflow:auto;white-space:pre-wrap}.code-block pre code{padding:0;background:none;color:var(--fg);font:400 14px/21px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}hr{margin:12px 0;border:0;border-top:1px solid var(--divider)}figure{margin:12px 0}figure img{display:block;max-width:100%;border-radius:3px}figcaption{margin-top:5px;color:var(--muted);font-size:13px}.inline-image{max-width:100%;vertical-align:middle}.inline-math,.math-block{font-family:Georgia,"Times New Roman",serif}.inline-math{padding:0 2px}.math-block{margin:8px 0;padding:12px 16px;overflow:auto;border-radius:8px;background:color-mix(in srgb,var(--code-bg) 72%,transparent);text-align:center}details{margin:1px 0}summary{padding:5px 0;cursor:pointer;font-weight:400}.nested-blocks{margin-left:34px}.raw-markdown{margin:8px 0;padding:10px 12px;border:1px dashed var(--strong-border);border-radius:6px;background:var(--code-bg);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.raw-markdown>span{display:block;color:var(--muted);font:10px Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase}.raw-markdown pre{margin:4px 0 0;white-space:pre-wrap}.footnote-reference a{color:var(--link);font-size:.72em;font-weight:600;text-decoration:none}.footnote-definition{display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px;margin-top:8px;color:var(--muted);font-size:14px;line-height:21px}.footnote-definition>span{color:var(--link);font-weight:600;text-align:right}.footnote-definition>div{color:var(--fg)}.child-list{margin-top:8px}.child-page{display:grid;grid-template-columns:24px minmax(0,auto) minmax(0,1fr);align-items:baseline;column-gap:10px;width:100%;padding:5px 0;border-radius:4px;color:var(--fg)!important;text-decoration:none!important}.child-page:hover{background:var(--hover)}.child-page-kind{display:flex;align-items:center;justify-content:flex-end;width:24px;color:var(--muted)}.child-page svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round}.child-page strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.child-page small{min-width:0;overflow:hidden;color:var(--muted);font-size:11px;opacity:0;text-overflow:ellipsis;white-space:nowrap}.child-page:hover small,.child-page:focus small{opacity:1}
+:root{color-scheme:light;--fg:#37352f;--muted:rgba(55,53,47,.5);--bg:#fff;--hover:rgba(55,53,47,.08);--border:rgba(55,53,47,.12);--strong-border:rgba(55,53,47,.22);--code-fg:#eb5757;--code-bg:rgba(135,131,120,.15);--divider:#e9e9e7;--link:#2383e2;--code-panel:rgba(135,131,120,.075);--raw-panel:rgba(135,131,120,.0525);--callout:rgb(175,82,222);--callout-bg:rgba(175,82,222,.06)}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--fg:#dad8d3;--muted:rgba(255,255,255,.46);--bg:#191919;--hover:rgba(255,255,255,.08);--border:rgba(255,255,255,.13);--strong-border:rgba(255,255,255,.24);--code-fg:#ff7369;--code-bg:rgba(255,255,255,.08);--divider:rgba(255,255,255,.13);--link:#529cff;--code-panel:rgba(255,255,255,.04);--raw-panel:rgba(255,255,255,.028);--callout:rgb(191,90,242);--callout-bg:rgba(191,90,242,.06)}}
+*{box-sizing:border-box}html,body{min-height:100%}body{margin:0;background:var(--bg);color:var(--fg);font:400 16px/22.5px Inter,ui-sans-serif,system-ui,sans-serif}.public-page{width:708px;max-width:calc(100% - 64px);margin:76px auto 96px}.story-document{overflow-wrap:anywhere}
+.story-document>:first-child{margin-top:0}
+.story-document h1,.story-document h2,.story-document h3,.story-document h4,.story-document h5,.story-document h6{margin:0;padding:0;font-weight:600;line-height:calc(1.19em + 1px)}.story-document :is(h1,h2,h3,h4,h5,h6){position:relative;top:-.75px;margin-bottom:-1px}.story-document :is(h1,h2){top:-.25px}.story-document h3{top:-.5px}.story-document :is(h1,h4){margin-bottom:-1.5px}.story-document h1{margin-top:40px;font-size:30px}.story-document h2{margin-top:40px;font-size:24px}.story-document h3{margin-top:30px;font-size:20px}.story-document h4{margin-top:24px;font-size:18px}.story-document h5{margin-top:24px;font-size:17px}.story-document h6{margin-top:24px;font-size:16px}
+.story-document h1.page-title{display:flex;align-items:baseline;margin-top:0;font-size:40px}.page-icon{flex:none;width:52px;font-weight:400}.page-icon svg{display:inline-block;width:40px;height:40px;margin:0 0 -6px 3px;fill:none;stroke:var(--muted);stroke-width:1.1;stroke-linecap:round;stroke-linejoin:round}.page-title-text{min-width:0}
+.story-document p{margin:4px 0 3px;padding:1.25px 0}.story-document a{color:inherit;font-weight:600;text-decoration:none}.story-document a:hover{color:var(--link)}.story-document strong{font-weight:600}.story-document code{padding:1.5px .6em;border-radius:3px;background:var(--code-bg);color:var(--code-fg);font:400 13.6px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.story-document ul,.story-document ol{margin:3px 0 0;padding:0;list-style:none}.story-document li+li{margin-top:1px}.story-document li>.children>*:first-child,.story-document details>.children>*:first-child{margin-top:0}.children{margin-left:34px}.story-document .children>:is(ul,ol,details,a.child-page){margin-left:-10px}
+.list-row,.story-document summary,.callout-panel,.child-page{display:grid;grid-template-columns:24px minmax(0,1fr);column-gap:10px}.list-row,.story-document summary,.child-page{padding:3.25px 0}.marker{display:flex;justify-content:flex-end}.marker.bullet{width:6px;height:6px;margin:9px 0 0;border-radius:50%;background:var(--fg);justify-self:end}.marker.number{white-space:nowrap}.marker.checkbox{height:22.5px;align-items:center;color:var(--fg)}.marker.checkbox svg{width:16px;height:16px;fill:currentColor}.marker.checkbox.done{color:var(--muted)}.row-text.finished{color:var(--muted);text-decoration:line-through}
+.quote{position:relative;margin:4px 0;padding:3px 0}.quote::before{content:"";position:absolute;top:3px;bottom:3px;left:0;width:3px;background:var(--fg)}.quote blockquote{margin:-1.75px 0;padding-left:17px;font-size:19.2px;line-height:27.5px}
+.callout{margin:3px 0 0;padding:3px 0}.callout+.callout{margin-top:4px}.callout-panel{padding:6.25px 12px 6.25px 0;border-radius:8px;background:var(--callout-bg)}.callout-panel .row-text{position:relative;top:-.75px}.callout-marker{height:13px;margin-top:4.25px;transform:translateX(1.5px);color:var(--callout)}.callout-marker svg{width:13px;height:13px;fill:currentColor}.callout-panel.done .callout-marker{color:var(--muted)}
+.code-block{margin:8px 0;padding:16px 0}.code-panel{padding:0 16px;border-radius:8px;background:var(--code-panel)}.code-panel small,.raw-panel small{display:block;padding-bottom:8px;color:var(--muted);font:400 11px/14px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.code-panel pre,.raw-panel pre{margin:0;overflow:auto;font:400 14px/normal ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap}.code-panel pre code{padding:0;background:none;color:var(--fg);font:400 14px/normal ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.divider{margin:12px 0;padding:3px 0}.divider hr{height:1px;margin:0;border:0;background:var(--divider)}figure{margin:8px 0;padding:3px 0}figure img{display:block;max-width:100%;max-height:400px;border-radius:6px}.inline-image{max-width:100%;vertical-align:middle}.inline-math,.math-block{font-family:Georgia,"Times New Roman",serif}.inline-math{padding:0 2px}.math-block{margin:8px 0;padding:12px 16px;overflow:auto;border-radius:8px;background:color-mix(in srgb,var(--code-bg) 72%,transparent);text-align:center}
+.story-document details{margin:3px 0 0}.story-document summary{cursor:pointer;list-style:none}.story-document summary::-webkit-details-marker{display:none}.toggle-marker{height:12px;margin-top:5px;transform:translateX(1.5px)}.toggle-marker svg{width:12px;height:12px;fill:var(--fg)}details[open]>summary .toggle-marker svg{transform:rotate(90deg)}
+.raw-markdown{margin:8px 0;padding:3px 0}.raw-panel{padding:0 15px 12px;border:1px dashed var(--divider);border-radius:8px;background:var(--raw-panel)}.raw-panel small{margin-top:-1px}.raw-panel pre{color:var(--muted)}.footnote-reference a{color:var(--link);font-size:.72em;font-weight:600;text-decoration:none}.footnote-definition{display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px;margin-top:8px;color:var(--muted);font-size:14px;line-height:21px}.footnote-definition>span{color:var(--link);font-weight:600;text-align:right}.footnote-definition>div{color:var(--fg)}
+.child-list{margin-top:8px}a.child-page{display:grid;grid-template-columns:24px minmax(0,auto) minmax(0,1fr);width:100%;margin-top:3px;border-radius:4px;color:var(--fg)!important;text-decoration:none!important}a.child-page:hover{background:var(--hover)}.child-page-kind{display:flex;align-items:center;justify-content:flex-end;width:24px;height:22.5px;transform:translateX(4px);color:var(--muted)}.child-page svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round}.child-page-emoji{font-size:17px;font-weight:400;transform:translateX(6px)}.child-page strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.child-page small{min-width:0;overflow:hidden;color:var(--muted);font-size:11px;font-weight:400;opacity:0;text-overflow:ellipsis;white-space:nowrap}.child-page:hover small,.child-page:focus small{opacity:1}
+.story-document :is(ul,ol,details,a.child-page,.callout)+:is(ul,ol,details,a.child-page){margin-top:1px}.story-document :is(ul,ol,details,a.child-page)+.callout{margin-top:1px}.story-document :is(h1,h2,h3,h4,h5,h6)+:is(ul,ol,details,a.child-page,.callout){margin-top:7px}
+.story-bar{display:flex;justify-content:flex-end;gap:16px;padding:12px 20px;font-size:14px}.story-bar a{color:var(--muted);text-decoration:none}.story-bar a:hover{color:var(--fg)}.story-bar a.open-in-story{color:var(--link);font-weight:500}.story-bar .on-phone{display:none}@media(pointer:coarse){.story-bar .on-desktop{display:none}.story-bar .on-phone{display:inline}}
 .data-properties{margin:28px 0 0}.data-properties>div{display:grid;grid-template-columns:minmax(120px,1fr) minmax(0,2fr);gap:24px;padding:10px 0;border-top:1px solid var(--border)}.data-properties dt{color:var(--muted);font-size:14px}.data-properties dd{min-width:0;margin:0;overflow-wrap:anywhere}.data-properties pre{margin:0;overflow:auto;white-space:pre-wrap}.data-properties code{padding:0;background:none;color:var(--fg)}
-@media(max-width:760px){.public-page{width:auto;max-width:none;margin:42px 20px 72px}.story-document h1{font-size:34px;line-height:42px}.story-document h2{margin-top:32px}.data-properties>div{grid-template-columns:1fr;gap:3px}}
+@media(max-width:760px){.public-page{width:auto;max-width:none;margin:42px 20px 72px}.data-properties>div{grid-template-columns:1fr;gap:3px}}
 `;
 
 export function renderPublicMarkdownPage(options: PublicMarkdownPageOptions): string {
@@ -282,8 +338,7 @@ export function renderPublicMarkdownPage(options: PublicMarkdownPageOptions): st
   };
   // Presented headings (directory format §4.1): a page whose body does not
   // begin with an H1 opens with its name, hyphens shown as spaces, and
-  // children no authored link names close it under Children unless an
-  // explicit marker says where they stand.
+  // children no authored link names close it under Subpages.
   const title = markdownDisplayTitle(document, options.fallbackTitle.replaceAll("-", " "));
   const referenced = referencedChildren(document.blocks, context);
   const projectedChildren = (options.children ?? [])
@@ -291,12 +346,85 @@ export function renderPublicMarkdownPage(options: PublicMarkdownPageOptions): st
     .map((child) => childRow(child.name, child.href, child.href, child.kind === "folder", context, true))
     .join("");
   const childList = projectedChildren ? `<div class="child-list">${projectedChildren}</div>` : "";
-  const markers = document.blocks.flatMap((block, index) => isChildrenMarker(block) ? [index] : []);
-  const marker = markers.length === 1 ? markers[0]! : -1;
-  const body = marker === -1
-    ? `${renderBlocks(document.blocks, context)}${childList ? `<h1>${escapeHTML(PRESENTED_CHILDREN_HEADING)}</h1>${childList}` : ""}`
-    : `${renderBlocks(document.blocks.slice(0, marker), context)}${childList}${renderBlocks(document.blocks.slice(marker + 1), context)}`;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light dark"><title>${escapeHTML(title)}</title><style>${PUBLIC_STYLES}</style></head><body><main class="public-page"><article class="story-document">${beginsWithTitle(document.blocks) ? "" : `<h1>${escapeHTML(title)}</h1>`}${body}</article></main></body></html>`;
+  const body = `${renderBlocks(titledBlocks(document.blocks, context), context)}${childList ? `<h1>${escapeHTML(PRESENTED_CHILDREN_HEADING)}</h1>${childList}` : ""}`;
+  const id = document.frontmatter.id;
+  // A tree's home page is its address already; any other page's ID keeps its link working through renames.
+  const stableKey = isPageID(id) && options.publicPath !== publicTreePath(options.treeCanonicalPath, "/") ? markdownStableKey(id) : null;
+  const located = options.publicPath === undefined ? null : `${context.host}${buildNetworkLocator(options.publicPath, { stableKey })}`;
+  const preview = located ? linkPreview(title, `${new URL(options.origin).protocol}//${located}`, document.blocks, context) : "";
+  const bar = located ? storyBar(`overstory://${located}`, options.storyDownloads) : "";
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light dark"><title>${escapeHTML(title)}</title>${preview}<style>${PUBLIC_STYLES}</style></head><body>${bar}<main class="public-page"><article class="story-document">${beginsWithTitle(document.blocks) ? "" : pageTitle(escapeHTML(title), null)}${body}</article></main></body></html>`;
+}
+
+/** The first heading in Story's page-title form: the icon column, then the title. */
+function pageTitle(html: string, emoji: string | null): string {
+  const icon = emoji ? escapeHTML(emoji) : childIcon(false);
+  return `<h1 class="page-title"><span class="page-icon">${icon}</span><span class="page-title-text">${html}</span></h1>`;
+}
+
+/** The blocks with a leading H1 replaced by its page-title form. */
+function titledBlocks(blocks: OverstoryBlock[], context: RenderContext): OverstoryBlock[] {
+  const first = blocks.findIndex((block) => !(block.type === "rawMarkdown" && block.props?.blank));
+  const block = blocks[first];
+  if (block?.type !== "heading" || Number(block.props?.level ?? 1) !== 1) return blocks;
+  const { emoji, rest } = splitLeadingEmoji(block.content ?? "");
+  const title: OverstoryBlock = { ...block, type: "pageTitle", props: { ...block.props, html: pageTitle(renderInline(rest, context), emoji) } } as unknown as OverstoryBlock;
+  return [...blocks.slice(0, first), title, ...blocks.slice(first + 1)];
+}
+
+/** The text a link preview shows: the page's first paragraph, cut to about two lines. */
+function previewDescription(blocks: OverstoryBlock[], context: RenderContext): string | null {
+  for (const block of blocks) {
+    if (block.type !== "paragraph" || !block.content?.trim()) continue;
+    const text = renderInline(block.content, context).replace(/<[^>]*>/g, " ")
+      .replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&amp;", "&")
+      .replace(/\s+/g, " ").trim();
+    if (text) return text.length > 200 ? `${text.slice(0, 199).trimEnd()}…` : text;
+  }
+  return null;
+}
+
+/** The page's first picture a link preview can show, as an absolute URL. */
+function previewImage(blocks: OverstoryBlock[], context: RenderContext): string | null {
+  for (const block of blocks) {
+    const raw = block.type === "image" ? String(block.props?.url ?? "") : block.content?.match(/!\[[^\]]*\]\(([^)\s]+)\)/)?.[1];
+    const href = raw ? linkHref(raw, context) : null;
+    if (href && /\.(png|jpe?g|gif|webp)(;|\?|#|$)/i.test(href)) return new URL(href, context.origin).href;
+    const nested = previewImage(block.children, context);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+/** Open Graph and Twitter tags: the page's title, opening text and first picture, or the Story card. */
+function linkPreview(title: string, url: string, blocks: OverstoryBlock[], context: RenderContext): string {
+  const description = previewDescription(blocks, context);
+  const image = previewImage(blocks, context);
+  const cardImage = image ?? new URL(PAGE_ASSETS.card, context.origin).href;
+  return [
+    description ? `<meta name="description" content="${escapeHTML(description)}">` : "",
+    `<meta property="og:type" content="article">`,
+    `<meta property="og:site_name" content="Story">`,
+    `<meta property="og:title" content="${escapeHTML(title)}">`,
+    description ? `<meta property="og:description" content="${escapeHTML(description)}">` : "",
+    `<meta property="og:url" content="${escapeHTML(url)}">`,
+    `<meta property="og:image" content="${escapeHTML(cardImage)}">`,
+    image ? "" : `<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">`,
+    `<meta name="twitter:card" content="summary_large_image">`,
+    `<meta name="twitter:title" content="${escapeHTML(title)}">`,
+    description ? `<meta name="twitter:description" content="${escapeHTML(description)}">` : "",
+    `<meta name="twitter:image" content="${escapeHTML(cardImage)}">`,
+    `<link rel="icon" href="${PAGE_ASSETS.icon}">`,
+    `<link rel="apple-touch-icon" href="${PAGE_ASSETS.icon}">`,
+  ].join("");
+}
+
+/** The bar above a page: Open in Story, and where to get it. A browser without Story does nothing with the link. */
+function storyBar(locator: string, downloads: StoryDownloads = {}): string {
+  const both = downloads.mac && downloads.iphone;
+  const mac = downloads.mac ? `<a${both ? ' class="on-desktop"' : ""} href="${escapeHTML(downloads.mac)}">Get Story</a>` : "";
+  const iphone = downloads.iphone ? `<a${both ? ' class="on-phone"' : ""} href="${escapeHTML(downloads.iphone)}">Get Story</a>` : "";
+  return `<nav class="story-bar">${mac}${iphone}<a class="open-in-story" href="${escapeHTML(locator)}">Open in Story</a></nav>`;
 }
 
 function renderedProperty(value: JSONValue): string {

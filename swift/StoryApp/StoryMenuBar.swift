@@ -14,6 +14,9 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
     static let shared = StoryMenuBar()
 
     var updates: StoryUpdates?
+    /// Opens a window when none is left to ask: every window hands this over,
+    /// and it outlives them.
+    var openWindow: OpenWindowAction?
 
     private final class WindowEntry {
         var commands: StoryWindowCommands
@@ -111,8 +114,6 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
             menu.addItem(item("Check for Updates…") { updates.check() })
         }
         menu.addItem(.separator())
-        menu.addItem(window("Sync & Accounts…") { $0.showAccounts() })
-        menu.addItem(window("People & Trees…", "d", [.command, .shift]) { $0.showPeople() })
         menu.addItem(item("Settings…", ",") { StoryMacSettingsWindow.show() })
         menu.addItem(.separator())
         let services = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
@@ -138,7 +139,6 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(window("Search Contents…", "f", [.command, .shift]) { $0.showSearch() })
         menu.addItem(.separator())
-        menu.addItem(window("Sync Status…") { $0.showSyncStatus() })
         let review = window("Review Choices…", when: { $0.reviewChoiceCount != nil }) { $0.reviewChoices() }
         review.refresh = { [unowned self] item in
             let count = self.commands?.reviewChoiceCount ?? 0
@@ -235,6 +235,10 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         menu.addItem(editor(
             "Unfold All Headings", Self.rightArrow, .unfoldAllHeadings, [.command, .option], requires: .canUnfoldAllHeadings
         ))
+        menu.addItem(.separator())
+        menu.addItem(window("People & Trees…", "d", [.command, .shift]) { $0.showPeople() })
+        menu.addItem(window("Sync & Accounts…") { $0.showSyncStatus() })
+        menu.addItem(window("Network Log…") { $0.showNetworkLog() })
         return menu
     }
 
@@ -249,9 +253,12 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
 
     /// AppKit lists the open windows, and adds its tiling and tab items, in `NSApp.windowsMenu`.
     private func fillWindowMenu() -> NSMenu {
-        windowMenu.addItem(window("New Tab", "t") { $0.newTab() })
+        // With every window closed, New Tab and New Window open one, as the Dock icon does.
+        windowMenu.addItem(item("New Tab", "t") { [unowned self] in
+            if let commands = self.commands { commands.newTab() } else { self.openFirstWindow() }
+        })
         windowMenu.addItem(item("New Window", "n", [.command, .option]) { [unowned self] in
-            if let commands = self.commands { commands.newWindow() }
+            if let commands = self.commands { commands.newWindow() } else { self.openFirstWindow() }
         })
         windowMenu.addItem(.separator())
         // Each tab is a window: Command-W closes it, and Shift-Command-W closes
@@ -351,6 +358,10 @@ final class StoryMenuBar: NSObject, NSMenuItemValidation, NSMenuDelegate {
         }
     }
 
+    private func openFirstWindow() {
+        openWindow?(value: StoryWindowRequest())
+    }
+
     @objc private func performItem(_ sender: NSMenuItem) {
         (sender as? Item)?.perform()
     }
@@ -377,9 +388,11 @@ struct StoryMenuBarBridge: View {
     let commands: StoryWindowCommands
     @FocusedValue(\.editorCommands) private var editorCommands
     @FocusedValue(\.documentUndoController) private var undoController
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Registration(commands: commands, editorCommands: editorCommands, undoController: undoController)
+            .onAppear { StoryMenuBar.shared.openWindow = openWindow }
     }
 
     private struct Registration: NSViewRepresentable {

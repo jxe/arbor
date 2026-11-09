@@ -1,7 +1,5 @@
 # Schema language 009: change a collection's schema and keep its rows
 
-**Timing:** Later.
-
 **Why and when:** a collection's `schema.usl` will change while it holds rows people care
 about, and consumers (Story, Story Sync's projections, sites reading through cranberries) may
 still expect the older shape. Today nothing carries rows across a schema change. The People

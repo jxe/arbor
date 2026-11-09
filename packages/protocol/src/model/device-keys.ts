@@ -100,14 +100,23 @@ export interface DeviceSessionChallenge {
   nonce: string;
   issuedAt: number;
   expiresAt: number;
+  /**
+   * Present only on a visitor's challenge (accounts §5.6): the home host
+   * whose published device keys vouch for the device, at a host where the
+   * profile has no account. The session it opens is scoped to that origin.
+   */
+  homeHost?: string;
 }
+
+const CHALLENGE_KEYS = ["version", "purpose", "id", "origin", "profileTree", "device", "nonce", "issuedAt", "expiresAt"];
 
 export function validateDeviceSessionChallenge(value: unknown): DeviceSessionChallenge {
   const fail = () => new Error("Malformed device session challenge");
   if (!value || typeof value !== "object" || Array.isArray(value)) throw fail();
   const challenge = value as Partial<DeviceSessionChallenge>;
   if (
-    !exactKeys(challenge, ["version", "purpose", "id", "origin", "profileTree", "device", "nonce", "issuedAt", "expiresAt"])
+    !exactKeys(challenge, challenge.homeHost === undefined ? CHALLENGE_KEYS : [...CHALLENGE_KEYS, "homeHost"])
+    || (challenge.homeHost !== undefined && (!originIsCanonical(challenge.homeHost) || challenge.homeHost === challenge.origin))
     || challenge.version !== 1 || challenge.purpose !== "device-session"
     || typeof challenge.id !== "string" || !isGeneratedOverstoryID(challenge.id, "ax")
     || !originIsCanonical(challenge.origin)

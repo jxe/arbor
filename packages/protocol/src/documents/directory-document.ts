@@ -1,10 +1,8 @@
-import type { OverstoryBlock, Diagnostic, MarkdownDocument } from "../index.ts";
+import type { OverstoryBlock, MarkdownDocument } from "../index.ts";
 import { sha256 } from "../model/hash.ts";
 import { compareUTF8 } from "../model/utf8.ts";
 import { canonicalNodePath } from "../model/logical-path.ts";
 import { buildMarkdownLink, markdownSourceDirectory, resolveLogicalURL, type MarkdownBodyOrigin } from "../model/logical-url.ts";
-
-export const CHILDREN_MARKER = "<!-- overstory:children -->";
 
 export interface DirectoryPlacementChild {
   name: string;
@@ -20,44 +18,21 @@ export interface PlacementDirectory {
 }
 
 export interface DirectoryPlacementResult {
-  /** The authored document, with unclaimed children standing at its explicit marker when it has one. */
+  /** The authored document, unchanged. */
   document: MarkdownDocument;
-  /** The implicit marker's remainder: unclaimed children of a document without a marker, in canonical order. */
+  /** The remainder: unclaimed children, in canonical order, which stand after the authored source. */
   remainder: OverstoryBlock[];
   placedChildren: string[];
   generatedChildren: string[];
-  diagnostics: Diagnostic[];
-}
-
-/** Whether a block is a standalone children marker. */
-export function isChildrenMarker(block: OverstoryBlock): boolean {
-  if (block.type !== "rawMarkdown") return false;
-  const text = String(block.content ?? block.source ?? "").trim();
-  return text === CHILDREN_MARKER;
-}
-
-export function directoryPlacementDiagnostics(
-  directoryInput: string,
-  document: MarkdownDocument,
-): Diagnostic[] {
-  const directory = canonicalNodePath(directoryInput);
-  const markers = document.blocks.filter(isChildrenMarker);
-  return markers.length <= 1 ? [] : [{
-    code: "duplicate-children-marker",
-    message: `${directory} contains ${markers.length} standalone ${CHILDREN_MARKER} markers; keep at most one.`,
-    path: directory,
-    severity: "error",
-  }];
 }
 
 /**
  * Place a directory's current child generation against its parsed document.
- * Clients show the result through `presentPage`, which decides how a
- * remainder without a marker reads.
+ * Clients show the result through `presentPage`, which decides how the
+ * remainder reads.
  *
  * Authored standalone links claim their first matching child. Unclaimed
- * children are virtual blocks: placed after the explicit marker, or returned
- * as `remainder` when the document has none. Virtual blocks carry
+ * children are virtual blocks returned as `remainder`. Virtual blocks carry
  * `storyGenerated` and the Markdown serializer omits them, so paging a large
  * collection file never expands its `_index.md`. Moving a virtual block
  * through the managed-row operation clears that flag and makes the link an
@@ -92,17 +67,6 @@ export function placeDirectoryChildren(
   };
   walk(document.blocks);
 
-  const diagnostics = directoryPlacementDiagnostics(directory, document);
-  if (diagnostics.length) {
-    return {
-      document,
-      remainder: [],
-      placedChildren: [...matched].map((child) => canonicalNodePath(child.path)),
-      generatedChildren: [],
-      diagnostics,
-    };
-  }
-
   const missing = children.filter((child) => !matched.has(child));
   const generated = missing.map((child, ordinal): OverstoryBlock => {
     const path = canonicalNodePath(child.path);
@@ -120,18 +84,10 @@ export function placeDirectoryChildren(
     };
   });
 
-  const markerIndex = document.blocks.findIndex(isChildrenMarker);
-  const blocks = document.blocks.map((block) => isChildrenMarker(block)
-    ? { ...block, props: { ...block.props, storyChildrenMarker: true } }
-    : block
-  );
-  if (markerIndex !== -1) blocks.splice(markerIndex + 1, 0, ...generated);
-
   return {
-    document: { ...document, blocks },
-    remainder: markerIndex === -1 ? generated : [],
+    document,
+    remainder: generated,
     placedChildren: children.map((child) => canonicalNodePath(child.path)),
     generatedChildren: missing.map((child) => canonicalNodePath(child.path)),
-    diagnostics,
   };
 }

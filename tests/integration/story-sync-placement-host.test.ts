@@ -106,10 +106,25 @@ async function atB(token: string, tree: string, name = "_index.md"): Promise<str
   return new TextDecoder().decode(snapshot.objects.get(entry!.file!)!);
 }
 
-async function credential(daemon: string, origin: string): Promise<string> {
-  const response = await storySyncFetch(`${daemon}/v1/credential?configurationTree=${configurationTree}&origin=${encodeURIComponent(origin)}`, {}, dataHomes.get(daemon));
-  if (!response.ok) throw new Error(`credential: ${response.status} ${await response.text()}`);
-  return ((await response.json()) as { token: string }).token;
+/**
+ * A session at `origin` opened with the device key of `daemon`'s data home,
+ * as an app beside that Story Sync opens its own (Clients 003). `fresh`
+ * forgets any cached session first, so the host is asked again.
+ */
+async function credential(daemon: string, origin: string, fresh = false): Promise<string> {
+  const previous = process.env.STORY_HOME;
+  process.env.STORY_HOME = dataHomes.get(daemon)!;
+  try {
+    const home = new HostAccountStore(configurationTree);
+    const store = (await home.safe())?.origin === origin ? home : new HostPlacementStore(configurationTree, origin);
+    if (fresh) await store.forgetSession();
+    const opened = await store.get();
+    if (!opened) throw new Error(`no session at ${origin}`);
+    return opened.accountToken;
+  } finally {
+    if (previous === undefined) delete process.env.STORY_HOME;
+    else process.env.STORY_HOME = previous;
+  }
 }
 
 async function post(daemon: string, path: string, body: unknown): Promise<void> {
@@ -260,8 +275,8 @@ describe("Story Sync places folders under a placement root", () => {
     expect(refused).toBeInstanceOf(ProtocolHTTPError);
     expect((refused as ProtocolHTTPError).status).toBe(401);
     expect(Date.now() - revoked).toBeLessThan(LIFETIME_MS + 1_500);
-    // The phone's Story Sync, refused by B, forgets its session there and cannot open another.
-    await until(async () => (await credential(phone.url, bOrigin).then(() => false, () => true)) || undefined, 10_000, "the phone's session at B to be forgotten");
+    // The phone's device key cannot open another session at B.
+    await until(async () => (await credential(phone.url, bOrigin, true).then(() => false, () => true)) || undefined, 10_000, "the phone's session at B to be refused");
 
     // An edit from the phone never reaches B; the Mac's edits keep syncing.
     await writeFile(join(researchPhone, "_index.md"), "# Research\n\nFrom the revoked phone.\n");

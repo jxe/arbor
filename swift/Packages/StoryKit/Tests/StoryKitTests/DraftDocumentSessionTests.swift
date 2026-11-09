@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import StoryKit
+@testable import OverstoryWorkspace
 
 @Suite("Draft document session")
 struct DraftDocumentSessionTests {

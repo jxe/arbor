@@ -6,6 +6,7 @@
   "exports": "./src/index.ts",
   "dependencies": {
     "@ovst/protocol": "workspace:*",
-    "@ovst/fs": "workspace:*"
+    "@ovst/fs": "workspace:*",
+    "yaml": "2.9.1"
   }
 }

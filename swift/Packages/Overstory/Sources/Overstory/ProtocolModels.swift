@@ -15,11 +15,28 @@ public struct ProtocolCanonicalDescriptor: Codable, Sendable, Equatable {
     public var path: String
     public var endpoint: String
     public var parentTree: String?
+    /// The canonical URL at a person's domain, when the host serves one over this tree (locators §5.1).
+    public var url: String?
 
-    public init(path: String, endpoint: String, parentTree: String? = nil) {
+    public init(path: String, endpoint: String, parentTree: String? = nil, url: String? = nil) {
         self.path = path
         self.endpoint = endpoint
         self.parentTree = parentTree
+        self.url = url
+    }
+
+    /// The tree's canonical URL: at a person's domain when the host serves one,
+    /// else at the host. `httpURL` is always the host's form, which keeps resolving.
+    public var canonicalURL: String { url ?? httpURL }
+
+    /// The canonical URL of `page`, a path below the tree's root ("" for the root).
+    public func canonicalURL(below page: String) -> String {
+        guard let url else {
+            let full = path == "/" ? (page.isEmpty ? "/" : page) : path + page
+            return canonicalHTTPURL(endpoint: endpoint, path: full)
+        }
+        guard !page.isEmpty, page != "/" else { return url }
+        return (url.hasSuffix("/") ? String(url.dropLast()) : url) + encodedCanonicalPath(page)
     }
 
     /// The public HTTP URL: the endpoint's origin followed by the encoded canonical path.
@@ -183,7 +200,7 @@ public struct ProtocolAccountSnapshot: Codable, Sendable, Equatable {
     public var account: ProtocolAccountDescriptor
 }
 
-/// A host list read, `/.overstory/trees` or `/.overstory/directory`: no observation
+/// A host list read, `/.overstory/trees` or `/.overstory/account/directory`: no observation
 /// cursor, unlike Story Sync's local `ProtocolSnapshotEnvelope`.
 public struct ProtocolRemoteSnapshot<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
     public var snapshot: Value
@@ -1225,17 +1242,20 @@ public struct ProtocolProfileDirectoryEntry: Codable, Sendable, Equatable, Hasha
     public var summary: String?
     public var avatar: ProtocolDirectoryAvatar?
     public var sources: [String]
+    /// The domain the host serves this person's trees at, once it checks (locators §5.1).
+    public var domain: String?
 
     public var id: String { profile }
 
     private enum CodingKeys: String, CodingKey {
-        case profile, kind, handle, locator, displayName, avatar, sources
+        case profile, kind, handle, locator, displayName, avatar, sources, domain
         case summary = "description"
     }
 
     public init(profile: String, kind: String, handle: String? = nil, locator: String? = nil,
                 displayName: String? = nil, summary: String? = nil,
-                avatar: ProtocolDirectoryAvatar? = nil, sources: [String]) {
+                avatar: ProtocolDirectoryAvatar? = nil, sources: [String], domain: String? = nil) {
+        self.domain = domain
         self.profile = profile
         self.kind = kind
         self.handle = handle
@@ -1309,7 +1329,11 @@ extension ProtocolHTTPError: LocalizedError {
 }
 
 func validateObjectHash(_ value: String) throws {
-    guard value.range(of: #"^sha256:[a-f0-9]{64}$"#, options: .regularExpression) != nil else {
+    // `^sha256:[a-f0-9]{64}$` checked by bytes; a regular expression here was
+    // compiled again for every object of every graph validated.
+    let bytes = value.utf8
+    guard bytes.count == 71, bytes.starts(with: "sha256:".utf8),
+          bytes.dropFirst(7).allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
         throw ProtocolValidationError.invalidHash(value)
     }
 }

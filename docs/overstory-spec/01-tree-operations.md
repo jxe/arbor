@@ -128,11 +128,19 @@ is a present directory, every present object is reachable, and the graph is
 acyclic). A payload-less entry the client cannot classify as a file fails the
 install.
 
+A client MAY also hold only some directories and load the others by hash when a
+path below them is first read (a lazy node index). Each directory it loads must
+be checked against the hash its parent names, and a candidate it builds carries
+every directory it has not loaded under that same hash, unchanged.
+
 ```text
 GET /.overstory/trees/{TreeID}
 GET /.overstory/trees/{TreeID}/snapshots/{root}
 GET /.overstory/trees/{TreeID}/watch?after={cursor}
 ```
+
+A client that holds only the pages it has opened reads them with path reads
+(§1.2.4) instead of a snapshot, and may watch with `objects=none`.
 
 ### 1.1.1 Reading the current tree
 
@@ -161,6 +169,7 @@ type RemoteTreeDescriptor = {
     path: LogicalPath;
     endpoint: string;
     parentTree: TreeID | null;
+    url?: string;
   } | null;
   pages?: true;
 };
@@ -181,7 +190,9 @@ The enclosing read's `observedThrough` is the cursor after which watching begins
 It is an observation boundary, not an alias for the accepted `update` identity.
 The read binds the descriptor and this boundary atomically.
 Hosted trees have, in addition, a canonical path, endpoint, and might be nested
-inside a parent tree.
+inside a parent tree. `canonical.url`, when present, is the tree's canonical URL at a
+person's domain ([locators §5.1](03-locators.md#51-trees-at-a-persons-domain)); without it
+the canonical URL is the endpoint's origin followed by `path`.
 
 The same root may be accepted again by a later update. Its graph remains the
 same content-addressed snapshot, while the later descriptor's `update` identifies
@@ -227,9 +238,10 @@ unreachable extras, stopping at nested-tree boundaries. The definite-length
 `objects` array supplies the object count; the snapshot carries no tree,
 accepted-update, or observation-cursor metadata.
 
-The quoted `ETag` is the SHA-256 hash of the exact response bytes and is only an
-HTTP representation validator; it does not introduce a second snapshot
-identity.
+The quoted `ETag` is the requested root. The bundle is a deterministic
+encoding of the root's graph, so the root already names the body; a host
+does not hash the response bytes again, and the ETag introduces no second
+snapshot identity.
 
 The server returns a snapshot only when the caller can currently read the
 named tree and the requested root belongs to one of that tree's retained
@@ -362,7 +374,7 @@ Section 4.1 defines the common encoding and hash rules.
 #### 1.1.2a Reading entry metadata
 
 ```text
-GET /.overstory/trees/{TreeID}/entry-metadata
+GET /.overstory/trees/{TreeID}/entry-metadata[?path={logical path}]
 ```
 
 Descriptive metadata about the file entries of the tree's current accepted
@@ -386,6 +398,22 @@ the same as for the snapshot read. The response is not immutable: it describes
 `update`, which a client may compare with the snapshot it installed and let the
 watch correct.
 
+With `path`, the response holds only the entries of the directories a path read
+of that node walks (§1.2.4): the root, each directory down to the node, and
+the node's own directory when it is one. Any spelling of the node (`x`, `x.md`,
+`x/_index.md`) selects the same entries. A client that opens a tree page by page
+sends it beside the path read, as NFS's `READDIRPLUS` returns attributes with a
+listing, and never needs the whole tree's times; one that holds a whole snapshot
+reads them all once. After that, each watch frame's `acceptedAt` keeps them
+current.
+
+Entry times are never part of an object or a hash, and they are not stored in
+the path read's bundle either: the bundle is named by its root and cached for
+good, while the host keeps times for the current root only, derived from
+accepted history. Identical content therefore hashes identically, and a time is
+always the host's acceptance time; a date a person means as content, such as
+when a page was written, is a page property.
+
 #### 1.1.3 Watching
 
 ```text
@@ -394,7 +422,11 @@ GET /.overstory/trees/{TreeID}/watch?after={cursor}
 
 The request carries `Accept: text/event-stream`. `after` is the only resume
 cursor: it names the observation the client last applied, and without it the
-watch starts at the tree's current head. A host ignores `Last-Event-ID`; a
+watch starts at the tree's current head. With `objects=none` the
+host sends every frame with empty `objects` and `deltas`: a client that holds
+only part of the tree (one that reads page by page, §1.2.4) learns the new
+`update` and root and refetches only what it holds. Any other `objects` value
+is `400 invalid-request`. A host ignores `Last-Event-ID`; a
 client that reconnects opens a new watch with a new `after`. Servers may emit
 an explicit `from` spanning intermediate accepted updates without client
 negotiation; a frame per accepted update remains valid.
@@ -773,6 +805,96 @@ selected IDs, malformed references and invalid values fail decoding. Open decisi
 have at least two alternatives. Responses are private and must not be stored by shared
 HTTP caches. The [target read vectors](conformance/protocol-accepted-state.json) bind
 paired TypeScript and Swift models; they do not assert server execution.
+
+#### 1.2.4 Reading a path
+
+```text
+GET /.overstory/trees/{TreeID}/snapshots/{root}/path/{logical path}
+```
+
+A path read gives a client that opens a tree page by page what it needs to
+show and edit one node, in one round trip: the directory objects from a
+retained accepted root down to the node, and the objects of the entries the
+node is made of. The body is a snapshot bundle (§1.1.2) in its exact shape,
+`{ version: 1, objects }` in hash order, holding exactly these objects:
+
+- every directory from `root` down to the parent of the path's last
+  component;
+- for the last component `x`, the objects of the entries named `x`, `x.md`
+  and `x.mdx` in that parent, and, when one of them is a directory, the
+  objects of its `_index.md` and `_index.mdx` entries;
+- for `/`, the root directory and its `_index.md` and `_index.mdx` objects.
+
+The path is a logical path ([locators §3](03-locators.md#3-parsing-and-canonicalization)), each segment percent-encoded once;
+`x.md`, `x/` and `x/_index.md` read the same objects as `x`, and a file is
+read by its own name, such as `photo.bin`. A segment that decodes to one
+holding `/`, or a path that escapes the root, is `400 invalid-request`.
+
+A component that names no directory, or a nested tree's boundary, ends the
+walk: the bundle then holds the directories down to the deepest one that
+exists, so the reader sees from that directory's entries that the node is
+absent or belongs to another tree, without a second request. The reader
+decodes the bundle, walks the same path from `root` through it, and rejects
+a bundle that lacks an object the walk reaches or holds one it does not.
+`protocol-path-reads.json` fixes the walk.
+
+Access, `404` for an unknown or unretained root, `Vary` and `Cache-Control`
+are those of the snapshot read; the root and the path together name the
+body, so it is as immutable as the snapshot. Its quoted `ETag` is the root
+followed by the normalized path, each segment percent-encoded once as in the
+URL, such as `"sha256:…/Trips/Caf%C3%A9"`.
+
+### 1.3 Reading at the canonical URL
+
+```text
+GET {canonical URL}{/logical path}[;overstory-key={key}][?{query}]
+```
+
+A tree's canonical URL ([locators §5](03-locators.md#5-finding-trees)) and
+every logical path below it can also be read over plain HTTP, by anyone who
+can read the tree and with no Overstory client. This read is a view of the
+current accepted root, not a new identity: it carries the same canonical
+tree and path, and it never grants more than the tree's access does
+([access control](05-access-control.md)). Only the current root is read
+this way; historical roots stay with the snapshot read (§1.1.2), and tree
+configurations are never published here.
+
+**Markdown is required.** A request whose `Accept` names `text/markdown`
+is answered `200` with `Content-Type: text/markdown; charset=utf-8`:
+
+- a page: its source, byte for byte, frontmatter included
+  ([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity));
+- a folder with a page of its own (`_index.md`, or a sibling `x.md`): that
+  page's source;
+- a folder with no page of its own, or a collection's table: a generated
+  list, its name as an H1 and then one item per child, `- [name](<url>)`,
+  each link the child's canonical path (a row's with its stable key), in
+  name order. Generated text is not a page and is never written back;
+- a row of a logical collection: its Markdown data projection
+  ([child backings §2](06-child-backings.md)). A row is never materialized
+  as a Markdown file and its table or rows objects are never children.
+
+**Other formats are optional.** A host MAY answer a browser (`Accept`
+naming `text/html`, or no Markdown) with an HTML rendering of the same node,
+and MAY offer other representations; their form is the host's choice.
+An ordinary file answers its bytes under a type a browser will not run or
+sniff into something else: a type the host knows to be inert, or opaque bytes
+offered as a download, which is what HTML and SVG are. Stored content is
+data to the host's origin, never code. Every response forbids content-type
+sniffing and framing and sends no referrer; a page the host renders loads
+only what its own policy names, and a script on it is permitted by its hash.
+
+**Moves and stable keys.** A request carrying a stable key
+([locators §2](03-locators.md#2-stable-keys-revisions-and-fragments)) whose
+node now lives at another path is answered `308` to the current path, keeping
+the key, the application query and the content fragment. A path that names
+nothing, or a tree the caller cannot read, is `404`, as for every other read.
+A host MAY answer a browser that cannot read the tree with a page that
+offers to open it with an access link instead.
+
+These responses describe the current root, so they are `Cache-Control:
+no-cache`. A client that needs the exact accepted state reads the descriptor
+and a path read (§1.2.4) instead.
 
 ## 2. Updates and writes
 
@@ -1200,13 +1322,13 @@ working tree: the node index, local overlay, and object store an editor edits
 directly. The normative client behavior is the update machine in
 [working-tree updates](09-client-synchronization.md).
 
-0. The working tree is installed from an accepted snapshot. On a device that
-   shares an installation with the folder's daemon it installs a **sparse
-   spine** (directories and Markdown inline, other files by hash and lazily
-   fetched from the loopback object route) rooted at the host's accepted
-   root; the daemon's pending request is never adopted. Elsewhere it
-   installs from the host. Either way it records the confirmed
-   `{ root, update, cursor }` watchpoint.
+0. The working tree reads an accepted root through the standard reads: from
+   the host, or on a device whose daemon has placed the tree, from the
+   daemon, which answers the same routes from the folder. It holds as much
+   as it needs (a whole snapshot, every directory and Markdown body, or only
+   the pages opened, by path read, §1.2.4), with other objects fetched by
+   hash when used; the daemon's pending request is never adopted. Either way
+   it records the confirmed `{ root, update, cursor }` watchpoint.
 1. Each authored generation is appended to the working tree's change log
    and becomes locally durable at once (the editor is a source of local
    changes); unsent changes are published together so that one request
@@ -1297,7 +1419,7 @@ freeze valid encodings and rejected byte sequences for every language binding.
 
 ### 4.2 Stream framing and errors
 
-Tree watch and query result streams use one UTF-8 SSE framing rule: blank lines
+Tree watch, query result and [presence](12-presence.md) streams use one UTF-8 SSE framing rule: blank lines
 separate frames, multiple `data:` lines join with newlines, and clients ignore
 comments and keepalives. A host sends a comment as soon as a watch opens and
 at least every 30 seconds while it is idle, with no request header to ask for

@@ -17,9 +17,10 @@ different option so the alternatives remain available for comparison.
 
 ## Story icon choices
 
-`Story-PageS-master.png`, `Story-StoryPath-master.png`, and
-`Story-Doorway-master.png` are the square source artwork for the three app
-icon choices. Story Path (Black) is the primary icon; Page S and Doorway are
+`Story-PageS-master.png`, `Story-StoryPath-master.png`,
+`Story-StoryPathWhite-master.png`, and `Story-Doorway-master.png` are the square
+source artwork for the four app icon choices. Story Path (Black) is the primary
+icon; Story Path (White), Page S, and Doorway are
 iOS alternate icons. The previous `StoryPath` alternate name is retained as an
 alias for compatibility with devices that selected it before the default changed. They were prepared with the built-in imagegen tool from
 the approved concept sheet: retain the thick ivory sheaves for Page S, use a
@@ -38,6 +39,22 @@ icon. On iOS, the top-left App Icon toolbar menu in Sync & Accounts uses the sys
 and its system confirmation. Choices are device-local and independent of
 accounts.
 
+Settings also offers **Follow System Appearance** for Story Path. On Mac,
+the running Dock icon follows the Mac's light/dark appearance and restores the
+automatic preference at launch. On iOS, `StoryPathAutomatic.appiconset` supplies
+white Any and black Dark renditions as one alternate icon, letting the system
+switch artwork while Story is closed. Set Home Screen icons to Automatic to
+follow the system appearance schedule; explicitly choosing Light, Dark, or
+Tinted there takes precedence. Selecting any of Story's four manual icons
+turns the automatic setting off.
+
 Story Path's revised master has broader, softer paper corners that sit inside
 the iOS mask. `Story-StoryPath-v1-master.png` preserves the earlier artwork.
 The black background remains full bleed; no iOS corner mask is baked in.
+
+Story Path (White) was prepared with the built-in imagegen tool on 2026-11-02,
+editing the black master. Prompt: preserve the composition, winding S-shaped
+path, rounded cream paper, texture, and curled top-right corner; replace the
+black background and path with soft white, separating the ivory paper with
+subtle gray edge and fold shadows; keep a square full-bleed background with
+no outer app mask, border, text, or added symbols.

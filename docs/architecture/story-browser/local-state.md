@@ -68,8 +68,8 @@ iOS app's Keychain stores. The data home owns them (Native 011 chose it over
 moving them into the app), so the daemon and the `story` command see the same
 accounts as the app. The app reaches them through `HostAccountService`, the
 one account interface both platforms implement: on the Mac,
-`StorySyncAccountService` reads the daemon's `GET /v1/accounts` and
-`GET /v1/credential` and creates, recovers or backs up the identity and claims
+`StorySyncAccountService` reads the daemon's `GET /v1/accounts`, opens
+sessions from the data home's device key itself, and creates, recovers or backs up the identity and claims
 or pairs an account through the daemon's onboarding routes, which write those
 stores; on iOS, `KeychainAccountService` keeps them in the app's Keychain.
 Pairing offers for another device go to the host directly with a session on
@@ -78,7 +78,8 @@ and iOS cannot restore or back up an identity file; the service declares both
 as missing capabilities.
 Every device signs in with the device key it claimed or paired with
 ([accounts §5.1](../../overstory-spec/04-accounts-and-devices.md#51-device-sessions)):
-on the Mac Story Sync holds it and `GET /v1/credential` returns sessions; on
+on the Mac the data home holds it, and the app opens its own sessions with it
+(`DataHomeAccountStore` and `DataHomeCredentialProvider` in `OverstoryClient`); on
 iOS it is a Secure Enclave P-256 key (a software key in the simulator), kept
 as a tagged value in the account's Keychain slot, and
 `AccountStoredCredentialProvider` opens hour-long sessions with it. A slot
@@ -101,17 +102,16 @@ Making a folder an Overstory tree offers each placement account of an
 account this Mac administers as a destination beside the home host
 (`~joe · orchard.example`); a canonical URL there must be at or below the
 placement account's URL. The app declares and mounts the tree on the
-placement host with a protocol client whose session the daemon opened there
-(`GET /v1/credential?configurationTree=…&origin=…`), writes
+placement host with a protocol client whose session the data home's key
+opened there, writes
 `{tree, host}` into `placements.yaml`, and asks the daemon to synchronize.
 The placement account's own URL declares nothing while its root is inactive:
 the app writes the placement root's TreeID with the host, and the daemon
 activates the root with the folder's content. A tree placed on a placement
 host names it as its descriptor's `canonical.endpoint`; opening it, editing
 its working tree, its access and app rules, and its sidebar group use that
-host and the session there (`StorySyncCredentialProvider` is shared per
-account and host, and refetches from the daemon after a 401), never the home
-session. Agent codes cover home-host trees only. On iOS, `NativeAccountService.placeAccount`
+host and the session there (`DataHomeCredentialProvider` is shared per
+account and host, and opens another after a 401), never the home session. Agent codes cover home-host trees only. On iOS, `NativeAccountService.placeAccount`
 keeps each connection as a Keychain item named
 `<cfg>/host-<hash>`, the same key. A paired iPhone holds no profile key (it is
 kept only on the device that created it), so it cannot claim: it connects
@@ -141,14 +141,21 @@ The recovery store earlier builds kept under
 
 Each working tree keeps its change log at `sync/change-log.json` with its
 objects under `sync/change-log-objects/`, separate from update control and
-from editor recovery. The complete journal is written to a private temporary
-file, fsynced, renamed, and its directory fsynced before a write returns;
+from editor recovery. TypeScript writes the complete journal to a private
+temporary file, fsyncs it, renames it and fsyncs its directory before a write
+returns. Swift (schema 5) keeps JSON Lines, a header line and then one record
+per line: a new edit stores the objects it introduces (each file fsynced, the
+directory fsynced once) and then appends its line with one fsync, so an edit's
+cost does not grow with the retained records. Removing records rewrites the
+file atomically as above. A last line without its newline was never
+acknowledged; it is dropped on load and the next write rewrites the file.
 Swift locks concurrent writers and TypeScript serializes within the owning
 process. One process must own a state directory; cross-process ownership is
 not enforced. Opening a corrupt journal fails without rewriting it.
 
-The journal is schema 4: each record keeps the protocol element verbatim, one
-frame per record, with a capture summary; both stacks refuse any other schema.
+Each record keeps the protocol element verbatim, one frame per record, with a
+capture summary. TypeScript reads and writes schema 4 (one JSON document);
+Swift reads schema 4 and rewrites it as schema 5 on the next write.
 A record may also carry `transfer`: the
 destination document (reference, path and basis revision) of a Move to
 Document, whose one frame moves source out of the record's `document` and into

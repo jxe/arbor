@@ -98,9 +98,13 @@ Keep the local Xcode workspace in place for ongoing coordinated development.
   evidence lands in `status.md` or `docs/`; git history is the record.
   Numbers are stable identifiers within a plan directory, not an order.
   Each plan opens with why and when Joe wants it, repeated in
-  `plans/README.md`, and carries no priority label. Decided small tasks,
-  hand checks and soaks go in `plans/chores.md`, not their own plan;
-  undecided work goes in `plans/candidates.md`, and proposed spec additions
+  `plans/README.md`, and carries no priority label. When steps of a plan
+  are finished, record them in `status.md`, delete them from the plan, and
+  retitle the plan (file name, heading, README paragraph) to the work that
+  is left. Things only Joe can do (hand checks on his devices, releases,
+  publishing, go-aheads for live data, soaks) go in `plans/joe.md`, not in
+  a plan; a plan left with only those is deleted once they are there.
+  Undecided work goes in `plans/candidates.md`, and proposed spec additions
   in `plans/spec-extensions/`, one file each.
 - `tests/fixtures/` owns reference-implementation fixtures, as opposed to
   the portable vectors under `docs/overstory-spec/conformance/`.
@@ -237,12 +241,16 @@ build number is the commit count. It pushes `main`, which deploys the host.
 
 It runs on Joe's Mac: it needs the Developer ID certificate, the
 `story-notary` keychain profile, the Sparkle signing key, Xcode signed in to
-the team, and `gh` and `npm` logged in. With an App Store Connect API key named
+the team, and `gh` logged in. With an App Store Connect API key named
 in `~/.appstoreconnect/story.env`, `tools/testflight.ts` waits for the uploaded
 build to process, adds it to the TestFlight group and submits it for beta
-review. Approving the npm publish, when npm stages it, stays manual. The pieces
-are `swift/scripts/release-mac.sh`, `swift/scripts/release-ios.sh`,
-`tools/testflight.ts` and `bun run build:cli:package`.
+review. npm publishes from GitHub Actions, through
+`.github/workflows/publish-npm.yml`, which each package trusts in its npm
+settings, so it needs no token or one-time password; run that workflow with
+`check_only` to test it without publishing. Approving the npm publish, when npm
+stages it, stays manual. The pieces are `swift/scripts/release-mac.sh`,
+`swift/scripts/release-ios.sh`, `tools/testflight.ts` and
+`tools/publish-cli-package.sh`.
 
 ## Check-ins
 
@@ -251,6 +259,18 @@ Sync and Story.app have been doing, from overstoryd's Railway logs, Story
 Sync's launchd log and Story.app's logs. It runs on Joe's Mac from a checkout
 linked to Railway and only reads, except `--mark`, which starts a new period;
 `--since <time>` reports from a given time instead.
+
+## Comparing public pages with Story
+
+`bun tools/public-page-compare/compare.ts` checks that overstoryd's public pages
+draw blocks as Story's editor does, on a Mac. It renders a kitchen-sink page and
+every ordered pair of adjacent block types in both, writes light and dark PNGs
+to `.local/public-page-compare`, and exits 1 when a gap between two blocks
+differs by a point or more. Run it after changing the page CSS in
+`packages/overstoryd/src/public-page.ts` or spacing and row layout in Quagmire,
+and look at the kitchen-sink images, since only gaps are measured. It uses the
+system font on both sides; `--inter` keeps the page's own font stack. It isn't
+part of any gate: its render test skips itself in ordinary test runs.
 
 ## Disposable browser smoke test
 

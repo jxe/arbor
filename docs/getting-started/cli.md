@@ -62,6 +62,7 @@ story open https://garden.example/~joe/notes
 ```text
 story place [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
 story place <canonical-url> <local-path>
+story place --read-only <canonical-url> <local-path>
 ```
 
 The local-first form creates or updates a hosted tree declaration and places
@@ -106,6 +107,20 @@ story place ./orchard https://orchard.example/~joe
 story place ./research https://orchard.example/~joe/research
 # On another device paired at your home host:
 story place https://orchard.example/~joe/research ~/Documents/research
+```
+
+With `--read-only`, the URL may be at any host, including one where your
+profile has no account: the folder follows the tree and never sends your
+edits. Story Sync reads it with your account there if you have one, else as a
+visitor whom that host checks against the device keys your home host
+publishes ([accounts §5.6](../overstory-spec/04-accounts-and-devices.md#56-visitor-sessions)),
+else as anyone. A visitor reads what the host's rules grant your profile by
+its URL at your home host (such as `https://garden.example/~joe`), plus
+whatever is public.
+
+```sh
+# railton.example shares its essays with https://garden.example/~joe:
+story place --read-only https://railton.example/~railton/essays ~/Reading/railton
 ```
 
 ### `story mv`
@@ -165,7 +180,28 @@ story agent revoke <bundle-id>
 story agent run [<bundle-string>] [--root <directory>] [--timeout <duration>] [-- <command> [<argument>...]]
 story agent start [<bundle-string>] [--root <directory>] [--timeout <duration>] [--json]
 story agent finish [--root <directory>] [--timeout <duration>] [--json]
+story agent status <text>
+story agent done <text>
+story agent hook [--agent <label>]
+story agent install [--command <path>] [--agent <label>]
+story agent uninstall
 ```
+
+**Showing an agent in Story.** Any agent working in a placed folder can show
+up in Story as an agent of yours, with its page, its cursor and what it says
+it is doing. `story agent install` adds three things to Claude Code's user
+settings: hooks that run `story agent hook` after each read and edit (and when
+a session stops or ends), a skill that teaches the house rules for placed
+folders, and permission to run `story agent`. `story agent uninstall` takes
+exactly those out. From inside the folder, an agent says what it is doing with
+`story agent status "merging duplicates"` and what it did with
+`story agent done "Merged 3 duplicates"`. Outside a placed folder these do
+nothing; `hook` never fails the agent. A runner that starts the agent sets
+`STORY_AGENT_SESSION` (and optionally `STORY_AGENT_LABEL`) so every report
+lands in one session. Claude Code's directory is `$CLAUDE_CONFIG_DIR` when set.
+`story agent start` does the same for a cloud agent: when the machine has
+Claude Code it installs the hooks labelled with the bundle's name, and its
+instructions tell any agent to report with `status` and `done`.
 
 An agent bundle is one revocable string that lets an agent on another machine
 work in the folders you choose. Create it on an already configured
@@ -298,6 +334,7 @@ story open https://garden.example/~joe/notes
 story me
 story me create [<profile-folder>] [--name <display-name>]
 story me set [--name <display-name>] [--avatar <relative-path>] [--description <text>]
+story me domain [<domain>] [--remove <domain>] [--check]
 story me backup <file>
 story me restore <file> [<profile-folder>]
 story me accounts
@@ -323,6 +360,19 @@ bootstrap.
 preserving its body and unknown keys. The avatar path must name an existing
 PNG, JPEG, GIF, or WebP file inside the profile folder. These fields are
 presentation only; the Profile TreeID remains the identity.
+
+`story me domain alice.example` names your profile by a domain you control
+(locators §1.1): it adds the domain to the profile root's `domains` front
+matter and prints the two records either of which finishes the claim, a DNS
+TXT record at `_overstory.alice.example` reading
+`profile=<your locator at your home host>`, or a file at
+`https://alice.example/.well-known/overstory-profile` holding
+`{"profile": "<your locator>"}`. Once the record is up and Story Sync has
+published the profile, `https://alice.example` names you in access rules and
+group members on any host, and keeps naming you if you move home hosts and
+update the record. `story me domain --check` resolves each listed domain both
+ways, as a host would, and exits non-zero when one does not name your profile;
+`--remove` takes a domain out of the front matter (remove its record too).
 
 `story me backup` writes a versioned backup of the same private key to a newly
 created owner-readable file. It asks for a passphrase of at least four

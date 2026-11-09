@@ -79,7 +79,7 @@ test("freshening and storing again keep a packed object packed", async () => {
 test("a pack whose bytes do not match its index fails the read", async () => {
   const { root, store } = fresh();
   const docs = versions(3);
-  await store.store(docs);
+  await store.stage(docs);
   await store.pack(docs);
   const name = readdirSync(join(root, "packs")).find((n) => n.endsWith(".pack"))!;
   const bytes = readFileSync(join(root, "packs", name));
@@ -91,7 +91,7 @@ test("a pack whose bytes do not match its index fails the read", async () => {
 test("verification hashes each pack against its name and counts what packs hold", async () => {
   const { root, store } = fresh();
   const docs = versions(3);
-  await store.store(docs);
+  await store.stage(docs);
   const { packBytes } = await store.pack(docs);
   const sound = await new ObjectStore(root).packs.verify();
   expect(sound).toEqual({ packs: 1, bytes: packBytes, objects: 3, objectBytes: docs.reduce((n, d) => n + d.bytes.byteLength, 0), damaged: [] });
@@ -145,9 +145,47 @@ test("a pass after one interrupted between indexing and removing loose files rem
 test("packing keeps each object's last use", async () => {
   const { store } = fresh();
   const docs = versions(2);
-  await store.store(docs);
+  await store.stage(docs);
   const past = Date.now() - 3 * 86_400_000;
   await store.pack(docs.map((d) => ({ ...d, usedAt: past })));
   const rows = store.packs.index()!.query("SELECT used_at FROM packed_objects").all() as Array<{ used_at: number }>;
   expect(rows.map((r) => r.used_at)).toEqual([past, past]);
+});
+
+test("packing moves journaled objects into compressed frames and removes the emptied journal", async () => {
+  const { root, store } = fresh();
+  const docs = versions(6);
+  await store.store(docs);
+  const journal = readdirSync(join(root, "packs")).find((n) => n.startsWith("journal-"))!;
+  expect(store.packs.journaled().map((j) => j.hash).sort()).toEqual(docs.map((d) => d.hash).sort());
+  const before = store.packs.journaled()[0]!.usedAt;
+  await store.pack(docs.map((d) => ({ ...d, usedAt: before - 1 })));
+  expect(store.packs.journaled()).toEqual([]);
+  expect(store.packs.locate(docs[0]!.hash)!.encoding).toBe(Encoding.Member);
+  // A journal's newer use is kept.
+  expect((store.packs.index()!.query("SELECT min(used_at) AS t FROM packed_objects").get() as { t: number }).t).toBe(before);
+  expect(await store.packs.removeOrphans()).toEqual([journal]);
+  for (const d of docs) expect(await new ObjectStore(root).read(d.hash)).toEqual(d.bytes);
+  // The store appends again, to a new journal.
+  const later = object("after packing");
+  await store.store([later]);
+  expect(await new ObjectStore(root).read(later.hash)).toEqual(later.bytes);
+});
+
+test("a journal mostly packed away is rewritten, unless it is the one being appended to", async () => {
+  const { root, store } = fresh();
+  const docs = versions(6);
+  await store.store(docs);
+  await store.pack(docs.slice(0, 5));
+  // The open journal stays as it is.
+  expect(await store.packs.compactJournals()).toBe(0);
+  const other = new ObjectStore(root);
+  expect(await other.packs.compactJournals()).toBe(1);
+  expect(store.packs.journaled()).toEqual([]);
+  for (const d of docs) expect(await new ObjectStore(root).read(d.hash)).toEqual(d.bytes);
+  // The writer's journal row is gone, so its next append starts a new one.
+  const later = object("after compaction");
+  await store.store([later]);
+  expect(await new ObjectStore(root).read(later.hash)).toEqual(later.bytes);
+  expect(store.packs.journaled().map((j) => j.hash)).toEqual([later.hash]);
 });

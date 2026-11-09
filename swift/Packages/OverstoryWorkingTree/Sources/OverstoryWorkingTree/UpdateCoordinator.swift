@@ -1,4 +1,4 @@
-import StoryKit
+import OverstoryWorkspace
 import Overstory
 import OverstoryObjectStore
 import Foundation
@@ -410,7 +410,7 @@ public actor UpdateCoordinator {
                     for hash in Set(reconciliation.deltas.map(\.base)).subtracting(present).sorted() {
                         basis.objects.append(ProtocolObjectEnvelope(hash: hash, bytes: try await workingTree.objectBytes(hash: hash)))
                     }
-                    projected = try ProtocolTransitionReplay.applying(reconciliation, to: basis, root: accepted.root, mode: .sparseFiles)
+                    projected = try ProtocolTransitionReplay.applying(reconciliation, to: basis, root: accepted.root, mode: .lazyDirectories)
                 } else if accepted.root == record.candidate.root {
                     projected = record.candidate
                 }
@@ -436,8 +436,9 @@ public actor UpdateCoordinator {
     }
 
     /// Install the host's current state: `projection` when it is exactly that
-    /// state, otherwise the sparse graph walked from the current root, or a
-    /// snapshot when an object read is unavailable.
+    /// state, otherwise the working tree's accepted graph at the current root
+    /// (the directories it has loaded), or a snapshot when an object read is
+    /// unavailable.
     private func install(current: CurrentHead, projection: ProtocolSnapshot?) async throws -> UpdateMachine.AcceptedBase {
         let heads = try await workingTree.heads()
         let installed = UpdateMachine.AcceptedBase(root: current.root, update: current.update, cursor: current.observedThrough, conflicted: current.conflicted)
@@ -457,7 +458,10 @@ public actor UpdateCoordinator {
             Self.syncLog.notice("install update=\(current.update, privacy: .public): own projection, objects=\(projection.objects.count)")
         } else {
             do {
-                snapshot = try await sparseDirectoryGraph(treeID: tree, root: current.root)
+                let transport = transport
+                snapshot = try await workingTree.acceptedGraph(root: current.root) { hash in
+                    try await transport.object(tree: tree, hash: hash)
+                }
             } catch {
                 Self.syncLog.error("install update=\(current.update, privacy: .public): sparse graph failed after \(Date().timeIntervalSince(started), format: .fixed(precision: 1))s, fetching the snapshot: \(String(describing: error), privacy: .public)")
                 started = Date()
@@ -469,7 +473,7 @@ public actor UpdateCoordinator {
         try faultInjector.reached(.duringMaterialization)
         started = Date()
         try await workingTree.replaceFromSystem(SnapshotBridge.replacement(snapshot: snapshot, tree: await workingTree.treeID(),
-            update: current.update, cursor: current.observedThrough, mode: .sparseFiles))
+            update: current.update, cursor: current.observedThrough, mode: .lazyDirectories))
         Self.syncLog.notice("install update=\(current.update, privacy: .public): materialized seconds=\(Date().timeIntervalSince(started), format: .fixed(precision: 1))")
         try faultInjector.reached(.afterMaterialization)
         return installed
@@ -579,7 +583,8 @@ public actor UpdateCoordinator {
             let basis = updates.last.map { previous in
                 records.first { $0.candidate.root == previous.candidate }?.candidate
             } ?? transportBase
-            guard let basis, let candidate = byChange[change]?.candidate else { return update }
+            guard let candidate = byChange[change]?.candidate else { return update }
+            guard let basis else { return try LocalChange.dropIntermediates(update, candidate: candidate) }
             return try LocalChange.compactTransport(update, basis: basis, candidate: candidate)
         }
         let frozen = Set((try control.attempt?.request().updates.map(\.change)) ?? [])
@@ -848,48 +853,5 @@ public actor UpdateCoordinator {
             }
         }
         return value
-    }
-
-    // MARK: Graph reads
-
-    /// The spine reachable from `root` (directories and Markdown), assembled
-    /// object by object: everything already local is reused and only absent
-    /// objects are fetched, so catching up after a restart costs a handful of
-    /// small reads rather than a snapshot. Other files stay absent and are
-    /// served by hash. Nested trees are separate boundaries and are not entered.
-    private func sparseDirectoryGraph(treeID: String, root: String) async throws -> ProtocolSnapshot {
-        let started = Date()
-        var objects: [ProtocolObjectEnvelope] = [], fromHost = 0
-        var pending: [(hash: String, kind: ProtocolObjectKind)] = [(root, .directory)], seen = Set<String>()
-        while let next = pending.popLast() {
-            guard seen.insert(next.hash).inserted else { continue }
-            // The working tree reads its overlay, then its platform store, and
-            // verifies the bytes. Only an object the store lacks is asked of the
-            // host directly; a failed read is not repeated.
-            let bytes: Data
-            do { bytes = try await workingTree.objectBytes(hash: next.hash) }
-            catch ObjectStoreError.missing {
-                bytes = try await transport.object(tree: treeID, hash: next.hash)
-                fromHost += 1
-                guard ProtocolObjectCodec.hash(bytes) == next.hash else { throw UpdateError.returnedSnapshotMismatch }
-            }
-            objects.append(ProtocolObjectEnvelope(hash: next.hash, bytes: bytes))
-            // A collection's tables and rows are structure, fetched like directories.
-            guard next.kind == .directory, case let .directory(entries, collection) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else {
-                pending += try ProtocolObjectCodec.references(bytes, kind: next.kind)
-                continue
-            }
-            for table in collection?.tables ?? [] { pending.append((table.table, .table)) }
-            for entry in entries {
-                guard let child = entry.hash, let kind = entry.kind else { continue }
-                if kind == .directory || entry.name.hasSuffix(".md") || entry.name.hasSuffix(".mdx") { pending.append((child, kind)) }
-            }
-        }
-        let graph = ProtocolSnapshot(root: root, objects: objects.sorted { $0.hash < $1.hash })
-        _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
-        // Store reads go through the platform store (the Mac's Story Sync
-        // daemon), which may itself fetch from the host.
-        Self.syncLog.notice("sparse graph objects=\(objects.count) store=\(objects.count - fromHost) host=\(fromHost) seconds=\(Date().timeIntervalSince(started), format: .fixed(precision: 1))")
-        return graph
     }
 }

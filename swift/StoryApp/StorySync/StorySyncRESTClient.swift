@@ -14,16 +14,6 @@ struct StorySyncServerError: Error, LocalizedError, Sendable {
     }
 
     var errorDescription: String? { value.message }
-
-    /// A refused credential as the protocol client reports a host's refusal:
-    /// a device the host no longer lists is a 401, a host that cannot check it
-    /// now keeps its retryable status, and a named home host stays named.
-    var credentialRefusal: ProtocolHTTPError {
-        var homeHost: String?
-        if case let .object(details)? = value.details, case let .string(host)? = details["homeHost"] { homeHost = host }
-        return ProtocolHTTPError(status: status == 409 ? 401 : status, code: value.code, message: value.message,
-                                 retryable: value.retryable, homeHost: homeHost)
-    }
 }
 
 /// The running Story Sync has no placement route yet; the `story` command
@@ -214,70 +204,13 @@ actor StorySyncRESTClient {
 
     // MARK: Loopback services for a same-installation working-tree client
 
-    /// `GET /v1/bootstrap?tree=`: the daemon's accepted host base and sparse spine.
-    /// The spine is decoded and validated in `.sparseFiles` mode against `accepted.root`;
-    /// daemon-local pending and conflict state never enters another client's bootstrap.
-    func bootstrap(tree: String) async throws -> TreeBootstrap {
-        // The route answers canonical CBOR only, with `spine` as the bundle's bytes.
-        var components = URLComponents(url: url("/v1/bootstrap"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "tree", value: tree)]
-        var request = URLRequest(url: components.url!)
-        request.setValue("application/cbor", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: Self.authorized(request, token: token))
-        try validate(data: data, status: try statusCode(response))
-        let envelope = try CanonicalCBORDecoder().decode(TreeBootstrapEnvelope.self, from: data)
-        let spine: ProtocolSnapshot
-        do {
-            spine = try ProtocolSnapshotBundleCodec.decode(envelope.spine, root: envelope.accepted.root, mode: .sparseFiles)
-        } catch {
-            throw TreeBootstrapError.invalidSpine(String(describing: error))
-        }
-        return TreeBootstrap(
-            tree: envelope.tree,
-            accepted: envelope.accepted,
-            spine: spine,
-            observedThrough: envelope.observedThrough
-        )
-    }
-
-    /// `GET /v1/credential`: the host account credential the daemon holds for
-    /// `configurationTree` (or the only connected account when omitted). With
-    /// `origin`, the session is for that host: the account's home host, or one
-    /// of its placement hosts (accounts §1.3), which the same device key opens.
-    /// `origin` requires `configurationTree`.
-    func credential(configurationTree: String? = nil, origin: String? = nil) async throws -> String {
-        var items: [URLQueryItem] = []
-        if let configurationTree { items.append(URLQueryItem(name: "configurationTree", value: configurationTree)) }
-        if let origin {
-            guard configurationTree != nil else {
-                throw ProtocolValidationError.invalidValue("A credential for a host names its account's configuration tree")
-            }
-            items.append(URLQueryItem(name: "origin", value: origin))
-        }
-        let value: TreeCredential = try await get(path: "/v1/credential", items: items)
-        guard !value.token.isEmpty else {
-            throw ProtocolValidationError.invalidValue("Story Sync returned an empty credential")
-        }
-        return value.token
-    }
-
-    /// `GET /v1/objects/{hash}?tree=`: one canonical wire object of a placed tree,
-    /// hash-verified before it is returned. A 404 surfaces as `StorySyncServerError` with status 404.
-    func object(tree: String, hash: String) async throws -> Data {
-        guard hash.range(of: #"^sha256:[a-f0-9]{64}$"#, options: .regularExpression) != nil else {
-            throw ProtocolValidationError.invalidHash(hash)
-        }
-        var components = URLComponents(url: url("/v1/objects/\(hash)"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "tree", value: tree)]
-        var request = URLRequest(url: components.url!)
-        request.setValue("application/cbor", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: Self.authorized(request, token: token))
-        try validate(data: data, status: try statusCode(response))
-        let actual = ProtocolObjectCodec.hash(data)
-        guard actual == hash else {
-            throw ProtocolValidationError.objectHashMismatch(expected: hash, actual: actual)
-        }
-        return data
+    /// The standard Overstory reads of the trees placed here (Clients 003):
+    /// descriptor, snapshot, path read, objects, entry metadata and the host's
+    /// watch, served by Story Sync on loopback. The ordinary protocol client,
+    /// with the data home's caller token as its credential; every object it
+    /// returns is verified against its hash.
+    nonisolated func reads() -> ProtocolClient {
+        ProtocolClient(origin: baseURL, credential: token, session: session)
     }
 
     func observations(after initialCursor: String) -> AsyncThrowingStream<WorkspaceEvent, Error> {
@@ -345,6 +278,43 @@ actor StorySyncRESTClient {
         }
     }
 
+    // MARK: Agent runs (Agents 001 phase 6)
+
+    /// Start the person's agent on a task block's task in a placed tree.
+    func startAgentRun(tree: String, page: String, task: String) async throws -> StoryAgentRun {
+        try await agentPost("/v1/agents/runs", body: ["tree": tree, "page": page, "task": task])
+    }
+
+    func agentRun(_ id: String) async throws -> StoryAgentRun {
+        try await get(path: "/v1/agents/runs/\(id)", items: [])
+    }
+
+    func agentRuns() async throws -> [StoryAgentRun] {
+        try await get(path: "/v1/agents/runs", items: [])
+    }
+
+    func stopAgentRun(_ id: String) async throws -> StoryAgentRun {
+        try await agentPost("/v1/agents/runs/\(id)/stop", body: [:])
+    }
+
+    /// Put back the files a run changed, unless they changed again since.
+    func undoAgentRun(_ id: String) async throws -> StoryAgentRunUndo {
+        try await agentPost("/v1/agents/runs/\(id)/undo", body: [:])
+    }
+
+    /// Let future runs use a tool this run was refused.
+    func allowAgentTool(_ id: String, rule: String) async throws -> StoryAgentRun {
+        try await agentPost("/v1/agents/runs/\(id)/allow", body: ["rule": rule])
+    }
+
+    private func agentPost<T: Decodable>(_ path: String, body: [String: String]) async throws -> T {
+        var request = URLRequest(url: url(path))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+        return try await perform(request)
+    }
+
     private func get<T: Decodable>(
         path: String,
         items: [URLQueryItem]
@@ -386,11 +356,29 @@ actor StorySyncRESTClient {
 
 private struct LocalResyncObservation: Decodable { var cursor: String; var tree: String; var kind: String }
 
-private struct TreeBootstrapEnvelope: Decodable {
-    var tree: TreeBootstrapDescriptor
-    var accepted: TreeBootstrapAccepted
-    /// The sparse snapshot bundle's bytes: a CBOR byte string.
-    var spine: Data
-    var observedThrough: String
-}
 #endif
+
+// Outside the macOS block: views shared with iOS name these types, though only the Mac runs.
+
+/// One run of the person's agent, as Story Sync reports it.
+struct StoryAgentRun: Decodable, Equatable, Sendable, Identifiable {
+    enum State: String, Decodable, Sendable { case queued, running, finished, failed, stopped, undone }
+    var id: String
+    var tree: String
+    var page: String
+    var task: String
+    var state: State
+    /// The agent's one-line result, or why the run failed.
+    var result: String?
+    var changed: [String]
+    var undoable: Bool
+    /// Rules for the tools the run was refused; an older Story Sync sends none.
+    var blocked: [String]?
+
+    var isActive: Bool { state == .queued || state == .running }
+}
+
+struct StoryAgentRunUndo: Decodable, Equatable, Sendable {
+    var restored: [String]
+    var skipped: [String]
+}

@@ -13,8 +13,10 @@ struct ConflictReviewCompilerTests {
         let root = try f.directory([.init(name: "page.md", file: later)])
         let decision = try f.decision("root-choice", path: "/", values: [["directory": oldRoot], ["directory": try f.directory([])]], root: root)
         var proposal = draft(root, [decision])
-        #expect(proposal.rebased(onto: .init(tree: proposal.snapshot.tree, state: "later", root: oldRoot, decisions: [decision])) == nil)
+        // Only a draft keeping current contents is pinned to the root it saw.
+        #expect(proposal.rebased(onto: .init(tree: proposal.snapshot.tree, state: "later", root: oldRoot, decisions: [decision])) != nil)
         proposal.keepCurrent = true
+        #expect(proposal.rebased(onto: .init(tree: proposal.snapshot.tree, state: "later", root: oldRoot, decisions: [decision])) == nil)
         let retained = try JSONDecoder().decode(ConflictReviewDraft.self, from: JSONEncoder().encode(proposal))
         let preview = try ConflictReviewCompiler.compile(retained, base: f.snapshot(root), material: [:])
         #expect(preview.candidate.root == root)
@@ -25,15 +27,28 @@ struct ConflictReviewCompilerTests {
         #expect(proposal.keepCurrent == nil)
     }
 
-    @Test("Keeping current contents refuses a coupled group")
+    @Test("Keeping current contents resolves a coupled group without choosing versions")
     func keepCurrentCoupled() throws {
         var f = Fixture()
         let root = try f.directory([])
         let a = try f.decision("a", path: "/", values: [["directory": root]], dependencies: ["b"], root: root)
         let b = try f.decision("b", path: "/", values: [["directory": root]], root: root)
         var proposal = draft(root, [a, b])
-        try proposal.choose("b", alternative: b.selected)
         proposal.keepCurrent = true
+        #expect(proposal.obligations.isEmpty)
+        let preview = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: [:])
+        #expect(preview.candidate.root == root)
+        #expect(preview.changes.isEmpty)
+    }
+
+    @Test("Keeping current contents refuses a group missing a linked choice")
+    func keepCurrentMissingDependency() throws {
+        var f = Fixture()
+        let root = try f.directory([])
+        let a = try f.decision("a", path: "/", values: [["directory": root]], dependencies: ["b"], root: root)
+        var proposal = draft(root, [a])
+        proposal.keepCurrent = true
+        #expect(!proposal.supportsKeepingCurrent)
         #expect(throws: ConflictReviewError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: [:]) }
     }
 

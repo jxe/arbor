@@ -1,0 +1,41 @@
+# Publishes the story command to npm through npm's trusted publishing: no stored
+# token and no one-time password. tools/release.sh starts it. The name of this
+# file is part of what npm trusts, so renaming it means updating each package there.
+name: Publish npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The commit to publish; its packages/cli/package.json names the version
+        required: true
+      check_only:
+        description: Build and test without publishing
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    # On macOS, so the build can sign the Mac executables.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.commit }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+      - run: npm install -g npm@12.2.1
+      - run: bun install --frozen-lockfile
+      - run: bun run test:cli:package
+      - run: bun run build:cli:package
+      - if: ${{ !inputs.check_only }}
+        run: tools/publish-cli-package.sh

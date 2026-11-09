@@ -8,6 +8,7 @@
     "./node": "./src/node/index.ts"
   },
   "dependencies": {
-    "@ovst/protocol": "workspace:*"
+    "@ovst/protocol": "workspace:*",
+    "@ovst/object-store": "workspace:*"
   }
 }

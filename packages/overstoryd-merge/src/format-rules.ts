@@ -1,11 +1,15 @@
-import { markdownLayout, markdownProseInsertion, markdownHeadingInsertion, markdownHeadingContext, markdownTransferShape, markdownTransferStructure, markdownListEdit, MarkdownSource, type LinkPolicy } from "./markdown-format.ts";
+import { contextualLinkList, markdownProseInsertion, markdownTransferShape, markdownTransferStructure, type LinkPolicy } from "./markdown-format.ts";
 import { byte, xmlUnits, webUnits } from "./web-formats.ts";
 import Parser from "web-tree-sitter";
 import { fileURLToPath } from "node:url";
 import { dirname, extname, join } from "node:path";
 import { parseDocument } from "yaml";
-import { overlap, pieceLength, type PieceEdit } from "./pieces.ts";
+import type { PieceEdit } from "./pieces.ts";
 import type { Format } from "./format-names.ts";
+import type { Piece } from "./intent-model.ts";
+import { markdownBlockMerge } from "./markdown-blocks.ts";
+import { elementMerge, type Element, type ElementReader } from "./elements.ts";
+import { jsonElements, tableElements, tableInvalid, tomlElements, yamlElements } from "./data-elements.ts";
 export type { Format };
 
 export interface FormatConfig {
@@ -41,6 +45,9 @@ export interface FormatEvidence {
   reason: string;
   config: FormatConfig;
 }
+/** A refusal that names what needs review: base byte ranges of the blocks
+ * involved. The engine makes choices about those blocks only. */
+export type ScopedEvidence = FormatEvidence & { scope?: Array<[number, number]> };
 const formats: Record<string, Format> = {
   ".txt": "text",
   ".md": "markdown",
@@ -435,69 +442,6 @@ function tableUnits(
   }
   return units;
 }
-/** What one evaluation's transfer checks share: they all read the same base
- * document, so it is scanned and laid out once, and each distinct edit of it
- * is judged once. */
-interface ProseBase {
-  bytes: Uint8Array;
-  document: MarkdownSource;
-  layout: ReturnType<typeof markdownLayout>;
-  /** Whether an edit (by range and text) keeps the base's prose shape. */
-  kept: Map<string, boolean | "heading">;
-}
-
-/** Normalize verified inline edits and prose insertions before checking transfers.
- * Everything else, including the exact protected host/embedded syntax, remains
- * in the signature. Source ranges come from identity correspondence, not a diff. */
-function proseTransferShape(scan: ProseBase, changed: Uint8Array, edits: PieceEdit[]): string | null {
-  try {
-    if (edits.length > 128) return null;
-    const { bytes: base, document, layout } = scan;
-    if (!layout) return null;
-    const parts: string[] = [];
-    let old = 0, next = 0;
-    for (const edit of [...edits].sort((a, b) => a.range[0] - b.range[0])) {
-      const [start, end] = edit.range, size = pieceLength(edit.pieces);
-      if (start < old || end < start || end > base.length) return null;
-      const gap = start - old;
-      if (!Buffer.from(base.subarray(old, start)).equals(changed.subarray(next, next + gap))) return null;
-      parts.push(decoder.decode(base.subarray(old, start)));
-      next += gap;
-      if (next + size > changed.length) return null;
-      const text = decoder.decode(changed.subarray(next, next + size));
-      const previous = decoder.decode(base.subarray(start, end));
-      const key = JSON.stringify([start, end, text]);
-      let kept = scan.kept.get(key);
-      if (kept === undefined) {
-        const inline = !/[\r\n]/.test(previous + text) &&
-          touched(layout.units.filter(u => !u.key.startsWith("embedded:")), [edit]) !== null &&
-          markdownProseInsertion(document, start, [text]) &&
-          markdownLayout(decoder.decode(base.subarray(0, start)) + text + decoder.decode(base.subarray(end)))?.skeleton === layout.skeleton;
-        // New prose/list items use the established insertion guard. Headings and
-        // blockquotes can change the scope of later edits and remain protected.
-        const insertion = start === end && !/^ {0,3}(?:#{1,6}(?:\s|$)|>)/m.test(text) &&
-          markdownProseInsertion(document, start, [text]);
-        // A complete ATX heading block between blocks parses alone; whether the
-        // following block keeps its parse is checked in each version below.
-        kept = inline || insertion || markdownListEdit(document, start, end, text) ||
-          (start === end && markdownHeadingInsertion(document, start, text) ? "heading" : false);
-        scan.kept.set(key, kept);
-      }
-      if (kept === "heading" && !markdownHeadingContext(
-        decoder.decode(changed.subarray(0, next)), decoder.decode(changed.subarray(next + size)),
-      )) return null;
-      parts.push(kept ? previous : text);
-      old = end; next += size;
-    }
-    if (!Buffer.from(base.subarray(old)).equals(changed.subarray(next))) return null;
-    parts.push(decoder.decode(base.subarray(old)));
-    return markdownTransferShape(parts.join(""), false);
-  } catch {
-    // A piece boundary may divide a UTF-8 scalar; it is not a prose boundary.
-    return null;
-  }
-}
-
 /** Policy checks follow correspondence; a and b describe current and incoming,
  * respectively. Syntax validity alone never authorizes a merge. */
 export async function evaluateFormat(
@@ -509,7 +453,8 @@ export async function evaluateFormat(
   a: PieceEdit[],
   b: PieceEdit[],
   config: FormatConfig = {},
-): Promise<FormatEvidence> {
+  pieces?: Piece[][],
+): Promise<ScopedEvidence> {
   const format =
     config.format ?? formats[extname(path).toLowerCase()] ?? "binary";
   const result = (safe: boolean, reason: string): FormatEvidence => ({
@@ -533,97 +478,11 @@ export async function evaluateFormat(
     return result(false, "Source exceeds parser budget");
   if (format === "text")
     return result(true, "Disjoint verified source contributions");
-  if (format === "markdown") {
-    const layouts = sources.map(markdownLayout);
-    if (
-      !layouts.every(Boolean) ||
-      !layouts.every((l) => l!.skeleton === layouts[0]!.skeleton) ||
-      !touched(layouts[0]!.units, [...a, ...b])
-    ) {
-      // Paragraph removal/reordering changes the line skeleton without changing
-      // protected Markdown structure. Permit it alongside independently verified
-      // inline prose edits, and validate the combined result as well.
-      // For overlaps the caller's tentative projection selects incoming edits;
-      // proving its host safe permits local choices, not automatic resolution.
-      const projection = [...b, ...a.filter(x => !b.some(y => overlap(x, y)))];
-      const scan: ProseBase = { bytes: base, document: new MarkdownSource(sources[0]!), layout: layouts[0] ?? null, kept: new Map() };
-      const shapes = [
-        markdownTransferShape(scan.document, false),
-        proseTransferShape(scan, current, a),
-        proseTransferShape(scan, incoming, b),
-        proseTransferShape(scan, proposed, projection),
-      ];
-      if (shapes[0] !== null && shapes.every(shape => shape === shapes[0]))
-        return result(true, "Independent prose edits and transfers preserve protected Markdown structure");
-      return result(
-        false,
-        "Markdown host structure or unsupported source scope changed",
-      );
-    }
-    const aliases: Record<string, Format> = {
-      js: "javascript",
-      ts: "typescript",
-      javascript: "javascript",
-      typescript: "typescript",
-      json: "json",
-      yaml: "yaml",
-      yml: "yaml",
-      toml: "toml",
-      python: "python",
-      py: "python",
-      swift: "swift",
-      css: "css",
-      html: "html",
-      text: "text",
-      "": "text",
-    };
-    for (const [index, embedded] of layouts[0]!.embedded.entries()) {
-      const local = a.filter(
-          (e) => e.range[0] >= embedded.start && e.range[1] <= embedded.end,
-        ),
-        remote = b.filter(
-          (e) => e.range[0] >= embedded.start && e.range[1] <= embedded.end,
-        );
-      const format = aliases[embedded.language];
-      if (local.length && remote.length) {
-        if (!format)
-          return result(
-            false,
-            "Unknown embedded language has concurrent changes",
-          );
-        const bytes = layouts.map((l) =>
-          new TextEncoder().encode(l!.embedded[index]!.source),
-        );
-        const translate = (edits: PieceEdit[]) =>
-          edits.map((e) => ({
-            ...e,
-            range: [
-              e.range[0] - embedded.start,
-              e.range[1] - embedded.start,
-            ] as [number, number],
-          }));
-        const nested = await evaluateFormat(
-          "embedded",
-          bytes[0]!,
-          bytes[1]!,
-          bytes[2]!,
-          bytes[3]!,
-          translate(local),
-          translate(remote),
-          { format },
-        );
-        if (nested.outcome !== "resolved")
-          return result(
-            false,
-            "Embedded language requires review: " + nested.reason,
-          );
-      }
-    }
-    return result(
-      true,
-      "Independent source scopes with stable Markdown host structure; concurrent embedded changes delegate to their format policy",
-    );
-  }
+  // Data files merge as elements: keyed members, array items, table rows.
+  if (pieces && elementFormats.has(format)) return dataElementsEvidence(format, sources, pieces, config, result);
+  // Markdown merges as blocks, named by the pieces each version is made of.
+  if (format === "markdown")
+    return pieces ? markdownBlocksEvidence(sources, pieces, result) : result(false, "Markdown needs each version's pieces");
   if (format === "csv" || format === "tsv") {
     const units = sources.map((s) =>
       tableUnits(s, format === "csv" ? "," : "\t", config.recordKey),
@@ -781,6 +640,121 @@ export async function evaluateFormat(
   }
 }
 
+/** The format a path is merged as. */
+export function formatOf(path: string, config: FormatConfig = {}): Format {
+  return config.format ?? formats[extname(path).toLowerCase()] ?? "binary";
+}
+
+/** Markdown merged as blocks (overstoryd 017): every block of the result has
+ * what its last editor gave it, and fenced code or front matter both sides
+ * changed defers to its own language's rule. A refusal names its blocks. */
+async function markdownBlocksEvidence(
+  sources: string[],
+  pieces: Piece[][],
+  result: (safe: boolean, reason: string) => FormatEvidence,
+): Promise<ScopedEvidence> {
+  const verdict = markdownBlockMerge(sources, pieces);
+  if (!verdict) return result(false, "Markdown with an unclosed fence or front matter");
+  if (verdict.unreadable) return result(false, verdict.reason);
+  if (verdict.conflicts.length) return { ...result(false, verdict.reason), scope: verdict.conflicts };
+  const aliases: Record<string, Format> = {
+    js: "javascript", ts: "typescript", javascript: "javascript", typescript: "typescript",
+    json: "json", yaml: "yaml", yml: "yaml", toml: "toml", python: "python", py: "python",
+    swift: "swift", css: "css", html: "html", text: "text", "": "text",
+  };
+  for (const { base, language, texts } of verdict.embedded) {
+    const format = aliases[language];
+    const bytes = texts.map((t) => new TextEncoder().encode(t));
+    const nested = format && await evaluateFormat("embedded", bytes[0]!, bytes[1]!, bytes[2]!, bytes[3]!,
+      [difference(bytes[0]!, bytes[1]!)], [difference(bytes[0]!, bytes[2]!)], { format });
+    if (!nested || nested.outcome !== "resolved")
+      return { ...result(false, "Embedded source both sides changed requires review" + (nested ? ": " + nested.reason : "")), scope: [base] };
+  }
+  return result(true, verdict.reason);
+}
+
+/** Formats whose rule is the element check with a data reader. */
+export const elementFormats = new Set<Format>(["json", "yaml", "toml", "csv", "tsv"]);
+
+/** An element reader for a data format, reading each of `sources` once. */
+export async function dataReader(format: Format, sources: string[], config: FormatConfig = {}): Promise<ElementReader | null> {
+  const read = new Map<string, Element[] | null>();
+  if (format === "json" || format === "toml") {
+    const parser = await createParser(format);
+    try {
+      for (const source of sources) {
+        if (read.has(source)) continue;
+        const tree = parse(parser, source);
+        try { read.set(source, format === "json" ? jsonElements(source, tree.rootNode) : tomlElements(source, tree.rootNode)); }
+        finally { tree.delete(); }
+      }
+    } finally { parser.delete(); }
+  } else if (format === "yaml") {
+    for (const source of sources) if (!read.has(source)) read.set(source, yamlElements(source));
+  } else if (format === "csv" || format === "tsv") {
+    for (const source of sources) if (!read.has(source)) read.set(source, tableElements(source, format === "csv" ? "," : "\t", config.recordKey));
+  } else return null;
+  return {
+    read: (source) => read.get(source) ?? null,
+    invalid: format === "csv" || format === "tsv" ? (_, elements) => tableInvalid(elements) : undefined,
+    merged: "Every element keeps what its last editor gave it",
+  };
+}
+
+/** Insertions both sides made at one place in a data file, kept in
+ * contribution order, when every element of the result keeps what its author
+ * gave it (two new keys, two new array items, two new rows). `versions` and
+ * `pieces` are base, base with current's insertion, base with incoming's, and
+ * base with both. */
+export async function evaluateElementInsertions(
+  path: string,
+  versions: Uint8Array[],
+  pieces: Piece[][],
+  config: FormatConfig = {},
+): Promise<FormatEvidence> {
+  const format = formatOf(path, config);
+  const result = (safe: boolean, reason: string): FormatEvidence => ({
+    id: `${format}-insertions`,
+    revision: 1,
+    outcome: safe ? "resolved" : "unresolved",
+    reason,
+    config,
+  });
+  let sources: string[];
+  try { sources = versions.map((bytes) => decoder.decode(bytes)); }
+  catch { return result(false, "Invalid UTF-8 for selected text format"); }
+  const evidence = await dataElementsEvidence(format, sources, pieces, config, result);
+  return { id: evidence.id, revision: evidence.revision, outcome: evidence.outcome, reason: evidence.reason, config: evidence.config };
+}
+
+/** A data file merged as elements (overstoryd 017 step 7). */
+async function dataElementsEvidence(
+  format: Format,
+  sources: string[],
+  pieces: Piece[][],
+  config: FormatConfig,
+  result: (safe: boolean, reason: string) => FormatEvidence,
+): Promise<ScopedEvidence> {
+  let reader: ElementReader | null;
+  try { reader = await dataReader(format, sources, config); }
+  catch { return result(false, "Parser or semantic context unavailable"); }
+  const verdict = reader && elementMerge(sources, pieces, reader);
+  if (!verdict) return result(false, "Malformed or unsupported structure");
+  if (verdict.unreadable) return result(false, verdict.reason);
+  if (verdict.conflicts.length) return { ...result(false, verdict.reason), scope: verdict.conflicts };
+  return result(true, verdict.reason);
+}
+
+/** The one edit that turns `base` into `changed`, by common prefix and suffix. */
+function difference(base: Uint8Array, changed: Uint8Array): PieceEdit {
+  let start = 0;
+  while (start < base.length && start < changed.length && base[start] === changed[start]) start++;
+  let end = 0;
+  while (end < base.length - start && end < changed.length - start && base[base.length - 1 - end] === changed[changed.length - 1 - end]) end++;
+  const length = changed.length - start - end;
+  return { range: [start, base.length - end], pieces: length ? [{ origin: "embedded", object: "embedded", start: 0, offset: start, length }] : [] };
+}
+
 /** Same-anchor insertion policy is separate from replacement independence. */
 export function evaluateProseInsertions(
   path: string,
@@ -828,7 +802,8 @@ export function evaluateSourceTransfer(
   path: string,
   versions: Uint8Array[],
   config: FormatConfig = {},
-  context?: TransferContext
+  context?: TransferContext,
+  pieces?: Piece[][],
 ): FormatEvidence {
   const format =
     config.format ?? formats[extname(path).toLowerCase()] ?? "binary";
@@ -853,6 +828,20 @@ export function evaluateSourceTransfer(
     return result(false, "Invalid UTF-8 for source transfer");
   }
   if (format === "text") return result(true, "Identity-verified text transfer");
+  // Merged as blocks (overstoryd 017): the replay is valid when every block
+  // keeps what its last editor gave it; links that depend on their document
+  // are then checked as before.
+  if (pieces && sources.length === 4) {
+    const verdict = markdownBlockMerge(sources, pieces);
+    if (!verdict || verdict.unreadable || verdict.conflicts.length || verdict.embedded.length)
+      return result(false, verdict ? verdict.reason || "Embedded source both sides changed requires review" : "Markdown with an unclosed fence or front matter");
+    const links: LinkPolicy = context?.crossDocument === "none"
+      ? { relative: true, fragment: true, reference: true }
+      : context?.crossDocument === "same-directory" ? { relative: true } : {};
+    return linksBound(sources, links, context)
+      ? result(true, "Identity-verified transfer keeps every block as its last editor wrote it, and link bindings")
+      : result(false, "Transfer changes a contextual link's document");
+  }
   const shapes = sources.map(source => markdownTransferShape(source));
   const safe =
     shapes.length === 4 &&
@@ -904,6 +893,26 @@ export function evaluateSourceTransfer(
         ? "Transfer changes a contextual link's document"
         : "Transfer changes protected Markdown structure or embedded content"
   );
+}
+
+/** Whether every contextual link still binds as where it was written. A link
+ * kind the transfer's reach does not admit (a fragment or reference carried
+ * into another document, a relative link into another directory) must not
+ * move or change at all. An admitted link needs what it binds to unchanged:
+ * the directory for a relative link, the headings for a fragment, the
+ * definitions for a reference. */
+function linksBound(sources: string[], admitted: LinkPolicy, context?: TransferContext): boolean {
+  const same = (lists: string[][]) => lists.every((list) => JSON.stringify(list) === JSON.stringify(lists[0]));
+  const read = sources.map(contextualLinkList);
+  for (const kind of ["relative", "fragment", "reference"] as const) {
+    const uses = read.map((r) => r.links.filter((l) => l.kind === kind).map((l) => l.text).sort());
+    if (!uses.some((list) => list.length)) continue;
+    if (!admitted[kind]) { if (!same(uses)) return false; continue; }
+    if (kind === "relative" && !(context && context.directories.length === 4 && context.directories.every((d) => d === context.directories[0]))) return false;
+    if (kind === "fragment" && !same(read.map((r) => r.headings))) return false;
+    if (kind === "reference" && !same(read.map((r) => r.definitions))) return false;
+  }
+  return true;
 }
 
 /** Whether `a` is `b` or one of its ancestors. */
@@ -1067,10 +1076,11 @@ export async function evaluateTransfer(
   versions: Uint8Array[],
   config: FormatConfig = {},
   context?: TransferContext,
+  pieces?: Piece[][],
 ): Promise<FormatEvidence> {
   const format = config.format ?? formats[extname(path).toLowerCase()] ?? "binary";
   if (!["json", "yaml", "typescript", "javascript"].includes(format) || versions.length !== 4)
-    return evaluateSourceTransfer(path, versions, config, context);
+    return evaluateSourceTransfer(path, versions, config, context, pieces);
   const result = (safe: boolean, reason: string): FormatEvidence => ({
     id: `${format}-source-transfer`,
     revision: 1,

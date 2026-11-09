@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, sha256, type ProtocolClient } from "@ovst/protocol";
+import { HOST_PROTOCOL, hostProtocolOf, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, sha256, type ProtocolClient } from "@ovst/protocol";
 import { RESERVED_PAGE_SCRIPT } from "../../../packages/overstoryd/src/public-page.ts";
 import { testProfileIdentity } from "../../helpers/profile-identity.ts";
 import { serveHost } from "@ovst/overstoryd";
@@ -59,9 +59,17 @@ beforeAll(async () => {
   };
   const objects = new Map(snapshot.objects);
   for (const bytes of Object.values(files)) objects.set(hashObject(bytes), bytes);
+  // A folder with no page of its own.
+  const paris = new TextEncoder().encode("# Paris\n");
+  objects.set(hashObject(paris), paris);
+  const trips = encodeProtocolDirectory({ type: "directory", entries: [
+    { name: "Paris.md", file: hashObject(paris) },
+    { name: "Rome [old].md", file: hashObject(paris) },
+  ] });
+  objects.set(hashObject(trips), trips);
   const directory = encodeProtocolDirectory({
     ...root,
-    entries: [...root.entries, ...Object.entries(files).map(([name, bytes]) => ({ name, file: hashObject(bytes) }))]
+    entries: [...root.entries, { name: "Trips", directory: hashObject(trips) }, ...Object.entries(files).map(([name, bytes]) => ({ name, file: hashObject(bytes) }))]
       .sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))),
   });
   objects.set(hashObject(directory), directory);
@@ -80,6 +88,8 @@ describe("the shared header policy", () => {
     expect(json.status).toBe(200);
     expectHardened(json, "json");
     expect(json.headers.get("cache-control")).toBe("no-store");
+    // The host states its protocol level, which clients check (locators §5).
+    expect(hostProtocolOf(await json.json())).toBe(HOST_PROTOCOL);
 
     const page = await fetch(`${running.url}/guide`, { headers: { accept: "text/html" } });
     expect(page.status).toBe(200);
@@ -355,5 +365,16 @@ describe("the rate-limit key", () => {
   test("a negative or fractional hop count is refused at start", async () => {
     await expect(limitedHost(-1)).rejects.toThrow("trustedProxyHops");
     await expect(limitedHost(1.5)).rejects.toThrow("trustedProxyHops");
+  });
+});
+
+describe("Markdown at a canonical URL (tree operations §1.3)", () => {
+  test("a page answers its source and a folder with no page of its own a list of its children", async () => {
+    const page = await fetch(`${running.url}/guide`, { headers: { accept: "text/markdown" } });
+    expect(await page.text()).toBe("# Guide\n\nSome *text* and ![a logo](logo.png).\n");
+    const folder = await fetch(`${running.url}/Trips`, { headers: { accept: "text/markdown" } });
+    expect(folder.status).toBe(200);
+    expect(folder.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(await folder.text()).toBe("# Trips\n\n- [Paris](</Trips/Paris>)\n- [Rome \\[old\\]](</Trips/Rome%20%5Bold%5D>)\n");
   });
 });

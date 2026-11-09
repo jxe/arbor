@@ -62,6 +62,8 @@ struct StoryPeoplePicker: View {
     let onRawSubmit: () -> Void
     /// Offered when nothing matches: start a new group named after the query.
     var onCreateGroup: ((String) -> Void)?
+    /// The field's placeholder.
+    var prompt = "Name, ~handle, or Overstory profile URL"
     @State private var selected = 0
 
     private var matches: [DirectoryPerson] {
@@ -142,7 +144,7 @@ struct StoryPeoplePicker: View {
     }
 
     private var field: some View {
-        TextField("Add people or groups", text: $query, prompt: Text("Name, ~handle, or Overstory profile URL"))
+        TextField("Add people or groups", text: $query, prompt: Text(prompt))
             .textFieldStyle(.roundedBorder)
             .disabled(disabled)
             .onSubmit {

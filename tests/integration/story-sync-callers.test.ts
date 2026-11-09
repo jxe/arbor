@@ -47,7 +47,7 @@ test("a second data home's Story Sync takes the next port, and neither answers t
 
     for (const [daemon, own, other] of [[first, alice, bob], [second, bob, alice]] as const) {
       expect((await storySyncFetch(`${daemon.url}/v1/status`, {}, own)).status).toBe(200);
-      for (const route of ["/v1/status", "/v1/trees", "/v1/accounts", "/v1/credential"]) {
+      for (const route of ["/v1/status", "/v1/trees", "/v1/accounts"]) {
         expect((await storySyncFetch(`${daemon.url}${route}`, {}, other)).status, route).toBe(401);
         expect((await fetch(`${daemon.url}${route}`)).status, route).toBe(401);
       }

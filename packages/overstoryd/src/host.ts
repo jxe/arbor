@@ -2,10 +2,10 @@ import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError
 import { MergeWorkerError } from "./merge-tool.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID } from "@ovst/protocol";
-import { WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
-import type { AccountChallenge, LocatorResolution, MutationCallRuntime, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
-import { treeMutationResponse, treeQueryResponse } from "./exec-routes.ts";
+import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, decodePresenceMessagePost, decodePresenceRunnerLabel, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID, DOMAIN_PROFILE_PATH } from "@ovst/protocol";
+import { canonicalNodePath, decodePathReadPath, encodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
+import type { AccountChallenge, LocatorResolution, MutationCallRuntime, ViewsRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
+import { treeMutationResponse, treeViewsResponse } from "./exec-routes.ts";
 import { HostCollections, type HostCollectionsOptions } from "./collections.ts";
 import {
   HostDaemon,
@@ -17,6 +17,7 @@ import {
   type StoredUpdateResponse,
 } from "./overstoryd.ts";
 import { handleOfPath } from "./profile.ts";
+import { PresenceBusy, PresenceHub, PresenceNotFound, PresenceRefused } from "./presence.ts";
 import { PhaseTimer, withPhaseTimer } from "./updates/timing.ts";
 import {
   decodeDerivableUpdateRequestJSON,
@@ -31,6 +32,7 @@ import {
 import { escapeHTML, publicTreePath, renderNoticePage, renderPublicDataPage, renderPublicMarkdownPage, renderReservedPage, RESERVED_PAGE_SCRIPT, PAGE_ASSETS, type PublicPageChild, type StoryDownloads } from "./public-page.ts";
 import { ProtocolProjection, protocolCollectionRowMarkdown, protocolCollectionRowTitle, type ProtocolCollectionRow } from "./projection.ts";
 import { buildDirectory } from "./directory.ts";
+import { DOMAIN_CHECK_PATH, LEGACY_DOMAIN_CHECK_PATH, domainOrigin, type CustomDomains } from "./custom-domains.ts";
 import { clientAddress, hardenResponse, htmlContentSecurityPolicy, storedFileHeaders, type PageScript } from "./response-policy.ts";
 
 
@@ -44,6 +46,20 @@ function collectionRowChildren(prefix: string, rows: readonly ProtocolCollection
     href: buildNetworkLocator(`${prefix}/${encodeURIComponent(row.path)}`, { stableKey: row.stableKey, applicationQuery }),
     kind: "document",
   }));
+}
+
+/**
+ * The Markdown a folder with no index page, or a collection table, answers
+ * (tree operations §1.3): its name as a title, then a link to each child.
+ */
+function childListMarkdown(title: string, children: readonly PublicPageChild[]): string {
+  const text = (value: string) => value.replace(/[\\`*_[\]<>#]/g, "\\$&");
+  const lines = children.map((child) => `- [${text(child.name)}](<${child.href}>)`);
+  return `# ${text(title)}\n${lines.length ? `\n${lines.join("\n")}\n` : ""}`;
+}
+
+function markdown(value: string): Response {
+  return new Response(value, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
 }
 
 function json(value: unknown, status = 200, headers: Record<string, string> = {}): Response {
@@ -127,12 +143,19 @@ function protocolError(
   return json({ error, message, retryable, ...context, ...(Object.keys(details).length ? { details } : {}) }, status);
 }
 
-/** A tree's canonical placement at this origin, or null for a tree mounted nowhere. */
-function canonicalOf(origin: string, tree: HostTree): RemoteTreeDescriptor["canonical"] {
-  return tree.canonicalPath === null ? null : {
+/**
+ * A tree's canonical placement at this origin, or null for a tree mounted
+ * nowhere; with `domains`, its canonical URL at a person's domain when one is
+ * served over its path (locators §5.1).
+ */
+function canonicalOf(origin: string, tree: HostTree, domains?: CustomDomains): RemoteTreeDescriptor["canonical"] {
+  if (tree.canonicalPath === null) return null;
+  const url = domains?.url(tree.canonicalPath);
+  return {
     path: tree.canonicalPath as `/${string}`,
     endpoint: `${origin}/.overstory/trees/${encodeURIComponent(tree.id)}`,
     parentTree: tree.parentTree,
+    ...(url ? { url } : {}),
   } as RemoteTreeDescriptor["canonical"];
 }
 
@@ -143,12 +166,12 @@ function overstoryLocator(origin: string, tree: HostTree): string | null {
 }
 
 /** A tree's descriptor at `head`, one of its accepted updates. */
-function descriptor(origin: string, tree: HostTree, access: ReadWriteAccess, head: Pick<AcceptedUpdate, "id" | "root" | "conflicted">, pages = false): RemoteTreeDescriptor {
+function descriptor(origin: string, tree: HostTree, access: ReadWriteAccess, head: Pick<AcceptedUpdate, "id" | "root" | "conflicted">, pages = false, domains?: CustomDomains): RemoteTreeDescriptor {
   return {
     id: tree.id,
     kind: tree.kind,
     access,
-    canonical: canonicalOf(origin, tree),
+    canonical: canonicalOf(origin, tree, domains),
     root: head.root as RemoteTreeDescriptor["root"],
     update: head.id,
     conflicted: head.conflicted,
@@ -164,7 +187,7 @@ function descriptorWithUpdate(
 ): RemoteTreeDescriptor {
   const update = overstoryd.currentUpdate(tree.id);
   if (!update) throw new ServerFaultError(`Tree has no accepted update: ${tree.id}`);
-  return descriptor(origin, tree, access, update, overstoryd.acceptsPages(tree.id));
+  return descriptor(origin, tree, access, update, overstoryd.acceptsPages(tree.id), overstoryd.customDomains);
 }
 
 /**
@@ -172,11 +195,11 @@ function descriptorWithUpdate(
  * and what the client cannot derive for its new descriptor. The cursor is the
  * frame's SSE `id` and the tree is the URL's.
  */
-function watchFrame(origin: string, tree: HostTree, transition: AcceptedTransition, access: ReadWriteAccess) {
+function watchFrame(origin: string, tree: HostTree, transition: AcceptedTransition, access: ReadWriteAccess, domains?: CustomDomains) {
   return {
     transition: encodeAcceptedTransitionJSON(transition),
     access,
-    canonical: descriptor(origin, tree, access, transition.update).canonical,
+    canonical: descriptor(origin, tree, access, transition.update, false, domains).canonical,
   };
 }
 
@@ -357,23 +380,25 @@ export async function serveHost(options: {
   community?: {
     handle: string;
     name: string;
-    firstWriter?: { handle: string; profileTree: string; name?: string };
+    firstWriter?: { handle: string; profileTree?: string; inviteCode?: string; name?: string };
   };
   accounts?: HostBootstrapAccount[];
   port?: number;
   hostname?: string;
-  queryRuntime?: QueryStreamRuntime;
+  viewsRuntime?: ViewsRuntime;
   mutationRuntime?: MutationCallRuntime;
-  /** Serve named queries and mutations through the execution sidecar, from the host's collection materializations, unless a runtime above is given. */
+  /** Serve named views and mutations through the execution sidecar, from the host's collection materializations, unless a runtime above is given. */
   collections?: HostCollectionsOptions;
   /** Session and placement device-key lifetimes; tests shorten them. */
-  lifetimes?: Omit<HostDaemonOptions, "servedOverHTTP" | "pages">;
+  lifetimes?: Omit<HostDaemonOptions, "servedOverHTTP" | "pages" | "provenanceFill">;
   /**
    * Accept page entries and conversions to them (spec 02 §3), in every tree
    * or in the trees listed: health advertises `pages-v1`, and those trees'
    * descriptors say `pages`, which is when a writer's Story Sync converts.
    */
   pages?: boolean | readonly string[];
+  /** Compute missing provenance indexes in the background (`HostDaemonOptions`). */
+  provenanceFill?: boolean;
   /**
    * Bound unauthenticated session challenges and pairing claims per caller.
    * Off unless asked for: with one person's devices behind each host, a
@@ -399,13 +424,14 @@ export async function serveHost(options: {
     name: options.community?.name ?? "Overstory Community",
     accounts: bootstrapAccounts,
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
-  }, options.mergeTool, { ...options.lifetimes, servedOverHTTP: new URL(publicOrigin).protocol === "http:", pages: options.pages ?? false });
+  }, options.mergeTool, { ...options.lifetimes, servedOverHTTP: new URL(publicOrigin).protocol === "http:", pages: options.pages ?? false, provenanceFill: options.provenanceFill ?? false });
   if (!dynamicLoopbackOrigin) overstoryd.setCommunityHost(new URL(publicOrigin).host);
-  // Named queries and mutations over the host's collection materializations.
+  // Named views and mutations over the host's collection materializations.
   const collections = options.collections ? overstoryd.disposeWith(new HostCollections(overstoryd, resolve(options.dataRoot), options.collections)) : null;
-  const queryRuntime = options.queryRuntime ?? collections?.queryRuntime();
+  const viewsRuntime = options.viewsRuntime ?? collections?.viewsRuntime();
   const mutationRuntime = options.mutationRuntime ?? collections?.mutationRuntime();
   const onAuthorizationTick = authorizationTicker(overstoryd);
+  const presence = new PresenceHub();
   const pairingClaims = options.rateLimits ? new AttemptLimiter(10, 10 * 60 * 1000) : null;
   const challenges = options.rateLimits ? new AttemptLimiter(30, 10 * 60 * 1000) : null;
   const server = Bun.serve({
@@ -427,14 +453,58 @@ export async function serveHost(options: {
       if (token?.startsWith("execution_") && !execution) return protocolError("unauthenticated", "Execution authorization is unavailable", 401);
       const response = await overstoryd.execution.run(execution, async () => {
       const url = new URL(request.url);
+      // At a person's domain (locators §5.1), their prefix goes in front of
+      // the path; `/.overstory/*` names trees by TreeID at every name.
+      const servedDomain = overstoryd.customDomains.serving(request.headers.get("host"));
+      if (servedDomain && (request.method === "GET" || request.method === "HEAD")) {
+        if (url.pathname === DOMAIN_PROFILE_PATH) {
+          return json({ profile: `${publicOrigin}${servedDomain.prefix}` });
+        }
+        if (url.pathname === "/.well-known/overstory" || url.pathname.startsWith("/.well-known/overstory/")) {
+          const below = url.pathname.slice("/.well-known/overstory".length);
+          url.pathname = `/.well-known/overstory${servedDomain.prefix}${below === "/" ? "" : below}`;
+        } else if (!url.pathname.startsWith("/.")) {
+          // Another account's path is at the host's own name.
+          if (url.pathname.startsWith("/~")) return new Response(null, { status: 308, headers: { location: `${publicOrigin}${url.pathname}${url.search}` } });
+          url.pathname = `${servedDomain.prefix}${url.pathname === "/" ? "" : url.pathname}`;
+        }
+      }
+      // A browser at the host's own name is sent to the domain serving the path.
+      if (!servedDomain && request.method === "GET" && !url.pathname.startsWith("/.") && request.headers.get("accept")?.includes("text/html")) {
+        let decoded: string | null = null;
+        try { decoded = decodeURIComponent(url.pathname).replace(/\/$/, ""); } catch {}
+        const domain = decoded ? overstoryd.customDomains.domainFor(decoded) : null;
+        if (domain) {
+          const below = url.pathname.slice(encodeURI(domain.prefix).length);
+          return new Response(null, { status: 301, headers: { location: `${domainOrigin(domain.domain)}${below || "/"}${url.search}` } });
+        }
+      }
+      /** A path at this host as the request's own name spells it: without a served domain's prefix. */
+      const shown = (path: string): string => {
+        if (!servedDomain) return path;
+        if (path === servedDomain.prefix) return "/";
+        return path.startsWith(`${servedDomain.prefix}/`) ? path.slice(servedDomain.prefix.length) : path;
+      };
+      const shownOrigin = servedDomain ? domainOrigin(servedDomain.domain) : publicOrigin;
       // The one authentication of this request; routes below reuse it.
       const authentication = overstoryd.authenticateToken(token);
+      if (authentication) overstoryd.noteDeviceClient(authentication, request.headers.get("overstory-client") ?? request.headers.get("user-agent"));
+      // A visitor (accounts §5.6) has no account: every route reads it as
+      // anonymous except the tree reads, which ask what it may read.
+      const visitor = authentication || execution ? null : overstoryd.authenticateVisitor(token);
       // A presented token that authenticates nothing (an expired session, a
       // deleted device) is refused, never read as anonymous: a 404 for a
       // private tree would hide the reason and clients refresh only on 401.
-      if (token && !execution && !authentication) return protocolError("unauthenticated", "The session is not valid", 401);
+      if (token && !execution && !authentication && !visitor) return protocolError("unauthenticated", "The session is not valid", 401);
       const account = authentication?.account ?? (execution?.caller ? overstoryd.account(execution.caller) : null);
       const link = linkDigest(request);
+      /** The caller's whole-tree access: a visitor's is at most `read`. */
+      const levelOf = (tree: HostTree): ReadWriteAccess | null => visitor
+        ? overstoryd.visitorAccessLevel(visitor, tree, link)
+        : overstoryd.accessLevel(account, tree, link);
+      /** A visitor's stream holds while its session does and it may still read the tree. */
+      const visitorReads = (treeID: string): boolean =>
+        !!visitor && overstoryd.visitorIsActive(visitor) && overstoryd.visitorAccessLevel(visitor, treeID, link) !== null;
       /** The tree a route segment names, with the caller's access; an unreadable tree is not found. */
       /** A route segment's tree reference, refused with 403 when it names a
        * placement account's profile configuration, which its home host holds. */
@@ -447,49 +517,24 @@ export async function serveHost(options: {
       const readableTree = (segment: string): { tree: HostTree; level: ReadWriteAccess } => {
         const reference = hostedReference(segment);
         const tree = overstoryd.get(reference.id);
-        const level = tree ? overstoryd.accessLevel(account, tree, link) : null;
+        const level = tree ? levelOf(tree) : null;
         if (!tree || !level) throw new NotFoundError("Tree not found");
         return { tree, level };
       };
       const notFound = (message = "Not found") => protocolError("not-found", message, 404);
       const methodNotAllowed = () => protocolError("invalid-request", "Method not allowed", 405);
       try {
-        if (url.pathname === "/.overstory/execution/authority-watch" && request.method === "GET") {
-          if (!execution) return protocolError("unauthenticated", "Execution authorization is required", 401);
+        const viewsRoute = /^\/\.overstory\/trees\/([^/]+)\/views$/.exec(url.pathname);
+        if (request.method === "QUERY" && viewsRoute) {
+          if (!viewsRuntime) return protocolError("unsupported-operation", "No view runtime is active", 422);
+          const treeID = readableTree(viewsRoute[1]!).tree.id;
           server.timeout(request, 0);
-          let cleanup = () => {};
-          // Token validity (revocation, expiry, its host callback) is checked
-          // every time; the grants' database-backed permissions only on change.
-          const permitted = cachedAuthorization(overstoryd, () => overstoryd.execution.covered(execution));
-          const covered = (epoch?: string) => overstoryd.execution.valid(execution) && permitted(epoch);
-          return new Response(new ReadableStream<Uint8Array>({
-            start(controller) {
-              let closed = false;
-              const publish = () => {
-                if (closed) return;
-                const allowed = covered();
-                controller.enqueue(new TextEncoder().encode(`event: ${allowed ? "refresh" : "revoked"}\ndata: {}\n\n`));
-                if (!allowed) { closed = true; cleanup(); controller.close(); }
-              };
-              const stop = overstoryd.execution.subscribe(publish);
-              const stopTicks = onAuthorizationTick((epoch) => { if (!covered(epoch)) publish(); });
-              cleanup = () => { closed = true; stop(); stopTicks(); };
-              request.signal.addEventListener("abort", () => { cleanup(); try { controller.close(); } catch {} }, { once: true });
-              publish();
-            },
-            cancel() { cleanup(); },
-          }), { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
-        }
-        const queryRoute = /^\/\.overstory\/trees\/([^/]+)\/queries$/.exec(url.pathname);
-        if (request.method === "QUERY" && queryRoute) {
-          if (!queryRuntime) return protocolError("unsupported-operation", "No query runtime is active", 422);
-          const treeID = readableTree(queryRoute[1]!).tree.id;
-          server.timeout(request, 0);
-          return treeQueryResponse(
-            queryRuntime,
+          return treeViewsResponse(
+            viewsRuntime,
             request,
             treeID,
             account ? { profile: account.id } : null,
+            { caller: { account, ...(link ? { linkDigest: link } : {}), ...(authentication ? { authentication } : {}) } },
           );
         }
         const mutateRoute = /^\/\.overstory\/trees\/([^/]+)\/mutate$/.exec(url.pathname);
@@ -512,11 +557,17 @@ export async function serveHost(options: {
             headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" },
           });
         }
+        if (request.method === "GET" && (url.pathname === DOMAIN_CHECK_PATH || url.pathname === LEGACY_DOMAIN_CHECK_PATH)) {
+          return json({ host: overstoryd.customDomains.token });
+        }
         if (request.method === "GET" && url.pathname === "/.overstory/health") {
           try {
             overstoryd.verifyDatabase();
             const pages = overstoryd.pages === true || (Array.isArray(overstoryd.pages) && overstoryd.pages.length > 0);
-            return json({ status: "ok", ...(pages ? { features: ["pages-v1"] } : {}) });
+            // `founding`: the community was founded by code and nobody has
+            // claimed it yet, so an invitation claim here makes its claimer
+            // the administrator (accounts §1.2). Story words its join screen by it.
+            return json({ status: "ok", protocol: HOST_PROTOCOL, ...(pages ? { features: ["pages-v1"] } : {}), ...(overstoryd.founding() ? { founding: true } : {}) });
           } catch (error) {
             console.error("overstoryd database check failed", error);
             return protocolError("internal-error", "Host database check failed", 503, true);
@@ -545,17 +596,20 @@ export async function serveHost(options: {
         if (url.pathname === "/.overstory/pairings" && request.method === "POST") {
           return json(overstoryd.createPairing(requireAccount(authentication)), 201);
         }
-        const publishedKeys = /^\/\.overstory\/profiles\/(tr_[a-z2-7]+)\/device-keys$/.exec(url.pathname);
+        // Host-to-host routes live under `/.overstory/peer/`; the old path is
+        // answered until plans/soon/protocol-001 removes it.
+        const publishedKeys = /^\/\.overstory\/(?:peer\/)?profiles\/(tr_[a-z2-7]+)\/device-keys$/.exec(url.pathname);
         if (publishedKeys && request.method === "GET") {
           // Public: a placement host reads it without authenticating (accounts §5.4).
           return json(await overstoryd.publishedDeviceKeys(publishedKeys[1]!), 200, { "cache-control": "no-cache" });
         }
         if (url.pathname === "/.overstory/device-sessions/challenges" && request.method === "POST") {
-          const body = await bodyFields(request) as { profileTree?: unknown; device?: unknown };
+          const body = await bodyFields(request) as { profileTree?: unknown; device?: unknown; homeHost?: unknown };
           // The profile may be left out at a device's home host, which knows whose device it is (accounts §5.1).
           if ((body.profileTree !== undefined && typeof body.profileTree !== "string") || typeof body.device !== "string") throw new Error("A session challenge names a DeviceID, and a profile TreeID unless this is the device's home host");
           if (challenges && !challenges.allow(`${callerAddress(request, server)}:session:${body.profileTree ?? body.device}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
-          return json(await overstoryd.createDeviceSessionChallenge({ origin: publicOrigin, profileTree: body.profileTree, device: body.device }), 201);
+          if (body.homeHost !== undefined && (typeof body.homeHost !== "string" || typeof body.profileTree !== "string")) throw new Error("A visitor's session challenge names its profile TreeID and its home host's origin");
+          return json(await overstoryd.createDeviceSessionChallenge({ origin: publicOrigin, profileTree: body.profileTree, device: body.device, ...(typeof body.homeHost === "string" ? { homeHost: body.homeHost } : {}) }), 201);
         }
         if (url.pathname === "/.overstory/device-sessions" && request.method === "POST") {
           const body = await bodyFields(request) as { challenge?: unknown; signature?: unknown };
@@ -577,9 +631,9 @@ export async function serveHost(options: {
             profile: body.profile as string | undefined,
           }), 201);
         }
-        // An invitation accepted by a profile homed at another host (accounts §1.4).
-        if (url.pathname === "/.overstory/placements" && request.method === "PUT") {
-          const body = await bodyFields(request) as {
+        /** An invitation accepted by a profile homed at another host (accounts §1.4). */
+        const acceptAsPlacement = async (fields: unknown) => {
+          const body = fields as {
             account?: unknown;
             profile?: unknown;
             profileTree?: unknown;
@@ -607,7 +661,12 @@ export async function serveHost(options: {
             signature: body.signature,
             inviteCode: body.inviteCode,
           });
-          return json(accountDescriptor(publicOrigin, overstoryd, placed), 201);
+          return placed;
+        };
+        // The old route, kept until clients send `PUT /accounts` with `profile`
+        // (plans/soon/protocol-001-spec-review-route-changes.md).
+        if (url.pathname === "/.overstory/placements" && request.method === "PUT") {
+          return json(accountDescriptor(publicOrigin, overstoryd, await acceptAsPlacement(await bodyFields(request))), 201);
         }
         const pairingClaim = /^\/\.overstory\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
         if (pairingClaim && request.method === "PUT") {
@@ -639,14 +698,15 @@ export async function serveHost(options: {
               .filter((tree) => tree.kind === "tree-configuration" ? tree.governs === account?.id
                 : tree.canonicalPath !== null || (account !== null && overstoryd.canAdminister(account, tree)))
               .flatMap((tree) => {
-                const level = overstoryd.accessLevel(account, tree, link);
+                const level = levelOf(tree);
                 return level ? [descriptorWithUpdate(publicOrigin, overstoryd, tree, level)] : [];
               }),
             });
           }
           return methodNotAllowed();
         }
-        if (url.pathname === "/.overstory/directory") {
+        // `/.overstory/directory` is the old path, answered until plans/soon/protocol-001 removes it.
+        if (url.pathname === "/.overstory/account/directory" || url.pathname === "/.overstory/directory") {
           if (request.method !== "GET") return methodNotAllowed();
           const authenticated = requireAccount(authentication);
           return json({
@@ -655,6 +715,11 @@ export async function serveHost(options: {
         }
         if (url.pathname === "/.overstory/accounts" && request.method === "PUT") {
           const { value, encoding } = await wireBody(request);
+          // Joining with a profile homed at another host: a membership here (accounts §1.4).
+          if ((value as { profile?: unknown }).profile !== undefined) {
+            const placed = await acceptAsPlacement(value);
+            return wire({ account: accountDescriptor(publicOrigin, overstoryd, placed) }, answerEncoding(request), 201);
+          }
           const body = value as {
             account?: unknown;
             profileTree?: unknown;
@@ -737,7 +802,7 @@ export async function serveHost(options: {
         }
         if (wellKnown !== null && request.method === "GET") {
           const resolved = overstoryd.resolve(wellKnown);
-          const level = resolved ? overstoryd.accessLevel(account, resolved.tree, link) : null;
+          const level = resolved ? levelOf(resolved.tree) : null;
           if (!resolved || !level) return notFound();
           const enclosingTree = descriptorWithUpdate(publicOrigin, overstoryd, resolved.tree, level);
           return json({
@@ -774,10 +839,29 @@ export async function serveHost(options: {
           // root names it; hashing the body again would add nothing.
           return new Response(encodeSnapshotBundle(snapshot) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, root) });
         }
+        const pathRead = /^\/\.overstory\/trees\/([^/]+)\/snapshots\/(sha256:[a-f0-9]{64})\/path(\/.*)?$/.exec(url.pathname);
+        if (pathRead && request.method === "GET") {
+          const root = pathRead[2] as ObjectHash;
+          const { tree } = readableTree(pathRead[1]!);
+          let path: string;
+          try { path = decodePathReadPath(pathRead[3] ?? "/"); }
+          catch { return protocolError("invalid-request", "The path is not a valid logical path", 400); }
+          const objects = await overstoryd.pathRead(tree.id, root, path);
+          if (!objects) return notFound("Snapshot not found");
+          // The root and the path name the body: it is as immutable as the snapshot.
+          // The path is percent-encoded as in the URL, since a header holds only ASCII.
+          return new Response(encodePathReadBundle(objects) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, `${root}${encodePathReadPath(path)}`) });
+        }
         const metadata = /^\/\.overstory\/trees\/([^/]+)\/entry-metadata$/.exec(url.pathname);
         if (metadata && request.method === "GET") {
           const { tree } = readableTree(metadata[1]!);
-          const value = overstoryd.entryMetadata(tree.id);
+          const along = url.searchParams.get("path");
+          let path: string | undefined;
+          if (along !== null) {
+            try { path = canonicalNodePath(along); }
+            catch { return protocolError("invalid-request", "The path is not a valid logical path", 400); }
+          }
+          const value = overstoryd.entryMetadata(tree.id, path);
           return value ? json(value) : notFound("Entry metadata not found");
         }
         const updates = /^\/\.overstory\/trees\/([^/]+)\/updates$/.exec(url.pathname);
@@ -841,6 +925,124 @@ export async function serveHost(options: {
             return response;
           });
         }
+        const presenceRoute = /^\/\.overstory\/trees\/([^/]+)\/presence(?:\/([^/]+)(\/messages)?)?$/.exec(url.pathname);
+        if (presenceRoute && execution) return protocolError("permission-denied", "Presence is for people and their agents, not execution tokens", 403);
+        if (presenceRoute && !presenceRoute[2] && request.method === "GET") {
+          const { tree } = readableTree(presenceRoute[1]!);
+          const agentParameter = url.searchParams.get("agent");
+          let agent: string | null = null;
+          try { agent = agentParameter === null ? null : decodePresenceAgentLabel(agentParameter); }
+          catch (error) { return protocolError("invalid-request", error instanceof Error ? error.message : String(error), 400); }
+          if (agent !== null && !authentication) return protocolError("unauthenticated", "An agent's presence needs an account", 401);
+          const visible = url.searchParams.get("visible") !== "false";
+          const runnerParameter = url.searchParams.get("runner");
+          let runner: string | null = null;
+          try { runner = runnerParameter === null ? null : decodePresenceRunnerLabel(runnerParameter); }
+          catch (error) { return protocolError("invalid-request", error instanceof Error ? error.message : String(error), 400); }
+          if (runner !== null && (!authentication || !visible || agent !== null)) {
+            return protocolError("invalid-request", "Only a visible person's stream can be a runner", 400);
+          }
+          const device = decodePresenceDevice(url.searchParams.get("device"));
+          let name: string | null = null;
+          if (authentication) {
+            try { name = overstoryd.profileCard(authentication.account.id).displayName ?? null; } catch { name = null; }
+          }
+          server.timeout(request, 0);
+          const encoder = new TextEncoder();
+          const readable = cachedAuthorization(overstoryd, () => {
+            if (visitor) return visitorReads(tree.id);
+            const active = !authentication || overstoryd.authenticationIsActive(authentication);
+            return active && overstoryd.canRead(account, tree.id, link);
+          });
+          const authorized = (epoch?: string) => (!authentication || overstoryd.authenticationIsCurrent(authentication))
+            && (!visitor || overstoryd.visitorIsActive(visitor)) && readable(epoch);
+          let closed = false;
+          let wake: (() => void) | undefined;
+          let end = () => {};
+          let entryID: string | undefined;
+          return new Response(new ReadableStream<Uint8Array>({
+            start(controller) {
+              const joined = presence.join(tree.id, {
+                caller: authentication ? { account: authentication.account.id, device: authentication.device } : null,
+                visible, agent, name, device, runner,
+                wake: () => { wake?.(); wake = undefined; },
+                close: () => end(),
+              });
+              entryID = joined.id;
+              const stopTicks = onAuthorizationTick((epoch) => { if (!authorized(epoch)) end(); });
+              const keepalive = setInterval(() => {
+                if (closed) return;
+                try { controller.enqueue(encoder.encode(": keepalive\n\n")); } catch { /* closing */ }
+              }, WATCH_KEEPALIVE_MS);
+              keepalive.unref?.();
+              const abort = () => end();
+              end = () => {
+                if (closed) return;
+                closed = true;
+                stopTicks(); clearInterval(keepalive);
+                request.signal.removeEventListener("abort", abort);
+                presence.leave(tree.id, joined.id);
+                wake?.(); wake = undefined;
+                try { controller.close(); } catch {}
+              };
+              request.signal.addEventListener("abort", abort, {once: true});
+              if (request.signal.aborted) return end();
+              controller.enqueue(encoder.encode(joined.ready));
+            },
+            async pull(controller) {
+              while (!closed) {
+                if (!authorized()) return end();
+                const frames = presence.take(tree.id, entryID!);
+                if (frames.length) { controller.enqueue(encoder.encode(frames.join(""))); return; }
+                await new Promise<void>(resolve => { wake = resolve; });
+              }
+            },
+            cancel() { end(); },
+          }), { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache" } });
+        }
+        if (presenceRoute && presenceRoute[2] && presenceRoute[3] && request.method === "POST") {
+          // A message to another of the caller's own streams (spec 12 §6).
+          const { tree } = readableTree(presenceRoute[1]!);
+          if (!authentication) return notFound("Presence entry not found");
+          const raw = new Uint8Array(await request.arrayBuffer());
+          if (raw.byteLength > PRESENCE_LIMITS.messageBytes) return protocolError("invalid-request", "The presence message is too large", 413);
+          let message;
+          try { message = decodePresenceMessagePost(JSON.parse(new TextDecoder().decode(raw))); }
+          catch (error) {
+            return protocolError("invalid-request", error instanceof PresenceDecodeError ? error.message : "The presence message must be a JSON object", 400);
+          }
+          try {
+            presence.message(tree.id, decodeURIComponent(presenceRoute[2]), { account: authentication.account.id, device: authentication.device }, message.to, message.body);
+          } catch (error) {
+            if (error instanceof PresenceNotFound) return notFound("Presence entry not found");
+            if (error instanceof PresenceBusy) return protocolError("rate-limited", error.message, 429, true);
+            throw error;
+          }
+          return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+        }
+        if (presenceRoute && presenceRoute[2] && !presenceRoute[3] && request.method === "POST") {
+          const { tree } = readableTree(presenceRoute[1]!);
+          // Only the caller that opened the stream may change it; anyone else
+          // is told it does not exist, so a presence ID is not a credential.
+          if (!authentication) return notFound("Presence entry not found");
+          const raw = new Uint8Array(await request.arrayBuffer());
+          if (raw.byteLength > PRESENCE_LIMITS.bodyBytes) return protocolError("invalid-request", "The presence update is too large", 413);
+          let update;
+          try { update = decodePresenceUpdate(JSON.parse(new TextDecoder().decode(raw))); }
+          catch (error) {
+            return protocolError("invalid-request", error instanceof PresenceDecodeError ? error.message : "The presence update must be a JSON object", 400);
+          }
+          try {
+            presence.update(tree.id, decodeURIComponent(presenceRoute[2]), { account: authentication.account.id, device: authentication.device }, update);
+          } catch (error) {
+            if (error instanceof PresenceNotFound) return notFound("Presence entry not found");
+            if (error instanceof PresenceRefused) return protocolError("invalid-request", error.message, 400);
+            if (error instanceof PresenceBusy) return protocolError("rate-limited", error.message, 429, true);
+            throw error;
+          }
+          return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+        }
+        if (presenceRoute) return methodNotAllowed();
         const watch = /^\/\.overstory\/trees\/([^/]+)\/watch$/.exec(url.pathname);
         if (watch && request.method === "GET") {
           const { tree, level: access } = readableTree(watch[1]!);
@@ -850,6 +1052,10 @@ export async function serveHost(options: {
           const credentialSubject = authentication?.subject;
           // `after` is the only resume cursor; `Last-Event-ID` is ignored.
           const after = url.searchParams.get("after");
+          // `objects=none`: each frame without its objects; the client refetches what it holds (§1.1.3).
+          const objectsParam = url.searchParams.get("objects");
+          if (objectsParam !== null && objectsParam !== "none") return protocolError("invalid-request", "objects must be none when present", 400);
+          const payloadFree = objectsParam === "none";
           let closed = false;
           let delivered = 0;
           let frames: string[] = [];
@@ -860,6 +1066,7 @@ export async function serveHost(options: {
           // reconnect is refused as any request is (401 or 404).
           let end = (_resyncReason?: string) => {};
           const readable = cachedAuthorization(overstoryd, () => {
+            if (visitor) return visitorReads(tree.id);
             const active = !authentication || overstoryd.authenticationIsActive(authentication);
             // By ID: a recheck reads the tree as it is now.
             return active && overstoryd.execution.run(execution, () => overstoryd.canRead(account, tree.id, link));
@@ -867,7 +1074,8 @@ export async function serveHost(options: {
           // Execution token validity and session expiry change with time,
           // not database state, so they are never cached.
           const authorized = (epoch?: string) => (!execution || overstoryd.execution.valid(execution))
-            && (!authentication || overstoryd.authenticationIsCurrent(authentication)) && readable(epoch);
+            && (!authentication || overstoryd.authenticationIsCurrent(authentication))
+            && (!visitor || overstoryd.visitorIsActive(visitor)) && readable(epoch);
           return new Response(new ReadableStream<Uint8Array>({
             start(controller) {
               end = (resyncReason?: string) => {
@@ -926,8 +1134,9 @@ export async function serveHost(options: {
                   if (!authorized()) return end();
                   if (!next) return end("The requested accepted basis is no longer retained");
                   delivered = next.record.ordinal;
+                  const transition = payloadFree ? { ...next.transition, objects: [], deltas: [] } : next.transition;
                   frames = [encodeSSEFrame({id: next.record.id, event: "tree.update",
-                    data: watchFrame(publicOrigin, overstoryd.get(tree.id) ?? tree, next.transition, access)})];
+                    data: watchFrame(publicOrigin, overstoryd.get(tree.id) ?? tree, transition, access, overstoryd.customDomains)})];
                 }
               } catch (error) {
                 // A failure here, such as a retained transition whose objects
@@ -945,7 +1154,7 @@ export async function serveHost(options: {
         if (object && request.method === "GET") {
           const treeID = hostedReference(object[1]!).id;
           const hash = object[2] as ObjectHash;
-          if (!overstoryd.isReadableObject(treeID, account, link)) return protocolError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
+          if (visitor ? !visitorReads(treeID) : !overstoryd.isReadableObject(treeID, account, link)) return protocolError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
           const bytes = await overstoryd.retainedObject(hash);
           if (!bytes) return protocolError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
           return new Response(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, {
@@ -990,7 +1199,8 @@ export async function serveHost(options: {
           if (resolution.kind === "missing") return pageNotFound();
           const logicalPath = resolution.path;
           const canonicalPath = tree.canonicalPath!;
-          const publicPath = publicTreePath(canonicalPath, logicalPath);
+          // At a served domain, links and redirects are spelled without its prefix.
+          const publicPath = shown(publicTreePath(canonicalPath, logicalPath));
           if (requestLocator.stableKey && resolved.path !== logicalPath) {
             const location = buildNetworkLocator(publicPath, {
               stableKey: requestLocator.stableKey,
@@ -1013,12 +1223,18 @@ export async function serveHost(options: {
           }
           if (resolution.kind === "collection-table") {
             const prefix = publicPath.replace(/\/$/, "");
+            if (request.headers.get("accept")?.includes("text/markdown")) {
+              return markdown(childListMarkdown(resolution.table.table!, collectionRowChildren(prefix, resolution.table.rows, requestLocator.applicationQuery)
+                .sort((left, right) => left.name.localeCompare(right.name))));
+            }
             return html(renderPublicMarkdownPage({
               source: "",
               fallbackTitle: resolution.table.table!,
-              origin: publicOrigin,
-              treeCanonicalPath: canonicalPath,
+              origin: shownOrigin,
+              treeCanonicalPath: shown(canonicalPath),
               sourceDirectory: markdownSourceDirectory(logicalPath, null),
+              publicPath,
+              storyDownloads: options.storyDownloads,
               children: collectionRowChildren(prefix, resolution.table.rows, requestLocator.applicationQuery)
                 .sort((left, right) => left.name.localeCompare(right.name)),
             }));
@@ -1037,9 +1253,11 @@ export async function serveHost(options: {
               return html(renderPublicMarkdownPage({
                 source: new TextDecoder().decode(logical.bytes),
                 fallbackTitle: objectName.slice(0, -3),
-                origin: publicOrigin,
-                treeCanonicalPath: canonicalPath,
+                origin: shownOrigin,
+                treeCanonicalPath: shown(canonicalPath),
                 sourceDirectory: markdownSourceDirectory(logicalPath, "sibling"),
+                publicPath,
+                storyDownloads: options.storyDownloads,
               }));
             }
             // A tree's raw file: an inert image or text type is shown, and
@@ -1051,9 +1269,9 @@ export async function serveHost(options: {
           }
           const prefix = publicPath.replace(/\/$/, "");
           const source = logical.body ? new TextDecoder().decode(logical.body) : "";
-          if (request.headers.get("accept")?.includes("text/markdown")) {
-            return new Response(source, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
-          }
+          const wantsMarkdown = request.headers.get("accept")?.includes("text/markdown");
+          // A folder's page is its source, byte for byte.
+          if (wantsMarkdown && logical.body) return markdown(source);
           const collectionTables = await projection.collectionTables(logical.directory);
           const physicalChildren = (await Promise.all(logical.directory.entries
             // A collection's schema is its contract, not one of its children.
@@ -1076,13 +1294,18 @@ export async function serveHost(options: {
             : [{ name: table.table, href: `${prefix}/${encodeURIComponent(table.table)}${url.search}`, kind: "folder" as const }]);
           const children = [...physicalChildren, ...collectionChildren]
             .sort((left, right) => left.name.localeCompare(right.name));
+          const fallbackTitle = logicalPath.split("/").filter(Boolean).at(-1) ?? canonicalPath.split("/").filter(Boolean).at(-1) ?? overstoryd.communityHandle();
+          // A folder with no page of its own answers a list of its children.
+          if (wantsMarkdown) return markdown(childListMarkdown(fallbackTitle, children));
           return html(renderPublicMarkdownPage({
             source,
-            fallbackTitle: logicalPath.split("/").filter(Boolean).at(-1) ?? canonicalPath.split("/").filter(Boolean).at(-1) ?? overstoryd.communityHandle(),
-            origin: publicOrigin,
-            treeCanonicalPath: canonicalPath,
+            fallbackTitle,
+            origin: shownOrigin,
+            treeCanonicalPath: shown(canonicalPath),
             sourceDirectory: markdownSourceDirectory(logicalPath, logical.bodyOrigin ?? null),
             children,
+            publicPath,
+            storyDownloads: options.storyDownloads,
           }));
         }
         return protocolError("not-found", "Route not found", 404);
@@ -1136,6 +1359,8 @@ export async function serveHost(options: {
     publicOrigin = `${publicOrigin.slice(0, publicOrigin.lastIndexOf(":"))}:${server.port}`;
   }
   if (dynamicLoopbackOrigin) overstoryd.setCommunityHost(new URL(publicOrigin).host, true);
+  // Served domains are checked once the listener answers, then on the pin schedule.
+  void overstoryd.customDomains.refresh().catch((error) => console.error("overstoryd custom domain check failed", error));
   // The execution sidecar calls the standard API here, on loopback.
   collections?.listen(`http://127.0.0.1:${server.port}`);
   return { overstoryd, server, url: publicOrigin, collections };

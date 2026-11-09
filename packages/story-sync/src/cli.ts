@@ -2,6 +2,8 @@
 import { resolve } from "node:path";
 import { serveStorySync, serveStorySyncControl } from "./index.ts";
 import { allowCloudPlaceholderDownloads } from "./cloud-placeholders.ts";
+import { setProtocolClientName } from "@ovst/protocol";
+import { STORY_VERSION } from "./version.ts";
 
 function usage(): never {
   console.error(`Usage:
@@ -11,7 +13,13 @@ function usage(): never {
 }
 
 export async function runStorySyncDaemon(args = process.argv.slice(2)): Promise<void> {
+  setProtocolClientName(`story-sync/${STORY_VERSION}`);
   const control = args.includes("--control");
+  // The launch agent's log has no times of its own; a stall is only legible with them.
+  if (control) for (const method of ["log", "warn", "error"] as const) {
+    const write = console[method].bind(console);
+    console[method] = (...values: unknown[]) => write(new Date().toISOString(), ...values);
+  }
   const portIndex = args.indexOf("--port");
   const portValue = portIndex >= 0 ? args[portIndex + 1] : undefined;
   if (portIndex >= 0 && (!portValue || portValue.startsWith("--"))) throw new Error("--port requires a number");
@@ -48,6 +56,8 @@ export async function runStorySyncDaemon(args = process.argv.slice(2)): Promise<
   const running = control
     ? await serveStorySyncControl(serverOptions)
     : await serveStorySync(resolve(positionals[0] ?? "."), serverOptions);
+  // The device's own Story Sync runs the person's tasks from their other devices; a cloud session's does not.
+  if (control && runtimeKind !== "cloud" && process.env.STORY_SYNC_RUNNER !== "0") running.service.startRunner();
   if (running.mode === "workspace") console.log(`Story Sync is serving ${running.start} at ${running.url}`);
   else console.log(`Story Sync control service is listening at ${running.url}`);
   let shuttingDown = false;

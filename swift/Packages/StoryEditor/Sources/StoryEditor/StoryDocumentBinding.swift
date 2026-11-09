@@ -70,6 +70,19 @@ public final class StoryDocumentBinding {
     /// Object hashes of ledger sources, by ledger revision; revisions are opaque.
     @ObservationIgnored private var sourceObjects: [String: String] = [:]
 
+    /// The object hash of a ledger's source, cached by revision.
+    func sourceObject(of ledger: StorySourceLedger) -> String {
+        if let hash = sourceObjects[ledger.revision] { return hash }
+        let hash = ProtocolObjectCodec.hash(Data(ledger.source.utf8))
+        sourceObjects[ledger.revision] = hash
+        return hash
+    }
+
+    /// The ledger this editor holds for exactly the source stored as `object`.
+    func ledger(forSource object: String) -> StorySourceLedger? {
+        ([ledger] + basisLedgers.values).first { sourceObject(of: $0) == object }
+    }
+
     /// The blocks, in document order, whose source overlaps `range` (UTF-8
     /// bytes) of the source stored as `object`. An empty range names the
     /// block ending at it, or the one it sits in. Nil when this editor holds
@@ -98,27 +111,49 @@ public final class StoryDocumentBinding {
     /// Open the document as its session serves it. A working tree serves its
     /// newest unsettled change, so edits that were durable before a restart
     /// reopen exactly as they were left.
-    public static func open(reference: WorkspaceReference, session: any WorkspaceDocumentSession) async throws -> StoryDocumentBinding {
+    /// `reusing` is an earlier binding of the same page, such as the launch
+    /// preview's: blocks whose Markdown is unchanged take its parse instead of
+    /// being parsed again.
+    public static func open(
+        reference: WorkspaceReference,
+        session: any WorkspaceDocumentSession,
+        reusing earlier: StoryDocumentBinding? = nil
+    ) async throws -> StoryDocumentBinding {
+        let clock = ContinuousClock()
+        var mark = clock.now
+        func lap() -> Double {
+            let now = clock.now, elapsed = now - mark
+            mark = now
+            return Double(elapsed.components.seconds) * 1_000 + Double(elapsed.components.attoseconds) / 1e15
+        }
         let snapshot = try await session.snapshot()
-        let binding = StoryDocumentBinding(session: session, snapshot: snapshot)
+        let snapshotTime = lap()
+        let binding = StoryDocumentBinding(session: session, snapshot: snapshot, reusing: earlier?.ledger.parsedKinds ?? [:])
+        let parseTime = lap()
         binding.trace("opened source=\(EditorSourceID.of(snapshot.source))")
         await binding.observeAuthoritativeUpdates()
+        binding.openTiming = ["doc-snapshot": snapshotTime, "doc-parse": parseTime, "doc-observe": lap(),
+                              "doc-reused-parse": earlier == nil ? 0 : 1]
         return binding
     }
 
-    private init(session: any WorkspaceDocumentSession, snapshot: WorkspaceDocumentSnapshot) {
+    /// How long each step of opening this binding took, in milliseconds.
+    public private(set) var openTiming: [String: Double] = [:]
+
+    private init(session: any WorkspaceDocumentSession, snapshot: WorkspaceDocumentSnapshot, reusing cachedKinds: [Data: BlockKind] = [:]) {
         self.reference = snapshot.reference
         self.session = session
         self.source = EditorSource(session: session, basis: snapshot)
         let opened = StoryMarkdownCodec.open(
             source: snapshot.source,
             revision: snapshot.contentRevision,
-            identitySeed: String(describing: snapshot.reference.identity)
+            identitySeed: String(describing: snapshot.reference.identity),
+            reusing: cachedKinds
         )
         self.ledger = opened.ledger
         let document = Document(
             id: DocumentID(String(describing: snapshot.reference.identity)),
-            children: StoryPagePresentation.present(opened.blocks, path: snapshot.reference.path, directory: nil),
+            children: StoryPagePresentation.present(opened.blocks, path: snapshot.reference.path),
             fallbackTitle: snapshot.reference.path.split(separator: "/").last.map(String.init)
         )
         self.document = document
@@ -140,23 +175,39 @@ public final class StoryDocumentBinding {
 
     // MARK: Presentation
 
-    /// `blocks` (authored, or this editor's edited tree) as the page shows them.
-    private func presented(_ blocks: [Block]) -> [Block] {
-        StoryPagePresentation.present(blocks, path: reference.path, directory: directoryProjection.map {
+    /// The page's directory, for its Subpages.
+    private var subpagesDirectory: StoryPagePresentation.Directory? {
+        directoryProjection.map {
             .init(children: $0.children, reference: $0.directory.reference, sourceDirectory: $0.directory.sourceDirectory)
-        })
+        }
+    }
+
+    /// Show `blocks` (authored, or this editor's edited tree) as the page:
+    /// its presented title in the tree, and the children no link names as
+    /// the Subpages region after it.
+    private func show(_ blocks: [Block]) {
+        let next = StoryPagePresentation.present(blocks, path: reference.path)
+        if next != document.children { _ = document.replaceChildrenReconciled(next) }
+        let subpages = subpagesDirectory.flatMap { StoryPagePresentation.subpages($0, of: document.children, path: reference.path) }
+        document.setRegions(subpages.map { [$0] } ?? [])
     }
 
     /// Show the page as its current source presents it. Source is unchanged:
-    /// a presented heading that was removed or moved comes back, one that was
-    /// edited is from now on an authored block, and one that is no longer
-    /// called for (an authored first H1, a marker, every child linked) goes.
+    /// a presented title that was removed or moved comes back, one that was
+    /// edited is from now on an authored block, and an authored first H1
+    /// retires it. A link to a child takes it out of the Subpages.
     func represent() {
         presentationTask?.cancel()
         presentationTask = nil
         guard !holdsTransferred else { return }
-        let next = presented(document.children)
-        if next != document.children { _ = document.replaceChildrenReconciled(next) }
+        show(document.children)
+    }
+
+    /// Whether `blocks`, dropped on the page's Subpages, are links to its own
+    /// children, so that removing them returns those children there.
+    func unlinksSubpages(_ blocks: [Block]) -> Bool {
+        guard let directory = subpagesDirectory, !blocks.isEmpty else { return false }
+        return blocks.allSatisfy { StoryPagePresentation.linksChild($0, of: directory) }
     }
 
     /// Re-present once the editor's commit has returned: the tree is replaced
@@ -428,7 +479,7 @@ public final class StoryDocumentBinding {
         let opened = StoryMarkdownCodec.open(source: replacement, revision: source.basis.contentRevision,
                                              identitySeed: String(describing: reference.identity), reusing: ledger.parsedKinds)
         let rebased = StoryMarkdownCodec.rebased(opened, preserving: document.children)
-        _ = document.replaceChildrenReconciled(presented(rebased.blocks))
+        show(rebased.blocks)
         ledger = rebased.ledger
         authoredLedgers[generation] = rebased.ledger
         lastEnqueuedSource = replacement
@@ -440,9 +491,9 @@ public final class StoryDocumentBinding {
         if let error = lastError { throw error }
     }
 
-    /// Present the directory's immediate children in the live editor without
-    /// adding them to authored Markdown. Moving a generated row materializes
-    /// it through Quagmire's ordinary block move transaction.
+    /// Show the directory's immediate children no link names as the page's
+    /// Subpages, never as authored Markdown. Dragging one into the page
+    /// places a link to it.
     public func projectDirectoryChildren(
         _ children: [WorkspaceNode],
         in directory: WorkspaceNode
@@ -491,7 +542,7 @@ public final class StoryDocumentBinding {
         )
         let rebased = StoryMarkdownCodec.rebased(opened, preserving: document.children)
         reference = snapshot.reference
-        _ = document.replaceChildrenReconciled(presented(rebased.blocks))
+        show(rebased.blocks)
         ledger = rebased.ledger
         basisLedgers = [snapshot.contentRevision: rebased.ledger]
         acceptedTitle = Self.authoredTitle(of: document)
@@ -604,8 +655,7 @@ public final class StoryDocumentBinding {
                 )
                 let rebased = StoryMarkdownCodec.rebased(opened, preserving: document.children)
                 ledger = rebased.ledger
-                let next = presented(rebased.blocks)
-                if next != document.children { _ = document.replaceChildrenReconciled(next) }
+                show(rebased.blocks)
             }
             acceptedTitle = Self.authoredTitle(of: document)
             authoredLedgers.removeAll()

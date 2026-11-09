@@ -12,6 +12,487 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Views on the host, and declared views — 2026-11-08
+
+**Implemented** on main (merged 49cfced, 2026-11-08; overstoryd redeployed, but it serves no
+views until `OVERSTORYD_ACTIVATIONS` is set). Apps 005 (now closed)
+steps 1-4 and [Apps 012](plans/soon/apps-012-one-kind-of-view.md) steps 1-2 (host side).
+
+- **Views replace queries** (spec 07 §4.1, spec 08 §3). A view is plain JavaScript over rows:
+  `Model.all/one(facts)`, relationship reads and `relationship.all(facts)` are traced into
+  `QueryPlan`s, and the value pass runs over the results, widening once for a read the trace
+  missed. Facts become joins, `not()` an anti-join, rules are inlined. Data views carry
+  `ResultShape` (field types and row identity); JSX views answer `rows` or a view `tree`.
+  `query.many/one/maybe`, the select-object builder and the unused portable node-query
+  engine are gone. Supplies' queries are data views with the same results and SQL statement
+  counts.
+- **On the wire:** `HandleRef {tree, path, name, version}`, `QUERY …/views`, the live stream
+  with shapes. Exec protocol 2 names handles the same way.
+- **Code from trees:** overstoryd reads an activated module's import graph at its pinned root
+  (`OVERSTORYD_ACTIVATIONS`); the sidecar compiles it with Sucrase and gives each module its
+  own `node()`, resolved from its logical path and refused outside its tree. The code version
+  is SHA-256 of the graph's files. JSX views answer `rows` by default (Joe, 2026-11-08: shipping them to the device is fine for now).
+- **Declared views:** a schema's `~views` entry is the built-in list view (`declaredView`),
+  reading only the tables the entry reaches and answering `presentView`'s result. A handle
+  whose path is a `schema.usl` names one, versioned by the schema file's hash, with no
+  activation. Each presented-views vector gives the same through it as through
+  `presentView`.
+- **A person whose profile can't be read** reads as null through a to-one, not an error.
+- **Connection models in presented views** (both stacks): a line or group shows a pure
+  connection model (`Item`, `Reaction`) by what it connects to, and names any other row keyed
+  by several columns (`Tag (list, id)`) by its row key. Supplies' default views all present.
+- **Left:** [Security 013](plans/features/security-013-row-read-rules.md) (fine-grained read
+  rules), [Apps 013](plans/later/apps-013-one-plan-per-view.md) (one plan per view); Story Sync answering and Story
+  drawing declared views ([Apps 012](plans/soon/apps-012-one-kind-of-view.md)); hand checks
+  in [Joe's to-do](plans/joe.md#views-on-the-host-apps-005-and-012).
+
+Tests: `tests/integration/host-collections.test.ts` (views and mutations from a tree, JSX
+trees, a declared view beside an authored one), `tests/unit/declared-views.test.ts`,
+`tests/integration/data-live-query.test.ts`, `tests/integration/supplies-mutations.test.ts`.
+
+## Agents 002: run tasks from anywhere — 2026-11-07
+
+**Implemented** on main (f172e0a, ef2fb3a, 67d831a, 9234fb8, c4f4a58; overstoryd redeployed with
+phase 1). Story only sends a task to a *runner*; whatever runs it, the run looks the same.
+
+- **Runners and messages** ([spec 12 §6](docs/overstory-spec/12-presence.md#6-runners-and-messages)):
+  a visible person stream opened with `runner=<label>` is a present runner; `POST
+  …/presence/{id}/messages` passes `run`, `stop` and `done` between one person's own streams
+  (4 KiB, kept nowhere); an agent's entry carries `agent.run`; `presence.ready` gives the
+  stream's own ID even when hidden. Hosts state `protocol` 2.
+- **`story agent start --task <run request>`** (JSON, `@file` or `STORY_RUN_REQUEST`), in a tree
+  placed here or a fresh checkout from a bundle: Story Sync shows the agent with the run's ID
+  from then on (the agent's own session takes over the stand-in) and marks the block done
+  when it says done. Story's own Run uses the same bookkeeping: the request's run ID, the
+  sender's range to pick the block ([agents](docs/architecture/story-sync/agents.md)).
+- **The Mac as a runner:** the device's Story Sync keeps a runner stream labelled with the
+  Mac's name on every placed tree, runs `run` messages as Run on the Mac does and answers
+  `done`; `story agent runner on|off` (on by default).
+- **Run on the iPhone** sends the task to the newest of your runners (a long press picks
+  another), shows "Starting on <Mac>…" until the agent joins, then Stop; greyed out with a
+  reason when no Mac is running Story Sync. Rosters list runners apart from people.
+- **`story agent` help** is grouped into the commands for you and those for the agent (Joe kept
+  one name, 2026-11-07).
+- **Moved out:** webhook runners and the runners list to
+  [Agents 005](plans/features/agents-005-webhook-runners.md); Codex to
+  [Agents 006](plans/features/agents-006-codex.md); talking to the agent is
+  [Agents 004](plans/features/agents-004-talk-to-the-agent.md). Undo Run stays a Mac-run
+  feature until [overstoryd 007](plans/later/history-007-page-history.md) step 7.
+  `story sync status --wait` was not built.
+- **Left:** hand checks in [Joe's to-do](plans/joe.md#agents-002).
+
+Joe, 2026-11-09: by hand on the Mac, `story agent start --task` in the todos folder and a
+fresh `claude -p` doing it showed one agent and checked the block off. The first try, on the
+tree's own page (Console, "/"), finished without marking the block and showed the agent as
+"+1" elsewhere: Story Sync's `pageFile` had no file for "/" (fixed 073e55d, with a test); the
+retry showed the sparkle on Console and checked the block off. A run request needs its `run` ID.
+
+## Clients 003: one client library, three ways to hold a tree — 2026-11-07
+
+**Implemented** on main fa661f3 (merged 2026-11-07 on Joe's word, which redeployed
+overstoryd with path reads and the payload-free watch). Every client-library
+port has the same seven modules ([porting guide](docs/implementing-sync-services/porting-a-client.md);
+`bun tools/client-parity.ts` compares TypeScript and Swift), and one engine holds a tree in
+three ways: **Browse** (visits; page by page from the host), **Replica** (iPhone trees, the
+Mac's writable remote trees and the personal directory; whole, on disk) and **Alongside Story
+Sync** (Mac placed trees). Built in seven steps (5d85051 to 286d56f):
+
+- The Swift engine imports no app package (step 1).
+- Story Sync serves the standard reads on loopback (descriptor, snapshots, path read,
+  objects, entry metadata, watch); `/v1/bootstrap` and `/v1/objects` are gone (step 2).
+- Swift `TreeSession` opens every tree from settings (prefetch, object sources, index in
+  memory or on disk, change log). The Mac reads the data home's device key itself
+  (Keychain or `device-key` file) and opens its own sessions, sharing `session.json` with
+  the CLI; `/v1/credential` is gone (step 3).
+- The node index is lazy in both languages (step 4, step 6). A directory not yet loaded is
+  held by its accepted hash, so every edit is computed against the accepted root; a load is
+  checked against the hash and refused if it does not rebuild the same root. Alongside Story
+  Sync reads each Markdown body from the placed folder only when the file rebuilds the
+  accepted entry's hash, and from Story Sync otherwise. Placed trees no longer read a
+  spine at open; a visit opens its first page with one path read and follows the watch
+  without payloads. Search, and a page ID not among the loaded pages, load the whole tree.
+- Path read and payload-free watch in the spec, overstoryd and both clients (step 5).
+- TypeScript `ObjectSourceChain`, `NodeIndex` and `TreeSession` (step 6). Story Sync's path
+  reads go through a per-tree `NodeIndex`; its `TreeManager` keeps the folder and does not
+  use the session (Story Sync is the "everything plus a folder" way already). The Web 025
+  host was not moved onto it (Joe: Story web is not important).
+
+Follow-ups on main after the merge (2026-11-07): an outdated Story Sync (still running code
+from before Clients 003) is named in the toolbar warning instead of "Try Again" (5fdb4ed);
+directory loads read concurrently (f14bcb2) and a page opens with one path read (cfd5895);
+a directory that arrives without its pages' bodies is held unloaded, and a structural edit's
+base graph is filled with the directories the candidate loaded (d14e9ef, 3047058: an image
+paste failed with incompleteGraph before); a staging fork that loads the whole tree goes
+through its parent and the folder (e19d217: 121 loopback reads at a launch with a pending
+paste, against 16). Visits choose the way with `TreeWay.choose` (fde6847): Alongside when
+Story Sync has the tree placed here, a replica when the person can write and it fits on
+disk (twice the replica already kept plus 1 GB), Browse otherwise; `defaults write
+<Story's domain> treeWay.<tree id> browse|replica|alongside` overrides it when the way can work.
+
+Closed 2026-11-08 (Joe): the Mac's launch preview (`LocalFolderPreview`) stays. Across five
+warm launches (2026-11-07 and 2026-11-08), `tree-open` landed 0.5-1.4 s after
+`launch-preview`, so opening the session in its place would show nothing for that long. A
+new plan is worth it only if `tree-open` comes within about 200 ms of the preview.
+
+Removed: `DaemonObjectStore`, `StorySyncCredentialProvider`, `StoryVisitSnapshot`,
+`StoryVisitFollower`, `WorkingTreePlacementService`, `UpdateCoordinator.sparseDirectoryGraph`,
+`TreeSpine`, `SpineFetch`, and the bootstrap, object and credential routes and client calls.
+
+Validation (at 286d56f, Swift on Joe's Mac in a separate worktree): `swift test` passes in
+Overstory (86), OverstoryObjectStore (3), OverstoryWorkingTree (144) and OverstoryClient (37,
+including lazy loading, a tampered directory that never loads, and an edit beside an
+unloaded directory keeping its hash); the app builds for testing; StorySyncClientTests and
+the loopback suite pass. The full StoryAppTests run has two failures that don't involve the
+working tree: a group member written as a bare link (no longer a member since de57e211) and
+child links refreshing over an in-memory provider; neither was checked against main.
+TypeScript: object sources, path reads and a Browse session
+(`tests/unit/object-sources.test.ts`, `tests/integration/overstoryd/path-read.test.ts`).
+iPhone checked by Joe 2026-11-07 (works fine). Mac, 2026-11-08 (Joe, rebuilt Story): the
+Keychain prompt for Story Sync's device key showed once at first launch and never came
+back. Launch timings from the network log, todos tree, latest launch 2026-11-08 against
+the last one on 2026-11-06 (ms since launch): launch-preview 925 vs 1066, editor-drawn 1342
+vs 1391, tree-open 1416 vs 1599 (open took 491 vs 533 ms), page ready 1592 vs 1691; earlier
+launches on 11-07 and 11-08 drew the first page at 1.4-2.5 s. The placed tree opens no slower.
+That launch read one descriptor and one 5 KB objects request before the first page, then four
+path reads; no snapshot request appears in the logs since 2026-11-06. 2026-11-09: with the
+todos folder paused (`story sync pause`), a line appended to Sample-Tree.md outside Story was
+held as pending and Story showed the accepted page without it; on `story sync resume` it
+appeared. (Stopping Story Sync is not a test of this: launching Story restarts it.) All
+of Joe's Clients 003 hand checks are done.
+
+## Coalesced typing bursts (Merge 002 case 1) — 2026-11-07
+
+On main (merged 2026-11-07 after Clients 003; Joe's go-ahead). Story needs a rebuild to send it. The publication
+compilers (`publication.ts`, `ChangePublication.swift`) now compose each run of plain edit
+frames over one path, across local records, into one frame of edits over the run's first
+basis (`composeSourceEdits` / `WorkspaceSourceEdit.compose`), and each run of single-span
+move frames inside a batch into one move. Inserted text deleted again never reaches the
+account; basis bytes deleted and retyped stay a replacement. A run stays uncomposed when an
+operation result in it is referenced, when its end trees are not held, or when the composed
+frame does not take its first tree exactly to its last (checked by rebuilding the tree). The
+trace limits now apply after composition, so a 200-keystroke burst is one update.
+
+Measured with `tests/performance/coalescing-bursts.ts` on a 64 KB page (one record per
+generation): typing 48 characters went from 17.1 KB and 48 frames in one batch (43.8 KB as
+separate updates) to 1.1 KB and one frame; 20 backspaces 7.5 → 1.0 KB; a corrected phrase
+4.8 → 1.0 KB; ten moves around four typed characters 5.9 KB/11 frames → 2.1 KB/3 frames.
+Preparation stays under about 11 ms.
+
+Checked: ten new shared vectors in `docs/overstory-spec/conformance/coalesced-publication.json` (Unicode,
+CRLF, net-zero retyping, cancelling text, edits in two places, a page body, moves on either
+side of an edit); for each plain-edit vector the host merge engine gives the same text and
+decision count for the composed frame as for the original frames against a peer edit far away
+and overlapping, in both arrival orders; the real overstoryd accepts a composed five-key
+burst in a request under 5 KB with and without a concurrent peer edit. `bun run
+test:affected` on Linux: typecheck, 380 product tests, build and 425 TypeScript protocol tests
+pass; the Swift half of the protocol gate needs xcodebuild, and the object-index timing bench
+missed its startup bound on the container disk (unrelated). On Joe's Mac,
+`swift test --filter PublicationTests` in `OverstoryWorkingTree` compiles and passes all 22
+tests, including the shared vectors (worktree `~/src/arbor-merge-002`; the app was not built). Joe checked it in a rebuilt
+Story on 2026-11-08 (typing, a deleted word and an Option-arrow move on a long page; the
+iPhone showed the same text): it works. Remaining cases are in
+[Clients 002](plans/when-needed/merge-002-coalesce-moves-with-edits-copies-and-undo.md).
+
+## Domain locators: your own domain names your profile — 2026-11-05
+
+**Implemented** on main, deployed with it (overstoryd); Names 001 steps 1-4. A person can
+name their profile by a domain they control
+([locators §1.1](docs/overstory-spec/03-locators.md#11-domain-locators)): `https://alice.example`
+is a profile locator wherever a rule or a group member names a person. The domain names her
+locator at her home host in a DNS TXT record (`_overstory.alice.example`,
+`profile=<locator>`) or a `/.well-known/overstory-profile` file, and her profile's root front
+matter lists the domain back in `domains`. overstoryd resolves both directions, pins the
+TreeID as for any locator, and remembers the home host the records name, so a visitor from
+that host matches and a move to another host (with the record updated) keeps every rule.
+Community reservations and placement invitations still take the home locator. `story me
+domain <domain>` writes the front matter and prints both records; `--check` resolves each
+listed domain as a host would.
+
+Validation: records, both-way checks and pins across a move
+(`tests/unit/overstoryd/domain-locators.test.ts`); visitor matching by a domain's home host
+(`tests/unit/overstoryd/tree-access.test.ts`); two local hosts with a loopback "domain"
+serving the well-known file, refused until the profile names it back, then read by Dana's
+visitor session (`tests/integration/overstoryd/visitor-sessions.test.ts`); conformance
+locator vectors for domains (TypeScript; the Swift parser was changed to match but its tests
+have not been run off the Mac). Not tried against a real DNS name. Story shows and accepts
+domains nowhere yet (Names 001 step 5).
+
+## Visitor sessions and read-only placements — 2026-11-05
+
+**Implemented** on main, deployed with it (overstoryd). A profile can now read at a host
+where it has no account. A device asks for a session challenge naming its home host;
+the host checks the device against the keys that home host publishes and opens a
+**visitor session** ([accounts §5.6](docs/overstory-spec/04-accounts-and-devices.md#56-visitor-sessions)),
+kept in memory only. A visitor reads (descriptors, snapshots, objects, watches, listings)
+what the host's rules grant its profile by a locator at that home host, through a group
+that names it so, or what anyone can read; it never writes, and every other route treats
+it as no account. Story Sync gained **read-only placements**: `access: read` in
+`placements.yaml`, written by `story place --read-only <url> <path>`, follows a tree at any
+host, with the account there if there is one, else a visitor session, else anonymously,
+and never publishes the folder's edits.
+
+Validation: unit tests for visitor matching (`tests/unit/overstoryd/tree-access.test.ts`);
+two local hosts for sessions, scoping by home host, revocation and rule removal
+(`tests/integration/overstoryd/visitor-sessions.test.ts`); and Story Sync plus the CLI
+following a shared and a public tree at a host where the profile has no account, with
+the owner's edits arriving and local edits never sent
+(`tests/integration/story-sync-read-only-placement.test.ts`). Story.app has no UI for it
+yet; not hand-checked on Joe's Mac.
+
+## Trees at your own domain — 2026-11-07
+
+**Implemented** on main (`fc71c74`, `921d76f`), deployed with them (overstoryd); Names 001,
+closed out. Not yet tried with a real domain.
+
+- **Serving** ([locators §5.1](docs/overstory-spec/03-locators.md#51-trees-at-a-persons-domain)):
+  a person lists a domain in their profile's `domains` and points it at their home host with
+  a CNAME. The host (`packages/overstoryd/src/custom-domains.ts`) serves it once
+  `https://<domain>/.overstory/domain-check` answers with the host's own token, checking on
+  the profile-locator schedule; it then puts their `/~handle` in front of paths at the
+  domain, answers the domain's `/.well-known/overstory-profile` (so it also names them with
+  no TXT record), sends other `/~` paths home, and sends browsers at the host's own name to
+  the domain. No host-specific code: routing the name to the host with a certificate is the
+  operator's part (deploy README, "People's own domains").
+- **One canonical URL:** descriptors gain `canonical.url` (tree operations §1), the
+  domain form; `path` and `endpoint` keep naming the tree at the host, which keeps
+  resolving, so older clients are unaffected. Story Sync keeps it with a placement's sync
+  metadata. The host's directory names the domain (`domain`).
+- **Setup is the CLI's:** `story me domain <domain>` prints the TXT record (to name you) and
+  the CNAME (to also serve your trees); `--check` says whether the domain reaches your host.
+  Story has no setting for it (Joe, 2026-11-07).
+- **Story:** People, the share sheet's picker and Go to show `notes.alice.example` in
+  place of `~alice · host` and match on it; Copy Link and the share sheet's link use the
+  canonical URL. Built on Joe's Mac (see Joe's to-do for the hand check).
+- **Tests:** `tests/integration/overstoryd/custom-domains.test.ts` (a loopback name for the
+  same listener); Swift `DirectoryTests.domain` and the canonical URL checks in
+  `OverstoryTests`.
+- **Left:** the hand check with a real domain is in [Joe's to-do](plans/joe.md#names-001-your-own-domain);
+  warning people whose rules use a domain that stops checking is a [candidate](plans/candidates.md#small-features).
+  A domain that only names you (TXT) is not shown in Story, since only the host serving it checks it.
+
+## Invite from the command line, and hosts older than Story — 2026-11-07
+
+**Implemented** on main (`b92baec`, `1b3812a`), deployed with them (overstoryd); Sharing 002
+and Sharing 004, closed out. Story builds for the Mac and the iPhone simulator on Joe's Mac; its two new tests wait for a run with Story quit, and nothing was tried on the live host.
+
+- **`story invite`** (`packages/cli/src/index.ts`): `story invite <account-url>`, `list
+  [<host-url>]`, `renew <account-url>` and `cancel <account-url>`. It opens its own session from
+  the device key (`accountProtocolClient`) and never needs Story Sync; `invite` and `renew`
+  print only the link. A caller who can't write the community tree, a handle that isn't one,
+  a member, an already pending handle and an unknown one are each refused with a sentence.
+- **Client library** (`@ovst/client`): `editTreeFile` rewrites one file at the tree's head
+  under `ifCurrent`, rebuilding directories and page entries, retrying a lost race up to four
+  times and submitting nothing when unchanged. `invitations.ts` edits the root `members`
+  source in place (block, flow, empty, absent; comments and CRLF kept) and refuses any result
+  whose parsed member list isn't the old one plus or minus exactly that invitation. The plan's
+  "use the host's `structuredMembers`" became a parse with the `yaml` library compared entry
+  by entry; the host's reader stayed where it is.
+- **One code and digest:** `generateInviteCode`, `isInviteCode` and `inviteCodeDigest` in
+  `@ovst/protocol`, used by overstoryd and the tests; vectors in
+  `docs/overstory-spec/conformance/invitations.json`, checked by TypeScript and by Story's
+  `invitationVectors` test. Accounts §1 now gives the digest format, entry keys and link form.
+- **Host protocol level:** `GET /.overstory/health` states `protocol` (`HOST_PROTOCOL`, 1;
+  absent means 1; locators §5). At launch Story asks the hosts of its placed trees and, if one
+  is below `StoryHostCompatibility.minimumHostProtocol`, says the host needs updating
+  (redeploy on Railway) and quits on the Mac, or covers the app on the iPhone. Unreachable
+  hosts pass. Both levels are 1, so no host is refused yet: raise both when Story starts
+  depending on something new.
+- **Tests:** `tests/unit/client/invitation-entries.test.ts`,
+  `tests/integration/client/invitations.test.ts`, `tests/integration/cli-invite.test.ts` (no
+  Story Sync running), `host-responses`; Swift `hostProtocolLevels`, `invitationVectors`.
+- **Left:** the live hand checks are in [Joe's to-do](plans/joe.md#sharing-002-and-004-invitations-and-old-hosts);
+  moving the rest of the CLI's host edits onto the library is a [candidate](plans/candidates.md#cleanup).
+
+## Start your own community from a Railway template — 2026-11-05
+
+**Implemented** on main (`e99919e`), deployed with it (overstoryd); Sharing 004 steps 1, 2, 4
+and 5, and step 3's image and template definition. Not yet published or rehearsed.
+
+- **Founding by code** ([accounts §1.2](docs/overstory-spec/04-accounts-and-devices.md)):
+  `OVERSTORYD_FOUNDER_CODE` takes the place of `OVERSTORYD_FIRST_WRITER_PROFILE` (`cli.ts`, one
+  or the other). On first start the host reserves the founder's handle as an ordinary
+  invitation and logs the full founder link at every start until it is claimed, then logs that
+  the variable can be deleted. `access.yaml` can't be empty of administrators, so a
+  code-founded community grants `admin` to its (still empty) group, and the first claim
+  replaces that rule with the claimer's profile, in the same transaction.
+- **Founder wording:** `GET /.overstory/health` says `founding: true` while the community has no
+  administrator (not the claim challenge, because Story words its join screen before it asks
+  for one), and Story then says "Your community on <host> is ready". The first screen has "No
+  invitation? Start your own community", linking to the deploy README's "Start your own
+  community" section, so the template's link can change without an app release.
+- **Image and template:** `.github/workflows/publish-host-image.yml` publishes
+  `ghcr.io/jxe/overstoryd:<version>` and `:latest` from each release tag; the template's
+  definition (variables, `/data` volume, generated domain, `secret()` founder code) is in the
+  deploy README's "The template (maintainers)".
+- **Published** 2026-11-08 (Joe): the image was public as soon as v0.1.8 published it
+  (`0.1.8` and `latest` pull without signing in), and the template is
+  [railway.com/deploy/overstoryd](https://railway.com/deploy/overstoryd), linked from the deploy
+  README (`a7e9a3e`).
+- **Left:** a rehearsal from a fresh Railway account is in [Joe's to-do](plans/joe.md#sharing-004-railway-template); what Story says to a host too
+  old for it was built [2026-11-07](#invite-from-the-command-line-and-hosts-older-than-story--2026-11-07).
+
+## Story Path (White) icon — 2026-11-02
+
+Story's device-local App Icon settings now offer Story Path (White) beside
+Story Path (Black), Page S, and Doorway. The white edition preserves the cream
+paper and folded corner, with a white path/background and soft edge shadows.
+The black primary icon and legacy alternate name remain unchanged. The new
+master and imagegen prompt are documented in
+[IconPreviews](swift/StoryApp/IconPreviews/README.md); the rendition script
+generates its Mac runtime image and macOS/iOS app-icon assets.
+
+Validation: all 28 new app-icon slots have the expected dimensions and platform
+corner alpha; the new runtime image loads at 1024px with transparent corners
+from the compiled Mac catalog. macOS app/test-bundle and iOS Simulator app
+builds passed, with existing compiler warnings. The built iPhone and iPad
+Info.plist declarations include StoryPathWhite. The affected dependency-pin
+test passed. The affected Markdown link and whitespace checks
+passed. App-hosted tests and manual icon switching were not run because the
+debug Story app was left running. No installed app or live data was changed.
+
+**Automatic appearance follow-up:** Settings now has a Follow System Appearance
+toggle for Story Path. On Mac it observes the app's effective appearance,
+updates the running Dock icon, and persists the automatic choice across
+launches. On iOS it selects one alternate icon with white Any and black Dark
+renditions; the Home Screen appearance setting controls switching even while
+Story is closed. Picking a manual icon disables automatic selection. The
+existing black default is unchanged. The icon tests cover automatic artwork
+resolution and manual choices; the existing bundle/declaration checks also
+include the automatic icon. macOS app/test-bundle and iOS Simulator app builds,
+the dependency-pin test, and affected Markdown link/whitespace checks passed.
+The compiled iOS catalog contains both white and Dark black renditions for
+iPhone and iPad, with the alternate declared for both in Info.plist.
+App-hosted tests and manual system appearance switching remain unrun to
+preserve the running debug app. No app was installed or released.
+
+## Data-oriented accept path — 2026-11-02
+
+**Implemented** on main, deployed with it. Applying the
+[data-oriented performance skill](.claude/skills/data-oriented-performance/SKILL.md):
+directories are read in one pass over their bytes (no decode to objects and re-encode;
+`decodeProtocolDirectory`, ~10x); a traced edit's plain check runs once per request; a
+merge answer reads and freshens only what it does not share with the head; an answered
+entry's index is not re-encoded. On disk, an accepted edit creates no file: index records
+ride the entry's journal append and its pointer is a row in
+`provenance/v1/pointers.sqlite3` (older entries keep pointer files), and merge workers
+stage scratch under the system temporary directory, not `/data`. On the todos tree's
+content (143 objects), server time per traced edit went from 12.8 to 4.9 ms and per
+merged snapshot from 42 to 32 ms locally; per edit the data volume now sees one fsync and
+no other metadata operation (was ~17 creates, links, mkdirs and unlinks), and a merged
+pair about 45 reads and stats (was ~830 utimes and ~610 opens). Proposal and next steps:
+`/mnt/project-files/overstoryd-redesign/proposal.md` (project files).
+
+Then large, long-edited pages (live: 6-25 ms storing an edit to the 64 KB Console page).
+Storing an edit re-chunked and re-hashed the page's whole provenance piece list, which grows
+with every edit; now only the chunks whose pieces changed are written (a differential test
+checks the records equal a full encode). An edit to a root `_index.md` reads only its
+frontmatter for profile facts. Story and Story Sync batches send only the final candidate's
+objects (Story had sent each in-between version of the page in full, 70-217 KB per batch);
+the host regenerates intermediate frames by executing them. Harness
+`tests/performance/page-edit-cost.ts`, 64 KB page after 1,500 edits: server time per typed
+character 17.4 -> 6.6 ms (accepted-store 10.2 -> 2.2 ms).
+
+## Performance 004: merges start from the provenance index — 2026-11-02
+
+[Performance 004](https://github.com/jxe/arbor/blob/4844b1c/plans/soon/performance-004-provenance-index.md) steps 1 to 5 are
+**deployed** and the plan is closed (Joe, 2026-11-02); its leftovers, a canonical contribution
+order and collection merge cost (step 6), are [Performance 008](plans/when-needed/performance-008-merge-cost-by-edit.md). overstoryd keeps each accepted entry's
+[provenance index](docs/architecture/overstoryd/provenance-index.md) (no fsync of its own; a
+backfill fills gaps without the merge worker). The merge sidecar starts entries from it
+instead of replaying history: a head replays only the entries after its basis, merge answers
+carry their index, and the saved checkpoints (`merge-cache/`, Performance 002) and the
+retryable "rebuilding history" answer are removed. Cold questions on the Oct 28 todos copy:
+591 of 604 as accepted (the rest as full history misses them), median 57 ms.
+
+Then overstoryd's disk cost (`ce775c7`): an accepted update's new objects are appended to an
+object journal under `objects/packs/` with one write and one `fdatasync`, and nothing is
+written before acceptance; packing compresses journaled objects later, and a host start
+re-indexes records a lost index commit left out. On the Oct 28 copy with 4 ms added per
+fsync, a fast-forward went from 27.8 to 14.7 ms (median) and from 9 syncs to 1.
+
+## Move a page to another tree — 2026-11-01
+
+**Implemented** on main (Mac and iPhone, both in by the `8aa8848` merge of 2026-11-02); Sharing
+003 steps 1–4 and 6 on both, New Tree… on the Mac. Not hand-checked.
+
+- **The share sheet** (`StorySharePanel`, `swift/StoryApp/StoryRootView.swift`) names the tree
+  the page is in ("This page is in [Todos ▾]") and who has access to that tree. Picking another
+  tree previews the move: the destination's people, the subpages that move along, and links to
+  pages its readers can't open. Nothing moves until "Move to <tree>".
+- **The tree menu** lists trees on this device the account can write, minus profiles, account
+  configuration and the People directory, grouped by account, current tree first. New Tree…
+  (Mac) makes a tree in `~/Documents/<name>` at `<account URL>/<slug>` with a name, account and
+  visibility, then previews moving into it.
+- **A move** (`StoryWorkspaceState` "Moving a page to another tree", `StoryAppModel.swift`;
+  link rewriting in StoryKit's `CrossTreePageMove`, tested in `CrossTreeMoveTests`) writes the
+  page and its subpages at the destination's top level (`<name>` or `<name>-2`), rewriting links
+  that leave the moved set as `overstory://<old tree>/…`; only then retargets the old tree's
+  links, adds a link to the parent if it had none, and trashes the old pages. A page in Trash
+  can't move, and a move is refused when the destination already holds one of its page IDs
+  (2026-11-02). On the iPhone the destination is a second working tree opened for the length
+  of the move (`moveDestinations` reads `nativePlacements`); both hosts must be reachable.
+- **Left:** New Tree… on the iPhone is [Sharing 003](plans/features/sharing-003-new-tree-on-the-iphone.md);
+  the hand checks are in [Joe's to-do](plans/joe.md#sharing-003-moving-pages-between-trees).
+
+## Agents 001: presence and agent tasks — 2026-11-01
+
+[Agents 001](https://github.com/jxe/arbor/blob/666afa30/plans/features/agents-001-presence-and-a-first-agent.md)
+is **implemented** on main and closed; its plan is deleted. It absorbed Live 001 and CLI 004.
+
+- **Presence** ([spec 12](docs/overstory-spec/12-presence.md), `5804a81e`): one SSE stream per
+  open tree plus a small POST, in overstoryd's memory only (`PresenceHub`). A roster of the whole
+  tree, exact carets sent only between visible peers on one page, "Show me to others" per
+  device, agents as peers with a status line. **Deployed** with main.
+- **Story** (`28c43f7f`, `0ae31a85`): `HostPresenceRunner` beside each host watch; peers drawn
+  with Quagmire's `EditorView.peers` (initials beside their block, an agent's status floating
+  under it, optional row tint behind `StoryTintPresenceRows`). The iPhone shows the roster and
+  peers; Run is Mac only.
+- **Task blocks** (`9db8ef7a`, `6b61202e`, `eacdcff7`): `> [!agent] …` reads as an agent task,
+  made by Turn Into, by typing `! ` at the start of a paragraph, or by a dictation starting
+  "Agent". Run, Stop, Undo Run and Run Again on the callout. A finished task stays checked off
+  as `> [!agent-done]` with its result; each run keeps its snapshot for a day, across Story Sync
+  restarts.
+- **Runs and agents in placed folders** ([agents](docs/architecture/story-sync/agents.md),
+  `55f24813`, `ea597df9`, `9ad8ce3d`): Story Sync runs `claude -p` in the placed folder, holds
+  the tree's publishing while an agent edits so a run publishes as one change, and shows any
+  Claude Code session in a placed folder through `story agent status|done|hook`, installed by
+  `story agent install`. An out-of-date Story Sync shows a toolbar warning instead of being
+  restarted.
+- **Left over:** hand checks are in [Joe's to-do](plans/joe.md#agents-001); sidebar
+  presence dots and `story sync status --wait` were not built (noted in
+  [Agents 004](plans/features/agents-004-talk-to-the-agent.md) and
+  [Agents 002](#agents-002-run-tasks-from-anywhere--2026-11-07)).
+
+Joe, 2026-11-08 (rebuilt Story): a real task on a day plan, started with Run on the Mac,
+works well (bubble, checked off with its result, Undo Run).
+Joe, 2026-11-09: the iPhone leaves the roster when it goes to the background and rejoins on
+return, as the Mac sees it.
+
+## Merge as blocks and elements — 2026-11-01
+
+Prompted by the 2026-10-31 todos conflicts (a Mac waking with a 6½-hour-old page repeated
+edits the phone had made; the Markdown rule refused the whole file and coupled 28 KB into one
+choice). All **deployed** on main:
+
+- **Merge fixes** (`5fab53bc`, `348c9eed`): a deletion that repeats one current already made,
+  and any edit leaving the same bytes as the other side's, is not a conflict; a refusal couples
+  only the blocks its edits touch, not every edit in the file.
+- **Markdown merges as blocks** (overstoryd 017, `85fa5a31`, `802e6e25`): blocks are named
+  across versions by piece identity, and a merge stands when each keeps the kind, attributes,
+  container, section and inline syntax its last editor gave it, with no split or join one side
+  did not make. The line-skeleton rule and its allowances are deleted; moves are judged the same
+  way, with contextual link checks kept.
+- **Data files merge as elements** (017 step 7, `4cd2e0d9`): JSON, YAML, TOML and CSV/TSV
+  through the same check (`elements.ts`, `data-elements.ts`); new keys, array items and rows on
+  both sides merge.
+- **Keep current contents** (`5fe7157d`, overstoryd 015 step 3 in part): Story offers it for any
+  conflict group, page conflicts included, listing only lines a version holds that the page
+  lacks. **Installed** in Joe's Mac build on 2026-11-01; not yet checked by hand.
+- Replaying the real 2026-10-31 versions: the Mac's repeated deletion merges, and the sync batch
+  is one choice of about 450 bytes. Remaining: [overstoryd 017](plans/when-needed/merge-017-more-formats-and-open-cases.md)
+  (JSONL, XML/HTML/CSS and code as elements; choices named by block); merge notes moved to
+  [Editor 003](plans/features/editor-003-suggestions.md#part-3-merge-notes).
+
 ## Pages as logical nodes built — 2026-10-28
 
 Filesystem 026 steps 1 to 5 are **implemented** in both stacks and merged to main: Markdown
@@ -19,8 +500,14 @@ files sync as page objects (id, ordered properties, exact body), property edits 
 field, and conflict review offers property choices. Swift passed every package test and the Mac and
 iOS builds on Joe's Mac. No tree is converted: a host takes page entries only for the trees
 `OVERSTORYD_PAGES` names ("1" for all), and Story Sync converts a tree only when its descriptor
-says `pages: true`. Next: release, back up the host, hand-check one tree, then convert the rest
-once every writer runs the new Story.
+says `pages: true`. Conversion is an ordinary snapshot (no command); a Markdown file's model hash
+is that of the page it reads as, so a conversion meets concurrent edits cleanly.
+
+**Released** in Story 0.1.6 (2026-11-02) and 0.1.7 (2026-11-04). **Deployed** for one tree: on
+2026-11-01 the host's `OVERSTORYD_PAGES` named Joe's todos tree alone, and it was converted
+(update 14803). Its hand check and converting the other trees are in
+[Joe's to-do](plans/joe.md); the cleanup left is
+[Filesystem 026](plans/soon/filesystem-026-page-provenance-and-cleanup.md).
 
 ## Plans and small work trimmed — 2026-10-28
 
@@ -47,29 +534,30 @@ Joe reviewed the plans in soon, the ideas and small work, and closed out these:
   claimed-member removal moved to People 001's forks and identity recovery to Security 010;
   the operator-free recovery item and the merge-semantics question were dropped.
   Then, from Joe's answers: pages as logical nodes became
-  [Filesystem 026](plans/soon/filesystem-026-pages-as-logical-nodes.md); endpoint movement
+  [Filesystem 026](#pages-as-logical-nodes-built--2026-10-28); endpoint movement
   went to Security 010; determinism was answered in spec 07 §4 (queries get no clock,
   randomness or I/O); consent shows declared prefixes, as spec 07 §6 already says; host
   administration stays an idea (it may stay hard for now).
 - **A clearer split (Joe).** Small work holds only decided tasks, hand checks and soaks; ideas
   hold everything undecided. The agent skill became
-  [CLI 004](plans/features/cli-004-agents-in-placed-folders.md), and the manual recipes moved
+  CLI 004 (folded into
+  [Agents 001](#agents-001-presence-and-agent-tasks--2026-11-01) on 2026-10-30), and the manual recipes moved
   to the [update machine](docs/implementing-sync-services/update-machine.md#checking-by-hand)
   and Apps 005. Schema language 007 is now all of editing collections (its write path, every
   view intent, simple edits and the structured editor), and 002's ownership milestone
-  is [Schema language 010](plans/soon/schema-language-010-row-ownership.md) in later.
+  is [Schema language 010](plans/later/schema-language-010-row-ownership.md) in later.
 - **Schema language 002 closed.** Chips and groups now say when they are people
   (`person: true`, both stacks and `presented-views.json`), so Story no longer guesses from a
   TreeID prefix. Joe dropped schema-set styling (bullet tint, Markdown as a note) and a
   host-supplied "By host" grouping (communities already show as groups through their
   `Community` ties). Pages that present other collections and groups that are other trees
   became [spec extensions](plans/spec-extensions/README.md). Ideas and small work were renamed
-  [candidates](plans/candidates.md) and [chores](plans/chores.md).
+  [candidates](plans/candidates.md) and [chores](plans/joe.md) (Joe's to-do since 2026-11-06).
 
 ## Queries and mutations run in a sidecar — 2026-10-28
 
 Implemented; not deployed (the deployed host passes no `collections`, so its query and
-mutate routes still answer `unsupported-operation`). [Apps 005](plans/soon/apps-005-source-resolution-and-sidecar.md)
+mutate routes still answer `unsupported-operation`). [Apps 005](#views-on-the-host-and-declared-views--2026-11-08)
 step 4, the boundary Joe settled the same day ([the execution sidecar](docs/architecture/overstoryd/execution-sidecar.md)).
 
 - **overstoryd runs no authored code.** `@ovst/apps-runtime` left its dependency closure.
@@ -83,8 +571,13 @@ step 4, the boundary Joe settled the same day ([the execution sidecar](docs/arch
   snapshots; their effects are still checked path by path against the token's grants.
 - **Streams re-ask.** The live-query state machine moved from apps-runtime to
   `@ovst/protocol` (`liveQueryStream`), shared by the runtime's brokers and overstoryd. A
-  stream re-asks when a catch-up changes its collection or a profile tree it read changes;
-  people's cards reach a query through a `need` answer rather than a callback.
+  stream re-asks when a catch-up changes its collection or a profile tree it read changes.
+- **Queries read people through the API (Joe, 2026-10-28).** Each query stream gets one
+  execution token, revoked when the stream ends, whose only grant reads any tree as the
+  caller could (`ANY_TREE`; never lent, never writes). The sidecar reads a person's card from
+  their profile tree's descriptor and root `_index.md`, parsed by `readRootProfile`, which
+  moved to `@ovst/protocol`. This replaced an earlier `need` answer, where overstoryd handed
+  the sidecar the cards.
 - **The files stay overstoryd's.** After each mutation overstoryd checks `pragma data_version`
   and rebuilds a file another connection wrote to.
 
@@ -239,8 +732,8 @@ git history at `ac1a7de`.
 ## People directory, tree picker and USL summaries — 2026-10-25
 
 Implemented and installed on Joe's Mac (main `6ebe9ea`); Joe 2026-10-25: "this will do for now".
-[People 001](plans/features/people-001-groups-sharing-and-go-to.md) phase 1 ("As built" there) and
-[Schema language 007](plans/soon/schema-language-007-edit-collections-in-story.md)'s row queue, which it
+[People 001](plans/features/people-001-groups-sharing-and-go-to.md) phase 1 and
+[Schema language 007](plans/features/schema-language-007-editing-in-the-collection-view.md)'s row queue, which it
 writes through.
 
 - **Rows from Story go through the host.** Story sends row edits as derived candidates
@@ -286,7 +779,7 @@ Plan Schema language 006 is done and deleted; its text is in git history at `58e
   `bun run test:affected` passes. At `58e23a6` the packages, the TS tests and the Mac and iOS
   builds passed; the app-hosted tests didn't run, as Joe's debug Story was open (small work).
 
-Next: [Schema language 007](plans/soon/schema-language-007-edit-collections-in-story.md), editing rows
+Next: [Schema language 007](plans/features/schema-language-007-editing-in-the-collection-view.md), editing rows
 in Story on the Mac and iPhone.
 
 ## Earlier merge-cache formats retired — 2026-10-24
@@ -301,7 +794,7 @@ empty `tr_owozr6aegt5z7x6qyllvzljl5u/` directory from 2026-10-09), no
 `decodeRetainedState` are gone. A checkpoint database that cannot open is an
 empty cache, and `savedStatesIn` deletes leftover `<tree>/` directories.
 `scripts/benchmark-cache.ts` now measures cold restores from a cache directory
-([merge cache](docs/architecture/overstoryd/merge-cache.md)).
+([merge cache](https://github.com/jxe/arbor/blob/8ad94558/docs/architecture/overstoryd/merge-cache.md)).
 Gate: `bun run test:affected` passes.
 
 ## Collections that sync — 2026-10-24
@@ -335,8 +828,7 @@ and deleted. Its text, with each milestone's design, is in git history at
 Before landing, the Swift tests passed on Joe's Mac and the performance
 benchmarks were compared with main: a one-row edit in a 10,000-row
 collection is about 35% slower, because a changed collection is re-encoded
-whole ([Performance 004](plans/soon/performance-004-provenance-index.md)
-step 6). Leftovers: publishing USL 0.3.0 and moving the sites ([done](#plans-and-small-work-trimmed--2026-10-28))
+whole ([Performance 008](plans/when-needed/performance-008-merge-cost-by-edit.md)). Leftovers: publishing USL 0.3.0 and moving the sites ([done](#plans-and-small-work-trimmed--2026-10-28))
 and the gaps each milestone left ([closed 2026-10-28](#rows-on-the-host-eviction-and-a-collection-scoped-guard--2026-10-28)).
 The USL examples moved to [`packages/usl/examples`](packages/usl/examples).
 
@@ -477,6 +969,28 @@ link rows read "(missing)".
 Checks: `TransferPlanTests` (`movedLinksAreRebased`, `retypedLinksAreRebased`),
 StoryKit `LogicalURLTests`, `tests/unit/logical-url.test.ts`.
 
+## Subpages as a read-only region — 2026-11-01
+
+Implemented, not installed. The heading over a page's unlinked children reads
+`Subpages` (renamed from Children on 2026-10-30, when the
+`<!-- overstory:children -->` marker became ordinary source and authored
+Subpages/Children headings lost special handling). In Story the Subpages are
+no longer document content: `StoryPagePresentation.subpages` builds them as a
+Quagmire `DocumentRegion` that the binding sets after every presentation. Their
+rows look like page links, faded, and can be selected, found, opened, copied
+and dragged into the page, which writes a link; a lone link to one of the
+page's children dropped on them is unlinked (`StoryEditorHost.receiveBlocks(_:inRegion:of:)`).
+They cannot be edited or materialized, so the projected-child metadata,
+materialization and `.mutedBlocks` are gone. Spec 02 §4.1 says so, and the
+shared `page-presentation.json` keeps no Subpages edit vectors.
+
+Not done: story-web and `authorPage` still present the Subpages inside the
+editable document and materialize an edited section (out of the build until
+Web 025). Quagmire's regions are on its `main`, not yet released or pinned.
+
+Checks: `swift/scripts/test-story-editor-local.sh` (120 tests), Quagmire
+`swift test` (503 tests, `DocumentRegionTests`), `tests/unit/page-presentation.test.ts`.
+
 ## Presented headings — 2026-10-12
 
 Implemented, not installed or deployed. Every client shows a page through one
@@ -582,7 +1096,7 @@ the phone reported current with unresolved conflicts, its durable attempt and
 hold were cleared, and Joe confirmed it had caught up. The request was not
 discarded, rewritten or regenerated. The first recovery took about five
 minutes, rebuilding about 4,200 entries for the older authored basis, which is
-what [Performance 004](plans/soon/performance-004-provenance-index.md)
+what [Performance 004](https://github.com/jxe/arbor/blob/4844b1c/plans/soon/performance-004-provenance-index.md)
 addresses (it replaced Performance 003 on 2026-10-21).
 
 The live cache directory was listed on 2026-10-24 and the two older readers
@@ -998,7 +1512,7 @@ retry. The protocol run passes 124 working-tree tests and 7 live editor tests.
 A read-only check of the stuck local journal confirms all three pending edits
 fit the disjoint-source case. No installed app, live journal or public host was
 changed. Broader interior-basis support remains in
-[Clients 002](plans/soon/merge-002-identity-preserving-coalescing.md#interior-bases-that-need-further-support).
+[Clients 002](plans/when-needed/merge-002-coalesce-moves-with-edits-copies-and-undo.md#interior-bases-that-need-further-support).
 
 ## Unchanged-content resolutions publish — 2026-09-29
 
@@ -1049,7 +1563,7 @@ which captured alternatives. An independent whole-tree choice has an explicit
 “Keep current contents” action: it preserves the pinned root, carries complete
 resolution guards and `ifCurrent`, and refuses stale content or coupled choices.
 Automatic discharge of existing choices is not implemented; remaining work is in
-[overstoryd 015](plans/soon/merge-015-resolve-reconciled-choices.md).
+[overstoryd 015](plans/when-needed/merge-015-resolve-reconciled-choices.md).
 
 Batch preflight now validates a non-plain traced suffix on its complete authored
 prefix, instead of merging it against the tree before that prefix. This prevents
@@ -1125,7 +1639,7 @@ result no longer reached the final candidate; both compilers now retain such
 material as an object and keep deltas only for final reachable results.
 
 Further reduction is ordered by likely frequency and byte savings in
-[Clients 002](plans/soon/merge-002-identity-preserving-coalescing.md): plain edits across
+[Clients 002](plans/when-needed/merge-002-coalesce-moves-with-edits-copies-and-undo.md): plain edits across
 records, moves with edits, then repeated selection/subtree moves. These priorities
 are source-based estimates; the plan requires encoded-byte and preparation-cost
 measurements before broadening the implementation.
@@ -1149,8 +1663,8 @@ measurements before broadening the implementation.
 | Profile facts per tree (overstoryd 018, schema 21): one `profile_facts` row per tree whose head declares `type: person` or `type: group`, keyed by TreeID with the head's `_index.md` object and declared avatar path; an accepted update recomputes it only when its entry changes touch `_index.md` or that avatar, parsing `_index.md` once per accept, and reconciles community accounts only when the members change; readers and the directory's group scan key by tree; the `meta` `profile:<root>` rows are gone. Tested by `tests/integration/overstoryd/profile-facts.test.ts` and the migration suite | deployed and verified 2026-09-25 at schema 21 by migration 020 (`packages/overstoryd/migrations/020-profile-facts-per-tree/README.md` at `66a76f5`) (build `fe0fccdb`) | [host](docs/architecture/overstoryd/README.md#accounts-and-canonical-paths), [schema history](packages/overstoryd/migrations/README.md#schema-history) |
 | Tree configurations (overstoryd 005, schema 22): every hosted tree has one private configuration tree at a derived TreeID holding `access.yaml` and `mounts.yaml`, plus `apps.yaml` for a profile and `devices.yaml` for a person; rules have `admin` and `app`; lending names the lender; accounts are keyed by profile TreeID; the account configuration, `access`, `resource_policy` and `tree_reservations` are gone. The Mac and iPhone apps, CLI and Story Sync speak it | deployed and verified 2026-09-26 at schema 22 by migration 022 (`packages/overstoryd/migrations/022-tree-configurations/README.md` at `66a76f5`) (build `983c59da`; app fixes `35a9b320`) | [spec](docs/overstory-spec/04-accounts-and-devices.md#2-tree-configuration-graph), [decisions and failure cases](docs/architecture/overstoryd/tree-configurations.md) |
 | Device keys and sessions (Security 006 Phases 2 and 3, schema 23): a `devices.yaml` entry may carry `key` (`ed25519:` or `p256:`); a key device signs a host challenge for a session token of at most an hour; a digest device moves to a key once, and its credential stops working in the same commit; pairing and claims accept a key; a person who has lost every administrator device is recovered by an operator-issued recovery pairing (`overstoryd recover`), whose claim leaves only the new key device; the profile-key reset built in Phase 2 was withdrawn on 2026-09-27. TypeScript protocol and overstoryd with shared vectors (`device-keys.json`); the Swift `Overstory` models, signing bytes and client calls pass the same vectors. Clients (Phase 3): Story Sync holds an Ed25519 key and hands local clients sessions through `GET /v1/credential`; the iPhone holds a Secure Enclave P-256 key; new claims and pairings use keys, `story device move-to-key` and both apps move an existing device, identity backups are passphrase-encrypted (version 2; version 1 still restores); client suites and the protocol gate pass. As a home host overstoryd also publishes each profile's key devices at `GET /.overstory/profiles/{ProfileTreeID}/device-keys` (accounts §5.4, Security 007's home role) | host deployed and verified 2026-09-26 at schema 23 by migration 023 (`packages/overstoryd/migrations/023-device-keys/README.md` at `66a76f5`) (build `0621789b`); clients and the device-keys route deployed at `8448a63f` the same day. Joe's Mac and iPhone moved to keys and the route lists both; he checked an encrypted backup and session renewal by hand. Pairing, revoking and recovering with keys were never tried by hand (Joe waived those checks on 2026-09-27). Digest devices are retired on the branch awaiting the [schema-26 cutover](#schema-26-cutover--2026-09-27) | [accounts §5](docs/overstory-spec/04-accounts-and-devices.md#5-device-pairing) |
-| Shared sidecar checkpoints (Performance 002): versioned SQLite stores compressed, content-addressed state records and binary private objects; direct restore preserves state identities, bucket shape and iteration order; interrupted replay checkpoints its verified frontier and protects the newer head while rebuilding an older authored basis | deployed 2026-10-09 ([evidence](#shared-merge-cache-deployed--2026-10-09)); the two earlier formats stopped being read on 2026-10-24 ([evidence](#earlier-merge-cache-formats-retired--2026-10-24)) | [shared checkpoints](docs/architecture/overstoryd/merge-cache.md) |
-| Historical catch-up (Performance 003): lazy history working maps avoid full-history copies/scans on exact-basis edits; successful old-basis recovery retains that basis with its head; deterministic complexity and fresh-process replay benchmarks | deployed (on main); measured locally only, 2026-10-09; broader cold-replay targets remain | [evidence](#historical-catch-up-improvements--2026-10-09), [replaced by Performance 004](plans/soon/performance-004-provenance-index.md) |
+| Shared sidecar checkpoints (Performance 002): versioned SQLite stores compressed, content-addressed state records and binary private objects; direct restore preserves state identities, bucket shape and iteration order; interrupted replay checkpoints its verified frontier and protects the newer head while rebuilding an older authored basis | deployed 2026-10-09 ([evidence](#shared-merge-cache-deployed--2026-10-09)); the two earlier formats stopped being read on 2026-10-24 ([evidence](#earlier-merge-cache-formats-retired--2026-10-24)) | [shared checkpoints](https://github.com/jxe/arbor/blob/8ad94558/docs/architecture/overstoryd/merge-cache.md) |
+| Historical catch-up (Performance 003): lazy history working maps avoid full-history copies/scans on exact-basis edits; successful old-basis recovery retains that basis with its head; deterministic complexity and fresh-process replay benchmarks | deployed (on main); measured locally only, 2026-10-09; broader cold-replay targets remain | [evidence](#historical-catch-up-improvements--2026-10-09), [replaced by Performance 004](https://github.com/jxe/arbor/blob/4844b1c/plans/soon/performance-004-provenance-index.md) |
 | Object packing (overstoryd 001): `ObjectStore` reads, presence checks and freshens fall back from loose files to immutable packs under `objects/packs/` indexed in their own SQLite file (zstd frames of about 1 MiB holding one document's versions in order, an object that large alone; every read hash-checked); overstoryd's `PackMaintenance` packs loose objects older than an hour outside every current tree after acceptances cross a threshold, at startup and when idle, and removes loose files only after reading each packed object back; the collector drops dead packed rows under the same retention and grace rules and rewrites half-empty packs. On a copy of live data (2026-10-09: 22,370 objects, 380 MB raw, 431 MB loose) document frames of 1 MiB took 21.8 MB with 0.58 ms p95 cold single reads; per-version deltas took 40–50 MB | deployed 2026-10-09 at `3514eaf4`, always on; `pack-maintenance.ts` runs one pass by hand | [evidence](#object-packing-deployed--2026-10-09), [checks](#pack-checks-and-notes--2026-10-26) |
 | Merge sidecar cleanup: the reference sidecar keeps each engine state decoded in memory, as frozen, interned values in persistent maps that share whatever an edit did not touch, identified by a digest of its content (the chunked state encodings and lazy history loading are gone); engine decisions convert straight to log decisions; the snapshot tree merge is its own package, `@ovst/tree-merge`, which Story Sync tree recovery now declares. Log entries and the question and answer are unchanged | deployed (on main) | [merge sidecar](docs/architecture/overstoryd/merge-tool.md#retained-state) |
 | Transfer merge extensions (overstoryd 014): identity-verified moves and copies of Markdown bullet-list items, pipe-table body rows and text with relative, fragment or reference links (with a proven binding); same-anchor pairs kept in contribution order; keyed JSON/YAML member moves and copies and top-level TS/JS function declaration moves within one file, each with its commutation proof in `format-rules.ts`, tested in both arrival orders with a failing-proof case (`tests/unit/overstoryd-merge/transfer-extensions.test.ts`). Server-side only; no wire or schema change | deployed (on main), hand checks retired ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)) | [transfers](docs/architecture/overstoryd/merge-tool.md#transfers) |
@@ -1166,7 +1680,7 @@ measurements before broadening the implementation.
 | Story block moves (Native 008): a generation that only rearranges blocks (reorder, drag, indent, outdent, move under another parent, several blocks at once) publishes `moveSource` of each relocated block's exact source plus edits to re-indented leading spaces, instead of a retyped replacement; a peer's concurrent edit to a moved paragraph follows it. Shared vectors in `source-moves.json` (Swift and TypeScript executors and change logs); codec tests in `StoryEditorTests`; live acceptance, restart replay and a peer edit in `LiveEditorAdmissionTests`. A final block moved up gains the blank line it needs, where it used to run into its new successor | implemented, not installed; the fast paths it needs are deployed | [editor sources](docs/implementing-editors/editor-source.md#3-host-responsibilities), [Native 008](plans/when-needed/merge-008-copies-with-changes-and-compound-undo.md) |
 | Story Move to Document as one change (Native 008): moving blocks to another page of the same tree appends one record over both pages whose frame moves their exact source (`moveSource` into the destination, plus re-indentation and separators), with a `transfer` capture of the destination beside the record's document; its basis is decided from record ancestry, and diverged local work is published and retried once. Unsupported selections leave both pages unchanged; separated spans await overstoryd 014. Tested by `TransferPlanTests`, the live `Move to Document publishes one change over both pages` (restart replay, a peer edit to the moved paragraph arriving in the destination, diverged local work, the destination open in a second editor), and the cross-page fast-path engine tests | implemented, not installed; the fast paths it needs are deployed | [editor sources](docs/implementing-editors/editor-source.md#3-host-responsibilities), [local system](docs/architecture/story-browser/local-state.md#change-logs) |
 | Story conflict review: sidebar navigation, page markers, exact-source comparison and composition, durable grouped drafts, recursive previews, guarded source-range and structural resolution | implemented | [client design](docs/implementing-editors/design.md#synchronization-conflicts-and-devices), [accepted-state review](docs/overstory-spec/09-client-synchronization.md#accepted-state-review) |
-| Entry dates and document versions: each file entry's last accepted change and each Markdown document's accepted content versions, kept beside the hashes (schema 16); `/entry-metadata` serves the dates, and the versions wait for [overstoryd 007](plans/features/history-007-document-history-routes-and-restore.md)'s history routes; Mac and iOS date pages from it and date incoming changes with the host's accepted time | server deployed; clients implemented, not installed | [tree reads §1.1.2a](docs/overstory-spec/01-tree-operations.md#112a-reading-entry-metadata), [schema history](packages/overstoryd/migrations/README.md#schema-history) |
+| Entry dates and document versions: each file entry's last accepted change and each Markdown document's accepted content versions, kept beside the hashes (schema 16); `/entry-metadata` serves the dates, and the versions wait for [overstoryd 007](plans/later/history-007-page-history.md)'s history routes; Mac and iOS date pages from it and date incoming changes with the host's accepted time | server deployed; clients implemented, not installed | [tree reads §1.1.2a](docs/overstory-spec/01-tree-operations.md#112a-reading-entry-metadata), [schema history](packages/overstoryd/migrations/README.md#schema-history) |
 | Traced entry creation: the `addEntry` authored operation takes the fast path; page creation and a directory's first body no longer publish snapshots | server deployed; clients implemented, not installed | [source intent](docs/overstory-spec/10-source-intent.md) |
 | Effect records as piece deltas: `editSource` effects store each edit's range and removed/inserted pieces instead of two whole piece copies; older records are read by recomputation | deployed | [merge tool](docs/architecture/overstoryd/merge-tool.md#retained-state) |
 | Communities, accounts, and directory: a host serves community plus person/group profile trees, derives an authorization-preserving user directory with names and avatars, reserves account paths, and reconciles synchronized account configuration; native People and Share surfaces cache and search that directory; `story me create` / `me set` manage the local profile | directory implemented, account core deployed and installed | [accounts and devices](docs/overstory-spec/04-accounts-and-devices.md), [client design](docs/implementing-editors/design.md#profile-control-and-claim), [deployment](packages/overstoryd/deploy/README.md) |
@@ -1185,8 +1699,8 @@ measurements before broadening the implementation.
 | Area | State | Remaining | Owning plan |
 |---|---|---|---|
 | Story editing and review | implemented, not installed | Copies with changes, paste and inline provenance, compound undo, and interactive acceptance of the implemented review UI | [Native 008](plans/when-needed/merge-008-copies-with-changes-and-compound-undo.md), release gate retired 2026-10-26 |
-| Markdown source-transfer policy | deployed | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order. Also deployed: list items, table rows and contextual links, same-anchor ordering, keyed JSON/YAML members and TS/JS function declaration moves ([transfers](docs/architecture/overstoryd/merge-tool.md#transfers)); their hand checks were retired ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)). Swift/Python declaration moves, structured moves between files, cross-document fragment and reference links and richer list hosts still require review | [overstoryd 014](plans/soon/merge-014-merge-handles-many-cases.md) |
-| Resource policy providers | deployed | Provider-specific enforcement, source resolution, activation consent, the execution sidecar, observation and soak | [Apps 005](plans/soon/apps-005-source-resolution-and-sidecar.md) |
+| Markdown source-transfer policy | deployed | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order. Also deployed: list items, table rows and contextual links, same-anchor ordering, keyed JSON/YAML members and TS/JS function declaration moves ([transfers](docs/architecture/overstoryd/merge-tool.md#transfers)); their hand checks were retired ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)). Swift/Python declaration moves, structured moves between files, cross-document fragment and reference links and richer list hosts still require review | [overstoryd 017](plans/when-needed/merge-017-more-formats-and-open-cases.md#cases-still-open) |
+| Resource policy providers | deployed | Provider-specific enforcement, source resolution, activation consent, the execution sidecar, observation and soak | [Apps 005](#views-on-the-host-and-declared-views--2026-11-08) |
 | Working-tree client transition | installed | None: the soaks were recorded from daily use ([2026-10-28](#plans-and-small-work-trimmed--2026-10-28)) | |
 | Story for the web | not mounted | The browser editor is out of the build until it is rebuilt as a working-tree client over the same machines as the Mac app | [Web 025](plans/later/story-web-025-story-web.md) |
 | Executable documents | core only | MDX/TSX compilation, generated typing, editor integration, React presentation, activation, Story presentation, overstoryd hosting | [Apps 001, 003, 005 and 006](plans/README.md) |
@@ -1205,13 +1719,13 @@ measurements before broadening the implementation.
 
 ## Known gaps
 
-- **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the retired editor recovery store's directory is left on disk unpruned. An object collector runs by hand over `railway ssh`: `packages/overstoryd/src/collect-objects.ts` deletes objects outside the [retention definition](docs/architecture/overstoryd/README.md#retention-and-object-collection) the integrity audit also verifies, after a grace period, safely beside a serving overstoryd. Rehearsed 2026-09-24 on the 13:13Z live backup after migration 018 (`--delete --grace-hours 0`): 82,725 objects / 247 MB scanned, 2,760 / 116 MB live, 79,965 / 132 MB deleted, 12 s; the objects directory went from 479 MB to 118 MB on disk; `/.overstory/integrity` passed, tree refs matched migration 018's report, and the sidecar replayed every entry the same as on an uncollected copy. `document_versions` alone keeps 2,683 bodies / 106 MB (mostly versions of one 60 KB `_index.md`), so retained document history, not dead objects, is now the growth. First live run 2026-09-24 at build `14b8189c` (backup `.backups/railway/20260924T142722Z/`, sha256 `c10fd5a3…`; default 24-hour grace): 82,741 objects scanned, 2,776 / 116 MB live, 3,438 / 5 MB younger than the grace, 76,527 / 127 MB deleted in 11 s, none absent; `objects/` went from 490 MB to 144 MB on disk; `/.overstory/integrity` passed and a round-trip edit was accepted afterwards. Its schedule and a document-version retention decision are [chores](plans/chores.md#schedule-the-object-collector); packing has been [live since 2026-10-09](#object-packing-deployed--2026-10-09).
+- **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the retired editor recovery store's directory is left on disk unpruned. An object collector runs by hand over `railway ssh`: `packages/overstoryd/src/collect-objects.ts` deletes objects outside the [retention definition](docs/architecture/overstoryd/README.md#retention-and-object-collection) the integrity audit also verifies, after a grace period, safely beside a serving overstoryd. Rehearsed 2026-09-24 on the 13:13Z live backup after migration 018 (`--delete --grace-hours 0`): 82,725 objects / 247 MB scanned, 2,760 / 116 MB live, 79,965 / 132 MB deleted, 12 s; the objects directory went from 479 MB to 118 MB on disk; `/.overstory/integrity` passed, tree refs matched migration 018's report, and the sidecar replayed every entry the same as on an uncollected copy. `document_versions` alone keeps 2,683 bodies / 106 MB (mostly versions of one 60 KB `_index.md`), so retained document history, not dead objects, is now the growth. First live run 2026-09-24 at build `14b8189c` (backup `.backups/railway/20260924T142722Z/`, sha256 `c10fd5a3…`; default 24-hour grace): 82,741 objects scanned, 2,776 / 116 MB live, 3,438 / 5 MB younger than the grace, 76,527 / 127 MB deleted in 11 s, none absent; `objects/` went from 490 MB to 144 MB on disk; `/.overstory/integrity` passed and a round-trip edit was accepted afterwards. Its schedule and a document-version retention decision are [Joe's to-do](plans/joe.md#go-aheads); packing has been [live since 2026-10-09](#object-packing-deployed--2026-10-09).
 - **Every accepted-state change requires review.** The host requires exact accepted-state guards, so a client must review the latest evidence even when projected bytes are equal or the update is unrelated.
 - **Range translation across a merged predecessor** is future work; the host relates an authored predecessor to its accepted projection through a validated or exactly replayed prefix only.
 - **Cross-account rehome** (`story mv` between accounts on different hosts) fails before mutation until a resource-policy transfer contract is reviewed. It worked only for legacy-grammar accounts, and that grammar is gone. After overstoryd 005 a profile has one home host, so `story mv` refuses any move to another host; placing trees on other hosts is [Security 007](#trees-on-other-hosts--2026-09-28).
 - **Cross-process ownership of a client state directory** is not enforced; one process must own it by convention.
 - **Latency.** The target is under 100 ms of server processing for a small fast-forward. Live on 2026-09-24 (255 update requests after the overstoryd 016 deploy, all accepted, no 503s): median 48 ms, p90 302 ms, max 1.4 s; single fast-forwards 39 ms median; requests that asked the sidecar 201 ms median, the slowest being batched catch-up uploads of 5–12 updates (0.4–0.9 s in the sidecar) and slow client uploads. Locally, from the client, a plain traced edit on the head takes 2 ms with 1 file, 8 ms with 110 and 41 ms with 1,000 files in one directory, so the 20 ms target at 1,000 files is not met; no live directory exceeds 63 entries. The first merge after a restart replays history (the production main tree's 282 entries in about 1.2 s locally, an estimated 3.5–4.5 s live) and answers retryably past 10 s; saved sidecar states (below, not deployed) make it replay only from the nearest save.
-- **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. Retained accepted history starts at migration 016's cut (each tree's head then); document versions and entry dates from before the cut are kept. The log entries of overstoryd 016 hold that history as a hash chain, which a listing can walk. [overstoryd 007](plans/features/history-007-document-history-routes-and-restore.md) owns it.
+- **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. Retained accepted history starts at migration 016's cut (each tree's head then); document versions and entry dates from before the cut are kept. The log entries of overstoryd 016 hold that history as a hash chain, which a listing can walk. [overstoryd 007](plans/later/history-007-page-history.md) owns it.
 - **Compatibility cutoff.** Account configurations are gone (schema 22): clients read only tree configurations, and the readers of the old `account.yaml` / `trees.yaml` remain only in migration 022's `legacy.ts`, deleted with its directory after 2026-10-10. Workspace registries require complete object records and keep path-derived `rt_` root IDs as valid identities (106 on the Mac at the 2026-09-21 cutoff). From the schema-26 cutover, scalar group members are ignored, not read.
 - **Moves made outside Story are not link-healed.** A Rename or Move in the Story app heals links to the page and to everything under it, plus the moved pages' own relative links. A page moved with Finder, `git mv`, an editor or an agent keeps working through its stable key, but readable paths that name it stay stale. Filesystem 025 would have had Story Sync heal those; Joe dropped it on 2026-09-25 as not needed.
 - **Mixed row and text traces.** A change whose trace has row-operation frames and text frames (spec 10 §4.1 allows them as separate frames) is refused by the merge sidecar as unsupported (`rowTrace` in `packages/overstoryd-merge/src/sidecar.ts`). No client sends one; support it before one does. Schema language 007's structured editor, if it edits a row and a page in one change, is the likely first.
@@ -1220,7 +1734,7 @@ measurements before broadening the implementation.
 ## Where work is tracked
 
 - [Plans](plans/README.md), every remaining plan with why and when.
-- [Chores](plans/chores.md): decided small tasks, hand checks and soaks.
+- [Joe's to-do](plans/joe.md): hand checks, releases, go-aheads and soaks only Joe can do.
 - [Candidates](plans/candidates.md): undecided work.
 - [Spec extensions](plans/spec-extensions/README.md): proposed additions to the spec.
 
@@ -1262,9 +1776,9 @@ review of overstoryd for legacy and redundant surface, and the fixes it led to:
   ok, `/.overstory/integrity` ok (once), the authored manifest (112 files over 3
   placements) unchanged, a file-system round trip (5328/5329).
 - **Left as they are.** The execution-token and app-runtime routes (dormant
-  until [Apps 005](plans/soon/apps-005-source-resolution-and-sidecar.md));
+  until [Apps 005](#views-on-the-host-and-declared-views--2026-11-08));
   `document_versions`, whose history columns nothing reads yet ([overstoryd
-  007](plans/features/history-007-document-history-routes-and-restore.md)); the
+  007](plans/later/history-007-page-history.md)); the
   well-known resolution's `historical` and `stableKey`, and the error
   envelope's `tree` and `path`, which the spec defines.
 
@@ -1977,7 +2491,7 @@ history). Its follow-ups: held folders in the Mac app
 (dropped 2026-10-26), the browser client
 ([Web 025](plans/later/story-web-025-story-web.md)), a Hetzner sync lab run
 (dropped 2026-10-28), and History on
-working trees ([overstoryd 007](plans/features/history-007-document-history-routes-and-restore.md)).
+working trees ([overstoryd 007](plans/later/history-007-page-history.md)).
 **Runner.** `@ovst/working-tree`
 holds `reduceUpdate`, `LocalChange` preparation, entry transfer, the
 `UpdateControl` codec (Swift's schema 4) and `UpdateCoordinator`, a port of the
@@ -2454,7 +2968,7 @@ Retired all three after checking implementation, tests and the live cutover
   leaves the existing whole-directory choice, as two moves into one name do.
 - **013 entry metadata.** `entry_metadata` and `document_versions` (overstoryd
   007's storage half; its routes, access rule, restore and UI remain in
-  [overstoryd 007](plans/features/history-007-document-history-routes-and-restore.md)) are written
+  [overstoryd 007](plans/later/history-007-page-history.md)) are written
   inside every accepted transaction and were backfilled by migration 014: 2,515
   updates, 113 entries, 2,569 versions over 90 documents, all roots unchanged.
   Every client reads `/entry-metadata` directly; the Story Sync bootstrap no
@@ -2603,7 +3117,7 @@ Publication, snapshot reads and collection have transactional boundaries;
 missing/corrupt shared dependencies invalidate the private graph and fall back
 to replay. Legacy expanded checkpoints remain readable until replaced. The
 accepted object store, log entries, request identities and merge semantics are
-unchanged. [Architecture and benchmark command](docs/architecture/overstoryd/merge-cache.md).
+unchanged. [Architecture and benchmark command](https://github.com/jxe/arbor/blob/8ad94558/docs/architecture/overstoryd/merge-cache.md).
 
 The iPhone diagnosis found its original queued `todos` request repeatedly getting
 503s during an old-basis rebuild. The deployed logs cycled back to approximately
@@ -2695,7 +3209,7 @@ full-evaluator work and post-response maintenance remain material. No live data,
 installed application or public host was changed by this work.
 
 Repeatable commands and representation details are in
-[merge checkpoints](docs/architecture/overstoryd/merge-cache.md). Private copied-data
+[merge checkpoints](https://github.com/jxe/arbor/blob/8ad94558/docs/architecture/overstoryd/merge-cache.md). Private copied-data
 results are under `/tmp/canopy-iphone-diagnosis-20261009/` in
 `history-baseline-replay.jsonl`, `history-lazy-final-replay.jsonl`,
 `history-lazy-restart.jsonl`, and `verify-{baseline,optimized}.jsonl`.

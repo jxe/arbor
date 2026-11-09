@@ -1,4 +1,4 @@
-import StoryKit
+import OverstoryWorkspace
 import Foundation
 import Overstory
 import Yams

@@ -124,9 +124,8 @@ describe("POST /v1/bootstrap/placements", () => {
     process.env.STORY_HOME = state;
     const record = await new HostPlacementStore(configurationTree, bOrigin).safe();
     expect(record).toEqual(claimed.body.placement as never);
-    // The daemon's credential route now serves B's session, which reads the placement account.
-    const credential = await storySyncFetch(`${daemon.url}/v1/credential?configurationTree=${configurationTree}&origin=${encodeURIComponent(bOrigin)}`, {}, state);
-    const { token } = await credential.json() as { token: string };
+    // The data home's device key now opens B's session, which reads the placement account.
+    const { accountToken: token } = (await new HostPlacementStore(configurationTree, bOrigin).get())!;
     const { account } = await new ProtocolClient(bOrigin, token).placementAccount();
     expect(account.placementRoot.id).toBe(record!.placementRoot);
     expect(account.placementRoot.tree ?? null).toBeNull();

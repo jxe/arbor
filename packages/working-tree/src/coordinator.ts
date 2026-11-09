@@ -1,9 +1,10 @@
-import { applyTransitionPayload, decodeTreeSnapshotJSON, hashObject, ProtocolHTTPError, ProtocolUnsupportedOperation, ProtocolUpdateConflict,
+import { applyTransitionPayload, AuthoredContractError, decodeTreeSnapshotJSON, ProtocolHTTPError, ProtocolUnsupportedOperation, ProtocolUpdateConflict,
   type CurrentTree, type TreeSnapshot, type UpdateResponse, type WatchEvent, type ProtocolClient } from "@ovst/protocol";
 import { attemptEncoding, attemptRequest, emptyControl, encodeAttempt, verifyAttempt, UpdateStateError, UpdateValidationError,
   type ControlStore, type UpdateAttempt, type UpdateControl } from "./control.ts";
-import { compactTransport, branchPublications, publication, type ChangePublication } from "./publication.ts";
+import { compactTransport, dropIntermediates, branchPublications, publication, type ChangePublication } from "./publication.ts";
 import { equal, type LocalChange } from "./local-change.ts";
+import { memorySource, ObjectSourceChain } from "@ovst/object-store/sources";
 import { reduceUpdate, type AcceptedBase, type AuthorityResult, type HeldReason, type LocalTip, type PreparedRequest,
   type UpdateEffect, type UpdateEvent, type UpdateOptions, type UpdateState } from "./update-machine.ts";
 
@@ -24,12 +25,15 @@ export interface ChangeLogPort {
 export type UpdateTransport = Pick<ProtocolClient, "submitUpdates" | "descriptor"> & Partial<Pick<ProtocolClient, "snapshot" | "object">>;
 
 /**
- * Where an accepted state's objects come from: those the runner already holds
- * (a projection of our own candidate, a replayed watch batch), then the tree's
- * own, then the host. Every object is verified against its hash.
+ * An accepted state to install: its root, and its objects through an object
+ * source chain (`ObjectSourceChain` in `@ovst/object-store/sources`): those
+ * the runner already holds (a projection of our own candidate, a replayed
+ * watch batch), then the tree's own, then the host. Every object is verified
+ * against its hash.
  */
 export interface AcceptedSource {
   readonly root: string;
+  /** The object; throws when no source holds it. */
   object(hash: string): Promise<Uint8Array>;
   /** The complete graph from the host, for a tree that needs every file at once. */
   snapshot(): Promise<TreeSnapshot>;
@@ -74,6 +78,9 @@ export interface UpdatePresentation {
 
 type Work = { kind: "effect"; effect: UpdateEffect } | { kind: "recordCursor"; base: AcceptedBase };
 interface Current { update: string; root: string; conflicted: boolean; cursor: string }
+
+/** Retries after a submission fails in transport; the poll and reconnects take over after these. */
+const TRANSPORT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 
 /** A 4xx answer other than timeouts and rate limits: the host refused this request. */
 function refusal(status: number): boolean {
@@ -125,6 +132,8 @@ export class UpdateCoordinator {
   private watchEvent?: Extract<WatchEvent, { kind: "tree.update" }>;
   private watching = false;
   private failure?: string;
+  /** Submissions that failed in transport since the last acceptance. */
+  private transportRetries = 0;
 
   constructor(
     readonly tree: string,
@@ -368,6 +377,7 @@ export class UpdateCoordinator {
       const current = await this.validate(response, attempt);
       this.submission = { digest: attempt.digest, response, current };
       this.failure = undefined;
+      this.transportRetries = 0;
       this.dispatch({ type: "accepted", id: attempt.digest, result: { kind: "accepted", root: current.root, update: current.update,
         cursor: current.cursor, digests: [...attempt.requestDigests], conflicted: current.conflicted } });
     } catch (error) {
@@ -462,7 +472,7 @@ export class UpdateCoordinator {
   private source(root: string, objects: ReadonlyMap<string, Uint8Array>): AcceptedSource {
     return {
       root,
-      object: hash => this.object(hash, objects),
+      object: (hash) => this.object(hash, objects),
       snapshot: async () => {
         if (!this.transport.snapshot) throw new UpdateValidationError("The transport serves no snapshots");
         const snapshot = await this.transport.snapshot(this.tree, root);
@@ -472,13 +482,21 @@ export class UpdateCoordinator {
     };
   }
 
+  /** One object through the chain; throws when nothing holds it. */
   private async object(hash: string, held: ReadonlyMap<string, Uint8Array>): Promise<Uint8Array> {
-    const bytes = held.get(hash) ?? await this.working.object(hash) ?? await (async () => {
-      if (!this.transport.object) throw new UpdateValidationError(`Object ${hash} is unavailable`);
-      return this.transport.object(this.tree, hash);
-    })();
-    if (hashObject(bytes) !== hash) throw new UpdateValidationError(`Object ${hash} does not match its hash`);
+    const bytes = await this.objects(held).object(hash);
+    if (!bytes) throw new UpdateValidationError(`Object ${hash} is unavailable`);
     return bytes;
+  }
+
+  /** Held objects, then the working tree's, then the host's. */
+  private objects(held: ReadonlyMap<string, Uint8Array>): ObjectSourceChain {
+    const transport = this.transport;
+    return new ObjectSourceChain([
+      memorySource(held),
+      { object: (hash) => this.working.object(hash) },
+      ...(transport.object ? [{ object: (hash: string) => transport.object!(this.tree, hash) }] : []),
+    ]);
   }
 
   /** Clean catch-up: replay the watch batch the cursor names when it chains from the installed state, otherwise install the host's current state. */
@@ -564,7 +582,8 @@ export class UpdateCoordinator {
       const candidate = records.get(change)?.candidate;
       const previous = updates.at(-1)?.candidate;
       const basis = previous ? [...records.values()].find(record => record.candidate.root === previous)?.candidate : transportBase;
-      return basis && candidate ? compactTransport(update, basis, candidate) : update;
+      if (!candidate) return update;
+      return basis ? compactTransport(update, basis, candidate) : dropIntermediates(update, candidate);
     };
     const groups = this.control.publications ??= [];
     const frozen = new Set(this.control.attempt ? attemptRequest(this.control.attempt).updates.map(update => update.change) : []);
@@ -641,12 +660,23 @@ export class UpdateCoordinator {
     } else if (error instanceof ProtocolHTTPError && refusal(error.status) && id) {
       // Repeating a request the host refused cannot change the answer.
       await this.hold("rejected", error.message, id);
-    } else if (error instanceof UpdateValidationError || error instanceof UpdateStateError) {
+    } else if (error instanceof UpdateValidationError || error instanceof UpdateStateError || error instanceof AuthoredContractError) {
+      // A stored change this build cannot read stops with why, not offline retrying forever.
       this.dispatch({ type: "validationFailed", reason: this.failure });
     } else {
       this.dispatch({ type: "transportFailed", ...(id ? { id } : {}) });
+      // A failed submission retries soon, not only at the next poll or
+      // reconnect: the elapsed delay resumes an offline machine.
+      const delay = id ? TRANSPORT_RETRY_DELAYS_MS[this.transportRetries] : undefined;
+      if (delay !== undefined) {
+        this.transportRetries += 1;
+        this.schedule("trailing", delay);
+      }
     }
   }
+
+  /** Why the last effect failed, while it stands. */
+  get lastFailure(): string | undefined { return this.failure; }
 
   private async hold(reason: HeldReason, detail: string, id: string): Promise<void> {
     this.control.held = { reason, detail };

@@ -1,34 +1,36 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
-import type { Hash, MutationResultReceipt } from "@ovst/protocol";
+import type { Hash, MutationResultReceipt, ReadPath, ResultShape, ViewAnswerForm } from "@ovst/protocol";
 
 /** The contract between overstoryd and its execution sidecar: one handshake,
  * two questions and their answers, one JSON object per line each way. */
 
-export const EXEC_PROTOCOL_VERSION = 1;
+export const EXEC_PROTOCOL_VERSION = 2;
 
-/** A named query or mutation, as the code that defines it names it. */
+/** A named view or mutation: an export of a module in a tree, at a code version (07 §12.1's `HandleRef`). */
 export interface ExecHandleRef {
-  module: string;
-  export: string;
+  tree: string;
+  /** The module's logical path in the tree. */
+  path: string;
+  /** The export. */
+  name: string;
+  /** The module's code version. */
   version: string;
 }
 
-/** A handle the sidecar can run, and the collection it reads in a tree. */
+/** A handle the sidecar can run, and the nodes its code names. */
 export interface ExecHandle extends ExecHandleRef {
-  /** The collection directory's path in the tree. */
-  collection: string;
-  /** The `node()` path the code names that collection by, such as `./data`. */
-  authored: string;
+  /** Every `node()` path the handle's modules name, as logical paths in its tree. */
+  sources: string[];
 }
 
 /** The sidecar's first line: who it is and what it can run. */
 export interface ExecReady {
-  ready: { version: number; queries: ExecHandle[]; mutations: ExecHandle[] };
+  ready: { version: number; views: ExecHandle[]; mutations: ExecHandle[] };
 }
 
 /** A collection a question may read: overstoryd's materialization of it. */
 export interface ExecCollection {
-  authored: string;
   tree: string;
   path: string;
   /** Its materialization, relative to the sidecar's `--materialized` directory. */
@@ -39,34 +41,25 @@ export interface ExecCollection {
   directory: string;
 }
 
-/** A person's profile card fields, and the profile tree's root they came from. */
-export interface ExecProfile {
+export interface ExecViewQuestion {
   id: string;
-  name: string;
-  handle: string;
-  portrait: string | null;
-  bio: string | null;
-  tree: string;
-  ref: string;
-}
-
-export interface ExecQueryQuestion {
-  id: string;
-  kind: "query";
-  query: ExecHandleRef;
+  kind: "view";
+  view: ExecHandleRef;
   input?: unknown;
+  /** What to answer (07 §4.1); by default a data view's value, or a JSX view's tree. */
+  form?: ViewAnswerForm;
+  /** Reads a client's run of a `rows` answer missed. */
+  missed?: ReadPath[];
   viewer: { profile: string } | null;
   collections: ExecCollection[];
-  /** Profiles a previous `need` asked for; null for an ID that is no profile here. */
-  profiles?: Record<string, ExecProfile | null>;
+  /** An execution token for the standard API, for reading the profiles a view reaches; good while the stream that asked is open. */
+  token: string;
   knownOutputHash?: Hash;
 }
 
 export interface ExecMutationQuestion {
   id: string;
   kind: "mutation";
-  /** The tree the mutation's handle and collection belong to. */
-  tree: string;
   mutation: ExecHandleRef;
   mutationID: string;
   input?: unknown;
@@ -78,9 +71,9 @@ export interface ExecMutationQuestion {
   now: string;
 }
 
-export type ExecQuestion = ExecQueryQuestion | ExecMutationQuestion;
+export type ExecQuestion = ExecViewQuestion | ExecMutationQuestion;
 /** A question before overstoryd numbers it. */
-export type ExecAsk = Omit<ExecQueryQuestion, "id"> | Omit<ExecMutationQuestion, "id">;
+export type ExecAsk = Omit<ExecViewQuestion, "id"> | Omit<ExecMutationQuestion, "id">;
 
 /** overstoryd to sidecar: the client went away. */
 export interface ExecCancel {
@@ -94,16 +87,15 @@ export interface ExecPublicError {
   retryable: boolean;
 }
 
-/** What a query's result depended on, so overstoryd knows when to ask again. */
+/** What a view's result depended on, so overstoryd knows when to ask again. */
 export interface ExecReads {
   collections: Array<{ tree: string; path: string }>;
   profiles: Array<{ profile: string; tree: string; ref: string }>;
 }
 
-export type ExecQueryAnswer =
-  | { id: string; outputHash: Hash; value: unknown; reads: ExecReads }
+export type ExecViewAnswer =
+  | { id: string; outputHash: Hash; value: unknown; shape?: ResultShape; reads: ExecReads }
   | { id: string; unchanged: true; reads: ExecReads }
-  | { id: string; need: { profiles: string[] } }
   | { id: string; stale: true }
   | { id: string; refusal: ExecPublicError }
   | { id: string; error: { message: string; code?: "limit" | "unavailable" } };
@@ -114,16 +106,23 @@ export type ExecMutationAnswer =
   | { id: string; refusal: ExecPublicError }
   | { id: string; error: { message: string; code?: "limit" | "unavailable" } };
 
-export type ExecAnswer = ExecQueryAnswer | ExecMutationAnswer;
+export type ExecAnswer = ExecViewAnswer | ExecMutationAnswer;
 
 // ---- Checking what the sidecar sends ---------------------------------------
 
 const hash = z.string().regex(/^sha256:[a-f0-9]{64}$/);
 const handle = z.object({
-  module: z.string().min(1), export: z.string().min(1), version: z.string().min(1),
-  collection: z.string().startsWith("/"), authored: z.string().min(1),
+  tree: z.string().min(1), path: z.string().startsWith("/"), name: z.string().min(1), version: z.string().min(1),
+  sources: z.array(z.string().startsWith("/")),
 }).strict();
-const ready = z.object({ ready: z.object({ version: z.number().int(), queries: z.array(handle), mutations: z.array(handle) }).strict() }).strict();
+const ready = z.object({ ready: z.object({ version: z.number().int(), views: z.array(handle), mutations: z.array(handle) }).strict() }).strict();
+type Shape = { row?: { model: string; key: string }; type?: string; fields?: Record<string, Shape>; items?: Shape[] };
+const shape: z.ZodType<Shape> = z.lazy(() => z.object({
+  row: z.object({ model: z.string(), key: z.string() }).strict().optional(),
+  type: z.string().optional(),
+  fields: z.record(z.string(), shape).optional(),
+  items: z.array(shape).optional(),
+}).strict());
 const publicError = z.object({ code: z.string().min(1), message: z.string(), retryable: z.boolean() }).strict();
 const reads = z.object({
   collections: z.array(z.object({ tree: z.string(), path: z.string() }).strict()),
@@ -131,9 +130,8 @@ const reads = z.object({
 }).strict();
 const id = z.string().min(1);
 const answer = z.union([
-  z.object({ id, outputHash: hash, value: z.unknown(), reads }).strict(),
+  z.object({ id, outputHash: hash, value: z.unknown(), shape: shape.optional(), reads }).strict(),
   z.object({ id, unchanged: z.literal(true), reads }).strict(),
-  z.object({ id, need: z.object({ profiles: z.array(z.string()).min(1).max(1000) }).strict() }).strict(),
   z.object({ id, stale: z.literal(true) }).strict(),
   z.object({ id, refusal: publicError }).strict(),
   z.object({ id, error: z.object({ message: z.string(), code: z.enum(["limit", "unavailable"]).optional() }).strict() }).strict(),
@@ -150,4 +148,71 @@ export function parseExecReady(value: unknown): ExecReady | null {
 export function parseExecAnswer(value: unknown): ExecAnswer | null {
   const parsed = answer.safeParse(value);
   return parsed.success ? parsed.data as ExecAnswer : null;
+}
+
+// ---- Code loaded from trees -------------------------------------------------
+
+/** A module the host loaded from a tree for the sidecar: its files, as of a pinned root. */
+export interface ExecActivation {
+  tree: string;
+  /** The module's logical path. */
+  path: string;
+  /** The root object the code was read at. */
+  root: string;
+  /** The code version: {@link codeVersion} of `files`. */
+  version: string;
+  /** Each module of its import graph, by logical path, as a file relative to the manifest's `code` directory. */
+  files: Record<string, string>;
+}
+
+/** The sidecar's `--activations` file. */
+export interface ExecActivations {
+  /** The directory the files are under. */
+  code: string;
+  activations: ExecActivation[];
+}
+
+/** Packages tree code may import: the sidecar provides them. */
+export const TREE_CODE_PACKAGES = ["overstory/data", "overstory/ui/jsx-runtime", "overstory/ui/jsx-dev-runtime", "zod"] as const;
+/**
+ * Packages a page module imports for drawing on a device. On the host they load
+ * as inert stand-ins, so a module's views and mutations run there while its
+ * page components can't.
+ */
+export const DEVICE_ONLY_PACKAGES = ["react", "react/jsx-runtime", "react/jsx-dev-runtime", "overstory/react"] as const;
+
+const MODULE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs"];
+
+/** The logical paths a relative import may name, in the order they are tried; empty when it leaves the tree. */
+export function importCandidates(from: string, specifier: string): string[] {
+  const parts = from.split("/").filter(Boolean).slice(0, -1);
+  for (const part of specifier.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (!parts.length) return [];
+      parts.pop();
+    } else parts.push(part);
+  }
+  const path = `/${parts.join("/")}`;
+  const explicit = MODULE_EXTENSIONS.some((extension) => path.endsWith(extension));
+  return [
+    ...(explicit ? [path] : []),
+    ...MODULE_EXTENSIONS.map((extension) => `${path}${extension}`),
+    ...MODULE_EXTENSIONS.map((extension) => `${path}/index${extension}`),
+  ];
+}
+
+/**
+ * A module's code version: SHA-256 of its import graph's files, each named by
+ * logical path. Any copy of the tree with the same code has the same version,
+ * whatever else changed.
+ */
+export function codeVersion(files: Record<string, Uint8Array>): string {
+  const hash = createHash("sha256");
+  for (const path of Object.keys(files).sort()) {
+    const bytes = files[path]!;
+    hash.update(`${path}\0${bytes.length}\0`);
+    hash.update(bytes);
+  }
+  return `sha256:${hash.digest("hex")}`;
 }

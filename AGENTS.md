@@ -8,9 +8,11 @@ first. The points below are the ones that most often go wrong for an agent.
 - Read `git status`, the relevant source, and its tests before trusting
   prose or a plan's status label. `status.md` is the status authority;
   `docs/overstory-spec/` is intentionally ahead of the implementation.
-- `plans/` contains only remaining work. Delete a completed or superseded
-  plan after recording its evidence in `status.md` or `docs/`; do not mark
-  it done in place.
+- `plans/` contains only remaining work. When you finish steps of a plan,
+  record them in `status.md`, delete them from the plan, and retitle it to
+  what is left; never mark steps done in place. Joe-only items (hand checks,
+  releases, publishing, live-data go-aheads) go in `plans/joe.md`. Delete a
+  plan once nothing else is left in it. See `plans/README.md`.
 - Use `bun run test:affected` as normal change validation (name your paths
   after `--` when the working tree holds unrelated work). Committing does
   not require a fresh test run; reuse checks already run against unchanged

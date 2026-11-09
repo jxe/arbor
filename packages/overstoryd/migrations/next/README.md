@@ -10,10 +10,11 @@ cutover commit. The previous batch is
 
 ## Steps
 
-The live schema is 32. No step is pending.
+The live schema is 32. One step is pending.
 
 | Step | Change | Product change at cutover |
 |---|---|---|
+| [033-device-clients](steps/033-device-clients.ts) | `devices.clients`: a JSON object of the clients a device last named itself as, by product (Joe, 2026-11-08) | `AccountDirectory.noteClient` also writes `devices.clients` when a product's name changes (it already logs it); `AUTHORITY_SCHEMA.devices` and `createHostSchema` gain `clients`; `overstoryd report` lists each device with its label, last use and clients |
 
 ## Adding a step
 

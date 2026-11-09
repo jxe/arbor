@@ -21,7 +21,7 @@ import VisionKit
 
 /// How a host account is named in account lists, whether as the Mac
 /// daemon's overview reports it or as `HostAccountService` lists it.
-private protocol HostAccountPresentable {
+protocol HostAccountPresentable {
     var configurationTree: String { get }
     var handle: String? { get }
     /// The account's host, when known.
@@ -30,7 +30,7 @@ private protocol HostAccountPresentable {
     var accountOrigin: String? { get }
 }
 
-private extension HostAccountPresentable {
+extension HostAccountPresentable {
     var accountSectionID: String { "account:\(configurationTree)" }
 
     var accountDisplayName: String {
@@ -49,11 +49,11 @@ private extension HostAccountPresentable {
 
 #if os(macOS)
 extension LocalHostAccountDescriptor: HostAccountPresentable {
-    fileprivate var accountHost: String? {
+    var accountHost: String? {
         guard let host, !host.isEmpty else { return nil }
         return URL(string: host)?.host() ?? host
     }
-    fileprivate var accountOrigin: String? {
+    var accountOrigin: String? {
         guard let host, !host.isEmpty else { return nil }
         return host.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
@@ -61,8 +61,8 @@ extension LocalHostAccountDescriptor: HostAccountPresentable {
 #endif
 
 extension HostAccount: HostAccountPresentable {
-    fileprivate var accountHost: String? { origin?.host() }
-    fileprivate var accountOrigin: String? { origin?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
+    var accountHost: String? { origin?.host() }
+    var accountOrigin: String? { origin?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
 }
 
 /// Keep the focused editor-command dependency at the toolbar leaf. Reading it
@@ -601,6 +601,10 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
         private weak var rowItem: NSToolbarItem?
         private weak var observedSidebar: NSView?
         private var pendingPasses = 0
+        /// Looks for the row's item while the toolbar has not made it yet:
+        /// scheduled, not chained on the main queue, so launch is not starved.
+        private var searchScheduled = false
+        private var searchAttempts = 0
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -632,6 +636,12 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
                 observers.append(center.addObserver(forName: name, object: window, queue: nil, using: resizeOnNotification))
             }
             if let sidebar = splitView?.arrangedSubviews.first { observeFrame(of: sidebar) }
+            // The row's item appears when the toolbar adds it.
+            observers.append(center.addObserver(forName: NSToolbar.willAddItemNotification, object: nil, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    DispatchQueue.main.async { [weak self] in self?.resize() }
+                }
+            })
             resize()
             // The toolbar item may not exist until the toolbar's first pass.
             settle()
@@ -651,6 +661,19 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
         private func settle() {
             pendingPasses = 3
             DispatchQueue.main.async { [weak self] in self?.nextPass() }
+        }
+
+        /// Try again shortly, a bounded number of times. Retrying on every
+        /// main-queue turn spun for a quarter second at launch.
+        private func searchForRow() {
+            guard !searchScheduled, searchAttempts < 100 else { return }
+            searchScheduled = true
+            searchAttempts += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
+                guard let self else { return }
+                self.searchScheduled = false
+                self.resize()
+            }
         }
 
         private func nextPass() {
@@ -690,9 +713,10 @@ private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
                 return
             }
             guard let item = rowItem(in: window, sidebar: sidebar), let view = item.view else {
-                if pendingPasses == 0 { settle() }
+                searchForRow()
                 return
             }
+            searchAttempts = 0
             if item.isHidden { item.isHidden = false }
             // The row spans the search field below it: it ends 10pt in from
             // the sidebar's edge, and in full screen starts 10pt in. Measured
@@ -923,6 +947,7 @@ private struct MacToolbarSearchFieldFocus: NSViewRepresentable {
         private var observation: NSKeyValueObservation?
         private var fieldIsFocused = false
         private var requestRevision = 0
+        private var lastRequest: Bool?
         private var keyMonitor: Any?
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -978,7 +1003,13 @@ private struct MacToolbarSearchFieldFocus: NSViewRepresentable {
             return nil
         }
 
+        /// Acts only when `isFocused` changes. The field's focus is reported a
+        /// tick late, and in the sidebar SwiftUI redraws the controls as the
+        /// field takes focus: acting on that redraw's stale `false` would
+        /// resign the field the click or Cmd-P just focused.
         func request(_ focused: Bool) {
+            guard focused != lastRequest else { return }
+            lastRequest = focused
             requestRevision += 1
             let revision = requestRevision
             guard focused != fieldIsFocused else { return }
@@ -1268,8 +1299,12 @@ struct StoryRootView: View {
     @State private var sheetAfterManagementDismiss: StoryPresentedSheet?
 #endif
 #if os(iOS)
-    @State private var sidebarRevealProgress: CGFloat = 0
+    /// How far the page is slid aside. Only `IOSSidebarSlide` reads it in a
+    /// body, so a drag frame redraws the slide, not this whole view.
+    @State private var sidebarDrawer = IOSSidebarDrawer()
     @State private var sidebarDrawerWidth: CGFloat = 360
+    /// Where the sidebar last came to rest; a change plays a haptic.
+    @State private var sidebarRestsOpen = false
     /// True while a sidebar drag is under way. A drag SwiftUI cancels never
     /// reaches `onEnded`, so its reset is what settles the page then.
     @GestureState private var sidebarDragInProgress = false
@@ -1277,6 +1312,9 @@ struct StoryRootView: View {
     @State private var topOverscrollProgress: CGFloat = 0
     @State private var topOverscrollArmed = false
     @State private var sidebarDismissDragSuppressesTap = false
+    /// Set once a drag has been judged sideways. From then on the page
+    /// follows the finger's x wherever the finger wanders up or down.
+    @State private var sidebarDragTracksFinger = false
 #endif
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
@@ -1320,7 +1358,7 @@ struct StoryRootView: View {
                 // Play Recording action use.
                 let pageKey = model?.binding?.reference.stableKey
                 return switch await recordingSession.stopAndReturnTranscript(pageKey: pageKey) {
-                case .transcript(let text): EditorPinchDictation.Completion.transcript(text)
+                case .transcript(let text): EditorPinchDictation.Completion.transcript(StoryAgentTask.dictated(text))
                 case .noSpeech: EditorPinchDictation.Completion.noSpeech
                 case .failed: EditorPinchDictation.Completion.failed
                 }
@@ -1335,6 +1373,7 @@ struct StoryRootView: View {
     var body: some View {
         platformNavigation
         .onAppear {
+            StoryLaunchTiming.milestone("window-appear")
             model.openWindowAction = { [openWindow] location, asTab, selecting in
                 var request = StoryWindowRequest(location: location, selecting: selecting)
 #if os(macOS)
@@ -1423,6 +1462,9 @@ struct StoryRootView: View {
                 Task { await workspace.flush() }
             }
         }
+        .onChange(of: model.currentReference, initial: true) { _, reference in
+            workspace.setPresencePage(reference)
+        }
         .onChange(of: model.currentLocation) { _, _ in
             if let review = workspace.conflictReview,
                review.selectedDecision?.path.map({ reviewLogicalPath($0) != model.currentReference.path }) == true {
@@ -1479,7 +1521,7 @@ struct StoryRootView: View {
             }, onDisconnect: onDisconnect)
         }
         .sheet(isPresented: $sharePresented) {
-            StorySharePanel(workspace: workspace, currentNode: model.node)
+            StorySharePanel(workspace: workspace, currentNode: model.node, showPage: { await model.navigate(to: $0) })
         }
         .sheet(isPresented: $placementPresented) {
             IOSPlaceTreePanel(workspace: workspace)
@@ -1494,7 +1536,7 @@ struct StoryRootView: View {
                 .padding(.trailing, 56)
                 .allowsHitTesting(false)
                 .popover(isPresented: $sharePresented, arrowEdge: .top) {
-                    StorySharePanel(workspace: workspace, currentNode: model.node)
+                    StorySharePanel(workspace: workspace, currentNode: model.node, showPage: { await model.navigate(to: $0) })
                         .onExitCommand { sharePresented = false }
                         .background(MacPopoverKeyWindow())
                 }
@@ -1565,14 +1607,40 @@ struct StoryRootView: View {
     private var platformNavigation: some View {
 #if os(iOS)
         // The sidebar lies underneath; the page slides right to uncover it.
-        ZStack(alignment: .leading) {
-            iosSidebarUnderlay
-            iosSlidingPage
-        }
+        IOSSidebarSlide(
+            drawer: sidebarDrawer,
+            drawerWidth: sidebarDrawerWidth,
+            showsHandle: showsSidebarHandle,
+            edgeGestureEnabled: model.navigationPath.isEmpty,
+            openGesture: openSidebarEdgeGesture,
+            closeGesture: closeSidebarDragGesture,
+            close: closeIOSSidebar,
+            toggle: {
+                if sidebarDrawer.progress > 0.5 { closeIOSSidebar() } else { openIOSSidebar() }
+            },
+            sidebar: { sidebarContent },
+            page: {
+                NavigationStack(path: navigationPathBinding) {
+                    pageFrame(for: model.navigationRoot)
+                        .navigationDestination(for: WorkspaceLocation.self) { location in
+                            pageFrame(for: location)
+                        }
+                }
+                .id(model.selectedTabID)
+            }
+        )
         .onChange(of: sidebarDragInProgress) { _, dragging in
-            guard !dragging, sidebarRevealProgress > 0, sidebarRevealProgress < 1 else { return }
-            settleIOSSidebar(open: sidebarRevealProgress > 0.5)
+            if dragging {
+                sidebarHaptic.prepare()
+                return
+            }
+            // A cancelled drag never reaches onEnded.
+            let tracked = sidebarDragTracksFinger
+            sidebarDragTracksFinger = false
+            guard tracked || (sidebarDrawer.progress > 0 && sidebarDrawer.progress < 1) else { return }
+            settleIOSSidebar(open: sidebarDrawer.progress > 0.5)
         }
+        .onChange(of: sidebarRestsOpen) { sidebarHaptic.impactOccurred() }
         .background {
             GeometryReader { geometry in
                 // The page keeps a strip showing, wide enough to tap to close.
@@ -1602,16 +1670,11 @@ struct StoryRootView: View {
                     retry: message == nil ? nil : { Task { await workspace.retryRestore() } }
                 )
             case .confirming, .unconfirmed, .ready:
-                VStack(spacing: 0) {
-                    StoryLaunchConfirmationBar(phase: workspace.launchPhase) {
-                        Task { await workspace.retryRestore() }
-                    }
-                    // Desktop history belongs to BrowserTabController. Mirroring
-                    // it into a NavigationStack inside NavigationSplitView lets
-                    // SwiftUI write an empty path during destination resolution,
-                    // erasing the page we just pushed.
-                    pageFrame(for: model.currentLocation)
-                }
+                // Desktop history belongs to BrowserTabController. Mirroring
+                // it into a NavigationStack inside NavigationSplitView lets
+                // SwiftUI write an empty path during destination resolution,
+                // erasing the page we just pushed.
+                pageFrame(for: model.currentLocation)
             }
         }
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
@@ -1622,118 +1685,35 @@ struct StoryRootView: View {
     }
 
 #if os(iOS)
-    /// Drag thresholds of the sidebar drawer, in points.
-    private enum SidebarDrawerGesture {
-        /// How near the leading edge a drag must start to open the drawer.
-        static let edgeWidth: CGFloat = 22
-        /// A drag this far, or projected this far, opens or closes the drawer.
-        static let commitDistance: CGFloat = 96
-        static let commitProjectedDistance: CGFloat = 170
-        static let settleDuration: TimeInterval = 0.28
-    }
-
-    /// The sidebar, resting still under the page.
-    private var iosSidebarUnderlay: some View {
-        VStack(spacing: 0) {
-            sidebarContent
-        }
-        .frame(width: sidebarDrawerWidth)
-        .frame(maxHeight: .infinity)
-        .modifier(StorySidebarSurface())
-        // In dark mode a shadow barely shows, so the page's shade on the
-        // sidebar is drawn as a dimming that lifts as the page slides away.
-        .overlay {
-            if colorScheme == .dark {
-                Color.black.opacity(0.55 * (1 - sidebarRevealProgress))
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-            }
-        }
-        .simultaneousGesture(closeSidebarDragGesture)
-        .allowsHitTesting(sidebarRevealProgress > 0)
-        .ignoresSafeArea(.keyboard)
-    }
-
-    /// The page, which slides right to uncover the sidebar. While it is
-    /// aside, a tap or a leftward drag on it slides it back.
-    private var iosSlidingPage: some View {
-        NavigationStack(path: navigationPathBinding) {
-            pageFrame(for: model.navigationRoot)
-                .navigationDestination(for: WorkspaceLocation.self) { location in
-                    pageFrame(for: location)
-                }
-        }
-        .id(model.selectedTabID)
-        .overlay(alignment: .leading) {
-            if model.navigationPath.isEmpty {
-                Color.clear
-                    .frame(width: SidebarDrawerGesture.edgeWidth)
-                    .frame(maxHeight: .infinity)
-                    .contentShape(.rect)
-                    .highPriorityGesture(openSidebarEdgeGesture)
-            }
-        }
-        .overlay {
-            if sidebarRevealProgress > 0 {
-                Color.black.opacity(0.08 * sidebarRevealProgress)
-                    .ignoresSafeArea()
-                    .contentShape(.rect)
-                    .onTapGesture { closeIOSSidebar() }
-                    .gesture(closeSidebarDragGesture)
-            }
-        }
-        // The handle is part of the page's edge, so it travels with it.
-        .overlay(alignment: .bottomLeading) {
-            if showsSidebarHandle {
-                IOSSidebarTab(isOpen: sidebarRevealProgress > 0.5) {
-                    if sidebarRevealProgress > 0.5 { closeIOSSidebar() } else { openIOSSidebar() }
-                }
-                .highPriorityGesture(openSidebarEdgeGesture)
-                .padding(.bottom, 28)
-                .ignoresSafeArea(.keyboard)
-            }
-        }
-        .background {
-            Rectangle()
-                .fill(Color(uiColor: .systemBackground))
-                .shadow(
-                    color: .black.opacity((colorScheme == .dark ? 0.6 : 0.22) * sidebarRevealProgress),
-                    radius: 14, x: -2, y: 0
-                )
-                .ignoresSafeArea()
-        }
-        // A faint lit edge, so in dark mode the page reads as resting on top.
-        .overlay(alignment: .leading) {
-            if colorScheme == .dark, sidebarRevealProgress > 0 {
-                Rectangle()
-                    .fill(Color.white.opacity(0.16 * sidebarRevealProgress))
-                    .frame(width: 1)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-            }
-        }
-        .offset(x: sidebarDrawerWidth * sidebarRevealProgress)
+    private var sidebarHaptic: UIImpactFeedbackGenerator {
+        IOSSidebarDrawer.haptic
     }
 
     private var openSidebarEdgeGesture: some Gesture {
-        DragGesture(minimumDistance: 18, coordinateSpace: .global)
+        DragGesture(minimumDistance: 8, coordinateSpace: .global)
             .updating($sidebarDragInProgress) { _, inProgress, _ in inProgress = true }
             .onChanged { value in
-                guard sidebarRevealProgress < 1,
-                      value.startLocation.x <= SidebarDrawerGesture.edgeWidth,
-                      value.translation.width > 0,
-                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                if !sidebarDragTracksFinger {
+                    // Judged once, at the start: an edge drag that is
+                    // mostly sideways opens the sidebar.
+                    guard sidebarDrawer.progress < 1,
+                          value.startLocation.x <= IOSSidebarDrawer.edgeWidth,
+                          value.translation.width > 0,
+                          abs(value.translation.width) > abs(value.translation.height) else { return }
+                    sidebarDragTracksFinger = true
+                }
                 var transaction = Transaction()
                 transaction.animation = nil
                 withTransaction(transaction) {
-                    sidebarRevealProgress = min(1, value.translation.width / sidebarDrawerWidth)
+                    sidebarDrawer.progress = min(1, max(0, value.translation.width / sidebarDrawerWidth))
                 }
             }
             .onEnded { value in
+                guard sidebarDragTracksFinger else { return }
+                sidebarDragTracksFinger = false
                 // Whatever the drag became, never leave the page partway.
-                guard sidebarRevealProgress > 0, sidebarRevealProgress < 1 else { return }
-                let shouldOpen = value.translation.width > SidebarDrawerGesture.commitDistance
-                    || value.predictedEndTranslation.width > SidebarDrawerGesture.commitProjectedDistance
+                let shouldOpen = value.translation.width > IOSSidebarDrawer.commitDistance
+                    || value.predictedEndTranslation.width > IOSSidebarDrawer.commitProjectedDistance
                 settleIOSSidebar(open: shouldOpen)
             }
     }
@@ -1742,18 +1722,24 @@ struct StoryRootView: View {
         DragGesture(minimumDistance: 18, coordinateSpace: .global)
             .updating($sidebarDragInProgress) { _, inProgress, _ in inProgress = true }
             .onChanged { value in
-                guard value.translation.width < 0,
-                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                if !sidebarDragTracksFinger {
+                    // Judged once, at the start: a mostly sideways drag to
+                    // the left slides the page back.
+                    guard value.translation.width < 0,
+                          abs(value.translation.width) > abs(value.translation.height) else { return }
+                    sidebarDragTracksFinger = true
+                }
                 sidebarDismissDragSuppressesTap = true
                 var transaction = Transaction()
                 transaction.animation = nil
                 withTransaction(transaction) {
-                    sidebarRevealProgress = max(0, 1 + value.translation.width / sidebarDrawerWidth)
+                    sidebarDrawer.progress = min(1, max(0, 1 + value.translation.width / sidebarDrawerWidth))
                 }
             }
             .onEnded { value in
-                let shouldClose = value.translation.width < -SidebarDrawerGesture.commitDistance
-                    || value.predictedEndTranslation.width < -SidebarDrawerGesture.commitProjectedDistance
+                sidebarDragTracksFinger = false
+                let shouldClose = value.translation.width < -IOSSidebarDrawer.commitDistance
+                    || value.predictedEndTranslation.width < -IOSSidebarDrawer.commitProjectedDistance
                 settleIOSSidebar(open: !shouldClose)
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(180))
@@ -1764,22 +1750,25 @@ struct StoryRootView: View {
 
     private func settleIOSSidebar(open: Bool) {
         sidebarSearchFocused = false
-        withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
-            sidebarRevealProgress = open ? 1 : 0
+        withAnimation(.snappy(duration: IOSSidebarDrawer.settleDuration)) {
+            sidebarDrawer.progress = open ? 1 : 0
         }
+        sidebarRestsOpen = open
     }
 
     private func openIOSSidebar() {
-        withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
-            sidebarRevealProgress = 1
+        withAnimation(.snappy(duration: IOSSidebarDrawer.settleDuration)) {
+            sidebarDrawer.progress = 1
         }
+        sidebarRestsOpen = true
     }
 
     private func closeIOSSidebar() {
         sidebarSearchFocused = false
-        withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
-            sidebarRevealProgress = 0
+        withAnimation(.snappy(duration: IOSSidebarDrawer.settleDuration)) {
+            sidebarDrawer.progress = 0
         }
+        sidebarRestsOpen = false
     }
 #endif
 
@@ -2102,7 +2091,7 @@ struct StoryRootView: View {
 #if os(macOS)
         if columnVisibility == .detailOnly { withAnimation { sidebarVisibility.wrappedValue = .all } }
 #else
-        withAnimation { sidebarRevealProgress = 1 }
+        openIOSSidebar()
 #endif
         Task { await review.refresh() }
     }
@@ -2206,7 +2195,8 @@ struct StoryRootView: View {
             .contentMargins(.top, 0, for: .scrollContent)
 #endif
             .overlay {
-                if model.searchResults.isEmpty, workspace.launchPhase.showsTree {
+                if model.searchResults.isEmpty, workspace.launchPhase.showsTree,
+                   model.pageIndexLoaded || !sidebarSearchText.isEmpty {
                     ContentUnavailableView.search(text: sidebarSearchText)
                         .allowsHitTesting(false)
                 }
@@ -2650,10 +2640,10 @@ struct StoryRootView: View {
             },
             localTrees: localTreeMenuItems,
             jumpToLocalTree: jumpToLocalTree,
-            showSyncStatus: showStatusPanel,
+            showSyncStatus: showAccountsPanel,
+            showNetworkLog: showNetworkLog,
             reviewChoices: showChoiceReview,
             reviewChoiceCount: workspace.conflictReview.map(\.decisions.count),
-            showAccounts: showAccountsPanel,
             showPeople: showPeoplePanel,
             showKeyboardShortcuts: { presentedSheet = .keyboardShortcuts },
             movePage: { Task { _ = await model.editorHost?.moveCurrentDocument() } },
@@ -2706,13 +2696,14 @@ struct StoryRootView: View {
     }
 
     /// The page's public address: its tree's canonical location and the page's
-    /// path within it. Nil for a tree with no canonical location.
+    /// path within it, with the page's ID so it survives renames within the tree.
+    /// Nil for a tree with no canonical location.
     private var pageLink: URL? {
         guard let node = model.node, let canonical = workspace.currentTreeCanonical,
               node.reference.tree == workspace.home.tree else { return nil }
         let page = node.reference.path == "/" ? "" : node.reference.path
-        let path = canonical.path == "/" ? (page.isEmpty ? "/" : page) : canonical.path + page
-        return URL(string: ProtocolCanonicalDescriptor(path: path, endpoint: canonical.endpoint).httpURL)
+        let address = canonical.canonicalURL(below: page)
+        return URL(string: buildNetworkLocator(rawPath: address, stableKey: node.reference.stableKey) ?? address)
     }
 
     private var voiceRecordingCommandLabel: String {
@@ -2805,6 +2796,25 @@ struct StoryRootView: View {
 #endif
     }
 
+    /// From the menu bar, or from a sync panel, which has to close first.
+    private func showNetworkLog() {
+#if os(macOS)
+        if managementPresented {
+            sheetAfterManagementDismiss = .networkLog
+            managementPresented = false
+        } else {
+            presentedSheet = .networkLog
+        }
+#else
+        if accountPresented {
+            accountFollowUpSheet = .networkLog
+            accountPresented = false
+        } else {
+            presentedSheet = .networkLog
+        }
+#endif
+    }
+
     private func showAccountsPanel() {
 #if os(macOS)
         managementPresented = true
@@ -2851,19 +2861,7 @@ struct StoryRootView: View {
                 }
 #endif
             },
-            showNetworkLog: {
-#if os(macOS)
-                sheetAfterManagementDismiss = .networkLog
-                managementPresented = false
-#else
-                if accountPresented {
-                    accountFollowUpSheet = .networkLog
-                    accountPresented = false
-                } else {
-                    presentedSheet = .networkLog
-                }
-#endif
-            }
+            showNetworkLog: showNetworkLog
         )
     }
 
@@ -2973,9 +2971,32 @@ struct StoryRootView: View {
                 detailPathHeading(for: location)
             }
             .sharedBackgroundVisibility(.hidden)
+            if workspace.launchPhase.isPreviewing {
+                ToolbarItem(placement: .navigation) {
+                    StoryLaunchToolbarStatus(phase: workspace.launchPhase) {
+                        Task { await workspace.retryRestore() }
+                    }
+                    .padding(.leading, 8)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
             // With the title removed nothing else fills the middle, so the
             // actions would sit beside the path instead of at the trailing edge.
             ToolbarSpacer(.flexible)
+#endif
+#if os(iOS)
+            // Outside the actions' glass capsule, and only when someone else is here.
+            if !workspace.presencePeers(on: model.currentReference).isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    StoryPresenceAccountMenu(
+                        workspace: workspace,
+                        reference: model.currentReference,
+                        status: toolbarSyncStatus,
+                        openAccounts: showAccountsPanel
+                    )
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
 #endif
             ToolbarItemGroup(placement: .primaryAction) {
 #if os(iOS)
@@ -3004,16 +3025,28 @@ struct StoryRootView: View {
                     .accessibilityLabel(toolbarSyncStatus.accessibilityDescription)
                 }
 #else
+                if workspace.storySyncIsOutdated { StoryOutdatedSyncWarning(workspace: workspace) }
                 HStack(spacing: 4) {
+                    StoryPresenceAccountMenu(
+                        workspace: workspace,
+                        reference: model.currentReference,
+                        status: toolbarSyncStatus,
+                        openAccounts: showAccountsPanel
+                    )
+                    .frame(minHeight: 32)
+                    .padding(.trailing, 6)
+                    // Shown, disabled, on a launch preview and while the
+                    // confirmed tree reopens it, so the toolbar does not shift
+                    // when editing turns on.
                     if let presentation = model.pagePresentation(for: location),
-                       presentation.node.isWritable,
+                       presentation.node.isWritable || workspace.launchPhase.isPreviewing || model.isLoading,
                        presentation.editorLease != nil {
                         StoryVoiceRecordingToolbarButton(
                             session: recordingSession,
                             model: model,
                             workspace: workspace
                         )
-                        .disabled(location != model.currentLocation)
+                        .disabled(location != model.currentLocation || !presentation.node.isWritable)
                         .frame(width: 32, height: 32)
                         .mutedMacToolbarHover()
                     }
@@ -3025,15 +3058,6 @@ struct StoryRootView: View {
                     }
                     .help("Share")
                     .accessibilityLabel("Share")
-                    .frame(width: 32, height: 32)
-                    .mutedMacToolbarHover()
-                    Button {
-                        showAccountsPanel()
-                    } label: {
-                        StoryProfileSyncToolbarLabel(status: toolbarSyncStatus)
-                    }
-                    .help("Accounts — \(toolbarSyncStatus.accessibilityDescription)")
-                    .accessibilityLabel("Accounts. \(toolbarSyncStatus.accessibilityDescription)")
                     .frame(width: 32, height: 32)
                     .mutedMacToolbarHover()
                 }
@@ -3103,6 +3127,54 @@ struct StoryRootView: View {
     private func inlineBlocks(for decision: ConflictReviewDecision, in binding: StoryDocumentBinding) -> [BlockID]? {
         guard let range = decision.sourceRange, let object = decision.affected.first?.material.object else { return nil }
         return binding.blocks(overlapping: range, inSource: object)
+    }
+
+    /// Everyone else on this page, beside the block holding their caret
+    /// (spec 12). An agent's status floats under its block as a bubble.
+    private func presencePeers(for location: WorkspaceLocation, node: WorkspaceNode, binding: StoryDocumentBinding) -> [EditorPeer] {
+        guard location == model.currentLocation else { return [] }
+        return workspace.presencePeers(on: node.reference).compactMap { peer in
+            guard let selection = workspace.presenceRoster.cursors[peer.id],
+                  let caret = binding.caret(for: selection) else { return nil }
+            let color = StoryPresenceBadge.color(for: peer)
+            let initials = StoryPresenceBadge.initials(for: peer)
+            let label = StoryPresenceBadge.label(for: peer)
+            // Their profile photo, the same for a person and their agents (the agent adds a sparkle).
+            let avatar = AnyView(StoryToolbarAvatar(
+                person: workspace.directory.first { $0.id == peer.profile }, workspace: workspace,
+                fallbackName: peer.name, tint: color, size: 18, outlined: false))
+            if let status = peer.agent?.status {
+                return EditorPeer(id: peer.id, block: caret.block, color: color, initials: initials, label: label,
+                                  isAgent: true, avatar: avatar) {
+                    StoryPresenceStatus(peer: peer, status: status)
+                }
+            }
+            return EditorPeer(id: peer.id, block: caret.block, color: color, initials: initials, label: label,
+                              isAgent: peer.agent != nil, avatar: avatar)
+        }
+    }
+
+    /// Agent task blocks (`> [!agent] …`) as callouts with a Run control.
+    private func agentTaskCallouts(for node: WorkspaceNode) -> [EditorCallout] {
+        [EditorCallout(
+            id: "agent-task", title: "Agent Task", systemImage: "sparkles", tint: .purple,
+            // Typing "! " at the start of a paragraph makes it a task.
+            trigger: "! ",
+            recognizes: { StoryAgentTask.isMarked($0) },
+            turnInto: { StoryAgentTask.turnInto($0) },
+            // A finished task stays checked off; its check unticks it, like a to-do.
+            isDone: { StoryAgentTask.isDone($0) },
+            toggle: { StoryAgentTask.toggled($0) },
+            detail: { block in
+                StoryAgentTask.task(in: block).map {
+                    AnyView(StoryAgentTaskDetail(workspace: workspace, reference: node.reference, task: $0, done: StoryAgentTask.isDone(block)))
+                }
+            },
+            trailing: { block in
+                if let task = StoryAgentTask.task(in: block) {
+                    StoryAgentTaskControl(workspace: workspace, reference: node.reference, task: task, done: StoryAgentTask.isDone(block))
+                }
+            })]
     }
 
     private func reviewAccessories(for location: WorkspaceLocation, binding: StoryDocumentBinding) -> [EditorAccessory] {
@@ -3197,6 +3269,20 @@ struct StoryRootView: View {
                                 open: { destination in Task { await model.navigate(to: destination) } }
                             )
                         }
+                        .peers(presencePeers(for: location, node: node, binding: lease.binding),
+                               tint: UserDefaults.standard.bool(forKey: "StoryTintPresenceRows"))
+                        .callouts(agentTaskCallouts(for: node))
+                    }
+                    .onChange(of: lease.binding.editorState.textSelection) { _, _ in
+                        guard location == model.currentLocation else { return }
+                        workspace.setPresenceSelection(lease.binding.presenceSelection())
+                    }
+                    .onAppear {
+                        if location == model.currentLocation { model.editorAppeared() }
+                    }
+                    .onChange(of: lease.binding.editorState.editingBlock) { _, _ in
+                        guard location == model.currentLocation else { return }
+                        workspace.setPresenceSelection(lease.binding.presenceSelection())
                     }
                     .overlay {
                         if location == model.currentLocation,
@@ -3206,7 +3292,7 @@ struct StoryRootView: View {
                         }
                     }
                 } else {
-                    ProgressView()
+                    StoryDelayedProgressView()
                 }
             } else {
                 WorkspaceSurfaceView(node: node, workspace: workspace)
@@ -3214,7 +3300,7 @@ struct StoryRootView: View {
         } else if location == model.currentLocation, let message = model.errorMessage {
             ContentUnavailableView("Unable to open", systemImage: "exclamationmark.triangle", description: Text(message))
         } else {
-            ProgressView()
+            StoryDelayedProgressView()
         }
     }
 
@@ -3340,32 +3426,6 @@ struct StoryRootView: View {
     }
 }
 
-#if os(macOS)
-private struct StoryProfileSyncToolbarLabel: View {
-    let status: StorySyncStatus
-
-    var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            Image(systemName: "person.crop.circle")
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(Color.secondary.opacity(StoryStyle.mutedToolbarOpacity))
-                .frame(width: 32, height: 32)
-
-            badge
-                .frame(width: 13, height: 13)
-                .background(.bar, in: Circle())
-                .offset(x: -2, y: -2)
-        }
-        .contentShape(.rect)
-    }
-
-    @ViewBuilder
-    private var badge: some View {
-        StorySyncToolbarIndicator(status: status)
-    }
-}
-#endif
-
 struct StorySyncToolbarIndicator: View {
     let status: StorySyncStatus
 
@@ -3447,6 +3507,7 @@ private struct StorySharePanel: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: StoryWorkspaceState
     let currentNode: WorkspaceNode?
+    let showPage: @MainActor (WorkspaceReference) async -> Void
     @State private var presentation: StorySharePresentation?
     @State private var loading = true
     @State private var busy = false
@@ -3466,6 +3527,13 @@ private struct StorySharePanel: View {
     @State private var agentPageShowsCode = false
     @State private var revokingAgent: StoryCloudBundleRecord?
 #endif
+    @State private var newTreeSheet = false
+    /// Trees this page could move to, and the one picked, whose access the sheet previews.
+    @State private var moveDestinations: [StoryMoveDestination] = []
+    @State private var moveTarget: StoryMoveDestination?
+    @State private var moveTargetAccess: NativeTreeAccessPresentation?
+    @State private var movePreview: StoryPageMovePreview?
+    @State private var copiedURL = false
 
     var body: some View {
         NavigationStack {
@@ -3474,14 +3542,6 @@ private struct StorySharePanel: View {
                     Text("Share")
                         .font(.title2.bold())
                     Spacer(minLength: 12)
-                    if let displayedCanonical {
-                        Text(displayedCanonical)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
-                    }
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 12)
@@ -3490,7 +3550,13 @@ private struct StorySharePanel: View {
                     if let presentation {
                         switch presentation {
                         case .tracked(let access):
-                            trackedTree(access)
+                            treeSection(access)
+                            if let moveTarget {
+                                movePreviewSections(moveTarget, from: access)
+                            } else {
+                                pageLink(access)
+                                trackedTree(access)
+                            }
                         case .promotable(let path, let accounts):
                             promotion(path: path, accounts: accounts)
                         }
@@ -3530,6 +3596,13 @@ private struct StorySharePanel: View {
                 }
             }
         }
+#if os(macOS)
+        .sheet(isPresented: $newTreeSheet) {
+            StoryNewTreeSheet(workspace: workspace) { tree in
+                Task { await pickNewTree(tree) }
+            }
+        }
+#endif
         .sheet(item: $newGroup) { request in
             StoryNewGroupSheet(workspace: workspace, request: request) { tree in
                 guard case let .tracked(access) = presentation else { return }
@@ -3561,9 +3634,18 @@ private struct StorySharePanel: View {
         }
     }
 
-    private var displayedCanonical: String? {
-        guard case let .tracked(access) = presentation else { return nil }
-        return access.canonical
+    private func copyURL(_ url: String) {
+#if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url, forType: .string)
+#else
+        UIPasteboard.general.string = url
+#endif
+        copiedURL = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            copiedURL = false
+        }
     }
 
 #if os(macOS)
@@ -3572,10 +3654,17 @@ private struct StorySharePanel: View {
         if agentPage { return agentPageShowsCode ? 580 : 340 }
         switch presentation {
         case .tracked(let access):
+            let tree: CGFloat = 100
+            if moveTarget != nil {
+                let rows = CGFloat(moveTargetAccess?.entries.count ?? 1)
+                let summary = CGFloat(min(6, (movePreview?.subpages.count ?? 0) + (movePreview?.linksLeaving.count ?? 0))) * 20
+                return min(720, max(380, 230 + tree + rows * 52 + summary + messageHeight))
+            }
             let people = access.entries.filter { $0.subject != .everyone }.count
             let rows = people + 1
-            let agents: CGFloat = 96 + CGFloat(agentBundles.count) * 44
-            return min(720, max(300, 190 + CGFloat(rows) * 62 + agents + messageHeight))
+            let agents: CGFloat = 20 + CGFloat(agentBundles.count) * 52
+            let link: CGFloat = access.canonical.isEmpty ? 0 : 52
+            return min(720, max(300, 190 + tree + link + CGFloat(rows) * 62 + agents + messageHeight))
         case .promotable(_, let accounts):
             return accounts.isEmpty ? 300 + messageHeight : 430 + messageHeight
         case nil:
@@ -3583,6 +3672,204 @@ private struct StorySharePanel: View {
         }
     }
 #endif
+
+    private func treeTitle(_ tree: String) -> String {
+        workspace.placedTreeTitle(tree) ?? "this tree"
+    }
+
+    /// The address to hand out: this page's, with its ID so it survives renames within
+    /// the tree, or the tree's own from its home page or Trash. Click copies it.
+    @ViewBuilder
+    private func pageLink(_ access: NativeTreeAccessPresentation) -> some View {
+        if !access.canonical.isEmpty {
+            let url = shareURL(access)
+            Section {
+                Button {
+                    copyURL(url)
+                } label: {
+                    Label(copiedURL ? "Copied" : url, systemImage: copiedURL ? "checkmark" : "doc.on.doc")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+#if os(macOS)
+                .buttonStyle(.link)
+#else
+                .buttonStyle(.borderless)
+#endif
+                .help("Copy this page's address")
+            }
+        }
+    }
+
+    private func shareURL(_ access: NativeTreeAccessPresentation) -> String {
+        guard let currentNode, workspace.canMoveToAnotherTree(currentNode) else { return access.canonical }
+        let path = currentNode.reference.path.split(separator: "/").map {
+            String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+        }.joined(separator: "/")
+        let base = access.canonical.hasSuffix("/") ? String(access.canonical.dropLast()) : access.canonical
+        return buildNetworkLocator(rawPath: "\(base)/\(path)", stableKey: currentNode.reference.stableKey)
+            ?? access.canonical
+    }
+
+    /// The tree this page is in. Picking another tree previews moving the page there.
+    @ViewBuilder
+    private func treeSection(_ access: NativeTreeAccessPresentation) -> some View {
+        Section {
+            if currentNode.map(workspace.canMoveToAnotherTree) != true || (moveDestinations.isEmpty && !Self.offersNewTree) {
+                LabeledContent("This page is in", value: treeTitle(access.tree))
+            } else {
+                Picker(moveTarget == nil ? "This page is in" : "Move this page to", selection: Binding(
+                    get: { moveTarget?.id ?? access.tree },
+                    set: { id in
+                        if id == Self.newTreeTag { newTreeSheet = true }
+                        else { pickMoveTarget(moveDestinations.first { $0.id == id }) }
+                    }
+                )) {
+                    Text(treeTitle(access.tree)).tag(access.tree)
+                    if !moveDestinations.isEmpty { Divider() }
+                    ForEach(moveDestinations) { destination in
+                        Text(destination.account.map { "\(destination.title)  ·  \($0)" } ?? destination.title)
+                            .tag(destination.id)
+                    }
+                    if Self.offersNewTree {
+                        Divider()
+                        Text("New Tree…").tag(Self.newTreeTag)
+                    }
+                }
+                .disabled(busy)
+            }
+        }
+    }
+
+    private static let newTreeTag = "story-new-tree"
+    /// New Tree… is Mac-only for now: on the iPhone it needs an administrator device (Sharing 003).
+#if os(macOS)
+    private static let offersNewTree = true
+#else
+    private static let offersNewTree = false
+#endif
+
+    /// A section heading a little larger than the form's default, with room above it.
+    private func accessHeader(_ text: String) -> some View {
+        Text(text)
+            .font(.headline)
+            .foregroundStyle(.primary)
+            .padding(.top, 14)
+    }
+
+#if os(macOS)
+    /// A tree just made from New Tree…: list it, then preview moving there.
+    private func pickNewTree(_ tree: String) async {
+        guard let currentNode else { return }
+        moveDestinations = await workspace.moveDestinations(for: currentNode)
+        if let destination = moveDestinations.first(where: { $0.id == tree }) {
+            pickMoveTarget(destination)
+        } else {
+            message = "The new tree isn't on this Mac yet. Open Share again in a moment to move the page there."
+        }
+    }
+
+#endif
+
+    private func pickMoveTarget(_ destination: StoryMoveDestination?) {
+        moveTarget = destination
+        moveTargetAccess = nil
+        movePreview = nil
+        message = nil
+        guard let destination, let currentNode else { return }
+        Task {
+            do {
+                async let access = workspace.treeAccess(tree: destination.id)
+                async let preview = workspace.previewPageMove(currentNode, to: destination)
+                let (loadedAccess, loadedPreview) = try await (access, preview)
+                guard moveTarget?.id == destination.id else { return }
+                moveTargetAccess = loadedAccess
+                movePreview = loadedPreview
+            } catch {
+                guard moveTarget?.id == destination.id else { return }
+                message = error.localizedDescription
+            }
+        }
+    }
+
+    /// Who would have access in the picked tree, what moves along, and the Move button.
+    @ViewBuilder
+    private func movePreviewSections(_ target: StoryMoveDestination, from access: NativeTreeAccessPresentation) -> some View {
+        Section {
+            if let targetAccess = moveTargetAccess {
+                ForEach(targetAccess.entries) { entry in
+                    HStack(spacing: 12) {
+                        accessIcon(for: entry)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 4) {
+                                Text(label(for: entry))
+                                if entry.isCurrentUser { Text("(You)").foregroundStyle(.secondary) }
+                            }
+                            Text(detail(for: entry)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer(minLength: 8)
+                        Text(entry.isCurrentUser ? "Full access" : permissionLabel(entry.access)).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
+                if !targetAccess.entries.contains(where: { $0.subject == .everyone }) {
+                    HStack(spacing: 12) {
+                        accessIcon(systemName: "globe", tint: .blue)
+                        Text("Everyone")
+                        Spacer(minLength: 8)
+                        Text("No access").foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
+            } else {
+                ProgressView()
+            }
+        } header: {
+            accessHeader("Who has access to \(target.title)")
+        }
+        Section {
+            if let movePreview {
+                if movePreview.subpages.isEmpty {
+                    Text("The page has no subpages.")
+                } else {
+                    Text("Its \(movePreview.subpages.count == 1 ? "subpage moves" : "\(movePreview.subpages.count) subpages move") with it: \(movePreview.subpages.formatted(.list(type: .and))).")
+                }
+                if !movePreview.linksLeaving.isEmpty {
+                    Label("It links to pages that stay in \(treeTitle(access.tree)), which people in \(target.title) may not be able to open: \(movePreview.linksLeaving.formatted(.list(type: .and))).",
+                          systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                }
+                Text("A link stays in \(treeTitle(access.tree)), and the page's history so far stays there too.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ProgressView()
+            }
+        } footer: {
+            HStack {
+                Spacer()
+                Button("Cancel") { pickMoveTarget(nil) }
+                    .disabled(busy)
+                Button("Move to \(target.title)") { Task { await movePage(to: target) } }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(busy || movePreview == nil || moveTargetAccess == nil)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func movePage(to target: StoryMoveDestination) async {
+        guard let currentNode else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            try await workspace.movePage(currentNode, to: target)
+            dismiss()
+            // The open page is now the copy in Trash; show the page that keeps a link to the moved one.
+            if let parent = currentNode.reference.parent { await showPage(parent) }
+        } catch {
+            message = error.localizedDescription
+        }
+    }
 
     @ViewBuilder
     private func trackedTree(_ access: NativeTreeAccessPresentation) -> some View {
@@ -3599,18 +3886,10 @@ private struct StorySharePanel: View {
                     newGroupAccess = .read
                     newGroup = StoryNewGroupRequest(name: name)
                     profileLocator = ""
-                } : nil
+                } : nil,
+                prompt: "Add a person or group by name, ~handle, or profile URL"
             )
-        } footer: {
-            if !access.canEdit {
-#if os(iOS)
-                Text("This iPhone needs administrator access to share. On a Mac, open Account and make this device an administrator.")
-#else
-                Text("This Mac needs administrator access to share.")
-#endif
-            }
-        }
-        Section {
+            .labelsHidden()
             ForEach(access.entries.filter { $0.subject != .everyone }) { entry in
                 accessRow(entry, in: access)
             }
@@ -3619,23 +3898,41 @@ private struct StorySharePanel: View {
             } else {
                 everyoneRow(in: access)
             }
-        } header: {
-            Text("Who has access")
-        } footer: {
-            if !access.canEdit {
-                Text("Only an administrator for this host account can change access.")
-            } else if canCreateGroup, groupableEntries(access).count >= 2 {
-                Button("Make these people a group…") {
-                    let entries = groupableEntries(access)
-                    newGroupAccess = entries.allSatisfy { $0.access == StoryTreeAccess.write.rawValue } ? .write : .read
-                    newGroup = StoryNewGroupRequest(members: entries.compactMap { entry in
-                        if case .profile(let tree) = entry.subject { tree } else { nil }
-                    })
-                }
 #if os(macOS)
-                .buttonStyle(.link)
+            ForEach(agentBundles) { record in
+                agentRow(record, canEdit: access.canEdit)
+            }
 #endif
-                .disabled(busy)
+        } header: {
+            accessHeader("Who has access to \(treeTitle(access.tree))")
+        } footer: {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                if !access.canEdit {
+#if os(iOS)
+                    Text("This iPhone needs administrator access to share. On a Mac, open Account and make this device an administrator.")
+#else
+                    Text("Only an administrator of this tree's host account can change who has access.")
+#endif
+                } else if canCreateGroup, groupableEntries(access).count >= 2 {
+                    Button("Make these people a group…") {
+                        let entries = groupableEntries(access)
+                        newGroupAccess = entries.allSatisfy { $0.access == StoryTreeAccess.write.rawValue } ? .write : .read
+                        newGroup = StoryNewGroupRequest(members: entries.compactMap { entry in
+                            if case .profile(let tree) = entry.subject { tree } else { nil }
+                        })
+                    }
+#if os(macOS)
+                    .buttonStyle(.link)
+#endif
+                    .disabled(busy)
+                }
+                Spacer(minLength: 0)
+#if os(macOS)
+                Button("Use with an agent…") { agentPage = true }
+                    .buttonStyle(.link)
+                    .help("Make a code that lets a coding agent's cloud machine check out this tree with `story agent start`")
+                    .disabled(busy || !access.canEdit)
+#endif
             }
         }
         // Whole-tree rules are the rows above; only rules for an app or part of the tree are listed here.
@@ -3647,19 +3944,6 @@ private struct StorySharePanel: View {
                 }
             } header: { Text("Scoped and app permissions") }
         }
-#if os(macOS)
-        Section {
-            ForEach(agentBundles) { record in
-                agentRow(record, canEdit: access.canEdit)
-            }
-            Button("Use with an agent…", systemImage: "terminal") { agentPage = true }
-                .disabled(busy || !access.canEdit)
-        } header: {
-            Text("Agents")
-        } footer: {
-            Text("An agent code lets a coding agent's cloud machine check out this tree with `story agent start`.")
-        }
-#endif
     }
 
 #if os(macOS)
@@ -3912,11 +4196,12 @@ private struct StorySharePanel: View {
             let value = try await workspace.sharePresentation(for: currentNode)
             presentation = value
             message = nil
-#if os(macOS)
             if case let .tracked(access) = value {
+#if os(macOS)
                 agentBundles = try workspace.agentBundles(tree: access.tree)
-            }
 #endif
+                moveDestinations = await workspace.moveDestinations(for: currentNode)
+            }
             if case let .promotable(path, accounts) = value, let first = accounts.first {
                 selectedAccountID = first.id
                 canonicalURL = suggestedCanonical(path: path, account: first)
@@ -3995,6 +4280,92 @@ private struct StorySharePanel: View {
 }
 
 #if os(macOS)
+/// New Tree… from the share sheet's tree menu: a name, the account it goes
+/// under, and who can see it. The tree starts empty in a new Documents folder.
+private struct StoryNewTreeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let workspace: StoryWorkspaceState
+    let created: (String) -> Void
+    @State private var name = ""
+    @State private var accounts: [StoryShareAccount] = []
+    @State private var accountID = ""
+    @State private var access = StoryTreeAccess.noAccess
+    @State private var loading = true
+    @State private var busy = false
+    @State private var message: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("New Tree")
+                .font(.title2.bold())
+                .padding(.horizontal)
+                .padding(.vertical, 12)
+            Divider()
+            Form {
+                if loading {
+                    ProgressView()
+                } else if accounts.isEmpty {
+                    Text("This Mac needs to be an administrator of a host account to make a tree.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    TextField("Name", text: $name)
+                    Picker("Account", selection: $accountID) {
+                        ForEach(accounts) { account in Text(account.destinationLabel).tag(account.id) }
+                    }
+                    Picker("Who can see it", selection: $access) {
+                        Text("Only people you add").tag(StoryTreeAccess.noAccess)
+                        Text("Everyone can view").tag(StoryTreeAccess.read)
+                        Text("Everyone can edit").tag(StoryTreeAccess.write)
+                    }
+                    if let address {
+                        LabeledContent("Address", value: address)
+                    }
+                }
+                if let message {
+                    Text(message).foregroundStyle(.red)
+                }
+            }
+            .formStyle(.grouped)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Create Tree") { Task { await create() } }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(busy || account == nil || StoryWorkspaceState.treeSlug(name).isEmpty)
+            }
+            .padding()
+        }
+        .frame(width: 440)
+        .task {
+            accounts = await workspace.newTreeAccounts()
+            accountID = accounts.first?.id ?? ""
+            loading = false
+        }
+    }
+
+    private var account: StoryShareAccount? { accounts.first { $0.id == accountID } }
+
+    private var address: String? {
+        let slug = StoryWorkspaceState.treeSlug(name)
+        guard let account, !slug.isEmpty else { return nil }
+        return account.accountURL + "/" + slug
+    }
+
+    private func create() async {
+        guard let account else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            let tree = try await workspace.createTree(named: name, account: account, publicAccess: access)
+            dismiss()
+            created(tree)
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+}
+
 /// Pushed from the Share panel: make an agent code for one tree and show it
 /// once, with how to use it. A macOS popover draws no navigation bar or
 /// toolbar items, so the page draws its own back button and actions.
@@ -4767,6 +5138,7 @@ struct StoryIOSLaunchView: View {
         .task {
             guard !started else { return }
             started = true
+            StoryLaunchTiming.milestone("window-appear")
             if accountAdditionComplete != nil {
                 phase = .scanning
                 return
@@ -4800,7 +5172,7 @@ struct StoryIOSLaunchView: View {
     private var onboarding: some View {
         switch phase {
         case .restoring:
-            ProgressView("Opening Story…")
+            StoryDelayedProgressView("Opening Story…")
         case .accounts:
             accountList
         case .scanning:
@@ -4884,7 +5256,7 @@ struct StoryIOSLaunchView: View {
                         phase = .scanning
                     }
                 } footer: {
-                    Text("In Story on your Mac, choose Sync & Accounts, then Pair another device.")
+                    Text("In Story on your Mac, choose View > Sync & Accounts…, then Pair another device.")
                 }
                 if accounts.isEmpty {
                     Section {
@@ -5079,6 +5451,178 @@ struct StoryIOSLaunchView: View {
 #endif
 
 #if os(iOS)
+/// How far the iOS page is slid aside, from 0 (covering the sidebar) to 1.
+/// A reference, so the root view can write it from gestures without
+/// reading it, and only `IOSSidebarSlide` redraws as it changes.
+@Observable
+final class IOSSidebarDrawer {
+    var progress: CGFloat = 0
+
+    /// How near the leading edge a drag must start to open the drawer.
+    static let edgeWidth: CGFloat = 22
+    /// A drag this far, or projected this far, opens or closes the drawer.
+    static let commitDistance: CGFloat = 96
+    static let commitProjectedDistance: CGFloat = 170
+    static let settleDuration: TimeInterval = 0.28
+    /// How dark the sidebar starts, before the page has moved.
+    static let lightSidebarShade: Double = 0.28
+    static let darkSidebarShade: Double = 0.55
+    /// Played when the sidebar comes to rest open or closed.
+    @MainActor static let haptic = UIImpactFeedbackGenerator(style: .medium)
+
+    /// The screen's own corner radius, so the page as a card keeps the
+    /// screen's curve. UIKit has no public accessor; 55 matches recent
+    /// iPhones when it is missing.
+    @MainActor static let screenCornerRadius: CGFloat = {
+        let key = ["_display", "Corner", "Radius"].joined()
+        if let radius = UIScreen.main.value(forKey: key) as? CGFloat, radius > 0 {
+            return radius
+        }
+        return 55
+    }()
+}
+
+/// The sidebar resting under the page, and the page as a card that slides
+/// right to uncover it. While the page is aside, a tap or a leftward drag on
+/// it slides it back.
+private struct IOSSidebarSlide<Sidebar: View, Page: View, OpenGesture: Gesture, CloseGesture: Gesture>: View {
+    let drawer: IOSSidebarDrawer
+    let drawerWidth: CGFloat
+    let showsHandle: Bool
+    let edgeGestureEnabled: Bool
+    let openGesture: OpenGesture
+    let closeGesture: CloseGesture
+    let close: () -> Void
+    let toggle: () -> Void
+    @ViewBuilder let sidebar: () -> Sidebar
+    @ViewBuilder let page: () -> Page
+
+    @Environment(\.colorScheme) private var colorScheme
+    /// The safe area around the page, so its card reaches the screen's
+    /// edges rather than stopping at the status bar.
+    @State private var pageSafeArea = EdgeInsets()
+
+    private var progress: CGFloat { drawer.progress }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            sidebarUnderlay
+            slidingPage
+        }
+    }
+
+    private var sidebarUnderlay: some View {
+        VStack(spacing: 0) {
+            sidebar()
+        }
+        .frame(width: drawerWidth)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        // The surface spans the screen, so it also shows past the page's
+        // rounded corners.
+        .modifier(StorySidebarSurface())
+        // The sidebar starts in the page's shade and brightens as the page
+        // slides away.
+        .overlay {
+            Color.black
+                .opacity(
+                    (colorScheme == .dark
+                        ? IOSSidebarDrawer.darkSidebarShade
+                        : IOSSidebarDrawer.lightSidebarShade)
+                    * (1 - progress)
+                )
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        }
+        .simultaneousGesture(closeGesture)
+        .allowsHitTesting(progress > 0)
+        .ignoresSafeArea(.keyboard)
+    }
+
+    private var cardShape: IOSPageCardShape {
+        IOSPageCardShape(cornerRadius: IOSSidebarDrawer.screenCornerRadius, outset: pageSafeArea)
+    }
+
+    private var slidingPage: some View {
+        page()
+            .onGeometryChange(for: EdgeInsets.self, of: { $0.safeAreaInsets }) { insets in
+                pageSafeArea = insets
+            }
+            .overlay(alignment: .leading) {
+                if edgeGestureEnabled {
+                    Color.clear
+                        .frame(width: IOSSidebarDrawer.edgeWidth)
+                        .frame(maxHeight: .infinity)
+                        .contentShape(.rect)
+                        .highPriorityGesture(openGesture)
+                }
+            }
+            .overlay {
+                if progress > 0 {
+                    Color.black.opacity(0.08 * progress)
+                        .ignoresSafeArea()
+                        .contentShape(.rect)
+                        .onTapGesture(perform: close)
+                        .gesture(closeGesture)
+                }
+            }
+            // Aside, the page is a card with the screen's own corners. At
+            // rest the shape reaches far past the screen, so nothing is
+            // clipped and the editor draws without a mask.
+            .clipShape(progress > 0 ? cardShape : IOSPageCardShape(cornerRadius: 0, outset: IOSPageCardShape.unbounded))
+            // The handle is part of the page's edge, so it travels with it.
+            .overlay(alignment: .bottomLeading) {
+                if showsHandle {
+                    IOSSidebarTab(isOpen: progress > 0.5, toggle: toggle)
+                        .highPriorityGesture(openGesture)
+                        .padding(.bottom, 28)
+                        .ignoresSafeArea(.keyboard)
+                }
+            }
+            .background {
+                cardShape
+                    .fill(Color(uiColor: .systemBackground))
+                    .shadow(
+                        color: .black.opacity((colorScheme == .dark ? 0.6 : 0.18) * progress),
+                        radius: 18, x: -2, y: 0
+                    )
+            }
+            // A faint lit edge, so in dark mode the page reads as resting on top.
+            .overlay {
+                if colorScheme == .dark, progress > 0 {
+                    cardShape
+                        .stroke(Color.white.opacity(0.16 * progress), lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+            }
+            .offset(x: drawerWidth * progress)
+    }
+}
+
+/// The page's outline while the sidebar shows: a rounded rectangle grown
+/// past the view's bounds by `outset`, so it covers the safe areas the page
+/// draws into.
+private struct IOSPageCardShape: Shape {
+    static let unbounded = EdgeInsets(top: 10_000, leading: 10_000, bottom: 10_000, trailing: 10_000)
+
+    var cornerRadius: CGFloat
+    var outset: EdgeInsets
+
+    var animatableData: CGFloat {
+        get { cornerRadius }
+        set { cornerRadius = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let card = CGRect(
+            x: rect.minX - outset.leading,
+            y: rect.minY - outset.top,
+            width: rect.width + outset.leading + outset.trailing,
+            height: rect.height + outset.top + outset.bottom
+        )
+        return RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).path(in: card)
+    }
+}
+
 /// A grip on the page's leading edge, low on the left, so the sidebar
 /// underneath can be found without knowing the edge swipe. Tapping it slides
 /// the page aside or back.
@@ -6117,8 +6661,14 @@ struct StoryInvitation {
 
     init() {
         let bytes = Data((0..<16).map { _ in UInt8.random(in: .min ... .max) })
-        code = bytes.base64EncodedString().replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        self.init(code: bytes.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: ""))
+    }
+
+    /// The invitation a code stands for: its digest is `sha256:` and the hex
+    /// SHA-256 of the code's text (accounts §1.2; conformance `invitations.json`).
+    init(code: String) {
+        self.code = code
         digest = "sha256:" + SHA256.hash(data: Data(code.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }
@@ -6305,3 +6855,30 @@ private struct StoryWindowTabbing: NSViewRepresentable {
     }
 }
 #endif
+
+/// A spinner that appears only once a wait has gone on long enough to
+/// notice. A page usually opens in a few tenths of a second, and a spinner
+/// that flashes for that long reads as a slow app.
+struct StoryDelayedProgressView: View {
+    var title: String?
+    var delay: Duration = .milliseconds(600)
+    @State private var shown = false
+
+    init(_ title: String? = nil, delay: Duration = .milliseconds(600)) {
+        self.title = title
+        self.delay = delay
+    }
+
+    var body: some View {
+        ZStack {
+            Color.clear
+            if shown {
+                if let title { ProgressView(title) } else { ProgressView() }
+            }
+        }
+        .task {
+            try? await Task.sleep(for: delay)
+            shown = true
+        }
+    }
+}

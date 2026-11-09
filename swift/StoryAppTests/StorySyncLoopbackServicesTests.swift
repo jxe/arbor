@@ -7,7 +7,7 @@ import Foundation
 import Testing
 @testable import StoryApp
 
-/// The routes a same-installation working-tree client uses: bootstrap, credential, objects,
+/// The routes a same-installation working-tree client uses: the standard reads, credential,
 /// and the control-mode supervisor that reaches them.
 @Suite("Loopback services", .serialized)
 struct LoopbackServicesTests {
@@ -69,154 +69,62 @@ struct LoopbackServicesTests {
         }
     }
 
-    // MARK: Bootstrap
+    // MARK: Standard reads (Clients 003)
 
-    @Test("A clean bootstrap decodes its sparse spine and lists the lazy file")
-    func cleanBootstrapDecodes() async throws {
-        // The route answers canonical CBOR with the spine as a byte string.
-        let body = try fixture("bootstrap.cbor")
-        await LoopbackStub.state.install { _, _ in (200, body, "application/cbor") }
-        let bootstrap = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c")
-
-        #expect(bootstrap.tree.id == "tr_notes7f3q2ab7c")
-        #expect(bootstrap.tree.osPath == "/Users/joe/notes")
-        #expect(bootstrap.accepted.cursor == nil)
-        #expect(bootstrap.spine.root == bootstrap.accepted.root)
-        #expect(bootstrap.observedThrough == "1f8b3c6d-observed:7")
-
-        // The spine is sparse: the root directory and the Markdown object are present,
-        // the binary is referenced by hash only.
-        let objects = try ProtocolObjectGraph.validate(bootstrap.spine, mode: .sparseFiles)
-        #expect(objects.count == 2)
-        guard case let .directory(entries, _)? = objects[bootstrap.spine.root] else {
-            Issue.record("root is not a directory"); return
-        }
-        let names = entries.map(\.name)
-        #expect(names == ["_index.md", "photo.bin"])
-        let photo = try #require(entries.first { $0.name == "photo.bin" }?.hash)
-        #expect(objects[photo] == nil)
-        #expect(throws: ProtocolValidationError.self) {
-            try ProtocolObjectGraph.validate(bootstrap.spine, mode: .complete)
-        }
-        let requests = await LoopbackStub.state.requests()
-        #expect(requests.map(\.path) == ["/v1/bootstrap"])
-        #expect(requests.first?.query == "tree=tr_notes7f3q2ab7c")
-        #expect(requests.first?.accept == "application/cbor")
-    }
-
-    @Test("A newer client ignores daemon-local state from an older bootstrap response")
-    func legacyPendingBootstrapDecodesAcceptedState() async throws {
-        let body = try fixture("bootstrap-pending.cbor")
-        await LoopbackStub.state.install { _, _ in (200, body, "application/cbor") }
-        let bootstrap = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c")
-
-        #expect(bootstrap.spine.root == bootstrap.accepted.root)
-    }
-
-    @Test("A sparse bootstrap classifies omitted files using directory entries")
-    func omittedFileAccepted() async throws {
-        let body = try fixture("bootstrap.cbor")
-        await LoopbackStub.state.install { _, _ in (200, body, "application/cbor") }
-        _ = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c")
-    }
-
-    @Test("The retired JSON form is refused and bootstrap errors remain typed")
-    func jsonFormIsRefusedAndErrorsRemainTyped() async throws {
-        // A daemon from before CBOR answered JSON with a base64 spine; the client no longer reads it.
-        let json = try fixture("bootstrap.json")
-        await LoopbackStub.state.install { _, _ in (200, json, "application/json") }
-        await #expect(throws: (any Error).self) { _ = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c") }
-
+    /// A placed tree as Story Sync serves it: its listing, the current-tree
+    /// read, and objects, all through the standard routes.
+    private func installPlacedTree(root: ProtocolObjectEnvelope, objects: [ProtocolObjectEnvelope], current: Int = 200) async {
+        let listing = Data(#"{"snapshot":[{"id":"tr_notes7f3q2ab7c","configurationTree":"tr_cfg","kind":"ordinary","access":"write","canonical":{"path":"/~joe/notes","endpoint":"https://notes.example","parentTree":null},"name":"notes","osPath":"/Users/joe/notes","placement":"placed"}],"observedThrough":"c:1"}"#.utf8)
+        let descriptor = Data("""
+        {"tree":{"id":"tr_notes7f3q2ab7c","kind":"ordinary","access":"write","root":"\(root.hash)","update":"up_1","conflicted":false,"canonical":{"path":"/~joe/notes","endpoint":"https://notes.example","parentTree":null}},"observedThrough":"host-cursor-7"}
+        """.utf8)
         let unsynchronized = Data(#"{"error":"conflict","message":"unsynchronized","retryable":false,"details":{"kind":"unsynchronized"}}"#.utf8)
-        await LoopbackStub.state.install { _, _ in (409, unsynchronized, "application/json") }
-        do {
-            _ = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c")
-            Issue.record("expected a 409")
-        } catch let error as StorySyncServerError {
-            #expect(error.status == 409)
-            #expect(error.value.code == "conflict")
-        }
-    }
-
-    // MARK: Credential
-
-    @Test("The credential fixture decodes and the route scopes by configuration tree")
-    func credentialDecodes() async throws {
-        let body = try fixture("credential.json")
-        #expect(try JSONDecoder().decode(TreeCredential.self, from: body).token == "overstoryd-account-token-fixture")
-        await LoopbackStub.state.install { _, _ in (200, body, "application/json") }
-        let client = stubbedClient()
-        #expect(try await client.credential() == "overstoryd-account-token-fixture")
-        #expect(try await client.credential(configurationTree: "tr_cfg7f3q2ab7cdefg") == "overstoryd-account-token-fixture")
-        let requests = await LoopbackStub.state.requests()
-        #expect(requests.map(\.path) == ["/v1/credential", "/v1/credential"])
-        #expect(requests[0].query == nil)
-        #expect(requests[1].query == "configurationTree=tr_cfg7f3q2ab7cdefg")
-    }
-
-    @Test("The credential provider fetches once, caches, and refetches after invalidate")
-    func credentialProviderCachesAndInvalidates() async throws {
-        await LoopbackStub.state.install { _, attempt in
-            (200, Data(#"{"token":"token-\#(attempt)"}"#.utf8), "application/json")
-        }
-        let provider = StorySyncCredentialProvider(client: stubbedClient(), configurationTree: "tr_cfg")
-
-        #expect(await provider.isCached == false)
-        async let first = provider.credential()
-        async let second = provider.credential()
-        let (a, b) = try await (first, second)
-        #expect(a == "token-1")
-        #expect(b == "token-1")
-        #expect(try await provider.credential() == "token-1")
-        #expect(await provider.isCached)
-        #expect(await LoopbackStub.state.requests().count == 1)
-
-        await provider.invalidate()
-        #expect(await provider.isCached == false)
-        #expect(try await provider.credential() == "token-2")
-        let requests = await LoopbackStub.state.requests()
-        #expect(requests.count == 2)
-        #expect(requests.allSatisfy { $0.query == "configurationTree=tr_cfg" })
-
-        // As a ProtocolCredentialProvider it feeds the protocol client's bearer header.
-        let wire: any ProtocolCredentialProvider = provider
-        #expect(try await wire.credential() == "token-2")
-    }
-
-    @Test("A placement host's credential names its origin, and its provider is not the home's")
-    func placementCredentialCarriesOrigin() async throws {
+        let byHash = Dictionary(uniqueKeysWithValues: objects.map { ($0.hash, $0.bytes) })
         await LoopbackStub.state.install { request, _ in
-            let placement = request.url?.query?.contains("origin=") == true
-            return (200, Data(#"{"token":"\#(placement ? "orchard" : "garden")-token"}"#.utf8), "application/json")
+            let path = request.url?.path ?? ""
+            if path == "/v1/trees" { return (200, listing, "application/json") }
+            if path == "/.overstory/trees/tr_notes7f3q2ab7c" {
+                return current == 200 ? (200, descriptor, "application/json") : (current, unsynchronized, "application/json")
+            }
+            if let hash = path.split(separator: "/").last.map(String.init), let bytes = byHash[hash] {
+                return (200, bytes, "application/octet-stream")
+            }
+            return (404, Data(#"{"error":"not-found","message":"missing","retryable":false}"#.utf8), "application/json")
         }
-        let client = stubbedClient()
-        #expect(try await client.credential(configurationTree: "tr_cfg", origin: "https://orchard.example") == "orchard-token")
-        var requests = await LoopbackStub.state.requests()
-        #expect(requests.map(\.path) == ["/v1/credential"])
-        #expect(requests[0].query == "configurationTree=tr_cfg&origin=https://orchard.example")
-        // An origin names the account whose device key opens the session there.
-        await #expect(throws: ProtocolValidationError.self) {
-            _ = try await client.credential(origin: "https://orchard.example")
-        }
+    }
 
-        // Shared providers are per account and host: B's never hands out the home session.
-        let home = StorySyncCredentialProvider.shared(client: client, configurationTree: "tr_cfg")
-        let orchard = StorySyncCredentialProvider.shared(client: client, configurationTree: "tr_cfg", origin: "https://orchard.example")
-        #expect(home !== orchard)
-        #expect(StorySyncCredentialProvider.shared(client: client, configurationTree: "tr_cfg", origin: "https://orchard.example") === orchard)
-        #expect(orchard.origin == "https://orchard.example")
-        #expect(try await orchard.credential() == "orchard-token")
-        #expect(try await home.credential() == "garden-token")
-        // After a 401 from B the provider asks the daemon again, still for B.
-        await orchard.invalidate()
-        #expect(try await orchard.credential() == "orchard-token")
-        requests = await LoopbackStub.state.requests()
-        #expect(requests.map(\.query) == [
-            "configurationTree=tr_cfg&origin=https://orchard.example",
-            "configurationTree=tr_cfg&origin=https://orchard.example",
-            "configurationTree=tr_cfg",
-            "configurationTree=tr_cfg&origin=https://orchard.example",
-        ])
+    @Test("Opening a placed tree reads only its base, through the standard routes")
+    func placedTreeOpeningUsesStandardReads() async throws {
+        let index = try ProtocolObjectCodec.object(.file(Data("# Notes\n".utf8)))
+        let photo = try ProtocolObjectCodec.object(.file(Data([1, 2, 3])))
+        let root = try ProtocolObjectCodec.object(.directory([
+            .init(name: "_index.md", file: index.hash),
+            .init(name: "photo.bin", file: photo.hash),
+        ]))
+        await installPlacedTree(root: root, objects: [root, index, photo])
+        let opening = try await StoryWorkspaceState.readPlacedTree("tr_notes7f3q2ab7c", client: stubbedClient())
+
+        #expect(opening.placed.osPath == "/Users/joe/notes")
+        #expect(opening.current.tree.root == root.hash)
+        #expect(opening.current.observedThrough == "host-cursor-7")
+        // Directories load when the session opens them, not here.
+        let paths = await LoopbackStub.state.requests().map(\.path)
+        #expect(paths.contains("/.overstory/trees/tr_notes7f3q2ab7c"))
+        #expect(!paths.contains("/.overstory/trees/tr_notes7f3q2ab7c/objects/\(root.hash)"))
+        #expect(!paths.contains("/.overstory/trees/tr_notes7f3q2ab7c/objects/\(photo.hash)"))
+        #expect(!paths.contains("/v1/bootstrap"))
+    }
+
+    @Test("A placed tree without an accepted base yet keeps the daemon's typed 409")
+    func unsynchronizedPlacedTree() async throws {
+        let root = try ProtocolObjectCodec.object(.directory([]))
+        await installPlacedTree(root: root, objects: [root], current: 409)
+        do {
+            _ = try await StoryWorkspaceState.readPlacedTree("tr_notes7f3q2ab7c", client: stubbedClient())
+            Issue.record("expected a 409")
+        } catch let error as ProtocolHTTPError {
+            #expect(error.status == 409)
+        }
     }
 
     @Test("Adding a host posts to the placement route and decodes the connection it recorded")
@@ -249,57 +157,24 @@ struct LoopbackServicesTests {
         }
     }
 
-    @Test("A missing credential propagates the daemon's 404 and caches nothing")
-    func credentialProviderMissing() async throws {
-        await LoopbackStub.state.install { _, _ in
-            (404, Data(#"{"error":"not-found","message":"No account credential is available","retryable":false}"#.utf8), "application/json")
-        }
-        let provider = StorySyncCredentialProvider(client: stubbedClient())
-        do {
-            _ = try await provider.credential()
-            Issue.record("expected not-found")
-        } catch let error as StorySyncServerError {
-            #expect(error.status == 404)
-        }
-        #expect(await provider.isCached == false)
-    }
-
     // MARK: Objects
 
-    @Test("The object route returns verified bytes and asks for CBOR")
-    func objectRouteVerifies() async throws {
-        let bytes = try ProtocolObjectCodec.encode(.file(Data("# Notes\n".utf8)))
-        let hash = ProtocolObjectCodec.hash(bytes)
-        await LoopbackStub.state.install { _, _ in (200, bytes, "application/cbor") }
-        let client = stubbedClient()
-        let served = try await client.object(tree: "tr_notes", hash: hash)
-        #expect(served == bytes)
-        let request = try #require(await LoopbackStub.state.requests().first)
-        #expect(request.path == "/v1/objects/\(hash)")
-        #expect(request.query == "tree=tr_notes")
-        #expect(request.accept == "application/cbor")
-
-        await #expect(throws: ProtocolValidationError.self) {
-            _ = try await client.object(tree: "tr_notes", hash: "sha256:not-a-hash")
-        }
-    }
-
-    @Test("DaemonObjectStore rejects a hash mismatch and maps 404 to missing")
-    func daemonObjectStoreVerifies() async throws {
+    @Test("Placed-tree objects come verified from the standard route; 404 is missing")
+    func placedTreeObjectsVerify() async throws {
         let bytes = try ProtocolObjectCodec.encode(.file(Data("# Notes\n".utf8)))
         let hash = ProtocolObjectCodec.hash(bytes)
         let other = "sha256:" + String(repeating: "ab", count: 32)
         await LoopbackStub.state.install { request, _ in
-            if request.url?.path.hasSuffix(other) == true { return (200, bytes, "application/cbor") }
-            if request.url?.path.hasSuffix(hash) == true { return (200, bytes, "application/cbor") }
+            if request.url?.path.hasSuffix(other) == true { return (200, bytes, "application/octet-stream") }
+            if request.url?.path.hasSuffix(hash) == true { return (200, bytes, "application/octet-stream") }
             return (404, Data(#"{"error":"not-found","message":"missing","retryable":false}"#.utf8), "application/json")
         }
-        let store = DaemonObjectStore(client: stubbedClient(), tree: "tr_notes")
+        let store = ObjectSourceChain([HostObjectStore(client: stubbedClient().reads(), tree: "tr_notes")])
 
         #expect(try await store.bytes(hash) == bytes)
-        await #expect(throws: ObjectStoreError.hashMismatch(expected: other, actual: hash)) {
-            _ = try await store.bytes(other)
-        }
+        let request = try #require(await LoopbackStub.state.requests().first)
+        #expect(request.path == "/.overstory/trees/tr_notes/objects/\(hash)")
+        await #expect(throws: (any Error).self) { _ = try await store.bytes(other) }
         let absent = "sha256:" + String(repeating: "cd", count: 32)
         await #expect(throws: ObjectStoreError.missing(absent)) {
             _ = try await store.bytes(absent)
@@ -315,6 +190,14 @@ struct LoopbackServicesTests {
         #expect(!StorySyncProcessSupervisor.isStaleHelper(running: "0.1.0+4", bundled: "0.1.0+4"))
         #expect(!StorySyncProcessSupervisor.isStaleHelper(running: "0.1.0", bundled: "0.1.0+4"))
         #expect(!StorySyncProcessSupervisor.isStaleHelper(running: "0.1.0+3", bundled: nil))
+    }
+
+    @Test("A running launch agent is recognized from launchctl print, so a starting one is waited for")
+    func servicePIDFromPrint() {
+        let running = "gui/501/org.nxhx.story.sync = {\n\tactive count = 1\n\tstate = running\n\tpid = 785\n\truns = 1\n}\n"
+        #expect(StorySyncProcessSupervisor.servicePID(running) == 785)
+        let stopped = "gui/501/org.nxhx.story.sync = {\n\tstate = not running\n\truns = 0\n}\n"
+        #expect(StorySyncProcessSupervisor.servicePID(stopped) == nil)
     }
 
     @Test("Attach-only control supervisor never launches a helper")

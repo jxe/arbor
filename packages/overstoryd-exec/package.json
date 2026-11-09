@@ -12,6 +12,7 @@
     "@ovst/collection-schema": "workspace:*",
     "@ovst/exec-protocol": "workspace:*",
     "@ovst/protocol": "workspace:*",
-    "@ovst/usl": "workspace:*"
+    "@ovst/usl": "workspace:*",
+    "sucrase": "^3.35.1"
   }
 }

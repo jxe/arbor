@@ -1,42 +1,24 @@
 import { useQuery, useUser } from "overstory/react"
-import { node, query } from "overstory/data"
+import { view } from "overstory/data"
 import { z } from "zod"
 import { ListGrid, PracticeGrid, Shell } from "./components/shared"
+import { byName, listSummary, Person, sorted } from "./scripts/views"
 
-const people = node("./data/Person").children
-const profileCard = people.pick("id", "name", "handle", "portrait")
 
-export const profile = query.maybe(
-  people,
-  z.object({ profile: z.string().min(1) }),
-  (person, { input }) => ({
-    where: person.id.eq(input.profile),
-    select: {
-      ...person.pick("id", "name", "handle", "portrait", "bio"),
-      practices: person.practices({
-        orderBy: practice => practice.name,
-        select: practice => practice.pick("id", "name", "about"),
-      }),
-      lists: person.ownedLists({
-        where: list => list.visibility.eq("Public"),
-        orderBy: list => list.name,
-        select: list => ({
-          ...list.pick("id", "name", "about", "visibility", "kind"),
-          ownerProfile: list.owner,
-          owner: list.owner(profileCard),
-          practiceCount: list.items.count,
-          reactionCount: list.reactions.count,
-          reactionProfiles: list.reactions({
-            orderBy: reaction => reaction.person,
-            select: reaction => ({ profile: reaction.person }),
-          }),
-        }),
-      }),
-    },
-  }),
-)
+export const profile = view(z.object({ profile: z.string().min(1) }), ({ profile }) => {
+  const person = Person.one(p => [p.id.is(profile)])
+  return person && {
+    id: person.id,
+    name: person.name,
+    handle: person.handle,
+    portrait: person.portrait,
+    bio: person.bio,
+    practices: sorted(person.practices, byName).map(p => ({ id: p.id, name: p.name, about: p.about })),
+    lists: sorted(person.ownedLists.all(l => [l.visibility.is("Public")]), byName).map(listSummary),
+  }
+})
 
-export default function Profile({ search }: { search: URLSearchParams }) {
+export default function ProfilePage({ search }: { search: URLSearchParams }) {
   const id = search.get("id")
   if (!id) {
     return (

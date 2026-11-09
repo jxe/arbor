@@ -110,7 +110,7 @@ operations, and the authority replays them and recomputes the model
 fingerprint and the collection's logical hash
 ([what the tree holds](06-child-backings.md#21-what-the-tree-holds)).
 Each row has an ordinary public address such as
-`/~joe/atlas/practices/walking;overstory-key=…` ([public projection](03-locators.md#6-public-http-projection)).
+`/~joe/atlas/practices/walking;overstory-key=…` ([reading at the canonical URL](01-tree-operations.md#13-reading-at-the-canonical-url)).
 
 ## 7. Query it from a page
 
@@ -132,11 +132,11 @@ manifest that binds the handle to `(tr_…, /practices, schema fingerprint)` and
 records its read prefix ([handles](07-executable-documents.md#3-modules-and-named-handles),
 [queries](07-executable-documents.md#4-queries), [compilation](07-executable-documents.md#7-compilation-and-hosting)).
 A visitor's browser receives the server-rendered page with the query's result
-embedded, then opens `QUERY /.overstory/trees/tr_…/queries` naming the document
-version and the handle. The stream sends `result` and `ready`. When Joe edits
+embedded, then opens `QUERY /.overstory/trees/tr_…/views` naming the document
+version and the view. The stream sends `result` and `ready`. When Joe edits
 the CSV, the tree advances, the provider reports which rows changed, the host
 re-evaluates, and a new `result` with a new `outputHash` follows
-([executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-named-queries), [authoring API](08-authoring-api.md)).
+([executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-views), [authoring API](08-authoring-api.md)).
 
 ## 8. Run a mutation
 
@@ -150,7 +150,7 @@ mutation changed an Overstory-canonical tree, the receipt's `affected` names the
 new accepted update, and Alice's watch sees an ordinary `tree.update` frame. A
 retry with the same `mutationID` returns the original receipt and does nothing
 twice ([mutations](07-executable-documents.md#5-mutations),
-[executable documents §12.2](07-executable-documents.md#122-execute-named-mutations), [actions](08-authoring-api.md#4-actions-and-forms)).
+[executable documents §12.2](07-executable-documents.md#122-execute-named-mutations), [actions](08-authoring-api.md#5-actions-and-forms)).
 
 ## 9. Rename the canonical URL
 

@@ -1,11 +1,35 @@
-import StoryKit
+import OverstoryWorkspace
 import Overstory
 import Foundation
 import UniformTypeIdentifiers
 
 public enum SnapshotBridge {
-    /// Directory references must be present in all modes; sparse file references
-    /// may omit payloads, except Markdown source which must remain inline.
+    /// Markdown sources by object hash. A projection after a save decodes
+    /// only the pages that changed, and unchanged pages keep the same string
+    /// storage, which makes later comparisons of them immediate.
+    static let decodedSources = DecodedSources()
+
+    final class DecodedSources: @unchecked Sendable {
+        private let lock = NSLock()
+        private var sources: [String: String] = [:]
+        private var size = 0
+        private let maxBytes = 64 * 1024 * 1024
+
+        func source(_ hash: String) -> String? { lock.withLock { sources[hash] } }
+
+        func insert(_ hash: String, _ source: String) {
+            lock.withLock {
+                guard sources[hash] == nil else { return }
+                if size + source.utf8.count > maxBytes { sources.removeAll(); size = 0 }
+                sources[hash] = source
+                size += source.utf8.count
+            }
+        }
+    }
+
+    /// Directory references must be present except in `.lazyDirectories`, where
+    /// a missing directory becomes an unloaded node; sparse file references may
+    /// omit payloads, except Markdown source which must remain inline.
     public static func replacement(
         snapshot: ProtocolSnapshot,
         tree: TreeID,
@@ -15,7 +39,8 @@ public enum SnapshotBridge {
         entryMetadata: [String: EntryMetadata] = [:],
         acceptedAt: Date? = nil
     ) throws -> WorkingTreeSystemReplacement {
-        let sparse = mode == .sparseFiles
+        let sparse = mode != .complete
+        let lazy = mode == .lazyDirectories
         let objects = try ProtocolObjectGraph.validate(snapshot, mode: mode)
         let bytesByHash = Dictionary(snapshot.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
         var nodes: [WorkingTreeSystemNode] = []
@@ -41,11 +66,28 @@ public enum SnapshotBridge {
         }
 
         func markdownSource(_ hash: String) throws -> String {
+            if let known = decodedSources.source(hash) { return known }
             let bytes = try fileBytes(hash)
             guard let decoded = String(data: bytes, encoding: .utf8) else {
                 throw ProtocolValidationError.invalidValue("Markdown is not UTF-8")
             }
+            decodedSources.insert(hash, decoded)
             return decoded
+        }
+
+        /// Whether the directory `hash` arrived with every Markdown body and
+        /// collection object a node needs.
+        func holdsBodies(_ hash: String) -> Bool {
+            guard case let .directory(entries, collection)? = objects[hash] else { return false }
+            for entry in entries where entry.directory == nil && entry.tree == nil {
+                guard entry.page != nil || entry.name.hasSuffix(".md") else { continue }
+                guard let body = entry.hash, objects[body] != nil else { return false }
+            }
+            for table in collection?.tables ?? [] {
+                guard case let .table(object)? = objects[table.table] else { return false }
+                if object.chunks.contains(where: { bytesByHash[$0.chunk] == nil }) { return false }
+            }
+            return true
         }
 
         func appendNode(_ node: WorkingTreeSystemNode) throws {
@@ -62,8 +104,7 @@ public enum SnapshotBridge {
                 throw ProtocolValidationError.incompleteGraph(hash)
             }
             let directoryNames = Set(entries.compactMap { entry -> String? in
-                guard let hash = entry.hash, case .directory? = objects[hash] else { return nil }
-                return entry.name
+                entry.directory == nil ? nil : entry.name
             })
             let siblingBodies = Dictionary(grouping: entries.compactMap { entry -> (stem: String, name: String)? in
                 guard let hash = entry.hash, let object = objects[hash] else { return nil }
@@ -111,6 +152,18 @@ public enum SnapshotBridge {
                 }
                 guard let object = objects[childHash] else {
                     guard sparse else { throw ProtocolValidationError.incompleteGraph(childHash) }
+                    if entry.directory != nil {
+                        guard lazy else { throw ProtocolValidationError.incompleteGraph(childHash) }
+                        // Not loaded yet; its sibling body belongs to this directory.
+                        let siblingSource = try entries.first { $0.name == entry.name + ".md" && $0.hash != nil }?.hash.map(markdownSource)
+                        try appendNode(WorkingTreeSystemNode(
+                            path: destination,
+                            content: .directory(source: siblingSource),
+                            directoryBodyPlacement: siblingSource != nil ? .siblingMarkdown : nil,
+                            unloadedDirectory: childHash
+                        ))
+                        continue
+                    }
                     guard !entry.name.hasSuffix(".md"), entry.page == nil else {
                         throw ProtocolValidationError.incompleteGraph("Markdown \(destination) is not in the sparse snapshot")
                     }
@@ -135,21 +188,30 @@ public enum SnapshotBridge {
                     } else {
                         siblingSource = nil
                     }
+                    if lazy, !holdsBodies(childHash) {
+                        // Present but without every body (a replay that changed it,
+                        // a graph cut before its pages were read): held unloaded,
+                        // so it loads again, checked, when a path below it is asked for.
+                        try appendNode(WorkingTreeSystemNode(
+                            path: destination,
+                            content: .directory(source: siblingSource),
+                            directoryBodyPlacement: siblingSource != nil ? .siblingMarkdown : nil,
+                            unloadedDirectory: childHash
+                        ))
+                        continue
+                    }
                     try visitDirectory(childHash, path: destination, siblingMarkdownSource: siblingSource)
                 case .file, .page:
-                    let bytes = try fileBytes(childHash)
                     if entry.name.hasSuffix(".md") {
                         let logicalName = String(entry.name.dropLast(3))
                         if directoryNames.contains(logicalName) { continue }
-                        guard let decoded = String(data: bytes, encoding: .utf8) else {
-                            throw ProtocolValidationError.invalidValue("Markdown is not UTF-8")
-                        }
+                        let decoded = try markdownSource(childHash)
                         try appendNode(WorkingTreeSystemNode(
                             path: childPath(logicalName, parent: path),
                             content: .markdown(source: decoded)
                         ))
                     } else {
-                        try appendNode(WorkingTreeSystemNode(path: destination, content: .file(ref: .inline(bytes))))
+                        try appendNode(WorkingTreeSystemNode(path: destination, content: .file(ref: .inline(try fileBytes(childHash)))))
                     }
                 case .table, .rows:
                     throw ProtocolValidationError.invalidValue("A directory entry names a collection object")

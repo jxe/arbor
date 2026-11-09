@@ -1,3 +1,8 @@
 # StoryKit
 
-App-level models shared by the Story app and the packages above the working tree: workspace models and the provider protocol, `WorkspaceCoordinator`, logical URLs, display titles and slugs, `EditorSource` (an editor as a source of local changes; `docs/implementing-editors/editor-source.md`), and `BrowserTabController`. No dependencies.
+The app's own pieces on top of the client library's workspace module
+([`OverstoryWorkspace`](../OverstoryWorkspace/README.md)): `WorkspaceCoordinator`
+and document leases, `DraftDocumentSession`, `InMemoryWorkspaceProvider` (also
+the test fixture), title slugs, cross-tree page moves, and
+`BrowserTabController`. It re-exports `OverstoryWorkspace`, so app code imports
+StoryKit alone. Depends on OverstoryWorkspace only.

@@ -1,5 +1,5 @@
 import { cloneState, copy, loadState, lookup, own, retainState, same, shareState, since, union, viewState, type RetainedState, type RetainedStates } from "./retained-state.ts";
-import { isPropertyOperation, stableJSONString } from "@ovst/protocol";
+import { isPropertyOperation, locatePieces, normalizePieces as normalizeIndexPieces, ProvenanceRefusal, stableJSONString, type ProvenanceNode } from "@ovst/protocol";
 import {
   decodeProtocolDirectory,
   decodeProtocolPage,
@@ -30,11 +30,16 @@ import {
 
 import {
   evaluateFormat,
+  formatOf,
+  elementFormats,
+  dataReader,
+  evaluateElementInsertions,
   evaluateTransfer,
   evaluateProseInsertions,
   type FormatEvidence,
   type TransferContext,
 } from "./format-rules.ts";
+import { markdownBlocks } from "./markdown-blocks.ts";
 import {
   pieceEdits,
   applyPieceEdits,
@@ -126,6 +131,8 @@ const decodedDirectories = new Map<string, { directory: ProtocolDirectory; size:
 let decodedDirectoryBytes = 0;
 /** A directory object's contents. Bytes that are not one are invalid
  * material (a candidate can name any object), not an evaluator failure. */
+/** Concurrent reads when prefetching a tree. */
+const PREFETCH_READS = 32;
 const directoryOf = (hash: string, bytes: Uint8Array): ProtocolDirectory => {
   const known = decodedDirectories.get(hash);
   if (known) {
@@ -451,8 +458,35 @@ class Engine {
       changes: {},
       decisions: [],
     };
+    await this.prefetch(root);
     await this.importNode(state, root, "directory", state.root, null, "");
     return state;
+  }
+  /** Read a tree's objects into the cache concurrently, a level at a time,
+   * before importing it in order: on a slow volume each read waits. Absent
+   * or refused objects are left for the import to report. */
+  private async prefetch(root: string): Promise<void> {
+    let level = [root];
+    while (level.length) {
+      const next: string[] = [];
+      for (let i = 0; i < level.length; i += PREFETCH_READS) {
+        await Promise.all(level.slice(i, i + PREFETCH_READS).map(async (hash) => {
+          const bytes = await this.read(hash).catch(() => null);
+          if (!bytes) return;
+          let directory: ProtocolDirectory;
+          try { directory = directoryOf(hash, bytes); } catch { return; }
+          const leaves: string[] = [];
+          for (const entry of directory.entries) {
+            if (entry.directory) next.push(entry.directory);
+            else if (entry.page) leaves.push(entry.page);
+            else if (entry.file && !this.knownLengths?.has(entry.file)) leaves.push(entry.file);
+          }
+          for (let j = 0; j < leaves.length; j += PREFETCH_READS)
+            await Promise.all(leaves.slice(j, j + PREFETCH_READS).map((leaf) => this.read(leaf).catch(() => null)));
+        }));
+      }
+      level = next;
+    }
   }
   /** A state this process recorded; `missing-context` when it holds none. */
   retained(id: string): RetainedState {
@@ -770,63 +804,12 @@ class Engine {
   ): [number, number] {
     if (current.length * observed.length > 2_000_000)
       throw new MergeRefusal("limit", "Source lookup work budget exceeded");
-    const selected = slice(observed, ...range);
-    if (!observed.length && current.length)
-      return fail("Empty source anchor has concurrent content");
-    const positions: Array<[number, number]> = [];
-    let offset = 0,
-      covered = 0;
-    for (const p of current) {
-      for (const q of selected) {
-        const shared = intersect(p, q);
-        if (shared) {
-          positions.push([offset + shared[0] - p.start, offset + shared[1] - p.start]);
-          covered += shared[1] - shared[0];
-        }
-      }
-      offset += p.length;
+    try {
+      return locatePieces(current, observed, range);
+    } catch (error) {
+      if (error instanceof ProvenanceRefusal) return fail(error.message);
+      throw error;
     }
-    if (range[0] !== range[1]) {
-      positions.sort((a, b) => a[0] - b[0]);
-      if (
-        covered !== length(selected) ||
-        !positions.length ||
-        positions.at(-1)![1] - positions[0]![0] !== covered
-      )
-        return fail("Selected material was changed or duplicated");
-      return [positions[0]![0], positions.at(-1)![1]];
-    }
-    const left = slice(observed, Math.max(0, range[0] - 1), range[0])[0];
-    const right = slice(
-      observed,
-      range[0],
-      Math.min(length(observed), range[0] + 1)
-    )[0];
-    let l: number | undefined = left ? undefined : 0,
-      r: number | undefined = right ? undefined : length(current);
-    offset = 0;
-    for (const p of current) {
-      if (
-        left &&
-        p.origin === left.origin &&
-        left.start >= p.start &&
-        left.start < p.start + p.length
-      )
-        l = offset + left.start - p.start + 1;
-      if (
-        right &&
-        p.origin === right.origin &&
-        right.start >= p.start &&
-        right.start < p.start + p.length
-      )
-        r = offset + right.start - p.start;
-      offset += p.length;
-    }
-    if (!right && left) r = l;
-    if (!left && right) l = r;
-    if (l === undefined || r === undefined || l > r)
-      return fail("Insertion anchor is unavailable");
-    return [r, r];
   }
   async evolved(
     state: IntentState,
@@ -1431,6 +1414,132 @@ class Engine {
         edit.pieces.length > 0 &&
         edit.pieces.every((p) => state.effects[p.origin]?.preserves === true),
     }));
+  }
+  /** `local` without the deletions that only repeat one `remote` already
+   * made. A device that missed the other's deletion of an item and deletes
+   * it again often selects it a little differently (the item's text and the
+   * next item's marker rather than its own marker and text). Such a deletion
+   * repeats current when sliding it along equal bytes of the base lands on
+   * material current removed from between its neighbors. Other overlapping
+   * edits repeat current when both sides leave the same bytes there; current
+   * keeps its own contribution. */
+  async unrepeated(base: Piece[], local: PieceEdit[], remote: PieceEdit[], now: Piece[]): Promise<PieceEdit[]> {
+    const bytes = Buffer.from(await this.bytes(base));
+    // Where a base byte is in `now`, or -1 when current no longer has it.
+    const position = (at: number) => {
+      const [p] = slice(base, at, at + 1);
+      let offset = 0;
+      for (const q of now) {
+        const shared = p && intersect(p, q);
+        if (shared) return offset + shared[0] - q.start;
+        offset += q.length;
+      }
+      return -1;
+    };
+    // Current removed exactly this material and put nothing between its neighbors.
+    const gone = (start: number, end: number) => {
+      if (!slice(base, start, end).every(p => !now.some(q => intersect(p, q)))) return false;
+      const before = start === 0 ? -1 : position(start - 1),
+        after = end === bytes.length ? length(now) : position(end);
+      return (start === 0 || before >= 0) && after >= 0 && after === before + 1;
+    };
+    const deletedAlready = ({ range: [start, end], pieces }: PieceEdit) => {
+      if (pieces.length || start === end) return false;
+      for (let shift = -(end - start); shift <= end - start; shift++) {
+        const s = start + shift, e = end + shift;
+        if (s < 0 || e > bytes.length) continue;
+        const slides = shift < 0
+          ? bytes.subarray(s, start).equals(bytes.subarray(e, end))
+          : bytes.subarray(start, s).equals(bytes.subarray(end, e));
+        if (slides && gone(s, e)) return true;
+      }
+      return false;
+    };
+    const repeated = new Set<PieceEdit>(local.filter(deletedAlready));
+    const sided = [
+      ...local.filter(e => !repeated.has(e)).map(e => ({ ...e, side: 1, edit: e })),
+      ...remote.map(e => ({ ...e, side: 0, edit: e })),
+    ];
+    for (const group of overlapGroups(sided)) {
+      if (!group.some(e => e.side === 0) || !group.some(e => e.side === 1)) continue;
+      const start = Math.min(...group.map(e => e.range[0])), end = Math.max(...group.map(e => e.range[1]));
+      const [mine, theirs] = await Promise.all([1, 0].map(side => this.bytes(applyPieceEdits(slice(base, start, end),
+        group.filter(e => e.side === side).map(e => ({ range: [e.range[0] - start, e.range[1] - start] as [number, number], pieces: e.pieces }))))));
+      if (Buffer.from(mine!).equals(theirs!))
+        for (const e of group) if (e.side === 1) repeated.add(e.edit);
+    }
+    return local.filter(e => !repeated.has(e));
+  }
+  /** The choices a format refusal requires. Each group of edits the refusal
+   * concerns (every group holding an incoming edit, or, when the refusal names
+   * blocks, the groups in those blocks and any group where both sides' edits
+   * overlap) grows to whole blocks of the base: Markdown blocks for Markdown,
+   * blank-line separated runs otherwise. It takes in every edit those blocks
+   * contain and any edit that carries their material elsewhere (a move's other
+   * end), and becomes one choice. Edits outside every choice keep merging as
+   * they would have. */
+  coupledGroups<E extends PieceEdit & { side: number }>(
+    base: Piece[], groups: E[][], bytes: Uint8Array, parsed?: Array<{ start: number; end: number }> | null, scope?: Array<[number, number]>,
+  ): Array<E[] & { span?: [number, number] }> {
+    const text = Buffer.from(bytes);
+    // The innermost block holding a position, or a blank-line separated run.
+    const holding = (at: number, end: boolean) => parsed
+      ?.filter(b => end ? b.start < at && at <= b.end : b.start <= at && at < b.end)
+      .reduce<typeof parsed[number] | undefined>((inner, b) => !inner || b.start >= inner.start ? b : inner, undefined);
+    const blockStart = (at: number) => holding(at, false)?.start ?? Math.max(0, ...["\n\n", "\n\r\n"].map(s => {
+      const found = at < s.length ? -1 : text.lastIndexOf(s, at - s.length);
+      return found < 0 ? 0 : found + s.length;
+    }));
+    const blockEnd = (at: number) => holding(at, true)?.end ?? Math.min(text.length, ...["\n\n", "\n\r\n"].map(s => {
+      const found = text.indexOf(s, at);
+      return found < 0 ? text.length : found + s.length;
+    }));
+    const range = (group: E[]): [number, number] =>
+      [Math.min(...group.map(e => e.range[0])), Math.max(...group.map(e => e.range[1]))];
+    const meets = ([s, e]: [number, number], [a, b]: [number, number]) => s === e ? a <= s && s <= b : s < b && a < e;
+    // A refused block concerns the edits in it or touching it. A refusal whose
+    // blocks no edit touches cannot be placed, so it concerns every incoming edit.
+    const touches = ([s, e]: [number, number], [a, b]: [number, number]) => s <= b && a <= e;
+    if (scope && !scope.every(blocks => groups.some(group => touches(range(group), blocks)))) scope = undefined;
+    const concerned = (group: E[]) => {
+      if (!scope) return group.some(e => e.side === 1);
+      if (group.some(e => e.side === 0) && group.some(e => e.side === 1)) return true;
+      return scope.some(blocks => touches(range(group), blocks));
+    };
+    const carries = (group: E[], [start, end]: [number, number]) => {
+      const material = slice(base, start, end);
+      return group.some(e => e.pieces.some(p => material.some(q => intersect(p, q))));
+    };
+    const pending = groups.map(group => ({ group: [...group], span: range(group) }));
+    const choices: Array<{ group: E[]; span: [number, number] }> = [];
+    for (let seed = pending.find(g => concerned(g.group)); seed; seed = pending.find(g => concerned(g.group))) {
+      pending.splice(pending.indexOf(seed), 1);
+      let span: [number, number] = [blockStart(seed.span[0]), blockEnd(seed.span[1])], grew = true;
+      const group = seed.group;
+      while (grew) {
+        grew = false;
+        // The refused blocks this choice meets are wholly inside it.
+        for (const [s, e] of scope ?? [])
+          if (meets(span, [s, e]) && (s < span[0] || e > span[1])) {
+            span = [blockStart(Math.min(span[0], s)), blockEnd(Math.max(span[1], e))];
+            grew = true;
+          }
+        for (const other of [...pending, ...choices]) {
+          const [s, e] = other.span;
+          const inside = s === e ? span[0] <= s && s <= span[1] : s < span[1] && span[0] < e;
+          if (!inside && !carries(other.group, span) && !carries(group, other.span)) continue;
+          group.push(...other.group);
+          span = [blockStart(Math.min(span[0], s)), blockEnd(Math.max(span[1], e))];
+          (pending.includes(other) ? pending : choices).splice((pending.includes(other) ? pending : choices).indexOf(other), 1);
+          grew = true;
+        }
+      }
+      choices.push({ group, span });
+    }
+    return [
+      ...choices.map(({ group, span }) => Object.assign(group.sort((a, c) => a.range[0] - c.range[0]), { span })),
+      ...pending.map(({ group }) => group),
+    ].sort((a, c) => ((a as { span?: [number, number] }).span ?? range(a))[0] - ((c as { span?: [number, number] }).span ?? range(c))[0]);
   }
   /** Enforce the deletions of `effects` (by default all of the state's). */
   enforceDeletions(state: IntentState, effects: Record<string, Effect> = state.effects) {
@@ -2180,6 +2289,11 @@ class Engine {
         concurrentTransfers = this.addedEffects(current, base).filter((e) => this.transfers(e));
       const structuralTransfer = incomingTransfers.length > 0 || concurrentTransfers.length > 0;
       let transported: IntentState | undefined;
+      // Why a replay failed, where Markdown's block check cannot stand in for
+      // it: a moved link whose document changed, two moves of one text, or
+      // insertions at one anchor that the insertion policy refuses.
+      const linkBound = new Set<string>();
+      let competing = false;
       if (
         structuralTransfer &&
         current.root === base.root &&
@@ -2340,14 +2454,12 @@ class Engine {
               continue;
             const path = basePath(id),
               config = request.rules.config?.formats?.[path];
-            const evidence = await evaluateTransfer(path, [
-              await this.bytes(b.pieces ?? []),
-              await this.bytes(current.nodes[id]?.pieces ?? []),
-              await this.bytes(authored.nodes[id]?.pieces ?? []),
-              await this.bytes(next.pieces ?? []),
-            ], config, context(id));
+            const versions = [b.pieces ?? [], current.nodes[id]?.pieces ?? [], authored.nodes[id]?.pieces ?? [], next.pieces ?? []];
+            const evidence = await evaluateTransfer(path, await Promise.all(versions.map(v => this.bytes(v))),
+              config, context(id), versions);
             this.formatEvidence.push(evidence);
             if (evidence.outcome !== "resolved") {
+              if (evidence.reason === "Transfer changes a contextual link's document") linkBound.add(path);
               if (evidence.id === "markdown-source-transfer" && context(id).crossDocument === "none")
                 transported = await this.insertionChoice(current, attempt, id, signature);
               throw new Error("Transfer requires format review");
@@ -2363,6 +2475,10 @@ class Engine {
           transported = attempt;
         } catch (error) {
           rethrowUnlessFallback(error);
+          // Only a refusal the block check can judge again, or material the
+          // replay could not locate, leaves Markdown to the block check.
+          if (!(error instanceof MergeRefusal) && !(error instanceof Error && error.message === "Transfer requires format review"))
+            competing = true;
         }
       }
       // A transfer between files cannot merge file by file; one within a file
@@ -2517,6 +2633,8 @@ class Engine {
       }
       if (branchContinuation) affected.length = 0;
       const contentDecisions: IntentState["decisions"] = [];
+      // Base material of incoming edits that only repeated current's.
+      const repeats: Piece[] = [];
       let branchStates:
         | {
             old: { object: string; state: string };
@@ -2607,15 +2725,26 @@ class Engine {
               incoming.pieces &&
               remote.pieces
             ) {
-              const localEdits = await this.edits(
-                  b.pieces,
-                  incoming.pieces,
-                  authored
-                ),
-                remoteEdits = await this.edits(b.pieces, remote.pieces, current);
+              const remoteEdits = await this.edits(b.pieces, remote.pieces, current),
+                authoredEdits = await this.edits(b.pieces, incoming.pieces, authored),
+                localEdits = await this.unrepeated(b.pieces, authoredEdits, remoteEdits, remote.pieces);
+              for (const edit of authoredEdits)
+                if (!localEdits.includes(edit)) repeats.push(...slice(b.pieces, edit.range[0], edit.range[1]));
+              // Every incoming edit here repeats what current already shows.
+              if (!localEdits.length) continue;
               let basisBytes: Promise<Uint8Array> | undefined;
               const baseBytes = () => (basisBytes ??= this.bytes(b.pieces!));
-              const transferred = transferPaths.has(basePath(id));
+              const config = this.request.rules.config?.formats?.[basePath(id)];
+              // Markdown merges as blocks, where a move the replay could not
+              // place is a block in a new place. It still couples the incoming
+              // edits in this file (within the blocks they touch) when the
+              // replay failed for a reason the block check does not judge.
+              const format = formatOf(basePath(id), config);
+              const blocks = format === "markdown", elements = elementFormats.has(format);
+              const transferred = transferPaths.has(basePath(id)) &&
+                (!blocks || competing || linkBound.has(basePath(id)));
+              // The blocks a refusal names; without them it couples every incoming edit.
+              let scope: Array<[number, number]> | undefined;
               if (
                 !transferred &&
                 !localEdits.some((a) => remoteEdits.some((c) => overlap(a, c)))
@@ -2624,7 +2753,7 @@ class Engine {
                   applyPieceEdits(b.pieces, [...localEdits, ...remoteEdits])
                 );
                 const path = basePath(id);
-                const evidence = await evaluateFormat(
+                const { scope: refused, ...evidence } = await evaluateFormat(
                   path,
                   await baseBytes(),
                   await this.bytes(remote.pieces),
@@ -2632,9 +2761,11 @@ class Engine {
                   await this.bytes(proposal),
                   remoteEdits,
                   localEdits,
-                  this.request.rules.config?.formats?.[path]
+                  this.request.rules.config?.formats?.[path],
+                  blocks || elements ? [b.pieces, remote.pieces, incoming.pieces, proposal] : undefined
                 );
                 this.formatEvidence.push(evidence);
+                scope = refused;
                 if (evidence.outcome === "resolved") {
                   this.assign(merged, remote, "pieces", proposal);
                   continue;
@@ -2652,12 +2783,7 @@ class Engine {
                 ...left,
                 ...right,
               ].sort((a, c) => a.range[0] - c.range[0]);
-              const groups: Array<Array<PieceEdit & { side: number }>> = [];
-              for (const edit of edits) {
-                const last = groups.at(-1);
-                if (last?.some((e) => overlap(e, edit))) last.push(edit);
-                else groups.push([edit]);
-              }
+              const groups: Array<Array<PieceEdit & { side: number }> & { span?: [number, number] }> = overlapGroups(edits);
               // A policy refusal couples this file even if byte edits are disjoint.
               const hasOverlap = groups.some(
                 (g) =>
@@ -2670,7 +2796,7 @@ class Engine {
                   ...right,
                   ...left.filter((a) => !right.some((b) => overlap(a, b))),
                 ]);
-                const policy = await evaluateFormat(
+                const { scope: refused, ...policy } = await evaluateFormat(
                   path,
                   await baseBytes(),
                   await this.bytes(remote.pieces),
@@ -2678,9 +2804,11 @@ class Engine {
                   await this.bytes(tentative),
                   left,
                   right,
-                  request.rules.config?.formats?.[path]
+                  request.rules.config?.formats?.[path],
+                  blocks || elements ? [b.pieces, remote.pieces, incoming.pieces, normalize(tentative)] : undefined
                 );
                 this.formatEvidence.push(policy);
+                scope = refused;
                 coupledByFormat = policy.outcome !== "resolved";
               }
               if (
@@ -2689,7 +2817,20 @@ class Engine {
               ) {
                 const path = basePath(id),
                   bytes = await baseBytes();
-                const policies = await Promise.all(
+                if (elements) {
+                  // Data files: the whole document with every insertion must keep
+                  // every element as its author gave it; each group then keeps
+                  // its insertions in contribution order, checked again there.
+                  const both = applyPieceEdits(b.pieces, groups.map((group) => ({
+                    range: group[0]!.range, pieces: group.flatMap((e) => e.pieces),
+                  })));
+                  const documents = [b.pieces, remote.pieces, incoming.pieces, normalize(both)];
+                  const verdict = await evaluateElementInsertions(path,
+                    await Promise.all(documents.map((d) => this.bytes(d))), documents, request.rules.config?.formats?.[path]);
+                  this.formatEvidence.push(verdict);
+                  if (verdict.outcome === "resolved") coupledByFormat = false;
+                }
+                const policies = elements ? [] : await Promise.all(
                   groups.map(async (group) =>
                     evaluateProseInsertions(
                       path,
@@ -2701,15 +2842,23 @@ class Engine {
                   )
                 );
                 this.formatEvidence.push(...policies);
-                if (policies.every((p) => p.outcome === "resolved"))
+                if (!elements && policies.every((p) => p.outcome === "resolved"))
                   coupledByFormat = false;
               }
               if (transferred) coupledByFormat = true;
-              if (coupledByFormat) groups.splice(0, groups.length, edits);
+              if (coupledByFormat) {
+                // Choices grow to whole elements of the base where its format reads them.
+                const bytes = await baseBytes(), source = Buffer.from(bytes).toString("utf8");
+                const parsed = blocks ? markdownBlocks(source)
+                  : elements ? (await dataReader(format, [source], config).catch(() => null))?.read(source) : null;
+                groups.splice(0, groups.length, ...this.coupledGroups(b.pieces, groups, bytes, parsed, scope));
+              }
               const selected = [];
               for (const group of groups) {
-                const start = Math.min(...group.map((e) => e.range[0])),
-                  end = Math.max(...group.map((e) => e.range[1]));
+                const [start, end] = group.span ?? [
+                  Math.min(...group.map((e) => e.range[0])),
+                  Math.max(...group.map((e) => e.range[1])),
+                ];
                 const versions = [0, 1].map((side) =>
                   applyPieceEdits(
                     slice(b.pieces!, start, end),
@@ -2724,13 +2873,11 @@ class Engine {
                       }))
                   )
                 );
-                if (
-                  group.some((e) => e.side === 0) &&
-                  group.some((e) => e.side === 1)
-                ) {
+                const both = group.some((e) => e.side === 0) && group.some((e) => e.side === 1);
+                if (both || group.span) {
                   const formatConfig =
                     request.rules.config?.formats?.[basePath(id)];
-                  if (start === end) {
+                  if (both && start === end) {
                     const basisOrigins = new Set(b.pieces.map((p) => p.origin));
                     const origins = (origin: string) =>
                       Object.hasOwn(authored.origins, origin)
@@ -2769,6 +2916,17 @@ class Engine {
                     const combined = [...contributions]
                       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
                       .flatMap(([, pieces]) => pieces);
+                    if (elements) {
+                      // Data files: both insertions, when every element keeps what its author gave it.
+                      const documents = [b.pieces, ...versions.map((v) => replacePieces(b.pieces!, start, end, v)), replacePieces(b.pieces, start, end, combined)];
+                      const verdict = await evaluateElementInsertions(basePath(id),
+                        await Promise.all(documents.map((d) => this.bytes(d))), documents, formatConfig);
+                      this.formatEvidence.push(verdict);
+                      if (verdict.outcome === "resolved") {
+                        selected.push({ range: [start, end] as [number, number], pieces: combined });
+                        continue;
+                      }
+                    }
                     const policy = evaluateProseInsertions(
                       basePath(id),
                       await baseBytes(),
@@ -2880,6 +3038,15 @@ class Engine {
       merged.changes[request.incoming.change] = signature;
       for (const node of Object.values(merged.nodes))
         if (node.deletions?.length) this.assign(merged, node, "active", false);
+      // A repeated deletion selected some material current kept (the next
+      // item's marker); what current kept stays.
+      if (repeats.length)
+        for (const key of Object.keys(since(authored.effects, base.effects))) {
+          const effect = merged.effects[key];
+          if (effect?.kind !== "editSource") continue;
+          merged.effects[key] = { ...effect, edits: Object.fromEntries(Object.entries(effect.edits).map(([id, list]) =>
+            [id, list.map((edit) => ({ ...edit, removed: subtractPieces(edit.removed, repeats) }))])) };
+        }
       for (const decision of contentDecisions)
         await this.declineDeletions(merged, decision,
           decision.placement?.pieces ?? merged.nodes[decision.affected[0]!]?.pieces ?? []);
@@ -3643,11 +3810,16 @@ export async function checkpointIntent(
       const [start, end] = input.range;
       const context = (await previousRecord()).state;
       const alternatives = [];
+      const placed = !input.at && end <= length(node.pieces);
       for (const [index, a] of input.alternatives.entries()) {
         const id = `imported:${input.key}:${index}`;
-        const size = (await objects.read(a.object)).byteLength;
+        const bytes = await objects.read(a.object), size = bytes.byteLength;
+        // The selected alternative is the text the file shows in the range:
+        // it is those pieces, so edits that leave them alone do not continue it.
+        const shown = placed && index === input.selected ? slice(node.pieces, start, end) : undefined;
+        const own = shown && Buffer.from(await engine.bytes(shown)).equals(bytes);
         engine.setNode(state, id, { id, parent: null, name: "", kind: "file", object: a.object,
-          pieces: [{ origin: id, start: 0, object: a.object, offset: 0, length: size }], active: true });
+          pieces: own ? clone(shown) : [{ origin: id, start: 0, object: a.object, offset: 0, length: size }], active: true });
         alternatives.push({ state: context, object: a.object, node: id, contributions: a.contributions });
       }
       const shown = await engine.project(state, node.id);
@@ -3660,7 +3832,7 @@ export async function checkpointIntent(
         dependencies: input.dependencies ?? [],
         reason: "Retained source choice",
         subject: { material: { kind: "basis", path: "/" + input.path.join("/"), object: input.at ?? shown }, range: input.range },
-        ...(input.at || end > length(node.pieces) ? {} : { placement: { node: node.id, pieces: slice(node.pieces, start, end), anchor: start } }),
+        ...(placed ? { placement: { node: node.id, pieces: slice(node.pieces, start, end), anchor: start } } : {}),
       });
       continue;
     }
@@ -3880,4 +4052,83 @@ export async function checkpointIntent(
   const result = await engine.record(state, editable);
   await keep(engine, objects);
   return result;
+}
+
+/** Edits in order, grouped where they overlap. */
+function overlapGroups<E extends PieceEdit>(edits: E[]): E[][] {
+  const groups: E[][] = [];
+  for (const edit of [...edits].sort((a, c) => a.range[0] - c.range[0])) {
+    const last = groups.at(-1);
+    if (last?.some((e) => overlap(e, edit))) last.push(edit);
+    else groups.push([edit]);
+  }
+  return groups;
+}
+
+/** The provenance index a recorded state implies: its active nodes' ids and
+ * their pieces' origins (docs/architecture/overstoryd/provenance-index.md).
+ * The inverse of `indexedIntent`. */
+export function stateIndex(retained: RetainedState): ProvenanceNode {
+  const view = viewState(retained);
+  const children = new Map<string, Node[]>();
+  for (const node of Object.values(view.nodes))
+    if (node.active && node.parent !== null) children.set(node.parent, [...children.get(node.parent) ?? [], node]);
+  const visit = (node: Node): ProvenanceNode => {
+    if (node.kind === "tree") return { kind: "tree", node: node.id };
+    if (node.kind === "file" || node.kind === "page")
+      return { kind: node.kind, node: node.id, pieces: normalizeIndexPieces((node.pieces ?? []).map((p) => ({ origin: p.origin, start: p.start, length: p.length }))) };
+    const entries: Record<string, ProvenanceNode> = {};
+    for (const child of children.get(node.id) ?? []) entries[child.name] ??= visit(child);
+    return { kind: "directory", node: node.id, entries };
+  };
+  return visit(view.nodes[view.root]!);
+}
+
+/** The state an accepted entry's provenance index gives (Performance 004
+ * step 4; docs/architecture/overstoryd/provenance-index.md): `root` imported
+ * with the index's node identities and pieces, no history and no decisions
+ * (the sidecar aligns the entry's decisions from the log, decision 6). A
+ * node's pieces locate its bytes in the file (a page: its body) at `root`. */
+export async function indexedIntent(
+  request: { tree: string; root: string; index: ProvenanceNode },
+  objects: MergeObjects,
+): Promise<{ object: string; state: string }> {
+  const engine = new Engine({
+    tree: request.tree, base: { object: request.root }, current: { object: request.root },
+    incoming: { change: "provenance-index", object: request.root, trace: [] },
+    rules: { id: "tree-default", revision: 1 },
+  }, objects);
+  const fresh = await engine.initial(request.root);
+  const state: IntentState = { ...fresh, root: request.index.node, nodes: {} };
+  const children = engine.childIndex(fresh);
+  const visit = (id: string, index: ProvenanceNode, parent: string | null) => {
+    const node = fresh.nodes[id]!;
+    if (index.kind !== node.kind) return fail("Provenance index does not match the root");
+    const next: Node = { ...clone(node), id: index.node, parent };
+    if (index.kind === "file" || index.kind === "page") {
+      const piece = node.pieces?.[0];
+      let offset = 0;
+      next.pieces = index.pieces.map((p) => {
+        const value = { origin: p.origin, start: p.start, object: piece?.object ?? node.object, offset, length: p.length };
+        offset += p.length;
+        return value;
+      });
+      if (offset !== length(node.pieces ?? [])) return fail("Provenance index does not match the root");
+    }
+    engine.setNode(state, index.node, next);
+    if (index.kind === "directory") {
+      const named = engine.children(fresh, id, children);
+      if (named.length !== Object.keys(index.entries).length) return fail("Provenance index does not match the root");
+      for (const child of named) {
+        const entry = index.entries[child.name];
+        if (!entry) return fail("Provenance index does not match the root");
+        visit(child.id, entry, index.node);
+      }
+    }
+  };
+  visit(fresh.root, request.index, null);
+  const recorded = await engine.record(state, true);
+  if (recorded.object !== request.root) return fail("Provenance index does not match the root");
+  await keep(engine, objects);
+  return recorded;
 }

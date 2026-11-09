@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { decodeLogEntry, OBJECT_HASH, rawAlternatives, type LogEntry } from "@ovst/merge-protocol";
 import type { ObjectStore } from "@ovst/object-store";
+import type { ProvenanceStore } from "./updates/provenance-store.ts";
 import { protocolObjectReferences, type ObjectHash, type ProtocolObjectKind } from "@ovst/protocol";
 
 /**
@@ -21,6 +22,10 @@ import { protocolObjectReferences, type ObjectHash, type ProtocolObjectKind } fr
  * bindings), and any other hash-shaped string in an entry, such as one in
  * operations or the sidecar's evidence. Intermediate trace roots were never
  * uploaded, so absence is normal and only counted.
+ *
+ * Kept when present: each retained entry's provenance index records
+ * (docs/architecture/overstoryd/provenance-index.md), a cache whose absence
+ * is not corruption.
  */
 export interface RetainedObjects {
   /** Every present object the definition names, with directory closures. */
@@ -38,7 +43,7 @@ interface Pin { hash: ObjectHash; kind: Kind }
 const HASH = OBJECT_HASH;
 
 /** Walk the retained closure over one consistent read of the database. */
-export async function retainedObjects(db: Database, objects: ObjectStore): Promise<RetainedObjects> {
+export async function retainedObjects(db: Database, objects: ObjectStore, provenance?: ProvenanceStore): Promise<RetainedObjects> {
   const { rows, versions } = db.transaction(() => ({
     rows: db.query("SELECT ordinal, root, entry FROM accepted_updates ORDER BY ordinal").all() as Array<{ ordinal: number; root: ObjectHash; entry: ObjectHash }>,
     versions: (db.query("SELECT DISTINCT content_hash FROM document_versions").all() as Array<{ content_hash: ObjectHash }>)
@@ -75,6 +80,10 @@ export async function retainedObjects(db: Database, objects: ObjectStore): Promi
   for (const pin of required) await mark(objects, pin, true, live, walked);
   let absent = 0;
   for (const pin of optional) if (!await mark(objects, pin, false, live, walked)) absent++;
+  if (provenance) for (const hash of entries) {
+    const root = await provenance.pointer(hash);
+    if (root) await provenance.records(root, live);
+  }
   return { live, absent, rows: rows.length, entries: entries.size };
 }
 

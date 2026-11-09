@@ -4,7 +4,7 @@
 // back in any order, matched by id. A failed sidecar fails only the questions
 // in flight; nothing else in overstoryd waits on it.
 
-import { parseExecAnswer, parseExecReady, type ExecAnswer, type ExecAsk, type ExecReady } from "@ovst/exec-protocol";
+import { EXEC_PROTOCOL_VERSION, parseExecAnswer, parseExecReady, type ExecAnswer, type ExecAsk, type ExecReady } from "@ovst/exec-protocol";
 
 /** The sidecar is down, busy or too slow: a retryable 503. */
 export class ExecUnavailableError extends Error {
@@ -123,7 +123,7 @@ export class ExecProcess implements AsyncDisposable {
           try { value = JSON.parse(line); } catch { value = undefined; }
           if (!handshaken) {
             const handshake = parseExecReady(value);
-            if (!handshake || handshake.ready.version !== 1) {
+            if (!handshake || handshake.ready.version !== EXEC_PROTOCOL_VERSION) {
               this.stop(running, new ExecUnavailableError("The execution sidecar's handshake is not one overstoryd speaks"));
               return;
             }

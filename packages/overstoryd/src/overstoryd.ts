@@ -3,17 +3,20 @@ import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError
 import { PackMaintenance } from "./pack-maintenance.ts";
 import { PlacementDeviceKeys, type DeviceKeyCopy, type ListedDevice } from "./placement.ts";
 import { RemoteGroups } from "./remote-groups.ts";
+import { VisitorSessions, type VisitorAuthentication } from "./visitors.ts";
 import { LocatorPins } from "./locator-pins.ts";
+import { CustomDomains, type DomainCandidate } from "./custom-domains.ts";
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
-import { checkPageConversion } from "./page-conversion.ts";
+import { checkPageConversion, convertedToPages } from "./page-conversion.ts";
 import { MergeHistory } from "./updates/merge-history.ts";
+import { ProvenanceStore } from "./updates/provenance-store.ts";
 import { Recent } from "./recent.ts";
 import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { retainedObjects } from "./retention.ts";
-import { checkPlainTrace, deriveTrace, encodeProtocolPage, isRowOperation, loadProtocolContent, parsePage, protocolContentObject, isStatedUpdate, TreeReader, UnsupportedDerivation, type DecisionPage, type ProtocolDirectory, type DerivableUpdateRequest } from "@ovst/protocol";
+import { pathReadObjects, checkPlainTrace, deriveTrace, encodeProtocolPage, isRowOperation, loadProtocolContent, parsePage, protocolContentObject, isStatedUpdate, TreeReader, treeHoldsPages, UnsupportedDerivation, type DecisionPage, type ProtocolDirectory, type DerivableUpdateRequest } from "@ovst/protocol";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -26,10 +29,12 @@ import {
   subjectProfile,
   parseProfileLocator,
   isProfileLocator,
+  isHomeHostOrigin,
   generateOverstoryID,
   isGeneratedOverstoryID,
   isPersonProfileTreeID,
   sha256,
+  inviteCodeDigest,
   validateAccountChallenge,
   deviceKeySPKI,
   deviceSessionChallengeBytes,
@@ -147,15 +152,22 @@ export interface HostDaemonOptions {
   remoteGroupStaleMs?: number;
   /** Accept page entries and conversions to them (spec 02 §3): in every tree, or in the trees listed. */
   pages?: boolean | readonly string[];
+  /** Compute missing provenance indexes in the background, from startup on
+   * (docs/architecture/overstoryd/provenance-index.md). */
+  provenanceFill?: boolean;
 }
 
 export interface HostBootstrap {
   handle: string;
   name: string;
   accounts: HostBootstrapAccount[];
+  /** The founder: a handle reserved for their Profile TreeID, or for an
+   * invitation code (`inviteCode`), whose first claim makes the claimer the
+   * community's administrator (accounts §1.2). Exactly one of the two. */
   firstWriter?: {
     handle: string;
-    profileTree: string;
+    profileTree?: string;
+    inviteCode?: string;
     name?: string;
   };
 }
@@ -279,7 +291,7 @@ function directSnapshot(source: string): TreeSnapshot {
 function profileSource(
   kind: "person" | "group",
   name: string,
-  members: Array<{ profile?: string; handle?: string }> = [],
+  members: Array<{ profile?: string; handle?: string; inviteDigest?: string }> = [],
   displayName: string | undefined = name,
 ): string {
   return [
@@ -291,6 +303,7 @@ function profileSource(
           "  -",
           ...(member.profile ? [`    profile: ${JSON.stringify(member.profile)}`] : []),
           ...(member.handle ? [`    handle: ${JSON.stringify(member.handle)}`] : []),
+          ...(member.inviteDigest ? [`    inviteDigest: ${JSON.stringify(member.inviteDigest)}`] : []),
         ])]
       : []),
     "---",
@@ -385,10 +398,18 @@ export class HostDaemon implements AsyncDisposable {
   private readonly transitions = new Recent<TransitionPayload>(TRANSITION_CACHE_ENTRIES);
   /** Placement accounts' copies of their home hosts' device keys. */
   private readonly deviceKeys: PlacementDeviceKeys;
+  /** Visitors' copies of their home hosts' device keys, by home host and profile together (accounts §5.6). */
+  private readonly visitorKeys: PlacementDeviceKeys;
+  /** Open visitor sessions, in memory only. */
+  private readonly visitors = new VisitorSessions();
   private deviceKeyTimer: ReturnType<typeof setTimeout> | undefined;
   /** Copies of the groups other hosts hold that this host's rules name. */
   private readonly remoteGroups: RemoteGroups;
   private readonly locatorPins: LocatorPins;
+  /** Domains this host serves a person's trees at (locators §5.1). */
+  readonly customDomains: CustomDomains;
+  /** Each local profile's listed domains, by the root they were read from. */
+  private readonly listedDomains = new Map<string, { ref: string; domains: string[] }>();
   private remoteGroupTimer: ReturnType<typeof setTimeout> | undefined;
   /** Background object packing (overstoryd 001). */
   readonly packing: PackMaintenance;
@@ -412,7 +433,9 @@ export class HostDaemon implements AsyncDisposable {
       ...mergeTool,
     });
     this.acceptedStore = new AcceptedUpdateStore(db);
-    this.history = new MergeHistory(this.acceptedStore, this.objects);
+    this.history = new MergeHistory(this.acceptedStore, this.objects,
+      new ProvenanceStore(dataRoot, this.objects, (hash) => this.history.entry(hash)),
+      (tree) => this.fillProvenance(tree));
     this.packing = new PackMaintenance(db, this.objects, join(dataRoot, "objects"));
     this.observations = new ObservationLog(db);
     this.accounts = new AccountDirectory(db);
@@ -422,11 +445,25 @@ export class HostDaemon implements AsyncDisposable {
       rootProfileType: (tree) => this.rootProfileType(tree.id),
       isRemoteGroupMember: (group, homeHost, profileTree) => this.readsGroupsAt(homeHost) && this.remoteGroups.isMember(group, homeHost, profileTree),
       pinnedProfile: (tree, locator) => this.locatorPins.pinned(tree, locator),
+      locatorHome: (locator) => this.locatorPins.home(locator),
+      groupMemberLocators: (group) => this.rootProfile(group.id).members.flatMap((member) =>
+        member.profile && isProfileLocator(member.profile) ? [member.profile] : []),
     }, this.accounts);
     this.execution = new ExecutionAuthority((context, grant, path, operation) => this.access.executionAllows(context, grant, path, operation));
     this.deviceKeys = new PlacementDeviceKeys(
       () => ({ lifetimeMs: this.deviceKeyLifetimeMs, refetchMs: this.deviceKeyRefetchMs, staleMs: this.deviceKeyStaleMs }),
       (profileTree, copy) => this.revokeUnlisted(profileTree, copy),
+    );
+    // A visitor's copy is keyed `<homeHost> <profileTree>`, so one home host
+    // can never answer for a profile another names as its home.
+    this.visitorKeys = new PlacementDeviceKeys(
+      () => ({ lifetimeMs: this.deviceKeyLifetimeMs, refetchMs: this.deviceKeyRefetchMs, staleMs: this.deviceKeyStaleMs }),
+      (key, copy) => {
+        const [homeHost, profileTree] = key.split(" ") as [string, string];
+        this.visitors.endUnlisted(profileTree, homeHost, (device) => copy.devices.get(device)?.key);
+      },
+      undefined,
+      (key) => key.split(" ")[1]!,
     );
     // A change in what a remote group matches is an authorization change:
     // watches and executions check again.
@@ -445,6 +482,37 @@ export class HostDaemon implements AsyncDisposable {
         this.execution.invalidate();
       },
     );
+    // Served domains are checked on the same schedule.
+    this.customDomains = new CustomDomains(
+      () => this.domainCandidates(),
+      () => ({ lifetimeMs: this.remoteGroupLifetimeMs, refetchMs: this.remoteGroupRefetchMs, staleMs: this.remoteGroupStaleMs }),
+    );
+  }
+
+  /**
+   * The domains this host's own people list in their profiles (locators
+   * §5.1), each with the path its profile is mounted at. A profile is read
+   * again only when its root changes.
+   */
+  private async domainCandidates(): Promise<DomainCandidate[]> {
+    const rows = this.db.query("SELECT id FROM accounts WHERE home_host IS NULL AND enabled = 1").all() as Array<{ id: string }>;
+    const candidates: DomainCandidate[] = [];
+    for (const { id } of rows) {
+      const tree = this.get(id);
+      if (!tree?.canonicalPath || tree.canonicalPath === "/") continue;
+      let listed = this.listedDomains.get(id);
+      if (listed?.ref !== tree.ref) {
+        try {
+          const read = await readRootProfile(tree.ref as ObjectHash, (hash) => this.object(hash), { avatar: false });
+          listed = { ref: tree.ref, domains: read.facts.type === "person" ? read.facts.domains ?? [] : [] };
+        } catch {
+          continue;
+        }
+        this.listedDomains.set(id, listed);
+      }
+      for (const domain of listed.domains) candidates.push({ domain, profile: id, prefix: tree.canonicalPath });
+    }
+    return candidates;
   }
 
   static async open(dataRoot: string, bootstrap?: HostBootstrap, mergeTool?: MergeToolOptions, options: HostDaemonOptions = {}): Promise<HostDaemon> {
@@ -452,6 +520,9 @@ export class HostDaemon implements AsyncDisposable {
     const databasePath = join(dataRoot, "overstoryd.sqlite3");
     const db = openHostDatabase(databasePath);
     const overstoryd = new HostDaemon(dataRoot, db, mergeTool);
+    // Accepted objects a crash left in the journal but not in its index.
+    const recovered = overstoryd.objects.recover();
+    if (recovered) console.info(`Object journal: ${recovered} objects indexed again`);
     for (const [name, value] of Object.entries(options) as Array<[keyof HostDaemonOptions, number | boolean | undefined]>) {
       if (value !== undefined) (overstoryd as unknown as Record<keyof HostDaemonOptions, number | boolean>)[name] = value;
     }
@@ -470,11 +541,77 @@ export class HostDaemon implements AsyncDisposable {
         throw error;
       }
     }
+    await overstoryd.resumeFounding();
+    if (overstoryd.pages === true) await overstoryd.convertTreesToPages();
     overstoryd.scheduleDeviceKeyRefresh();
     overstoryd.scheduleRemoteGroupRefresh();
     void overstoryd.refreshRemoteGroups();
     overstoryd.packing.start();
+    if (overstoryd.provenanceFill) for (const tree of overstoryd.list()) overstoryd.fillProvenance(tree.id);
     return overstoryd;
+  }
+
+  /**
+   * Spec 02 §3: convert every ordinary tree that holds no pages yet, as the
+   * host's own update, so trees no Story Sync places (a profile's directory)
+   * convert too. Runs at startup, before serving, when every tree takes pages;
+   * a tree with pages or without Markdown is left alone, so it runs once.
+   * Goes with the old Markdown writing (Filesystem 026 step 6).
+   */
+  private async convertTreesToPages(): Promise<void> {
+    const load = (hash: ObjectHash, generated?: ReadonlyMap<ObjectHash, Uint8Array>) => this.objects.load(hash, generated);
+    for (const tree of this.list()) {
+      if (tree.kind !== "ordinary" || await treeHoldsPages(tree.ref, load, this.pageDirectories)) continue;
+      try {
+        const converted = await convertedToPages(tree.ref, load);
+        if (!converted) continue;
+        await checkPageConversion(tree.ref, converted.root, (hash) => load(hash, converted.objects), this.pageDirectories, true);
+        const prepared = await this.prepareParentAdvance({ parent: tree, nextRoot: converted.root, generated: converted.objects }, `pages:${tree.id}`);
+        const accepted = this.db.transaction(() => this.advanceParent(prepared, Date.now(), null))();
+        this.notifyAccepted(accepted);
+        console.info(`Pages: converted ${tree.id} (update ${accepted.id})`);
+      } catch (error) {
+        console.warn(`Pages: could not convert ${tree.id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
+  /** Whether missing provenance indexes are computed in the background. */
+  readonly provenanceFill: boolean = false;
+  /** Trees waiting for a provenance backfill, filled one at a time. */
+  private readonly provenanceQueue = new Set<string>();
+  private provenanceRun: Promise<void> | undefined;
+
+  /** Compute a tree's missing provenance indexes up to its head, in the
+   * background and one tree at a time. Only when `provenanceFill`. */
+  private fillProvenance(tree: string): void {
+    if (!this.provenanceFill || this.disposed) return;
+    this.provenanceQueue.add(tree);
+    this.provenanceRun ??= (async () => {
+      while (!this.disposed) {
+        // An entry asks for a backfill before its acceptance commits; wait
+        // for it, so the backfill reaches it.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const [next] = this.provenanceQueue;
+        if (next === undefined) break;
+        this.provenanceQueue.delete(next);
+        const current = this.currentUpdate(next);
+        if (!current) continue;
+        try {
+          const head = (await this.history.entryFor(current)).hash;
+          const started = performance.now();
+          // Answered entries are rebound, not asked again: re-asking old
+          // questions occupies the one merge worker live updates need, and a
+          // slow one ends it (2026-11-01).
+          const filled = await this.history.provenance!.fill(head);
+          if (filled) console.info(`Provenance index: ${filled} entries of ${next} indexed in ${Math.round(performance.now() - started)} ms`);
+          const now = this.currentUpdate(next);
+          if (now && now.id !== current.id) this.provenanceQueue.add(next);
+        } catch (error) {
+          if (!this.disposed) console.warn(`Provenance backfill of ${next} failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    })().finally(() => { this.provenanceRun = undefined; });
   }
 
   private async bootstrap(config: HostBootstrap): Promise<void> {
@@ -482,9 +619,13 @@ export class HostDaemon implements AsyncDisposable {
     if (config.firstWriter && !HANDLE.test(config.firstWriter.handle)) {
       throw new Error(`Invalid first-writer handle: ${config.firstWriter.handle}`);
     }
-    if (config.firstWriter && !isPersonProfileTreeID(config.firstWriter.profileTree)) {
+    if (config.firstWriter && (config.firstWriter.profileTree === undefined) === (config.firstWriter.inviteCode === undefined)) {
+      throw new Error("A founder is reserved for a profile or for an invitation code, not both");
+    }
+    if (config.firstWriter?.profileTree !== undefined && !isPersonProfileTreeID(config.firstWriter.profileTree)) {
       throw new Error("First-writer profile must be a self-certifying person Profile TreeID");
     }
+    const founderDigest = config.firstWriter?.inviteCode !== undefined ? inviteCodeDigest(config.firstWriter.inviteCode) : undefined;
     const preparedAccounts = config.accounts.map((account) => {
       const profileTree = account.profileTree ?? generateOverstoryID("tr");
       if (!isGeneratedOverstoryID(profileTree, "tr") && !isPersonProfileTreeID(profileTree)) throw new Error(`Invalid profile TreeID for ~${account.handle}`);
@@ -492,12 +633,16 @@ export class HostDaemon implements AsyncDisposable {
       parseDeviceKey(account.device.key);
       return { account, profileTree, deviceID: account.device.id };
     });
-    const members: Array<{ profile?: string; handle: string }> = [
+    const members: Array<{ profile?: string; handle: string; inviteDigest?: string }> = [
       ...preparedAccounts.map(({ account, profileTree }) => ({
         profile: `overstory://${profileTree}/`,
         handle: account.handle,
       })),
-      ...(config.firstWriter ? [{ profile: `overstory://${config.firstWriter.profileTree}/`, handle: config.firstWriter.handle }] : []),
+      ...(config.firstWriter
+        ? [founderDigest
+          ? { handle: config.firstWriter.handle, inviteDigest: founderDigest }
+          : { profile: `overstory://${config.firstWriter.profileTree}/`, handle: config.firstWriter.handle }]
+        : []),
     ];
     const community = await this.insertTree(directSnapshot(profileSource("group", config.name, members)), { root: true });
     // The host's administrators are named one by one: the founder, whose
@@ -505,9 +650,12 @@ export class HostDaemon implements AsyncDisposable {
     // opt out of writing the community. Membership confers no administration,
     // so a person who joins later is a member and nothing more. Only a
     // bootstrap that names nobody falls back to the group, which a
-    // configuration needs for its one required administrator.
+    // configuration needs for its one required administrator. A community
+    // founded by code is one: its group has no member who could act on that
+    // until the founder claims, and the claim replaces the rule with the
+    // founder's profile (`finishFounding`).
     const writers = preparedAccounts.filter(({ account }) => account.communityWriter !== false).map(({ profileTree }) => profileTree);
-    const named = [...new Set([...(config.firstWriter ? [config.firstWriter.profileTree] : []), ...writers])];
+    const named = [...new Set([...(config.firstWriter?.profileTree ? [config.firstWriter.profileTree] : []), ...writers])];
     const communityAdmins = named.length ? named : [community.id];
     const communityConfig = await this.prepareConfig(community.id, "group", snapshotTreeConfig({
       access: [...communityAdmins.map((profile) => ({ who: { profile }, allow: ["admin" as const] })), { who: "everyone", allow: ["read"] }],
@@ -519,6 +667,7 @@ export class HostDaemon implements AsyncDisposable {
       this.db.run("INSERT INTO meta (key, value) VALUES ('community_handle', ?)", [config.handle]);
       if (config.firstWriter) {
         this.db.run("INSERT INTO meta (key, value) VALUES ('first_writer_handle', ?)", [config.firstWriter.handle]);
+        if (founderDigest) this.db.run("INSERT INTO meta (key, value) VALUES ('founding', ?)", [config.firstWriter.handle]);
       }
       this.insertConfig(communityConfig, now, null);
     })();
@@ -654,13 +803,34 @@ export class HostDaemon implements AsyncDisposable {
     return this.objects.completeSnapshot(root);
   }
 
+  /**
+   * A path read (tree operations §1.2.4): the directories from a retained
+   * accepted root down to `path`, and the objects of the entries it names.
+   */
+  async pathRead(treeID: string, root: ObjectHash, path: string): Promise<Map<ObjectHash, Uint8Array> | null> {
+    if (!this.acceptedStore.hasRoot(treeID, root)) return null;
+    return pathReadObjects(root, path, async (hash) => {
+      const bytes = await this.retainedObject(hash);
+      // Every object of a retained root is retained; a gap is a fault, not an absent entry.
+      if (!bytes) throw new Error(`Retained root ${root} is missing ${hash}`);
+      return bytes;
+    });
+  }
+
   /** Descriptive metadata of the current accepted root's file entries, keyed
    * by entry path. Not part of any hash; read in one turn with its update. */
-  entryMetadata(treeID: string): { update: string; entries: Record<string, { modifiedAt: number }> } | null {
+  entryMetadata(treeID: string, along?: string): { update: string; entries: Record<string, { modifiedAt: number }> } | null {
     const current = this.acceptedStore.current(treeID);
     if (!current) return null;
+    // `along`: only the entries of the directories a path read of it walks
+    // (tree operations §1.1.2a), the root's and each one down to the node's own.
+    const segments = along === undefined ? null : along.split("/").filter(Boolean);
+    const directories = segments ? new Set(["/", ...segments.map((_, index) => `/${segments.slice(0, index + 1).join("/")}`)]) : null;
     const entries: Record<string, { modifiedAt: number }> = {};
-    for (const [path, entry] of new EntryMetadataStore(this.db).entries(treeID)) entries[path] = { modifiedAt: entry.modifiedAt };
+    for (const [path, entry] of new EntryMetadataStore(this.db).entries(treeID)) {
+      if (directories && !directories.has(path.slice(0, path.lastIndexOf("/")) || "/")) continue;
+      entries[path] = { modifiedAt: entry.modifiedAt };
+    }
     return { update: current.id, entries };
   }
 
@@ -690,6 +860,12 @@ export class HostDaemon implements AsyncDisposable {
 
   authenticateToken(token: string | undefined): HostAuthentication | null {
     return this.accounts.authenticateToken(token);
+  }
+
+  /** Log the client a device's request names when it is new for the device (`AccountDirectory.noteClient`). */
+  noteDeviceClient(authentication: HostAuthentication, client: string | null): void {
+    const named = this.accounts.noteClient(authentication.device, client);
+    if (named) console.log(`overstoryd device ${authentication.device} (~${authentication.account.handle}) client: ${named}`);
   }
 
   /** The time-dependent half of `authenticationIsActive`: the session has not expired. */
@@ -981,6 +1157,7 @@ export class HostDaemon implements AsyncDisposable {
     if (this.disposed) return;
     await this.locatorPins.refresh();
     await this.remoteGroups.refresh(this.namedRemoteGroups());
+    await this.customDomains.refresh();
   }
 
   /**
@@ -998,7 +1175,8 @@ export class HostDaemon implements AsyncDisposable {
       for (const rule of JSON.parse(row.rules_json) as Array<{ who?: unknown }>) {
         const who = rule.who as { profile?: unknown } | undefined;
         const locator = who && typeof who === "object" ? parseProfileLocator(who.profile) : null;
-        if (!locator || !this.readsGroupsAt(locator.origin)) continue;
+        // A domain names a person, never a group (locators §1.1).
+        if (!locator || locator.domain || !this.readsGroupsAt(locator.origin)) continue;
         const group = this.locatorPins.pinned(row.tree, locator.locator);
         if (!group || this.get(group)) continue;
         named.set(`${locator.origin} ${group}`, { group, homeHost: locator.origin });
@@ -1010,8 +1188,12 @@ export class HostDaemon implements AsyncDisposable {
   /** One refresh pass over the placement accounts with open sessions. */
   async refreshDeviceKeys(): Promise<void> {
     if (this.disposed) return;
-    await Promise.all(this.accounts.placementAccountsWithSessions(Date.now()).map(({ id, homeHost }) =>
-      this.deviceKeys.fetch(id, homeHost).catch(() => undefined)));
+    await Promise.all([
+      ...this.accounts.placementAccountsWithSessions(Date.now()).map(({ id, homeHost }) =>
+        this.deviceKeys.fetch(id, homeHost).catch(() => undefined)),
+      ...this.visitors.openProfiles().map(({ profileTree, homeHost }) =>
+        this.visitorKeys.fetch(`${homeHost} ${profileTree}`, homeHost).catch(() => undefined)),
+    ]);
   }
 
   /**
@@ -1033,12 +1215,16 @@ export class HostDaemon implements AsyncDisposable {
     return { profileTree, devices };
   }
 
-  async createDeviceSessionChallenge(input: { origin: string; profileTree?: string; device: string }): Promise<DeviceSessionChallenge> {
+  async createDeviceSessionChallenge(input: { origin: string; profileTree?: string; device: string; homeHost?: string }): Promise<DeviceSessionChallenge> {
     // Without a profile, the device's own account says whose it is: only a
     // home host binds a device before its first session.
     const profileTree = input.profileTree ?? this.accounts.device(input.device)?.account;
     if (!profileTree) throw new NotFoundError("No such key device");
-    await this.keyDevice(profileTree, input.device);
+    // A profile with an account here opens an ordinary session, whatever
+    // the device asked for; only a profile without one may visit.
+    const homeHost = input.homeHost !== undefined && !this.accounts.enabledAccount(profileTree) ? input.homeHost : undefined;
+    if (homeHost !== undefined) await this.visitorDevice(input.origin, profileTree, homeHost, input.device);
+    else await this.keyDevice(profileTree, input.device);
     const issuedAt = Date.now();
     const challenge: DeviceSessionChallenge = {
       version: 1,
@@ -1050,6 +1236,7 @@ export class HostDaemon implements AsyncDisposable {
       nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
       issuedAt,
       expiresAt: issuedAt + 2 * 60 * 1000,
+      ...(homeHost !== undefined ? { homeHost } : {}),
     };
     this.accounts.insertChallenge("device-session", challenge.id, stableJSONString(validateDeviceSessionChallenge(challenge)), challenge.expiresAt, issuedAt);
     return challenge;
@@ -1064,6 +1251,7 @@ export class HostDaemon implements AsyncDisposable {
   async openDeviceSession(input: { origin: string; challenge: unknown; signature: string }): Promise<DeviceSession> {
     const challenge = validateDeviceSessionChallenge(input.challenge);
     if (challenge.origin !== input.origin) throw new Error("Device session challenge names another host");
+    if (challenge.homeHost !== undefined) return this.openVisitorSession(challenge, input.signature);
     const { account, key } = await this.keyDevice(challenge.profileTree, challenge.device);
     if (!verifyDeviceSignature(key, deviceSessionChallengeBytes(challenge), input.signature)) {
       throw new PermissionDeniedError("Device session signature is invalid");
@@ -1090,6 +1278,55 @@ export class HostDaemon implements AsyncDisposable {
       this.accounts.insertSession(sha256(token), challenge.device, now, expiresAt);
     })();
     return { token, device: challenge.device, expiresAt };
+  }
+
+  /**
+   * A visitor's device (accounts §5.6): a profile with no account here,
+   * listed by the keys `homeHost` publishes for it. The home host must be one
+   * this host reads other hosts at, and not this host itself.
+   */
+  private async visitorDevice(origin: string, profileTree: string, homeHost: string, device: string): Promise<ListedDevice> {
+    if (!isHomeHostOrigin(homeHost) || !this.readsGroupsAt(homeHost) || homeHost === origin) {
+      throw new PermissionDeniedError(`A visitor's home host must be another host's HTTPS origin, not ${homeHost}`);
+    }
+    if (this.accounts.account(profileTree)) throw new NotFoundError("No such key device");
+    const listed = await this.visitorKeys.device(`${homeHost} ${profileTree}`, homeHost, device);
+    if (!listed) throw new NotFoundError("No such key device");
+    return listed;
+  }
+
+  /** Exchange a visitor's signed challenge for a visitor session, held in memory only. */
+  private async openVisitorSession(challenge: DeviceSessionChallenge, signature: string): Promise<DeviceSession> {
+    const homeHost = challenge.homeHost!;
+    const { key } = await this.visitorDevice(challenge.origin, challenge.profileTree, homeHost, challenge.device);
+    if (!verifyDeviceSignature(key, deviceSessionChallengeBytes(challenge), signature)) {
+      throw new PermissionDeniedError("Device session signature is invalid");
+    }
+    const now = Date.now();
+    const expiresAt = Math.min(now + this.sessionLifetimeMs, this.visitorKeys.servesUntil(`${homeHost} ${challenge.profileTree}`) ?? now);
+    if (expiresAt <= now) throw new HomeHostUnavailableError(homeHost, `The profile's home host ${homeHost} cannot be read for its device keys`);
+    if (!this.accounts.consumeChallenge("device-session", challenge.id, stableJSONString(challenge), now)) {
+      throw new Error("Device session challenge is invalid, expired, or already used");
+    }
+    const token = this.visitors.open({ profileTree: challenge.profileTree, homeHost, device: challenge.device, key, expiresAt });
+    return { token, device: challenge.device, expiresAt };
+  }
+
+  /** The visitor a token names, while its session lasts. */
+  authenticateVisitor(token: string | undefined): VisitorAuthentication | null {
+    const visitor = this.visitors.authenticate(token);
+    // A visitor the community has since reserved reads as its account.
+    return visitor && !this.accounts.enabledAccount(visitor.profileTree) ? visitor : null;
+  }
+
+  /** Whether a visitor's session still holds: unexpired, and its device still listed at its home. */
+  visitorIsActive(visitor: VisitorAuthentication): boolean {
+    return this.visitors.active(visitor) && !this.accounts.enabledAccount(visitor.profileTree);
+  }
+
+  /** A visitor's whole-tree access: `read` or none, never more (accounts §5.6). */
+  visitorAccessLevel(visitor: VisitorAuthentication, tree: string | HostTree, linkDigest?: string): "read" | null {
+    return this.access.visitorCanRead(visitor, tree, linkDigest) ? "read" : null;
   }
 
   accountByHandle(handle: string): HostAccount | null {
@@ -1129,6 +1366,42 @@ export class HostDaemon implements AsyncDisposable {
   unclaimedFounderHandle(): string | null {
     const row = this.db.query("SELECT value FROM meta WHERE key = 'first_writer_handle'").get() as { value: string } | null;
     return row?.value ?? null;
+  }
+
+  /** Whether the community was founded by code and its founder has not
+   * claimed it yet: the first invitation claimed makes its claimer the
+   * administrator (accounts §1.2). */
+  founding(): boolean {
+    return this.foundingHandle() !== null;
+  }
+
+  private foundingHandle(): string | null {
+    const row = this.db.query("SELECT value FROM meta WHERE key = 'founding'").get() as { value: string } | null;
+    return row?.value ?? null;
+  }
+
+  /** Name the founder, who just claimed the community's founder invitation,
+   * as its administrator in place of the group's placeholder rule, and end
+   * the founding. Separate from the claim's transaction; a start that finds a
+   * claimed founder and a founding still recorded finishes it
+   * (`resumeFounding`). Until then the group's rule makes its one member, the
+   * founder, its administrator anyway. */
+  private async finishFounding(profileTree: string): Promise<void> {
+    const community = this.community();
+    const accepted = await this.advanceConfig(community.id, "founder", (values) => ({
+      ...values,
+      access: [
+        { who: { profile: profileTree }, allow: ["admin"] },
+        ...values.access.filter((rule) => !(typeof rule.who === "object" && "profile" in rule.who && rule.who.profile === community.id && rule.allow.includes("admin"))),
+      ],
+    }), () => this.db.run("DELETE FROM meta WHERE key = 'founding'"));
+    this.notifyAccepted(accepted);
+  }
+
+  private async resumeFounding(): Promise<void> {
+    const handle = this.foundingHandle();
+    const account = handle ? this.accountByHandle(handle) : null;
+    if (account) await this.finishFounding(account.id);
   }
 
   setCommunityHost(host: string, allowTestPortChange = false): void {
@@ -1630,6 +1903,7 @@ export class HostDaemon implements AsyncDisposable {
     })();
     this.notifyAccepted(this.currentUpdate(input.configurationTree)!);
     if (invitation) this.notifyAccepted(this.currentUpdate(invitation.tree)!);
+    if (invitation && this.foundingHandle() === input.handle) await this.finishFounding(input.profileTree);
     return { account: this.account(input.profileTree)!, configuration: this.get(input.configurationTree)! };
   }
 
@@ -1675,7 +1949,7 @@ export class HostDaemon implements AsyncDisposable {
   private checkPlacementLocator(profile: string, origin: string, inviteDigest: string | null): void {
     if (!inviteDigest) throw new Error("Accepting an invitation as a placement requires its code");
     const locator = isProfileLocator(profile) ? parseProfileLocator(profile) : null;
-    if (!locator) throw new Error("A placement names the profile by its locator at its home host");
+    if (!locator || locator.domain) throw new Error("A placement names the profile by its locator at its home host");
     if (locator.origin === origin) throw new Error("A profile homed at this host claims its account here instead");
   }
 
@@ -1729,8 +2003,10 @@ export class HostDaemon implements AsyncDisposable {
         throw new Error("Account challenge was already consumed or expired");
       }
       this.advanceParent(prepared, Date.now(), `invite:${reservation.handle}`);
+      if (this.unclaimedFounderHandle() === reservation.handle) this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
     })();
     this.notifyAccepted(this.currentUpdate(community.id)!);
+    if (this.foundingHandle() === reservation.handle) await this.finishFounding(input.profileTree);
     return this.account(input.profileTree)!;
   }
 
@@ -1952,7 +2228,7 @@ export class HostDaemon implements AsyncDisposable {
             if (!plain) {
               const candidate = await this.candidate(treeID, update, await this.history.resolutionKeys(treeID, update.resolves));
               const question: MergeQuestion = { base: baseEntry, head: baseEntry, ...(preflight.prefix.length ? { validate: true, prefix: [...preflight.prefix] } : {}), candidate, rules: this.rules() };
-              const asked = await this.askMerge(question, objects);
+              const asked = await this.askMerge(question, objects, base.root);
               markPhase("preflight-evaluate");
               if (index === 0) prepared = { question, ...asked };
             }
@@ -1968,11 +2244,9 @@ export class HostDaemon implements AsyncDisposable {
         preflight.prefix.push(await this.candidate(treeID, update, []));
         root = update.candidate;
       }
-      // These are immutable preflight objects, not accepted state. The accepted
-      // transaction below is their only authority; an aborted batch leaves no rows.
-      await this.objects.store(
-        [...objects].map(([hash, bytes]) => ({ hash, bytes }))
-      );
+      // These are immutable preflight objects, not accepted state; nothing is
+      // written for them here. Each accepted update stores the ones it names
+      // durably, in one publish with its entry, before it commits.
       markPhase("preflight-store");
     }
     const proposed = new Map<ObjectHash, Uint8Array>();
@@ -2045,9 +2319,9 @@ export class HostDaemon implements AsyncDisposable {
 
   /** A client update's question to the merge sidecar; a question it refuses
    * as unsupported is an unsupported operation (422) wherever it is asked. */
-  private async askMerge(question: MergeQuestion, objects: ReadonlyMap<ObjectHash, Uint8Array>) {
+  private async askMerge(question: MergeQuestion, objects: ReadonlyMap<ObjectHash, Uint8Array>, retained: ObjectHash) {
     try {
-      return await this.mergeTool.ask(question, objects);
+      return await this.mergeTool.ask(question, objects, [retained]);
     } catch (error) {
       if (error instanceof MergeRefusal && error.code === "unsupported") throw new UpdateProtocolError("unsupported-operation", error.message);
       throw error;
@@ -2070,6 +2344,9 @@ export class HostDaemon implements AsyncDisposable {
   /** Whether overstoryd can accept a traced update on `root` without a question:
    * a plain trace it reproduces exactly, touching nothing an open decision
    * concerns. A miss is logged with its reason and goes to the sidecar. */
+  /** Each trace's plain check, kept while its request holds the trace. */
+  private readonly plainTraces = new WeakMap<object, Awaited<ReturnType<typeof checkPlainTrace>>>();
+
   private async fastForward(
     root: ObjectHash,
     update: CandidateUpdate,
@@ -2083,7 +2360,13 @@ export class HostDaemon implements AsyncDisposable {
     };
     if (!update.trace?.length) return miss("no frames");
     if (update.trace[0]!.before !== root) return miss("trace is not authored on the head");
-    const checked = await checkPlainTrace(update.trace, (hash) => this.objects.load(hash, objects), replayCollectionRows);
+    // A trace is replayed once per request: its preflight's result is carried
+    // to acceptance. It depends only on the trace and the objects it names.
+    let checked = this.plainTraces.get(update.trace);
+    if (!checked) {
+      checked = await checkPlainTrace(update.trace, (hash) => this.objects.load(hash, objects), replayCollectionRows);
+      this.plainTraces.set(update.trace, checked);
+    }
     if (!checked.plain) return miss(checked.reason);
     const concerned = open.find((d) => !d.path || checked.touched.some((path) => pathWithin(path, `/${d.path!.join("/")}`)));
     if (concerned) return miss("an open decision concerns the update");
@@ -2210,7 +2493,7 @@ export class HostDaemon implements AsyncDisposable {
       // Authored directly on the head: nothing concurrent to merge.
       const direct = basis.entry === head.hash && !basis.prefix.length;
       let root: ObjectHash, decisions: LogDecision[], evidence: unknown;
-      let question: MergeQuestion | null = null;
+      let question: MergeQuestion | null = null, answered: ObjectHash | undefined;
       const carried = request.trace !== null && direct && !guards.length && await this.fastForward(current.root, request, open, proposed)
         ? await this.history.carry(open, request.candidate, proposed) : null;
       if (carried) {
@@ -2267,10 +2550,11 @@ export class HostDaemon implements AsyncDisposable {
           rules: this.rules(),
         };
         const reuse = prepared && stableJSONString(prepared.question) === stableJSONString(question);
-        const { answer, objects } = reuse ? prepared! : await this.askMerge(question, proposed);
+        const { answer, objects } = reuse ? prepared! : await this.askMerge(question, proposed, current.root);
         for (const [hash, bytes] of objects) proposed.set(hash, bytes);
         markPhase("evaluate");
         root = answer.root;
+        answered = answer.provenance;
         decisions = imposed ? [...answer.decisions.filter((d) => d.key !== imposed!.key), imposed] : answer.decisions;
         evidence = answer.evidence;
         // A snapshot the sidecar leaves exactly as the head changed nothing.
@@ -2297,7 +2581,7 @@ export class HostDaemon implements AsyncDisposable {
         decisions,
         ...(question ? { asked: asked(question, root) } : {}),
         ...(evidence !== undefined && evidence !== null ? { evidence } : {}),
-      }, [...proposed].map(([hash, bytes]) => ({ hash, bytes })));
+      }, [...proposed].map(([hash, bytes]) => ({ hash, bytes })), answered);
       markPhase("accepted-store");
       const now = Date.now(),
         commit = await policy.prepareCommit(
@@ -2715,7 +2999,7 @@ export class HostDaemon implements AsyncDisposable {
           base: head.hash, head: head.hash,
           candidate: { root, change, trace: null, resolves: [] },
           rules: { ...rules, config: { ...(rules.config as object), conflictProjection: "incoming" } },
-        }, staged);
+        }, staged, [head.entry.root]);
         if (answer.root !== root) throw new ServerFaultError("The merge sidecar did not accept overstoryd's own root");
         for (const [hash, bytes] of objects) staged.set(hash, bytes);
         decisions = answer.decisions;
@@ -2731,11 +3015,11 @@ export class HostDaemon implements AsyncDisposable {
   /** Everything a server-side rewrite of a canonical parent's boundaries needs
    * before its transaction: the stored objects, the entry changes, and a log
    * entry after the parent's current update. */
-  private async prepareParentAdvance(rewrite: { parent: HostTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }) {
+  private async prepareParentAdvance(rewrite: { parent: HostTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }, change = `boundary:${crypto.randomUUID()}`) {
     const from = this.currentUpdate(rewrite.parent.id);
     if (!from || from.root !== rewrite.parent.ref) throw new RefConflictError(this.get(rewrite.parent.id)?.ref ?? null);
     const staged = new Map(rewrite.generated);
-    const entry = await this.internalEntry(rewrite.parent.id, from, rewrite.nextRoot, `boundary:${crypto.randomUUID()}`, staged);
+    const entry = await this.internalEntry(rewrite.parent.id, from, rewrite.nextRoot, change, staged);
     const changes = await this.entryChanges(rewrite.parent.ref, rewrite.nextRoot);
     const profile = await this.profileUpdate(rewrite.parent.id, rewrite.nextRoot, changes, staged);
     const community = rewrite.parent.canonicalPath === "/";
@@ -2922,7 +3206,11 @@ export class HostDaemon implements AsyncDisposable {
       reservation.locator ? [{ handle, locator: reservation.locator }] : []);
     const accounts: PreparedPlacementAccount[] = [];
     for (const { handle, locator } of reservations) {
-      const homeHost = parseProfileLocator(locator)!.origin;
+      const parsed = parseProfileLocator(locator)!;
+      // A placement account is homed at a host, which a domain only points at
+      // for now: it can move, and the account's home host cannot.
+      if (parsed.domain) throw new Error(`A reservation names its profile by its locator at its home host, not by the domain ${parsed.domain}`);
+      const homeHost = parsed.origin;
       const profileTree = pins.get(locator) ?? this.locatorPins.pinned(community, locator);
       if (!profileTree) throw new ServerFaultError(`${locator} has no pin after resolving it`);
       const existing = this.accounts.account(profileTree);
@@ -3076,11 +3364,14 @@ export class HostDaemon implements AsyncDisposable {
   async [Symbol.asyncDispose](): Promise<void> {
     for (const resource of this.dependents.splice(0).reverse()) await resource[Symbol.asyncDispose]();
     this.disposed = true;
+    await this.provenanceRun;
     clearTimeout(this.deviceKeyTimer);
     clearTimeout(this.remoteGroupTimer);
     await this.packing[Symbol.asyncDispose]();
     await this.mergeTool[Symbol.asyncDispose]();
     this.wireSchemas.clear();
+    this.objects.packs.close();
+    this.history.provenance?.close();
     this.db.close();
     this.observationListeners.clear();
   }
@@ -3104,12 +3395,6 @@ function profileKeySigned(label: string, publicKey: string, profileTree: string,
   if (bytes.byteLength !== 32 || bytes.toString("base64url") !== publicKey) throw new Error(`${label} is invalid`);
   if (personProfileTreeID(bytes) !== profileTree) throw new Error(`${label} derives another Profile TreeID`);
   return verifyDeviceSignature(`ed25519:${publicKey}`, message, signature);
-}
-
-/** The digest a well-formed invitation code is reserved under. */
-function inviteCodeDigest(code: string): string {
-  if (!/^[A-Za-z0-9_-]{22}$/.test(code)) throw new Error("Invitation code is invalid");
-  return `sha256:${sha256(code)}`;
 }
 
 /** A group that administers a tree keeps at least one member. */

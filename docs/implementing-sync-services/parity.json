@@ -1,0 +1,24 @@
+{
+  "twins": {
+    "ObjectSource": "ObjectStore",
+    "ObjectSourceMissing": "ObjectStoreError",
+    "hostSource": "HostObjectStore",
+    "memorySource": "InMemoryObjectOverlay",
+    "NodeIndex": "WorkingTree",
+    "pathReadObjects": "ProtocolPathRead",
+    "browseSettings": "TreeSessionSettings",
+    "replicaSettings": "TreeSessionSettings",
+    "alongsideStorySyncSettings": "TreeSessionSettings",
+    "HostAccountStore": "DataHomeAccountStore",
+    "HostPlacementStore": "DataHomePlacementStore"
+  },
+  "required": {
+    "protocol": ["ProtocolClient", "pathReadObjects"],
+    "objects": ["ObjectSource", "ObjectSourceChain", "hostSource"],
+    "tree": ["NodeIndex"],
+    "sync": ["UpdateCoordinator", "publication", "composePlainRuns", "composeMoves"],
+    "session": ["TreeSession", "TreeSessionSettings", "browseSettings", "replicaSettings", "alongsideStorySyncSettings"],
+    "accounts": [],
+    "workspace": []
+  }
+}

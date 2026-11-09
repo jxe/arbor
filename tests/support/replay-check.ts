@@ -3,6 +3,7 @@ import { expect } from "bun:test";
 import { ObjectStore, holdsObject } from "@ovst/object-store";
 import { stableJSONString } from "@ovst/protocol";
 import type { LogEntry, MergeQuestion } from "@ovst/merge-protocol";
+import { provenanceIn } from "../../packages/overstoryd-merge/src/provenance.ts";
 import { Sidecar } from "../../packages/overstoryd-merge/src/sidecar.ts";
 import { acceptedEntries } from "./log-entries.ts";
 
@@ -25,20 +26,22 @@ export function recordedQuestion(entry: LogEntry): MergeQuestion {
   };
 }
 
-/** An in-process sidecar over a data root's object store. */
-export function sidecar(dataRoot: string, replayMillis?: number): Sidecar {
+/** An in-process sidecar over a data root's object store and provenance
+ * indexes. */
+export function sidecar(dataRoot: string): Sidecar {
   const shared = new ObjectStore(join(dataRoot, "objects"));
   const staged = new Map<string, Uint8Array>();
   return new Sidecar({
     shared: { find: (hash) => shared.find(hash), has: (hash) => holdsObject(shared, hash) },
     staging: { find: async (hash) => staged.get(hash) ?? null, stage: async (values) => { for (const v of values) staged.set(v.hash, v.bytes); } },
-  }, undefined, undefined, replayMillis);
+    provenance: provenanceIn(join(dataRoot, "provenance"), (hash) => shared.find(hash)),
+  });
 }
 
 /** Entries are facts a sidecar can reproduce: asking each entry's recorded
  * question again gives its root and decisions from one warm cache across the
- * whole history, and from a cold cache (a fresh sidecar, which rebuilds from
- * the chain's start) for the latest entries. */
+ * whole history, and from a cold cache (a fresh sidecar, which starts each
+ * entry from its provenance index) for the latest entries. */
 export async function expectReplayableHistory(dataRoot: string, tree: string): Promise<void> {
   const entries = acceptedEntries(dataRoot, tree).filter(({ entry }) => entry.previous !== null);
   const warm = sidecar(dataRoot);

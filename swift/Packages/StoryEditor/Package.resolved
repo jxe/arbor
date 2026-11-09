@@ -1,5 +1,5 @@
 {
-  "originHash" : "4fd73354f2c5c71caa0e5ece64a98eee52d5feec1f07556f405716902ed2e489",
+  "originHash" : "126e345d440e4d692d4e229047d2bd00ccda86b8754d4042b0c54599a0de9619",
   "pins" : [
     {
       "identity" : "emojikit",
@@ -15,8 +15,17 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jxe/quagmire.git",
       "state" : {
-        "revision" : "d58ae9d3aeb2f1b48b7b699cd9784a9b89a5fc90",
-        "version" : "0.13.0"
+        "revision" : "913190b234a3256af54df0f844de883dfe2dce3c",
+        "version" : "0.16.0"
+      }
+    },
+    {
+      "identity" : "yams",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jpsim/Yams.git",
+      "state" : {
+        "revision" : "a27b21e0c81c5bf42049b897a62aaf387e80f279",
+        "version" : "6.2.2"
       }
     }
   ],

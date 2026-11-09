@@ -5,6 +5,7 @@ import { AccessControl, type AccessHost } from "../../../packages/overstoryd/src
 import { AccountDirectory } from "../../../packages/overstoryd/src/accounts.ts";
 import type { ExecutionContext, ExecutionGrant } from "../../../packages/overstoryd/src/execution-authority.ts";
 import type { HostAccount, HostTree } from "../../../packages/overstoryd/src/model.ts";
+import type { VisitorAuthentication } from "../../../packages/overstoryd/src/visitors.ts";
 import { createHostSchema } from "../../../packages/overstoryd/src/schema.ts";
 
 const ROOT = `sha256:${"a".repeat(64)}` as ObjectHash;
@@ -34,7 +35,13 @@ const host: AccessHost = {
   rootProfileType: (tree) => types.get(tree.id) ?? null,
   isRemoteGroupMember: (group, homeHost, profile) => remoteGroups.get(`${homeHost} ${group}`)?.includes(profile) ?? false,
   pinnedProfile: (tree, locator) => pins.get(`${tree} ${locator}`) ?? null,
+  groupMemberLocators: (group) => memberLocators.get(group.id) ?? [],
+  locatorHome: (locator) => domainHomes.get(locator) ?? (/^https?:\/\/[^/]+\/./.test(locator) ? new URL(locator).origin : null),
 };
+/** Where each domain locator's records point now (locators §1.1). */
+const domainHomes = new Map<string, string>();
+/** The profile locators each group held here names among its members. */
+const memberLocators = new Map<string, string[]>();
 /** The TreeIDs this host pinned the locators each tree's configuration names to. */
 const pins = new Map<string, string>();
 /** Groups other hosts hold, as this host's copies of them list their members. */
@@ -126,6 +133,74 @@ describe("administrators and rules", () => {
     // Only a profile an enabled account holds here counts.
     db.run("UPDATE accounts SET enabled = 0 WHERE id = 'tr_alice'");
     expect(access.canRead(alice, "tr_plants")).toBe(false);
+  });
+});
+
+describe("visitors (accounts §5.6)", () => {
+  const HOME = "https://home.example";
+  const visitor = (profileTree: string, homeHost = HOME): VisitorAuthentication => ({
+    profileTree, homeHost, device: "dv_x", key: "ed25519:x", subject: "device:dv_x", expiresAt: Date.now() + 60_000,
+  });
+
+  test("a visitor reads through a rule naming it by a locator at its home host, and never writes", () => {
+    pins.set(`tr_trip ${HOME}/~dana`, "tr_dana");
+    configure("tr_trip", [{ who: { profile: "tr_joe" }, allow: ["admin"] }, { who: { profile: `${HOME}/~dana` }, allow: ["write"] }]);
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_trip")).toBe(true);
+    // Vouched for by another host, the same TreeID is not the subject.
+    expect(access.visitorCanRead(visitor("tr_dana", FAR), "tr_trip")).toBe(false);
+    // A bare TreeID names a profile this host holds; a visitor is never it.
+    configure("tr_todos", [{ who: { profile: "tr_joe" }, allow: ["admin"] }, { who: { profile: "tr_dana" }, allow: ["read"] }]);
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_todos")).toBe(false);
+    // Nor does a visitor see a tree configuration.
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_todos_config")).toBe(false);
+  });
+
+  test("everyone and links reach a visitor as anyone; an admin rule naming it lets it read", () => {
+    configure("tr_todos", [{ who: { profile: "tr_joe" }, allow: ["admin"] }, { who: "everyone", allow: ["read"] }]);
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_todos")).toBe(true);
+    configure("tr_plants", [{ who: { profile: "tr_joe" }, allow: ["admin"] }, { who: { link: LINK }, allow: ["read"] }]);
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_plants")).toBe(false);
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_plants", LINK)).toBe(true);
+    pins.set(`tr_calendar ${HOME}/~dana`, "tr_dana");
+    configure("tr_calendar", [{ who: { profile: `${HOME}/~dana` }, allow: ["admin"] }]);
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_calendar")).toBe(true);
+  });
+
+  test("groups count a visitor only by its home host's word", () => {
+    // A group held here names the visitor by its locator at its home host.
+    memberLocators.set("tr_club", [`${HOME}/~dana`]);
+    pins.set(`tr_club ${HOME}/~dana`, "tr_dana");
+    configure("tr_catalog", [{ who: { profile: "tr_joe" }, allow: ["admin"] }, { who: { profile: "tr_club" }, allow: ["read"] }]);
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_catalog")).toBe(true);
+    expect(access.visitorCanRead(visitor("tr_dana", FAR), "tr_catalog")).toBe(false);
+    memberLocators.delete("tr_club");
+    // A group another host holds counts it only when that host is its home.
+    pins.set(`tr_trip ${FAR}/~faraway`, "tr_faraway");
+    configure("tr_trip", [{ who: { profile: "tr_joe" }, allow: ["admin"] }, { who: { profile: `${FAR}/~faraway` }, allow: ["read"] }]);
+    expect(access.visitorCanRead(visitor("tr_alice", FAR), "tr_trip")).toBe(true);
+    expect(access.visitorCanRead(visitor("tr_alice", HOME), "tr_trip")).toBe(false);
+  });
+
+  test("a domain subject counts a visitor homed where the domain points now", () => {
+    pins.set("tr_trip https://dana.example", "tr_dana");
+    configure("tr_trip", [{ who: { profile: "tr_joe" }, allow: ["admin"] }, { who: { profile: "https://dana.example" }, allow: ["read"] }]);
+    // Unconfirmed, the domain names no home host, so no visitor.
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_trip")).toBe(false);
+    domainHomes.set("https://dana.example", HOME);
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_trip")).toBe(true);
+    expect(access.visitorCanRead(visitor("tr_dana", FAR), "tr_trip")).toBe(false);
+    // Dana moves to FAR: the pin keeps her TreeID, and the rule follows her.
+    domainHomes.set("https://dana.example", FAR);
+    expect(access.visitorCanRead(visitor("tr_dana", FAR), "tr_trip")).toBe(true);
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_trip")).toBe(false);
+    // A group held here can name her by her domain too.
+    memberLocators.set("tr_club", ["https://dana.example"]);
+    pins.set("tr_club https://dana.example", "tr_dana");
+    configure("tr_catalog", [{ who: { profile: "tr_joe" }, allow: ["admin"] }, { who: { profile: "tr_club" }, allow: ["read"] }]);
+    expect(access.visitorCanRead(visitor("tr_dana", FAR), "tr_catalog")).toBe(true);
+    expect(access.visitorCanRead(visitor("tr_dana"), "tr_catalog")).toBe(false);
+    memberLocators.delete("tr_club");
+    domainHomes.clear();
   });
 });
 

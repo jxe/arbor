@@ -7,7 +7,7 @@ Package names are part of the authored portability surface: a compatible runtime
 
 ## 1. Packages
 
-`overstory/data` is authoring for data and handles: `node(path)` logical node sources, schema-derived children handles, `query`, `mutation`, `publicError`, `RowOf`, and `ResultOf`.
+`overstory/data` is authoring for data and handles: `node(path)` logical node sources, schema-derived children handles with `.all` and `.one`, `view`, facts (`or`, `not`, `rule`), `mutation`, `publicError`, `RowOf`, and `ResultOf`.
 
 `overstory/react` is the component package: `useQuery`, `skipQuery`, `useMutationAction`, `useCanInvoke`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`.
 
@@ -48,7 +48,62 @@ the equivalent server-visible path suffix and preserves the authored
 application query. It does not forward the reserved identity alias as an HTML
 fragment.
 
-## 3. Handles
+## 3. Views
+
+A view ([executable documents §4.1](07-executable-documents.md#41-views)) is a function
+from validated input and the user to JSON or a view tree, made addressable with `view`:
+
+```tsx
+import { node, or, rule, view } from "overstory/data"
+import { z } from "zod"
+
+// Components (Shell, PracticeGrid, ListGrid), row types and sorting helpers are omitted.
+const List = node("./data/List").children
+const Person = node("./data/Person").children
+const Practice = node("./data/Practice").children
+
+// Who may see a list is a read rule on the List model, which the host applies to every
+// read (executable documents §4.1). Views don't repeat it. `rule` is for an app's own
+// reusable facts, such as this one:
+const curatedBy = rule<{ l: ListRow; person: PersonRow }>(({ l, person }) => [
+  or([l.owner.is(person)], [l.contributors.person.is(person)]),
+])
+
+// A data view: JSON, drawn by a client's default renderer when it has no code of its own.
+export const list = view(z.object({ id: z.string() }), ({ id }) => {
+  const l = List.one(l => [l.id.is(id)])
+  if (!l) return null
+  return {
+    name: l.name,
+    about: l.about,
+    practices: sorted(l.items, byPosition).map(i => ({
+      id: i.practice.id,
+      name: i.practice.name,
+      tags: i.practice.tags.all(t => [t.list.is(l)]).map(t => ({ name: t.name, color: t.color })),
+    })),
+  }
+})
+
+// A JSX view: the same reads, drawn. Components take rows and read what they show.
+export const ProfilePage = view(z.object({ id: z.string() }), ({ id }) => {
+  const person = Person.one(p => [p.id.is(id)])
+  if (!person) return <Shell title="Profile not found" />
+  return (
+    <Shell title={person.name}>
+      <PracticeGrid practices={sorted(Practice.all(p => [p.authors.has(person)]), byName)} />
+      <ListGrid lists={List.all(l => [l.items.practice.authors.has(person)])} />
+      <ListGrid lists={List.all(l => [curatedBy({ l, person })])} />
+    </Shell>
+  )
+})
+```
+
+The view tree is plain `{type, props, children, key}` data built by the JSX runtime, with
+no React. A `Button` or `Form` takes an action value naming a mutation and its input. The
+vocabulary of view types, controls and local state is the UI language
+([Apps 011](../../plans/soon/apps-011-widgets-in-story.md)).
+
+## 4. Handles
 
 `query.many`, `query.one`, `query.maybe`, and `mutation` accept an optional Standard Schema-compatible input schema. Zod is supported directly, without an Overstory-specific validator vocabulary. The handle's call input is the schema input type; the query plan or mutation handler receives its validated, transformed output. Validation occurs before data access. A no-input query omits the schema and is called as `useQuery(handle)`.
 
@@ -99,7 +154,7 @@ can expose already committed progress without disclosing private backing details
 
 `RowOf` and `ResultOf` expose the types the development compiler infers from declared property and child schemas, so authored source maintains no second result schema.
 
-## 4. Actions and forms
+## 5. Actions and forms
 
 `overstory/react` adapts a mutation handle to React Actions. Form conversion is shallow and deterministic: a name occurring once becomes its string or file value, a repeated name becomes an array in document order, and an omitted name is absent. Coercion belongs to the authored schema. Expected failures use `publicError(code, message, options?)` from `overstory/data`; other thrown values become a generic internal error without stack traces, SQL, paths, or private row data.
 
@@ -107,10 +162,10 @@ can expose already committed progress without disclosing private backing details
 
 `useNavigate` performs an ordinary same-origin Overstory navigation when a destination depends on a mutation result. Anchors remain the default for known destinations; the hook adds no route registry or parallel history model.
 
-## 5. User
+## 6. User
 
 `useUser()` returns the optional safe Overstory user projection. `useUser({ required: true })` declares that the mounted component cannot execute anonymously. It suspends before user-dependent queries mount and lets the server present its own session UI; an authored tree never receives credentials or implements authentication. A query plan may dereference the nullable-safe symbolic `user.profile`, or use `user.required.profile` to declare that anonymous execution must fail before data access even when the handle is invoked outside React.
 
-## 6. Rendering
+## 7. Rendering
 
 `useQuery` follows React Suspense semantics for its initial value and throws failures to the nearest error boundary.

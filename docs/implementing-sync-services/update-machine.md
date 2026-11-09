@@ -50,7 +50,7 @@ Each effect, and what the runners do for it:
 |---|---|
 | `persistRequest(base, tip, extends)` | Cut `ChangeLog.request(through: tip)`: the chain from the oldest unsettled change's accepted basis through the tip, settled changes repeated without objects. Compile eligible unsent records into publications, retaining their local-change and operation-result mappings. Persist the mappings and immutable `UpdateAttempt` together, then dispatch `requestPersisted`. An `extends` whose digests are not a prefix is retried exactly instead. |
 | `submit(request)` | Send the persisted body in its persisted encoding; validate every result digest and tree; read the host's current head (from the response when it carries one, otherwise a descriptor); dispatch `accepted` with that head. |
-| `apply(result)` | Install the host's current state (the reconciliation replayed onto the change's candidate when it is exactly that state, otherwise the sparse spine walked from the current root, otherwise a snapshot), mark all local changes covered by the request's publications settled, compact the log, tell the machine the next tip, dispatch `applied(installed:)`. Without a stashed response (watch evidence, restart) it replays the exact request first, except while that same request's POST is still on the network: then the apply waits for that submission, which supplies the response or, if it fails, leaves the replay to retrieve the stored receipts. A watch that reports a request before its response therefore never causes a second POST. |
+| `apply(result)` | Install the host's current state (the reconciliation replayed onto the change's candidate when it is exactly that state, otherwise the working tree's accepted graph at the current root (every directory a Replica holds, or the directories a lazy session has loaded, each with its Markdown bodies), otherwise a snapshot), mark all local changes covered by the request's publications settled, compact the log, tell the machine the next tip, dispatch `applied(installed:)`. Without a stashed response (watch evidence, restart) it replays the exact request first, except while that same request's POST is still on the network: then the apply waits for that submission, which supplies the response or, if it fails, leaves the replay to retrieve the stored receipts. A watch that reports a request before its response therefore never causes a second POST. |
 | `catchUp(cursor)` | Replay the watch batch that cursor names when it chains from the installed state, otherwise install the host's current state; dispatch `applied(installed:)`. |
 | `settle(tip)` | Mark an unchanged snapshot chain through `tip` settled without a request, only when it carries no trace, resolution declaration or accepted-state guard. |
 | `stop(reason)` | Record the terminal diagnostic and cancel timers. |
@@ -200,8 +200,15 @@ chain into a fresh authored update. Mixed operation-bearing records retain their
 ordered frames with unique operation keys. Repeated pure moves of the same
 original span reduce to one move from that original span to its final anchor;
 coordinates are transported through the moves, never inferred from equal text.
-Snapshots, resolutions and guarded changes are boundaries, and generic batches split at 64 frames
-or 1024 operations. Local records and undo history remain intact.
+Inside a mixed batch, each run of plain edit frames over one path composes into
+one frame of edits over the run's first basis, and each run of single-span move
+frames into one move. Text inserted and deleted again leaves the account; deleted
+and retyped basis bytes stay a replacement. A run whose operation results are
+referenced, or whose end trees the client does not hold, keeps its frames, and
+every composed frame is checked by rebuilding its `after` tree. Composed
+originals leave the operation-name mapping.
+Snapshots, resolutions and guarded changes are boundaries, and batches split at 64 frames
+or 1024 operations after composition. Local records and undo history remain intact.
 
 A known local branch point ends a batch. A later editor can still branch from
 inside a batch that was already published. The runner can carry that branch
@@ -226,11 +233,9 @@ Delta bases never come from an unpublished prefix; intermediate objects needed
 by trace frames stay available. Later batch elements retain their envelopes because their preceding candidate
 may not yet be retained by the host. Frozen request bodies are never recompressed.
 
-Generic batching retains intermediate object material. A delta survives only
-when its result reaches the final candidate; otherwise its intermediate object
-is retained. Fewer update elements therefore do not guarantee fewer bytes for
-mixed or plain-edit sequences. Eliminating those intermediate versions is the
-first follow-up priority.
+Only the final candidate's objects travel (`dropIntermediates`); the host
+regenerates intermediate frames' objects by executing them. A delta survives only
+when its result reaches the final candidate.
 
 The compiler persists original-to-published change and operation-result mappings
 with the prepared request. A later descendant uses those names, and acceptance
@@ -242,11 +247,11 @@ This includes snapshot resolutions (`trace: null` with `resolves`) and `ifCurren
 guards. Both clients must send them to overstoryd; local byte equality cannot
 acknowledge a resolution or evaluate an authority guard.
 
-Shared `coalesced-publication.json` fixtures check the compiler in both languages;
+Shared `conformance/coalesced-publication.json` vectors check the compiler in both languages;
 the TypeScript tests also run the real merge engine against concurrent peer edits.
 The runner vectors cover exact retries, restart, work after an ambiguous request and discard.
-Further byte reductions are ordered in [Clients 002](../../plans/soon/merge-002-identity-preserving-coalescing.md),
-starting with plain edits across records, then moves with edits and selections.
+Further byte reductions are ordered in [Clients 002](../../plans/when-needed/merge-002-coalesce-moves-with-edits-copies-and-undo.md),
+next a move with edits inside it, then selections, copies and undo.
 
 ## Checking by hand
 

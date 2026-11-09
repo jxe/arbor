@@ -93,7 +93,11 @@ export function isStatedUpdate(update: DerivableUpdateIntent): update is Authore
 export interface AuthoredRequestIntent { base: string | null; updates: AuthoredUpdateIntent[] }
 export interface DerivableRequestIntent { base: string | null; updates: DerivableUpdateIntent[] }
 type Obj = Record<string, any>;
-function require(ok: unknown): asserts ok { if (!ok) throw new Error("Invalid authored update contract"); }
+/** An update that breaks the authored contract: retrying cannot change it. */
+export class AuthoredContractError extends Error {
+  constructor() { super("Invalid authored update contract"); this.name = "AuthoredContractError"; }
+}
+function require(ok: unknown): asserts ok { if (!ok) throw new AuthoredContractError(); }
 function obj(v: unknown): Obj { require(v && typeof v === "object" && !Array.isArray(v)); return v as Obj; }
 function keys(v: Obj, required: string[], optional: string[] = []) {
   require(required.every(k => Object.hasOwn(v, k)) && Object.keys(v).every(k => [...required, ...optional].includes(k)));

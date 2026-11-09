@@ -110,6 +110,13 @@ DNS across hosts and keeping the same Profile TreeID with auditable proof, witho
 Story Sync into a multi-user account service? Recovery by the host's administrator is
 [Security 012](../features/security-012-get-back-in-with-the-admins-help.md).
 
+**Domains in community reservations** (moved from Names 001, 2026-11-07). Today a community
+reserves a handle (`~alice`) for a person, and accepting the invitation gives her a placement
+account at that community, whose home host is fixed when it is made. A community could
+instead reserve her domain (`alice.com`), so the reservation keeps pointing at her when she
+moves her home to another host. That needs a placement account whose home host can change,
+which is this plan's moving-a-home-host design.
+
 ## Work
 
 - When it is taken up: settle the decisions, write the statement format and

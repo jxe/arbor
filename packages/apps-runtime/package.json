@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./collections": "./src/collections/index.ts"
+    "./collections": "./src/collections/index.ts",
+    "./ui/jsx-runtime": "./src/ui/jsx-runtime.ts",
+    "./ui/jsx-dev-runtime": "./src/ui/jsx-dev-runtime.ts"
   },
   "dependencies": {
     "@ovst/protocol": "workspace:*",

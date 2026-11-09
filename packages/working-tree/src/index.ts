@@ -3,3 +3,5 @@ export * from "./local-change.ts";
 export * from "./entry-transfer.ts";
 export * from "./control.ts";
 export * from "./coordinator.ts";
+export * from "./node-index.ts";
+export * from "./tree-session.ts";

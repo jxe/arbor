@@ -15,13 +15,13 @@ extension WorkingTree {
             throw ProtocolValidationError.invalidValue("Watch predecessor differs from confirmed accepted state")
         }
         let basis = try await sparseBasis(deltaBases: Set(transition.deltas.map(\.base)))
-        let accepted = try ProtocolTransitionReplay.applying([transition], to: basis, mode: .sparseFiles)
+        let accepted = try ProtocolTransitionReplay.applying([transition], to: basis, mode: .lazyDirectories)
         if accepted.root == heads.materializedRoot {
             try recordAccepted(root: accepted.root, update: final.update.id, cursor: event.id)
         } else {
             try replaceFromSystem(SnapshotBridge.replacement(
                 snapshot: accepted, tree: treeID(), update: final.update.id, cursor: event.id,
-                mode: .sparseFiles, acceptedAt: Date(timeIntervalSince1970: final.update.acceptedAt / 1_000)))
+                mode: .lazyDirectories, acceptedAt: Date(timeIntervalSince1970: final.update.acceptedAt / 1_000)))
         }
         return final.update
     }

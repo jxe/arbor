@@ -1,4 +1,4 @@
-import StoryKit
+import OverstoryWorkspace
 import Overstory
 import Foundation
 
@@ -27,13 +27,29 @@ enum WorkingTreeSemantics {
         }
     }
 
-    static func parent(of path: String) -> String? {
-        guard path != "/" else { return nil }
-        let parts = path.split(separator: "/")
-        return parts.count == 1 ? "/" : "/" + parts.dropLast().joined(separator: "/")
+    // A normalized path (leading "/", no empty segment, no trailing "/")
+    // splits at its last "/" without splitting every segment; anything else
+    // takes the segment-by-segment reading.
+    private static func isNormalized(_ path: String) -> Bool {
+        path.hasPrefix("/") && !path.hasSuffix("/") && !path.contains("//")
     }
 
-    static func name(of path: String) -> String { path == "/" ? "/" : String(path.split(separator: "/").last!) }
+    static func parent(of path: String) -> String? {
+        guard path != "/" else { return nil }
+        guard isNormalized(path), let slash = path.utf8.lastIndex(of: UInt8(ascii: "/")) else {
+            let parts = path.split(separator: "/")
+            return parts.count <= 1 ? "/" : "/" + parts.dropLast().joined(separator: "/")
+        }
+        return slash == path.utf8.startIndex ? "/" : String(path[..<slash])
+    }
+
+    static func name(of path: String) -> String {
+        guard path != "/" else { return "/" }
+        guard isNormalized(path), let slash = path.utf8.lastIndex(of: UInt8(ascii: "/")) else {
+            return String(path.split(separator: "/").last!)
+        }
+        return String(path[path.utf8.index(after: slash)...])
+    }
 
     static func child(_ name: String, of parent: String) -> String {
         parent == "/" ? "/\(name)" : "\(parent)/\(name)"
@@ -59,6 +75,20 @@ enum WorkingTreeSemantics {
     static func pageIDValues(in source: String) -> [String] {
         guard let bodyStart = frontmatterRange(in: source) else { return [] }
         let frontmatter = String(source[bodyStart])
+        // Every node's ID is read on each projection and check; front matter
+        // is short and rarely changes, so its answer is remembered.
+        if let known = pageIDMemo.withLock({ $0[frontmatter] }) { return known }
+        let values = pageIDValues(frontmatter: frontmatter)
+        pageIDMemo.withLock { memo in
+            if memo.count >= 20_000 { memo.removeAll() }
+            memo[frontmatter] = values
+        }
+        return values
+    }
+
+    private static let pageIDMemo = LockedValue<[String: [String]]>([:])
+
+    private static func pageIDValues(frontmatter: String) -> [String] {
         guard let regex = pageIDLine else { return [] }
         return regex.matches(in: frontmatter, range: NSRange(frontmatter.startIndex..., in: frontmatter)).compactMap { match in
             guard let range = Range(match.range(at: 1), in: frontmatter) else { return nil }
@@ -145,5 +175,17 @@ enum WorkingTreeSemantics {
         let start = source.index(source.startIndex, offsetBy: 3 + newline.count)
         guard let closing = source.range(of: "\(newline)---", range: start..<source.endIndex) else { return nil }
         return start..<closing.lowerBound
+    }
+}
+
+/// A value behind a lock, for small process-wide memos.
+final class LockedValue<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+    init(_ value: Value) { self.value = value }
+    func withLock<Result>(_ body: (inout Value) -> Result) -> Result {
+        lock.lock()
+        defer { lock.unlock() }
+        return body(&value)
     }
 }

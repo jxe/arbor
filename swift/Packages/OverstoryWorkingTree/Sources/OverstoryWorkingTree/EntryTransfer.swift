@@ -50,7 +50,7 @@ public struct EntryTransfer: Codable, Equatable, Sendable {
     }
 
     public func prepare(graph: ProtocolSnapshot, candidate: ProtocolSnapshot? = nil, changeID: String = "entry-transfer") throws -> (candidate: ProtocolSnapshot, operations: [ProtocolSourceOperation]) {
-        _ = try ProtocolObjectGraph.validate(graph, mode:.sparseFiles)
+        _ = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
         func invalid() -> ProtocolValidationError { .invalidValue("Invalid entry transfer") }
         func components(_ path: String) throws -> [String] {
             if path == "/" { return [] }

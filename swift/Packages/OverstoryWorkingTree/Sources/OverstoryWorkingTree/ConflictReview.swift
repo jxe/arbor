@@ -157,12 +157,14 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
     public var source: String?
     /// Optional for journals created by the first whole-file implementation.
     public var selections: [String: ConflictReviewSelection]?
-    /// Explicitly resolve an independent whole-tree choice with the pinned current contents.
+    /// Explicitly resolve the whole group with the pinned current contents:
+    /// every choice keeps what the tree shows now, later edits included.
     public var keepCurrent: Bool?
     public var supportsKeepingCurrent: Bool {
-        decisions.count == 1 && decision.kind == "directory" && decision.path == "/" &&
-        decision.dependencies.isEmpty && decision.actions.contains("resolveConflict") &&
-        decision.affected.allSatisfy { $0.range == nil }
+        decisions.allSatisfy { decision in
+            decision.actions.contains("resolveConflict") &&
+            decision.dependencies.allSatisfy { dependency in decisions.contains(where: { $0.id == dependency }) }
+        }
     }
     public var destination: String?
     public var remove: Bool?
@@ -189,6 +191,10 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
         else { if selections == nil { selections = [:] }; selections?[id] = selection }
     }
     public var obligations: [String] {
+        // Keeping current contents chooses no version.
+        if keepCurrent == true {
+            return supportsKeepingCurrent ? [] : ["Load every linked choice before keeping the current contents."]
+        }
         var issues: [String] = []
         if Set(selections?.keys.map { $0 } ?? []).subtracting(decisions.map(\.id)).isEmpty == false {
             issues.append("The draft contains a choice outside its pinned group.")
@@ -219,8 +225,8 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
               Set(current.group(containing: id).map(\.id)) == Set(decisions.map(\.id)),
               decisions.allSatisfy({ decision in current.decisions.first(where: { $0.id == decision.id }) == decision })
         else { return nil }
-        // Current contents are displayed evidence for a whole-tree review.
-        if supportsKeepingCurrent && current.root != snapshot.root { return nil }
+        // Kept current contents are the reviewed evidence; a moved root needs review again.
+        if keepCurrent == true && current.root != snapshot.root { return nil }
         var next = ConflictReviewDraft(snapshot: current, decision: decision, alternative: alternative, source: source)
         next.keepCurrent = keepCurrent
         next.selections = selections; next.destination = destination; next.remove = remove

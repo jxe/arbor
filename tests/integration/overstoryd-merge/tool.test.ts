@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, writeFile, stat, utimes } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectStore } from "@ovst/object-store";
 import { encodeLogEntry, LOG_ENTRY_FORMAT, MergeRefusal, type LogEntry, type MergeQuestion } from "@ovst/merge-protocol";
-import { encodeProtocolDirectory, hashObject, type TreeSnapshot } from "@ovst/protocol";
+import { decodeProvenanceRecord, encodeProtocolDirectory, hashObject, type TreeSnapshot } from "@ovst/protocol";
 import { CollectionProjections } from "@ovst/story-sync/state";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
-import { MergeTool } from "../../../packages/overstoryd/src/merge-tool.ts";
+import { MergeTool, mergeStagingRoot } from "../../../packages/overstoryd/src/merge-tool.ts";
 import { mergeProtocolTrees } from "@ovst/tree-merge";
 import { initialPersonConfig, snapshotTreeConfig } from "@ovst/protocol";
 import fixtures from "../../fixtures/overstoryd/merge.json";
@@ -19,8 +19,8 @@ afterEach(async () => { await tool[Symbol.asyncDispose](); await rm(directory, {
 const lineWorker = (body: string) => `for await (const _ of console) { ${body} }`;
 /** Every job removed its staged objects; only empty worker directories remain. */
 async function expectNoStaging() {
-  for (const worker of await readdir(join(directory, "merge-workers")).catch(() => [] as string[]))
-    expect(await readdir(join(directory, "merge-workers", worker))).toEqual([]);
+  for (const worker of await readdir(join(mergeStagingRoot(directory))).catch(() => [] as string[]))
+    expect(await readdir(join(mergeStagingRoot(directory), worker))).toEqual([]);
 }
 const encoded = (s: string) => new TextEncoder().encode(s);
 function snapshot(source: string, name = "note.md"): TreeSnapshot {
@@ -206,18 +206,16 @@ test("unchanged shared outputs need no staging copies and existing objects are n
   const out = JSON.parse(await new Response(child.stdout).text());
   expect(await child.exited).toBe(0);
   expect(out.root).toBe(base.root);
-  expect(out.objects).toEqual([]);
-  expect(await readdir(staging).catch(() => [])).toEqual([]);
+  // Only the answer's provenance index records are staged; no tree objects.
+  const staged = new ObjectStore(staging);
+  for (const hash of out.objects) expect(decodeProvenanceRecord(await staged.read(hash)).format).toBeString();
+  expect(out.provenance).toBeDefined();
   expect((await tool.ask(question, base.objects)).answer.root).toBe(base.root);
-  const shard = join(directory, "objects", base.root.slice(7, 9));
-  const timestamp = new Date("2020-01-01T00:00:00Z");
-  await utimes(shard, timestamp, timestamp);
+  // Storing an existing object again writes and syncs nothing.
+  const before = { ...store.writes };
   await store.store([{ hash: base.root, bytes: base.objects.get(base.root)! }]);
-  expect((await stat(shard)).mtimeMs).toBe(timestamp.getTime());
-  await writeFile(store.path(base.root), "corrupt");
-  // Bytes this process made durable are not read again; a store that has not
-  // verified them (another process) checks them before trusting them.
-  await expect(new ObjectStore(join(directory, "objects")).store([{ hash: base.root, bytes: base.objects.get(base.root)! }])).rejects.toThrow("hash mismatch");
+  expect(store.writes.written).toBe(before.written);
+  expect(store.writes.fsyncs).toBe(before.fsyncs);
 });
 
 test("one persistent stdin worker processes concurrent submissions in FIFO order", async () => {
@@ -234,9 +232,9 @@ test("one persistent stdin worker processes concurrent submissions in FIFO order
   expect(completed).toEqual([0,1,2,3,4,5]);
   expect(results.map(result => result.answer.root)).toEqual(questions.map(({question}) => question.candidate.root));
   expect((await readFile(log,"utf8")).trim().split("\n")).toHaveLength(1);
-  const workers = await readdir(join(directory,"merge-workers"));
+  const workers = await readdir(join(mergeStagingRoot(directory)));
   expect(workers).toHaveLength(1);
-  expect(await readdir(join(directory,"merge-workers",workers[0]!))).toEqual([]);
+  expect(await readdir(join(mergeStagingRoot(directory),workers[0]!))).toEqual([]);
 });
 
 test("persistent jobs cannot borrow discarded staging and a failed job releases the queue", async () => {
@@ -265,7 +263,7 @@ test.each(["exit", "timeout"])("persistent worker %s is reaped and the queued su
   await expect(failed).rejects.toThrow(mode === "exit" ? "exited" : "timed out");
   expect((await next).answer.root).toBe(question.candidate.root);
   expect((await readFile(marker,"utf8")).trim().split("\n")).toHaveLength(2);
-  expect(await readdir(join(directory,"merge-workers"))).toHaveLength(1);
+  expect(await readdir(join(mergeStagingRoot(directory)))).toHaveLength(1);
 });
 
 test("the single-worker queue is bounded and shutdown rejects waiting work", async () => {
@@ -279,7 +277,7 @@ test("the single-worker queue is bounded and shutdown rejects waiting work", asy
   const results = await Promise.all(pending);
   expect(results[0]).toBe("completed");
   expect(results.slice(1)).toEqual(Array(64).fill("Merge tool is closing"));
-  expect(await readdir(join(directory,"merge-workers"))).toEqual([]);
+  expect(await readdir(join(mergeStagingRoot(directory))).catch(() => [])).toEqual([]);
   await expect(sequential.ask(question,inputs)).rejects.toThrow("closing");
 });
 
@@ -331,4 +329,15 @@ test("a refusal or an error line keeps the worker and its cache; malformed outpu
   expect(await ask()).toBeInstanceOf(MergeRefusal);
   expect((await readFile(starts,"utf8")).trim().split("\n")).toHaveLength(2);
   await expectNoStaging();
+});
+
+test("workers stage their scratch off the data volume", async () => {
+  const root = mergeStagingRoot(directory);
+  expect(root.startsWith(directory)).toBe(false);
+  expect(mergeStagingRoot(directory)).toBe(root);
+  expect(mergeStagingRoot(`${directory}-other`)).not.toBe(root);
+  const base = snapshot("base"), { question, inputs } = await prepare(base, base, snapshot("scratch"));
+  await tool.ask(question, inputs);
+  expect(await readdir(root)).toHaveLength(1);
+  expect(await readdir(directory)).not.toContain("merge-workers");
 });

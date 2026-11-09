@@ -1,4 +1,5 @@
 import { syncHandler } from "./sync-http.ts";
+import { readHandler } from "./read-http.ts";
 import { errorResponse, assertCaller, assertSameOrigin, isCaller } from "./http.ts";
 import { accountHandler } from "./account-http.ts";
 import { LocalAccountService } from "./account-service.ts";
@@ -78,6 +79,7 @@ async function startStorySyncServer(
     trees: service.trees, events: service.events,
   }));
   const sync = syncHandler(service, { instanceID, runtimeKind: options.runtimeKind ?? (workspace ? "foreground" : "persistent") });
+  const reads = readHandler(service);
   const browser = browserHandler(new LocalFileService(service.trees));
   const { token } = await ensureStorySyncAccess();
   const server = await listen(options.port ?? STORY_SYNC_DEFAULT_PORT, token, (port) => Bun.serve({
@@ -97,6 +99,8 @@ async function startStorySyncServer(
 
         const syncResponse = await sync(request, url, server);
         if (syncResponse) return syncResponse;
+        const readResponse = await reads(request, url, server);
+        if (readResponse) return readResponse;
         return await browser(request, url);
       } catch (error) {
         if (error instanceof ProtocolError) {

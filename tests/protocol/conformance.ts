@@ -41,7 +41,7 @@ try {
   if ("observedThrough" in directoryFixture || !directoryFixture.snapshot?.every(entry => entry.profile?.startsWith("tr_") && entry.sources?.length)) {
     throw new Error("Malformed shared profile-directory fixture");
   }
-  await run(["bun", "test", "tests/unit/protocol.test.ts", "tests/unit/resource-policy.test.ts", "tests/unit/protocol-updates/update-intent.test.ts", "tests/unit/protocol-updates/operations.test.ts", "tests/unit/protocol-updates/authored-contract.test.ts", "tests/unit/protocol-updates/accepted-contract.test.ts", "tests/unit/protocol-updates/accepted-transport.test.ts", "tests/unit/protocol-updates/authored-transport.test.ts", "tests/unit/protocol-updates/cbor-transport.test.ts"]);
+  await run(["bun", "test", "tests/unit/protocol.test.ts", "tests/unit/resource-policy.test.ts", "tests/unit/protocol-updates/update-intent.test.ts", "tests/unit/protocol-updates/operations.test.ts", "tests/unit/protocol-updates/authored-contract.test.ts", "tests/unit/protocol-updates/accepted-contract.test.ts", "tests/unit/protocol-updates/accepted-transport.test.ts", "tests/unit/protocol-updates/authored-transport.test.ts", "tests/unit/protocol-updates/cbor-transport.test.ts", "tests/unit/protocol-updates/path-read.test.ts"]);
 
   // One local host with an owner account; the control-mode daemon below
   // places `treeDir` under that account so the Swift suites can exercise the
@@ -107,6 +107,7 @@ try {
         "-only-testing:StoryAppTests/StorySyncClientTests",
         "-only-testing:StoryAppTests/LoopbackServicesTests",
       ], Object.fromEntries(Object.entries({ ...fixtures, ...daemon }).map(([key, value]) => [`TEST_RUNNER_${key}`, value])));
+      await run(["swift", "test", "--package-path", "swift/Packages/OverstoryWorkspace"], fixtures);
       await run(["swift", "test", "--package-path", "swift/Packages/StoryKit"], fixtures);
       // Exercise a real accepted conflict through the baseline filesystem client.
       const basis = (await owner.descriptor(tree)).tree;

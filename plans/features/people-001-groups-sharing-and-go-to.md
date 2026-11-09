@@ -1,7 +1,5 @@
 # People 001: form groups, share with people, and go to any tree
 
-**Timing:** Soon.
-
 **Why and when:** Joe asked on 2026-10-20 for People to remember the people and trees he has
 come across, not only what connected hosts list. Its main jobs are finding someone and forming
 groups to share with: family, different groups at work. That means knowing whether a group
@@ -10,8 +8,7 @@ person whose tree ID you don't know. He also wants a way back to any tree or pag
 visited without remembering its host URL or path, like Chrome's address bar. Phase 1, the
 directory tree kept by code, is done
 ([status](../../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25); Joe:
-"this will do for now"). Joe moved what is left to soon on 2026-10-25: forming groups in the
-directory, the share sheet, Go to… and links by tree ID. The UX was worked out in the doc
+"this will do for now"). What is left: forming groups in the directory, Go to… and links by tree ID. The UX was worked out in the doc
 [People directory UX](https://claude.ai/code/artifact/b3c3e9a9-aeee-49f9-b973-b9bee2d256bb)
 (thread "People directory memory").
 
@@ -19,69 +16,32 @@ Formerly "a directory you own, Go to…, and links by tree ID".
 
 > **Executor instructions**: Refresh each phase against the source first. Do the phases in
 > order and stop after each for Joe's hands-on check. Forks 1–3 are settled (Joe, 2026-10-25);
-> settle fork 4 before phase 3. Go to… (a side slice, any time) needs only fork 5.
+> settle fork 4 before phase 2's invites. Go to… (a side slice, any time) needs only fork 5.
 
 ## Status
 
 - **Effort:** L, in phases.
 - **Risk:** MEDIUM. Group edits write to group profile trees on hosts.
-- **State:** phase 1 done (2026-10-25, through 6ebe9ea). Left: phase 1's loose ends, phases
-  2–4 and the Go to… slice.
+- **State:** left: phase 1's loose ends, phases 2 and 4 and the Go to… slice. (Phase 1, the
+  directory tree, is built; phase 3, the share sheet, was dropped on 2026-11-01.)
 - **Order** (Joe, 2026-10-24): the directory first, because it is People's point; Go to… and
   tree-ID links are a side slice for any time.
-- **Gated on:** phase 2 on [Schema language 007](../soon/schema-language-007-edit-collections-in-story.md)'s
+- **Gated on:** phase 2 on [Schema language 007](schema-language-007-editing-in-the-collection-view.md)'s
   structured editor (editing by hand in simple ways comes earlier, with 007 step 7) and, for
   dragging people into groups, the [groups that are other trees](../spec-extensions/groups-that-are-other-trees.md)
   spec extension. How the directory is shown is done (Schema language 002, closed 2026-10-28). The Go to… slice
   and phase 1's loose ends on nothing.
 - **Built on collection views** (Joe, 2026-10-24): People is the directory's collection shown
-  with USL views (Schema language 006 and 002), not hand-built screens. Only Go to… and the share sheet
+  with USL views (Schema language 006 and 002), not hand-built screens. Only Go to… and the person picker
   are hand-built.
 - **Includes Links 001** (following a link that names a tree by its ID), folded in on
   2026-10-24 (the Go to… slice and phase 4). Its earlier text is in git history at `7b29f1b`
   (`plans/soon/links-001-tree-id-links.md`).
 
-## The directory as built (phase 1)
-
-The tree is `/~handle/directory`, mounted in the profile's
-`mounts.yaml`, administered by the profile alone, and activated with a seed snapshot that
-`tools/directory-seed.ts` makes from `tools/directory-seed/` into
-`PersonalDirectorySeed.swift` (Story doesn't encode tables; a test checks it is current).
-The seed has a `_version` (5). Until the directory has migrations, `PersonalDirectoryKeeper`
-replaces a directory made from an older seed with the current one, which empties it: ties,
-your own trees and placed trees come back on the next refresh, past visits don't. So a change
-to either schema, even to views alone, costs Joe his visits; batch them.
-
-Every row is a fact, keyed so two devices recording it make one row:
-
-- People: `Tie {person, group?, kind}` keyed `kind-person-group` (Community, Group, Shared,
-  SharedWithYou, Invited, InvitedYou, Opened), with the card as seen then; `Contact` (by hand,
-  later). Ties come from the host directory refresh (a group you're in together, a person in
-  your sharing rules, a community for people with another tie) and profile opens; you are
-  listed in your own groups.
-- Trees: `Tree {title, path, host, owner, parent, kind}` keyed by TreeID, with kind (Profile,
-  Group, Community, Settings, Tree) and owner read from the canonical path; `Visit {tree, …}`
-  with a fresh id per page opened (at most one an hour per page and device; pages opened
-  before the keeper is ready are recorded once it is); `Placement {tree, device}` per device.
-  Your profile, configuration and the groups you run (`writableProfiles`) and every tree
-  placed on the device get `Tree` rows on each refresh.
-
-Views use the USL additions of 2026-10-25 (spec 11 §8: `rows:`, `re Person`, paths,
-`~latest`/`~earliest`/`~count`/`~ago`): People by group, Everyone and Recent with
-`rows: person`; Trees Recent (`visits.at ~latest ~ago`), By kind and By owner.
-
-Finding it: on the Mac the sidebar toolbar is the tree picker (Recent, then Special: You,
-Account Settings, groups you run; then People & Trees… ⇧⌘D; then Open Tree…), with search
-below; the People footer and sheet are gone. Not yet: invitation claims, shares made elsewhere
-than a refresh shows, rewriting `contact:` values, a migration path, and the Go to… typeahead.
-
-Same-field races between devices need not shape the schema (Joe, 2026-10-25): overstoryd's
-merge sidecar can resolve them, e.g. latest wins for a tree's title or a last-seen time, a
-union for chips, added increments for a count. A general form would be a storage attribute a
-schema asks for (`@merge(latest)`); with it, a tree could be one row with `title`, `lastVisited`
-and `visits` updated in place instead of a Visit row per page.
-
 ## Phase 1's loose ends
+
+The directory tree itself is described in
+[status](../../status.md#people-directory-tree-picker-and-usl-summaries--2026-10-25).
 
 - **More sightings:** invitation claims, and shares made where a refresh doesn't show them.
 - **Placeholders by name, then by profile.** When a contact gets a profile (an invite claimed,
@@ -89,9 +49,18 @@ and `visits` updated in place instead of a Visit row per page.
   in the collections Story can write, as row operations, the same way group membership
   follows them. `Contact` rows (placeholders by hand) come with 007 part 2.
 - **A migration path** for the directory's schema, so a seed bump stops emptying it
-  ([Schema language 009](schema-language-009-schema-changes-keep-the-data.md)).
+  ([Schema language 009](schema-language-009-schema-changes-keep-the-data.md)). Until then
+  `PersonalDirectoryKeeper` replaces a directory made from an older seed (`_version` in
+  `tools/directory-seed/`), which empties it: ties and trees come back on the next refresh,
+  past visits don't. So batch schema changes, even to views alone.
 - **Proof still owed:** a games author entered as a placeholder shows by name, and by their
   profile once they join.
+
+Same-field races between devices need not shape the schema (Joe, 2026-10-25): overstoryd's
+merge sidecar can resolve them, e.g. latest wins for a tree's title or a last-seen time, a
+union for chips, added increments for a count. A general form would be a storage attribute a
+schema asks for (`@merge(latest)`); with it, a tree could be one row with `title`, `lastVisited`
+and `visits` updated in place instead of a Visit row per page.
 
 ## Groups and what arrives on its own
 
@@ -122,20 +91,24 @@ of those plans is listed in each of them.
   `invite:` member; the row's actions are Copy invite link and Send invite…, and a status cell
   shows not invited, invited, or joined. Accepting turns the placeholder into the profile and
   keeps groups, shares and notes (fork 4).
+- **The person picker** (hand-built; from the dropped phase 3). One field that finds a person
+  or group: your contacts first, then host communities, members of groups shared with you, an
+  exact `~handle@host` or `tr_…`, then "Add as a placeholder and invite". It serves "+" and
+  New Group here, a tree's access list in [Sharing 003](../../status.md#move-a-page-to-another-tree--2026-11-01)'s
+  share sheet, and `Person` fields in collections (007's chip picker uses it).
 - Retire `StoryDirectoryView`'s hand-built sections and the Members sheet for groups; keep the
   sheet for host communities.
 - **Proof:** make a group by dragging three people on the Mac; it shows on the iPhone and the
-  host's group tree lists them.
+  host's group tree lists them. Add a placeholder through the picker to a tree's access, and
+  accept the link from another account.
 
-## Phase 3: the share sheet (hand-built)
+## Phase 3: dropped (2026-11-01)
 
-- The share sheet takes people and groups in one field and compares the picks with your groups:
-  an exact match suggests the group, a near match offers to add the missing person to it, and
-  three or more unmatched people offer "Make a group of these…". The same picker serves New
-  Group and `Person` fields in collections (007's chip picker uses it).
-- Search widens past your contacts: host communities, then members of groups shared with you,
-  then an exact `~handle@host` or `tr_…`, then "Add as a placeholder and invite".
-- **Proof:** share with a placeholder and accept the link from another account.
+Phase 3 was a hand-built share sheet that matched the people you pick against your groups
+("Make a group of these…"). Joe dropped it on 2026-11-01 once
+[Sharing 003](../../status.md#move-a-page-to-another-tree--2026-11-01) made sharing a choice of tree, so a
+page's audience is its tree's. Its person search moved to phase 2's person picker. Its text is
+in git history before that date. Phase 4 keeps its number.
 
 ## Side slice: Go to… and tree-ID links on the Mac
 
@@ -164,7 +137,7 @@ opens from outside the app ignore it. Joe wants these links honored wherever the
 find the tree. The Go to… slice builds the lookup on the Mac from the Trees collection (or
 `Visits.json` before phase 1); phase 4 adds opens from outside the app, the iPhone and the CLI.
 
-**Done already** (`c0bc636`, 2026-10-20): `openNestedTree` (`StoryAppModel.swift`) asks each
+**Already there** (`c0bc636`, 2026-10-20): `openNestedTree` (`StoryAppModel.swift`) asks each
 connected account's host for a tree it cannot find locally (`openHostedTree`). Refresh the
 rest of this section against the source before starting.
 

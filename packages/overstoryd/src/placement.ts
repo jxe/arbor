@@ -61,6 +61,8 @@ export class PlacementDeviceKeys {
     private readonly lifetimes: () => DeviceKeyLifetimes,
     private readonly onFetched: (profileTree: string, copy: DeviceKeyCopy) => void,
     private readonly load: DeviceKeyLoader = fetchPublishedDeviceKeys,
+    /** The profile a copy's key names; a visitor's copies are keyed by home host and profile together. */
+    private readonly profileOf: (key: string) => string = (key) => key,
   ) {}
 
   /** Fetch a profile's device keys from its home host now; throws when they cannot be read. */
@@ -70,7 +72,8 @@ export class PlacementDeviceKeys {
       const attempt = { at: Date.now(), failed: true };
       this.attempts.set(profileTree, attempt);
       pending = (async () => {
-        const copy: DeviceKeyCopy = { fetchedAt: Date.now(), devices: validPublishedKeys(await this.load(homeHost, profileTree), profileTree) };
+        const profile = this.profileOf(profileTree);
+        const copy: DeviceKeyCopy = { fetchedAt: Date.now(), devices: validPublishedKeys(await this.load(homeHost, profile), profile) };
         attempt.failed = false;
         this.copies.set(profileTree, copy);
         this.onFetched(profileTree, copy);

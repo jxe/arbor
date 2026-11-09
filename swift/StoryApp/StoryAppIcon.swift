@@ -8,6 +8,8 @@ import UIKit
 enum StoryAppIcon: String, CaseIterable, Identifiable {
     case pageS = "PageS"
     case storyPath = "StoryPath"
+    case storyPathWhite = "StoryPathWhite"
+    case storyPathAutomatic = "StoryPathAutomatic"
     case doorway = "Doorway"
 
     var id: String { rawValue }
@@ -15,11 +17,17 @@ enum StoryAppIcon: String, CaseIterable, Identifiable {
         switch self {
         case .pageS: "Page S"
         case .storyPath: "Story Path (Black)"
+        case .storyPathWhite: "Story Path (White)"
+        case .storyPathAutomatic: "Story Path (Automatic)"
         case .doorway: "Doorway"
         }
     }
     var alternateName: String? { self == .storyPath ? nil : rawValue }
     var imageName: String { "StoryIcon\(rawValue)" }
+
+    func artwork(dark: Bool) -> StoryAppIcon {
+        self == .storyPathAutomatic ? (dark ? .storyPath : .storyPathWhite) : self
+    }
 }
 
 /// Icon preferences belong to this device, independently of accounts and trees.
@@ -31,6 +39,9 @@ final class StoryAppIconSelection {
     var error: String?
 #if os(macOS)
     private(set) var selected = StoryAppIcon(rawValue: UserDefaults.standard.string(forKey: "story.appIcon") ?? "") ?? .storyPath
+    @ObservationIgnored private var appearanceObservation: NSKeyValueObservation?
+    /// Whether this run set an icon other than the app's own.
+    @ObservationIgnored private var replacedIcon = false
 #else
     var selected: StoryAppIcon {
         StoryAppIcon(rawValue: UIApplication.shared.alternateIconName ?? "StoryPath") ?? .storyPath
@@ -41,11 +52,12 @@ final class StoryAppIconSelection {
         guard !isChanging else { return }
         error = nil
 #if os(macOS)
-        guard let image = NSImage(named: icon.imageName) else {
+        guard let image = NSImage(named: icon.artwork(dark: isDarkAppearance).imageName) else {
             error = "The selected icon is missing from this app."
             return
         }
         NSApp.applicationIconImage = image
+        replacedIcon = true
         selected = icon
         UserDefaults.standard.set(icon.rawValue, forKey: "story.appIcon")
 #else
@@ -63,8 +75,29 @@ final class StoryAppIconSelection {
     }
 
 #if os(macOS)
+    private var isDarkAppearance: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+
     func restore() {
-        if let image = NSImage(named: selected.imageName) { NSApp.applicationIconImage = image }
+        if appearanceObservation == nil {
+            appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.selected == .storyPathAutomatic else { return }
+                    self.restore()
+                }
+            }
+        }
+        let artwork = selected.artwork(dark: isDarkAppearance)
+        // The app's own icon is already showing: drawing it again cost about
+        // 60 ms of launch. Only a change back to it resets the image.
+        if artwork == .storyPath {
+            if replacedIcon { NSApp.applicationIconImage = nil }
+            replacedIcon = false
+        } else if let image = NSImage(named: artwork.imageName) {
+            NSApp.applicationIconImage = image
+            replacedIcon = true
+        }
     }
 #endif
 }
@@ -78,6 +111,7 @@ enum StoryIOSSettings {
 /// Device preferences, pushed from the gear in Sync & Accounts.
 struct StoryIOSSettingsView: View {
     @AppStorage(StoryIOSSettings.showsSidebarHandleKey) private var showsSidebarHandle = true
+    @AppStorage(StoryWorkspaceState.showMeToOthersDefaultsKey) private var showsMeToOthers = true
     /// Disconnects this iPhone so it can be paired again; nil when it has no account here.
     var disconnect: (@MainActor () async -> Void)?
     @State private var confirmingDisconnect = false
@@ -93,6 +127,13 @@ struct StoryIOSSettingsView: View {
                 Text("Sidebar")
             } footer: {
                 Text("A grip on the page's left edge, near the bottom, slides the page aside to show the sidebar. Without it, swipe in from the left edge.")
+            }
+            Section {
+                Toggle("Show Me to Others", isOn: $showsMeToOthers)
+            } header: {
+                Text("Presence")
+            } footer: {
+                Text("When off, people in your trees don't see you or your cursor. You still see them.")
             }
             if disconnect != nil {
                 Section {
@@ -117,14 +158,22 @@ struct StoryIOSSettingsView: View {
 #endif
 
 #if os(macOS)
-/// Story › Settings…: the app icon and the command line tool.
+/// Story › Settings…: the app icon, presence and the command line tool.
 struct StoryMacSettingsView: View {
     @State private var installed = StoryCommandLineTool.isInstalled
+    @AppStorage(StoryWorkspaceState.showMeToOthersDefaultsKey) private var showsMeToOthers = true
 
     var body: some View {
         Form {
             Section("App Icon") {
                 StoryAppIconChoices()
+            }
+            Section {
+                Toggle("Show Me to Others", isOn: $showsMeToOthers)
+            } header: {
+                Text("Presence")
+            } footer: {
+                Text("When off, people in your trees don't see you or your cursor. You still see them.")
             }
             Section {
                 if StoryCommandLineTool.launcher == nil {
@@ -176,38 +225,55 @@ private struct StoryAppIconChoices: View {
     @State private var selection = StoryAppIconSelection.shared
     @State private var current = StoryAppIconSelection.shared.selected
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            ForEach(StoryAppIcon.allCases) { icon in
-                Button {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle("Follow System Appearance", isOn: Binding(
+                get: { current == .storyPathAutomatic },
+                set: { automatic in
+                    let icon = automatic ? StoryAppIcon.storyPathAutomatic
+                        : StoryAppIcon.storyPathAutomatic.artwork(dark: colorScheme == .dark)
                     Task {
                         await selection.select(icon)
                         current = selection.selected
                     }
-                } label: {
-                    VStack(spacing: 6) {
-                        Image(icon.imageName)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: 88)
-                        Text(icon.title)
-                            .font(.caption)
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(icon == current ? .primary : .secondary)
-                        Image(systemName: icon == current ? "checkmark.circle.fill" : "circle")
-                            .font(.title3)
-                            .foregroundStyle(icon == current ? Color.accentColor : Color.secondary.opacity(0.5))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(icon.title)
-                .accessibilityAddTraits(icon == current ? .isSelected : [])
+            ))
+            Text(appearanceExplanation)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(StoryAppIcon.allCases.filter { $0 != .storyPathAutomatic }) { icon in
+                    Button {
+                        Task {
+                            await selection.select(icon)
+                            current = selection.selected
+                        }
+                    } label: {
+                        VStack(spacing: 6) {
+                            Image(icon.imageName)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: 88)
+                            Text(icon.title)
+                                .font(.caption)
+                                .multilineTextAlignment(.center)
+                                .foregroundStyle(icon == current ? .primary : .secondary)
+                            Image(systemName: icon == current ? "checkmark.circle.fill" : "circle")
+                                .font(.title3)
+                                .foregroundStyle(icon == current ? Color.accentColor : Color.secondary.opacity(0.5))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(icon.title)
+                    .accessibilityAddTraits(icon == current ? .isSelected : [])
+                }
             }
+            .padding(.vertical, 6)
         }
-        .padding(.vertical, 6)
         .disabled(selection.isChanging)
         .opacity(selection.isChanging ? 0.6 : 1)
         .alert("Couldn’t Change App Icon", isPresented: Binding(
@@ -221,5 +287,13 @@ private struct StoryAppIconChoices: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { current = selection.selected }
         }
+    }
+
+    private var appearanceExplanation: String {
+#if os(iOS)
+        "Uses white in Light appearance and black in Dark appearance. Set Home Screen icons to Automatic to switch with your system appearance. Choosing an icon below turns this off."
+#else
+        "Uses white in Light appearance and black in Dark appearance, following your Mac’s appearance setting. Choosing an icon below turns this off."
+#endif
     }
 }

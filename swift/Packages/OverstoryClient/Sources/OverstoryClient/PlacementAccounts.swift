@@ -107,7 +107,7 @@ public struct NativePlacementResult: Sendable, Equatable {
 }
 
 /// The scheme, host and port of `url`, as `new URL(...).origin` spells them.
-func originString(_ url: URL?) -> String? {
+public func originString(_ url: URL?) -> String? {
     guard let url, let scheme = url.scheme?.lowercased(), let host = url.host()?.lowercased(), !host.isEmpty else { return nil }
     let defaultPort = ["http": 80, "https": 443][scheme]
     let port = url.port.flatMap { $0 == defaultPort ? nil : ":\($0)" } ?? ""

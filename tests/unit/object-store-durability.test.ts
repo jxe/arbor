@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { holdsObject, ObjectStore } from "@ovst/object-store";
 import { encodeProtocolDirectory, hashObject } from "@ovst/protocol";
 
@@ -14,158 +14,170 @@ const object = (text: string) => {
   return { hash: hashObject(bytes), bytes };
 };
 
-test("a durable batch syncs each new file once and each directory once", async () => {
+const journals = async () => (await readdir(join(directory, "objects", "packs"))).filter((n) => n.startsWith("journal-"));
+const journalPath = async () => join(directory, "objects", "packs", (await journals())[0]!);
+const usedAt = (store: ObjectStore, hash: string) => {
+  const row = store.packs.index()!.query("SELECT used_at FROM packed_objects WHERE hash = ?").get(Buffer.from(hash.slice(7), "hex")) as { used_at: number } | null;
+  return row?.used_at;
+};
+
+test("a durable batch is one journal append and one sync, with no loose files", async () => {
   const store = new ObjectStore(join(directory, "objects"));
   const objects = Array.from({ length: 40 }, (_, i) => object(`object ${i}`));
-  const shards = new Set(objects.map((o) => dirname(store.path(o.hash))));
   await store.store(objects);
   expect(store.writes.written).toBe(40);
-  // One fsync per file, one per new shard directory, one for the root, and
-  // once per process one for the root's own entry in its parent.
-  expect(store.writes.fsyncs).toBe(40 + shards.size + 2);
-  for (const o of objects) expect(await store.read(o.hash)).toEqual(o.bytes);
-  for (const shard of shards) {
-    for (const name of await readdir(shard)) expect(name).not.toContain(".tmp");
+  expect(store.writes.fsyncs).toBe(1);
+  for (const o of objects) {
+    expect(await store.read(o.hash)).toEqual(o.bytes);
+    expect(await new ObjectStore(join(directory, "objects")).read(o.hash)).toEqual(o.bytes);
   }
+  expect(await readdir(join(directory, "objects"))).toEqual(["packs"]);
+  expect(await journals()).toHaveLength(1);
+  await store.store([object("one more")]);
+  expect(store.writes.fsyncs).toBe(2);
+  expect(await journals()).toHaveLength(1);
 });
 
-test("re-storing objects this process already made durable issues no fsync", async () => {
+test("re-storing durable objects writes and syncs nothing, in this process or another", async () => {
   const store = new ObjectStore(join(directory, "objects"));
   const objects = Array.from({ length: 5 }, (_, i) => object(`again ${i}`));
   await store.store(objects);
-  const after = store.writes.fsyncs;
   await store.store(objects);
   await store.store(objects.slice(2));
-  expect(store.writes.fsyncs).toBe(after);
+  expect(store.writes.fsyncs).toBe(1);
   expect(store.writes.written).toBe(5);
+  const second = new ObjectStore(join(directory, "objects"));
+  await second.store(objects);
+  expect(second.writes).toEqual({ objects: 5, written: 0, fsyncs: 0 });
 });
 
-test("staged objects become durable on the first durable store without rewriting", async () => {
+test("staged objects become durable on the first durable store", async () => {
   const store = new ObjectStore(join(directory, "objects"));
   const a = object("staged first");
   await store.stage([a]);
   expect(store.writes.fsyncs).toBe(0);
   await store.store([a]);
-  expect(store.writes.written).toBe(1);
-  // File, shard directory, root, root entry.
-  expect(store.writes.fsyncs).toBe(4);
+  expect(store.writes.fsyncs).toBe(1);
+  expect(store.packs.has(a.hash)).toBe(true);
   await store.store([a]);
-  expect(store.writes.fsyncs).toBe(4);
+  expect(store.writes.fsyncs).toBe(1);
 });
 
-test("objects present from another process are synced once, then remembered", async () => {
-  const first = new ObjectStore(join(directory, "objects"));
-  const a = object("from before");
-  await first.store([a]);
-  const second = new ObjectStore(join(directory, "objects"));
-  await second.store([a]);
-  expect(second.writes.written).toBe(0);
-  expect(second.writes.fsyncs).toBe(4);
-  await second.store([a]);
-  expect(second.writes.fsyncs).toBe(4);
-});
-
-/** Distinct objects whose hashes share one shard directory. */
-const sameShard = (count: number, prefix: string) => {
-  const found: Array<ReturnType<typeof object>> = [];
-  for (let i = 0; found.length < count; i++) {
-    const candidate = object(`${prefix} ${i}`);
-    if (!found.length || candidate.hash.slice(7, 9) === found[0]!.hash.slice(7, 9)) found.push(candidate);
-  }
-  return found;
-};
-
-test("the root is synced only for a shard whose entry is not yet known durable", async () => {
+test("storing an object again freshens it for the object collector", async () => {
   const store = new ObjectStore(join(directory, "objects"));
-  const [a, b] = sameShard(2, "shard");
-  await store.store([a!]);
-  // File, new shard directory, root, root entry.
-  expect(store.writes.fsyncs).toBe(4);
-  await store.store([b!]);
-  // File and its already rooted shard directory only.
-  expect(store.writes.fsyncs).toBe(6);
-  let c = object("elsewhere");
-  for (let i = 0; c.hash.slice(7, 9) === a!.hash.slice(7, 9); i++) c = object(`elsewhere ${i}`);
-  await store.store([c]);
-  expect(store.writes.fsyncs).toBe(9);
-});
-
-test("a shard a staged publish or another store made is rooted on its first durable use", async () => {
-  const [a, b, c] = sameShard(3, "foreign");
-  const first = new ObjectStore(join(directory, "objects"));
-  await first.stage([a!]);
-  await first.store([b!]);
-  // File, shard directory, root, root entry: staging synced no directory.
-  expect(first.writes.fsyncs).toBe(4);
-  const second = new ObjectStore(join(directory, "objects"));
-  await second.store([c!]);
-  expect(second.writes.fsyncs).toBe(4);
-});
-
-test("re-storing an object this process made durable freshens it without reading it", async () => {
-  const store = new ObjectStore(join(directory, "objects"));
-  const value = object("durable here");
+  const value = object("kept by reuse");
   await store.store([value]);
-  const path = store.path(value.hash);
-  // Bytes changed behind the store's back show the repeat store never reads
-  // them; every read still hash-checks, so the damage is caught there.
-  await writeFile(path, "damaged");
-  await utimes(path, twoDaysAgo(), twoDaysAgo());
-  await store.store([value]);
-  expect(await recent(path)).toBe(true);
-  expect(store.writes.written).toBe(1);
-  expect(store.writes.fsyncs).toBe(4);
-  await expect(new ObjectStore(join(directory, "objects")).read(value.hash)).rejects.toThrow("Stored object hash mismatch");
-});
-
-test("re-storing a durable object the collector removed writes it again", async () => {
-  const store = new ObjectStore(join(directory, "objects"));
-  const value = object("collected");
-  await store.store([value]);
-  await rm(store.path(value.hash));
-  await store.store([value]);
-  expect(await store.read(value.hash)).toEqual(value.bytes);
-  expect(store.writes.written).toBe(2);
-});
-
-test("an object not known to this process has its stored bytes checked", async () => {
-  const value = object("checked");
+  store.packs.index()!.run("UPDATE packed_objects SET used_at = ?", [twoDaysAgo().getTime()]);
   await new ObjectStore(join(directory, "objects")).store([value]);
+  expect(usedAt(store, value.hash)).toBeGreaterThan(Date.now() - 60_000);
+});
+
+test("records synced but never indexed are indexed again, including a journal the index lost", async () => {
+  const store = new ObjectStore(join(directory, "objects"));
+  const a = object("first"), b = object("second"), c = object("third");
+  await store.store([a]);
+  await store.store([b, c]);
+  const name = (await journals())[0]!;
+  // The index loses its last commit, then everything about the journal.
+  const db = store.packs.index()!;
+  const first = (db.query("SELECT offset, length FROM packed_objects WHERE hash = ?").get(Buffer.from(a.hash.slice(7), "hex")) as { offset: number; length: number });
+  db.run("DELETE FROM packed_objects WHERE hash != ?", [Buffer.from(a.hash.slice(7), "hex")]);
+  db.run("UPDATE packs SET bytes = ?", [first.offset + first.length]);
+  let after = new ObjectStore(join(directory, "objects"));
+  expect(await after.find(b.hash)).toBeNull();
+  expect(after.recover()).toBe(2);
+  for (const o of [a, b, c]) expect(await after.read(o.hash)).toEqual(o.bytes);
+  db.run("DELETE FROM packed_objects");
+  db.run("DELETE FROM packs");
+  after = new ObjectStore(join(directory, "objects"));
+  expect(after.recover()).toBe(3);
+  for (const o of [a, b, c]) expect(await after.read(o.hash)).toEqual(o.bytes);
+  expect(await journals()).toEqual([name]);
+});
+
+test("a torn last record is never indexed, and the first store of a process recovers first", async () => {
+  const store = new ObjectStore(join(directory, "objects"));
+  const a = object("whole"), b = object("torn");
+  await store.store([a]);
+  store.packs.index()!.run("DELETE FROM packed_objects");
+  store.packs.index()!.run("UPDATE packs SET bytes = 0");
+  // Half of a second record's body.
+  const header = Buffer.alloc(36);
+  header.writeUInt32BE(b.bytes.byteLength, 0);
+  Buffer.from(b.hash.slice(7), "hex").copy(header, 4);
+  await appendFile(await journalPath(), Buffer.concat([header, Buffer.from(b.bytes.slice(0, 2))]));
+  const after = new ObjectStore(join(directory, "objects"));
+  await after.store([object("unrelated")]);
+  expect(await after.read(a.hash)).toEqual(a.bytes);
+  expect(await after.find(b.hash)).toBeNull();
+  // Storing it again appends a whole copy to this process's own journal.
+  await after.store([b]);
+  expect(await new ObjectStore(join(directory, "objects")).read(b.hash)).toEqual(b.bytes);
+  expect(await journals()).toHaveLength(2);
+});
+
+test("an append whose journal was collected meanwhile is made again in a new journal", async () => {
+  const store = new ObjectStore(join(directory, "objects"));
+  const a = object("collected"), b = object("next");
+  await store.store([a]);
+  const collector = new ObjectStore(join(directory, "objects"));
+  expect(await collector.packs.collect(new Set(), Date.now() + 1, true)).toMatchObject({ objects: 1 });
+  expect(await journals()).toEqual([]);
+  // The store's journal file is gone with its row: the append there is
+  // synced, finds no row to index, and is made again in a new journal.
+  await store.store([a, b]);
+  expect(store.writes.fsyncs).toBe(3);
+  for (const o of [a, b]) expect(await new ObjectStore(join(directory, "objects")).read(o.hash)).toEqual(o.bytes);
+});
+
+test("a journal is verified by its records, not by its name", async () => {
+  const store = new ObjectStore(join(directory, "objects"));
+  await store.store([object("verified")]);
+  expect((await new ObjectStore(join(directory, "objects")).packs.verify()).damaged).toEqual([]);
+  await rm(await journalPath());
+  expect((await new ObjectStore(join(directory, "objects")).packs.verify()).damaged).toHaveLength(1);
+});
+
+test("a staged object not known to this process has its stored bytes checked", async () => {
+  const value = object("checked");
+  await new ObjectStore(join(directory, "objects")).stage([value]);
   const other = new ObjectStore(join(directory, "objects"));
   await writeFile(other.path(value.hash), "tampered");
-  await expect(other.store([value])).rejects.toThrow("Stored object hash mismatch");
+  await expect(other.stage([value])).rejects.toThrow("Stored object hash mismatch");
 });
 
-test("durable store still rejects mismatched existing bytes", async () => {
+test("durable store rejects bytes that do not match their hash", async () => {
   const store = new ObjectStore(join(directory, "objects"));
   const a = object("right");
-  await store.store([a]);
-  const other = new ObjectStore(join(directory, "objects"));
-  await expect(other.store([{ hash: a.hash, bytes: object("wrong").bytes }])).rejects.toThrow("Object hash mismatch");
+  await expect(store.store([{ hash: a.hash, bytes: object("wrong").bytes }])).rejects.toThrow("Object hash mismatch");
 });
 
 const twoDaysAgo = () => new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
 const recent = async (path: string) => (await stat(path)).mtimeMs > Date.now() - 60_000;
-
-test("storing an object that already exists freshens it for the object collector", async () => {
-  const store = new ObjectStore(join(directory, "objects"));
-  const value = object("kept by reuse");
-  await store.store([value]);
-  await utimes(store.path(value.hash), twoDaysAgo(), twoDaysAgo());
-  await store.store([value]);
-  expect(await recent(store.path(value.hash))).toBe(true);
-  expect(store.writes.written).toBe(1);
-});
 
 test("a verified walk freshens only stored objects, and freshening a vanished object throws", async () => {
   const store = new ObjectStore(join(directory, "objects"));
   const leaf = object("leaf"), proposed = object("proposed");
   const bytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "a", file: leaf.hash }, { name: "b", file: proposed.hash }] });
   const root = { hash: hashObject(bytes), bytes };
-  await store.store([leaf, root]);
-  for (const { hash } of [leaf, root]) await utimes(store.path(hash), twoDaysAgo(), twoDaysAgo());
+  await store.store([leaf]);
+  await store.stage([root]);
+  await utimes(store.path(root.hash), twoDaysAgo(), twoDaysAgo());
+  store.packs.index()!.run("UPDATE packed_objects SET used_at = ?", [twoDaysAgo().getTime()]);
   await store.verifyReachable([root.hash], new Map([[proposed.hash, proposed.bytes]]), { freshen: true });
-  for (const { hash } of [leaf, root]) expect(await recent(store.path(hash))).toBe(true);
+  expect(await recent(store.path(root.hash))).toBe(true);
+  expect(usedAt(store, leaf.hash)).toBeGreaterThan(Date.now() - 60_000);
   expect(await holdsObject(store, proposed.hash)).toBe(false);
   await expect(store.freshen([proposed.hash])).rejects.toThrow("Stored object vanished");
+});
+
+test("a repairing stage replaces a torn scratch file; any other publish refuses it", async () => {
+  const store = new ObjectStore(join(directory, "objects"));
+  const a = object("cache record");
+  await store.stage([a]);
+  await writeFile(store.path(a.hash), "");
+  await expect(store.stage([a])).rejects.toThrow("hash mismatch");
+  await store.stage([a], { repair: true });
+  expect(await store.read(a.hash)).toEqual(a.bytes);
+  expect(store.writes.fsyncs).toBe(0);
 });

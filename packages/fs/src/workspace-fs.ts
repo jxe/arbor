@@ -16,7 +16,7 @@ import {
   sha256,
   siblingMarkdownTreePath,
 } from "@ovst/protocol";
-import { directoryPlacementDiagnostics, parseMarkdown } from "@ovst/protocol";
+import { parseMarkdown } from "@ovst/protocol";
 import { pathExists } from "@ovst/protocol/file-ops";
 import { discoverWorkspace, type WorkspaceDiscovery, WORKSPACE_WATCHER_IGNORE_GLOBS } from "./discovery.ts";
 import { isIgnoreFileName, isTransactionTemporaryName, loadIgnorePolicy, type IgnorePolicy, type Membership } from "./ignore-policy.ts";
@@ -288,18 +288,7 @@ export class WorkspaceFS implements AsyncDisposable {
   }
 
   async read(inputPath: string): Promise<FsReadResult> {
-    const resolvedNode = await this.resolve(inputPath);
-    const node = resolvedNode.kind === "directory" && resolvedNode.materialization === "available"
-      ? {
-        ...resolvedNode,
-        diagnostics: [
-          ...resolvedNode.diagnostics,
-          ...directoryPlacementDiagnostics(resolvedNode.path, parseMarkdown(
-            resolvedNode.bodyPath ? await readFile(resolvedNode.bodyPath, "utf8").catch(() => "") : "",
-          )),
-        ],
-      }
-      : resolvedNode;
+    const node = await this.resolve(inputPath);
     if (node.kind === "missing") return { node, bytes: null, byteRevision: EMPTY_REVISION };
     if (node.materialization === "placeholder") {
       return { node, bytes: null, byteRevision: revisionOf(`placeholder:${node.path}`) };

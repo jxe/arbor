@@ -175,6 +175,7 @@ public final class StoryEditorHost: EditorHost {
     private let performStructuralAction: @MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?
     private let offerTrashAfterDeletingLink: @MainActor (WorkspaceNode, WorkspaceReference) -> Void
     private let describeTree: (@MainActor (WorkspaceReference) async -> String?)?
+    private let canonicalTreeAddresses: @MainActor () -> [CanonicalTreeAddress]
     private let voiceRecordings: TranscribedVoiceRecordingStore?
     private let voiceRecordingPlayer: VoiceRecordingPlayer?
     private var lookups: [DocumentReference: DocumentLookup] = [:]
@@ -195,9 +196,11 @@ public final class StoryEditorHost: EditorHost {
         performStructuralAction: (@MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?)? = nil,
         offerTrashAfterDeletingLink: @escaping @MainActor (WorkspaceNode, WorkspaceReference) -> Void = { _, _ in },
         describeTree: (@MainActor (WorkspaceReference) async -> String?)? = nil,
+        canonicalTreeAddresses: @escaping @MainActor () -> [CanonicalTreeAddress] = { [] },
         voiceRecordings: TranscribedVoiceRecordingStore? = nil,
         voiceRecordingPlayer: VoiceRecordingPlayer? = nil
     ) {
+        self.canonicalTreeAddresses = canonicalTreeAddresses
         self.voiceRecordings = voiceRecordings
         self.voiceRecordingPlayer = voiceRecordingPlayer
         self.binding = binding
@@ -419,23 +422,43 @@ public final class StoryEditorHost: EditorHost {
             return lookup
         }
         lookups[reference] = .pending
-        if lookupTasks[reference] == nil {
-            lookupTasks[reference] = Task { @MainActor [weak self] in
-                guard let self else { return }
-                do {
-                    let node = try await provider.resolve(decoded)
-                    if node.reference.tree == binding.reference.tree { knownBodies[node.reference.path] = node.markdownBody }
-                    lookups[reference] = .present(.init(
-                        title: node.title,
-                        capabilities: documentCapabilities(for: node)
-                    ))
-                } catch {
-                    lookups[reference] = .missing
-                }
-                lookupTasks[reference] = nil
-            }
-        }
+        resolveLookup(reference, decoded)
         return .pending
+    }
+
+    private func resolveLookup(_ reference: DocumentReference, _ decoded: WorkspaceReference) {
+        guard lookupTasks[reference] == nil else { return }
+        lookupTasks[reference] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let node = try await provider.resolve(decoded)
+                if node.reference.tree == binding.reference.tree { knownBodies[node.reference.path] = node.markdownBody }
+                lookups[reference] = .present(.init(
+                    title: node.title,
+                    capabilities: documentCapabilities(for: node)
+                ))
+            } catch {
+                lookups[reference] = .missing
+            }
+            lookupTasks[reference] = nil
+        }
+    }
+
+    /// The links this host has resolved, for a host that replaces it on the same page.
+    public var resolvedLookups: [DocumentReference: DocumentLookup] {
+        lookups.filter { if case .present = $0.value { true } else { false } }
+    }
+
+    /// Starts from links another host resolved on the same page, so they keep
+    /// their titles instead of falling back to their labels. Each one in this
+    /// tree is resolved again from this host's provider in the background.
+    public func seedLookups(_ seeded: [DocumentReference: DocumentLookup]) {
+        for (reference, lookup) in seeded where lookups[reference] == nil {
+            lookups[reference] = lookup
+            guard let decoded = workspaceReference(for: reference),
+                  decoded.tree == binding.reference.tree else { continue }
+            resolveLookup(reference, decoded)
+        }
     }
 
     public func didDeleteDocumentLink(reference: DocumentReference, label _: String, from _: Document) {
@@ -480,10 +503,12 @@ public final class StoryEditorHost: EditorHost {
     /// A relative link already names its target from this page, so it is kept as written; a
     /// same-tree `overstory://` locator becomes the relative link this page would write for it, naming
     /// the body file known from earlier lookups (or a sibling `x.md` until one is known), and a
-    /// locator into another tree stays one.
+    /// locator into another tree stays one. A web URL under a tree's canonical address opens that
+    /// page here, though the page goes on storing and drawing it as the web link it is.
     public func resolveReference(from url: URL, in _: Document) -> DocumentReference? {
         let href = url.absoluteString
-        guard let target = resolveNodeTarget(sourceDirectory: sourceDirectory, href: href) else { return nil }
+        guard let target = resolveNodeTarget(sourceDirectory: sourceDirectory, href: href)
+            ?? resolveCanonicalWebURL(href, among: canonicalTreeAddresses()) else { return nil }
         guard let tree = target.tree else { return DocumentReference(href) }
         let reference = WorkspaceReference(tree: TreeID(rawValue: tree), path: target.path, stableKey: target.stableKey)
         guard reference.tree == binding.reference.tree else { return StoryDocumentReferenceCodec.encode(reference) }
@@ -938,14 +963,12 @@ public final class StoryEditorHost: EditorHost {
         }
     }
 
-    public func prepareBlocksForTransfer(_ blocks: [Block], in document: Document) -> [Block] {
-        guard document === binding.document else { return blocks }
-        // A presented heading is not placed by moving it: it and the children
-        // generated under it keep their marks, and presentation puts it back.
-        return blocks.flatMap { block in
-            StoryPagePresentation.heading(block) != nil && StoryPagePresentation.isUntouched(block)
-                ? [block] : StoryMarkdownCodec.materializingProjectedChildren([block])
-        }
+    public func prepareBlocksForTransfer(_ blocks: [Block], in document: Document) -> [Block] { blocks }
+
+    /// A link to one of the page's children, dropped on its Subpages, is
+    /// unlinked: the editor removes it and the child returns there.
+    public func receiveBlocks(_ blocks: [Block], inRegion _: DocumentRegion, of document: Document) -> Bool {
+        document === binding.document && binding.unlinksSubpages(blocks)
     }
 
     public func relocateDocument(_ reference: DocumentReference, from document: Document) async -> Bool {
@@ -1206,7 +1229,50 @@ public final class StoryEditorHost: EditorHost {
     }
 
     public func linkPreview(for url: URL) async -> LinkPreview? {
-        await linkPreviewService.preview(for: url)
+        if let known = Self.knownLinkPreviews[url] { return known }
+        let preview = await linkPreviewService.preview(for: url)
+        if let preview { Self.knownLinkPreviews[url] = preview }
+        return preview
+    }
+
+    /// Previews this process has already loaded, so an editor opened again
+    /// (as when the confirmed tree replaces its launch preview) shows them in
+    /// its first frame.
+    private static var knownLinkPreviews: [URL: LinkPreview] = [:]
+
+    public func cachedLinkPreview(for url: URL) -> LinkPreview? {
+        Self.knownLinkPreviews[url]
+    }
+
+    /// Resolves the page links in `document` and loads its external links'
+    /// previews before it is shown, waiting at most `limit`, so its first
+    /// frame shows titles rather than raw labels. Whatever is still loading
+    /// after that arrives as it would have.
+    public func prefetchLinks(in document: Document, limit: Duration = .milliseconds(150)) async {
+        var pending: [Task<Void, Never>] = []
+        var urls: Set<URL> = []
+        func walk(_ blocks: [Block]) {
+            for block in blocks {
+                if case .documentLink(_, let reference) = block.kind,
+                   lookupDocument(reference) == .pending,
+                   let task = lookupTasks[reference] {
+                    pending.append(task)
+                }
+                for run in block.text.runs {
+                    if let url = run.link, let scheme = url.scheme?.lowercased(),
+                       scheme == "http" || scheme == "https", Self.knownLinkPreviews[url] == nil {
+                        urls.insert(url)
+                    }
+                }
+                walk(block.children)
+            }
+        }
+        walk(document.children)
+        for url in urls {
+            pending.append(Task { @MainActor [weak self] in _ = await self?.linkPreview(for: url) })
+        }
+        guard !pending.isEmpty else { return }
+        await awaitTasks(pending, atMost: limit)
     }
 
     public func blockActions(in _: Document) -> [EditorBlockAction] {
@@ -1306,5 +1372,36 @@ public final class StoryEditorHost: EditorHost {
             }
         }
         return nodes
+    }
+}
+
+/// Waits until `tasks` have all finished or `limit` has passed, whichever is
+/// first, and then returns without waiting on the rest, which keep running.
+/// (A task group cannot do this: it waits for every child on exit, and a
+/// child awaiting another task's value does not stop when cancelled.)
+@MainActor
+public func awaitTasks(_ tasks: [Task<Void, Never>], atMost limit: Duration) async {
+    guard !tasks.isEmpty else { return }
+    let gate = WaitGate()
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        gate.continuation = continuation
+        Task { @MainActor in
+            for task in tasks { await task.value }
+            gate.open()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: limit)
+            gate.open()
+        }
+    }
+}
+
+@MainActor
+private final class WaitGate {
+    var continuation: CheckedContinuation<Void, Never>?
+
+    func open() {
+        continuation?.resume()
+        continuation = nil
     }
 }

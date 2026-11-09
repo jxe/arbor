@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import Testing
 @testable import StoryKit
+@testable import OverstoryWorkspace
 
 @Test("Markdown-derived display titles are plain without mutating source semantics")
 func markdownDisplayTitle() {

@@ -393,13 +393,18 @@ test("every acceptance records a log entry after its predecessor's, and only pro
 test("health checks only the database while integrity audits history in one shared run", async () => {
   const health = await fetch(`${running.url}/.overstory/health`);
   expect(health.status).toBe(200);
-  expect(await health.json()).toEqual({ status: "ok" });
+  expect(await health.json()).toEqual({ status: "ok", protocol: 2 });
   const first = running.overstoryd.verifyIntegrity();
   expect(running.overstoryd.verifyIntegrity()).toBe(first);
   await first;
   const integrity = await fetch(`${running.url}/.overstory/integrity`);
   expect(integrity.status).toBe(200);
-  expect(await integrity.json()).toEqual({ status: "ok", packs: { packs: 0, bytes: 0, objects: 0, objectBytes: 0 } });
+  // Bootstrap's accepted objects, in the host's one journal.
+  const body = await integrity.json() as { status: string; packs: { packs: number; bytes: number; objects: number; objectBytes: number } };
+  expect(body.status).toBe("ok");
+  expect(body.packs.packs).toBe(1);
+  expect(body.packs.objects).toBeGreaterThan(0);
+  expect(body.packs.bytes).toBe(body.packs.objectBytes + 36 * body.packs.objects);
 });
 
 test("the host validates logical collections itself", async () => {
@@ -422,7 +427,8 @@ test("the host validates logical collections itself", async () => {
   const readPage = async () => {
     const page = await fetch(`${running.url}/people`, { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}`, accept: "text/html" } });
     expect(page.status).toBe(200);
-    return page.text();
+    // The restarted host listens on another port, which the page's absolute links name.
+    return (await page.text()).replaceAll(new URL(running.url).host, "host");
   };
   const before = await readPage();
   expect(before).toContain("people/a");

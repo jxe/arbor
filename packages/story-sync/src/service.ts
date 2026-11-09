@@ -2,17 +2,17 @@ import { localSyncConnections, type SyncConnections } from "./sync-connections.t
 import { FolderSync, folderStateRoot, pendingBytes, type DeclinedReport } from "./folder-sync.ts";
 import type { TrackedRoot } from "./filesystem-object-source.ts";
 import { ChangeLog } from "@ovst/working-tree/node";
+import { NodeIndex } from "@ovst/working-tree";
 import { LocalFileService } from "./local-files.ts";
 import { lstat, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import type {
-  Hash,
   LocalTreeDescriptor,
   LocatorResolution,
   SnapshotEnvelope,
   UpdateRequestJSON,
 } from "@ovst/protocol";
-import { canonicalNodePath, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, hashObject, decodeProtocolDirectory, encodeSparseSnapshotBundle, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type ObjectHash, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
+import { canonicalHTTPURL, canonicalNodePath, canonicalOverstoryLocator, canonicalURL, storyDataRoot, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type CurrentTree, type ObjectHash, type TreeSnapshot, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
 import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@ovst/client";
 import { type SharedTreePlacement } from "./state/index.ts";
@@ -21,6 +21,9 @@ import { EventBus } from "./events.ts";
 import { decodeRequestPath } from "./http.ts";
 import { TreeObjectCache } from "./object-cache.ts";
 import { TreeManager } from "./tree-manager.ts";
+import { AgentSessions } from "./agents.ts";
+import { AgentRuns } from "./agent-runs.ts";
+import { TaskRunner } from "./task-runner.ts";
 import { ProtocolError, Workspace, type WorkspaceOptions } from "./workspace.ts";
 
 export { resolveUserPath } from "@ovst/client";
@@ -34,20 +37,6 @@ export interface PendingUpdate {
 }
 
 /** What a loopback client needs to open a placed tree as its own working tree. */
-export type BootstrapTreeDescriptor = Pick<
-  LocalTreeDescriptor,
-  "id" | "configurationTree" | "kind" | "access" | "canonical" | "name" | "osPath" | "placement"
->;
-
-export interface TreeBootstrap {
-  /** Placement and routing metadata only; daemon synchronization state is deliberately excluded. */
-  tree: BootstrapTreeDescriptor;
-  /** The daemon's accepted base; `cursor` is the protocol watch cursor, which is independent of the accepted update id. */
-  accepted: { root: Hash; update: string; cursor: string | null };
-  /** A sparse CBOR snapshot bundle's bytes: every directory object and every Markdown file object. The route answers canonical CBOR, so this is a byte string. */
-  spine: Uint8Array;
-  observedThrough: string;
-}
 
 export interface StorySyncDaemonOptions {
   connections?: SyncConnections;
@@ -74,47 +63,13 @@ class UnsynchronizedTreeError extends ProtocolError {
   }
 }
 
-async function sparseSpine(
-  snapshotRoot: ObjectHash,
-  readObject: (hash: ObjectHash) => Promise<Uint8Array | undefined>,
-): Promise<Uint8Array> {
-  const spine = new Map<ObjectHash, Uint8Array>();
-  const visit = async (hash: ObjectHash, kind: ProtocolObjectKind = "directory"): Promise<void> => {
-    const bytes = spine.get(hash) ?? await readObject(hash);
-    if (!bytes) throw new Error(`Accepted snapshot is missing object ${hash}`);
-    if (hashObject(bytes) !== hash) throw new Error(`Accepted snapshot object does not match ${hash}`);
-    spine.set(hash, bytes);
-    if (kind === "table") {
-      for (const chunk of protocolObjectReferences(kind, bytes)) await visit(chunk.hash, chunk.kind);
-      return;
-    }
-    if (kind !== "directory") return;
-    const directory = decodeProtocolDirectory(bytes);
-    // A collection's rows are structure, not file content, so they go too.
-    for (const { table } of directory.collection?.tables ?? []) await visit(table, "table");
-    for (const entry of directory.entries) {
-      if (entry.directory) await visit(entry.directory);
-      else if ((entry.file || entry.page) && entry.name.toLowerCase().endsWith(".md")) {
-        const content = (entry.file ?? entry.page)!;
-        const child = spine.get(content) ?? await readObject(content);
-        if (!child) throw new Error(`Accepted snapshot is missing Markdown ${content}`);
-        if (hashObject(child) !== content) throw new Error(`Accepted Markdown does not match ${content}`);
-        spine.set(content, child);
-      }
-    }
-  };
-  await visit(snapshotRoot);
-  verifyTreeSnapshotGraph({ root: snapshotRoot, objects: spine }, "sparse-files");
-  return encodeSparseSnapshotBundle(spine);
-}
-
 /**
  * The daemon's top-level coordinator: one process-wide event bus, a root
  * manager owning N per-root Workspaces, one `FolderSync` per placed tree (the
  * update machine's runner with the folder as its source and accepted tree),
- * and the loopback services a working-tree client uses (bootstrap,
- * credential, objects). Editors run the same machine against their own
- * working tree.
+ * and the standard Overstory reads a working-tree client uses on loopback
+ * (descriptor, snapshot, path read, objects, entry metadata, watch). Editors
+ * run the same machine against their own working tree.
  */
 export class StorySyncDaemon implements AsyncDisposable {
   readonly events: EventBus;
@@ -137,6 +92,13 @@ export class StorySyncDaemon implements AsyncDisposable {
   private readonly unsubscribeEvents: () => void;
   private readonly files: LocalFileService;
   private readonly objectCache: TreeObjectCache;
+  private readonly nodeIndexes = new Map<string, NodeIndex>();
+  /** Agents working in placed folders, shown in their trees' presence. */
+  readonly agents: AgentSessions;
+  /** Tasks run by the person's own agent in a placed folder. */
+  readonly runs: AgentRuns;
+  /** This device as a runner of the person's tasks from their other devices; started by `startRunner`. */
+  readonly runner: TaskRunner;
 
   private constructor(events: EventBus, trees: TreeManager, options: StorySyncDaemonOptions = {}) {
     this.connections = options.connections ?? localSyncConnections();
@@ -164,6 +126,45 @@ export class StorySyncDaemon implements AsyncDisposable {
         return placement ? this.accountClient(placement) : undefined;
       },
     });
+    this.agents = new AgentSessions({
+      locate: async (absolutePath) => {
+        const scope = await this.files.resolveScope(absolutePath).catch(() => null);
+        if (!scope || !trees.placementFor(scope.ref.tree)) return null;
+        return { tree: scope.ref.tree, root: scope.workspace.root, path: scope.ref.path };
+      },
+      presence: async (tree) => {
+        const placement = trees.placementFor(tree);
+        return placement ? this.accountClient(placement) : undefined;
+      },
+      hold: (tree, holder) => this.folders.get(tree)?.sync.hold(holder),
+      release: async (tree, holder) => { await this.folders.get(tree)?.sync.release(holder); },
+    });
+    this.runs = new AgentRuns({
+      folder: async (tree) => {
+        if (!trees.placementFor(tree)) return null;
+        const descriptor = (await trees.descriptors()).find((candidate) => candidate.id === tree);
+        return descriptor?.placement === "placed" && descriptor.osPath && !descriptor.missing ? descriptor.osPath : null;
+      },
+      hold: (tree, holder) => this.folders.get(tree)?.sync.hold(holder),
+      release: async (tree, holder) => { await this.folders.get(tree)?.sync.release(holder); },
+      // Only the run's tree: not behind a full pass, and not failed by another tree.
+      publish: async (tree) => {
+        const folder = this.folders.get(tree);
+        if (folder) await folder.sync.syncOnce();
+        else await this.synchronizeNow();
+      },
+      stateDirectory: join(storyDataRoot(), ".state"),
+    }, this.agents);
+    this.runner = new TaskRunner({
+      trees: async () => (await trees.descriptors())
+        .filter((tree) => tree.placement === "placed" && tree.osPath && !tree.missing && trees.placementFor(tree.id))
+        .map((tree) => tree.id),
+      presence: async (tree) => {
+        const placement = trees.placementFor(tree);
+        return placement ? this.accountClient(placement) : undefined;
+      },
+      catchUp: async (tree) => { await this.folders.get(tree)?.sync.syncOnce(); },
+    }, this.runs, { settingsPath: join(storyDataRoot(), ".state", "runner.json") });
     if (options.autoSync !== false) this.startAutoSync(options.syncIntervalMs);
   }
 
@@ -173,40 +174,88 @@ export class StorySyncDaemon implements AsyncDisposable {
   }
 
   /**
-   * Bootstrap the daemon's recorded accepted host root. The folder's own
-   * changes and held work belong only to the folder's client and never gate
-   * or seed another client.
+   * The standard current-tree read, answered from the daemon's recorded
+   * accepted base (Clients 003): the root and update Story Sync last
+   * accepted for the placement, and the host's watch cursor for it. The
+   * folder's own changes and held work belong only to the folder's client and
+   * never gate or seed another client.
    */
-  async bootstrapTree(tree: string): Promise<TreeBootstrap> {
+  async acceptedTree(tree: string): Promise<CurrentTree> {
     const placement = this.trees.placementFor(tree);
-    const workspace = placement ? await this.trees.workspaceByTree(tree) : undefined;
-    if (!placement || !workspace) throw new ProtocolError("not-found", `Tree has no local placement: ${tree}`, 404, { tree });
-    if (!placement.ref || !placement.update) {
+    if (!placement) throw new ProtocolError("not-found", `Tree has no local placement: ${tree}`, 404, { tree });
+    if (!placement.ref || !placement.update || !placement.cursor) {
       throw new ProtocolError("conflict", `Tree has not synchronized an accepted base yet: ${tree}`, 409, { tree, details: { kind: "unsynchronized" } });
     }
     const descriptor = (await this.trees.descriptors()).find((item) => item.id === tree);
     if (!descriptor) throw new ProtocolError("not-found", `Tree has no local placement: ${tree}`, 404, { tree });
-
-    const spine = await sparseSpine(
-      placement.ref as ObjectHash,
-      (hash) => this.objectCache.bytes(tree, hash),
-    );
-    const bootstrapDescriptor: BootstrapTreeDescriptor = {
-      id: descriptor.id,
-      ...(descriptor.configurationTree ? { configurationTree: descriptor.configurationTree } : {}),
-      kind: descriptor.kind,
-      access: descriptor.access,
-      canonical: descriptor.canonical ?? null,
-      name: descriptor.name,
-      ...(descriptor.osPath ? { osPath: descriptor.osPath } : {}),
-      placement: descriptor.placement,
-    };
     return {
-      tree: bootstrapDescriptor,
-      accepted: { root: placement.ref as Hash, update: placement.update, cursor: placement.cursor ?? null },
-      spine,
-      observedThrough: this.events.currentCursor(),
+      tree: {
+        id: descriptor.id,
+        kind: descriptor.kind,
+        access: descriptor.access,
+        root: placement.ref as RemoteTreeDescriptor["root"],
+        update: placement.update,
+        conflicted: placement.conflicted === true,
+        canonical: descriptor.canonical ?? null,
+      },
+      observedThrough: placement.cursor,
     };
+  }
+
+  /** Objects of a placed tree for the standard read routes; only placed trees are served. */
+  private placedObject(tree: string): (hash: ObjectHash) => Promise<Uint8Array> {
+    if (!this.trees.placementFor(tree)) throw new ProtocolError("not-found", `Tree has no local placement: ${tree}`, 404, { tree });
+    return async (hash) => {
+      const bytes = await this.objectCache.bytes(tree, hash);
+      if (!bytes) throw new ProtocolError("not-found", `Object is not available: ${hash}`, 404, { tree });
+      return bytes;
+    };
+  }
+
+  /** The standard snapshot read of a placed tree: its complete graph at `root`. */
+  async snapshot(tree: string, root: ObjectHash): Promise<TreeSnapshot> {
+    const read = this.placedObject(tree);
+    const objects = new Map<ObjectHash, Uint8Array>();
+    const visit = async (hash: ObjectHash, kind: ProtocolObjectKind): Promise<void> => {
+      if (objects.has(hash)) return;
+      const bytes = await read(hash);
+      objects.set(hash, bytes);
+      await Promise.all(protocolObjectReferences(kind, bytes).map((reference) => visit(reference.hash, reference.kind)));
+    };
+    await visit(root, "directory");
+    return verifyTreeSnapshotGraph({ root, objects });
+  }
+
+  /**
+   * The standard path read of a placed tree (tree operations §1.2.4), from
+   * the tree's lazy node index: directories it already decoded are not read
+   * again.
+   */
+  pathRead(tree: string, root: ObjectHash, path: string): Promise<Map<ObjectHash, Uint8Array>> {
+    return this.nodeIndex(tree, root).pathRead(path);
+  }
+
+  /** A placed tree's node index at `root`, over its object source chain (folder, pending, host). */
+  private nodeIndex(tree: string, root: ObjectHash): NodeIndex {
+    const read = this.placedObject(tree);
+    let index = this.nodeIndexes.get(tree);
+    if (!index) {
+      index = new NodeIndex(root, { object: read });
+      this.nodeIndexes.set(tree, index);
+    }
+    return index.at(root);
+  }
+
+  /** The host's entry metadata for a placed tree, read through its account. */
+  async entryMetadata(tree: string): Promise<Awaited<ReturnType<ProtocolClient["entryMetadata"]>>> {
+    return (await this.hostClient(tree)).entryMetadata(tree);
+  }
+
+  /** The tree's host, through the placement's account: what loopback reads fall through to. */
+  async hostClient(tree: string): Promise<ProtocolClient> {
+    const placement = this.trees.placementFor(tree);
+    if (!placement) throw new ProtocolError("not-found", `Tree has no local placement: ${tree}`, 404, { tree });
+    return this.accountClient(placement);
   }
 
   /** Start every placed folder once; from then on its machine polls, and watches and scans drive it. */
@@ -270,6 +319,23 @@ export class StorySyncDaemon implements AsyncDisposable {
   async treeList(): Promise<SnapshotEnvelope<LocalTreeDescriptor[]>> {
     const descriptors = await this.trees.descriptors();
     return { snapshot: descriptors, observedThrough: this.events.currentCursor() };
+  }
+
+  /**
+   * The placed tree a canonical URL names, as a run request gives it: at a
+   * person's domain or at the host, or a TreeID. Undefined when it is not
+   * placed here.
+   */
+  async treeForURL(url: string): Promise<string | undefined> {
+    const descriptors = (await this.trees.descriptors()).filter((tree) => this.trees.placementFor(tree.id));
+    if (/^tr_[a-z2-7]+$/.test(url)) return descriptors.find((tree) => tree.id === url)?.id;
+    const wanted = url.replace(/\/+$/, "");
+    const named = descriptors.find((tree) => tree.canonical && [canonicalURL(tree.canonical), canonicalHTTPURL(tree.canonical), canonicalOverstoryLocator(tree.canonical)]
+      .some((candidate) => candidate.replace(/\/+$/, "") === wanted));
+    if (named) return named.id;
+    const resolved = await this.resolveLocator(url).catch(() => null);
+    const tree = resolved?.enclosingTree?.id;
+    return tree && resolved?.ref.path === "/" && this.trees.placementFor(tree) ? tree : undefined;
   }
 
   async resolveLocator(input: string): Promise<LocatorResolution> {
@@ -657,7 +723,13 @@ export class StorySyncDaemon implements AsyncDisposable {
             const remoteTrees = await listed;
             this.listings.set(accountKey, remoteTrees);
             const folder = await this.folderFor(placement, workspace);
-            const remote = remoteTrees.find((tree) => tree.id === placement.tree);
+            let remote = remoteTrees.find((tree) => tree.id === placement.tree);
+            if (!remote && placement.readOnly) {
+              // A tree mounted nowhere is not listed to a reader; read it by ID.
+              // A read-only placement never activates a tree.
+              remote = (await client.descriptor(placement.tree).catch(() => null))?.tree;
+              if (!remote) throw new ProtocolError("not-found", `${placement.tree} is not readable at ${placement.endpoint}`, 404);
+            }
             if (!remote) {
               // A reserved tree is activated with the folder's whole content.
               const initial = await this.withWorkspaceIO(
@@ -674,16 +746,19 @@ export class StorySyncDaemon implements AsyncDisposable {
                 update: activated.update.id,
                 access: "write",
                 canonicalPath: described?.tree.canonical?.path ?? placement.canonicalPath,
+                canonicalURL: described?.tree.canonical?.url,
               });
               await folder.placed({ root: activated.update.root, update: activated.update.id });
               this.trees.setSyncState(placement.tree, "idle");
               continue;
             }
-            const access = remote.access;
+            const access = placement.readOnly ? "read" : remote.access;
             // The host decides a tree's canonical path; a mount or rename moves it.
             const canonicalPath = remote.canonical?.path;
-            if (placement.access !== access || (placement.kind !== "tree-configuration" && placement.canonicalPath !== canonicalPath)) {
-              await this.trees.updateSyncMetadata({ ...placement, access, canonicalPath });
+            const canonicalURL = remote.canonical?.url;
+            if (placement.access !== access || (placement.kind !== "tree-configuration"
+              && (placement.canonicalPath !== canonicalPath || placement.canonicalURL !== canonicalURL))) {
+              await this.trees.updateSyncMetadata({ ...placement, access, canonicalPath, canonicalURL });
             }
             if (!placement.ref || !placement.update) await folder.placeFromHost();
             folder.ensureWatch();
@@ -707,8 +782,16 @@ export class StorySyncDaemon implements AsyncDisposable {
     }
   }
 
+  /** Run the person's tasks sent from their other devices (Agents 002): only the device's own long-lived Story Sync does. */
+  startRunner(): void {
+    this.runner.start();
+  }
+
   async [Symbol.asyncDispose](): Promise<void> {
     if (this.syncStartupTimer) clearTimeout(this.syncStartupTimer);
+    await this.runner[Symbol.asyncDispose]();
+    await this.runs[Symbol.asyncDispose]();
+    await this.agents[Symbol.asyncDispose]();
     if (this.syncing) await new Promise<void>((resolve) => this.syncWaiters.push(resolve));
     this.unsubscribeEvents();
     for (const unsubscribe of this.ignoredChanges.values()) unsubscribe();

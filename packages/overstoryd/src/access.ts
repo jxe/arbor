@@ -14,6 +14,7 @@ import {
 import type { ExecutionContext, ExecutionGrant } from "./execution-authority.ts";
 import type { Database } from "bun:sqlite";
 import type { AccountDirectory } from "./accounts.ts";
+import type { VisitorAuthentication } from "./visitors.ts";
 import { type HostAccount, type HostTree } from "./model.ts";
 
 /** Parsed rules by their exact stored JSON: a policy row changes by replacement, so no entry is ever stale. */
@@ -27,8 +28,14 @@ export interface AccessHost {
   rootProfileType(tree: HostTree): "person" | "group" | null;
   /** Whether this host's copy of a group another host holds lists this person (access control §3.3). */
   isRemoteGroupMember(group: string, homeHost: string, profileTree: string): boolean;
+  /** The profile locators a group root's `members` names (not bare TreeIDs). */
+  groupMemberLocators(group: HostTree): string[];
   /** The TreeID a profile locator `tree`'s configuration names is pinned to, or null when it names nobody now. */
   pinnedProfile(tree: string, locator: string): string | null;
+  /** The origin of the home host a locator's profile is read at: its own
+   * origin, or for a domain locator the one its records name now (null when
+   * not confirmed). */
+  locatorHome(locator: string): string | null;
 }
 
 /**
@@ -70,7 +77,10 @@ export class AccessControl {
 
   /** How `tree`'s configuration names profiles: its locators by their pins. */
   private pins(tree: string) {
-    return { pinnedProfile: (locator: string) => this.host.pinnedProfile(tree, locator) };
+    return {
+      pinnedProfile: (locator: string) => this.host.pinnedProfile(tree, locator),
+      locatorHome: (locator: string) => this.host.locatorHome(locator),
+    };
   }
 
   /** The profiles an `admin` rule of the tree names, TreeIDs or locators. */
@@ -210,6 +220,43 @@ export class AccessControl {
     // Only a tree's administrators see its configuration.
     if (tree.kind === "tree-configuration") return !!account && !!tree.governs && this.administers(account.id, tree.governs);
     return this.holds(account?.id ?? null, tree.id, "/", operation, linkDigest);
+  }
+
+  /**
+   * Whether a visitor (accounts §5.6) may read a tree: an ordinary tree only,
+   * through a rule naming its profile by a locator at its home host, a group
+   * whose membership names it so, `everyone`, or a link it presents. An
+   * `admin` rule naming it so lets it read; a visitor never writes.
+   */
+  visitorCanRead(visitor: VisitorAuthentication, treeOrID: string | HostTree, linkDigest?: string): boolean {
+    const tree = typeof treeOrID === "string" ? this.host.tree(treeOrID) : treeOrID;
+    if (!tree || tree.kind !== "ordinary") return false;
+    const context = {
+      callerProfile: visitor.profileTree,
+      callerHomeHost: visitor.homeHost,
+      linkDigest,
+      isGroupMember: (group: string, profile: string, homeHost?: string) => this.isVisitorGroupMember(visitor, group, profile, homeHost),
+      ...this.pins(tree.id),
+    };
+    const admins = this.administrators(tree.id).map((profile) => ({ who: { profile }, allow: ["admin" as const] }));
+    return rulesAllow([...admins, ...this.rules(tree.id).filter((rule) => !rule.app)], context, "/", "read");
+  }
+
+  /**
+   * A visitor's one-level group membership. A group this host holds counts
+   * it when a member entry names it by a locator at its home host (or a
+   * domain delegating there) pinned to its profile; a group another host holds counts it only when that host is
+   * the visitor's home and its copy lists the profile.
+   */
+  private isVisitorGroupMember(visitor: VisitorAuthentication, groupID: string, profile: string, homeHost?: string): boolean {
+    if (profile !== visitor.profileTree) return false;
+    const held = this.host.tree(groupID);
+    if (held) {
+      return this.host.rootProfileType(held) === "group"
+        && this.host.groupMemberLocators(held).some((locator) => this.host.locatorHome(locator) === visitor.homeHost
+          && this.host.pinnedProfile(groupID, locator) === profile);
+    }
+    return homeHost === visitor.homeHost && this.host.isRemoteGroupMember(groupID, homeHost, profile);
   }
 
   canAdminister(account: HostAccount, treeOrID: string | HostTree): boolean {

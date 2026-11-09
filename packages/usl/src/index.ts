@@ -71,6 +71,7 @@ export {
   checkRows,
   checkFieldValue,
   firstParagraph,
+  compareText,
   rowKey,
   ViewError,
   type Presentation,

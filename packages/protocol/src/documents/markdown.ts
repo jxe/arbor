@@ -322,18 +322,43 @@ function parseBlocks(source: string): OverstoryBlock[] {
   return blocks;
 }
 
+/** A document's frontmatter values, without parsing its body: `parseMarkdown(source).frontmatter`. */
+export function parseMarkdownFrontmatter(source: string): Record<string, unknown> {
+  return frontmatterValues(frontmatterBodyOf(source));
+}
+
+/** `splitFrontmatter(source).frontmatterBody`, reading no further than the closing fence. */
+function frontmatterBodyOf(source: string): string | null {
+  const line = /(.*)(?:\r\n|\n|\r|$)/g;
+  let body = -1;
+  for (;;) {
+    const start = line.lastIndex;
+    if (start >= source.length) return null;
+    const match = line.exec(source)!;
+    // A line separator `.` stops at: the line splitter decides what is left.
+    if (match.index !== start) return splitFrontmatter(source).frontmatterBody;
+    const fence = match[1]!.trim() === "---";
+    if (body < 0) {
+      if (!fence) return null;
+      body = line.lastIndex;
+    } else if (fence) return source.slice(body, start);
+  }
+}
+
+function frontmatterValues(body: string | null): Record<string, unknown> {
+  if (body === null) return {};
+  try {
+    const parsed = parseDocument(body, { keepSourceTokens: true });
+    if (!parsed.errors.length) return (parsed.toJS() as Record<string, unknown> | null) ?? {};
+  } catch {}
+  return {};
+}
+
 export function parseMarkdown(source: string): MarkdownDocument {
   const envelope = splitFrontmatter(source);
-  let frontmatter: Record<string, unknown> = {};
-  if (envelope.frontmatterBody !== null) {
-    try {
-      const parsed = parseDocument(envelope.frontmatterBody, { keepSourceTokens: true });
-      if (!parsed.errors.length) frontmatter = (parsed.toJS() as Record<string, unknown> | null) ?? {};
-    } catch {}
-  }
   return {
     source,
-    frontmatter,
+    frontmatter: frontmatterValues(envelope.frontmatterBody),
     frontmatterSource: envelope.frontmatterSource,
     bodySource: envelope.body,
     blocks: parseBlocks(envelope.body),

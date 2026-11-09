@@ -8,7 +8,7 @@ do not acquire new capabilities from that specification.
 
 Story Sync makes placed folders content-addressable and keeps each one equal
 to overstoryd's accepted root in both directions. Everything below is either that
-store's read surface (objects, bootstrap, credential) or the control surface
+store's read surface (the standard Overstory reads, §3a) or the control surface
 for placements, accounts, and declined changes.
 
 Story Sync binds to loopback and rejects cross-origin browser requests. JSON is
@@ -34,8 +34,8 @@ working-tree client needs: `GET /v1/status`, `GET /v1/trees`,
 `GET /v1/accounts`, `GET /v1/resolve`, `POST /v1/held/discard`, `GET /v1/declined`, `POST /v1/declined/restore`, `POST /v1/declined/resend`,
 `POST /v1/sync`, `POST /v1/placements/move`, `POST /v1/placements/pause`,
 `POST /v1/placements/resume`, `GET /v1/pending`,
-`GET /v1/bootstrap` and `GET /v1/credential` (§3b),
-`GET /v1/objects/{hash}` (§3a), the data-home identity and account
+the standard read routes under
+`/.overstory/trees/` (§3a), the data-home identity and account
 bootstrap routes (§4), and `GET /v1/events` (§5). The Mac app's client in
 `swift/StoryApp/StorySync/` launches or attaches to the control-mode daemon
 (`story-sync --control`) and uses exactly these routes. Pairing offers are not
@@ -211,126 +211,76 @@ checked out on this device, and a canonical `http(s)` or `overstory://` locator
 through the host, which answers only the tree's administrators. Nothing is
 placed, visited, or cached by resolution.
 
-### 3a. Objects
+### 3a. Story Sync serves the standard reads
 
 ```text
-GET /v1/objects/{hash}?tree={TreeID}
+GET /.overstory/trees/{TreeID}
+GET /.overstory/trees/{TreeID}/snapshots/{root}
+GET /.overstory/trees/{TreeID}/snapshots/{root}/path/{logical path}
+GET /.overstory/trees/{TreeID}/objects/{hash}
+GET /.overstory/trees/{TreeID}/entry-metadata
+GET /.overstory/trees/{TreeID}/watch?after={cursor}[&objects=none]
 ```
 
-Serves one Overstory object (`application/octet-stream`) by its `sha256:<64 hex>`
-hash. The response carries `ETag: "<hash>"` and
-`Cache-Control: private, immutable, max-age=31536000`; clients may cache it
-forever because the body is content-addressed. A malformed hash or missing
-`tree` is `400 invalid-request`; an object the daemon cannot produce is
-`404 not-found`.
+For the trees placed on this device Story Sync answers the standard Overstory
+read routes ([tree operations §1](../overstory-spec/01-tree-operations.md#1-reading-trees))
+on loopback, with the same shapes and status codes as overstoryd, so code
+written for overstoryd reads through Story Sync with the ordinary protocol
+client: its credential is the data home's caller token (§2). Writes, presence
+and every other host route still go to the host; any other method on
+`/.overstory/trees/` is `405`.
 
-The daemon looks the object up in this order:
+- **Current tree.** The descriptor is the daemon's recorded accepted base for
+  the placement: `root` and `update` are the last accepted root and update it
+  installed, `access`, `kind` and `canonical` the placement's, and
+  `observedThrough` the host watch cursor it recorded with them, which a
+  client watches the host (or this route) after. A tree with no local
+  placement is `404 not-found`; one that has not synchronized an accepted base
+  yet is `409 conflict` with `details.kind: "unsynchronized"`. Story Sync's
+  folder changes, held request and sync state are absent: they belong to the
+  folder client and cannot seed or block another working-tree client.
+- **Snapshot and path read.** Built from the objects below and verified like
+  the host's; the snapshot is complete, so a client that wants only
+  directories and Markdown reads them object by object or by path.
+- **Objects.** Looked up in this order:
+  1. The placed workspace's object index (`objects` table, see
+     `data-home.md`): a file row re-reads the file and re-encodes it as an
+     Overstory raw file bytes; a directory row re-encodes the directory from
+     its children rows, walking the subtree only where a child row is missing
+     or invalid.
+  2. The tree's stored pending update body, including transmitted successors.
+  3. overstoryd, through the tree's account client. Fetched bytes are retained
+     in a bounded in-memory LRU (64 MiB by default) keyed by hash.
 
-1. The placed workspace's object index (`objects` table, see
-   `data-home.md`): a file row re-reads the file and re-encodes it as an Overstory
-   raw file bytes; a directory row re-encodes the directory from its children
-   rows, walking the subtree only where a child row is missing or invalid.
-2. The tree's stored pending update body, including transmitted successors.
-3. overstoryd, through the tree's account client. Fetched bytes are retained in
-   a bounded in-memory LRU (64 MiB by default) keyed by hash.
+  The index is an optimization, never authority. A file row is valid only
+  while its complete stat tuple (size, mtime, ctime, inode, device) still
+  matches; directory rows are trusted only because the produced object is
+  verified. Every served body is hash-verified before it leaves the daemon: a
+  mismatch from the index path deletes the row and falls through to the next
+  source, so a stale row can at worst produce a 404 or a slower answer, never
+  wrong bytes. Objects carry `ETag: "<hash>"` and
+  `Cache-Control: private, immutable, max-age=31536000`.
+- **Entry metadata and watch.** Read from the host through the placement's
+  account and passed through as the host answers them; a host refusal is this
+  route's answer.
 
-The daemon serves only trees placed on this device. A client reading a tree
-that isn't placed here (a visit) asks the tree's host itself, with its own account
-session.
+A client reading a tree that isn't placed here (a visit) asks the tree's host
+itself, with its own account session.
 
-The index is an optimization, never authority. A file row is valid only while
-its complete stat tuple (size, mtime, ctime, inode, device) still matches;
-directory rows are trusted only because the produced object is verified. Every
-served body is hash-verified before it leaves the daemon: a mismatch from the
-index path deletes the row and falls through to the next source, so a stale
-row can at worst produce a 404 or a slower answer, never wrong bytes.
+### 3b. Sessions
 
-### 3b. Bootstrap and credential
-
-```text
-GET /v1/bootstrap?tree={TreeID}
-GET /v1/credential[?configurationTree={TreeID}[&origin={origin}]]
-```
-
-`GET /v1/bootstrap` gives a loopback client everything it needs to open a
-placed tree as its own working tree, without walking the folder or fetching
-every object. The tree must have a local placement (else `404 not-found`) and
-an accepted base already recorded by synchronization (else `409 conflict`
-with `details.kind: "unsynchronized"`). The response is canonical CBOR
-(`Content-Type: application/cbor`, [tree operations §4.4](../overstory-spec/01-tree-operations.md#44-request-and-response-encodings)),
-whatever the request's `Accept`; clients send `Accept: application/cbor`.
-There is no JSON form: the daemon and its clients are one install. Errors are
-the usual JSON envelopes. The value is:
-
-```ts
-{
-  tree: Pick<LocalTreeDescriptor,
-    "id" | "configurationTree" | "kind" | "access" | "canonical" |
-    "name" | "osPath" | "placement">,
-  accepted: { root: Hash, update: string, cursor: string | null },   // independent observation boundary; null requires refresh
-  spine: Uint8Array,      // the sparse CBOR snapshot bundle's bytes, a byte string
-  observedThrough: string,
-}
-```
-
-`accepted` is the daemon's recorded base: the last accepted root and update
-for the placement. `cursor` is the protocol watch cursor a client seeds its own
-watch from, which is the update id. The spine is rooted at this accepted root.
-The `tree` value contains placement and overstoryd-routing metadata, not the
-daemon's `sync`, `root`, `update`, `conflicted`, or `missing` fields. Story
-Sync's folder changes, held request, availability, and tree-list sync state
-are intentionally absent: they belong
-to the folder client and cannot seed or block another working-tree client.
-
-**The sparse spine.** `spine` is a snapshot bundle in the exact CBOR shape of
-the immutable overstoryd snapshot bundle (`{ version: 1, objects: [...] }`,
-objects sorted by hash, no duplicates), but it deliberately does not satisfy
-the complete-graph check: it holds every directory object and every file
-object whose entry name ends in `.md`, walked from the accepted overstoryd root.
-Other file payloads may be left out and
-resolved on demand through `/v1/objects`. Entries explicitly identify `file`,
-`directory`, or `tree`, so a missing directory is always an error. No file map,
-size lookup, or payload sniffing is needed.
-
-**Modification dates.** The bootstrap carries none. Page dates are the host's
-entry metadata, which every client reads from overstoryd itself
-(`GET /.overstory/trees/{id}/entry-metadata`, [tree reads §1.1.2a](../overstory-spec/01-tree-operations.md#112a-reading-entry-metadata)):
-accepted change times keyed by body entry, the same on every device, and
-outside Overstory objects, roots and update digests.
-
-Every successful response is a
-clean installation boundary. Concurrent folder work is reconciled later by
-overstoryd and the ordinary watch/update protocol, like work from any other client.
-
-**Credential.** `GET /v1/credential` returns `{ token }`, an overstoryd session
-token the device key stored for `configurationTree` opened, so that several
-local clients on one installation share the daemon's device identity and
-request-digest scope without ever holding the key. Without the parameter it
-answers for the only connected account; with several accounts connected the
-parameter is required (`400 invalid-request`). An account with no usable key
-is `404 not-found`. With `origin` as well, the token is for that host: the home
-account's session when it is the account's home host, else a session the same
-device key opened on the account's placement connection there
+Story Sync hands out no sessions. A client beside it opens its own from the
+data home's device key, through the accounts module, exactly as Story Sync and
+the `story` command do (`HostAccountStore` and `HostPlacementStore` in
+`@ovst/protocol`, `DataHomeAccountStore` in Swift's `OverstoryClient`): it
+reads the account's `connection.json`, the key's seed from the slot the record
+names (`file:device-key`, or an item in the operating-system credential
+store), and reuses the `session.json` beside it while it is usable, writing a
+newly opened session back so the others reuse it too. A tree placed on a
+placement host names that host as its descriptor's `canonical.endpoint`; the
+session there is opened with the same key from the placement connection
 ([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)).
-A tree placed on a placement host names that host as its descriptor's
-`canonical.endpoint`, which is the `origin` a working-tree client passes. An
-`origin` without `configurationTree`, or one that is not an exact origin, is
-`400 invalid-request`; no placement connection there is `404 not-found`, and a
-host that refuses to open a session for the device (it is no longer listed) is
-`409` with error `unauthenticated`. A placement host that cannot check the
-device now, because the profile's home host has been unreachable past the
-grace ([accounts §5.4](../overstory-spec/04-accounts-and-devices.md#54-published-device-keys)), is
-`503` with `retryable: true`. Either keeps the host's `details.homeHost`, so a
-client can name the home host.
-Serving the token over loopback is deliberate and adds no authority: only
-a caller holding the data home's caller token reaches it, and any local
-process running as the user can already read the credential store and write
-the placed folders the daemon synchronizes. `data-home.md` records
-the exposure.
-
-The token is never a long-lived credential: a session is valid for at most an
-hour, so a client refetches it after a 401 rather than caching it
-indefinitely.
+The former `GET /v1/credential` route went with Clients 003 step 3.
 
 ## 4. Identity, account bootstrap, and declined changes
 
@@ -500,6 +450,47 @@ request resume sends is the one the last `pending` showed. `request` and
 `base` are null when nothing is pending. Changes already in the change log
 before a pause still publish.
 
+### 4a. Agents in placed folders
+
+```text
+POST /v1/agents/report    { session?, cwd, agent?, status?, done?, hook? }
+GET  /v1/agents
+```
+
+An agent working in a placed folder reports here (`story agent status`,
+`done` and `hook`), and Story Sync shows it in the tree's
+[presence](../overstory-spec/12-presence.md) as an agent of this device's
+account: it opens an agent presence stream on the first report and moves the
+entry's page and cursor to the file the agent last read or edited (`hook`
+carries a Claude Code hook payload). `cwd` names the tree; a report outside
+a placed folder answers `{ "ignored": "not-placed" }`. A session is named by
+`session` (a runner sets it), else by the hook's `session_id`, else it is the
+latest session in the tree. `done` shows its text as the final status and
+leaves; a session with no report for ten minutes leaves. `GET /v1/agents`
+lists the sessions shown now. Reports are best effort and never block the
+agent.
+
+```text
+POST /v1/agents/runs              { tree, page, task }   → 202 AgentRun
+GET  /v1/agents/runs[/{RunID}]
+POST /v1/agents/runs/{RunID}/stop
+POST /v1/agents/runs/{RunID}/undo                         → { restored, skipped }
+POST /v1/agents/runs/{RunID}/allow { rule }               → AgentRun
+```
+
+A run is a task block's Run button: Story Sync starts the person's own Claude
+Code headless in the tree's placed folder, one run at a time per tree, and
+shows it as above. `page` is the page's logical path and `task` the block's
+text without its `> [!agent]` marker. When the agent finishes, Story Sync
+marks the task block done (`> [!agent-done]`, text unchanged) and publishes. An `AgentRun` is
+`{ id, tree, page, task, state, result, changed, undoable, startedAt,
+finishedAt }`, with `state` one of `queued`, `running`, `finished`, `failed`,
+`stopped` or `undone`. Undo restores each file the run changed that is still
+as the run left it, from a snapshot taken when it started and kept for a day,
+across restarts; files changed since are listed in `skipped`. A tree
+not placed on this device is `404`; no Claude Code found, or a run no longer
+undoable, is `409` with `details.kind` saying which.
+
 ## 5. Snapshot then observe
 
 All mutable snapshots establish an observation boundary. Clients first read a
@@ -561,19 +552,10 @@ shared tests cover explicit tree scope, snapshot/SSE gap freedom, multiline
 data, keepalives, conflicting-cursor rejection, and terminal
 resynchronization. Another local implementation may expose the same underlying
 Overstory behavior through a different client/daemon boundary.
-The bootstrap and credential routes are fixed by `bootstrap.json` (a clean
-bootstrap with a sparse spine and one omitted binary), `bootstrap-pending.json`
-(the same tree with a verbatim pending string and its request digests, which
-newer clients ignore), and `credential.json`. The bootstrap fixtures spell the
-value in JSON, with the spine as padded base64 for review;
-`bootstrap.cbor` and `bootstrap-pending.cbor` are the bodies the route sends,
-generated from them by `canonical-cbor-vectors.ts`.
-
-The bootstrap spine uses typed `file` and `directory` entries. Every directory
-and Markdown file is present; other file payloads may be omitted. File sizes
-remain unknown until read; there is no bootstrap `files` classification map.
+The standard reads
+Story Sync serves (§3a) are checked by the protocol's own vectors
+(`protocol-path-reads.json` among them) and by `tests/integration/server.test.ts`.
 
 The local tree descriptor may carry `conflicted` for its accepted base. This is
 independent of the daemon's rejected-edit `sync: "conflict"` status and does not hold
-ordinary synchronization. A null bootstrap accepted cursor requires a fresh overstoryd
-observation boundary; it must not be replaced with the accepted update ID.
+ordinary synchronization.

@@ -575,8 +575,40 @@ describe("accepting an invitation as a placement (accounts §1.4)", () => {
     expect(c.overstoryd.accountReservation(`${origin}/~alice`)).not.toHaveProperty("inviteDigest");
     // An exact retry returns the same account; the code is spent.
     expect((await client.acceptInvitationAsPlacement(request)).placementRoot.id).toBe(placed.placementRoot.id);
+    // The old route answers the retry too, until plans/soon/protocol-001 removes it.
+    const legacy = await fetch(`${c.url}/.overstory/placements`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
+    expect(legacy.status).toBe(201);
+    expect(((await legacy.json()) as { placementRoot: { id: string } }).placementRoot.id).toBe(placed.placementRoot.id);
     const macAtC = await openSession(c.url, alice.profileTree, macID, mac);
     expect((await macAtC.placementAccount()).account.placementRoot.id).toBe(placed.placementRoot.id);
+  });
+
+  test("accepting a code-founded host's founder invitation as a placement makes alice its administrator", async () => {
+    homeReachable = true;
+    const founderCode = "founderCodeForMeadow_2";
+    const d = await serveHost({
+      dataRoot: join(sandbox, "d"), publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0,
+      community: { handle: "field", name: "Field", firstWriter: { handle: "alice", inviteCode: founderCode } },
+    });
+    try {
+      expect(d.overstoryd.founding()).toBe(true);
+      const configurationTree = treeConfigurationID(alice.profileTree);
+      const profile = `${homeHost}/~alice`;
+      const client = new ProtocolClient(d.url);
+      const challenge = await client.createAccountChallenge({ profileTree: alice.profileTree, configurationTree, inviteCode: founderCode, profile });
+      await client.acceptInvitationAsPlacement({
+        account: challenge.account, profile, profileTree: alice.profileTree, configurationTree, inviteCode: founderCode, challenge,
+        publicKey: alice.publicKey, signature: alice.sign(accountChallengeBytes(challenge)),
+      });
+      const community = d.overstoryd.community();
+      expect(d.overstoryd.founding()).toBe(false);
+      expect(d.overstoryd.unclaimedFounderHandle()).toBeNull();
+      expect(d.overstoryd.ruleProfiles(community.id)).toEqual([alice.profileTree]);
+      expect(d.overstoryd.canAdminister(d.overstoryd.account(alice.profileTree)!, community)).toBe(true);
+    } finally {
+      d.server.stop(true);
+      await d.overstoryd[Symbol.asyncDispose]();
+    }
   });
 
   test("a profile whose locator names someone else is refused, changing nothing", async () => {

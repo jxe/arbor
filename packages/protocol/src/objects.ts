@@ -137,6 +137,115 @@ export function encodeProtocolDirectory(directory: ProtocolDirectory): Uint8Arra
 }
 
 export function decodeProtocolDirectory(bytes: Uint8Array): ProtocolDirectory {
+  return scanDirectory(bytes) ?? decodeDirectoryValue(bytes);
+}
+
+const strictUTF8 = new TextDecoder("utf-8", { fatal: true });
+
+/**
+ * The common directory (no collection) read in one forward pass over its
+ * bytes: every head minimal, keys in canonical order, names valid, NFC and in
+ * UTF-8 order, hashes well formed, nothing trailing. Bytes that pass are
+ * exactly the canonical encoding of the result, so nothing is re-encoded to
+ * prove it. Anything else, valid or not, returns null and takes the general
+ * path, which also gives every refusal its message.
+ */
+function scanDirectory(b: Uint8Array): ProtocolDirectory | null {
+  const n = b.length;
+  let o = 0;
+  // A text or array head's length at `o`, minimal; -1 for any other head.
+  const head = (major: number): number => {
+    if (o >= n) return -1;
+    const first = b[o]!;
+    if (first >> 5 !== major) return -1;
+    const extra = first & 31;
+    if (extra < 24) { o += 1; return extra; }
+    if (extra === 24) { if (o + 2 > n || b[o + 1]! < 24) return -1; o += 2; return b[o - 1]!; }
+    if (extra === 25) { if (o + 3 > n) return -1; const v = (b[o + 1]! << 8) | b[o + 2]!; if (v <= 0xff) return -1; o += 3; return v; }
+    if (extra === 26) { if (o + 5 > n) return -1; const v = ((b[o + 1]! << 24) >>> 0) + (b[o + 2]! << 16) + (b[o + 3]! << 8) + b[o + 4]!; if (v <= 0xffff) return -1; o += 5; return v; }
+    return -1;
+  };
+  // Whether a text key equal to `key` (ASCII) is at `o`; consumes it if so.
+  const key = (text: string): boolean => {
+    const at = o;
+    if (head(3) !== text.length || o + text.length > n) { o = at; return false; }
+    for (let i = 0; i < text.length; i++) if (b[o + i] !== text.charCodeAt(i)) { o = at; return false; }
+    o += text.length;
+    return true;
+  };
+  if (b[0] !== 0xa2) return null; // a map of exactly type and entries
+  o = 1;
+  if (!key("type") || !key("directory") || !key("entries")) return null;
+  const count = head(4);
+  if (count < 0) return null;
+  const entries: ProtocolDirectoryEntry[] = new Array(count);
+  let previousAt = -1, previousLength = 0;
+  for (let index = 0; index < count; index++) {
+    if (b[o] !== 0xa2) return null;
+    o += 1;
+    // Keys in canonical order: "file" sorts before "name"; "page", "tree" and "directory" after it.
+    let kind: "file" | "page" | "directory" | "tree";
+    let nameAt: number, nameLength: number, targetAt: number, targetLength: number;
+    if (key("file")) {
+      kind = "file";
+      targetLength = head(3); targetAt = o; o += targetLength;
+      if (targetLength < 0 || o > n || !key("name")) return null;
+      nameLength = head(3); nameAt = o; o += nameLength;
+      if (nameLength < 0 || o > n) return null;
+    } else if (key("name")) {
+      nameLength = head(3); nameAt = o; o += nameLength;
+      if (nameLength < 0 || o > n) return null;
+      if (key("page")) kind = "page";
+      else if (key("tree")) kind = "tree";
+      else if (key("directory")) kind = "directory";
+      else return null;
+      targetLength = head(3); targetAt = o; o += targetLength;
+      if (targetLength < 0 || o > n) return null;
+    } else return null;
+    // Name: non-empty, not . or .., no / \ or NUL, valid UTF-8 in NFC.
+    if (nameLength === 0) return null;
+    let ascii = true;
+    for (let i = nameAt; i < nameAt + nameLength; i++) {
+      const c = b[i]!;
+      if (c === 0x2f || c === 0x5c || c === 0) return null;
+      if (c > 0x7f) ascii = false;
+    }
+    if (b[nameAt] === 0x2e && (nameLength === 1 || (nameLength === 2 && b[nameAt + 1] === 0x2e))) return null;
+    let name: string;
+    try { name = strictUTF8.decode(b.subarray(nameAt, nameAt + nameLength)); } catch { return null; }
+    if (!ascii && name !== name.normalize("NFC")) return null;
+    // Strictly increasing UTF-8 byte order, which also rules out duplicates.
+    if (previousAt >= 0) {
+      const shared = Math.min(previousLength, nameLength);
+      let order = 0;
+      for (let i = 0; i < shared && !order; i++) order = b[previousAt + i]! - b[nameAt + i]!;
+      if ((order || previousLength - nameLength) >= 0) return null;
+    }
+    previousAt = nameAt; previousLength = nameLength;
+    // Target: sha256:<64 lowercase hex> for an object; any non-empty tree id.
+    if (kind === "tree") {
+      if (targetLength === 0) return null;
+    } else {
+      if (targetLength !== 71) return null;
+      for (let i = 0; i < 7; i++) if (b[targetAt + i] !== "sha256:".charCodeAt(i)) return null;
+      for (let i = targetAt + 7; i < targetAt + 71; i++) {
+        const c = b[i]!;
+        if (!((c >= 0x30 && c <= 0x39) || (c >= 0x61 && c <= 0x66))) return null;
+      }
+    }
+    let target: string;
+    try { target = strictUTF8.decode(b.subarray(targetAt, targetAt + targetLength)); } catch { return null; }
+    entries[index] = kind === "file" ? { name, file: target }
+      : kind === "page" ? { name, page: target }
+      : kind === "directory" ? { name, directory: target }
+      : { name, tree: target };
+  }
+  if (o !== n) return null;
+  return { type: "directory", entries };
+}
+
+/** The general decoder: any directory, with a message for every refusal. Exported for differential tests. */
+export function decodeDirectoryValue(bytes: Uint8Array): ProtocolDirectory {
   const value = decodeCBOR(bytes);
   if (!value || typeof value !== "object") throw new Error("Wire object must be a map");
   const record = value as Record<string, unknown>;

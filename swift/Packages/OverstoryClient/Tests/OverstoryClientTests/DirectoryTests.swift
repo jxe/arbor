@@ -30,4 +30,13 @@ struct DirectoryTests {
         #expect(merged[0].entry.sources == ["access", "community"])
         #expect(merged[0].initials == "JS")
     }
+
+    @Test("A person's own domain names them and finds them")
+    func domain() {
+        var value = person(name: "Alice", handle: "alice", origin: "https://garden.example")
+        #expect(value.subtitle == "~alice · garden.example")
+        value.entry.domain = "notes.alice.example"
+        #expect(value.subtitle == "notes.alice.example")
+        #expect(DirectoryMatcher.matches(query: "alice.example", in: [value]).count == 1)
+    }
 }

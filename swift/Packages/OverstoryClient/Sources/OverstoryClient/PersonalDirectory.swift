@@ -1,4 +1,4 @@
-import StoryKit
+import OverstoryWorkspace
 import OverstoryObjectStore
 import OverstoryWorkingTree
 import Overstory
@@ -236,26 +236,30 @@ public actor PersonalDirectoryKeeper {
         if try await seedVersion(of: tree) < PersonalDirectorySeed.version, mayCreate {
             tree = try await replaceWithSeed(tree)
         }
+        // A Replica keyed by the directory and its seed: a new directory,
+        // another one than before, or one replaced from a newer seed starts
+        // afresh, setting aside rows queued for the old one.
         let replica = stateRoot.appending(path: "WorkingTree", directoryHint: .isDirectory)
-        let transport = ProtocolReplicaTransport(client: client)
-        let marker = stateRoot.appending(path: "tree")
         let placed = "\(tree.id) \(PersonalDirectorySeed.version)"
-        let workingTree: WorkingTree
-        if (try? String(contentsOf: marker, encoding: .utf8)) == placed,
-           FileManager.default.fileExists(atPath: replica.appending(path: "materialized/tree.json").path) {
-            workingTree = try await WorkingTree.open(at: replica, tree: TreeID(rawValue: tree.id), platform: HostObjectStore(client: client, tree: tree.id))
-        } else {
-            // A new directory, another one than before, or one replaced from
-            // a newer seed: start afresh, dropping rows queued for the old one.
-            try? FileManager.default.removeItem(at: stateRoot)
-            try FileManager.default.createDirectory(at: stateRoot, withIntermediateDirectories: true)
-            workingTree = try await WorkingTreePlacementService.place(tree: tree, at: replica, transport: transport,
-                platform: HostObjectStore(client: client, tree: tree.id))
-            try placed.write(to: marker, atomically: true, encoding: .utf8)
+        let formatMarker = replica.appending(path: "wire-format")
+        if !FileManager.default.fileExists(atPath: formatMarker.path),
+           FileManager.default.fileExists(atPath: replica.appending(path: "materialized/tree.json").path),
+           (try? String(contentsOf: stateRoot.appending(path: "tree"), encoding: .utf8)) == placed {
+            // Placed before sessions: the same directory, so keep its queue.
+            try placed.write(to: formatMarker, atomically: true, encoding: .utf8)
         }
-        let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport,
-            stateRoot: stateRoot.appending(path: "Sync", directoryHint: .isDirectory), pollInterval: .seconds(60))
-        let provider = WorkingTreeProvider(workingTree: workingTree, coordinator: coordinator)
+        let storage = TreeReplicaStorage(
+            root: replica,
+            format: placed,
+            recoveryArchive: { FileManager.default.temporaryDirectory.appending(path: "personal-directory-\(UUID().uuidString)", directoryHint: .isDirectory) },
+            recoveryName: "WorkingTree",
+            changeLogRecoveryName: "Sync"
+        )
+        var settings = TreeSessionSettings.replica(storage, changeLog: stateRoot.appending(path: "Sync", directoryHint: .isDirectory))
+        settings.pollInterval = .seconds(60)
+        let session = try await TreeSession.open(tree, client: client, settings: settings)
+        guard let coordinator = session.coordinator else { throw UpdateError.replicaIsNotPlaced }
+        let provider = session.provider
         opened = (tree, coordinator, provider)
         _ = try? await coordinator.syncOnce()
         await flush()

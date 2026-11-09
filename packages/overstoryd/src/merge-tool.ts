@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, rm, rmdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { hashObject, type ObjectHash } from "@ovst/protocol";
+import { hashObject, sha256, type ObjectHash } from "@ovst/protocol";
 import { absentFrom, ObjectStore } from "@ovst/object-store";
 import { MergeRefusal, parseAnswer, rawAlternatives, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
 import { PersistentMergeWorker } from "./merge-worker.ts";
@@ -28,6 +29,15 @@ export interface MergeToolOptions {
   evaluationMillis?: number;
   /** Presentation policy; source choices remain coupled when the format requires it. */
   contentChoices?: "source" | "file";
+  /** Where workers' scratch directories go. Scratch never needs to survive,
+   * so it stays off the data volume: `OVERSTORYD_MERGE_STAGING`, else a
+   * directory for this data root under the system temporary directory. */
+  stagingRoot?: string;
+}
+
+/** Workers' scratch for `dataRoot`, which is never on its volume. */
+export function mergeStagingRoot(dataRoot: string, configured = process.env.OVERSTORYD_MERGE_STAGING): string {
+  return configured || join(tmpdir(), `overstoryd-merge-${sha256(new TextEncoder().encode(resolve(dataRoot))).slice(0, 16)}`);
 }
 
 /** The merge sidecar evaluated the question and failed: a budget, an invalid
@@ -62,11 +72,14 @@ export class MergeTool {
   private nextStartAt = 0;
   /** Remove worker directories left by an earlier process. Each job removes
    * its own staging when it settles, so anything present at startup belonged
-   * to a process that died mid-job; nothing accepted lives there. */
+   * to a process that died mid-job; nothing accepted lives there. Earlier
+   * versions staged under `<data>/merge-workers`, which goes too. */
   async clearStaleJobs(): Promise<void> {
     if (this.active || this.worker) throw new Error("Stale job cleanup runs before any job");
+    await rm(this.stagingRoot, { recursive: true, force: true });
     await rm(join(this.dataRoot, "merge-workers"), { recursive: true, force: true });
   }
+  private get stagingRoot(): string { return this.options.stagingRoot ?? mergeStagingRoot(this.dataRoot); }
   get contentChoices(): "source" | "file" { return this.options.contentChoices ?? "source"; }
   get evaluationMillis(): number { return this.options.evaluationMillis ?? Math.min(20_000, this.options.timeoutMs ?? WORKER_TIMEOUT_MS); }
 
@@ -88,10 +101,13 @@ export class MergeTool {
   }
 
   /** Ask the sidecar one question. `inputs` are objects the question needs
-   * that durable storage may lack; they are staged for it. */
+   * that durable storage may lack; they are staged for it. `retained` names
+   * roots of retained accepted rows (the tree's head): what an answer shares
+   * with them is complete and kept, so it is neither read nor freshened. */
   async ask(
     question: MergeQuestion,
-    inputs: ReadonlyMap<ObjectHash, Uint8Array>
+    inputs: ReadonlyMap<ObjectHash, Uint8Array>,
+    retained: readonly ObjectHash[] = [],
   ): Promise<{ answer: MergeAnswer; objects: Map<ObjectHash, Uint8Array> }> {
     if (this.closing) throw new MergeWorkerError("Merge tool is closing", "unavailable");
     if (this.waiting.length >= 64)
@@ -103,7 +119,7 @@ export class MergeTool {
     try {
       if (this.closing) throw new MergeWorkerError("Merge tool is closing", "unavailable");
       try { this.options.onTiming?.("queue-wait", performance.now() - queuedAt); } catch { /* diagnostic only */ }
-      const job = this.askJob(question, inputs);
+      const job = this.askJob(question, inputs, retained);
       this.jobs.add(job);
       try { return await job; } finally { this.jobs.delete(job); }
     } finally {
@@ -117,6 +133,7 @@ export class MergeTool {
     this.closing = true;
     await Promise.allSettled([...this.jobs]);
     if (this.worker) await this.retire(this.worker);
+    await rmdir(this.stagingRoot).catch(() => { /* absent, or another worker's */ });
   }
 
   /** Stop a worker and remove its directory; it is no longer the live one. */
@@ -128,7 +145,8 @@ export class MergeTool {
 
   private async askJob(
     question: MergeQuestion,
-    inputs: ReadonlyMap<ObjectHash, Uint8Array>
+    inputs: ReadonlyMap<ObjectHash, Uint8Array>,
+    retained: readonly ObjectHash[],
   ): Promise<{ answer: MergeAnswer; objects: Map<ObjectHash, Uint8Array> }> {
     let phaseStart = performance.now();
     const mark = (phase: string) => {
@@ -187,7 +205,7 @@ export class MergeTool {
       // shared store is freshened, so a concurrent object collection cannot
       // take it before the accepted row names it.
       const available = new Map([...inputs, ...objects]);
-      await this.shared.verifyReachable(answerRoots(answer.root, answer.decisions), available, { freshen: true });
+      await this.shared.verifyReachable(answerRoots(answer.root, answer.decisions), available, { freshen: true, retained });
       for (const d of answer.decisions)
         if (rawAlternatives(d)) for (const hash of [...d.alternatives.map((a) => a.object), ...(d.at ? [d.at] : [])]) {
           await this.shared.load(hash, available);
@@ -231,11 +249,10 @@ export class MergeTool {
       ? [process.env.OVERSTORYD_MERGE_EXECUTABLE]
       : [process.execPath, fileURLToPath(new URL("../../overstoryd-merge/src/cli.ts", import.meta.url))]);
     if (!command.length) throw new Error("Empty merge command");
-    const parent = join(this.dataRoot, "merge-workers");
+    const parent = this.stagingRoot;
     await mkdir(parent, {recursive: true});
     const directory = await mkdtemp(join(parent, "worker-"));
-    worker = new PersistentMergeWorker(command, directory, join(this.dataRoot, "objects"), join(directory, "objects"),
-      join(this.dataRoot, "merge-cache"));
+    worker = new PersistentMergeWorker(command, directory, join(this.dataRoot, "objects"), join(directory, "objects"));
     this.worker = worker;
     this.workerAnswered = false;
     return worker;

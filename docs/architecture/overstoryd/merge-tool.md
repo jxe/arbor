@@ -106,7 +106,7 @@ they were is also reported unchanged.
 ## Transport and execution
 
 ```sh
-bun run overstoryd-merge serve --objects /data/objects --staging /data/merge-workers/worker-example/objects --cache /data/merge-cache
+bun run overstoryd-merge serve --objects /data/objects --staging /tmp/overstoryd-merge-<data root digest>/worker-example/objects
 ```
 
 `serve` answers one question per stdin line with one line on stdout, in order: an
@@ -172,34 +172,22 @@ evaluations by hash, least recently used first, up to 16 MB of their encoded byt
 outside `OVERSTORYD_MERGE_CACHE_MB`; each is still read through the evaluation, so the read
 budget counts it as before.
 
-A cold rebuild (after a restart, a crash or a dropped cache) replays each chain from its
-start, and chains only grow: about 10 ms an entry at 120 files (15 ms with a choice
-open), locally. So one question
-replays for at most `OVERSTORYD_MERGE_REPLAY_MS` (default 10 s; with overstoryd's 20-second
-evaluation budget that leaves 15 s of overstoryd's 45-second timeout for the entry that
-overruns the deadline, which is checked only between entries), then answers
-`{"error": {"code": "unavailable"}}` and keeps every state it rebuilt; overstoryd answers a
-retryable 503 and the client's retry continues the rebuild. Every attempt replays at
-least one entry. Without the budget overstoryd's timeout would end the process and lose the
-partial rebuild, and a long enough chain could never be rebuilt. Replay never starts
-partway along a chain: an imported start would lose the retained history a later merge
-reads, including the attribution of the current side of a choice.
+**Starting states from the provenance index.** An entry's state comes from the
+[provenance index](provenance-index.md) overstoryd keeps beside it: the engine imports the
+entry's root under the index's node identities and piece origins, then aligns to the
+decisions the entry records (Performance 004, decision 6). A question's head replays only
+the entries after its basis, from the basis's cached state or the basis's index; any other
+entry replays from a cached state at most 8 entries back, or starts from its own index.
+History is never replayed from a chain's start, so a restart costs about one index import
+per question (median 57 ms on the todos tree), with nothing saved to disk. An entry
+without a readable index has one computed from the nearest earlier one, as overstoryd's
+backfill computes it.
 
-**Saved states.** With `--cache DIR`, the sidecar stores shared computed states in
-compressed SQLite record packs, with binary cache-only objects and small checkpoint
-manifests. It restores persistent buckets and frozen values directly, verifying record
-hashes, semantic state identities and the accepted entry association. Legacy expanded
-JSON saves remain readable and are removed as their replacements commit.
-
-A completed replay saves the head after 32 entries and retains two checkpoints per
-tree. An interrupted replay also checkpoints its verified frontier, so eviction or a
-restart cannot erase its progress. When an older authored basis is rebuilding, the
-already computed head is protected alongside two replay frontiers. Saves run after the
-answer, before the worker reads its next question. Collection and publication serialize
-in SQLite; invalid private state falls back to replay. overstoryd passes `/data/merge-cache`
-and does not read or back it up. A checkpoint is the state replay computed, with all its
-retained history; it is never an imported start. See [shared merge checkpoints](merge-cache.md)
-for the codec, recovery boundaries, benchmarks and regression evidence.
+A head's replay from its basis is the only replay, and it stops at
+`OVERSTORYD_MERGE_REPLAY_MS` (default 10 s, checked between entries): the head then
+starts from its own index instead. Each answer carries the index of the state it reached
+(`provenance`, the root record, with the records overstoryd lacks staged with the answer's
+objects), so merged entries keep the engine's own lineage.
 
 What replay cannot recover is recorded as fact: an entry that migration 018 wrote from
 a schema-18 record has no `asked`, so a concurrent merge in it is aligned to rather than
@@ -340,12 +328,12 @@ are the automatic subsets; other simultaneous changes retain alternatives.
 | Format | Automatic subset | Requires review |
 | --- | --- | --- |
 | Text | Disjoint verified origins, including retained lineage and transport | Overlaps and competing anchors by default |
-| Markdown | Stable host structure; prose, heading/list text, task values and simple table cells; a new heading block inserted between blocks (after a blank line, closed by one, and not before an indented line); independent embedded regions; concurrent known embedded edits delegate to their format; identity-verified [transfers](#transfers) of paragraphs, list items and table rows, with contextual links whose binding is proven | Structural delimiter/order changes, ambiguous links, escaped tables and unsupported embedded combinations |
-| JSON | Different values under unique, unchanged object-key paths; identity-verified keyed member [transfers](#transfers) within one file | Duplicate keys, array ordering, key creation/removal or competing values |
+| Markdown | Merged as blocks (`markdown-blocks.ts`): front matter, headings, paragraphs, list items, quotes, fences, tables and HTML blocks, each named across versions by the pieces it shares with base. Any edits merge when every block of the result keeps the kind, attributes (heading level, list marker, task state, fence language), container and inline syntax its last editor gave it, no text one side holds in one block is split, and no text a side holds apart is joined, unless the other side made that change. Front matter and fences both sides changed delegate to their language. Identity-verified [transfers](#transfers) of paragraphs, list items and table rows, with contextual links whose binding is proven | Both sides changing one block's attributes or inline syntax differently, overlapping edits, a merge that splits or joins a side's blocks, and unsupported embedded combinations; each is a choice about the blocks involved, never the whole document |
+| JSON | Merged as elements (`data-elements.ts`, `elements.ts`): members named by key path, array items by an `id`, `key` or `name` field or by identity. Edits to different elements, new keys and new array items on both sides (at one place, in contribution order), removals, and key renames beside value edits; identity-verified keyed member [transfers](#transfers) within one file | The same key added with two values, one element changed two ways, and a result that does not parse; each a choice about the elements involved |
 | JSONL | Independent record fields with configured unique `recordKey` and stable order | Missing/nonunique keys, key/order/schema changes |
-| YAML | Different mapping values with unique stable keys and preserved source; identity-verified keyed member [transfers](#transfers) within one file | Anchors, aliases, tags, sequences, multiline scalars and parse warnings |
-| TOML | Different mapping values under stable unique tables/keys | Dotted keys, arrays, multiline constructs and structural changes |
-| CSV/TSV | Different cells with configured unique `recordKey`, unchanged header and row order | Key/schema/order changes, malformed quoting and duplicate keys |
+| YAML | As JSON: mapping members by key path and sequence items, including new keys and items on both sides; identity-verified keyed member [transfers](#transfers) within one file | Anchors, aliases, tags, several documents, parse warnings, and the conflicts JSON reviews |
+| TOML | As JSON: tables and pairs by key path (dotted keys included), arrays of tables and array items by identity | The conflicts JSON reviews |
+| CSV/TSV | Rows by the configured `recordKey` (or by identity without one), header as one element: rows added, removed or edited on both sides | Two header changes, a row whose width no longer matches the header, duplicate keys and malformed quoting |
 | TS/JS, Swift, Python | Parser-backed literal changes in distinct uniquely named declarations or supported members; syntax and binding topology unchanged; TS/JS only: identity-verified moves of top-level function declarations within one file ([transfers](#transfers)) | Binding/operator/import/export changes, overloads, decorators, macros, wrappers, directives and ambiguous declarations; Swift and Python declaration moves |
 | HTML | Different values under unique element/attribute structure with unchanged order | Repeated unkeyed siblings, duplicate IDs, scripts/styles and event handlers |
 | XML | Distinct values in a strict, uniquely structured namespace-free document | Namespaces, DTDs/entities and repeated sibling identity |
@@ -367,8 +355,20 @@ not hold the candidate is reviewed as before; a rule never guesses.
 When the replay itself fails, the review is as narrow as the transfers allow.
 A transfer between files in the candidate, or one accepted since its base
 joining two or more files the candidate also edited, makes one whole-root
-choice. Otherwise each file a transfer touched is one choice about that file
-(both sides' edits there together), and every other file merges. A transfer
+choice. Otherwise, in each file a transfer touched, every group of the
+candidate's edits is one choice: it grows to whole blocks of the base
+(Markdown blocks in Markdown, blank-line separated runs elsewhere), takes in
+the accepted edits inside those blocks and any edit that carries their material
+elsewhere (a move's other end), and accepted edits outside every choice merge
+as they would have. The same narrowing applies when a format rule refuses edits
+within one file; a Markdown refusal names its blocks, and only edits in or
+touching them, and overlapping edits, become choices. Before any of this, a candidate
+deletion that only repeats an accepted one (sliding it along equal base bytes
+lands on material current removed from between its neighbors, as when a stale
+device deletes an item again but selects the next item's marker with it) is
+dropped, and so is any other candidate edit that leaves the same bytes as
+the accepted edits it overlaps; current keeps what it showed. Every other
+file merges. A transfer
 that changed no file (a move to where its text already was) couples nothing.
 When replay succeeds but format policy refuses a single Markdown insertion within one
 document, removing its output by identity must exactly reproduce current.
@@ -500,18 +500,24 @@ commit accepted state inside this process.
 
 ## Objects, authority and failure
 
-`@ovst/object-store` provides immutable, hash-sharded storage. Reads verify hashes.
-Durable writes flush files and atomically link them into place; disposable staging uses
-atomic publication without fsync. The sidecar reads shared storage first, then staging,
+`@ovst/object-store` provides immutable, hash-addressed storage. Reads verify hashes.
+Durable writes append to overstoryd's object journal and sync it once; disposable staging
+publishes loose files atomically without fsync. The sidecar reads shared storage (loose
+files, packs and journals, through `ObjectStore`) first, then staging,
 then its own memory. Corrupt shared bytes fail validation. Question JSON contains no
 object-store filesystem paths.
 
-The sidecar owns a unique `/data/merge-workers/worker-*` directory. For each job
-overstoryd stages the uncommitted inputs in its `objects/` staging store, in one publish.
+The sidecar owns a unique `worker-*` directory under the staging root, which is
+scratch and so is kept off the data volume: `OVERSTORYD_MERGE_STAGING`, else
+`overstoryd-merge-<digest of the data root>` under the system temporary directory
+(`mergeStagingRoot`). On Railway's volume each staged object was a file creation
+the request waited for. For each job overstoryd stages the uncommitted inputs in its
+`objects/` staging store, in one publish.
 The sidecar receives fixed paths and a minimal environment rather than inherited server
 credentials. Normal and failed jobs remove staging in `finally`. A host crash can leave
-an unaccepted worker directory; overstoryd removes `merge-workers/` at startup, before any
-job runs. `merge-cache/` is the sidecar's and outlives restarts.
+an unaccepted worker directory; overstoryd removes the staging root, and the
+`<data>/merge-workers` that earlier versions used, at startup, before any
+job runs. The sidecar keeps nothing on disk; `merge-cache/` from earlier versions is unused and can be deleted.
 
 Every entry, and every root and alternative it names, is reachable from its tree's head
 entry, so a future object collector keeps exactly what the chains reach; sidecar caches

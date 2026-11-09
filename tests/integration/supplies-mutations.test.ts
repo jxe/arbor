@@ -3,14 +3,14 @@ import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { revisionOf, semanticRequestDigest, type MutationHandleRef, type MutationResultReceipt, type QueryStreamEvent } from "@ovst/protocol";
+import { revisionOf, semanticRequestDigest, type MutationHandleRef, type MutationResultReceipt, type ViewEvent } from "@ovst/protocol";
 import { z } from "zod";
 import {
   node,
-  LiveQueryBroker,
+  LiveViewBroker,
   mutation,
   MutationCallError,
-  query,
+  view,
   RegisteredMutationRuntime,
   SQLiteMutationBroker,
   SQLiteQueryEngine,
@@ -45,7 +45,7 @@ let directory: string;
 let databasePath: string;
 let store: SQLiteStoreBroker;
 let engine: SQLiteQueryEngine;
-let live: LiveQueryBroker;
+let live: LiveViewBroker;
 let broker: SQLiteMutationBroker;
 let runtime: RegisteredMutationRuntime;
 let handles: Record<string, MutationHandle<unknown, unknown>>;
@@ -93,7 +93,7 @@ beforeAll(async () => {
   };
   engine = await SQLiteQueryEngine.open(location, resolver);
   store = new SQLiteStoreBroker(databasePath, engine.schema, { watchExternal: false });
-  live = new LiveQueryBroker(engine, store);
+  live = new LiveViewBroker(engine, store);
   broker = new SQLiteMutationBroker(engine.schema, store, storeSource(), {
     now: () => new Date(Date.UTC(2026, 7, 27, 12, 0, clock++)),
   });
@@ -121,8 +121,8 @@ beforeAll(async () => {
   };
   refs = Object.fromEntries(Object.keys(handles).map((name) => [name, {
     tree: "tr_supplies_source",
-    module: name === "createList" ? "/MyLists.tsx" : name === "updatePractice" ? "/Practice.tsx" : name === "setListPractice" ? "/scripts/mutations.ts" : "/List.tsx",
-    export: name,
+    path: name === "createList" ? "/MyLists.tsx" : name === "updatePractice" ? "/Practice.tsx" : name === "setListPractice" ? "/scripts/mutations.ts" : "/List.tsx",
+    name,
     version: `sha256:${name}`,
   }]));
   runtime = new RegisteredMutationRuntime(document, broker, Object.entries(handles).map(([name, handle]) => ({
@@ -152,7 +152,7 @@ function all(sql: string, ...parameters: unknown[]): Record<string, unknown>[] {
   finally { database.close(); }
 }
 
-async function next(reader: ReadableStreamDefaultReader<QueryStreamEvent>, type: QueryStreamEvent["type"]): Promise<QueryStreamEvent> {
+async function next(reader: ReadableStreamDefaultReader<ViewEvent>, type: ViewEvent["type"]): Promise<ViewEvent> {
   const timeout = Bun.sleep(1_000).then(() => { throw new Error(`Timed out waiting for ${type}`); });
   while (true) {
     const result = await Promise.race([reader.read(), timeout]);
@@ -192,7 +192,7 @@ describe.serial("Supplies mutation runner", () => {
     });
     await expect(diagnosticBroker.execute(failing, {
       scope: document.tree,
-      handle: { tree: document.tree, module: "/failure.ts", export: "failing", version: "sha256:failure" },
+      handle: { tree: document.tree, path: "/failure.ts", name: "failing", version: "sha256:failure" },
       mutationID: "wrong-source",
       input: {},
       user: { profile: ada },
@@ -202,7 +202,7 @@ describe.serial("Supplies mutation runner", () => {
     })).rejects.toMatchObject({ value: { code: "conflict", message: expect.stringContaining("does not resolve") } });
     await expect(diagnosticBroker.execute(failing, {
       scope: document.tree,
-      handle: { tree: document.tree, module: "/failure.ts", export: "failing", version: "sha256:failure" },
+      handle: { tree: document.tree, path: "/failure.ts", name: "failing", version: "sha256:failure" },
       mutationID: "unexpected-failure",
       input: {},
       user: { profile: ada },
@@ -320,18 +320,19 @@ describe.serial("Supplies mutation runner", () => {
     await expect(call("renameList", { listId: careList, name: "Unauthorized race" }, "race-rename", bo))
       .rejects.toBeInstanceOf(MutationCallError);
 
-    const currentName = query.one(node("./data/List").children, (list: any) => ({
-      where: list.id.eq(listeningList),
-      select: list.pick("id", "name"),
-    }));
-    engine.bind(currentName, sourceBindings().find((source) => source.authoredPath === "./data/List")!);
-    const reader = live.stream([{ id: "list", handle: currentName }], { signal: new AbortController().signal, user: null }).getReader();
+    const List = node("./data/List").children as any;
+    const currentName = view(() => {
+      const l = List.one((l: any) => [l.id.is(listeningList)]);
+      return { id: l.id, name: l.name };
+    });
+    const resolve = async () => sourceBindings().find((source) => source.authoredPath === "./data/List")!;
+    const reader = live.stream([{ id: "list", handle: currentName, resolve }], { signal: new AbortController().signal, user: null }).getReader();
     await next(reader, "result");
     await next(reader, "ready");
     const receipt = await call("renameList", { listId: listeningList, name: "Live committed name" }, "live-rename", bo);
-    const result = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
+    const result = await next(reader, "result") as Extract<ViewEvent, { value: unknown }>;
     expect(result.value).toEqual({ id: listeningList, name: "Live committed name" });
-    expect(Number(result.observedThrough.slice("query:".length))).toBeGreaterThan(0);
+    expect(Number(result.observedThrough.slice("view:".length))).toBeGreaterThan(0);
     expect(receipt.observedThrough).toMatch(/^sqlite:\d+$/);
     await reader.cancel();
   });

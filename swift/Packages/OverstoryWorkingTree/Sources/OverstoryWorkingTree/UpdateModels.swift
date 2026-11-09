@@ -1,4 +1,4 @@
-import StoryKit
+import OverstoryWorkspace
 import Overstory
 import Foundation
 
@@ -174,5 +174,26 @@ struct UpdateControl: Codable, Equatable, Sendable {
         try values.encodeIfPresent(held, forKey: .held)
         try values.encode(settled, forKey: .settled)
         try values.encodeIfPresent(acceptedConflicted, forKey: .acceptedConflicted)
+    }
+}
+
+/// Where local work spends its time: each `mark` adds the time since the
+/// previous mark to a named phase. Shared by the coordinator and the change
+/// log for one append, then recorded on its network-log note.
+final class PhaseTimer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last = DispatchTime.now().uptimeNanoseconds
+    private var values: [String: Double] = [:]
+
+    func mark(_ phase: String) {
+        lock.lock(); defer { lock.unlock() }
+        let now = DispatchTime.now().uptimeNanoseconds
+        values[phase, default: 0] += Double(now - last) / 1_000_000
+        last = now
+    }
+
+    var phases: [String: Double] {
+        lock.lock(); defer { lock.unlock() }
+        return values.mapValues { ($0 * 100).rounded() / 100 }
     }
 }

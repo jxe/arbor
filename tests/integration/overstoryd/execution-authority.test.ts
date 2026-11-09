@@ -128,7 +128,7 @@ test("execution bearer tokens enforce create-only effects, guards, replay and re
   }
 });
 
-test("authority invalidation stream and whole-tree watch stop on execution revocation", async () => {
+test("a whole-tree watch stops on execution revocation", async () => {
   const dataRoot = await mkdtemp(join(tmpdir(), "story-execution-watch-"));
   const running = await serveHost({
     dataRoot,
@@ -157,14 +157,6 @@ test("authority invalidation stream and whole-tree watch stop on execution revoc
       ],
     });
     const headers = { authorization: `Bearer ${token}` };
-    const response = await fetch(
-      `${running.url}/.overstory/execution/authority-watch`,
-      { headers, signal: abort.signal }
-    );
-    const reader = response.body!.getReader();
-    expect(new TextDecoder().decode((await reader.read()).value)).toContain(
-      "event: refresh"
-    );
     const watch = await fetch(
       `${running.url}/.overstory/trees/${account.id}/watch`,
       { headers, signal: abort.signal }
@@ -173,10 +165,6 @@ test("authority invalidation stream and whole-tree watch stop on execution revoc
     const watchReader = watch.body!.getReader();
     await watchReader.read();
     running.overstoryd.execution.revoke(token);
-    expect(new TextDecoder().decode((await reader.read()).value)).toContain(
-      "event: revoked"
-    );
-    expect((await reader.read()).done).toBe(true);
     // The revoked watch closes without resync-required.
     const revoked = await Promise.race([
       watchReader.read(),
@@ -187,6 +175,57 @@ test("authority invalidation stream and whole-tree watch stop on execution revoc
     expect(revoked.done).toBe(true);
   } finally {
     abort.abort();
+    running.server.stop(true);
+    await running.overstoryd[Symbol.asyncDispose]();
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("a grant over any tree reads exactly what its caller may read, and nothing else", async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), "story-execution-any-"));
+  const running = await serveHost({
+    dataRoot,
+    publicOrigin: "http://127.0.0.1:0",
+    port: 0,
+    hostname: "127.0.0.1",
+    accounts: [
+      testAccount("owner", "owner", { communityWriter: true }),
+      testAccount("reader", "reader"),
+    ],
+  });
+  try {
+    const owner = running.overstoryd.accountByHandle("owner")!;
+    const reader = running.overstoryd.accountByHandle("reader")!;
+    const issue = (grant: Record<string, unknown>) => running.overstoryd.execution.issue({
+      code: "tr_supplies",
+      version: "v1",
+      caller: reader.id,
+      subject: reader.id,
+      expiresAt: Date.now() + 60000,
+      active: () => true,
+      grants: [{ lender: null, tree: "*", within: "/", allow: ["read"], ...grant } as never],
+    });
+    // Never written, never lent, never narrowed.
+    expect(() => issue({ allow: ["read", "write"] })).toThrow();
+    expect(() => issue({ lender: owner.id })).toThrow();
+    expect(() => issue({ within: "/notes" })).toThrow();
+
+    const token = issue({});
+    const code = new ProtocolClient(running.url, token);
+    const own = await deviceClient(running.url, "reader");
+    const status = (read: Promise<unknown>) => read.then(() => 200, (error: { status?: number }) => error.status ?? 0);
+    // Whatever the reader's own session may read, the token may; nothing more.
+    for (const tree of [reader.id, owner.id, running.overstoryd.community().id]) {
+      expect(await status(code.descriptor(tree))).toBe(await status(own.descriptor(tree)));
+    }
+    expect(await status(code.descriptor(reader.id))).toBe(200);
+    const current = await code.descriptor(reader.id);
+    const snapshot = await own.snapshot(reader.id, current.tree.root);
+    await expect(code.submitUpdate(reader.id, current.tree.update, add(snapshot, "note.txt", "hello"), {
+      change: "any-tree-write",
+      ifCurrent: current.tree.update,
+    })).rejects.toThrow();
+  } finally {
     running.server.stop(true);
     await running.overstoryd[Symbol.asyncDispose]();
     await rm(dataRoot, { recursive: true, force: true });

@@ -200,6 +200,15 @@ struct ProtocolObjectTests {
         #expect(throws: ProtocolValidationError.self) {
             _ = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [inner, file]), mode: .sparseFiles)
         }
+        // A directory below the root may be missing only for the lazy index.
+        let rootOnly = ProtocolSnapshot(root: root.hash, objects: [root, file])
+        #expect(throws: ProtocolValidationError.incompleteGraph(inner.hash)) {
+            _ = try ProtocolObjectGraph.validate(rootOnly, mode: .sparseFiles)
+        }
+        #expect(try ProtocolObjectGraph.validate(rootOnly, mode: .lazyDirectories).count == 2)
+        #expect(throws: ProtocolValidationError.self) {
+            _ = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [inner, file]), mode: .lazyDirectories)
+        }
         #expect(throws: ProtocolValidationError.self) {
             _ = try ProtocolObjectGraph.validate(.init(root: file.hash, objects: [file]), mode: .sparseFiles)
         }
@@ -251,7 +260,6 @@ struct ProtocolObjectTests {
             })
             let encoded = try ProtocolSnapshotBundleCodec.encode(snapshot)
             #expect(encoded.base64EncodedString() == vector["canonicalCborBase64"] as? String)
-            #expect(ProtocolObjectCodec.hash(encoded) == vector["etag"] as? String)
             #expect(try ProtocolSnapshotBundleCodec.decode(encoded, root: root) == snapshot.sorted())
         }
     }
@@ -1077,6 +1085,14 @@ struct ProtocolValueVectorTests {
         #expect(remote.canonical?.endpoint == "https://community.example/.overstory/trees/\(remote.id)")
         #expect(remote.canonical?.httpURL == "https://community.example/~joe")
         #expect(remote.canonical?.overstoryURL == "overstory://community.example/~joe")
+        // Served at a person's domain (locators §5.1), the canonical URL is the domain's.
+        var atDomain = try #require(remote.canonical)
+        #expect(atDomain.canonicalURL(below: "/notes") == "https://community.example/~joe/notes")
+        atDomain.url = "https://notes.joe.example/"
+        #expect(atDomain.canonicalURL == "https://notes.joe.example/")
+        #expect(atDomain.canonicalURL(below: "") == "https://notes.joe.example/")
+        #expect(atDomain.canonicalURL(below: "/a b") == "https://notes.joe.example/a%20b")
+        #expect(atDomain.httpURL == "https://community.example/~joe")
         #expect(remote.update == "up_aaaaaaaaaaaaaaaaaaaaaaaaaa")
         // TODO: `treeDescriptor`, `treeConfigurationDescriptor`, and `resolution.enclosingTree`
         // are plain `TreeDescriptor`s without `ref`/`update`. Overstory models only the remote
@@ -1137,6 +1153,113 @@ struct ProtocolValueVectorTests {
         #expect(try JSONDecoder().decode(ProtocolResyncChange.self, from: Data(resync.data.utf8)).reason == "The requested cursor is no longer retained")
         // TODO: observation-events-invalid.json is not consumed here. Its framing checks live inside
         // `ProtocolClient.watch`; the transition checks are `ProtocolTreeUpdateFrame.validated`.
+    }
+
+    @Test("presence-events.sse frames decode, and presence-events-invalid.json frames are refused")
+    func presenceEvents() throws {
+        let source = try String(contentsOf: fixtures.appending(path: "presence-events.sse"), encoding: .utf8)
+        var parser = ProtocolSSEParser()
+        var frames = try parser.append(Data(source.utf8))
+        frames.append(contentsOf: try parser.finish())
+        let events = try frames.map { try ProtocolPresence.decodeEvent(event: $0.event, data: Data($0.data.utf8)) }
+        #expect(events.count == 6)
+        guard case .ready(let ready) = events[0] else { Issue.record("first event is not ready"); return }
+        #expect(ready.selfID == "pr_me")
+        #expect(ready.peers.map(\.name) == ["Ana"])
+        #expect(ready.peers.map(\.device) == [nil])
+        guard case .peer(let moved) = events[1] else { Issue.record("second event is not a peer"); return }
+        #expect(moved.device == "ios")
+        guard case .peer(let agent) = events[3] else { Issue.record("fourth event is not a peer"); return }
+        #expect(agent.agent == ProtocolPresenceAgent(label: "Claude", status: "merging duplicates"))
+        #expect(agent.page == ProtocolPresencePage(path: "/Groceries", stableKey: "id:groceries"))
+        guard case .cursor(let cursor) = events[2] else { Issue.record("third event is not a cursor"); return }
+        #expect(cursor.selection?.anchor == 12 && cursor.selection?.head == 20)
+        #expect(events[5] == .leave(id: "pr_agent"))
+
+        let invalid = try #require(JSONSerialization.jsonObject(
+            with: Data(contentsOf: fixtures.appending(path: "presence-events-invalid.json"))) as? [String: Any])
+        let cases = try #require(invalid["cases"] as? [[String: Any]])
+        #expect(!cases.isEmpty)
+        for item in cases {
+            let name = item["name"] as? String ?? "?"
+            let data = try JSONSerialization.data(withJSONObject: item["data"] ?? NSNull(), options: [.fragmentsAllowed])
+            #expect(throws: (any Error).self, "\(name)") {
+                _ = try ProtocolPresence.decodeEvent(event: item["event"] as? String, data: data)
+            }
+        }
+    }
+
+    @Test("presence-runners.sse frames decode: a runner, a run, the agent doing it, stop and done")
+    func presenceRunners() throws {
+        let source = try String(contentsOf: fixtures.appending(path: "presence-runners.sse"), encoding: .utf8)
+        var parser = ProtocolSSEParser()
+        var frames = try parser.append(Data(source.utf8))
+        frames.append(contentsOf: try parser.finish())
+        let events = try frames.map { try ProtocolPresence.decodeEvent(event: $0.event, data: Data($0.data.utf8)) }
+        #expect(events.count == 5)
+        guard case .ready(let ready) = events[0] else { Issue.record("first event is not ready"); return }
+        #expect(ready.peers.first?.runner == "Ana's Mac")
+        let request = ProtocolRunRequest(
+            tree: "https://garden.example/~ana/days", page: ProtocolPresencePage(path: "/Today"),
+            task: .init(text: "Sort the shopping list by aisle"), run: "run_7Kq2")
+        #expect(events[1] == .message(from: "pr_phone", body: .run(request)))
+        guard case .peer(let agent) = events[2] else { Issue.record("third event is not a peer"); return }
+        #expect(agent.agent?.run == "run_7Kq2")
+        #expect(events[3] == .message(from: "pr_mac", body: .stop(run: "run_7Kq2")))
+        #expect(events[4] == .message(from: "pr_mac", body: .done(run: "run_7Kq2", result: "Sorted 14 items into 5 aisles.")))
+        // A body encodes as the host expects it.
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ProtocolPresenceMessageBody.stop(run: "r1"))) as? [String: String]
+        #expect(encoded == ["kind": "stop", "run": "r1"])
+    }
+
+    @Test("a presence roster follows peers and drops a caret when its peer changes page or leaves")
+    func presenceRoster() {
+        let source = "sha256:" + String(repeating: "c", count: 64)
+        var roster = ProtocolPresenceRoster()
+        roster.apply(.ready(ProtocolPresenceReady(selfID: "pr_me", peers: [
+            ProtocolPresencePeer(id: "pr_me", profile: "tr_me", page: ProtocolPresencePage(path: "/Groceries")),
+            ProtocolPresencePeer(id: "pr_ana", profile: "tr_ana", name: "Ana", page: ProtocolPresencePage(path: "/Groceries")),
+        ])))
+        #expect(roster.peers.keys.sorted() == ["pr_ana"])
+        roster.apply(.cursor(ProtocolPresenceCursor(id: "pr_ana", selection: ProtocolPresenceSelection(source: source, anchor: 1, head: 2))))
+        #expect(roster.cursors["pr_ana"]?.head == 2)
+        roster.apply(.peer(ProtocolPresencePeer(id: "pr_bot", profile: "tr_ana", name: "Ana", page: ProtocolPresencePage(path: "/Groceries"), agent: ProtocolPresenceAgent(label: "Claude"))))
+        #expect(roster.peers(onPage: "/Groceries").map(\.id) == ["pr_ana", "pr_bot"])
+        roster.apply(.peer(ProtocolPresencePeer(id: "pr_ana", profile: "tr_ana", name: "Ana", page: ProtocolPresencePage(path: "/Plan"))))
+        #expect(roster.cursors["pr_ana"] == nil)
+        roster.apply(.cursor(ProtocolPresenceCursor(id: "pr_ghost", selection: nil)))
+        #expect(roster.peers["pr_ghost"] == nil)
+        roster.apply(.leave(id: "pr_bot"))
+        #expect(!roster.anyoneElse(onPage: "/Groceries"))
+        #expect(roster.anyoneElse(onPage: "/Plan"))
+    }
+
+    @Test("a roster keeps runners apart, newest last, and the results of the runs it sent")
+    func presenceRosterRunners() {
+        var roster = ProtocolPresenceRoster()
+        roster.apply(.ready(ProtocolPresenceReady(selfID: nil, stream: "pr_hidden", peers: [
+            ProtocolPresencePeer(id: "pr_air", profile: "tr_me", name: "Joe", runner: "Joe's Air"),
+        ])))
+        #expect(roster.streamID == "pr_hidden")
+        #expect(roster.peers.isEmpty)
+        roster.apply(.peer(ProtocolPresencePeer(id: "pr_studio", profile: "tr_me", name: "Joe", runner: "Studio")))
+        #expect(roster.runners.map(\.id) == ["pr_air", "pr_studio"])
+        roster.apply(.peer(ProtocolPresencePeer(id: "pr_bot", profile: "tr_me", name: "Joe", page: ProtocolPresencePage(path: "/Groceries"),
+                                                agent: ProtocolPresenceAgent(label: "Claude", run: "run_1"))))
+        #expect(roster.agent(doing: "run_1")?.id == "pr_bot")
+        roster.apply(.message(from: "pr_studio", body: .done(run: "run_1", result: "Merged")))
+        #expect(roster.runResults["run_1"] == "Merged")
+        roster.apply(.leave(id: "pr_studio"))
+        #expect(roster.runners.map(\.id) == ["pr_air"])
+    }
+
+    @Test("a presence update writes only the members it changes, and null for a cleared one")
+    func presenceUpdateEncoding() throws {
+        let update = ProtocolPresenceUpdate(page: .set(ProtocolPresencePage(path: "/Groceries")), selection: .clear)
+        let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(update)) as? [String: Any])
+        #expect(Set(object.keys) == ["page", "selection"])
+        #expect(object["selection"] is NSNull)
+        #expect((object["page"] as? [String: Any])?["stableKey"] is NSNull)
     }
 }
 

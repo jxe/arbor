@@ -1,4 +1,4 @@
-import StoryKit
+import OverstoryWorkspace
 import OverstoryObjectStore
 import Overstory
 import Foundation
@@ -123,7 +123,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
               parts.allSatisfy(ProtocolGraph.isPathComponent),
               !generations.isEmpty else { throw Self.invalid("Invalid source path or empty intent") }
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count else { throw Self.invalid("Duplicate basis object") }
-        var decoded = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
+        var decoded = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
         var bytes = Dictionary(uniqueKeysWithValues: graph.objects.map { ($0.hash, $0.bytes) })
         func store(_ object: ProtocolObject) throws -> String {
             let value = try ProtocolObjectCodec.encode(object), hash = ProtocolObjectCodec.hash(value)
@@ -303,7 +303,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
         }
         let root = previousRoot
         let candidate = try ProtocolGraph.reachable(from: root, in: bytes)
-        _ = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
+        _ = try ProtocolObjectGraph.validate(candidate, mode: .lazyDirectories)
         if evidence, compact {
             // A compacted frame is proven against the generation sources it
             // spans before it replaces the chain; otherwise the chain stays.
@@ -353,7 +353,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
 
     /// A frame is plain when every operation is a lineage-free `editSource`
     /// over `basis` material of one path with a range: what `compose` handles.
-    private static func plainEdits(_ frame: ProtocolTraceFrame) -> (path: String, object: String, edits: [WorkspaceSourceEdit])? {
+    static func plainEdits(_ frame: ProtocolTraceFrame) -> (path: String, object: String, edits: [WorkspaceSourceEdit])? {
         var path: String?, object: String?, edits: [WorkspaceSourceEdit] = []
         for operation in frame.operations {
             guard operation.kind == "editSource", operation.fields["lineage"] == nil || operation.fields["lineage"] == .array([]),
@@ -460,8 +460,8 @@ public struct LocalChange: Codable, Equatable, Sendable {
     /// genuine snapshot semantics. Never infer provenance from resulting bytes.
     public init(change: String = UUID().uuidString, tree: String, basis: LocalChangeBasis,
                 graph: ProtocolSnapshot, candidate: ProtocolSnapshot, entryTransfer: EntryTransfer? = nil, entryActions: EntryActions? = nil, creation: SourcePageCreation? = nil) throws {
-        _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
-        _ = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
+        _ = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
+        _ = try ProtocolObjectGraph.validate(candidate, mode: .lazyDirectories)
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count,
               Set(candidate.objects.map(\.hash)).count == candidate.objects.count else { throw Self.invalid("Duplicate snapshot object") }
         self.change = change; self.tree = tree; self.basis = basis
@@ -510,12 +510,14 @@ public struct LocalChange: Codable, Equatable, Sendable {
 
     /// Structural integrity of one record: hash-checked graphs, a wire element
     /// that names this candidate and change, and objects drawn from the candidate.
-    public func validate() throws {
+    /// `graphValidated` says `graph` is a candidate already validated, as an
+    /// authored basis is its parent's candidate, so it is not hashed again.
+    public func validate(graphValidated: Bool = false) throws {
         guard !change.isEmpty, update.change == change, update.candidate == candidate.root else { throw Self.invalid("Wire element does not name its record") }
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count,
               Set(candidate.objects.map(\.hash)).count == candidate.objects.count else { throw Self.invalid("Duplicate snapshot object") }
-        _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
-        _ = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
+        if !graphValidated { _ = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories) }
+        _ = try ProtocolObjectGraph.validate(candidate, mode: .lazyDirectories)
         let known = Set(graph.objects.map(\.hash)), present = Dictionary(uniqueKeysWithValues: candidate.objects.map { ($0.hash, $0.bytes) })
         // An operation may introduce material that later operations change,
         // such as the empty directory receiving a moved page. Its original
@@ -524,6 +526,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
             guard operation.kind == "addEntry", case let .object(value)? = operation.fields["value"] else { return nil }
             if case let .string(hash)? = value["directory"] { return hash }
             if case let .string(hash)? = value["file"] { return hash }
+            if case let .string(hash)? = value["page"] { return hash }
             return nil
         })
         for object in update.objects {
@@ -578,8 +581,8 @@ public struct LocalChange: Codable, Equatable, Sendable {
     /// directory that already held it. The removal proof in `init` shows the
     /// candidate is exactly the basis plus these branches.
     static func creationOperations(_ creation: SourcePageCreation, graph: ProtocolSnapshot, candidate: ProtocolSnapshot) throws -> [ProtocolSourceOperation] {
-        let basis = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
-        let result = try ProtocolObjectGraph.validate(candidate, mode: .sparseFiles)
+        let basis = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
+        let result = try ProtocolObjectGraph.validate(candidate, mode: .lazyDirectories)
         func directory(_ objects: [String: ProtocolObject], _ root: String, _ parts: ArraySlice<String>) throws -> [ProtocolDirectoryEntry] {
             var hash = root
             for part in parts {
@@ -607,8 +610,9 @@ public struct LocalChange: Codable, Equatable, Sendable {
             }
             let value: ProtocolSemanticValue
             if let file = added.file { value = .object(["file": .string(file)]) }
+            else if let page = added.page { value = .object(["page": .string(page)]) }
             else if let directory = added.directory { value = .object(["directory": .string(directory)]) }
-            else { throw invalid("Page creation entry is not a file or directory") }
+            else { throw invalid("Page creation entry is not a file, page or directory") }
             let parentPath = parentParts.isEmpty ? "/" : "/" + parentParts.joined(separator: "/")
             return try ProtocolSourceOperation([
                 "key": .string("add-\(index)"), "kind": .string("addEntry"),
@@ -651,12 +655,23 @@ private struct StoredLocalChange: Codable {
     var transfer: SourceTransferCapture?
 }
 
-/// Schema 4 stores hashes and the wire element with its frame chain.
+/// Schema 4 stored hashes and the wire element with its frame chain as one
+/// JSON document, rewritten on every edit. It is still read, and the first
+/// rewrite turns it into schema 5.
 private struct ChangeLogJournal: Codable {
-    static let currentSchema = 4
-    var schema = currentSchema
+    static let version = 4
+    var schema = ChangeLogJournal.version
     var tree: String
     var records: [StoredLocalChange]
+}
+
+/// Schema 5: JSON Lines. A header line, then one record per line, so a new
+/// edit is one appended line and one fsync rather than a rewrite of every
+/// retained record. Only removals rewrite the file.
+private struct ChangeLogHeader: Codable {
+    static let currentSchema = 5
+    var schema = currentSchema
+    var tree: String
 }
 
 private struct ChangeLogFingerprint: Equatable {
@@ -676,6 +691,9 @@ public actor ChangeLog {
     private var records: [LocalChange]
     private var fingerprint: ChangeLogFingerprint?
     private var objectCache: [String: Data] = [:]
+    /// Whether the journal on disk is schema 5 and ends with a complete line,
+    /// so a retain may append to it. Otherwise the next retain rewrites it.
+    private var appendable = false
 
     public init(
         tree: String,
@@ -704,6 +722,10 @@ public actor ChangeLog {
         try await retain([record], settled: settled, merging: merging)
     }
 
+    func retain(_ record: LocalChange, settled: Set<String>?, merging: Bool, timer: PhaseTimer?) async throws {
+        try await retain([record], settled: settled, merging: merging, timer: timer)
+    }
+
     /// One durable boundary for a batch of records. With `settled`, each new
     /// record must extend the one chain of unsettled records: its basis is the
     /// newest of them (any basis when none is unsettled). The one exception is
@@ -712,6 +734,10 @@ public actor ChangeLog {
     /// earlier build that already holds sibling branches is not checked; its
     /// branches publish one after another.
     public func retain(_ batch: [LocalChange], settled: Set<String>? = nil, merging: Bool = false) async throws {
+        try await retain(batch, settled: settled, merging: merging, timer: nil)
+    }
+
+    func retain(_ batch: [LocalChange], settled: Set<String>?, merging: Bool, timer: PhaseTimer?) async throws {
         while true {
             // Resolve platform objects before locking. Actor reentrancy must
             // never leave another call synchronously waiting on our own flock.
@@ -733,10 +759,12 @@ public actor ChangeLog {
                         known[record.change] = record
                     }
                 }
+                timer?.mark("log-lock")
                 // Retained records were validated when they were loaded or retained.
-                try Self.validate(added, tree: tree, after: records)
+                try Self.validate(added, tree: tree, after: records, timer: timer)
                 if let settled, !merging { try Self.requireOneChain(added, after: records, settled: settled) }
-                try persist(records + added)
+                timer?.mark("log-validate")
+                if appendable { try append(added, timer: timer) } else { try persist(records + added); timer?.mark("log-rewrite") }
                 files.unlockChangeLog(descriptor)
                 return
             } catch {
@@ -859,9 +887,9 @@ public actor ChangeLog {
     }
 
     private func load(settled: Set<String> = []) async throws -> (records: [LocalChange], objects: [String: Data]) {
-        guard let data = try files.readChangeLogData() else { return ([], [:]) }
-        let journal = try JSONDecoder().decode(ChangeLogJournal.self, from: data)
-        guard journal.schema == ChangeLogJournal.currentSchema, journal.tree == tree else {
+        guard let data = try files.readChangeLogData() else { appendable = false; return ([], [:]) }
+        let journal = try decodeJournal(data)
+        guard journal.tree == tree else {
             throw ProtocolValidationError.invalidValue("Invalid source journal schema or tree")
         }
         if !journal.records.isEmpty, journal.records.allSatisfy({ settled.contains($0.change) }) {
@@ -888,6 +916,41 @@ public actor ChangeLog {
         fingerprint = try currentFingerprint()
     }
 
+    /// Retain `added` after the current records: store only the objects they
+    /// introduce, then append one line each with one fsync. Nothing is
+    /// removed, so nothing is collected and no other record is re-encoded.
+    private func append(_ added: [LocalChange], timer: PhaseTimer?) throws {
+        var presented: [String: Data] = [:]
+        for record in added {
+            for object in record.localTrash?.objects ?? [] { presented[object.hash] = object.bytes }
+            for object in record.update.objects { presented[object.hash] = object.bytes }
+            let basis = Set(record.graph.objects.map(\.hash))
+            for object in record.candidate.objects where !basis.contains(object.hash) { presented[object.hash] = object.bytes }
+            if platform == nil {
+                for object in record.graph.objects + record.candidate.objects { presented[object.hash] = object.bytes }
+            }
+        }
+        // Objects are durable before the line that names them.
+        try objects.store(presented)
+        timer?.mark("log-objects")
+        var lines = Data()
+        for record in added { lines.append(try sortedKeysJSON(stored(record))); lines.append(0x0A) }
+        timer?.mark("log-encode")
+        do { try files.appendChangeLog(lines) } catch {
+            // A failed append may have left part of a line: rewrite next time.
+            appendable = false
+            throw error
+        }
+        for record in added {
+            for object in record.graph.objects + record.candidate.objects + record.update.objects + (record.localTrash?.objects ?? []) {
+                objectCache[object.hash] = object.bytes
+            }
+        }
+        records += added
+        fingerprint = try currentFingerprint()
+        timer?.mark("log-append")
+    }
+
     private func persist(_ next: [LocalChange]) throws {
         var bytes = objectCache
         var presented: [String: Data] = [:]
@@ -911,7 +974,7 @@ public actor ChangeLog {
         }
         try objects.store(presented)
         let stored = next.map(stored)
-        try files.writeChangeLog(ChangeLogJournal(tree: tree, records: stored))
+        try writeJournal(stored)
         let retained = Set(stored.flatMap { $0.graph.objects + $0.candidate.objects + $0.updateObjects + ($0.localTrash?.objects ?? []) })
         try objects.retain(reachableFrom: [], files: retained)
         records = next
@@ -927,7 +990,34 @@ public actor ChangeLog {
     }
 
     private func writeJournal(_ records: [StoredLocalChange]) throws {
-        try files.writeChangeLog(ChangeLogJournal(tree: tree, records: records))
+        var data = try sortedKeysJSON(ChangeLogHeader(tree: tree))
+        data.append(0x0A)
+        for record in records { data.append(try sortedKeysJSON(record)); data.append(0x0A) }
+        try files.writeChangeLog(data)
+        appendable = true
+    }
+
+    /// Schema 5 lines, or a schema 4 document. A last line without its
+    /// newline was never acknowledged (its fsync had not returned), so it is
+    /// dropped, and the next retain rewrites the file without it.
+    private func decodeJournal(_ data: Data) throws -> (tree: String, records: [StoredLocalChange]) {
+        let decoder = JSONDecoder()
+        var lines = data.split(separator: 0x0A, omittingEmptySubsequences: false)
+        // A schema 4 document also has `schema` and `tree` keys, on one line.
+        if lines.count > 1, let first = lines.first, let header = try? decoder.decode(ChangeLogHeader.self, from: Data(first)),
+           header.schema == ChangeLogHeader.currentSchema {
+            let complete = lines.last?.isEmpty == true
+            lines.removeFirst(); lines.removeLast()
+            let records = try lines.map { try decoder.decode(StoredLocalChange.self, from: Data($0)) }
+            appendable = complete
+            return (header.tree, records)
+        }
+        let journal = try decoder.decode(ChangeLogJournal.self, from: data)
+        guard journal.schema == ChangeLogJournal.version else {
+            throw ProtocolValidationError.invalidValue("Invalid source journal schema or tree")
+        }
+        appendable = false
+        return (journal.tree, journal.records)
     }
 
     private func stored(_ record: LocalChange) -> StoredLocalChange {
@@ -997,10 +1087,13 @@ public actor ChangeLog {
     }
 
     /// Validate `records` in order as successors of the already valid `retained`.
-    private static func validate(_ records: [LocalChange], tree: String, after retained: [LocalChange] = []) throws {
+    private static func validate(_ records: [LocalChange], tree: String, after retained: [LocalChange] = [], timer: PhaseTimer? = nil) throws {
         var prior = Dictionary(uniqueKeysWithValues: retained.map { ($0.change, $0) })
         for record in records {
-            try record.validate()
+            var graphValidated = false
+            if case let .authored(change) = record.basis, let parent = prior[change] { graphValidated = parent.candidate == record.graph }
+            try record.validate(graphValidated: graphValidated)
+            timer?.mark("log-validate-record")
             guard record.tree == tree, prior[record.change] == nil else { throw ProtocolValidationError.invalidValue("Invalid queue scope or duplicate identity") }
             switch record.basis {
             case let .accepted(base):
@@ -1026,13 +1119,18 @@ extension LocalChange {
 
     /// The file or page object at an absolute `path` in `snapshot`, when there is one.
     static func file(at path: String, in snapshot: ProtocolSnapshot) throws -> String? {
+        try entry(at: path, in: snapshot).flatMap { $0.file ?? $0.page }
+    }
+
+    /// The directory entry at an absolute `path` in `snapshot`, when there is one.
+    static func entry(at path: String, in snapshot: ProtocolSnapshot) throws -> ProtocolDirectoryEntry? {
         let objects = Dictionary(snapshot.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
         var hash = snapshot.root
         let parts = path.split(separator: "/").map(String.init)
         for (index, part) in parts.enumerated() {
             guard let bytes = objects[hash], case let .directory(entries, _) = try ProtocolObjectCodec.decode(bytes, kind: .directory),
                   let entry = entries.first(where: { $0.name == part }) else { return nil }
-            if index == parts.count - 1 { return entry.file ?? entry.page }
+            if index == parts.count - 1 { return entry }
             guard let directory = entry.directory else { return nil }
             hash = directory
         }

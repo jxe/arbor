@@ -1,0 +1,70 @@
+# Publishes the overstoryd host image to GitHub's container registry, for the
+# "Start your own community" Railway template (plans/features/sharing-004). A
+# release tag (v0.1.8, pushed by tools/release.sh) publishes
+# ghcr.io/jxe/overstoryd:0.1.8 and moves :latest to it. A Railway service keeps
+# the image it last pulled, so an owner updates by redeploying, or pins a version.
+name: Publish host image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The commit to build
+        required: true
+      version:
+        description: The image tag to publish, such as 0.1.7; latest moves to it
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/overstoryd
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.commit || github.ref }}
+      - name: Version
+        id: version
+        run: |
+          version="${{ inputs.version }}"
+          [ -n "$version" ] || version="${GITHUB_REF_NAME#v}"
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+      - name: Build
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --file packages/overstoryd/deploy/Dockerfile.overstoryd \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --label org.opencontainers.image.description="overstoryd, the Overstory community host" \
+            --label org.opencontainers.image.version=${{ steps.version.outputs.value }} \
+            --tag "$IMAGE:${{ steps.version.outputs.value }}" \
+            --tag "$IMAGE:latest" \
+            .
+      - name: Check that it starts
+        run: |
+          docker run -d --name host -p 4318:4318 \
+            -e OVERSTORYD_COMMUNITY_HANDLE=garden \
+            -e OVERSTORYD_FIRST_WRITER_HANDLE=founder \
+            -e OVERSTORYD_FOUNDER_CODE=checkcheckcheckcheckch \
+            -e PORT=4318 \
+            "$IMAGE:latest"
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:4318/.overstory/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4318/.overstory/health | grep -q '"founding":true'
+          docker logs host 2>&1 | grep -q 'overstory-invite=checkcheckcheckcheckch'
+          docker rm -f host
+      - name: Push
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:${{ steps.version.outputs.value }}"
+          docker push "$IMAGE:latest"

@@ -16,6 +16,12 @@ more files, each run by both implementations:
 - `markdown-link-healing.json`: byte-preserving rewrites after a move, a body-form change, or a stale path.
 - `markdown-link-destinations.json`: which hrefs a Markdown source contains.
 
+`invitations.json` binds invitation codes
+([accounts §1.2](../04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)):
+each code's `sha256:` digest, the form a community's `members` entry reserves, and its join
+link. TypeScript (`inviteCodeDigest`, `buildInviteLocator`) and Swift (`StoryInvitation`)
+check them.
+
 `node-model.json` freezes the provider-neutral model-sampling values (refs,
 identity rules, snapshots, child pages) that the
 `@ovst/protocol` node-model decoders and the native model types share. Positive
@@ -128,6 +134,7 @@ authority for the implemented subset; the request grammar itself is in
 | `accepted-ambiguity.json` | Planned semantic conflict scenarios (not executable claims) |
 | `canonical-cbor-values.json` | The canonical CBOR subset and its hashes |
 | `client-state-machines.json` | Document admission and working-tree update machines |
+| `coalesced-publication.json` | The client publication compiler (sync module): which local edit and move records compose into how many frames and which operation kinds; each case's merge outcome must match its uncomposed frames |
 | `collection-schemas.json` | Collection schemas in `schema.usl`: accepted and rejected schemas, values, CSV cells, limits |
 | `cross-document-copy.json` | Cross-document copy capture in both admission queues |
 | `device-keys.json` | Device key encodings, session challenges, and their signatures |
@@ -137,6 +144,8 @@ authority for the implemented subset; the request grammar itself is in
 | `node-model.json` | Provider-neutral node model decoding |
 | `node-targets.json` | Node target resolution |
 | `observation-events.sse`, `observation-events-invalid.json` | Watch stream framing, valid and invalid: the cursor in the SSE `id`, the kind in `event`, one transition per `tree.update`, and `resync-required` with no `id` |
+| `presence-events.sse`, `presence-events-invalid.json` | Presence stream framing, valid and invalid ([spec 12](../12-presence.md)): a ready roster, peers (one an agent with a status), cursors, a leave, and frames a client must reject |
+| `presence-runners.sse` | Runners and messages ([spec 12 §6](../12-presence.md#6-runners-and-messages)): a runner in the roster, a `run` message, an agent doing the run, `stop` and `done` |
 | `page-presentation.json` | Page presentation (spec 02 §4.1): presented title and Children headings (`cases`), and the source an edited page writes (`edits`) |
 | `page-conversion-undo.json` | Page-creation receipts and undo targets through restart |
 | `resource-policy.json` | `who` / `app` / `allow` / `within` rule grammar, profile locators, and one file's rules |
@@ -150,6 +159,7 @@ authority for the implemented subset; the request grammar itself is in
 | `protocol-endpoints.json` | Route shapes |
 | `protocol-graphs.json`, `protocol-objects.json`, `protocol-object-deltas.json`, `protocol-snapshot-bundles.json`, `protocol-values.json` | Objects, directory graphs, deltas, snapshot bundles, and canonical values |
 | `protocol-operations.json`, `protocol-update-intent.json` | Source operations and the update digest |
+| `protocol-path-reads.json` | Path reads: which objects a read of a path holds, the bundle's bytes, and bundles a reader must reject ([tree operations §1.2.4](../01-tree-operations.md#124-reading-a-path)) |
 
 `protocol-account-challenges.json` covers community-address, exact-account and invitation-code challenge requests. All return the same complete account-bound challenge; placement accounts have none ([accounts §1.3](../04-accounts-and-devices.md#13-placement-accounts)). Its `signing` section fixes the bytes a profile key signs for a challenge, with the signature. TypeScript and Swift clients consume these cases.
 

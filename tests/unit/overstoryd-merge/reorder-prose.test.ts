@@ -196,8 +196,10 @@ test("an overlapping prose edit remains a local choice beside an independent reo
   expect(result.decisions[0]!.reason).toBe("Overlapping source contributions");
 });
 
+// Merged as blocks (overstoryd 017), removing a whole structured block beside
+// an edit to another block loses nothing and leaves both blocks as written.
 for (const protectedText of ["# Heading\n\n", "[Link](relative)\n\n", "```js\nrun()\n```\n\n", "<div>text</div>\n\n", "a | b\n--|--\n1 | 2\n\n"]) {
-  test(`structural removal still requires review: ${protectedText.split("\n")[0]}`, async () => {
+  test(`structural block removal merges with an edit to another block: ${protectedText.split("\n")[0]}`, async () => {
     const f = new Fixture(), prefix = "Intro 1\n\n", source = prefix + protectedText + "Tail\n";
     const base = f.tree({ "note.md": source });
     const current = await f.run(f.request(base, f.tree({ "note.md": prefix + "Tail\n" }), [{
@@ -206,9 +208,23 @@ for (const protectedText of ["# Heading\n\n", "[Link](relative)\n\n", "```js\nru
     const result = await f.run(f.request(base, f.tree({ "note.md": source.replace("1", "2") }), [{
       key: "edit", kind: "editSource", source: f.ref("/note.md", source, [6, 7]), text: "2",
     }], "phone", current.result));
-    expect(result.decisions.length).toBeGreaterThan(0);
+    expect(result.decisions).toEqual([]);
+    expect(f.content(result.result.object, "note.md")).toBe("Intro 2\n\nTail\n");
   });
 }
+
+test("removing a block another side edits still requires review", async () => {
+  const f = new Fixture(), source = "Intro 1\n\n# Heading\n\nTail\n", base = f.tree({ "note.md": source });
+  const at = source.indexOf("# Heading"), end = at + "# Heading\n\n".length;
+  const current = await f.run(f.request(base, f.tree({ "note.md": source.slice(0, at) + source.slice(end) }), [{
+    key: "remove", kind: "editSource", source: f.ref("/note.md", source, [at, end]), text: "",
+  }], "mac"));
+  const word = source.indexOf("Heading");
+  const result = await f.run(f.request(base, f.tree({ "note.md": source.replace("Heading", "Title") }), [{
+    key: "edit", kind: "editSource", source: f.ref("/note.md", source, [word, word + 7]), text: "Title",
+  }], "phone", current.result));
+  expect(result.decisions.length).toBeGreaterThan(0);
+});
 
 test("new list paragraphs survive a concurrent edit and paragraph reorder", async () => {
   const { f, source, prefix, one, two, suffix, reorder, edit } = scenario("\n");
@@ -226,15 +242,27 @@ test("new list paragraphs survive a concurrent edit and paragraph reorder", asyn
   expect(f.content(result.result.object, "note.md")).toBe(withLists.replace("reflection", "new reflection"));
 });
 
+// New inline structure in one block merges beside a reorder of other blocks;
+// two sides changing one block's inline structure still review.
 for (const syntax of ["**bold**", "[link](relative)", "`code`", "<b>HTML</b>"]) {
-  test(`new inline structure still requires review beside a reorder: ${syntax}`, async () => {
+  test(`new inline structure merges beside a reorder: ${syntax}`, async () => {
     const { f, source, prefix, one, two, suffix, reorder, edit } = scenario("\n");
     const base = f.tree({ "note.md": source });
     const current = await f.run(f.request(base, f.tree({ "note.md": prefix + two + one + suffix }), [reorder], "mac"));
     const result = await f.run(f.request(base, f.tree({ "note.md": source.replace("reflection", syntax) }), [edit(syntax)], "phone", current.result));
-    expect(result.decisions.length).toBeGreaterThan(0);
+    expect(result.decisions).toEqual([]);
+    expect(f.content(result.result.object, "note.md")).toBe((prefix + two + one + suffix).replace("reflection", syntax));
   });
 }
+
+test("both sides adding inline structure to one block needs review", async () => {
+  const f = new Fixture(), source = "One two three\n\nTail\n", base = f.tree({ "note.md": source });
+  const current = await f.run(f.request(base, f.tree({ "note.md": "**One** two three\n\nTail\n" }), [
+    { key: "bold", kind: "editSource", source: f.ref("/note.md", source, [0, 3]), text: "**One**" }], "mac"));
+  const result = await f.run(f.request(base, f.tree({ "note.md": "One two `three`\n\nTail\n" }), [
+    { key: "code", kind: "editSource", source: f.ref("/note.md", source, [8, 13]), text: "`three`" }], "phone", current.result));
+  expect(result.decisions.length).toBeGreaterThan(0);
+});
 
 
 test("ordinary list removal merges with an independent paragraph edit", async () => {

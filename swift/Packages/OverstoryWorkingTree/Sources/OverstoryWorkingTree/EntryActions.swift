@@ -62,7 +62,7 @@ public struct EntryActions: Codable, Equatable, Sendable {
     }
 
     public func prepare(graph: ProtocolSnapshot, candidate: ProtocolSnapshot? = nil, changeID: String) throws -> (candidate: ProtocolSnapshot, operations: [ProtocolSourceOperation]) {
-        _ = try ProtocolObjectGraph.validate(graph, mode: .sparseFiles)
+        _ = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
         func invalid() -> ProtocolValidationError { .invalidValue("Invalid compound entry action") }
         guard !transfers.isEmpty || !removals.isEmpty else { throw invalid() }
         // Dependent operations need explicit result references; this capture API

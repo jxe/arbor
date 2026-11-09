@@ -1,3 +1,4 @@
+import OverstoryWorkspace
 import StoryKit
 import OverstoryWorkingTree
 import Foundation

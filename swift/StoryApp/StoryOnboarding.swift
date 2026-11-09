@@ -18,9 +18,12 @@ struct StoryMacLaunchView: View {
     init(workspace: StoryWorkspaceState, windowRequest: UUID? = nil) {
         self.workspace = workspace
         self.windowRequest = windowRequest
-        // A window opened beside one already showing a tree skips onboarding.
+        // A window opened beside one already showing a tree skips onboarding,
+        // and so does launch with a placed tree: the window shows that tree's
+        // folder at once instead of a welcome screen while Story Sync starts.
         _ready = State(initialValue: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-            || workspace.launchPhase.showsTree)
+            || workspace.launchPhase.showsTree
+            || (try? NativePlacementStore.selected()) != nil)
     }
 
     var body: some View {
@@ -99,6 +102,9 @@ struct StoryMacOnboarding: View {
     @State private var displayName = ""
     @State private var pairingCode = ""
     @State private var returning = false
+    /// Whether the invitation's host was founded by code and is waiting for
+    /// its founder, so claiming it makes this person its administrator.
+    @State private var founding = false
     // After the join.
     @State private var joinedAccount: HostAccount?
     @State private var joinedURL: String?
@@ -112,6 +118,21 @@ struct StoryMacOnboarding: View {
     private var invited: (account: String, code: String?)? {
         if let initialCommunity, let initialCode { return (initialCommunity, initialCode) }
         return pasted
+    }
+
+    /// Where a person with no invitation learns to start their own community:
+    /// the deploy guide, which leads with the Railway template (Sharing 004).
+    static let startYourOwnCommunity = URL(string: "https://github.com/jxe/arbor/blob/main/packages/overstoryd/deploy/README.md#start-your-own-community")!
+
+    /// Whether the host of `account` says it is founding (accounts §1.2): its
+    /// health check answers `"founding": true` until the founder claims it.
+    private static func isFounding(_ account: String) async -> Bool {
+        guard let url = URL(string: account), let scheme = url.scheme, let host = url.host(),
+              let health = URL(string: "\(scheme)://\(host)\(url.port.map { ":\($0)" } ?? "")/.overstory/health") else { return false }
+        struct Health: Decodable { var founding: Bool? }
+        guard let (data, _) = try? await URLSession.shared.data(from: health),
+              let decoded = try? JSONDecoder().decode(Health.self, from: data) else { return false }
+        return decoded.founding == true
     }
 
     /// The host and handle of an account URL such as `https://host/~handle`.
@@ -167,6 +188,10 @@ struct StoryMacOnboarding: View {
         .frame(minWidth: 540, minHeight: 540)
         .disabled(busy)
         .task { await load() }
+        .task(id: invited?.account) {
+            founding = false
+            if let account = invited?.account, invited?.code != nil { founding = await Self.isFounding(account) }
+        }
         .onChange(of: link) { _, value in
             let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
             // A code is 22 characters; a shorter one is a link still being typed.
@@ -216,13 +241,28 @@ struct StoryMacOnboarding: View {
                 .controlSize(.large)
             Text("Or open the link in your browser and choose Open in Story.")
                 .font(.caption).foregroundStyle(.secondary)
+            Divider().padding(.vertical, 4)
+            VStack(spacing: 4) {
+                Text("No invitation? Ask someone who uses Story for one, or run your own community host.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                Link("Start your own community", destination: Self.startYourOwnCommunity)
+                    .font(.callout)
+            }
         }
     }
 
     @ViewBuilder
     private func joinCard(_ state: HostAccountState, host: String, handle: String) -> some View {
-        Text("You’ve been invited to **\(host)** as **~\(handle)**.")
-            .multilineTextAlignment(.center)
+        Group {
+            if founding {
+                Text("Your community on **\(host)** is ready. You’ll be **~\(handle)**, its administrator.")
+            } else {
+                Text("You’ve been invited to **\(host)** as **~\(handle)**.")
+            }
+        }
+        .multilineTextAlignment(.center)
         card {
             if let identity = state.identity {
                 if identity.keyAvailable {

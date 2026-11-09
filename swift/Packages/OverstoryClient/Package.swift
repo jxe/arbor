@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.iOS("27.0"), .macOS("27.0")],
     products: [.library(name: "OverstoryClient", targets: ["OverstoryClient"])],
     dependencies: [
-        .package(path: "../StoryKit"),
+        .package(path: "../OverstoryWorkspace"),
         .package(path: "../OverstoryWorkingTree"),
         .package(path: "../OverstoryObjectStore"),
         .package(path: "../Overstory"),
@@ -15,12 +15,12 @@ let package = Package(
     targets: [
         .target(
             name: "OverstoryClient",
-            dependencies: ["StoryKit", "OverstoryWorkingTree", "OverstoryObjectStore", "Overstory", "Yams"],
+            dependencies: [.product(name: "OverstoryWorkspace", package: "OverstoryWorkspace"), "OverstoryWorkingTree", "OverstoryObjectStore", "Overstory", "Yams"],
             linkerSettings: [.linkedFramework("Security")]
         ),
         .testTarget(
             name: "OverstoryClientTests",
-            dependencies: ["OverstoryClient", "StoryKit", "OverstoryWorkingTree", "OverstoryObjectStore", "Overstory"]
+            dependencies: ["OverstoryClient", .product(name: "OverstoryWorkspace", package: "OverstoryWorkspace"), "OverstoryWorkingTree", "OverstoryObjectStore", "Overstory"]
         )
     ],
     swiftLanguageModes: [.v6]

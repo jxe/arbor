@@ -219,6 +219,35 @@ final class StoryWorkspaceState {
     private(set) var home: WorkspaceReference
     private(set) var launchLocation: WorkspaceLocation
     private(set) var generation = 0
+    /// The home page and its children, read while the tree opened, for the
+    /// first page open to take instead of reading them again behind the first
+    /// frame (iPhone launch). Taken once, for the generation that read them.
+    @ObservationIgnored private var warmedHome: WarmedPage?
+
+    /// A page read, and its document opened, before any window asked for it.
+    struct WarmedPage {
+        var generation: Int
+        var node: WorkspaceNode
+        var children: [WorkspaceNode]
+        var lease: StoryEditorLease?
+        /// Its links' titles, resolved while it opened (previews go to the
+        /// shared preview memo).
+        var lookups: [DocumentReference: DocumentLookup] = [:]
+    }
+
+    func takeWarmedPage(at location: WorkspaceLocation) -> WarmedPage? {
+        guard let warmed = warmedHome else { return nil }
+        warmedHome = nil
+        // The window asks for the home by path; the node also carries its page key.
+        guard warmed.generation == generation, case let .reference(asked) = location,
+              asked.tree == warmed.node.reference.tree, asked.path == warmed.node.reference.path,
+              asked.stableKey == nil || asked.stableKey == warmed.node.reference.stableKey else {
+            if let lease = warmed.lease { Task { await editorWorkspace.release(lease) } }
+            return nil
+        }
+        return warmed
+    }
+
     /// Bumped when the provider is replaced by one presenting the same tree at
     /// the same locations (preview → confirmed working tree): windows reload
     /// their pages in place instead of resetting navigation.
@@ -249,6 +278,28 @@ final class StoryWorkspaceState {
     private var serverWatchRunner: HostWatchRunner?
     /// The connections the open tree's client uses, renewed on return from suspension.
     private let hostSessions = ProtocolSession()
+    /// The open tree's presence (spec 12): who else is here, on which page,
+    /// and where their caret is. Empty while no host tree is open.
+    private(set) var presenceRoster = ProtocolPresenceRoster()
+    private var hostPresence: HostPresence?
+    /// The page this device last reported to presence.
+    private var presencePage: WorkspaceReference?
+    /// "Show me to others": off, this device watches presence without joining it.
+    static let showMeToOthersDefaultsKey = "StoryShowMeToOthers"
+    var showsMeToOthers: Bool = UserDefaults.standard.object(forKey: StoryWorkspaceState.showMeToOthersDefaultsKey) as? Bool ?? true {
+        didSet {
+            guard showsMeToOthers != oldValue else { return }
+            UserDefaults.standard.set(showsMeToOthers, forKey: Self.showMeToOthersDefaultsKey)
+            if let current = hostPresence { startPresence(client: current.client, tree: current.tree) }
+        }
+    }
+    /// Settings writes "Show Me to Others" straight to the defaults.
+    @ObservationIgnored private var defaultsObserver: NSObjectProtocol?
+
+    private func followShowMeToOthersDefault() {
+        let value = UserDefaults.standard.object(forKey: Self.showMeToOthersDefaultsKey) as? Bool ?? true
+        if value != showsMeToOthers { showsMeToOthers = value }
+    }
 #if os(macOS)
     private var supervisor: StorySyncProcessSupervisor?
     private var storySyncClient: StorySyncRESTClient?
@@ -269,7 +320,13 @@ final class StoryWorkspaceState {
     /// meanwhile share it.
     private var overviewEventRefreshTask: Task<Void, Never>?
     private static let overviewEventCoalescing: Duration = .milliseconds(150)
-    private(set) var localStorySyncOverview: LocalStorySyncOverview?
+    private(set) var localStorySyncOverview: LocalStorySyncOverview? {
+        didSet {
+            if let localStorySyncOverview {
+                Self.rememberOwnProfiles(localStorySyncOverview.accounts.compactMap { $0.profileTree })
+            }
+        }
+    }
     private(set) var localStorySyncOverviewIsRefreshing = false
     private(set) var localStorySyncOverviewError: String?
     private(set) var localHostDevicesByConfigurationTree: [String: [LocalStorySyncDevicePresentation]] = [:]
@@ -310,7 +367,11 @@ final class StoryWorkspaceState {
     private let suppliedAccountService: (any HostAccountService)?
     /// The accounts `accountService` last listed, for account lookups by
     /// origin that should not read the store each time.
-    private(set) var knownAccounts: [HostAccount] = []
+    private(set) var knownAccounts: [HostAccount] = [] {
+        didSet {
+            if !knownAccounts.isEmpty { Self.rememberOwnProfiles(knownAccounts.compactMap { $0.profileTree }) }
+        }
+    }
 
     /// Where this device keeps its identity and account credentials, chosen
     /// once per platform: the iPhone's keychain, or the Mac's data home
@@ -333,6 +394,7 @@ final class StoryWorkspaceState {
         provider suppliedProvider: InMemoryWorkspaceProvider? = nil,
         accountService suppliedAccountService: (any HostAccountService)? = nil
     ) {
+        StoryLaunchTiming.milestone("workspace-init")
         self.suppliedAccountService = suppliedAccountService
         self.linkPreviewService = LinkPreviewService(
             cacheDirectory: StorySupportDirectories.linkPreviews
@@ -370,6 +432,11 @@ final class StoryWorkspaceState {
         self.launchPhase = initialPhase
         self.directory = (try? DirectoryStore.load()) ?? []
         if case let .restoring(name) = initialPhase { self.providerDetail = "Opening \(name)…" }
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.followShowMeToOthersDefault() }
+        }
         if suppliedProvider != nil {
             self.capabilities = .full
             self.providerDetail = "In-memory test fixture"
@@ -388,6 +455,7 @@ final class StoryWorkspaceState {
     }
 
     func place(tree: ProtocolTreeDescriptor, from origin: URL, configurationTree: String? = nil, remember: Bool = true) async throws {
+        var timing = StoryLaunchTiming.Stopwatch()
         _ = try tree.validated()
         // Every placement names its account; its device key opens the sessions.
         guard let configurationTree else {
@@ -397,37 +465,33 @@ final class StoryWorkspaceState {
         serverWatchTask?.cancel()
         serverWatchTask = nil
         serverWatchRunner = nil
+        stopPresence()
         let store = KeychainDeviceCredentialStore()
         // A tree on one of the account's placement hosts syncs with this
         // device's session there, which its home device key opens (accounts §1.3).
+        timing.mark("close")
         let home = try await store.accounts().first { $0.configurationTree == configurationTree }
+        timing.mark("accounts")
         let placementOrigin = Self.placementOrigin(endpoint: origin.absoluteString, home: home?.origin.absoluteString)
         let credentialProvider = placementOrigin.map {
             AccountStoredCredentialProvider.shared(configurationTree: configurationTree, origin: $0, store: store)
         } ?? AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: store)
         let client = ProtocolClient(origin: origin, credentialProvider: credentialProvider, sessions: hostSessions)
-        let transport = ProtocolReplicaTransport(client: client)
-        let platform = HostObjectStore(client: client, tree: tree.id)
-        let root = StorySupportDirectories.root
         let key = StorySupportDirectories.workingTreeKey(tree.id)
-        let replicaRoot = StorySupportDirectories.workingTrees.appending(path: key, directoryHint: .isDirectory)
-        let syncStateRoot = root.appending(path: "Sync/\(key)", directoryHint: .isDirectory)
-        let workingTree = try await Self.openOrPlaceWorkingTree(
-            tree,
-            replicaRoot: replicaRoot,
-            syncStateRoot: syncStateRoot,
-            recoveryNames: (workingTree: "WorkingTree", sync: "Sync"),
-            transport: transport,
-            platform: platform
-        )
-        refreshEntryDates(workingTree, tree: tree.id, client: client)
-        let (coordinator, nextProvider) = try synchronizedProvider(
-            workingTree: workingTree,
-            transport: transport,
-            stateRoot: syncStateRoot,
-            platformObjectStore: workingTree,
-            readOnly: !tree.grantsWrite
-        )
+        let session = try await TreeSession.open(tree, client: client, settings: .replica(
+            Self.replicaStorage(
+                root: StorySupportDirectories.workingTrees.appending(path: key, directoryHint: .isDirectory),
+                recoveryName: "WorkingTree",
+                changeLogRecoveryName: "Sync"
+            ),
+            changeLog: StorySupportDirectories.root.appending(path: "Sync/\(key)", directoryHint: .isDirectory),
+            readOnly: !tree.grantsWrite,
+            transportAvailable: nativeTransportAvailable
+        ))
+        timing.mark("working-tree")
+        refreshEntryDates(session)
+        guard let coordinator = session.coordinator else { throw ProtocolValidationError.invalidValue("A replica keeps a change log") }
+        let nextProvider = session.provider
         if remember {
             try await nativePlacementStore.save(NativePlacementRecord(origin: origin, configurationTree: configurationTree, tree: tree))
             nativePlacements = try await nativePlacementStore.loadAll()
@@ -438,75 +502,61 @@ final class StoryWorkspaceState {
             detail: "Offline replica · \(tree.canonicalPath ?? tree.id)",
             canonical: tree.canonical
         )
+        timing.mark("switch")
         try await installSyncCoordinator(coordinator, client: client, tree: tree)
-    }
-
-    /// Open the durable working tree at `replicaRoot`, or place it afresh from
-    /// a snapshot. A working tree records the wire format it was placed under.
-    /// When the format changes (accepted-update ids, cursors, and request
-    /// shapes are not continuous across such a change), the tree and its update
-    /// state cannot resume against the server and are re-placed.
-    private static func openOrPlaceWorkingTree(
-        _ tree: ProtocolTreeDescriptor,
-        replicaRoot: URL,
-        syncStateRoot: URL,
-        recoveryNames: (workingTree: String, sync: String),
-        transport: ProtocolReplicaTransport,
-        platform: any ObjectStore
-    ) async throws -> WorkingTree {
-        let formatMarker = replicaRoot.appending(path: "wire-format")
-        let placedFormat = (try? String(contentsOf: formatMarker, encoding: .utf8))?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if placedFormat == workingTreeFormat,
-           FileManager.default.fileExists(atPath: replicaRoot.appending(path: "materialized/tree.json").path) {
-            return try await WorkingTree.open(at: replicaRoot, tree: TreeID(rawValue: tree.id), platform: platform)
-        }
-        // Retain old admissions and materialized content for recovery; never
-        // replay an old-format journal against reset accepted history.
-        let archive = StorySupportDirectories.root
-            .appending(path: "FormatRecovery/\(UUID().uuidString)", directoryHint: .isDirectory)
-        for (source, name) in [(replicaRoot, recoveryNames.workingTree), (syncStateRoot, recoveryNames.sync)] {
-            if FileManager.default.fileExists(atPath: source.path) {
-                try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
-                try FileManager.default.moveItem(at: source, to: archive.appending(path: name))
+        timing.mark("sync-install")
+        // The first read builds the coordinator's local view (any edits not
+        // yet accepted, laid over the tree). Doing it here, before the page
+        // is drawn, keeps the page's own open from paying for it behind the
+        // first frame.
+        let homeReference = WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/")
+        let readGeneration = generation
+        if let node = try? await nextProvider.resolve(homeReference) {
+            timing.mark("warm-resolve")
+            if let children = try? await nextProvider.children(of: node.reference) {
+                timing.mark("warm-children")
+                // Its document too (read and parsed), so the first frame
+                // already shows the page rather than waiting on it.
+                let lease = node.surface.supportsDocumentSession
+                    ? try? await editorWorkspace.lease(node.reference)
+                    : nil
+                timing.mark("warm-document")
+                // And its links' titles and previews, which the page would
+                // otherwise wait on (up to 150 ms) behind the first frame.
+                var lookups: [DocumentReference: DocumentLookup] = [:]
+                if let lease {
+                    let host = StoryEditorHost(
+                        binding: lease.binding,
+                        provider: nextProvider,
+                        linkPreviewService: linkPreviewService,
+                        sourceDirectory: node.sourceDirectory
+                    )
+                    await host.prefetchLinks(in: lease.binding.document)
+                    lookups = host.resolvedLookups
+                }
+                timing.mark("warm-links")
+                if generation == readGeneration {
+                    warmedHome = WarmedPage(generation: readGeneration, node: node, children: children, lease: lease, lookups: lookups)
+                } else if let lease {
+                    await editorWorkspace.release(lease)
+                }
             }
         }
-        let workingTree = try await WorkingTreePlacementService.place(
-            tree: tree,
-            at: replicaRoot,
-            transport: transport,
-            platform: platform
-        )
-        try workingTreeFormat.write(to: formatMarker, atomically: true, encoding: .utf8)
-        return workingTree
+        timing.record("tree-open", detail: "\(tree.id) · device", extra: StoryLaunchTiming.milestones)
     }
 
-    /// An update coordinator for `workingTree` and the provider whose writes
-    /// are local changes it publishes. The coordinator polls so that a
-    /// transport failure is retried while the network is believed available.
-    private func synchronizedProvider(
-        workingTree: WorkingTree,
-        transport: ProtocolReplicaTransport,
-        stateRoot: URL,
-        platformObjectStore: any ObjectStore,
-        readOnly: Bool = false,
-        materializedRoot: URL? = nil
-    ) throws -> (UpdateCoordinator, WorkingTreeProvider) {
-        let coordinator = try UpdateCoordinator(
-            workingTree: workingTree,
-            transport: transport,
-            stateRoot: stateRoot,
-            transportAvailable: nativeTransportAvailable,
-            platformObjectStore: platformObjectStore,
-            pollInterval: .seconds(30)
+    /// Where a replica of this app lives, under the wire format this app
+    /// places replicas with; an incompatible one moves to `FormatRecovery`.
+    static func replicaStorage(root: URL, recoveryName: String, changeLogRecoveryName: String) -> TreeReplicaStorage {
+        TreeReplicaStorage(
+            root: root,
+            format: workingTreeFormat,
+            recoveryArchive: {
+                StorySupportDirectories.root.appending(path: "FormatRecovery/\(UUID().uuidString)", directoryHint: .isDirectory)
+            },
+            recoveryName: recoveryName,
+            changeLogRecoveryName: changeLogRecoveryName
         )
-        let provider = WorkingTreeProvider(
-            workingTree: workingTree,
-            readOnly: readOnly,
-            materializedRoot: materializedRoot,
-            coordinator: coordinator
-        )
-        return (coordinator, provider)
     }
 
     /// Make `coordinator` the open tree's: its conflict review, sync
@@ -533,9 +583,13 @@ final class StoryWorkspaceState {
 
 #if os(iOS)
     func restoreNativePlacementIfAvailable() async -> Bool {
+        StoryLaunchTiming.milestone("restore-start")
         do {
-            nativePlacements = try await nativePlacementStore.loadAll()
-            guard let record = try await nativePlacementStore.load() else { return false }
+            // Read here rather than through the store's actor, whose answer
+            // would wait behind the first frame (as it did on the Mac).
+            nativePlacements = try NativePlacementStore.all()
+            guard let record = try NativePlacementStore.selected() else { return false }
+            StoryLaunchTiming.milestone("placements-loaded")
             try await place(tree: record.tree, from: record.origin, configurationTree: record.configurationTree, remember: false)
             return true
         } catch {
@@ -569,6 +623,7 @@ final class StoryWorkspaceState {
         serverWatchTask?.cancel()
         serverWatchTask = nil
         serverWatchRunner = nil
+        stopPresence()
         if let syncCoordinator { await syncCoordinator.close() }
         syncCoordinator = nil
         conflictReview = nil
@@ -579,11 +634,12 @@ final class StoryWorkspaceState {
     /// The host's entry dates for an opened tree, read in the background: they
     /// never delay opening, and a failed read keeps the dates the tree has.
     @discardableResult
-    private func refreshEntryDates(_ workingTree: WorkingTree, tree: String, client: ProtocolClient) -> Task<Void, Never> {
+    private func refreshEntryDates(_ session: TreeSession) -> Task<Void, Never> {
         Task.detached {
-            guard let metadata = try? await client.entryMetadata(tree: tree) else { return }
-            let dates = metadata.entries.compactMapValues { $0.modifiedAt.map { Date(timeIntervalSince1970: $0 / 1_000) } }
-            try? await workingTree.applyEntryDates(dates, update: metadata.update)
+            guard let read = await session.refreshEntryDates() else { return }
+            let record = StoryEntryDateCache.Record(update: read.update, dates: read.dates)
+            let tree = session.tree.id
+            await MainActor.run { StoryEntryDateCache.save(record, tree: tree) }
         }
     }
 
@@ -609,27 +665,7 @@ final class StoryWorkspaceState {
             case .directory, .directoryDocument: physicalURL
             default: physicalURL.deletingLastPathComponent()
             }
-            if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
-            var accounts: [StoryShareAccount] = []
-            for account in localStorySyncOverview?.accounts ?? [] {
-                guard account.credentialAvailable,
-                      let origin = account.host,
-                      isLocalAccountAdministrator(account) else { continue }
-                accounts.append(StoryShareAccount(
-                    configurationTree: account.configurationTree,
-                    origin: origin,
-                    handle: account.handle
-                ))
-                // The account's placement accounts on other hosts; declaring a
-                // tree under a placement root needs an administrator device too.
-                do {
-                    accounts += try await accountService.placements(configurationTree: account.configurationTree)
-                        .map(StoryShareAccount.init(placement:))
-                } catch {
-                    Self.recordDiagnostic("placement-list", error)
-                }
-            }
-            return .promotable(path: folder.standardizedFileURL.path, accounts: accounts)
+            return .promotable(path: folder.standardizedFileURL.path, accounts: await newTreeAccounts())
         }
         return .tracked(try await loadLocalTreeAccess(tree: node.reference.tree.rawValue))
 #endif
@@ -729,14 +765,49 @@ final class StoryWorkspaceState {
     func isOwnProfile(_ tree: String) -> Bool {
         if knownAccounts.contains(where: { $0.profileTree == tree }) { return true }
 #if os(macOS)
-        return localStorySyncOverview?.accounts.contains { $0.profileTree == tree } == true
+        if localStorySyncOverview?.accounts.contains(where: { $0.profileTree == tree }) == true { return true }
+        // Before this launch has heard from Story Sync, the profiles of the
+        // accounts it last reported, so your own avatar shows at once.
+        return knownAccounts.isEmpty && localStorySyncOverview == nil && Self.rememberedOwnProfiles.contains(tree)
 #else
-        return false
+        return knownAccounts.isEmpty && Self.rememberedOwnProfiles.contains(tree)
 #endif
+    }
+
+    private static let ownProfilesKey = "StoryOwnProfileTrees"
+    private static var rememberedOwnProfiles = Set(UserDefaults.standard.stringArray(forKey: ownProfilesKey) ?? [])
+
+    private static func rememberOwnProfiles(_ trees: [String]) {
+        let next = Set(trees)
+        guard !next.isEmpty, next != rememberedOwnProfiles else { return }
+        rememberedOwnProfiles = next
+        UserDefaults.standard.set(next.sorted(), forKey: ownProfilesKey)
     }
 
     /// The second line of a link into another tree, such as "Tree · Private · On this Mac".
     /// Who can see it is left out when this device cannot read the tree's rules.
+    /// Where the open tree and, on the Mac, the trees placed here live on the web, so that a link
+    /// to one of their pages opens in Story.
+    var canonicalTreeAddresses: [CanonicalTreeAddress] {
+        var addresses: [CanonicalTreeAddress] = []
+        if let currentTreeCanonical {
+            addresses.append(CanonicalTreeAddress(tree: home.tree.rawValue, url: currentTreeCanonical.httpURL))
+        }
+#if os(macOS)
+        for tree in localStorySyncOverview?.trees ?? [] where tree.path != nil && !tree.missing {
+            guard let path = tree.canonicalPath,
+                  let endpoint = tree.canonicalEndpoint
+                    ?? localStorySyncOverview?.accounts.first(where: { $0.configurationTree == tree.configurationTree })?.host
+            else { continue }
+            addresses.append(CanonicalTreeAddress(
+                tree: tree.id,
+                url: ProtocolCanonicalDescriptor(path: path, endpoint: endpoint).httpURL
+            ))
+        }
+#endif
+        return addresses
+    }
+
     func treeLinkSubtitle(tree: String) async -> String {
 #if os(iOS)
         let device = UIDevice.current.model
@@ -1044,6 +1115,69 @@ final class StoryWorkspaceState {
         return try await accountClient(origin: remote.origin).resolve(path: remote.path).ref.tree
     }
 
+    /// The accounts a new tree can go under: each host account this Mac
+    /// administers, and its placement accounts on other hosts.
+    func newTreeAccounts() async -> [StoryShareAccount] {
+        if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
+        var accounts: [StoryShareAccount] = []
+        for account in localStorySyncOverview?.accounts ?? [] {
+            guard account.credentialAvailable,
+                  let origin = account.host,
+                  isLocalAccountAdministrator(account) else { continue }
+            accounts.append(StoryShareAccount(
+                configurationTree: account.configurationTree,
+                origin: origin,
+                handle: account.handle
+            ))
+            // The account's placement accounts on other hosts; declaring a
+            // tree under a placement root needs an administrator device too.
+            do {
+                accounts += try await accountService.placements(configurationTree: account.configurationTree)
+                    .map(StoryShareAccount.init(placement:))
+            } catch {
+                Self.recordDiagnostic("placement-list", error)
+            }
+        }
+        return accounts
+    }
+
+    /// The URL slug a new tree named `name` is suggested at: lowercase words joined by hyphens.
+    static func treeSlug(_ name: String) -> String {
+        name.lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+
+    /// Make an empty tree named `name` in a new folder in Documents, at
+    /// `<account URL>/<slug>`, readable or writable by everyone when `publicAccess`
+    /// says so, and place it on this Mac. Returns its TreeID.
+    func createTree(named name: String, account: StoryShareAccount, publicAccess: StoryTreeAccess) async throws -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let slug = Self.treeSlug(trimmed)
+        guard !trimmed.isEmpty, !slug.isEmpty else {
+            throw ProtocolValidationError.invalidValue("Give the tree a name with at least one letter or number")
+        }
+        let folderName = trimmed.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        let folder = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: "Documents/\(folderName)", directoryHint: .isDirectory)
+        guard !FileManager.default.fileExists(atPath: folder.path) else {
+            throw ProtocolValidationError.invalidValue("Documents already has a folder named \(folderName). Pick another name.")
+        }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let rules = publicAccess == .noAccess ? [] : [AccountAccessRule(subject: .everyone, access: publicAccess.rawValue)]
+        do {
+            return try await declareAndPlaceNewTree(
+                folder: folder.standardizedFileURL.path,
+                account: account,
+                canonical: account.accountURL + "/" + slug,
+                rules: rules
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: folder)
+            throw error
+        }
+    }
+
     func promoteLocalFolder(
         path: String,
         account: StoryShareAccount,
@@ -1244,6 +1378,12 @@ final class StoryWorkspaceState {
             let runtime = try await supervisor.start(preferredPort: preferredPort)
             storySyncClient = runtime.client
             storySyncProcessKind = runtime.attachedToExistingProcess ? .external : .supervised
+#if os(macOS)
+            if checkedStorySyncInstance != runtime.status.instanceID {
+                checkedStorySyncInstance = runtime.status.instanceID
+                Task { await checkStorySyncIsCurrent() }
+            }
+#endif
             return runtime
         } catch {
             await supervisor.stop()
@@ -1262,6 +1402,7 @@ final class StoryWorkspaceState {
         serverWatchTask?.cancel()
         serverWatchTask = nil
         serverWatchRunner = nil
+        stopPresence()
         visitFollowTask?.cancel()
         visitFollowTask = nil
         initialSyncTask?.cancel()
@@ -1275,21 +1416,58 @@ final class StoryWorkspaceState {
 
     // MARK: Placed trees
 
+    /// What opening a placed tree reads from Story Sync before anything is
+    /// drawn: the placement (folder, account, name) and the daemon's recorded
+    /// accepted base through the standard current-tree read. The session
+    /// then loads directories as they are opened (Clients 003 step 4).
+    struct PlacedTreeOpening: Sendable {
+        var placed: LocalTreeDescriptor
+        var current: ProtocolCurrentTree
+    }
+
+    /// Read a placed tree's opening through Story Sync's standard reads.
+    nonisolated static func readPlacedTree(_ treeID: String, client: StorySyncRESTClient) async throws -> PlacedTreeOpening {
+        let reads = client.reads()
+        async let listed = client.trees()
+        async let accepted = reads.descriptor(tree: treeID)
+        guard let placed = (try await listed).snapshot.first(where: { $0.id == treeID }) else {
+            throw ProtocolValidationError.invalidValue("\(treeID) is not placed on this Mac")
+        }
+        do {
+            return PlacedTreeOpening(placed: placed, current: try await accepted)
+        } catch let error as ProtocolHTTPError where error.status == 404 || error.status == 405 {
+            // Story Sync lists the tree but has no standard reads: it runs
+            // code from before Clients 003 (a rebuild doesn't restart it).
+            throw StorySyncOutdatedError()
+        }
+    }
+
     /// Open a tree the daemon has placed as this app's own working tree.
     ///
-    /// `GET /v1/bootstrap` seeds an in-memory tree from the daemon's recorded
-    /// accepted host root: a sparse spine of directories and Markdown, with
-    /// every other file a hash the daemon's `/v1/objects` serves on demand.
+    /// The tree is read through Story Sync's standard reads: the daemon's
+    /// recorded accepted host root, then each directory as it is opened, with
+    /// Markdown bodies from the folder when they still match and every other
+    /// object served on demand by the same object route.
     /// The folder client has independent pending/conflict state; it neither
     /// seeds nor blocks this client's direct host update coordinator.
     /// `page`, a path within the tree, is opened instead of its home page.
-    func openPlacedTree(_ treeID: String, page: String? = nil) async throws {
+    ///
+    /// `fetching` is this tree's opening already under way (launch starts it
+    /// before showing the preview, so the reads overlap the first frame).
+    func openPlacedTree(_ treeID: String, page: String? = nil, fetching early: Task<PlacedTreeOpening, any Error>? = nil) async throws {
+        var timing = StoryLaunchTiming.Stopwatch()
+        let earlyOpening = try await early?.value
+        if early != nil { timing.mark("early-bootstrap") }
         try await editorWorkspace.flushAll()
         try await closeOpenTree()
+        timing.mark("close")
         let runtime = try await ensureStorySync()
+        timing.mark("story-sync")
         let client = runtime.client
-        let bootstrap = try await client.bootstrap(tree: treeID)
-        let placed = bootstrap.tree
+        let opening: PlacedTreeOpening
+        if let earlyOpening { opening = earlyOpening } else { opening = try await Self.readPlacedTree(treeID, client: client) }
+        timing.mark("bootstrap")
+        let placed = opening.placed
         guard placed.osPath != nil else {
             throw ProtocolValidationError.invalidValue("\(placed.name) is not placed on this Mac")
         }
@@ -1298,55 +1476,63 @@ final class StoryWorkspaceState {
         }
         // The tree's host is its canonical endpoint: the account's home host,
         // or one of its placement hosts (accounts §1.3). The account's host
-        // is the origin only for a tree without a canonical endpoint.
-        let homeHost = try await client.accounts().first { $0.configurationTree == configurationTree }?.host
-        guard let rawOrigin = placed.canonical?.endpoint ?? homeHost, let origin = URL(string: rawOrigin) else {
+        // is the origin only for a tree without a canonical endpoint, the one
+        // case that asks Story Sync for the account list.
+        let endpoint = placed.canonical?.endpoint
+        let homeHost = endpoint == nil
+            ? try await client.accounts().first { $0.configurationTree == configurationTree }?.host
+            : nil
+        timing.mark("accounts")
+        guard let rawOrigin = endpoint ?? homeHost, let origin = URL(string: rawOrigin) else {
             throw ProtocolValidationError.invalidValue("\(placed.name) has no host origin")
         }
-        // A placement host has its own session, which the daemon opens there
-        // with the same device key; the home session never goes to it.
-        let placementOrigin = Self.placementOrigin(endpoint: rawOrigin, home: homeHost)
-        let descriptor = try ProtocolTreeDescriptor(
-            id: placed.id,
-            kind: placed.kind,
-            root: bootstrap.accepted.root,
-            access: placed.access,
-            canonical: placed.canonical,
-            update: bootstrap.accepted.update
-        ).validated()
+        // Credentials are asked for by the endpoint's origin: the data home's
+        // device key opens the home session when that is the account's home
+        // host and the placement host's session otherwise, so the app need
+        // not know which it is.
+        let placementOrigin = endpoint == nil ? nil : originString(origin)
+        let descriptor = try opening.current.tree.validated()
 
-        let credentialProvider = StorySyncCredentialProvider.shared(client: client, configurationTree: configurationTree, origin: placementOrigin)
-        let protocolClient = ProtocolClient(origin: origin, credentialProvider: credentialProvider)
-        let transport = ProtocolReplicaTransport(client: protocolClient)
-        let platform = DaemonObjectStore(client: client, tree: treeID)
-        let workingTree = try await WorkingTree.inMemory(tree: TreeID(rawValue: treeID), platform: platform)
-        let replacement = try SnapshotBridge.replacement(
-            snapshot: bootstrap.spine,
-            tree: TreeID(rawValue: treeID),
-            update: bootstrap.accepted.update,
-            cursor: bootstrap.accepted.cursor,
-            mode: .sparseFiles
+        let credentialProvider = DataHomeCredentialProvider.shared(
+            store: DataHomeAccountStore(dataHome: StorySupportDirectories.dataHome),
+            configurationTree: configurationTree,
+            origin: placementOrigin
         )
-        try await workingTree.initializeFromSystem(replacement)
-        // This tree is rebuilt on every launch: wait briefly for its dates so
-        // the sidebar does not open undated, but never block on the network.
-        let dates = refreshEntryDates(workingTree, tree: treeID, client: protocolClient)
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await dates.value }
-            group.addTask { try? await Task.sleep(for: .seconds(2)) }
-            await group.next()
-            group.cancelAll()
+        let protocolClient = ProtocolClient(origin: origin, credentialProvider: credentialProvider)
+        // Alongside Story Sync: objects only from its loopback reads, the
+        // index rebuilt in memory on every launch, the change log on disk.
+        let session = try await TreeSession.open(
+            descriptor,
+            client: protocolClient,
+            settings: .alongsideStorySync(
+                reads: client.reads(),
+                tree: treeID,
+                folder: placed.osPath.map { URL(filePath: $0, directoryHint: .isDirectory) },
+                changeLog: StorySupportDirectories.workingTrees
+                    .appending(path: StorySupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory),
+                transportAvailable: nativeTransportAvailable
+            ),
+            opening: TreeOpening(current: opening.current)
+        )
+        let workingTree = session.workingTree
+        timing.mark("build")
+        // This tree is rebuilt on every launch. The dates its host reported
+        // last date the sidebar at once, and the host's answer refreshes them
+        // after the tree is open. Without any (a first open) wait briefly for
+        // that answer so the sidebar does not open undated, but never block
+        // on the network.
+        let cachedDates = StoryEntryDateCache.load(tree: treeID)
+        if let cachedDates {
+            try? await workingTree.applyEntryDates(cachedDates.dates, update: cachedDates.update)
+        }
+        let dates = refreshEntryDates(session)
+        if cachedDates == nil {
+            await awaitTasks([dates], atMost: .seconds(2))
         }
 
-        let stateRoot = StorySupportDirectories.workingTrees
-            .appending(path: StorySupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory)
-        let (coordinator, nextProvider) = try synchronizedProvider(
-            workingTree: workingTree,
-            transport: transport,
-            stateRoot: stateRoot,
-            platformObjectStore: platform,
-            materializedRoot: placed.osPath.map { URL(filePath: $0, directoryHint: .isDirectory) }
-        )
+        timing.mark("dates")
+        guard let coordinator = session.coordinator else { throw ProtocolValidationError.invalidValue("A placed tree keeps a change log") }
+        let nextProvider = session.provider
         try await nativePlacementStore.save(NativePlacementRecord(
             origin: origin,
             configurationTree: placed.configurationTree,
@@ -1366,6 +1552,8 @@ final class StoryWorkspaceState {
             // locations: keep every window's navigation and reload in place.
             preservingNavigation: launchPhase.isPreviewing && home == nextHome
         )
+        timing.mark("switch")
+        timing.record("tree-open", detail: treeID)
         launchPhase = .ready
         openPlacedTreeID = treeID
         try await installSyncCoordinator(coordinator, client: protocolClient, tree: descriptor)
@@ -1439,9 +1627,12 @@ final class StoryWorkspaceState {
             return
         }
         let tree = resolution.enclosingTree
+        // The way to hold the tree comes from facts, not from this call site.
+        let placedHere = remote.configuration ? false : await isPlacedOnThisMac(tree.id)
+        let way = TreeWay.choose(treeWayFacts(tree, placedHere: placedHere))
         // A tree placed on this Mac opens as its working tree, which knows its
         // folder, even when the locator's address did not match the placement's.
-        if !remote.configuration, await isPlacedOnThisMac(tree.id) {
+        if way == .alongsideStorySync {
             let page = resolution.ref.tree == tree.id && resolution.ref.path != "/" ? resolution.ref.path : nil
             try await openPlacedTree(tree.id, page: page)
             return
@@ -1449,7 +1640,6 @@ final class StoryWorkspaceState {
         let treeID = TreeID(rawValue: tree.id)
         // Story Sync serves only placed trees; a visit reads from the host,
         // with the account's session when there is one.
-        let platform = HostObjectStore(client: client, tree: tree.id)
         let rootLocator = remote.configuration
             ? remote.locator(path: remote.path) + ";overstory-config"
             : tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
@@ -1458,25 +1648,22 @@ final class StoryWorkspaceState {
         } catch {
             Self.recordDiagnostic("visit-record", error)
         }
-        if tree.grantsWrite {
-            try await openWritableRemoteTree(
-                tree: tree,
-                locator: rootLocator,
-                client: client,
-                platform: platform
-            )
+        if way == .replica {
+            try await openWritableRemoteTree(tree: tree, locator: rootLocator, client: client)
             return
         }
-        let snapshot = try await client.snapshot(tree: tree.id, root: tree.root)
-        let workingTree = try await WorkingTree.inMemory(tree: treeID, platform: platform)
-        try await workingTree.initializeFromSystem(try StoryVisitSnapshot.replacement(
-            snapshot,
-            tree: treeID,
-            update: tree.update,
-            cursor: resolution.observedThrough
-        ))
-        refreshEntryDates(workingTree, tree: tree.id, client: client)
-        let provider = WorkingTreeProvider(workingTree: workingTree, readOnly: true)
+        let session = try await TreeSession.open(
+            tree,
+            client: client,
+            settings: .browse(),
+            opening: TreeOpening(current: ProtocolCurrentTree(tree: tree, observedThrough: resolution.observedThrough))
+        )
+        // Browse: the first page and the directories down to it in one path
+        // read, before the editor asks for them; no snapshot is downloaded.
+        try? await session.openPage(resolution.ref.path)
+        let workingTree = session.workingTree
+        refreshEntryDates(session)
+        let provider = session.provider
         await switchProvider(
             provider,
             home: WorkspaceReference(tree: treeID, path: "/"),
@@ -1495,41 +1682,32 @@ final class StoryWorkspaceState {
             acceptedRoot: tree.root,
             localRoot: tree.root
         )
-        visitFollowTask = StoryVisitFollower(client: client, tree: tree.id, workingTree: workingTree) { [weak self] in
+        visitFollowTask = session.follow(after: resolution.observedThrough) { [weak self] in
             await self?.noteVisitChanged(workingTree)
-        }.start(after: resolution.observedThrough)
+        }
         prefetchLocalStorySyncOverview()
     }
 
     private func openWritableRemoteTree(
         tree: ProtocolTreeDescriptor,
         locator: String,
-        client: ProtocolClient,
-        platform: any ObjectStore
+        client: ProtocolClient
     ) async throws {
-        let transport = ProtocolReplicaTransport(client: client)
         let key = StorySupportDirectories.workingTreeKey(tree.id)
-        let replicaRoot = StorySupportDirectories.remoteWorkingTrees
-            .appending(path: key, directoryHint: .isDirectory)
-        let syncStateRoot = StorySupportDirectories.remoteSync
-            .appending(path: key, directoryHint: .isDirectory)
-        let workingTree = try await Self.openOrPlaceWorkingTree(
-            tree,
-            replicaRoot: replicaRoot,
-            syncStateRoot: syncStateRoot,
-            recoveryNames: (workingTree: "RemoteWorkingTree", sync: "RemoteSync"),
-            transport: transport,
-            platform: platform
-        )
-        refreshEntryDates(workingTree, tree: tree.id, client: client)
-        let (coordinator, provider) = try synchronizedProvider(
-            workingTree: workingTree,
-            transport: transport,
-            stateRoot: syncStateRoot,
-            platformObjectStore: workingTree
-        )
+        let session = try await TreeSession.open(tree, client: client, settings: .replica(
+            Self.replicaStorage(
+                root: StorySupportDirectories.remoteWorkingTrees.appending(path: key, directoryHint: .isDirectory),
+                recoveryName: "RemoteWorkingTree",
+                changeLogRecoveryName: "RemoteSync"
+            ),
+            changeLog: StorySupportDirectories.remoteSync.appending(path: key, directoryHint: .isDirectory),
+            readOnly: !tree.grantsWrite,
+            transportAvailable: nativeTransportAvailable
+        ))
+        refreshEntryDates(session)
+        guard let coordinator = session.coordinator else { throw ProtocolValidationError.invalidValue("A replica keeps a change log") }
         await switchProvider(
-            provider,
+            session.provider,
             home: WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/"),
             detail: "Working tree · \(locator)",
             canonical: tree.canonical
@@ -1577,25 +1755,40 @@ final class StoryWorkspaceState {
     func restoreLocalWorkspaceIfAvailable() async {
         guard !attemptedWorkspaceRestore else { return }
         attemptedWorkspaceRestore = true
+        StoryLaunchTiming.milestone("restore-start")
         // An unreadable placement list or selection opens like a fresh
-        // installation; each is read, and may fail, on its own.
+        // installation; each is read, and may fail, on its own. Both are a
+        // small file read here, on the main thread: awaiting the store's
+        // actor instead waited behind the window's first frame (~0.3 s).
         do {
-            nativePlacements = try await nativePlacementStore.loadAll()
+            nativePlacements = try NativePlacementStore.all()
         } catch {
             Self.recordDiagnostic("placement-restore", error)
             nativePlacements = []
         }
         let record: NativePlacementRecord?
         do {
-            record = try await nativePlacementStore.load()
+            record = try NativePlacementStore.selected()
         } catch {
             Self.recordDiagnostic("placement-restore", error)
             record = nil
         }
+        StoryLaunchTiming.milestone("placements-loaded")
+        // Attach to Story Sync and read the tree's opening now, while the
+        // preview is scanned and drawn, rather than after.
+        let earlyBootstrap: Task<PlacedTreeOpening, any Error>? = record.map { record in
+            Task { @MainActor in
+                let runtime = try await self.ensureStorySync()
+                return try await Self.readPlacedTree(record.tree.id, client: runtime.client)
+            }
+        }
         if let record, !launchPhase.isPreviewing, let osPath = record.osPath,
            FileManager.default.fileExists(atPath: osPath) {
             let tree = TreeID(rawValue: record.tree.id)
-            if let preview = try? await LocalFolderPreview.workingTree(tree: tree, folder: URL(filePath: osPath)) {
+            var timing = StoryLaunchTiming.Stopwatch()
+            let dates = StoryEntryDateCache.load(tree: record.tree.id)?.dates ?? [:]
+            if let preview = try? await LocalFolderPreview.workingTree(tree: tree, folder: URL(filePath: osPath), dates: dates) {
+                timing.mark("scan")
                 await switchProvider(
                     WorkingTreeProvider(
                         workingTree: preview,
@@ -1607,12 +1800,14 @@ final class StoryWorkspaceState {
                     canonical: record.tree.canonical
                 )
                 launchPhase = .confirming(record.displayName)
+                timing.mark("switch")
+                timing.record("launch-preview", detail: record.tree.id, extra: StoryLaunchTiming.milestones)
             }
         }
         do {
             if let record {
                 if !launchPhase.isPreviewing { launchPhase = .restoring(record.displayName) }
-                try await openPlacedTree(record.tree.id)
+                try await openPlacedTree(record.tree.id, fetching: earlyBootstrap)
             } else {
                 launchPhase = .empty(nil)
                 try await ensureStorySync()
@@ -1623,6 +1818,7 @@ final class StoryWorkspaceState {
                 prefetchLocalStorySyncOverview()
             }
         } catch {
+            if error is StorySyncOutdatedError { storySyncIsOutdated = true }
             let message = Self.bootstrapFailureMessage(error, processKind: storySyncProcessKind)
             if case let .confirming(name) = launchPhase {
                 // Keep showing the folder; it just cannot be edited yet.
@@ -1641,8 +1837,9 @@ final class StoryWorkspaceState {
         await restoreLocalWorkspaceIfAvailable()
     }
 
-    /// Reconnect to the control-mode daemon and re-open whatever was open.
-    func restartStorySync() async {
+    /// Reconnect to the control-mode daemon and re-open whatever was open;
+    /// `restartingService` also restarts a Story Sync the launch agent runs.
+    func restartStorySync(restartingService: Bool = false) async {
         do {
             try await editorWorkspace.flushAll()
             let supervisor = self.supervisor ?? StorySyncProcessSupervisor(launchPolicy: .automatic)
@@ -1654,9 +1851,13 @@ final class StoryWorkspaceState {
             overviewEventRefreshTask?.cancel()
             overviewEventRefreshTask = nil
             if storySyncClient != nil {
-                let runtime = try await supervisor.restartControl()
+                let runtime = try await restartingService ? supervisor.restartService() : supervisor.restartControl()
                 storySyncClient = runtime.client
                 storySyncProcessKind = runtime.attachedToExistingProcess ? .external : .supervised
+#if os(macOS)
+                checkedStorySyncInstance = runtime.status.instanceID
+                await checkStorySyncIsCurrent()
+#endif
             } else {
                 try await ensureStorySync()
             }
@@ -1883,6 +2084,7 @@ final class StoryWorkspaceState {
     }
 
     static func bootstrapFailureMessage(_ error: Error, processKind: StorySyncProcessKind?) -> String {
+        if let outdated = error as? StorySyncOutdatedError { return outdated.localizedDescription }
         guard let diagnostic = StorySaveDiagnostic.describe(error, processKind: processKind, context: .bootstrap) else {
             return error.localizedDescription
         }
@@ -1979,6 +2181,35 @@ final class StoryWorkspaceState {
 #if os(macOS)
     /// Whether story-sync keeps `tree` in a folder on this Mac, asking it again
     /// when the overview does not list the tree yet.
+    /// What `TreeWay.choose` decides from for `tree`: whether Story Sync has
+    /// it placed here, whether the person can change it, the free space where
+    /// a replica would live, the size of a replica already kept, and the
+    /// person's override (`defaults write … treeWay.<tree id> browse|replica|alongside`).
+    private func treeWayFacts(_ tree: ProtocolTreeDescriptor, placedHere: Bool) -> TreeWay.Facts {
+        let replicas = StorySupportDirectories.remoteWorkingTrees
+        let volume = FileManager.default.fileExists(atPath: replicas.path) ? replicas : StorySupportDirectories.root
+        let free = (try? volume.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage
+        return TreeWay.Facts(
+            placedWithStorySync: placedHere,
+            canWrite: tree.grantsWrite,
+            freeDiskBytes: free,
+            treeBytes: Self.allocatedBytes(replicas.appending(path: StorySupportDirectories.workingTreeKey(tree.id), directoryHint: .isDirectory)),
+            override: UserDefaults.standard.string(forKey: "treeWay.\(tree.id)").flatMap(TreeWay.init(rawValue:))
+        )
+    }
+
+    /// The bytes the files under `folder` take, or nil when there is none.
+    nonisolated private static func allocatedBytes(_ folder: URL) -> Int64? {
+        guard FileManager.default.fileExists(atPath: folder.path),
+              let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) else { return nil }
+        var total: Int64 = 0
+        for case let file as URL in files {
+            total += Int64((try? file.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?.totalFileAllocatedSize ?? 0)
+        }
+        return total
+    }
+
     private func isPlacedOnThisMac(_ tree: String) async -> Bool {
         func listed() -> Bool {
             localStorySyncOverview?.trees.contains { $0.id == tree && $0.path != nil && $0.missing != true } == true
@@ -2162,6 +2393,7 @@ final class StoryWorkspaceState {
         serverWatchTask?.cancel()
         serverWatchTask = nil
         serverWatchRunner = nil
+        stopPresence()
         nativePathMonitor.cancel()
 #if os(macOS)
         visitFollowTask?.cancel()
@@ -2255,6 +2487,285 @@ final class StoryWorkspaceState {
         serverWatchRunner = runner
         serverWatchTask?.cancel()
         serverWatchTask = runner.start()
+        startPresence(client: client, tree: tree.id)
+    }
+
+    // MARK: Presence
+
+    private func startPresence(client: ProtocolClient, tree: String) {
+        stopPresence()
+        let presence = HostPresence(client: client, tree: tree, visible: showsMeToOthers, device: Self.presenceDevice) { [weak self] roster in
+            await MainActor.run { self?.presenceRoster = roster }
+        }
+        hostPresence = presence
+        let page = presencePage
+        Task {
+            await presence.start()
+            if let page, page.tree.rawValue == tree { await presence.setPage(Self.presencePage(page)) }
+        }
+    }
+
+    /// What this client tells presence it runs on.
+    nonisolated static var presenceDevice: String {
+#if os(macOS)
+        "mac"
+#else
+        "ios"
+#endif
+    }
+
+    private func stopPresence() {
+        guard let presence = hostPresence else { return }
+        hostPresence = nil
+        presenceRoster = ProtocolPresenceRoster()
+        Task { await presence.stop() }
+    }
+
+    /// The page this device shows; presence hears of it only for the open host tree.
+    func setPresencePage(_ reference: WorkspaceReference?) {
+        presencePage = reference
+        guard let presence = hostPresence else { return }
+        let page = reference.flatMap { $0.tree.rawValue == presence.tree ? Self.presencePage($0) : nil }
+        Task { await presence.setPage(page) }
+    }
+
+    /// The caret on the current page, as `StoryDocumentBinding.presenceSelection()` reports it.
+    func setPresenceSelection(_ selection: ProtocolPresenceSelection?) {
+        guard let presence = hostPresence else { return }
+        Task { await presence.setSelection(selection) }
+    }
+
+    /// Everyone else on `reference`'s page, people first.
+    func presencePeers(on reference: WorkspaceReference) -> [ProtocolPresencePeer] {
+        guard let tree = hostPresence?.tree, reference.tree.rawValue == tree else { return [] }
+        return presenceRoster.peers(onPage: Self.presencePage(reference).path)
+    }
+
+    nonisolated static func agentRunKey(tree: String, page: String, task: String) -> String {
+        "\(tree)|\(page)|\(task)"
+    }
+
+#if os(macOS)
+    // MARK: Agent runs (Agents 001 phase 6)
+
+    /// The latest run of each task, keyed by `agentRunKey`.
+    private(set) var agentRuns: [String: StoryAgentRun] = [:]
+    private(set) var agentRunError: String?
+    /// Why the last Run of a task failed to start, keyed like `agentRuns`.
+    private var agentRunStartErrors: [String: String] = [:]
+    private var agentRunFollowers: [String: Task<Void, Never>] = [:]
+    /// Story Sync is running code older than this app: it answers 405 to the
+    /// agent routes. A rebuild doesn't restart a Story Sync the launch agent runs.
+    private(set) var storySyncIsOutdated = false
+    /// The Story Sync instance `checkStorySyncIsCurrent` last asked.
+    private var checkedStorySyncInstance: String?
+
+    /// Ask the connected Story Sync for its agent runs; only an old one has no such route.
+    /// (An older one still has no standard reads: `StorySyncOutdatedError`.)
+    func checkStorySyncIsCurrent() async {
+        guard let client = storySyncClient else { return }
+        do {
+            // Runs outlive the app (Story Sync keeps them), so a done task keeps its Undo Run.
+            for run in try await client.agentRuns() { record(run) }
+            storySyncIsOutdated = false
+        } catch let error as StorySyncServerError where error.status == 405 {
+            storySyncIsOutdated = true
+        } catch {}
+    }
+
+    /// The run, if any, of `task` on `reference`'s page.
+    func agentRun(task: String, on reference: WorkspaceReference) -> StoryAgentRun? {
+        agentRuns[Self.agentRunKey(tree: reference.tree.rawValue, page: Self.presencePage(reference).path, task: task)]
+    }
+
+    /// Why the last Run of `task` didn't start, shown beside its button.
+    func agentRunError(task: String, on reference: WorkspaceReference) -> String? {
+        agentRunStartErrors[Self.agentRunKey(tree: reference.tree.rawValue, page: Self.presencePage(reference).path, task: task)]
+    }
+
+    /// Run a task block with the person's agent. Only a placed tree runs:
+    /// the agent works in its folder on this Mac.
+    func runAgentTask(_ task: String, on reference: WorkspaceReference) async {
+        agentRunError = nil
+        let page = Self.presencePage(reference).path
+        let key = Self.agentRunKey(tree: reference.tree.rawValue, page: page, task: task)
+        agentRunStartErrors[key] = nil
+        do {
+            await flush()
+            var client = storySyncClient
+            if client == nil { client = (try? await ensureStorySync())?.client }
+            guard let client else {
+                throw StorySyncSupervisorError.serviceUnavailable
+            }
+            let run = try await client.startAgentRun(tree: reference.tree.rawValue, page: page, task: task)
+            follow(run, client: client)
+        } catch {
+            if let server = error as? StorySyncServerError, server.status == 405 { storySyncIsOutdated = true }
+            let message = Self.agentRunMessage(error)
+            agentRunError = message
+            agentRunStartErrors[key] = message
+        }
+    }
+
+    /// A start failure in words; an old Story Sync answers 405 to the agent routes.
+    nonisolated static func agentRunMessage(_ error: any Error) -> String {
+        if let server = error as? StorySyncServerError, server.status == 405 {
+            return "Story Sync is out of date"
+        }
+        return "Couldn't run: \(error.localizedDescription)"
+    }
+
+    func stopAgentRun(_ run: StoryAgentRun) async {
+        guard let client = storySyncClient else { return }
+        if let stopped = try? await client.stopAgentRun(run.id) { record(stopped) }
+    }
+
+    func undoAgentRun(_ run: StoryAgentRun) async {
+        guard let client = storySyncClient else { return }
+        do {
+            let undo = try await client.undoAgentRun(run.id)
+            if !undo.skipped.isEmpty {
+                agentRunError = "Left \(undo.skipped.joined(separator: ", ")) alone: changed again since the run."
+            }
+            if let latest = try? await client.agentRun(run.id) { record(latest) }
+        } catch {
+            agentRunError = "Couldn't undo the run: \(error.localizedDescription)"
+        }
+    }
+
+    func allowAgentTool(_ rule: String, for run: StoryAgentRun) async {
+        guard let client = storySyncClient else { return }
+        do {
+            _ = try await client.allowAgentTool(run.id, rule: rule)
+            // Every run refused this tool drops it, not only this one.
+            for run in try await client.agentRuns() { record(run) }
+        } catch {
+            agentRunError = "Couldn't allow \(rule): \(error.localizedDescription)"
+        }
+    }
+
+    func dismissAgentRun(_ run: StoryAgentRun) {
+        agentRuns[Self.agentRunKey(tree: run.tree, page: run.page, task: run.task)] = nil
+    }
+
+    private func record(_ run: StoryAgentRun) {
+        agentRuns[Self.agentRunKey(tree: run.tree, page: run.page, task: run.task)] = run
+    }
+
+    /// Poll a run until it ends. Presence shows what the agent is doing meanwhile.
+    private func follow(_ run: StoryAgentRun, client: StorySyncRESTClient) {
+        record(run)
+        agentRunFollowers[run.id]?.cancel()
+        agentRunFollowers[run.id] = Task { [weak self] in
+            var current = run
+            while current.isActive, !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let next = try? await client.agentRun(run.id) else { continue }
+                current = next
+                self?.record(next)
+            }
+            self?.agentRunFollowers[run.id] = nil
+        }
+    }
+#endif
+
+    // MARK: Runs sent to a runner (Agents 002 phase 3)
+
+    /// A task this device sent to one of the person's runners, such as their Mac.
+    struct SentRun: Equatable {
+        var id: String
+        var runnerID: String
+        var runner: String
+    }
+
+    /// The latest run sent for each task, keyed by `agentRunKey`.
+    private(set) var sentRuns: [String: SentRun] = [:]
+    /// Why the last send of a task failed, keyed like `sentRuns`.
+    private(set) var sentRunErrors: [String: String] = [:]
+
+    /// Where a sent run is: waiting for its agent, with its agent at work, or ended with the runner's result.
+    enum SentRunState: Equatable {
+        case starting(runner: String)
+        case working(ProtocolPresencePeer)
+        case ended(String)
+    }
+
+    private func sentRunKey(task: String, on reference: WorkspaceReference) -> String {
+        Self.agentRunKey(tree: reference.tree.rawValue, page: Self.presencePage(reference).path, task: task)
+    }
+
+    /// Your own runners in the open tree, newest last: the last is the default.
+    func taskRunners(on reference: WorkspaceReference) -> [ProtocolPresencePeer] {
+        guard let tree = hostPresence?.tree, reference.tree.rawValue == tree else { return [] }
+        return presenceRoster.runners.filter { isOwnProfile($0.profile) }
+    }
+
+    func sentRun(task: String, on reference: WorkspaceReference) -> SentRun? {
+        sentRuns[sentRunKey(task: task, on: reference)]
+    }
+
+    func sentRunError(task: String, on reference: WorkspaceReference) -> String? {
+        sentRunErrors[sentRunKey(task: task, on: reference)]
+    }
+
+    func sentRunState(_ run: SentRun) -> SentRunState {
+        if let result = presenceRoster.runResults[run.id] { return .ended(result) }
+        if let agent = presenceRoster.agent(doing: run.id) { return .working(agent) }
+        // The runner left before saying how it went.
+        if !presenceRoster.runners.contains(where: { $0.id == run.runnerID }) { return .ended("Failed: \(run.runner) went away") }
+        return .starting(runner: run.runner)
+    }
+
+    /// Send `task` to a runner, the newest one unless another is named. The
+    /// runner starts the person's agent and answers when it ends; the task
+    /// block is checked off through the tree, like any run's.
+    func sendTask(_ task: String, on reference: WorkspaceReference, to chosen: ProtocolPresencePeer? = nil) async {
+        let key = sentRunKey(task: task, on: reference)
+        sentRunErrors[key] = nil
+        guard let presence = hostPresence, let runner = chosen ?? taskRunners(on: reference).last else {
+            sentRunErrors[key] = "No Mac is running Story Sync for this tree"
+            return
+        }
+        // The runner works on the page as the host has it: send the task's own edits first.
+        await flush()
+        let request = ProtocolRunRequest(
+            tree: currentTreeCanonical?.canonicalURL ?? reference.tree.rawValue,
+            page: Self.presencePage(reference),
+            task: ProtocolRunRequest.Task(text: task, range: nil),
+            run: ProtocolRunRequest.newRunID())
+        do {
+            try await presence.send(.run(request), to: runner.id)
+            sentRuns[key] = SentRun(id: request.run, runnerID: runner.id, runner: runner.runner ?? "your Mac")
+        } catch {
+            sentRunErrors[key] = "Couldn't send it to \(runner.runner ?? "your Mac"): \(error.localizedDescription)"
+        }
+    }
+
+    /// Ask the runner to stop; its answer ends the run.
+    func stopSentRun(_ run: SentRun) async {
+        guard let presence = hostPresence else { return }
+        try? await presence.send(.stop(run: run.id), to: run.runnerID)
+    }
+
+    func dismissSentRun(task: String, on reference: WorkspaceReference) {
+        sentRuns[sentRunKey(task: task, on: reference)] = nil
+    }
+
+    /// Whether `task` on this page has a run to show (always false off the Mac).
+    func hasAgentRun(task: String, on reference: WorkspaceReference) -> Bool {
+#if os(macOS)
+        agentRun(task: task, on: reference) != nil
+#else
+        false
+#endif
+    }
+
+    /// Presence names a page by its canonical node path: `/Groceries`, never `/Groceries.md`.
+    nonisolated static func presencePage(_ reference: WorkspaceReference) -> ProtocolPresencePage {
+        var path = reference.path
+        if path.hasSuffix("/_index.md") { path = String(path.dropLast("/_index.md".count)) }
+        else if path.hasSuffix(".md") { path = String(path.dropLast(3)) }
+        return ProtocolPresencePage(path: path.isEmpty ? "/" : path, stableKey: reference.stableKey)
     }
 
     /// Stop the open tree's watch while the app is not active. iOS may
@@ -2263,6 +2774,7 @@ final class StoryWorkspaceState {
     func suspendLiveSync() {
         serverWatchTask?.cancel()
         serverWatchTask = nil
+        if let presence = hostPresence { Task { await presence.stop() } }
     }
 
     /// Follow the open tree again on fresh connections. The watch resumes
@@ -2273,12 +2785,13 @@ final class StoryWorkspaceState {
         hostSessions.renew()
         serverWatchTask?.cancel()
         serverWatchTask = runner.start()
+        if let presence = hostPresence { Task { await presence.start() } }
     }
 
     /// The placement host a tree's session is for: its canonical `endpoint`
     /// when that is not the account's `home` host, else nil (the home
-    /// session). Passed as `origin` to `GET /v1/credential`, spelled as the
-    /// daemon's descriptor spells it.
+    /// session). Passed as the credential provider's `origin`, spelled as
+    /// the daemon's descriptor spells it.
     nonisolated static func placementOrigin(endpoint: String?, home: String?) -> String? {
         guard let endpoint, let endpointURL = URL(string: endpoint),
               let home, let homeURL = URL(string: home) else { return nil }
@@ -2358,6 +2871,25 @@ struct StorySidebarRetentions {
 @MainActor
 @Observable
 final class StoryAppModel {
+    /// From a page open's end to its editor's first frame, for the
+    /// `editor-drawn` timing note; nil once recorded.
+    @ObservationIgnored private var pageDrawTiming: StoryLaunchTiming.Stopwatch?
+
+    /// The current page's editor appeared. Its first frame is drawn at the
+    /// end of this run loop pass, so the note is written on the next one.
+    func editorAppeared() {
+        guard var timing = pageDrawTiming else { return }
+        pageDrawTiming = nil
+        timing.mark("appear")
+        let detail = "\(currentLocation.path) · \(workspace.launchPhase)"
+        let appeared = timing
+        DispatchQueue.main.async {
+            var drawn = appeared
+            drawn.mark("drawn")
+            drawn.record("editor-drawn", detail: detail)
+        }
+    }
+
     // Stored under the app's earlier name; renaming the key would forget saved names.
     private static let manuallyNamedPagesDefaultsKey = "Canopy.manuallyNamedPages"
     private static let dismissedTitleRenamesDefaultsKey = "Story.dismissedTitleRenames"
@@ -2426,6 +2958,9 @@ final class StoryAppModel {
     private var pageIndexTree: TreeID?
     private var pageIndexResults: [WorkspaceSearchResult] = []
     private var pageIndexIsStale = true
+    /// Whether the sidebar's page index has loaded for the current tree, so an
+    /// empty list means no pages rather than not loaded yet.
+    private(set) var pageIndexLoaded = false
     private var pageIndexSyncBasis: [String?] = []
     private var pageIndexRequestID = 0
     private var sidebarRetentions = StorySidebarRetentions()
@@ -2546,6 +3081,9 @@ final class StoryAppModel {
         lastSearchQuery = ""
         pageIndexTree = nil
         pageIndexResults = []
+        pageIndexLoaded = false
+        // The sidebar's index loads beside the page instead of after it.
+        Task { await self.search(self.lastSearchQuery) }
         await load()
     }
 
@@ -2575,40 +3113,52 @@ final class StoryAppModel {
         let requestID = loadRequestID
         isLoading = true
         linkedPageTrashPrompt = nil
+        // Reopening the same page (the confirmed tree replacing its launch
+        // preview) keeps the link titles already resolved, so its links do
+        // not fall back to their labels while they resolve again.
+        let previousHost = editorHost.flatMap { node?.location == currentLocation ? $0 : nil }
+            ?? retainedPagePresentations[PagePresentationKey(tabID: selectedTabID, location: currentLocation)]?.editorHost
+        let carriedLookups = previousHost?.resolvedLookups ?? [:]
+        // Its document too, so unchanged blocks are not parsed a second time.
+        let previousBinding = (node?.location == currentLocation ? editorLease : nil)?.binding
+            ?? retainedPagePresentations[PagePresentationKey(tabID: selectedTabID, location: currentLocation)]?.editorLease?.binding
         if let editorLease {
             Self.cancelMoveRequests(of: editorHost)
             await workspace.editorWorkspace.release(editorLease)
             self.editorLease = nil
             editorHost = nil
         }
+        var timing = StoryLaunchTiming.Stopwatch()
         do {
             let requestedLocation = currentLocation
-            let resolved = try await workspace.provider.resolve(requestedLocation)
+            let warmed = workspace.takeWarmedPage(at: requestedLocation)
+            let resolved: WorkspaceNode
+            if let warmed { resolved = warmed.node } else { resolved = try await workspace.provider.resolve(requestedLocation) }
+            timing.mark(warmed == nil ? "resolve" : "resolve-warmed")
             let sidebarBase: WorkspaceLocation = switch resolved.surface {
             case .directory, .directoryDocument, .collection:
                 resolved.location
             default:
                 resolved.location.parent ?? workspace.launchLocation
             }
-            let loadedChildren = nestedProfileTitles(
-                in: try await workspace.provider.children(of: sidebarBase),
-                parent: resolved
-            )
+            let listedChildren: [WorkspaceNode]
+            if let warmed, sidebarBase == resolved.location { listedChildren = warmed.children }
+            else { listedChildren = try await workspace.provider.children(of: sidebarBase) }
+            let loadedChildren = nestedProfileTitles(in: listedChildren, parent: resolved)
+            timing.mark("children")
             guard requestID == loadRequestID, observedWorkspaceGeneration == workspace.generation else { return }
             tabs.replaceCurrent(with: resolved.location)
             node = resolved
             workspace.recordVisit(resolved)
             children = loadedChildren
-            if searchResults.isEmpty {
-                searchResults = loadedChildren.map {
-                    WorkspaceSearchResult(reference: $0.reference, title: $0.title)
-                }
-            }
             sidebarLocation = sidebarBase
             // A launch preview shows pages in the editor too, so confirming the
             // tree changes nothing on screen; the view blocks input meanwhile.
             if resolved.surface.supportsDocumentSession {
-                let lease = try await workspace.editorWorkspace.lease(resolved.reference)
+                let lease: StoryEditorLease
+                if let warmedLease = warmed?.lease { lease = warmedLease }
+                else { lease = try await workspace.editorWorkspace.lease(resolved.reference, reusing: previousBinding) }
+                timing.mark("open-document")
                 guard requestID == loadRequestID else {
                     await workspace.editorWorkspace.release(lease)
                     return
@@ -2616,12 +3166,26 @@ final class StoryAppModel {
                 if case .directoryDocument = resolved.surface {
                     lease.binding.projectDirectoryChildren(loadedChildren, in: resolved)
                 }
+                let host = makeEditorHost(binding: lease.binding, sourceDirectory: resolved.sourceDirectory)
+                host.seedLookups(carriedLookups.merging(warmed?.lookups ?? [:]) { carried, _ in carried })
+                // Its links' titles and previews, briefly, so the page's first
+                // frame does not show their raw labels.
+                // A page warmed at launch already waited for its links; waiting
+                // again here would only wait behind the first frame.
+                if warmed?.lease == nil { await host.prefetchLinks(in: lease.binding.document) }
+                timing.mark("links")
+                guard requestID == loadRequestID else {
+                    await workspace.editorWorkspace.release(lease)
+                    return
+                }
                 editorLease = lease
-                editorHost = makeEditorHost(binding: lease.binding, sourceDirectory: resolved.sourceDirectory)
+                editorHost = host
             }
             errorMessage = nil
             titleRenameProposal = nil
             isLoading = false
+            pageDrawTiming = StoryLaunchTiming.Stopwatch()
+            timing.record("page-open", extraFrom: editorLease?.binding, sessionTiming: workspace.editorWorkspace.lastSessionOpenTiming, detail: "\(resolved.reference.tree.rawValue)\(resolved.reference.path) · \(workspace.launchPhase)")
             Task { await self.loadBacklinks() }
             pageIndexIsStale = true
             Task { await self.search(self.lastSearchQuery) }
@@ -2656,6 +3220,7 @@ final class StoryAppModel {
             describeTree: { [weak workspace] reference in
                 await workspace?.treeLinkSubtitle(tree: reference.tree.rawValue)
             },
+            canonicalTreeAddresses: { [weak workspace] in workspace?.canonicalTreeAddresses ?? [] },
             voiceRecordings: StoryVoiceRecordings.store,
             voiceRecordingPlayer: StoryVoiceRecordings.player
         )
@@ -3042,6 +3607,7 @@ final class StoryAppModel {
             searchResults = []
             pageIndexTree = nil
             pageIndexResults = []
+            pageIndexLoaded = false
             return true
         } catch {
             errorMessage = error.localizedDescription
@@ -3122,7 +3688,14 @@ final class StoryAppModel {
         } else {
             pageIndexTree = tree
             pageIndexResults = []
-            searchResults = []
+            pageIndexLoaded = false
+            // What the sidebar already lists from this tree stays until the
+            // index replaces it, so the list does not blank out meanwhile; at
+            // launch that is the list it showed last time.
+            searchResults = searchResults.filter { $0.reference.tree == tree }
+            if searchResults.isEmpty, let saved = StorySidebarCache.load(tree: tree.rawValue) {
+                searchResults = sidebarResults(matching: lastSearchQuery, in: saved)
+            }
         }
         pageIndexRequestID += 1
         let requestID = pageIndexRequestID
@@ -3132,6 +3705,8 @@ final class StoryAppModel {
             let results = try await workspace.provider.search("", in: tree)
             guard requestID == pageIndexRequestID, tree == pageIndexTree, tree == currentReference.tree else { return }
             pageIndexResults = sidebarRetentions.applying(to: results, providerRefresh: true)
+            pageIndexLoaded = true
+            StorySidebarCache.save(pageIndexResults, tree: tree.rawValue)
             // Queries typed while the index loaded filtered the previous one.
             searchResults = sidebarResults(matching: lastSearchQuery, in: pageIndexResults)
         }
@@ -3729,8 +4304,7 @@ extension StoryWorkspaceState {
         try await closeOpenTree()
         // Objects come from the host, as for any tree not placed here.
         let locator = tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
-        try await openWritableRemoteTree(tree: tree, locator: locator, client: client,
-                                         platform: HostObjectStore(client: client, tree: tree.id))
+        try await openWritableRemoteTree(tree: tree, locator: locator, client: client)
 #else
         try await place(tree: directory.tree, from: directory.origin, configurationTree: directory.configurationTree)
 #endif
@@ -3844,4 +4418,511 @@ struct PickerTree: Identifiable, Hashable, Sendable {
     let id: String
     let title: String
     let subtitle: String?
+}
+
+// MARK: Moving a page to another tree (Sharing 003)
+
+/// A tree a page can move to from the share sheet: placed on this device, writable,
+/// and an ordinary tree of pages.
+struct StoryMoveDestination: Identifiable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let account: String?
+    /// The tree's folder on this Mac, where Story Sync publishes what is written.
+    /// Nil on the iPhone, which writes through the tree's own working tree.
+    let folder: URL?
+}
+
+/// What a move would carry and what it would leave pointing back.
+struct StoryPageMovePreview: Equatable, Sendable {
+    /// Titles of the pages beneath the moved page, which move with it.
+    var subpages: [String]
+    /// Titles of the pages and files that stay behind which the moved pages link to.
+    var linksLeaving: [String]
+}
+
+extension StoryWorkspaceState {
+    /// The title the share sheet shows for a placed tree.
+    func placedTreeTitle(_ tree: String) -> String? {
+#if os(macOS)
+        if let placed = localStorySyncOverview?.trees.first(where: { $0.id == tree }) {
+            return placed.canonicalPath ?? placed.name
+        }
+#endif
+        return nativePlacements.first { $0.tree.id == tree }?.tree.canonicalPath
+    }
+
+    /// Who has access to `tree`, for previewing a move there.
+    func treeAccess(tree: String) async throws -> NativeTreeAccessPresentation {
+#if os(macOS)
+        try await loadLocalTreeAccess(tree: tree)
+#else
+        guard let placement = nativePlacements.first(where: { $0.tree.id == tree }) else {
+            throw ProtocolValidationError.invalidValue("The tree is not placed on this iPhone")
+        }
+        return try await NativeAccountService(origin: placement.origin, configurationTree: placement.configurationTree).access(tree: tree)
+#endif
+    }
+
+    /// Whether a page can leave its tree: not the home page, and not one in Trash,
+    /// which is what remains of a page already moved or thrown away.
+    func canMoveToAnotherTree(_ node: WorkspaceNode) -> Bool {
+        let path = node.reference.path
+        return path != "/" && path != "/Trash" && !path.hasPrefix("/Trash/")
+    }
+
+    /// The trees `node` could move to: placed on this device, writable, ordinary,
+    /// and not a profile or the People directory. Grouped by account like the sidebar's picker.
+    func moveDestinations(for node: WorkspaceNode) async -> [StoryMoveDestination] {
+        guard canMoveToAnotherTree(node) else { return [] }
+        let current = node.reference.tree.rawValue
+#if os(macOS)
+        if localStorySyncOverview == nil { await refreshLocalStorySyncOverview() }
+        guard let overview = localStorySyncOverview else { return [] }
+        let accounts = Dictionary(overview.accounts.map { ($0.configurationTree, $0) }, uniquingKeysWith: { first, _ in first })
+        let destinations = overview.trees.compactMap { tree -> StoryMoveDestination? in
+            guard tree.id != current,
+                  tree.kind == StoryTreeKind.ordinary,
+                  tree.access == StoryTreeAccess.write.rawValue,
+                  !tree.missing,
+                  let path = tree.path,
+                  !isOwnProfile(tree.id),
+                  tree.id != personalDirectoryTree?.tree.id else { return nil }
+            let account = tree.configurationTree.flatMap { accounts[$0] }?.accountDisplayLabel
+            return StoryMoveDestination(id: tree.id, title: tree.canonicalPath ?? tree.name, account: account,
+                                        folder: URL(filePath: path, directoryHint: .isDirectory))
+        }
+#else
+        if nativePlacements.isEmpty { nativePlacements = (try? await nativePlacementStore.loadAll()) ?? [] }
+        let destinations = nativePlacements.compactMap { record -> StoryMoveDestination? in
+            let tree = record.tree
+            guard tree.id != current,
+                  tree.kind == StoryTreeKind.ordinary,
+                  tree.grantsWrite,
+                  record.configurationTree != nil,
+                  !isOwnProfile(tree.id),
+                  tree.id != personalDirectoryTree?.tree.id else { return nil }
+            return StoryMoveDestination(id: tree.id, title: tree.canonicalPath ?? tree.id,
+                                        account: URL(string: record.origin.absoluteString)?.host(), folder: nil)
+        }
+#endif
+        return destinations.sorted { a, b in
+            let accounts = (a.account ?? "").localizedStandardCompare(b.account ?? "")
+            if accounts != .orderedSame { return accounts == .orderedAscending }
+            return a.title.localizedStandardCompare(b.title) == .orderedAscending
+        }
+    }
+
+    func previewPageMove(_ node: WorkspaceNode, to destination: StoryMoveDestination) async throws -> StoryPageMovePreview {
+        let root = try await provider.resolve(node.reference)
+        let move = CrossTreePageMove(sourceTree: root.reference.tree.rawValue, sourceRoot: root.reference.path,
+                                     destinationTree: destination.id, destinationRoot: "/" + Self.lastComponent(root.reference.path))
+        let entries = try await movedEntries(root)
+        var leaving: [String] = []
+        for case let .page(file, _, source, _) in entries {
+            for path in move.linksLeaving(source, sourceDirectory: Self.directory(of: file)) where !leaving.contains(path) {
+                leaving.append(path)
+            }
+        }
+        var titles: [String] = []
+        for path in leaving {
+            let title = (try? await provider.resolve(WorkspaceReference(tree: root.reference.tree, path: path)))?.title
+            titles.append(title ?? Self.lastComponent(path))
+        }
+        let subpages = entries.compactMap { entry -> String? in
+            guard case let .page(_, path, _, title) = entry, path != root.reference.path else { return nil }
+            return title
+        }
+        return StoryPageMovePreview(subpages: subpages, linksLeaving: titles)
+    }
+
+    /// Move `node` and everything beneath it into `destination`, then point this
+    /// tree's links at it, leave a link in its parent, and put the old pages in this
+    /// tree's Trash. On the Mac the pages are written into the destination's folder,
+    /// where Story Sync publishes them; on the iPhone through the destination's own
+    /// working tree, which must publish them before anything here changes.
+    /// Returns the moved page's `overstory://` locator.
+    @discardableResult
+    func movePage(_ node: WorkspaceNode, to destination: StoryMoveDestination) async throws -> String {
+        try await editorWorkspace.flushAll()
+        let root = try await provider.resolve(node.reference)
+        guard root.reference.path != "/" else {
+            throw WorkspaceProviderError.invalidAction("A tree's home page can't move to another tree")
+        }
+        // A stale reference resolves by its page ID to the copy a finished move left in Trash.
+        guard canMoveToAnotherTree(root) else {
+            throw WorkspaceProviderError.invalidAction("\(root.title) is in Trash. Restore it before moving it to another tree.")
+        }
+        let tree = root.reference.tree
+        let entries = try await movedEntries(root)
+
+        // 1. Write everything into the destination; nothing here changes if this fails.
+        let move = try await writeMovedEntries(entries, root: root, to: destination)
+
+        // 2. Point this tree's links at the moved pages, and leave a link in the parent.
+        var sources: [WorkspaceReference] = []
+        if let parent = root.reference.parent { sources.append(parent) }
+        for case let .page(_, path, _, _) in entries {
+            let results = (try? await provider.backlinks(to: WorkspaceReference(tree: tree, path: path))) ?? []
+            sources += results.map(\.reference).filter { !move.moves($0.path) }
+        }
+        var seen = Set<String>()
+        for (index, reference) in sources.enumerated() where seen.insert(reference.path).inserted {
+            await retargetLinks(in: reference, move: move, leaveLinkTitled: index == 0 ? root.title : nil)
+        }
+
+        // 3. The old pages go to this tree's Trash.
+        try await performWithReceipt(.trash(reference: root.reference))
+        return move.destinationLocator ?? destination.id
+    }
+
+    private enum MovedEntry {
+        case page(file: String, path: String, source: String, title: String)
+        /// A folder with no page of its own, such as `Assets`.
+        case directory(path: String)
+        case file(path: String, data: Data)
+    }
+
+    /// The pages, folders and files at and beneath `root`, parents first, read through the provider.
+    private func movedEntries(_ root: WorkspaceNode) async throws -> [MovedEntry] {
+        var entries: [MovedEntry] = []
+        var queue = [root]
+        while !queue.isEmpty {
+            let node = queue.removeFirst()
+            let path = node.reference.path
+            switch node.surface {
+            case let .markdown(source, _):
+                entries.append(.page(file: markdownLinkFile(nodePath: path, body: node.markdownBody ?? .sibling),
+                                     path: path, source: source, title: node.title))
+            case let .directoryDocument(source, _, stored):
+                if let body = node.markdownBody ?? (stored ? .index : nil) {
+                    entries.append(.page(file: markdownLinkFile(nodePath: path, body: body), path: path, source: source, title: node.title))
+                } else {
+                    entries.append(.directory(path: path))
+                }
+                queue += try await provider.children(of: node.reference)
+            case .directory:
+                entries.append(.directory(path: path))
+                queue += try await provider.children(of: node.reference)
+            case .file:
+                entries.append(.file(path: path, data: try await provider.readFile(node.reference)))
+            case .collection:
+                throw WorkspaceProviderError.invalidAction("\(node.title) holds a collection, which can't move to another tree yet")
+            default:
+                continue
+            }
+        }
+        return entries
+    }
+
+#if os(macOS)
+    /// Write the moved entries into the destination's folder, where Story Sync publishes them.
+    private func writeMovedEntries(_ entries: [MovedEntry], root: WorkspaceNode, to destination: StoryMoveDestination) async throws -> CrossTreePageMove {
+        guard let folder = destination.folder else {
+            throw ProtocolValidationError.invalidValue("\(destination.title) is not placed in a folder on this Mac")
+        }
+        // A second copy of a page ID would stop the destination tree opening.
+        let existingIDs = await Task.detached { Self.pageIDs(under: folder) }.value
+        for case let .page(_, _, source, title) in entries {
+            if let id = CrossTreePageMove.pageID(in: source), existingIDs.contains(id) {
+                throw Self.alreadyInDestination(title, destination)
+            }
+        }
+        let name = Self.availableName(Self.lastComponent(root.reference.path), in: folder)
+        let move = CrossTreePageMove(sourceTree: root.reference.tree.rawValue, sourceRoot: root.reference.path,
+                                     destinationTree: destination.id, destinationRoot: "/" + name)
+        var written: [URL] = []
+        do {
+            for entry in entries {
+                let file: String, bytes: Data
+                switch entry {
+                case let .page(path, _, source, _):
+                    (file, bytes) = (path, Data(move.movedSource(source, sourceDirectory: Self.directory(of: path)).utf8))
+                case let .file(path, data):
+                    (file, bytes) = (path, data)
+                case .directory:
+                    continue
+                }
+                guard let target = move.destinationPath(of: file) else { continue }
+                let url = folder.appending(path: String(target.dropFirst()))
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try bytes.write(to: url, options: .withoutOverwriting)
+                written.append(url)
+            }
+        } catch {
+            for url in written { try? FileManager.default.removeItem(at: url) }
+            throw error
+        }
+        return move
+    }
+
+    /// The page IDs of the Markdown files in `folder`, at any depth, leaving out its Trash.
+    private nonisolated static func pageIDs(under folder: URL) -> Set<String> {
+        var ids = Set<String>()
+        let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+        while let url = files?.nextObject() as? URL {
+            if url.lastPathComponent == "Trash", url.deletingLastPathComponent().path == folder.path { files?.skipDescendants() }
+            guard url.pathExtension == "md", let source = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            if let id = CrossTreePageMove.pageID(in: source) { ids.insert(id) }
+        }
+        return ids
+    }
+
+    /// `name`, or `name-2`, `name-3`… so that neither `name.md` nor a `name` folder exists in `folder`.
+    private static func availableName(_ name: String, in folder: URL) -> String {
+        func taken(_ candidate: String) -> Bool {
+            FileManager.default.fileExists(atPath: folder.appending(path: candidate + ".md").path)
+                || FileManager.default.fileExists(atPath: folder.appending(path: candidate).path)
+        }
+        var candidate = name
+        var counter = 2
+        while taken(candidate) { candidate = "\(name)-\(counter)"; counter += 1 }
+        return candidate
+    }
+#else
+    /// Write the moved entries through the destination's own working tree, opened beside
+    /// the visible one, and publish them. Throws, leaving this tree alone, unless the
+    /// host accepted every page.
+    private func writeMovedEntries(_ entries: [MovedEntry], root: WorkspaceNode, to destination: StoryMoveDestination) async throws -> CrossTreePageMove {
+        guard nativeTransportAvailable else {
+            throw ProtocolValidationError.invalidValue("Connect to the internet to move pages between trees")
+        }
+        guard let record = nativePlacements.first(where: { $0.tree.id == destination.id }) else {
+            throw ProtocolValidationError.invalidValue("\(destination.title) is not placed on this iPhone")
+        }
+        let (coordinator, target) = try await openBackgroundTree(record)
+        defer { Task { await coordinator.close() } }
+        // Start from the host's latest, so the new pages land on what is there now.
+        _ = try await coordinator.syncOnce()
+        let destinationTree = TreeID(rawValue: destination.id)
+        for case let .page(_, _, source, title) in entries {
+            guard let id = CrossTreePageMove.pageID(in: source) else { continue }
+            let key = markdownStableKey(id)
+            let existing = try? await target.resolve(WorkspaceReference(tree: destinationTree, path: "/", stableKey: key))
+            if let existing, existing.reference.stableKey == key, !existing.reference.path.hasPrefix("/Trash/") {
+                throw Self.alreadyInDestination(title, destination)
+            }
+        }
+        var name = Self.lastComponent(root.reference.path)
+        var counter = 2
+        while (try? await target.resolve(WorkspaceReference(tree: destinationTree, path: "/" + name))) != nil {
+            name = "\(Self.lastComponent(root.reference.path))-\(counter)"
+            counter += 1
+        }
+        let move = CrossTreePageMove(sourceTree: root.reference.tree.rawValue, sourceRoot: root.reference.path,
+                                     destinationTree: destination.id, destinationRoot: "/" + name)
+        for entry in entries {
+            switch entry {
+            case let .page(file, path, source, _):
+                guard let created = move.destinationPath(of: path) else { continue }
+                let parent = WorkspaceReference(tree: destinationTree, path: Self.directory(of: created))
+                _ = try await target.perform(.createMarkdown(parent: parent, name: Self.lastComponent(created),
+                                                             source: move.movedSource(source, sourceDirectory: Self.directory(of: file))))
+            case let .directory(path):
+                guard let created = move.destinationPath(of: path),
+                      (try? await target.resolve(WorkspaceReference(tree: destinationTree, path: created))) == nil else { continue }
+                let parent = WorkspaceReference(tree: destinationTree, path: Self.directory(of: created))
+                _ = try await target.perform(.createDirectory(parent: parent, name: Self.lastComponent(created)))
+            case let .file(path, data):
+                guard let created = move.destinationPath(of: path) else { continue }
+                let parent = WorkspaceReference(tree: destinationTree, path: Self.directory(of: created))
+                _ = try await target.importFile(name: Self.lastComponent(created), bytes: data, in: parent)
+            }
+        }
+        let result = try await coordinator.syncOnce()
+        guard result.state == .current, !result.localAdditions else {
+            throw ProtocolValidationError.invalidValue(
+                "\(destination.title) hasn't accepted the moved pages yet (\(result.detail ?? "still sending")). Nothing was removed from this tree; open \(destination.title) to check before trying again.")
+        }
+        return move
+    }
+
+    /// A placed tree's working tree and update coordinator, opened without
+    /// replacing the visible tree. The caller closes the coordinator.
+    private func openBackgroundTree(_ record: NativePlacementRecord) async throws -> (UpdateCoordinator, WorkingTreeProvider) {
+        guard let configurationTree = record.configurationTree else {
+            throw ProtocolValidationError.invalidValue("This tree's placement names no account; pair this device again")
+        }
+        let tree = record.tree
+        let store = KeychainDeviceCredentialStore()
+        let home = try await store.accounts().first { $0.configurationTree == configurationTree }
+        let placementOrigin = Self.placementOrigin(endpoint: record.origin.absoluteString, home: home?.origin.absoluteString)
+        let credentialProvider = placementOrigin.map {
+            AccountStoredCredentialProvider.shared(configurationTree: configurationTree, origin: $0, store: store)
+        } ?? AccountStoredCredentialProvider.shared(configurationTree: configurationTree, store: store)
+        let client = ProtocolClient(origin: record.origin, credentialProvider: credentialProvider, sessions: hostSessions)
+        let key = StorySupportDirectories.workingTreeKey(tree.id)
+        let session = try await TreeSession.open(tree, client: client, settings: .replica(
+            Self.replicaStorage(
+                root: StorySupportDirectories.workingTrees.appending(path: key, directoryHint: .isDirectory),
+                recoveryName: "WorkingTree",
+                changeLogRecoveryName: "Sync"
+            ),
+            changeLog: StorySupportDirectories.root.appending(path: "Sync/\(key)", directoryHint: .isDirectory),
+            transportAvailable: nativeTransportAvailable
+        ))
+        guard let coordinator = session.coordinator else { throw ProtocolValidationError.invalidValue("A replica keeps a change log") }
+        return (coordinator, session.provider)
+    }
+#endif
+
+    /// Rewrite `reference`'s links to moved pages; when `title` is given and the page does
+    /// not link to the moved page, add a link to it at the end. Best effort, like link healing.
+    private func retargetLinks(in reference: WorkspaceReference, move: CrossTreePageMove, leaveLinkTitled title: String?) async {
+        guard let node = try? await provider.resolve(reference), node.surface.supportsDocumentSession,
+              let session = try? await provider.openDocument(node.reference) else { return }
+        if let snapshot = try? await session.snapshot() {
+            await retarget(session, snapshot, node: node, move: move, leaveLinkTitled: title)
+        }
+        await session.close()
+    }
+
+    private func retarget(_ session: any WorkspaceDocumentSession, _ snapshot: WorkspaceDocumentSnapshot, node: WorkspaceNode,
+                          move: CrossTreePageMove, leaveLinkTitled title: String?) async {
+        let source = snapshot.source
+        var edits = move.retargetingEdits(source, sourceDirectory: node.sourceDirectory)
+        if let title, !move.linksToRoot(source, sourceDirectory: node.sourceDirectory), let locator = move.destinationLocator {
+            let separator = source.isEmpty || source.hasSuffix("\n\n") ? "" : source.hasSuffix("\n") ? "\n" : "\n\n"
+            let label = title.replacingOccurrences(of: "[", with: "\\[").replacingOccurrences(of: "]", with: "\\]")
+            let end = source.utf8.count
+            edits.append(WorkspaceSourceEdit(utf8Range: end..<end, replacement: "\(separator)- [\(label)](\(locator))\n"))
+        }
+        guard !edits.isEmpty else { return }
+        _ = try? await session.admit(patch: WorkspaceDocumentPatch(baseContentRevision: snapshot.contentRevision, edits: edits))
+        try? await session.flush()
+    }
+
+    private static func alreadyInDestination(_ title: String, _ destination: StoryMoveDestination) -> Error {
+        ProtocolValidationError.invalidValue("\(destination.title) already has \(title). Nothing was moved.")
+    }
+
+    private static func lastComponent(_ path: String) -> String {
+        path.split(separator: "/").last.map(String.init) ?? path
+    }
+
+    private static func directory(of file: String) -> String {
+        let parts = file.split(separator: "/").dropLast()
+        return parts.isEmpty ? "/" : "/" + parts.joined(separator: "/")
+    }
+}
+
+/// The page dates a tree's host last reported, kept on this device so the next
+/// launch can show them before the host answers. Only a display cache: a
+/// missing or unreadable file just means waiting for the host.
+@MainActor
+enum StoryEntryDateCache {
+    nonisolated struct Record: Codable, Equatable, Sendable {
+        var update: String
+        var dates: [String: Date]
+    }
+
+    static func url(tree: String) -> URL {
+        StorySupportDirectories.entryDates
+            .appending(path: StorySupportDirectories.workingTreeKey(tree) + ".json")
+    }
+
+    static func load(tree: String) -> Record? {
+        guard let data = try? Data(contentsOf: url(tree: tree)) else { return nil }
+        return try? JSONDecoder().decode(Record.self, from: data)
+    }
+
+    static func save(_ record: Record, tree: String) {
+        guard let data = try? JSONEncoder().encode(record) else { return }
+        try? FileManager.default.createDirectory(at: StorySupportDirectories.entryDates, withIntermediateDirectories: true)
+        try? data.write(to: url(tree: tree), options: .atomic)
+    }
+}
+
+/// The sidebar's page list as last loaded for each tree, kept on this device so
+/// a launch shows it at once instead of an empty sidebar while the index loads.
+@MainActor
+enum StorySidebarCache {
+    private static var lastSaved: [String: [WorkspaceSearchResult]] = [:]
+
+    static func url(tree: String) -> URL {
+        StorySupportDirectories.sidebarLists
+            .appending(path: StorySupportDirectories.workingTreeKey(tree) + ".json")
+    }
+
+    static func load(tree: String) -> [WorkspaceSearchResult]? {
+        guard let data = try? Data(contentsOf: url(tree: tree)),
+              let results = try? JSONDecoder().decode([WorkspaceSearchResult].self, from: data),
+              !results.isEmpty else { return nil }
+        lastSaved[tree] = results
+        return results
+    }
+
+    static func save(_ results: [WorkspaceSearchResult], tree: String) {
+        guard lastSaved[tree] != results else { return }
+        lastSaved[tree] = results
+        guard let data = try? JSONEncoder().encode(results) else { return }
+        try? FileManager.default.createDirectory(at: StorySupportDirectories.sidebarLists, withIntermediateDirectories: true)
+        try? data.write(to: url(tree: tree), options: .atomic)
+    }
+}
+
+/// Launch and page-open timings, written as notes to Story's network log
+/// (Sync Status, and the JSON Lines files under Logs) so a slow step can be
+/// found from a real launch.
+enum StoryLaunchTiming {
+    /// When this process started.
+    static let start: Date = {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return Date() }
+        let started = info.kp_proc.p_starttime
+        return Date(timeIntervalSince1970: Double(started.tv_sec) + Double(started.tv_usec) / 1e6)
+    }()
+
+    /// Moments of this launch, in milliseconds since the process started,
+    /// reported with the launch preview's note.
+    @MainActor private(set) static var milestones: [String: Double] = [:]
+
+    @MainActor static func milestone(_ name: String) {
+        guard milestones[name] == nil else { return }
+        milestones[name] = Date().timeIntervalSince(start) * 1_000
+    }
+
+    struct Stopwatch {
+        private let began = ContinuousClock.now
+        private var last = ContinuousClock.now
+        private var phases: [String: Double] = [:]
+
+        init() {}
+
+        mutating func mark(_ phase: String) {
+            let now = ContinuousClock.now
+            phases[phase] = Self.milliseconds(now - last)
+            last = now
+        }
+
+        @MainActor func record(_ name: String, extraFrom binding: StoryDocumentBinding?, sessionTiming: [String: Double], detail: String? = nil) {
+            var extra = binding?.openTiming ?? [:]
+            extra.merge(sessionTiming) { _, session in session }
+            record(name, detail: detail, extra: extra)
+        }
+
+        func record(_ name: String, detail: String? = nil, extra: [String: Double] = [:]) {
+            var note = ProtocolNetworkLogEntry(kind: .note, name: name)
+            note.durationMs = Self.milliseconds(ContinuousClock.now - began)
+            var phases = phases.merging(extra) { current, _ in current }
+            phases["since-launch"] = Date().timeIntervalSince(StoryLaunchTiming.start) * 1_000
+            note.phases = phases
+            note.detail = detail
+            ProtocolNetworkLog.current?.record(note)
+        }
+
+        private static func milliseconds(_ duration: Duration) -> Double {
+            Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15
+        }
+    }
+}
+
+/// Story Sync answered without the standard reads this app opens placed trees
+/// through: it runs older code than the app.
+struct StorySyncOutdatedError: LocalizedError, Equatable {
+    var errorDescription: String? {
+        "Story Sync is out of date. Restart it from the warning in the toolbar, then try again."
+    }
 }

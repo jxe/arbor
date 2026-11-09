@@ -66,12 +66,9 @@ synthetic filename.
 **Resource policy.** `ExecutionAuthority.issue` is trusted host
 infrastructure, not a public mint endpoint; tokens are process-local and
 invalidated on restart while durable update identity survives independently,
-and possessing a token makes no SQLite connection safe. The internal
-`GET /.overstory/execution/authority-watch` authenticates an execution token and
-sends `refresh` or `revoked` SSE events with empty payloads; it conservatively
-invalidates on accepted updates, revocation notifies immediately, and expiry
-and session changes are polled, so providers refresh authority after a
-disconnect. `GET /access` answers a tree's administrators with its safe
+and possessing a token makes no SQLite connection safe. Overstoryd talks to
+its execution sidecar over the sidecar's own pipes, never through a public
+route; a revoked token ends its streams and fails its next request. `GET /access` answers a tree's administrators with its safe
 `policy` and the `overstory://` `locators` of the profiles its rules name by
 TreeID; there is no separate whole-tree entry list. The supported scoped update subset: new files and
 directories need `create-child` at the logical parent, raw content changes

@@ -1,3 +1,4 @@
+import OverstoryWorkspace
 import StoryKit
 @testable import OverstoryWorkingTree
 @testable import Overstory

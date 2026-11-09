@@ -221,6 +221,10 @@ twice at one level of precedence is an error.
 
 ## 8. Views
 
+Each entry of `~views` is a **declared view**: the built-in list view of
+[executable documents §4.1](07-executable-documents.md#41-views) with that entry's
+settings, served and drawn as any other view is.
+
 `~views` takes a list of objects, each a default arrangement in tab order: a
 unique `label` string, a `line` (the fields shown for each row), a `group`
 field, and a `sort` field (`created` and `modified` included). Items of a
@@ -234,6 +238,12 @@ the same way. A view without a `line` uses the first view's. A model without
 `~views` has one plain view plus one grouped by each enum, connection or
 `Person` field. A page may override any of a schema's views; views never
 change data.
+
+A field whose model is a **connection model**, one whose key is exactly its two
+ends (`Item` between a list and a practice), shows and groups by what it connects
+to: a list's `items` are its practices, in the connection's order, and connecting
+or regrouping writes the connection's rows. Any other row whose key has several
+columns (`Tag (list, id)`) is named in a view by its whole key.
 
 A line, `group` or `sort` item may be a **path** through connections: each
 step but the last is a connection field, followed to the rows it reaches

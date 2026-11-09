@@ -43,10 +43,22 @@ struct UpdateControlFiles: Sendable {
         return try Data(contentsOf: changeLogURL, options: .mappedIfSafe)
     }
 
-    func writeChangeLog<T: Encodable>(_ value: T) throws {
-        try atomicWrite(try sortedKeysJSON(value), to: changeLogURL)
+    func writeChangeLog(_ data: Data) throws {
+        try atomicWrite(data, to: changeLogURL)
         // Persist a newly created sync directory as well as its journal entry.
         try DurableFile.syncDirectory(directory.deletingLastPathComponent())
+    }
+
+    /// Append whole lines to the existing journal with one write and one
+    /// fsync: no temporary file, rename or directory sync. The caller holds
+    /// the change log lock and knows the file ends with a complete line.
+    func appendChangeLog(_ lines: Data) throws {
+        let descriptor = Darwin.open(changeLogURL.path, O_WRONLY | O_APPEND)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
+        try handle.write(contentsOf: lines)
+        try handle.synchronize()
     }
 
     func load() throws -> UpdateControl {

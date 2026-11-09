@@ -3,17 +3,20 @@ import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { revisionOf, type QueryHandleRef, type QueryStreamEvent } from "@ovst/protocol";
+import { revisionOf, type HandleRef, type ViewEvent } from "@ovst/protocol";
 import {
   node,
   introspectStoreSchema,
-  LiveQueryBroker,
-  query,
-  RegisteredQueryRuntime,
+  LiveViewBroker,
+  RegisteredViewRuntime,
   SQLiteQueryEngine,
   SQLiteStoreBroker,
+  view,
+  type MountedView,
+  type NodeHandle,
   type ProfileResolver,
   type StoreSchema,
+  type View,
 } from "overstory/data";
 
 const repository = join(import.meta.dir, "..", "..");
@@ -22,21 +25,15 @@ const careList = "10000000-0000-4000-8000-000000000001";
 const listeningList = "10000000-0000-4000-8000-000000000003";
 const ada = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-const lists = node("./data/List").children;
-const storyProfiles = node("./data/Person").children;
-const topPublicList = query.many(lists, (list: any) => ({
-  where: list.visibility.eq("Public"),
-  orderBy: list.modified.desc(),
-  take: 1,
-  select: list.pick("id", "name", "about", "modified"),
-}));
-const listOwner = query.one(lists, (list: any) => ({
-  where: list.id.eq(careList),
-  select: {
-    id: list.id,
-    owner: list.owner(storyProfiles.pick("id", "name", "handle", "portrait")),
-  },
-}));
+const List = node("./data/List").children as any;
+const topPublicList = view(() => List.all((l: any) => [l.visibility.is("Public")])
+  .orderBy((l: any) => l.modified.desc())
+  .take(1)
+  .map((l: any) => ({ id: l.id, name: l.name, about: l.about, modified: l.modified }))) as View<unknown, unknown>;
+const listOwner = view(() => {
+  const l = List.one((l: any) => [l.id.is(careList)]);
+  return { id: l.id, owner: { id: l.owner.id, name: l.owner.name, handle: l.owner.handle, portrait: l.owner.portrait } };
+}) as View<unknown, unknown>;
 
 let directory: string;
 let schema: StoreSchema;
@@ -45,13 +42,14 @@ let profileListeners: Set<(change: { profile: string; tree: string; ref: string 
 let resolver: ProfileResolver;
 let engine: SQLiteQueryEngine;
 let store: SQLiteStoreBroker;
-let broker: LiveQueryBroker;
+let broker: LiveViewBroker;
 
-function source(authoredPath: string, relation: string) {
+/** The sources the views name, bound as an activation binds them. */
+async function resolve(source: NodeHandle) {
   return {
-    authoredPath,
+    authoredPath: source.path,
     tree: "tr_supplies_data",
-    path: `/${relation}`,
+    path: `/${source.path.slice(source.path.lastIndexOf("/") + 1)}`,
     schemaFingerprint: engine.schema.fingerprint,
   };
 }
@@ -88,10 +86,8 @@ beforeEach(async () => {
     },
   };
   engine = await SQLiteQueryEngine.open(location, resolver);
-  engine.bind(topPublicList, source(topPublicList.source.path, topPublicList.plan.relation));
-  engine.bind(listOwner, source(listOwner.source.path, listOwner.plan.relation));
   store = new SQLiteStoreBroker(location.databasePath, schema, { watchExternal: false });
-  broker = new LiveQueryBroker(engine, store);
+  broker = new LiveViewBroker(engine, store);
 });
 
 afterEach(async () => {
@@ -101,7 +97,7 @@ afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 
-async function next(reader: ReadableStreamDefaultReader<QueryStreamEvent>, type?: QueryStreamEvent["type"]): Promise<QueryStreamEvent> {
+async function next(reader: ReadableStreamDefaultReader<ViewEvent>, type?: ViewEvent["type"]): Promise<ViewEvent> {
   const expires = Bun.sleep(1_000).then(() => { throw new Error(`Timed out waiting for ${type ?? "query event"}`); });
   while (true) {
     const result = await Promise.race([reader.read(), expires]);
@@ -110,14 +106,14 @@ async function next(reader: ReadableStreamDefaultReader<QueryStreamEvent>, type?
   }
 }
 
-async function ready(reader: ReadableStreamDefaultReader<QueryStreamEvent>) {
+async function ready(reader: ReadableStreamDefaultReader<ViewEvent>) {
   const first = await next(reader, "result");
   const boundary = await next(reader, "ready");
   return { first, boundary };
 }
 
-function mount(handle = topPublicList, knownOutputHash?: `sha256:${string}`) {
-  return [{ id: "primary", handle, ...(knownOutputHash ? { knownOutputHash } : {}) }];
+function mount(handle = topPublicList, knownOutputHash?: `sha256:${string}`): MountedView[] {
+  return [{ id: "primary", handle, resolve, ...(knownOutputHash ? { knownOutputHash } : {}) }];
 }
 
 describe.serial("Supplies Phase 2 live data", () => {
@@ -150,7 +146,7 @@ describe("SQLite committed observation", () => {
   });
 });
 
-describe("live query state machine", () => {
+describe("live view state machine", () => {
   test("updates two clients while precise unrelated writes cause no rerun", async () => {
     const original = engine.execute.bind(engine);
     let executions = 0;
@@ -169,8 +165,8 @@ describe("live query state machine", () => {
 
     store.transaction((database) => database.query("update List set name = ? where id = ?").run("Listening together", listeningList));
     const [left, right] = await Promise.all([next(first, "result"), next(second, "result")]);
-    expect((left as Extract<QueryStreamEvent, { value: unknown }>).value).toMatchObject([{ name: "Listening together" }]);
-    expect((right as Extract<QueryStreamEvent, { value: unknown }>).value).toEqual((left as Extract<QueryStreamEvent, { value: unknown }>).value);
+    expect((left as Extract<ViewEvent, { value: unknown }>).value).toMatchObject([{ name: "Listening together" }]);
+    expect((right as Extract<ViewEvent, { value: unknown }>).value).toEqual((left as Extract<ViewEvent, { value: unknown }>).value);
     expect(executions).toBe(4);
     await first.cancel();
     await second.cancel();
@@ -182,11 +178,11 @@ describe("live query state machine", () => {
     store.transaction((database) => database.query(
       "insert into List(id, owner, name, visibility, kind, openToEdits, created, modified) values (?, ?, ?, 'Public', 'Standard', 0, ?, ?)",
     ).run("10000000-0000-4000-8000-000000000004", ada, "Newest", "2026-08-25T12:00:00.000Z", "2026-08-26T12:00:00.000Z"));
-    const inserted = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
+    const inserted = await next(reader, "result") as Extract<ViewEvent, { value: unknown }>;
     expect(inserted.value).toMatchObject([{ name: "Newest" }]);
 
     store.transaction((database) => database.query("update List set modified = ? where id = ?").run("2026-08-27T12:00:00.000Z", careList));
-    const reordered = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
+    const reordered = await next(reader, "result") as Extract<ViewEvent, { value: unknown }>;
     expect(reordered.value).toMatchObject([{ id: careList }]);
     await reader.cancel();
   });
@@ -196,7 +192,7 @@ describe("live query state machine", () => {
     await ready(reader);
     profiles = profiles.map((profile) => profile.id === ada ? { ...profile, name: "Ada Updated" } : profile);
     for (const listener of profileListeners) listener({ profile: ada, tree: ada, ref: revisionOf("updated") });
-    const event = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
+    const event = await next(reader, "result") as Extract<ViewEvent, { value: unknown }>;
     expect(event.value).toMatchObject({ owner: { name: "Ada Updated" } });
     await reader.cancel();
   });
@@ -223,7 +219,7 @@ describe("live query state machine", () => {
     await didEnter;
     store.transaction((database) => database.query("update List set name = ? where id = ?").run("Current", listeningList));
     release();
-    const event = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
+    const event = await next(reader, "result") as Extract<ViewEvent, { value: unknown }>;
     expect(event.value).toMatchObject([{ name: "Current" }]);
     await reader.cancel();
   });
@@ -235,7 +231,7 @@ describe("live query state machine", () => {
     external.query("update List set name = ? where id = ?").run("External", listeningList);
     external.close();
     expect(store.checkExternalChanges()).toBe(true);
-    const event = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
+    const event = await next(reader, "result") as Extract<ViewEvent, { value: unknown }>;
     expect(event.value).toMatchObject([{ name: "External" }]);
     await reader.cancel();
   });
@@ -243,7 +239,7 @@ describe("live query state machine", () => {
   test("fresh reconnect confirms a known hash and listener restart takes a new snapshot", async () => {
     const first = broker.stream(mount(), { signal: new AbortController().signal, user: null }).getReader();
     const initial = await ready(first);
-    const hash = (initial.first as Extract<QueryStreamEvent, { value: unknown }>).outputHash;
+    const hash = (initial.first as Extract<ViewEvent, { value: unknown }>).outputHash;
     await first.cancel();
     const reconnect = broker.stream(mount(topPublicList, hash), { signal: new AbortController().signal, user: null }).getReader();
     const confirmation = await next(reconnect);
@@ -251,43 +247,43 @@ describe("live query state machine", () => {
     await reconnect.cancel();
 
     await broker[Symbol.asyncDispose]();
-    broker = new LiveQueryBroker(engine, store);
+    broker = new LiveViewBroker(engine, store);
     store.transaction((database) => database.query("update List set name = ? where id = ?").run("After restart", listeningList));
     const restarted = broker.stream(mount(), { signal: new AbortController().signal, user: null }).getReader();
     const snapshot = await ready(restarted);
-    expect((snapshot.first as Extract<QueryStreamEvent, { value: unknown }>).value).toMatchObject([{ name: "After restart" }]);
+    expect((snapshot.first as Extract<ViewEvent, { value: unknown }>).value).toMatchObject([{ name: "After restart" }]);
     await restarted.cancel();
   });
 
   test("replaces the complete mounted graph without retaining an execution resource", async () => {
     const document = { tree: "tr_supplies_source", path: "/index", version: "doc-v1" };
-    const topRef: QueryHandleRef = { tree: "tr_supplies_source", module: "/components/PopularLists.tsx", export: "popularLists", version: "query-v1" };
-    const ownerRef: QueryHandleRef = { tree: "tr_supplies_source", module: "/List.tsx", export: "listOwner", version: "query-v1" };
-    const runtime = new RegisteredQueryRuntime(document, broker, [
-      { ref: topRef, handle: topPublicList, source: source(topPublicList.source.path, topPublicList.plan.relation) },
-      { ref: ownerRef, handle: listOwner, source: source(listOwner.source.path, listOwner.plan.relation) },
+    const topRef: HandleRef = { tree: "tr_supplies_source", path: "/components/PopularLists.tsx", name: "popularLists", version: "sha256:code" };
+    const ownerRef: HandleRef = { tree: "tr_supplies_source", path: "/List.tsx", name: "listOwner", version: "sha256:code" };
+    const runtime = new RegisteredViewRuntime(document, broker, [
+      { ref: topRef, handle: topPublicList, resolve },
+      { ref: ownerRef, handle: listOwner, resolve },
     ]);
-    const first = runtime.stream({ document, queries: [{ id: "top", handle: topRef }] }, { signal: new AbortController().signal, user: null }).getReader();
+    const first = runtime.stream({ document, views: [{ id: "top", handle: topRef }] }, { signal: new AbortController().signal, user: null }).getReader();
     await ready(first);
     await first.cancel();
 
-    const replacement = runtime.stream({ document, queries: [
+    const replacement = runtime.stream({ document, views: [
       { id: "top", handle: topRef },
       { id: "owner", handle: ownerRef },
     ] }, { signal: new AbortController().signal, user: null }).getReader();
     const results = [await next(replacement, "result"), await next(replacement, "result")];
-    expect(results.map((event) => (event as Extract<QueryStreamEvent, { value: unknown }>).id).sort()).toEqual(["owner", "top"]);
-    const boundary = await next(replacement, "ready") as Extract<QueryStreamEvent, { type: "ready" }>;
-    expect(boundary.queries.map((query) => query.id)).toEqual(["top", "owner"]);
+    expect(results.map((event) => (event as Extract<ViewEvent, { value: unknown }>).id).sort()).toEqual(["owner", "top"]);
+    const boundary = await next(replacement, "ready") as Extract<ViewEvent, { type: "ready" }>;
+    expect(boundary.views.map((mounted) => mounted.id)).toEqual(["top", "owner"]);
     await replacement.cancel();
   });
 
-  test("uses the shared result event name for sanitized query failures", async () => {
-    const reader = broker.stream([{ id: "invalid", handle: topPublicList, input: { unexpected: true } }], {
+  test("uses the shared result event name for sanitized view failures", async () => {
+    const reader = broker.stream([{ id: "invalid", handle: topPublicList, resolve, input: { unexpected: true } }], {
       signal: new AbortController().signal,
       user: null,
     }).getReader();
-    const failure = await next(reader, "result") as Extract<QueryStreamEvent, { error: unknown }>;
+    const failure = await next(reader, "result") as Extract<ViewEvent, { error: unknown }>;
     expect(failure).toMatchObject({
       type: "result",
       id: "invalid",

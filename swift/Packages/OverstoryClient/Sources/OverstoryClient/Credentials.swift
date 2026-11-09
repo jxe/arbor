@@ -1,4 +1,4 @@
-import StoryKit
+import OverstoryWorkspace
 import Overstory
 import CryptoKit
 import Foundation

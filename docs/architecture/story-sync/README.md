@@ -59,4 +59,4 @@ other implementations may choose a different layout. The synchronized
 [tree configuration](../../overstory-spec/04-accounts-and-devices.md#3-configuration-yaml)
 contract is normative.
 
-See [the data home](data-home.md), [CLI reference](../../getting-started/cli.md), and [loopback API](../../implementing-sync-services/story-sync-api.md).
+See [the data home](data-home.md), [CLI reference](../../getting-started/cli.md), and [loopback API](../../implementing-sync-services/story-sync-api.md). Agents working in placed folders appear in presence through [agents](agents.md).

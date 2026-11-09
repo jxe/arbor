@@ -45,10 +45,22 @@ export async function openDeviceSessionByDevice(origin: string, device: string, 
   return openSession(origin, undefined, device, seed);
 }
 
-async function openSession(origin: string, profileTree: string | undefined, device: string, seed: string): Promise<{ session: DeviceSession; profileTree: string }> {
+/**
+ * Open a visitor session (accounts §5.6) at `origin`, a host where the
+ * profile has no account: the host checks the device against the keys
+ * `homeHost` publishes, and the session reads what that host's rules grant
+ * the profile by its locator at `homeHost`. A host where the profile has
+ * since gained an account answers with an ordinary session instead.
+ */
+export async function openVisitorSession(origin: string, profileTree: string, device: string, seed: string, homeHost: string): Promise<DeviceSession> {
+  return (await openSession(origin, profileTree, device, seed, homeHost)).session;
+}
+
+async function openSession(origin: string, profileTree: string | undefined, device: string, seed: string, homeHost?: string): Promise<{ session: DeviceSession; profileTree: string }> {
   const host = new ProtocolClient(origin);
-  const challenge = validateDeviceSessionChallenge(await host.createDeviceSessionChallenge({ ...(profileTree ? { profileTree } : {}), device }));
-  if (challenge.origin !== new URL(origin).origin || (profileTree && challenge.profileTree !== profileTree) || challenge.device !== device) {
+  const challenge = validateDeviceSessionChallenge(await host.createDeviceSessionChallenge({ ...(profileTree ? { profileTree } : {}), device, ...(homeHost ? { homeHost } : {}) }));
+  if (challenge.origin !== new URL(origin).origin || (profileTree && challenge.profileTree !== profileTree) || challenge.device !== device
+    || (challenge.homeHost !== undefined && challenge.homeHost !== homeHost)) {
     throw new Error("The host's session challenge names another host, profile or device");
   }
   const signature = sign(null, deviceSessionChallengeBytes(challenge), privateKey(seed)).toString("base64url");

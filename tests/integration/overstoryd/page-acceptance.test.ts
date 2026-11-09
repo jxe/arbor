@@ -52,6 +52,13 @@ async function start(pages: boolean | string[]) {
   const fileRoot = directory(value);
   return { fileRoot, update: (await submit(snapshotUpdate(fileRoot), descriptor.tree.update)).id };
 }
+/** The same host restarted, taking pages as `pages` says. */
+async function restart(pages: boolean | string[]) {
+  running.server.stop(true); await running.overstoryd[Symbol.asyncDispose]();
+  running = await serveHost({ dataRoot: dir, accounts: [testAccount("owner", token, { communityWriter: true })],
+    publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0, pages });
+  client = await deviceClient(running.url, token);
+}
 /** `at` with note.md as `page`, whichever kind it was. */
 function convert(at: string, page: string) {
   const value = decodeProtocolDirectory(objects.get(at)!);
@@ -111,15 +118,17 @@ test("one property set twice is a property choice, which a property operation re
 });
 
 test("the host advertises pages-v1, and refuses a conversion that changes a page", async () => {
-  expect(await (await fetch(`${running.url}/.overstory/health`)).json()).toEqual({ status: "ok", features: ["pages-v1"] });
-  const { fileRoot, update } = await start(true);
+  expect(await (await fetch(`${running.url}/.overstory/health`)).json()).toEqual({ status: "ok", protocol: 2, features: ["pages-v1"] });
+  // A host taking pages everywhere converts at startup; listing the tree keeps it as files.
+  const { fileRoot, update } = await start(["tr_another"]);
+  await restart([tree]);
   const changed = convert(fileRoot, pageObject([["title", "B"], ["status", "draft"]], "One\nTwo\n"));
   await expect(submit(snapshotUpdate(changed), update)).rejects.toThrow(/reads as/);
 });
 
 test("a host without pages-v1 refuses page entries", async () => {
   const { fileRoot, update } = await start(false);
-  expect(await (await fetch(`${running.url}/.overstory/health`)).json()).toEqual({ status: "ok" });
+  expect(await (await fetch(`${running.url}/.overstory/health`)).json()).toEqual({ status: "ok", protocol: 2 });
   const converted = convert(fileRoot, pageObject([["title", "A"], ["status", "draft"]], "One\nTwo\n"));
   await expect(submit(snapshotUpdate(converted), update)).rejects.toThrow(/pages-v1/);
 });
@@ -130,11 +139,22 @@ test("a host can take pages in the trees it lists only, and says so in their des
   const converted = convert(fileRoot, pageObject([["title", "A"], ["status", "draft"]], "One\nTwo\n"));
   await expect(submit(snapshotUpdate(converted), update)).rejects.toThrow(/pages-v1/);
   // The same host restarted with this tree listed.
-  running.server.stop(true); await running.overstoryd[Symbol.asyncDispose]();
-  running = await serveHost({ dataRoot: dir, accounts: [testAccount("owner", token, { communityWriter: true })],
-    publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0, pages: [tree] });
-  client = await deviceClient(running.url, token);
+  await restart([tree]);
   expect((await client.descriptor(tree)).tree.pages).toBe(true);
   const accepted = await submit(snapshotUpdate(converted), update);
   expect(accepted.root).toBe(converted);
+});
+
+test("a host taking pages everywhere converts at startup each tree that holds none, once", async () => {
+  const { fileRoot } = await start(["tr_another"]);
+  const files = (await client.descriptor(tree)).tree;
+  expect(files.root as string).toBe(fileRoot);
+  await restart(true);
+  const converted = (await client.descriptor(tree)).tree;
+  expect(converted.update).not.toBe(files.update);
+  await remember(converted.root);
+  expect(pageAt(converted.root)).toEqual({ type: "page", id: "p1", properties: [["title", "A"], ["status", "draft"]], body: encoder.encode("One\nTwo\n") });
+  // Converting again changes nothing.
+  await restart(true);
+  expect((await client.descriptor(tree)).tree.update).toBe(converted.update);
 });

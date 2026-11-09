@@ -3,6 +3,8 @@ import { lstat, mkdir, open, readFile, rename, rm, rmdir } from "node:fs/promise
 import { dirname, join } from "node:path";
 import {
   decodeProtocolPage,
+  encodeProtocolPage,
+  parsePage,
   isProtocolContentKind,
   writePageFile,
   overstoryPrivateRoot,
@@ -201,12 +203,16 @@ export class FolderSync implements AcceptedTree {
   private readonly knownPath: string;
   private known?: KnownFolder;
   private scanTimer?: ReturnType<typeof setTimeout>;
+  /** Whether the last logged state was a stall: offline, held or stopped. */
+  private loggedStall = false;
   private scanning?: Promise<void>;
   private rescan = false;
   private watch?: { abort: AbortController; done: Promise<void>; key: string };
   private closed = false;
   private readonly pausedPath: string;
   private paused: boolean;
+  /** Who holds the folder's publishing, in memory only: agents editing it. */
+  private readonly holders = new Set<string>();
   private readonly declinedPath: string;
   private declined?: { value: DeclinedFolder | undefined };
   private settling?: Promise<boolean>;
@@ -245,6 +251,12 @@ export class FolderSync implements AcceptedTree {
       ...(options.pollIntervalMs === undefined ? {} : { pollIntervalMs: options.pollIntervalMs }),
       onState: (state) => {
         if (state.kind !== "unplaced") this.report(folderSyncState(state));
+        // Publishing that stops or resumes is logged, with why, so a stall can be traced.
+        const stalled = state.kind === "offline" || state.kind === "held" || state.kind === "terminal";
+        if (stalled !== this.loggedStall) {
+          this.loggedStall = stalled;
+          console.warn(`[story-sync:publish] ${tree} ${state.kind}${stalled ? `: ${this.coordinator?.lastFailure ?? "no failure recorded"}` : ""}`);
+        }
         // A definitive refusal becomes declined paths once the transition finishes.
         if (state.kind === "held" && state.reason === "rejected") setTimeout(() => void this.settleRefusal().catch(() => {}), 0);
       },
@@ -475,8 +487,19 @@ export class FolderSync implements AcceptedTree {
     });
     const before = membershipSkip(await rulesOf(held), lookup);
     const after = membershipSkip(await rulesOf(tracked), lookup);
+    // A file that no longer holds what the folder last held was changed here
+    // since the last scan: keep it, and the scan below says so.
+    const keep = held ? async (path: string, existing: Uint8Array): Promise<boolean> => {
+      const entry = await entryAt(held.root, path, held.load).catch(() => null);
+      if (entry?.page) {
+        const page = parsePage(existing);
+        return !page || hashObject(encodeProtocolPage(page)) !== entry.page;
+      }
+      if (entry?.file) return hashObject(existing) !== entry.file;
+      return true;
+    } : undefined;
     await materializeTree(this.host.root, root as ObjectHash, load, undefined, [...mounts, ...points.map((point) => this.osPath(point))],
-      async (path, isDirectory) => await after(path, isDirectory) || await before(path, isDirectory), this.host.collections);
+      async (path, isDirectory) => await after(path, isDirectory) || await before(path, isDirectory), this.host.collections, keep);
     let uncovered = false;
     const written = await this.host.scan(tracked, async (path, isDirectory) => {
       if (!(await before(path, isDirectory))) return false;
@@ -535,6 +558,8 @@ export class FolderSync implements AcceptedTree {
     if (!placement?.ref || !placement.update) return;
     await this.coordinator.start();
     if (this.paused) return this.report(folderSyncState(this.coordinator.state));
+    // An agent mid-edit: its changes go together when it lets go.
+    if (this.holders.size > 0) return;
     const appended = await this.host.withWorkspaceIO(async () => {
       const known = await this.loadKnown();
       if (!known) return false;
@@ -713,6 +738,23 @@ export class FolderSync implements AcceptedTree {
   // MARK: Pausing
 
   get isPaused(): boolean { return this.paused; }
+
+  get isHeld(): boolean { return this.holders.size > 0; }
+
+  /**
+   * Hold publishing while `holder`, such as an agent, edits the folder, so
+   * its edits go up as one change. Kept in memory only: a restart lets go.
+   * Accepted updates still arrive.
+   */
+  hold(holder: string): void {
+    this.holders.add(holder);
+  }
+
+  /** Let go of a hold; when none remain, scan and publish what the folder holds now. */
+  async release(holder: string): Promise<void> {
+    if (!this.holders.delete(holder) || this.holders.size > 0) return;
+    await this.scan();
+  }
 
   /** Stop publishing the folder's changes, durably; accepted updates still arrive. */
   async pause(): Promise<void> {

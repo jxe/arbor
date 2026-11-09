@@ -1,4 +1,4 @@
-import StoryKit
+import OverstoryWorkspace
 import Overstory
 import Foundation
 
@@ -98,6 +98,34 @@ extension UpdateCoordinator {
             throw UpdateError.returnedSnapshotMismatch
         }
         return entries
+    }
+
+    /// The text at `path` in `root` as it is written (a page as its file), or
+    /// nil when no file or page is there.
+    public func reviewCurrentText(at path: String, root: String) async throws -> Data? {
+        let tree = await workingTree.treeID().rawValue
+        func load(_ hash: String) async throws -> Data {
+            let bytes = try await transport.object(tree: tree, hash: hash)
+            guard ProtocolObjectCodec.hash(bytes) == hash else { throw UpdateError.returnedSnapshotMismatch }
+            return bytes
+        }
+        let names = path.split(separator: "/").map(String.init)
+        var directory = root
+        for (index, name) in names.enumerated() {
+            guard case let .directory(entries, _) = try ProtocolObjectCodec.decode(await load(directory), kind: .directory) else {
+                throw UpdateError.returnedSnapshotMismatch
+            }
+            guard let entry = entries.first(where: { $0.name == name }) else { return nil }
+            if index < names.count - 1 {
+                guard let next = entry.directory else { return nil }
+                directory = next
+            } else if let file = entry.file {
+                return try await load(file)
+            } else if let page = entry.page {
+                return try ProtocolPage.decode(await load(page)).canonicalFile
+            }
+        }
+        return nil
     }
 
     /// Inspect changed descendants instead of presenting two indistinguishable
@@ -204,8 +232,12 @@ extension UpdateCoordinator {
     }
 
     private func prepareReviewPreview(_ draft: ConflictReviewDraft, current: ConflictReviewSnapshot) async throws -> (base: ProtocolSnapshot, preview: ConflictReviewPreview) {
-        guard draft.obligations.isEmpty else { throw ConflictReviewProposalError(draft.obligations.joined(separator: "\n")) }
         let base = try await transport.snapshot(tree: current.tree, root: current.root)
+        // Keeping current contents installs no version, so no version material loads.
+        if draft.keepCurrent == true {
+            return (base, try ConflictReviewCompiler.compile(draft, base: base, material: [:], allDecisions: current.decisions))
+        }
+        guard draft.obligations.isEmpty else { throw ConflictReviewProposalError(draft.obligations.joined(separator: "\n")) }
         var material: [String: Data] = [:]
         let known = Dictionary(uniqueKeysWithValues: base.objects.map { ($0.hash, $0.bytes) })
         for decision in draft.decisions {
@@ -253,7 +285,7 @@ extension UpdateCoordinator {
             }
         }
         let spine = ProtocolSnapshot(root: snapshot.root, objects: kept.sorted { $0.hash < $1.hash })
-        _ = try ProtocolObjectGraph.validate(spine, mode: .sparseFiles)
+        _ = try ProtocolObjectGraph.validate(spine, mode: .lazyDirectories)
         return spine
     }
 

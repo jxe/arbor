@@ -63,6 +63,8 @@ describe("authenticated user directory", () => {
   });
 
   test("rejects anonymous callers", async () => {
+    expect((await fetch(`${running.url}/.overstory/account/directory`)).status).toBe(401);
+    // The old path answers the same until plans/soon/protocol-001 removes it.
     expect((await fetch(`${running.url}/.overstory/directory`)).status).toBe(401);
   });
 });

@@ -11,6 +11,11 @@ import type {
 } from "./updates/types.ts";
 import {
   parseSSEStream,
+  decodePresenceEvent,
+  type PresenceDevice,
+  type PresenceEvent,
+  type PresenceID,
+  type PresenceUpdate, type PresenceMessageBody,
   decodePublishedDeviceKeys,
   type SafeResourceAccessRule,
   type OverstoryError,
@@ -43,6 +48,7 @@ import {
 import { updateRequestDigests } from "./updates/intent.ts";
 import { CONFIGURATION_PARAMETER, parseTreeReference, treeConfigurationID } from "./config/tree-config.ts";
 import { decodeSnapshotBundle } from "./snapshots.ts";
+import { decodePathReadBundle, encodePathReadPath } from "./path-read.ts";
 
 
 /** Three missed keepalives. */
@@ -113,7 +119,7 @@ export interface RemotePlacementAccountSnapshot {
   account: RemotePlacementAccountDescriptor;
 }
 
-/** A host list read: `/.overstory/trees` and `/.overstory/directory`. */
+/** A host list read: `/.overstory/trees` and `/.overstory/account/directory`. */
 export interface RemoteSnapshot<T> {
   snapshot: T;
 }
@@ -183,6 +189,8 @@ export interface RemoteDirectoryEntry {
   description?: string;
   avatar?: { tree: TreeID; path: string; hash: ObjectHash };
   sources: Array<"community" | `group:${TreeID}` | "access">;
+  /** The domain the host serves the person's trees at (locators §5.1). */
+  domain?: string;
 }
 
 /**
@@ -254,6 +262,13 @@ export class ProtocolTransportError extends TypeError {
   }
 }
 
+let clientName: string | undefined;
+
+/** The name and version every ProtocolClient sends as `Overstory-Client`, e.g. `story-sync/0.1.8`, so a host can tell which client each device runs. */
+export function setProtocolClientName(name: string | undefined): void {
+  clientName = name;
+}
+
 export class ProtocolClient {
   private readonly timeoutMs: number;
   private readonly watchIdleTimeoutMs: number;
@@ -287,9 +302,12 @@ export class ProtocolClient {
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
     try {
+      const headers = new Headers(init.headers);
+      if (clientName) headers.set("overstory-client", clientName);
       return await fetch(`${this.origin}${path}`, {
         ...(this.redirect ? { redirect: this.redirect } : {}),
         ...init,
+        headers,
         signal: init.signal ?? AbortSignal.timeout(this.timeoutMs),
       });
     } catch (error) {
@@ -388,21 +406,22 @@ export class ProtocolClient {
     publicKey: string;
     signature: string;
   }): Promise<RemotePlacementAccountDescriptor> {
-    const response = await this.checked(await this.request("/.overstory/placements", {
+    // One route joins a community, as a new home or, with `profile`, as a member (accounts §1.4).
+    const response = await this.checked(await this.request("/.overstory/accounts", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
     }));
-    return response.json();
+    return ((await response.json()) as { account: RemotePlacementAccountDescriptor }).account;
   }
 
   /** A profile's key devices, as its home host publishes them for placement hosts (accounts §5.4). */
   async publishedDeviceKeys(profileTree: TreeID): Promise<PublishedDeviceKeys> {
-    const response = await this.checked(await this.request(`/.overstory/profiles/${encodeURIComponent(profileTree)}/device-keys`, {}));
+    const response = await this.checked(await this.request(`/.overstory/peer/profiles/${encodeURIComponent(profileTree)}/device-keys`, {}));
     return decodePublishedDeviceKeys(await response.json(), profileTree);
   }
 
-  async createDeviceSessionChallenge(input: { profileTree?: TreeID; device: string }): Promise<DeviceSessionChallenge> {
+  async createDeviceSessionChallenge(input: { profileTree?: TreeID; device: string; homeHost?: string }): Promise<DeviceSessionChallenge> {
     const response = await this.checked(await this.request("/.overstory/device-sessions/challenges", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -427,7 +446,7 @@ export class ProtocolClient {
   }
 
   async directory(): Promise<RemoteSnapshot<RemoteDirectoryEntry[]>> {
-    const response = await this.checked(await this.request("/.overstory/directory", { headers: this.headers() }));
+    const response = await this.checked(await this.request("/.overstory/account/directory", { headers: this.headers() }));
     return response.json();
   }
 
@@ -492,6 +511,27 @@ export class ProtocolClient {
     } finally {
       if (timeout) clearTimeout(timeout);
     }
+  }
+
+  /**
+   * A path read (tree operations §1.2.4): the directories from `root` down to
+   * `path` and the objects of the entries it names, checked against the walk.
+   */
+  async pathRead(tree: string, root: string, path: string): Promise<Map<ObjectHash, Uint8Array>> {
+    if (!/^sha256:[a-f0-9]{64}$/.test(root)) throw new Error("Snapshot root hash is invalid");
+    const response = await this.checked(await this.request(
+      `/.overstory/trees/${encodeURIComponent(tree)}/snapshots/${root}/path${encodePathReadPath(path)}`,
+      { headers: { ...this.headers(), accept: "application/cbor" } },
+    ));
+    return decodePathReadBundle(root, path, new Uint8Array(await response.arrayBuffer()));
+  }
+
+  /** Descriptive dates of the current accepted root's file entries (tree operations §1.1.2a). */
+  /** The current root's entry times; with `path`, only those of the directories a path read of it walks (§1.1.2a). */
+  async entryMetadata(tree: string, options: { path?: string } = {}): Promise<{ update: string; entries: Record<string, { modifiedAt?: number }> }> {
+    const query = options.path === undefined ? "" : `?path=${encodeURIComponent(options.path)}`;
+    const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/entry-metadata${query}`, { headers: this.headers() }));
+    return response.json();
   }
 
 
@@ -610,8 +650,12 @@ export class ProtocolClient {
    * reconnects with a fresh cursor. `onOpen` runs once the host has accepted
    * the stream.
    */
-  async *watch(tree: TreeID, after: EventCursor | null, options: { signal?: AbortSignal; onOpen?: () => void } = {}): AsyncGenerator<WatchEvent> {
-    const query = after ? `?after=${encodeURIComponent(after)}` : "";
+  async *watch(tree: TreeID, after: EventCursor | null, options: { signal?: AbortSignal; onOpen?: () => void; objects?: "none" } = {}): AsyncGenerator<WatchEvent> {
+    const parameters = new URLSearchParams();
+    if (after) parameters.set("after", after);
+    // Frames without their objects (§1.1.3): the caller refetches only what it holds.
+    if (options.objects === "none") parameters.set("objects", "none");
+    const query = parameters.size ? `?${parameters}` : "";
     // The host comments at least every 20 s; a longer silence is a dead
     // connection (a half-open socket, a proxy that dropped it), not an idle tree.
     const idle = new AbortController();
@@ -661,6 +705,69 @@ export class ProtocolClient {
         throw new Error("Malformed Overstory watch event: unsupported kind");
       }
     }
+  }
+
+  /**
+   * Join a tree's presence (spec 12): the roster, then peers' changes,
+   * cursors and departures. Being subscribed is being present; the stream
+   * starts over on reconnect. `agent` opens an agent's stream under the
+   * caller's profile; `visible: false` watches without being listed; `device`
+   * says what this client runs on.
+   */
+  async *presence(tree: TreeID, options: { visible?: boolean; agent?: string; device?: PresenceDevice; runner?: string; signal?: AbortSignal; onOpen?: () => void } = {}): AsyncGenerator<PresenceEvent> {
+    const query = new URLSearchParams();
+    if (options.visible === false) query.set("visible", "false");
+    if (options.agent !== undefined) query.set("agent", options.agent);
+    if (options.runner !== undefined) query.set("runner", options.runner);
+    if (options.device !== undefined) query.set("device", options.device);
+    const search = query.size ? `?${query}` : "";
+    const idle = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expectBytes = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => idle.abort(), this.watchIdleTimeoutMs);
+      (timer as { unref?: () => void }).unref?.();
+    };
+    expectBytes();
+    try {
+      const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/presence${search}`, {
+        headers: { ...this.headers(), accept: "text/event-stream" },
+        signal: options.signal ? AbortSignal.any([options.signal, idle.signal]) : idle.signal,
+      }));
+      if (!response.body) throw new Error("Presence response has no body");
+      options.onOpen?.();
+      const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) { expectBytes(); controller.enqueue(chunk); },
+      }));
+      for await (const frame of parseSSEStream(body)) {
+        if (!frame.data) continue;
+        try { yield decodePresenceEvent(frame.event, JSON.parse(frame.data)); }
+        catch (error) { throw new Error(`Malformed Overstory presence event: ${error instanceof Error ? error.message : String(error)}`); }
+      }
+    } catch (error) {
+      if (idle.signal.aborted && !options.signal?.aborted) {
+        throw new ProtocolTransportError(`Presence from ${this.origin} went silent`, error);
+      }
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** Change this stream's page, selection or (an agent's) status. */
+  async updatePresence(tree: TreeID, id: PresenceID, update: PresenceUpdate): Promise<void> {
+    await this.checked(await this.request(
+      `/.overstory/trees/${encodeURIComponent(tree)}/presence/${encodeURIComponent(id)}`,
+      { method: "POST", headers: this.headers(true), body: JSON.stringify(update) },
+    ));
+  }
+
+  /** Send `body` from this stream (`from`) to another of the caller's own streams (spec 12 §6). */
+  async sendPresenceMessage(tree: TreeID, from: PresenceID, to: PresenceID, body: PresenceMessageBody): Promise<void> {
+    await this.checked(await this.request(
+      `/.overstory/trees/${encodeURIComponent(tree)}/presence/${encodeURIComponent(from)}/messages`,
+      { method: "POST", headers: this.headers(true), body: JSON.stringify({ to, body }) },
+    ));
   }
 
   async object(tree: TreeID, hash: string): Promise<Uint8Array> {

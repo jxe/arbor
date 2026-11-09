@@ -11,6 +11,70 @@ The quickest realistic trial is one Railway service with one persistent volume a
 
 For multi-machine synchronization, outage, and conflict testing rather than a single-user trial, use the deliberately small [hcloud sync lab](hcloud-sync-lab.md): one disposable community VM, three client VMs, Tailscale, and no infrastructure framework. Its checked-in `bun run lab:hcloud` runner supports preflight, resumable provisioning, evidence collection, and exact-ID teardown.
 
+## Start your own community
+
+Story is joined by invitation. If nobody you know runs a host, you can run your own on
+[Railway](https://railway.com) and invite people to it.
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/overstoryd)
+
+1. **Deploy the template** at [railway.com/deploy/overstoryd](https://railway.com/deploy/overstoryd). Railway asks for two
+   names: your community's handle (`OVERSTORYD_COMMUNITY_HANDLE`, such as `garden`) and yours
+   (`OVERSTORYD_FIRST_WRITER_HANDLE`, such as `alice`). Each is lowercase letters, digits and
+   hyphens. The template generates the founder code itself, attaches a volume at `/data` and
+   gives the service a Railway domain.
+2. **Find your founder link.** When the deploy finishes, open the service's **Deploy Logs**. The
+   host prints:
+
+   ```text
+   Your community is ready. Open this founder link in Story to claim it and become its administrator:
+
+     https://garden-production.up.railway.app/~alice#overstory-invite=…
+   ```
+
+   Only you can see these logs. The link is printed at every start until it is used.
+3. **Open it in Story.** Paste the link into Story's first screen on a Mac (or open it in a
+   browser and choose Open in Story). Story says your community is ready, creates your
+   identity, and claims the account; you become the community's administrator. If you already
+   use Story somewhere else, the link adds this community to your existing identity instead.
+4. **Invite people** from Story's share sheet, as on any host.
+
+After the claim the host ignores `OVERSTORYD_FOUNDER_CODE`, and you can delete the variable.
+
+What stays your job:
+
+- **Keep the domain.** Your host's address is in every link to it, so moving to another domain
+  later breaks them. If you want your own domain, add it (and `OVERSTORYD_DOMAIN`) before you
+  invite anyone.
+- **Backups.** Turn on volume backups for `/data` in Railway.
+- **Updates.** The service keeps the image it pulled. Redeploy to take the newest Story release's
+  host, or pin a version by changing the image tag (`ghcr.io/jxe/overstoryd:0.1.8`).
+- **Cost.** Railway's Hobby plan; see [railway.com/pricing](https://railway.com/pricing). A small
+  community uses little of it.
+
+### The template (maintainers)
+
+The template is defined in Railway's dashboard (Templates, New Template), not in this
+repository. Its one service:
+
+- **Source:** the Docker image `ghcr.io/jxe/overstoryd:latest`, which
+  `.github/workflows/publish-host-image.yml` publishes from each release tag (`v*`) as
+  `:<version>` and `:latest`. The package must be public on GitHub (Packages, overstoryd,
+  Package settings, Change visibility) for Railway to pull it.
+- **Volume:** mounted at `/data`.
+- **Networking:** a generated Railway domain, port 4318 (or leave `PORT` to Railway).
+- **Health check:** `/.overstory/health`.
+- **Variables:**
+
+  ```text
+  OVERSTORYD_COMMUNITY_HANDLE      (required, the person fills it in)
+  OVERSTORYD_FIRST_WRITER_HANDLE   (required, the person fills it in)
+  OVERSTORYD_FOUNDER_CODE=${{secret(22, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")}}
+  ```
+
+A founder code is 22 base64url characters. The host refuses to start with any other shape, or
+with both a founder code and `OVERSTORYD_FIRST_WRITER_PROFILE`.
+
 ## Railway
 
 The repository already contains `packages/overstoryd/deploy/Dockerfile.overstoryd` and `railway.toml`. Railway builds that image with the same pinned Bun 1.4.2 as the workspace, checks `/`, supplies `PORT`, and restarts a failed process. overstoryd refuses to initialize on Railway until both a public domain and persistent volume exist, preventing accidental canonical `localhost` URLs or ephemeral overstoryd state.
@@ -90,13 +154,14 @@ overstoryd reads these variables at start; all are optional.
 | `OVERSTORYD_DATA` | `/data` in the image | Data directory: `overstoryd.sqlite3` plus `objects/`. |
 | `OVERSTORYD_DOMAIN` | from `RAILWAY_PUBLIC_DOMAIN` | Public hostname used to derive the canonical URL; pass `--url` instead for plain HTTP or a nonstandard port. |
 | `OVERSTORYD_OBJECT_CACHE_MB` | 256 | In-memory cache of hash-verified immutable objects, in overstoryd and (passed through) in the merge sidecar. |
-| `OVERSTORYD_MERGE_CACHE_MB` | 512 | The merge sidecar's in-memory cache of replayed states; dropped whole, and rebuilt from log entries, when exceeded. |
-| `OVERSTORYD_MERGE_REPLAY_MS` | 10000 | How long one merge question may spend rebuilding the sidecar's cache before it answers a retryable 503 and keeps its progress for the retry. |
+| `OVERSTORYD_MERGE_CACHE_MB` | 512 | The merge sidecar's in-memory cache of entry states; dropped whole when exceeded, and started again from provenance indexes. |
+| `OVERSTORYD_MERGE_REPLAY_MS` | 10000 | How long one merge question may replay the entries after its basis before the head starts from its provenance index instead. |
 | `OVERSTORYD_RATE_LIMITS` | off | `1` limits unauthenticated session challenges and pairing claims per caller; see [rate limits and proxies](#rate-limits-and-proxies). |
-| `OVERSTORYD_PAGES` | off | `1` accepts page entries in every tree, and a list of tree IDs separated by commas in just those trees. Such a tree also accepts the one update that converts its Markdown files to pages, and its descriptor says `pages`, which is when a writer's Story Sync converts it; health advertises `pages-v1` ([spec 02 §3](../../../docs/overstory-spec/02-directory-format.md#3-properties-markdown-content-and-identity)). |
+| `OVERSTORYD_PAGES` | off | `1` accepts page entries in every tree, and a list of tree IDs separated by commas in just those trees. Such a tree also accepts the one update that converts its Markdown files to pages, and its descriptor says `pages`, which is when a writer's Story Sync converts it; with `1`, the host also converts at startup every tree that holds no pages yet (trees no Story Sync places, such as directories); health advertises `pages-v1` ([spec 02 §3](../../../docs/overstory-spec/02-directory-format.md#3-properties-markdown-content-and-identity)). |
 | `OVERSTORYD_TRUSTED_PROXY_HOPS` | 0 | How many reverse proxies in front of overstoryd append to `X-Forwarded-For`; see [rate limits and proxies](#rate-limits-and-proxies). |
 | `OVERSTORYD_STORY_MAC_URL` | unset | Where to get Story for Mac. The page at a reserved, unclaimed `/~handle` offers it as "Get Story for Mac" to a person who opened an invitation link; no link when unset. |
 | `OVERSTORYD_STORY_IPHONE_URL` | unset | The same for "Get Story for iPhone". |
+| `OVERSTORYD_ACTIVATIONS` | unset | A JSON file listing the modules the host runs as views and mutations, each `{"tree", "path", "root"}`; see [views and mutations](#views-and-mutations). Unset, the views and mutate routes answer `unsupported-operation`. |
 | `OVERSTORYD_MERGE_EXECUTABLE` | the workspace `overstoryd-merge` | Alternate merge sidecar implementing `serve`; see [writing a sidecar](../../../docs/architecture/overstoryd/writing-a-sidecar.md) and [the merge sidecar](../../../docs/architecture/overstoryd/merge-tool.md#running-and-configuring). |
 
 ### Response headers and stored files
@@ -124,6 +189,23 @@ that address with `#overstory-invite=<code>`; the fragment is not sent to the
 host. The page's script, seeing that fragment, reveals an "Open in Story" link
 to the same URL under the `overstory:` scheme, plus the download links
 configured by `OVERSTORYD_STORY_MAC_URL` and `OVERSTORYD_STORY_IPHONE_URL`.
+
+An administrator makes an invitation from Story's share sheet, or from a terminal
+with `story invite https://<host>/~<handle>`, which prints the link once (`story
+invite list`, `renew` and `cancel` manage pending ones). Either way it is one
+`members` entry in the community's `_index.md`; the host never sees the code.
+
+### People's own domains
+
+A person can have the host serve their trees at a domain they own
+([locators §5.1](../../../docs/overstory-spec/03-locators.md#51-trees-at-a-persons-domain)):
+they list it in their profile's `domains` and point it at the host with a CNAME
+(`story me domain <domain>` prints it). The host serves the domain once
+`https://<domain>/.overstory/domain-check` answers with its own token, checked on the
+profile-locator schedule (about a minute). Getting the name to the host with a
+certificate is the operator's part and depends on where the host runs: behind a proxy
+that issues certificates on demand (Caddy's on-demand TLS, for example) nothing more is
+needed; on a platform that routes only names added to the service, add the domain there.
 
 ### Rate limits and proxies
 
@@ -156,6 +238,33 @@ Compose recipe below is one hop. Before setting the value for a Railway or
 CDN deployment, look at the `X-Forwarded-For` a request through the public
 domain actually arrives with, and count from that.
 
+### Views and mutations
+
+A host runs authored views and mutations only for the modules `OVERSTORYD_ACTIVATIONS`
+names ([the execution sidecar](../../../docs/architecture/overstoryd/execution-sidecar.md)).
+Each entry pins a module to a root object of its tree:
+
+```json
+[{ "tree": "tr_…", "path": "/supplies/List.tsx", "root": "sha256:…" }]
+```
+
+- **Who runs.** The code runs with each caller's own authority until Apps 010, so
+  activate only your own apps, on a host you're willing to test them on.
+- **When it loads.** overstoryd reads the file and the modules' code the first time a
+  view or mutation is asked for, and starts the sidecar then. Health, readiness, reads
+  and updates never wait for it. An activation that doesn't load is logged and left out;
+  its handles answer "not active". To change what runs, edit the file and restart.
+- **Limits.** One question may run for 30 seconds before the sidecar is restarted and
+  every question in flight fails as retryable. At most 64 questions are in flight; more
+  answer 503. A stream buffers 64 events and closes when a client can't keep up. A
+  materialization's disk budget is 1 GiB, beyond which idle ones are evicted.
+- **Shutdown and rollback.** Stopping the host stops the sidecar. A mutation stopped
+  between the host accepting it and the sidecar writing its receipt is answered from
+  the host's receipt on retry. To roll back, unset `OVERSTORYD_ACTIVATIONS` and restart:
+  the routes answer `unsupported-operation` and nothing else changes.
+  `<data>/exec/code`, `<data>/exec/compiled` and `<data>/materialized` are caches;
+  `<data>/exec/mutation-receipts.sqlite3` is kept with the host's data.
+
 ### Health and readiness
 
 `GET /` is the readiness probe; Railway checks it. `GET /.overstory/health` is a
@@ -170,13 +279,15 @@ deliberately, once, after a deploy or migration.
 
 overstoryd runs SQLite in WAL mode with `PRAGMA synchronous = NORMAL`. A process
 crash loses nothing. An OS crash or power loss can lose the most recent
-commits but cannot corrupt the database. Objects are fsynced before the commit
-that names them, so a lost commit leaves only unreferenced objects, never a
-reference to missing bytes. Back up with an application-consistent copy
+commits but cannot corrupt the database. Objects are synced (appended to the
+object journal under `objects/packs/`) before the commit that names them, so a
+lost commit leaves only unreferenced objects, never a reference to missing
+bytes; a journal record whose index row was lost is indexed again at startup. Back up with an application-consistent copy
 (`VACUUM INTO`) plus a tar of `objects/`, as the [migration procedure](../migrations/README.md) does.
 `objects/packs/index.sqlite3` is a SQLite database too: copy it with
 `VACUUM INTO` (or `.backup`) and take its packs after it, since a pack is
-written and synced before any index row names it.
+written and synced before any index row names it (a journal may hold records
+past what the copied index names; the host indexes them as it starts).
 
 ### Packed objects
 

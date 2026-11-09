@@ -6,7 +6,6 @@ import type {
   PredicateExpression,
   QueryCardinality,
   QueryPlan,
-  SelectionValue,
   StandardSchemaV1,
   ValueExpression,
 } from "./authoring.ts";
@@ -35,6 +34,8 @@ export class QueryUserRequiredError extends Error {
 export interface QueryValueContext {
   input: unknown;
   user: OverstoryUser | null;
+  /** Rows bound by scope, for fields of rows other than the current one (views' enclosing rows). */
+  bindings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 }
 
 export function parameterValue(input: unknown, path: readonly string[]): unknown {
@@ -51,7 +52,12 @@ export function runtimeQueryValue(
   row: Record<string, unknown>,
   context: QueryValueContext,
 ): unknown {
-  if (value.kind === "field") return row[value.field];
+  if (value.kind === "field") {
+    if (!value.scope || value.scope === "self") return row[value.field];
+    const bound = context.bindings?.[value.scope];
+    if (!bound) throw new QueryCompileError(`No row is bound for ${value.relation}.${value.field}`);
+    return bound[value.field];
+  }
   if (value.kind === "parameter") return parameterValue(context.input, value.path);
   if (value.kind === "user") return context.user?.[value.field] ?? null;
   if (value.kind === "literal") return value.value;
@@ -68,7 +74,8 @@ export function evaluateQueryPredicate(
   context: QueryValueContext,
 ): boolean {
   if (!predicate) return true;
-  if (predicate.kind === "exists") throw new QueryCompileError("some() is evaluated only inside the database");
+  if (predicate.kind === "exists" || predicate.kind === "some") throw new QueryCompileError("Joins are evaluated only inside the database");
+  if (predicate.kind === "not") return !evaluateQueryPredicate(predicate.operand, row, context);
   if (predicate.kind === "logical") {
     return predicate.operator === "and"
       ? predicate.operands.every((operand) => evaluateQueryPredicate(operand, row, context))
@@ -142,34 +149,6 @@ export function finishCardinality(
   return rows[0] ?? null;
 }
 
-export function shapeQueryRow(
-  row: Record<string, unknown>,
-  selection: Record<string, SelectionValue>,
-): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(selection).map(([name, selected]) => [
-    name,
-    row[selected.kind === "field" ? selected.field : name],
-  ]));
-}
-
-/** Property fields whose changes can affect one portable node-query result. */
-export function portableQueryFields(plan: QueryPlan): ReadonlySet<string> {
-  const fields = new Set<string>();
-  const visitValue = (value: ValueExpression) => {
-    if (value.kind === "field") fields.add(value.field);
-  };
-  const visitPredicate = (predicate: PredicateExpression) => {
-    if (predicate.kind === "logical") predicate.operands.forEach(visitPredicate);
-    else if (predicate.kind === "comparison") {
-      visitValue(predicate.left);
-      visitValue(predicate.right);
-    }
-  };
-  if (plan.where) visitPredicate(plan.where);
-  for (const selected of Object.values(plan.select)) visitValue(selected as ValueExpression);
-  return fields;
-}
-
 /** Validate the deliberately small provider-neutral query algebra. */
 export function validatePortableNodePlan(plan: QueryPlan): void {
   if (plan.orderBy.length) throw new QueryCompileError("The portable node-query subset does not support authored ordering");
@@ -183,8 +162,8 @@ export function validatePortableNodePlan(plan: QueryPlan): void {
     if (value.kind === "logical") {
       if (value.operands.length === 0) throw new QueryCompileError("A logical predicate cannot be empty");
       value.operands.forEach(visitPredicate);
-    } else if (value.kind === "exists") {
-      throw new QueryCompileError("The portable node-query subset does not support some()");
+    } else if (value.kind === "exists" || value.kind === "some" || value.kind === "not") {
+      throw new QueryCompileError("The portable node-query subset supports only plain comparisons");
     } else {
       visitValue(value.left);
       visitValue(value.right);

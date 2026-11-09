@@ -1,7 +1,7 @@
 # Accounts and devices
 *Part of the [Overstory spec](README.md): profile identity, host accounts, each hosted tree's private tree configuration, devices, and how a hosted tree is declared, activated and mounted.*
 
-*Owns: profile documents, self-certifying person identity, host account claims, the tree configuration graph and YAML, device pairing, tree declaration, activation and mounting, and the `tree-config-v1` write and merge rules. References: [locators](03-locators.md) for the host-defined canonical URLs, [access control](05-access-control.md) for subjects, rules, and credentials, and the [data model](01-tree-operations.md) for synchronization. Filesystem placements and private identity keys are deliberately local rather than part of this portable graph.*
+*Owns: profile documents, self-certifying person identity, host account claims, visitor sessions, the tree configuration graph and YAML, device pairing, tree declaration, activation and mounting, and the `tree-config-v1` write and merge rules. References: [locators](03-locators.md) for the host-defined canonical URLs, [access control](05-access-control.md) for subjects, rules, and credentials, and the [data model](01-tree-operations.md) for synchronization. Filesystem placements and private identity keys are deliberately local rather than part of this portable graph.*
 
 ## 1. Profiles and host accounts
 
@@ -41,6 +41,18 @@ invalidating the profile. They never participate in identity or authorization.
 When a group omits `displayName`, directory presentation uses the plain text of
 its first authored H1 as the group name. This fallback remains presentation
 only and does not add or imply a `displayName` field.
+
+A person profile may also list the domains it answers to, as lowercase DNS
+names (a loopback test host with its port):
+
+```yaml
+domains: [alice.example]
+```
+
+A domain names the profile only when the domain's own records name it back
+([locators §1.1](03-locators.md#11-domain-locators)); the list alone grants
+nothing, and a malformed entry is ignored. A domain pointed at the profile's own host also
+serves the person's trees there ([locators §5.1](03-locators.md#51-trees-at-a-persons-domain)).
 
 A **host account** is host state: the host's record that one profile
 `TreeID` is claimed there, with the DeviceIDs that profile's devices have
@@ -84,8 +96,12 @@ overstoryd also accepts a pending community invitation with `handle` and
 `inviteDigest: sha256:<hex>` in place of `profile`. It reserves the account
 address but is not yet a member for access purposes. The administrator gives
 the prospective member a 22-character base64url code generated from 16 random
-bytes; the SHA-256 digest of its UTF-8 text is authored there. The invitation
-remains valid until claimed or removed from the community profile.
+bytes; the SHA-256 digest of its UTF-8 text, as `sha256:` and lowercase hex, is
+authored there, in an entry holding exactly `handle` and `inviteDigest`. The code
+travels only in the join link, `https://<host>/~<handle>#overstory-invite=<code>`
+([conformance `invitations.json`](conformance/invitations.json)). The invitation
+remains valid until claimed or removed from the community profile; replacing its
+digest gives it a new code and retires the old link.
 On a successful signed claim, overstoryd replaces that entry with the claimant's
 `profile` locator and retains its handle. This pending form is host allocation
 policy, not a group membership identity; other group profiles continue to name
@@ -169,6 +185,23 @@ host, in the challenge request and the claim body, and keeps it out of logs,
 stored locators and anything it publishes. A
 host founder supplies the same public TreeID as bootstrap configuration, so
 founding removes only that out-of-band handoff and does not waive proof.
+
+**Founding by code.** A host may instead be founded with no profile at all: its
+bootstrap configuration names the founder's handle and an invitation code, and
+the community starts with that one pending invitation and no administrator
+profile. (Its configuration grants `admin` to the community group, which has
+no member who could act on it yet; a host may record the same state another
+way.) While a community is founding, the first invitation claimed, whether as
+an account here or as a placement (§1.4), also makes its claimer the
+community's administrator: the host rewrites the community's `access.yaml` so
+that it grants `admin` to the claimer's profile and no longer to the group, and
+the community is founding no more. Nobody can make another invitation in the
+meantime, so that claim is the founder's. The founder link is an ordinary
+invitation link and reaches the founder through the host's operator, outside
+the protocol; a host shows it only to its operator. While founding, a host's
+`health` answers `"founding": true`
+([locators §5](03-locators.md#5-finding-trees)), so a client can tell the
+founder that the community is theirs before they claim it.
 
 The challenge request contains `profileTree`, `configurationTree` (the
 profile's derived configuration TreeID, §2.1), and an optional `account` URL
@@ -334,10 +367,12 @@ there, and nobody else's.
 
 ```text
 POST /.overstory/account-challenges
-PUT /.overstory/placements
+PUT /.overstory/accounts
 ```
 
-A person has one profile identity and one home host. An invitation link
+Joining a community is one route in two forms: a claim (§1.2) makes the host
+the profile's home, and a body carrying `profile` makes it a member whose home
+is elsewhere. A person has one profile identity and one home host. An invitation link
 (§1.2) opened by a client whose profile is already claimed at another host
 is accepted as a placement: the pending entry becomes a member naming the
 profile by its canonical locator at its home host, exactly as if the
@@ -350,7 +385,7 @@ its code as `inviteCode`, `profileTree`, its derived `configurationTree`, and
 a `profile` whose authority is itself. The challenge has the same fields as a
 claim's and is signed the same way with the profile key.
 
-The acceptance body carries `account`, `profile`, `profileTree`,
+The acceptance is `PUT /.overstory/accounts`, and its body carries `account`, `profile`, `profileTree`,
 `configurationTree`, `inviteCode`, the `challenge`, the raw `publicKey` and
 the Ed25519 `signature`. It carries no device and no configuration: those stay
 at the home host.
@@ -378,8 +413,9 @@ the same commit as for any member a community adds by locator (§1.3). A
 refused. The challenge is consumed in that commit.
 A home host that does not publish the profile's device keys refuses the
 acceptance as §1.3 refuses the update, naming it in `details.homeHost`, and
-changes nothing. The response is the placement account's descriptor (§1.3).
-Exact retry after success returns the same descriptor; any other attempt on
+changes nothing. The response is `{ "account": … }`, the placement
+account's descriptor (§1.3), with no `configuration`: that stays at the home
+host. Exact retry after success returns the same answer; any other attempt on
 the consumed invitation returns `already-claimed`.
 
 A client that already holds the profile's key needs no new device step: the
@@ -698,6 +734,11 @@ is deleted, a recovery included, whichever comes first, and it cannot open anoth
 session; the device signs a new challenge instead. A watch ends when its
 session does ([access control §3.2](05-access-control.md#32-watches-and-revocation)).
 
+A request with a session may also send `Overstory-Client: <name>/<version>…`
+(for example `Story/0.1.8 (42; iOS)` or `story-sync/0.1.8+42`). It changes
+nothing a host serves; a host may record it so its operator can tell which
+client each device runs.
+
 ### 5.2 A device's key
 
 A device's key is fixed when it enrolls, by claiming an account (§1.2) or
@@ -727,7 +768,7 @@ pairing expires like any other.
 ### 5.4 Published device keys
 
 ```text
-GET /.overstory/profiles/{ProfileTreeID}/device-keys
+GET /.overstory/peer/profiles/{ProfileTreeID}/device-keys
 ```
 
 A home host serves, for each profile it is home to and to anyone without
@@ -803,6 +844,47 @@ device, and deleting it from `devices.yaml` ends the link. The link reaches
 everything the account can, not only the tree it names; the tree is what is
 checked out. [conformance/agent-code.json](conformance/agent-code.json) pins
 the derivation and the link's form.
+
+### 5.6 Visitor sessions
+
+A profile may read at a host where it has no account. A **visitor** asks
+for a session challenge (§5.1) naming its profile, its device, and its home
+host's origin as `homeHost`:
+
+```json
+{ "profileTree": "tr_…", "device": "dv_…", "homeHost": "https://home.example" }
+```
+
+The host reads that home host's published device keys (§5.4) for the
+profile, with the same lifetime, grace, refresh and early-refetch rules a
+placement host keeps, and issues a challenge only for a device they list.
+The challenge carries the same `homeHost`, so the device signs it too. The
+host refuses a `homeHost` that is itself, or that is not HTTPS (a loopback
+host may name a loopback home). A profile that has an enabled account at the
+host, home or placement, gets an ordinary challenge without `homeHost`, and
+the client accepts it: its session is then the account's.
+
+A visitor session is a bearer token like any other, for at most an hour and
+no longer than the copy it was opened from serves. It holds no account: the
+host stores nothing about the visitor and may keep visitor sessions in
+memory only, so a restart ends them and the client opens another after the
+`401`. A refresh that no longer lists the device, or lists it with another
+key, ends its sessions and watches as it does a placement account's.
+
+A visitor is vouched for only by the home host it named, so it is the
+profile only as that host's locators name it. It reads a tree when a rule
+(or an `admin` entry) names the profile by a locator at that home host
+pinned to its TreeID, when a group does so through a member entry naming it
+by such a locator, or when the group is held at that home host and its copy
+lists the profile ([access control §1](05-access-control.md#1-subjects-and-rules)).
+A domain locator ([locators §1.1](03-locators.md#11-domain-locators)) is at
+the home host its records named when the host last confirmed them.
+`everyone` and a presented link reach it as they reach anyone. A bare TreeID
+subject names a profile the host holds, so it never matches a visitor. A
+visitor only reads, watches and fetches objects: every other route treats it
+as no account at all, and it never sees a tree configuration. Writing, and
+being someone at a host, still need the community to reserve the profile
+(§1.3).
 
 ## 6. Declaring, activating and mounting a tree
 

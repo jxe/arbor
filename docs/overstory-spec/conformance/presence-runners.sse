@@ -1,0 +1,17 @@
+: ready
+
+event: presence.ready
+data: {"self":"pr_phone","peers":[{"id":"pr_mac","profile":"tr_anaprofile","name":"Ana","page":null,"agent":null,"device":"mac","runner":"Ana's Mac"}]}
+
+event: presence.message
+data: {"from":"pr_phone","body":{"kind":"run","request":{"tree":"https://garden.example/~ana/days","page":{"path":"/Today","stableKey":null},"task":{"text":"Sort the shopping list by aisle","range":null},"run":"run_7Kq2"}}}
+
+event: presence.peer
+data: {"id":"pr_agent","profile":"tr_anaprofile","name":"Ana","page":{"path":"/Today","stableKey":null},"agent":{"label":"Claude","status":"sorting","run":"run_7Kq2"},"device":null,"runner":null}
+
+event: presence.message
+data: {"from":"pr_mac","body":{"kind":"stop","run":"run_7Kq2"}}
+
+event: presence.message
+data: {"from":"pr_mac","body":{"kind":"done","run":"run_7Kq2","result":"Sorted 14 items into 5 aisles."}}
+
