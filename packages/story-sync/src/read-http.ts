@@ -2,6 +2,7 @@ import {
   decodePathReadPath,
   encodeAcceptedTransitionJSON,
   encodePathReadBundle,
+  encodePathReadPath,
   encodeSnapshotBundle,
   encodeSSEFrame,
   ProtocolError,
@@ -48,7 +49,14 @@ export function readHandler(service: ReadHTTPService) {
     }
     if ((match = routes.snapshot.exec(url.pathname))) {
       const root = match[2] as ObjectHash;
-      const snapshot = await service.snapshot(decodeURIComponent(match[1]!), root);
+      const tree = decodeURIComponent(match[1]!);
+      // Entry times are the host's acceptance times (§1.1.2a): a timed read
+      // is the host's, checked by the client and passed on.
+      if (url.searchParams.has("times")) {
+        const { snapshot, times } = await (await service.hostClient(tree)).timedSnapshot(tree, root);
+        return new Response(encodeSnapshotBundle(snapshot, times) as Uint8Array<ArrayBuffer>, { headers: immutable("application/cbor", `${root};times`) });
+      }
+      const snapshot = await service.snapshot(tree, root);
       return new Response(encodeSnapshotBundle(snapshot) as Uint8Array<ArrayBuffer>, { headers: immutable("application/cbor", root) });
     }
     if ((match = routes.path.exec(url.pathname))) {
@@ -56,8 +64,13 @@ export function readHandler(service: ReadHTTPService) {
       let path: string;
       try { path = decodePathReadPath(match[3] ?? "/"); }
       catch { throw new ProtocolError("invalid-request", "The path is not a valid logical path", 400); }
-      const objects = await service.pathRead(decodeURIComponent(match[1]!), root, path);
-      return new Response(encodePathReadBundle(objects) as Uint8Array<ArrayBuffer>, { headers: immutable("application/cbor", `${root}${path}`) });
+      const tree = decodeURIComponent(match[1]!);
+      if (url.searchParams.has("times")) {
+        const { objects, times } = await (await service.hostClient(tree)).timedPathRead(tree, root, path);
+        return new Response(encodePathReadBundle(objects, times) as Uint8Array<ArrayBuffer>, { headers: immutable("application/cbor", `${root}${encodePathReadPath(path)};times`) });
+      }
+      const objects = await service.pathRead(tree, root, path);
+      return new Response(encodePathReadBundle(objects) as Uint8Array<ArrayBuffer>, { headers: immutable("application/cbor", `${root}${encodePathReadPath(path)}`) });
     }
     if ((match = routes.object.exec(url.pathname))) {
       const tree = decodeURIComponent(match[1]!);

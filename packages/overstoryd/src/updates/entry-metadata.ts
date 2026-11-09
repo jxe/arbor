@@ -14,6 +14,10 @@ interface EntryChange {
   path: string;
   hash: ObjectHash;
   document?: { key: string };
+  /** The object this entry had at the same path when only its kind changed
+   * (a file converted to a page, or back): the same content, so its entry
+   * time carries over (tree operations §1.1.2a). */
+  converted?: ObjectHash;
 }
 
 export interface EntryChanges {
@@ -47,12 +51,14 @@ export function documentKey(path: string, source: string): string {
  * The file entries that differ between two accepted roots: every file whose
  * object is new or changed (a move is a change at its new path), and every
  * file path that is gone. Nested tree boundaries belong to their own tree and
- * are skipped. `before` is null for a tree's first update.
+ * are skipped. `before` is null for a tree's first update. With `documents:
+ * false` no file is read, so no entry carries a document key.
  */
 export async function entryChanges(
   before: ObjectHash | null,
   after: ObjectHash,
   load: LoadObject | TreeReader,
+  options: { documents?: boolean } = {},
 ): Promise<EntryChanges> {
   const reader = treeReader(load);
   const changes: EntryChanges = { set: [], removed: [] };
@@ -64,7 +70,8 @@ export async function entryChanges(
       if (was) changes.removed.push(path);
       if (next && now) {
         const change: EntryChange = { path, hash: now };
-        if (path.endsWith(".md")) change.document = { key: documentKey(path, decoder.decode(next.page ? protocolContentBytes("page", await reader.bytes(now)) : await reader.bytes(now))) };
+        if (was && Boolean(old?.page) !== Boolean(next.page)) change.converted = was;
+        if (options.documents !== false && path.endsWith(".md")) change.document = { key: documentKey(path, decoder.decode(next.page ? protocolContentBytes("page", await reader.bytes(now)) : await reader.bytes(now))) };
         changes.set.push(change);
       }
       // An added or removed directory contributes every file beneath it.

@@ -47,8 +47,8 @@ import {
 } from "./updates/json.ts";
 import { updateRequestDigests } from "./updates/intent.ts";
 import { CONFIGURATION_PARAMETER, parseTreeReference, treeConfigurationID } from "./config/tree-config.ts";
-import { decodeSnapshotBundle } from "./snapshots.ts";
-import { decodePathReadBundle, encodePathReadPath } from "./path-read.ts";
+import { decodeSnapshotBundle, decodeTimedSnapshotBundle, type EntryTimes } from "./snapshots.ts";
+import { decodePathReadBundle, decodeTimedPathReadBundle, encodePathReadPath } from "./path-read.ts";
 
 
 /** Three missed keepalives. */
@@ -466,6 +466,15 @@ export class ProtocolClient {
   }
 
   async snapshot(tree: string, root: string): Promise<TreeSnapshot> {
+    return decodeSnapshotBundle(root, await this.snapshotBytes(tree, root, false));
+  }
+
+  /** A snapshot read with its entry times (tree operations §1.1.2a). */
+  async timedSnapshot(tree: string, root: string): Promise<{ snapshot: TreeSnapshot; times: EntryTimes }> {
+    return decodeTimedSnapshotBundle(root, await this.snapshotBytes(tree, root, true));
+  }
+
+  private async snapshotBytes(tree: string, root: string, times: boolean): Promise<Uint8Array> {
     if (!/^sha256:[a-f0-9]{64}$/.test(root)) throw new Error("Snapshot root hash is invalid");
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -476,7 +485,7 @@ export class ProtocolClient {
     expectProgress();
     try {
       const response = await this.checked(await this.request(
-        `/.overstory/trees/${encodeURIComponent(tree)}/snapshots/${root}`,
+        `/.overstory/trees/${encodeURIComponent(tree)}/snapshots/${root}${times ? "?times" : ""}`,
         {
           headers: { ...this.headers(), accept: "application/cbor" },
           signal: controller.signal,
@@ -502,7 +511,7 @@ export class ProtocolClient {
         bytes.set(chunk, offset);
         offset += chunk.byteLength;
       }
-      return decodeSnapshotBundle(root, bytes);
+      return bytes;
     } catch (error) {
       if (controller.signal.aborted) {
         throw new ProtocolTransportError(`Snapshot transfer from ${this.origin} stopped making progress`, error);
@@ -524,6 +533,16 @@ export class ProtocolClient {
       { headers: { ...this.headers(), accept: "application/cbor" } },
     ));
     return decodePathReadBundle(root, path, new Uint8Array(await response.arrayBuffer()));
+  }
+
+  /** A path read with the entry times of its directories (tree operations §1.1.2a). */
+  async timedPathRead(tree: string, root: string, path: string): Promise<{ objects: Map<ObjectHash, Uint8Array>; times: EntryTimes }> {
+    if (!/^sha256:[a-f0-9]{64}$/.test(root)) throw new Error("Snapshot root hash is invalid");
+    const response = await this.checked(await this.request(
+      `/.overstory/trees/${encodeURIComponent(tree)}/snapshots/${root}/path${encodePathReadPath(path)}?times`,
+      { headers: { ...this.headers(), accept: "application/cbor" } },
+    ));
+    return decodeTimedPathReadBundle(root as ObjectHash, path, new Uint8Array(await response.arrayBuffer()));
   }
 
   /** Descriptive dates of the current accepted root's file entries (tree operations §1.1.2a). */

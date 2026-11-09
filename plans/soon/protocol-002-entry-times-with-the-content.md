@@ -13,19 +13,28 @@ moved forward on every write, so it cannot date an older root.
 
 ## Steps
 
-1. **A first-appearance index.** One SQLite row per `(tree, entry path, object hash)` the
-   tree has held: the `acceptedAt` of the first accepted update that put that object at that
-   path. Written in the accepted update's transaction from the same tree diff
-   `EntryMetadataStore.apply` walks (insert-or-ignore, so only new pairs cost a write), and
-   kept while any retained root holds the pair. Lookup for a bundle: every file and page
-   entry of its directories, by `(path, hash)`.
-2. **Fill it from history.** One pass over retained accepted updates, oldest first, in
-   batches outside the merge worker (the 2026-11-01 backfill lesson), resumable, with
-   the host serving the old route meanwhile. Rehearse on a copy of Joe's real data with a
-   cold start and real time limits before deploying; Railway's disk is slow, so measure
-   the rows written and fsyncs.
-3. **Serve `?times`** on snapshot and path reads (`times` member, ETag `;times`), and a
-   conformance vector for a timed bundle. Story Sync answers it on loopback the same way.
-4. **Clients move:** the TS protocol client, Story Sync's reads, and Swift
-   (`ProtocolClient.entryMetadata` callers, `TreeSession`) read `times` from the bundle;
-   then Protocol 001 removes `entry-metadata`.
+1-3 are built (`packages/overstoryd/src/updates/entry-times.ts`), waiting on the
+rehearsal and a deploy:
+
+- The index is a rebuildable cache, `entry-times.sqlite3` beside the host database:
+  one row per `(tree, entry path, object hash)` with its first `acceptedAt`, and
+  each tree's last indexed update. It follows from accepted history alone, so it is
+  written just after each acceptance commits (WAL, batched, no fsync of its own), and
+  the backfill is the same catch-up run from update 0, in the host process, sliced so
+  requests keep flowing, never on the merge worker. A lost or stale index catches up
+  on the next start. A timed read of a root the index has not reached waits for it if
+  it is close, else answers 503 retryable.
+- Kind changes (file to page and back) keep their time. A tree's first retained
+  root (history squashed by migration 016) takes earlier dates from
+  `document_versions` and `entry_metadata` where they have them.
+- `?times` on snapshot and path reads; TS client `timedSnapshot` / `timedPathRead`;
+  Story Sync answers `?times` on loopback by passing on the host's timed read.
+  Conformance vector in `protocol-snapshot-bundles.json` (`timed`).
+
+Left:
+
+1. **Rehearse** with `tests/performance/rehearse-entry-times.ts <copy of /data>` on a
+   copy of Joe's real data (cold start, rebuild, comparison with `entry_metadata`),
+   then deploy with Joe's go.
+2. **Clients move:** Swift (`ProtocolClient.entryMetadata`, `TreeSession.refreshEntryDates`)
+   reads `times` from the bundle; then Protocol 001 removes `entry-metadata`.

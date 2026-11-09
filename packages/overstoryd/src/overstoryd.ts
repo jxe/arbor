@@ -1,4 +1,5 @@
 import { EntryMetadataStore, entryChanges, type EntryChanges } from "./updates/entry-metadata.ts";
+import { EntryTimeIndex } from "./updates/entry-times.ts";
 import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, NotFoundError, PermissionDeniedError, PlacementAccountError, RefConflictError, ReservedBoundaryConflictError, ServerBusyError, ServerFaultError, UpdateProtocolError } from "./errors.ts";
 import { PackMaintenance } from "./pack-maintenance.ts";
 import { PlacementDeviceKeys, type DeviceKeyCopy, type ListedDevice } from "./placement.ts";
@@ -413,6 +414,8 @@ export class HostDaemon implements AsyncDisposable {
   private remoteGroupTimer: ReturnType<typeof setTimeout> | undefined;
   /** Background object packing (overstoryd 001). */
   readonly packing: PackMaintenance;
+  /** When each entry's content first appeared at its path (tree operations §1.1.2a). */
+  readonly entryTimes: EntryTimeIndex;
   private disposed = false;
   /** Where this host serves `pages-v1`: every tree, or the trees listed. */
   readonly pages: boolean | readonly string[] = false;
@@ -437,6 +440,7 @@ export class HostDaemon implements AsyncDisposable {
       new ProvenanceStore(dataRoot, this.objects, (hash) => this.history.entry(hash)),
       (tree) => this.fillProvenance(tree));
     this.packing = new PackMaintenance(db, this.objects, join(dataRoot, "objects"));
+    this.entryTimes = new EntryTimeIndex(join(dataRoot, "entry-times.sqlite3"), db, () => this.storedReader());
     this.observations = new ObservationLog(db);
     this.accounts = new AccountDirectory(db);
     this.access = new AccessControl(db, {
@@ -546,6 +550,8 @@ export class HostDaemon implements AsyncDisposable {
     overstoryd.scheduleRemoteGroupRefresh();
     void overstoryd.refreshRemoteGroups();
     overstoryd.packing.start();
+    // Indexed in the background; a timed read of a tree not yet caught up is refused until it is.
+    void overstoryd.entryTimes.catchUpAll();
     if (overstoryd.provenanceFill) for (const tree of overstoryd.list()) overstoryd.fillProvenance(tree.id);
     return overstoryd;
   }
@@ -789,6 +795,11 @@ export class HostDaemon implements AsyncDisposable {
       if (!bytes) throw new Error(`Retained root ${root} is missing ${hash}`);
       return bytes;
     });
+  }
+
+  /** The entry times of a snapshot or path read's directories (tree operations §1.1.2a). */
+  entryTimesFor(treeID: string, root: ObjectHash, objects: Map<ObjectHash, Uint8Array>): Promise<Record<string, number>> {
+    return this.entryTimes.times(treeID, root, objects);
   }
 
   /** Descriptive metadata of the current accepted root's file entries, keyed
@@ -2811,6 +2822,7 @@ export class HostDaemon implements AsyncDisposable {
       try { listener(update); } catch (error) { console.error("overstoryd accepted-update listener failed", error); }
     }
     this.packing.notify();
+    this.entryTimes.notify(update.tree);
     const record = this.observations.get(update.id);
     if (record) this.notifyObservation(record);
     // A configuration may name a remote group this host has no copy of yet.
@@ -3342,6 +3354,7 @@ export class HostDaemon implements AsyncDisposable {
     clearTimeout(this.deviceKeyTimer);
     clearTimeout(this.remoteGroupTimer);
     await this.packing[Symbol.asyncDispose]();
+    await this.entryTimes.close();
     await this.mergeTool[Symbol.asyncDispose]();
     this.wireSchemas.clear();
     this.objects.packs.close();

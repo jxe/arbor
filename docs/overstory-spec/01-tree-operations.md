@@ -384,7 +384,11 @@ holds that entry's object at that directory-entry path. It is a function of the
 root alone, like everything else the snapshot read answers, so it is immutable
 with it. A move is new content at its new path and is dated by the move;
 content changed and later restored keeps the time it first had there, and the
-restore is visible in history, not in the time.
+restore is visible in history, not in the time. Converting a file entry to a
+page entry, or back ([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity)),
+changes its kind, not its content, and keeps its time. A host whose retained
+history begins with a squashed root may date that root's entries from older
+records it kept, never later than that root's own `acceptedAt`.
 
 With `times`, a snapshot read (§1.1.2) or a path read (§1.2.4) answers the same
 bundle with one more member:
@@ -402,7 +406,9 @@ bundle, keyed by its directory-entry path (not its logical page path; a client
 maps a page to its body entry), and no other key. Nested-tree boundaries have no
 time. Without `times` the bundle is exactly §1.1.2's. The response's access,
 `404`s, `Vary` and `Cache-Control` are those of the read it extends; its quoted
-`ETag` is that read's followed by `;times`.
+`ETag` is that read's followed by `;times`. A host still indexing a tree's
+history answers `503 internal-error` with `retryable: true`. A local reader
+such as Story Sync on loopback answers `times` with the host's.
 
 Times are never part of an object or a hash: identical content hashes
 identically wherever and whenever it was written, and a time is always the
