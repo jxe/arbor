@@ -417,11 +417,8 @@ export class ProtocolClient {
 
   /** A profile's key devices, as its home host publishes them for placement hosts (accounts §5.4). */
   async publishedDeviceKeys(profileTree: TreeID): Promise<PublishedDeviceKeys> {
-    const path = `/profiles/${encodeURIComponent(profileTree)}/device-keys`;
-    let response = await this.request(`/.overstory/peer${path}`, {});
-    // A home host not yet updated answers only the old path (plans/soon/protocol-001).
-    if (response.status === 404) { await response.body?.cancel(); response = await this.request(`/.overstory${path}`, {}); }
-    return decodePublishedDeviceKeys(await (await this.checked(response)).json(), profileTree);
+    const response = await this.checked(await this.request(`/.overstory/peer/profiles/${encodeURIComponent(profileTree)}/device-keys`, {}));
+    return decodePublishedDeviceKeys(await response.json(), profileTree);
   }
 
   async createDeviceSessionChallenge(input: { profileTree?: TreeID; device: string; homeHost?: string }): Promise<DeviceSessionChallenge> {

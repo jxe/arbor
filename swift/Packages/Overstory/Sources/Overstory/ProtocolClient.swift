@@ -366,8 +366,9 @@ public actor ProtocolClient {
         publicKey: String,
         signature: String
     ) async throws {
+        // One route joins a community: with `profile`, as a member homed elsewhere (accounts §1.4).
         let _: PlacementAcceptance = try await put(
-            path: "/.overstory/placements",
+            path: "/.overstory/accounts",
             body: PlacementAcceptanceRequest(
                 account: account, profile: profile, profileTree: profileTree, configurationTree: configurationTree,
                 inviteCode: inviteCode, challenge: challenge, publicKey: publicKey, signature: signature
@@ -883,6 +884,7 @@ private struct PlacementAcceptanceRequest: Encodable {
     var signature: String
 }
 /// The host answers the placement's descriptor; the caller connects to it next.
+/// The answer, `{ account }`; the caller reads the account through a session afterwards.
 private struct PlacementAcceptance: Decodable {}
 private struct DeviceSessionChallengeRequest: Encodable {
     var profileTree: String
