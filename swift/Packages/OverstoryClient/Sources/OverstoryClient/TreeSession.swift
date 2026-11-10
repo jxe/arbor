@@ -265,14 +265,18 @@ public struct TreeSession: Sendable {
         return workingTree
     }
 
-    /// The host's entry dates for the tree, applied to the working tree.
-    /// Returns them so the caller can cache them; nil when the read failed.
+    /// The host's entry dates for the tree's current root, applied to the
+    /// working tree: a timed snapshot read (tree operations §1.1.2a), so each
+    /// date is when that content first appeared at its path. Returns them so
+    /// the caller can cache them; nil when the read failed (a host still
+    /// indexing answers 503, and the dates the tree has stay).
     @discardableResult
     public func refreshEntryDates() async -> (update: String, dates: [String: Date])? {
-        guard let metadata = try? await client.entryMetadata(tree: tree.id) else { return nil }
-        let dates = metadata.entries.compactMapValues { $0.modifiedAt.map { Date(timeIntervalSince1970: $0 / 1_000) } }
-        try? await workingTree.applyEntryDates(dates, update: metadata.update)
-        return (metadata.update, dates)
+        guard let current = try? await client.descriptor(tree: tree.id),
+              let read = try? await client.timedSnapshot(tree: tree.id, root: current.tree.root) else { return nil }
+        let dates = read.times.mapValues { Date(timeIntervalSince1970: $0 / 1_000) }
+        try? await workingTree.applyEntryDates(dates, update: current.tree.update)
+        return (current.tree.update, dates)
     }
 
     /// Follow the host's watch for a read-only session. An accepted update

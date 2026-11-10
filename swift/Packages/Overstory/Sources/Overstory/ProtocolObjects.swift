@@ -456,12 +456,58 @@ public enum ProtocolSnapshotBundleCodec {
         root: String,
         mode: ProtocolObjectGraph.ValidationMode = .complete
     ) throws -> ProtocolSnapshot {
+        let (snapshot, times) = try decodeBundle(data, root: root, mode: mode)
+        guard times == nil else { throw ProtocolValidationError.invalidCBOR("Snapshot bundle fields are invalid") }
+        return snapshot
+    }
+
+    /// A snapshot read with `?times` (tree operations §1.1.2a): the snapshot,
+    /// and the Unix-millisecond time of every file and page entry of its
+    /// directories, keyed by entry path (`/Trips/_index.md`).
+    public static func decodeTimed(_ data: Data, root: String) throws -> (snapshot: ProtocolSnapshot, times: [String: Double]) {
+        let (snapshot, times) = try decodeBundle(data, root: root, mode: .complete)
+        guard let times else { throw ProtocolValidationError.invalidCBOR("Snapshot bundle has no times") }
+        // Exactly the file and page entries the bundle's directories hold.
+        let bytes = Dictionary(uniqueKeysWithValues: snapshot.objects.map { ($0.hash, $0.bytes) })
+        var entries = Set<String>()
+        func walk(_ hash: String, _ path: String) throws {
+            guard let data = bytes[hash], case let .directory(children, _) = try ProtocolObjectCodec.decode(data, kind: .directory) else { return }
+            for entry in children {
+                let child = "\(path)/\(entry.name)"
+                if let directory = entry.directory { try walk(directory, child) }
+                else if entry.file != nil || entry.page != nil { entries.insert(child) }
+            }
+        }
+        try walk(root, "")
+        guard Set(times.keys) == entries else {
+            throw ProtocolValidationError.invalidValue("Snapshot bundle times do not match its entries")
+        }
+        return (snapshot, times)
+    }
+
+    private static func decodeBundle(
+        _ data: Data,
+        root: String,
+        mode: ProtocolObjectGraph.ValidationMode
+    ) throws -> (ProtocolSnapshot, [String: Double]?) {
         try validateObjectHash(root)
         guard case let .map(fields) = try CanonicalCBOR.decode(data) else {
             throw ProtocolValidationError.invalidCBOR("Snapshot bundle is not a map")
         }
         let values = Dictionary(uniqueKeysWithValues: fields)
-        guard values.count == 2,
+        var times: [String: Double]?
+        if let encodedTimes = values["times"] {
+            guard case let .map(pairs) = encodedTimes else { throw ProtocolValidationError.invalidCBOR("Snapshot bundle times must be a map") }
+            var decoded: [String: Double] = [:]
+            for (path, value) in pairs {
+                guard path.hasPrefix("/"), case let .unsigned(at) = value else {
+                    throw ProtocolValidationError.invalidCBOR("Snapshot bundle time is invalid: \(path)")
+                }
+                decoded[path] = Double(at)
+            }
+            times = decoded
+        }
+        guard values.count == (times == nil ? 2 : 3),
               case .unsigned(1)? = values["version"],
               case let .array(encodedObjects)? = values["objects"] else {
             throw ProtocolValidationError.invalidCBOR("Snapshot bundle fields are invalid")
@@ -484,7 +530,7 @@ public enum ProtocolSnapshotBundleCodec {
         }
         let snapshot = ProtocolSnapshot(root: root, objects: objects)
         _ = try ProtocolObjectGraph.validate(snapshot, mode: mode)
-        return snapshot
+        return (snapshot, times)
     }
 }
 

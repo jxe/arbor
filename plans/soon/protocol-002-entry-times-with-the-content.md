@@ -13,28 +13,25 @@ moved forward on every write, so it cannot date an older root.
 
 ## Steps
 
-1-3 are built (`packages/overstoryd/src/updates/entry-times.ts`), waiting on the
-rehearsal and a deploy:
+Built and deployed 2026-11-10 (791ca391; the live backfill indexed 12,921 updates in
+5.2 s). Swift reads `?times` since the commit after it:
 
-- The index is a rebuildable cache, `entry-times.sqlite3` beside the host database:
-  one row per `(tree, entry path, object hash)` with its first `acceptedAt`, and
-  each tree's last indexed update. It follows from accepted history alone, so it is
-  written just after each acceptance commits (WAL, batched, no fsync of its own), and
-  the backfill is the same catch-up run from update 0, in the host process, sliced so
-  requests keep flowing, never on the merge worker. A lost or stale index catches up
-  on the next start. A timed read of a root the index has not reached waits for it if
-  it is close, else answers 503 retryable.
-- Kind changes (file to page and back) keep their time. A tree's first retained
-  root (history squashed by migration 016) takes earlier dates from
-  `document_versions` and `entry_metadata` where they have them.
-- `?times` on snapshot and path reads; TS client `timedSnapshot` / `timedPathRead`;
-  Story Sync answers `?times` on loopback by passing on the host's timed read.
-  Conformance vector in `protocol-snapshot-bundles.json` (`timed`).
+- The index is a rebuildable cache, `entry-times.sqlite3` beside the host database
+  (`packages/overstoryd/src/updates/entry-times.ts`): one row per `(tree, entry path,
+  object hash)` with its first `acceptedAt`, and each tree's last indexed update. It
+  follows from accepted history alone, so it is written just after each acceptance
+  commits (WAL, batched, no fsync of its own), and the backfill is the same catch-up
+  from update 0, in the host process, sliced, never on the merge worker. A lost or
+  stale index catches up on the next start; a timed read of a root it has not reached
+  waits if close, else answers 503 retryable. `tests/performance/rehearse-entry-times.ts`
+  rehearses it on a copy of a data root.
+- Kind changes (file to page and back) keep their time. A tree's first retained root
+  (history squashed by migration 016) takes earlier dates from `document_versions`
+  and `entry_metadata`.
+- Clients: TS `timedSnapshot` / `timedPathRead`; Story Sync passes the host's timed
+  read through on loopback; Swift `ProtocolClient.timedSnapshot`, which
+  `TreeSession.refreshEntryDates` reads for the current root.
 
-Left:
-
-1. **Rehearse** with `tests/performance/rehearse-entry-times.ts <copy of /data>` on a
-   copy of Joe's real data (cold start, rebuild, comparison with `entry_metadata`),
-   then deploy with Joe's go.
-2. **Clients move:** Swift (`ProtocolClient.entryMetadata`, `TreeSession.refreshEntryDates`)
-   reads `times` from the bundle; then Protocol 001 removes `entry-metadata`.
+Left: once a Story release with the Swift change is out and adopted (Joe, 2026-11-10:
+wait for adoption), Protocol 001 removes `entry-metadata`, `ProtocolClient.entryMetadata`
+and `EntryMetadataStore`'s `entry_metadata` table, then this plan closes.

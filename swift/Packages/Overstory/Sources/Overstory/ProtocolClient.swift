@@ -181,19 +181,30 @@ public actor ProtocolClient {
     }
 
     public func snapshot(tree: String, root: String) async throws -> ProtocolSnapshot {
+        try ProtocolSnapshotBundleCodec.decode(try await snapshotBundle(tree: tree, root: root, times: false), root: root)
+    }
+
+    /// A snapshot read with its entry times (tree operations §1.1.2a): when
+    /// each file and page entry's content first appeared at its path, in Unix
+    /// milliseconds, keyed by entry path. Immutable with the root.
+    public func timedSnapshot(tree: String, root: String) async throws -> (snapshot: ProtocolSnapshot, times: [String: Double]) {
+        try ProtocolSnapshotBundleCodec.decodeTimed(try await snapshotBundle(tree: tree, root: root, times: true), root: root)
+    }
+
+    private func snapshotBundle(tree: String, root: String, times: Bool) async throws -> Data {
         try validateObjectHash(root)
         var request = try await authorizedRequest(
-            path: "/.overstory/trees/\(component(tree))/snapshots/\(component(root))"
+            path: "/.overstory/trees/\(component(tree))/snapshots/\(component(root))\(times ? "?times" : "")"
         )
         request.setValue("application/cbor", forHTTPHeaderField: "Accept")
-        let (data, response) = try await logged(request, kind: .read, name: "snapshot", tree: tree)
+        let (data, response) = try await logged(request, kind: .read, name: times ? "snapshot-times" : "snapshot", tree: tree)
         let status = try statusCode(response)
         try validate(data: data, status: status)
         guard let http = response as? HTTPURLResponse,
               http.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("application/cbor") == true else {
             throw ProtocolValidationError.invalidValue("Snapshot response is not application/cbor")
         }
-        return try ProtocolSnapshotBundleCodec.decode(data, root: root)
+        return data
     }
 
     /// A path read (tree operations §1.2.4): the directories from `root` down to

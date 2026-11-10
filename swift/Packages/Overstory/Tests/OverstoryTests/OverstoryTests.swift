@@ -264,6 +264,27 @@ struct ProtocolObjectTests {
         }
     }
 
+    @Test("Swift reads the shared timed snapshot bundle (?times)")
+    func timedSnapshotBundleVector() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "protocol-snapshot-bundles.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let vectors = try #require(fixture["timed"] as? [[String: Any]])
+        #expect(!vectors.isEmpty)
+        for vector in vectors {
+            let root = try #require(vector["root"] as? String)
+            let body = try #require(Data(base64Encoded: try #require(vector["canonicalCborBase64"] as? String)))
+            let expected = try #require(vector["times"] as? [String: NSNumber]).mapValues(\.doubleValue)
+            let read = try ProtocolSnapshotBundleCodec.decodeTimed(body, root: root)
+            #expect(read.times == expected)
+            #expect(read.snapshot.root == root)
+            // A timed body is not a plain snapshot bundle, and a plain one has no times.
+            #expect(throws: ProtocolValidationError.self) { _ = try ProtocolSnapshotBundleCodec.decode(body, root: root) }
+            #expect(throws: ProtocolValidationError.self) {
+                _ = try ProtocolSnapshotBundleCodec.decodeTimed(try ProtocolSnapshotBundleCodec.encode(read.snapshot), root: root)
+            }
+        }
+    }
+
     @Test("Swift rejects invalid immutable snapshot bundles")
     func invalidSnapshotBundles() throws {
         let file = try ProtocolObjectCodec.object(.file(Data("snapshot\n".utf8)))
