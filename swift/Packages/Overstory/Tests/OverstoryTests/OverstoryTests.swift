@@ -272,7 +272,8 @@ struct ProtocolObjectTests {
         #expect(!vectors.isEmpty)
         for vector in vectors {
             let root = try #require(vector["root"] as? String)
-            let body = try #require(Data(base64Encoded: try #require(vector["canonicalCborBase64"] as? String)))
+            let base64 = try #require(vector["canonicalCborBase64"] as? String)
+            let body = try #require(Data(base64Encoded: base64))
             let expected = try #require(vector["times"] as? [String: NSNumber]).mapValues(\.doubleValue)
             let read = try ProtocolSnapshotBundleCodec.decodeTimed(body, root: root)
             #expect(read.times == expected)
