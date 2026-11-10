@@ -509,6 +509,10 @@ is that of the page it reads as, so a conversion meets concurrent edits cleanly.
 [Joe's to-do](plans/joe.md); the cleanup left is
 [Filesystem 026](plans/soon/filesystem-026-page-provenance-and-cleanup.md).
 
+Joe set `OVERSTORYD_PAGES=1` on Railway 2026-11-09 (deploy 657f8553, 07:34Z) after a host
+backup at `/data/backups/pages-all-20261109`. Each tree converts on a writer's next Story Sync
+pass; Oliver's trees wait until he runs Story 0.1.6 or later.
+
 ## Plans and small work trimmed — 2026-10-28
 
 Joe reviewed the plans in soon, the ideas and small work, and closed out these:
