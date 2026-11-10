@@ -157,9 +157,9 @@ optimization and cannot change the result.
 
 For a `.children` source, execution samples the resolved parent before reading
 child pages and retains its child membership, schema fingerprint, and
-`observedThrough` cursor as a membership dependency. Continuation cursors are
-bound to the membership cursor used to create them. A subscriber follows or
-replays from the retained pre-read cursor; therefore an insertion or removal
+the tree's accepted `update` as a membership dependency. Continuation cursors are
+bound to the membership update used to create them. A subscriber follows or
+replays from the retained pre-read update; therefore an insertion or removal
 that races sampling or paging forces a rerun and cannot fall into a
 snapshot/observation gap. Per-child precision may narrow property invalidation
 but do not replace the parent membership dependency.

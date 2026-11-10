@@ -25,6 +25,14 @@ This is the cleanup it left. Soon, after the other trees are converted (a go-ahe
 2. **Front-matter merge cases.** Close the overstoryd 014/015 front-matter cases that per-property
    merge now covers (the "Per-key frontmatter conflicts" candidate moved here).
 3. **Drop the code that writes `.md` file entries,** once every tree is converted.
+4. **Drop the conversion machinery.** The spec already describes only converted trees (Joe,
+   2026-11-10, spec review: "the spec is normative"): the descriptor's `pages` flag, the
+   host's `pages-v1` health feature, and directory format §3's conversion rules were removed
+   from it. Remove them from overstoryd (`acceptsPages`, `OVERSTORYD_PAGES`,
+   `page-conversion.ts`, the `features` entry), Story Sync (`service.ts`,
+   `filesystem-object-source.ts`) and Swift (`WorkingTree` conversion), with their tests,
+   once no tree a host serves holds Markdown as files. Until then the host keeps sending
+   `pages` and released clients keep reading it.
 
 Known simplification to revisit while here: page lists merge member by member as ordered
 lists.

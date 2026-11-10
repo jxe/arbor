@@ -118,7 +118,7 @@ backing is expressed with its committed observation cursor instead.
 
 A working tree bootstraps by reading the current tree descriptor, obtaining
 that descriptor's content-addressed accepted snapshot, and then following the
-watch endpoint after the descriptor's observation cursor.
+watch endpoint after the descriptor's `update`.
 
 A snapshot MAY be installed sparsely: directory objects and Markdown file
 objects present, every other file object referenced by hash only. A sparse
@@ -136,7 +136,7 @@ every directory it has not loaded under that same hash, unchanged.
 ```text
 GET /.overstory/trees/{TreeID}
 GET /.overstory/trees/{TreeID}/snapshots/{root}
-GET /.overstory/trees/{TreeID}/watch?after={cursor}
+GET /.overstory/trees/{TreeID}/watch?after={update}
 ```
 
 A client that holds only the pages it has opened reads them with path reads
@@ -148,14 +148,13 @@ A client that holds only the pages it has opened reads them with path reads
 GET /.overstory/trees/{TreeID}
 ```
 
-The response atomically identifies one current accepted root, the accepted
-update that produced that observation, and the cursor after which a client may
-watch without a read/watch race:
+The response atomically identifies one current accepted root and the accepted
+update that produced it, which is also where a client starts watching without a
+read/watch race:
 
 ```ts
 type CurrentTree = {
   tree: RemoteTreeDescriptor;
-  observedThrough: EventCursor;
 };
 
 type RemoteTreeDescriptor = {
@@ -171,24 +170,18 @@ type RemoteTreeDescriptor = {
     parentTree: TreeID | null;
     url?: string;
   } | null;
-  pages?: true;
 };
 
-type EventCursor = string;
 type Hash = `sha256:${string}`;
 ```
 
 The descriptor's `access` summarizes the caller's effective whole-tree access.
-`pages` says the tree accepts page entries and the update that converts its
-Markdown to them ([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity)).
 A caller who cannot read the tree gets no descriptor: the read is `404`.
 Scoped or executable-constrained authority is evaluated by
 [access control](05-access-control.md), not encoded as named mutation permissions.
 The descriptor's `root` is the bytes hash of the current accepted tree state
-and `update` is the accepted-update id that produced this observation.
-The enclosing read's `observedThrough` is the cursor after which watching begins.
-It is an observation boundary, not an alias for the accepted `update` identity.
-The read binds the descriptor and this boundary atomically.
+and `update` is the accepted-update id that produced it. A client watches
+with `after={update}` (§1.1.3), so the read and the watch meet without a gap.
 Hosted trees have, in addition, a canonical path, endpoint, and might be nested
 inside a parent tree. `canonical.url`, when present, is the tree's canonical URL at a
 person's domain ([locators §5.1](03-locators.md#51-trees-at-a-persons-domain)); without it
@@ -196,11 +189,11 @@ the canonical URL is the endpoint's origin followed by `path`.
 
 The same root may be accepted again by a later update. Its graph remains the
 same content-addressed snapshot, while the later descriptor's `update` identifies
-the new accepted state and the enclosing `observedThrough` gives its read/watch boundary.
+the new accepted state, and a watch after it starts there.
 
 An execution runtime presenting an [execution token](05-access-control.md#21-execution-tokens)
-obtains a host-backed source's authority summary and coherent `(root, update,
-observedThrough)` from this same read. There is no separate source-binding route;
+obtains a host-backed source's authority summary and coherent `(root, update)`
+from this same read. There is no separate source-binding route;
 provider-backed sources are host configuration, not tree state.
 
 #### 1.1.2 Reading an accepted snapshot
@@ -235,8 +228,8 @@ and walks its graph using the kind on each reference. A referenced directory,
 page, table or rows object must decode canonically; file bytes are never decoded. A
 hash referenced as two kinds in the same graph is invalid. It rejects missing reachable objects and
 unreachable extras, stopping at nested-tree boundaries. The definite-length
-`objects` array supplies the object count; the snapshot carries no tree,
-accepted-update, or observation-cursor metadata.
+`objects` array supplies the object count; the snapshot carries no tree or
+accepted-update metadata.
 
 The quoted `ETag` is the requested root. The bundle is a deterministic
 encoding of the root's graph, so the root already names the body; a host
@@ -427,11 +420,11 @@ removes it.
 #### 1.1.3 Watching
 
 ```text
-GET /.overstory/trees/{TreeID}/watch?after={cursor}
+GET /.overstory/trees/{TreeID}/watch?after={update}
 ```
 
 The request carries `Accept: text/event-stream`. `after` is the only resume
-cursor: it names the observation the client last applied, and without it the
+point: it names the accepted update the client last applied, and without it the
 watch starts at the tree's current head. With `objects=none` the
 host sends every frame with empty `objects` and `deltas`: a client that holds
 only part of the tree (one that reads page by page, §1.2.4) learns the new
@@ -446,12 +439,13 @@ or more accepted updates; derived hosting and device status does not appear on
 this portable tree stream. `resync-required` is the terminal control event
 described below.
 
-A frame's SSE `id` is its observation cursor and its `event` is its kind; the
+A frame's SSE `id` is the accepted update it brings the client to
+(`transition.update.id`) and its `event` is its kind; the
 `data` is the change alone, and says nothing the URL, the `id` or the
 transition already says:
 
 ```ts
-// id: EventCursor
+// id: AcceptedUpdate["id"]
 // event: tree.update
 type TreeUpdate = {
   transition: AcceptedTransition;
@@ -512,7 +506,8 @@ canonical bytes: `copy` reuses a byte range from the base, while `insert`
 supplies new bytes as canonical padded base64. The receiver applies the
 instructions and requires the produced bytes to hash to `result`.
 
-Accepted update IDs are opaque identities, not observation cursors. The `previous`
+Accepted update IDs are opaque strings; clients compare them only for equality
+and take order from the `previous` chain, never from their spelling. The `previous`
 link establishes accepted order within a tree; it is null only for activation.
 It names both predecessor identity and projected root. A same-root semantic update
 therefore advances the identity chain even when no new object bytes are required.
@@ -542,33 +537,29 @@ net transition to the captured current accepted state. Intermediate updates,
 including same-root updates, need not be delivered individually. The destination
 still carries its exact accepted identity and unresolved-state signal, even when
 its root equals the starting root. Clients may materialize the final state once
-and durably advance accepted metadata and the observation cursor together.
+and durably advance their accepted update.
 
-The SSE `id` is the frame's cursor and identifies the observation batch. It
-advances strictly in the observation domain and is the frame's observation
-boundary; it need not equal any accepted ID. The transition's `update`
-identifies the final accepted state. One frame can span several accepted
-updates, through `from`.
-Implementations may happen to encode some IDs and cursors identically, but clients
-MUST NOT derive one from the other or compare their numeric/string values as accepted
-ordering. Replayed frames are deduplicated by observation cursor before applying the
-transport chain. An overlapping replay must not apply old transitions to a newer head.
+One frame can span several accepted updates, through `from`; its `id` is the
+last of them. A client that reconnects watches after the update it last
+applied. A frame whose transport basis is not the client's confirmed update
+is not applied (above), so an overlapping replay cannot apply old transitions
+to a newer head.
 
 For `tree.update`, a transition's `requestDigest` is present only when the stream is authenticated as the device (or execution token) that submitted that accepted request, whichever of its sessions it uses. This allows watchers to identify the revision that includes an update they sent.
 A digest on a net transition identifies the request for its destination accepted
 update, not every request accepted within the span. An absent or different digest
 therefore does not prove that a pending request was excluded. Clients preserve
 unconfirmed requests and use the ordinary exact-retry/receipt procedure to settle
-them; advancing a watch cursor alone never acknowledges those requests.
+them; advancing past an update on the watch alone never acknowledges those requests.
 
 When retained context cannot support either net catch-up or ordinary replay,
-for example because the event cursor or its basis graph is no longer retained,
+for example because the `after` update or its basis graph is no longer retained,
 or when catch-up would cost more than a snapshot, the server produces one
 terminal `resync-required` event, with no `id` and `data` of
 `{ "reason": string }`, and closes. `resync-required` means only that: a
 snapshot will serve where catch-up does not. The client reads a new current descriptor,
 obtains its addressed snapshot, and resumes strictly after the descriptor's
-`observedThrough` cursor. This catch-up path does not acknowledge or discard
+`update`. This catch-up path does not acknowledge or discard
 unconfirmed local edits: clients retain and reconcile them through the ordinary
 update/retry path. Retained accepted history need not be deleted merely because
 a watch uses snapshot catch-up.
@@ -587,7 +578,7 @@ an accepted state retains unresolved alternatives. The field is required; a desc
 from a rejected update's structured `409 conflict` response. The selected `root`
 remains an ordinary valid directory graph with no conflict markers or special
 entries. An accepted change to unresolved state MUST receive a new update id
-and cursor even when the predecessor root equals `root`; its transition may be empty.
+even when the predecessor root equals `root`; its transition may be empty.
 Clients MUST durably advance accepted metadata in that case.
 
 Ordinary updates are based on the exact accepted update, not only its projected
@@ -1154,7 +1145,6 @@ type UpdateHead = {
   update: AcceptedUpdateID;
   root: Hash;
   conflicted: boolean;
-  observedThrough: EventCursor;
 };
 
 type UpdateResult = {
@@ -1174,10 +1164,9 @@ not duplicated in an outcome enum or accepted-state kind.
 
 `update` is the accepted state standing after that element: existing state for
 `unchanged`, or the newly accepted state for `accepted`. `head` is the tree's
-current accepted state and observation boundary as the response was written,
-after the whole string was processed; the client installs it without reading
-the descriptor. `head.observedThrough` is not each result's update ID and must
-not be used as a per-element accepted-state guard. Exact replay returns the
+current accepted state as the response was written, after the whole string was
+processed; the client installs it without reading the descriptor and watches
+after `head.update`. Exact replay returns the
 original per-element receipt even if current has since advanced, so a
 replayed string's last receipt need not be `head`. A rejected string carries
 neither.
@@ -1264,8 +1253,7 @@ type OverstoryError<TDetails = unknown> = {
 Three tokens that serve different purposes are often encountered together:
 
 - An accepted-update `id` identifies one durable accepted transition of one tree.
-  Its predecessor link gives accepted order; an observation cursor identifies stream
-  progress and may cover several transitions.
+  Its predecessor link gives accepted order, and a watch resumes after it.
 - A client-authored `change` identifies an immutable authored change; operation
   material results are named by that change and their operation keys, without an
   independently named output. A moved result retains existing origins.
@@ -1338,7 +1326,7 @@ directly. The normative client behavior is the update machine in
    as it needs (a whole snapshot, every directory and Markdown body, or only
    the pages opened, by path read, §1.2.4), with other objects fetched by
    hash when used; the daemon's pending request is never adopted. Either way
-   it records the confirmed `{ root, update, cursor }` watchpoint.
+   it records the confirmed `{ root, update }` watchpoint.
 1. Each authored generation is appended to the working tree's change log
    and becomes locally durable at once (the editor is a source of local
    changes); unsent changes are published together so that one request
@@ -1439,7 +1427,7 @@ bounded-buffer, and terminal-close behavior.
 
 ```ts
 type ObservationEvent<TKind extends string, TChange> = {
-  cursor: EventCursor;
+  cursor: string;
   tree: TreeID;
   kind: TKind;
   change: TChange;
@@ -1447,7 +1435,7 @@ type ObservationEvent<TKind extends string, TChange> = {
 ```
 
 This shared transport does not imply shared cursor semantics. A tree watch
-carries the cursor in the SSE `id` and the kind in `event`, sends only
+carries the accepted update in the SSE `id` and the kind in `event`, sends only
 `change` as `data` (its tree is the URL's), resumes from `after`, and ends with
 `resync-required` when retained history cannot serve it
 ([watching](#113-watching)). A query stream omits `id`, sends the remaining

@@ -431,9 +431,7 @@ GET /.well-known/overstory[/{path}]
 
 `health` is a cheap readiness check that answers `{"status":"ok"}` while the
 server's own database is consistent; poll it freely. It may add `features`, the
-optional protocol features the host serves, such as `"pages-v1"`
-([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity));
-a host that lists none serves none. It states `protocol`, the host protocol level it
+optional protocol features the host serves; a host that lists none serves none. It states `protocol`, the host protocol level it
 implements, a positive integer; a host that states none is level 1. A level rises when a
 host gains something clients may depend on. A client that needs a higher level than a host
 states must refuse that host and say the host needs updating, rather than talk to it and
@@ -446,14 +444,8 @@ concurrent requests share one audit, and it is for operators, not polling.
 
 Authenticated account and tree-list reads use explicit envelopes,
 `{ account }` and `{ snapshot: RemoteTreeDescriptor[] }`; bare arrays and
-descriptors are not mutable responses. They carry no observation cursor: a
-cursor spanning the whole host resumes no watch, which is per tree. A client
-that will watch a listed tree reads it (`GET /.overstory/trees/{TreeID}`) for
-its `observedThrough`, the same snapshot-then-observe rule as the core tree
-API. The accepted-update ID remains the content synchronization base;
-`observedThrough` independently records the read/watch boundary. Clients must
-not substitute one for the other, even if an implementation happens to encode
-them identically.
+descriptors are not mutable responses. Each listed descriptor names its
+accepted `update`, after which a client may watch that tree.
 
 `account/directory` is an optional convenience read: the people and groups
 the authenticated account can see from this host, as
@@ -485,9 +477,8 @@ and canonical resolution.
 ```ts
 type LocatorResolution = {
   ref: NodeRef;
-  enclosingTree: TreeDescriptor;
+  enclosingTree: RemoteTreeDescriptor;  // its `update` is where a watch starts
   historical: boolean;
-  observedThrough: EventCursor;
 };
 ```
 

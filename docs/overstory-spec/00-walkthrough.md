@@ -81,8 +81,8 @@ not touch is unchanged
 
 ## 5. Follow from a second device
 
-Alice reads `GET /.overstory/trees/tr_…`, which returns the current descriptor and an
-`observedThrough` cursor, then opens `GET .../watch?after=<cursor>`. Every
+Alice reads `GET /.overstory/trees/tr_…`, which returns the current descriptor with
+its accepted `update`, then opens `GET .../watch?after=<update>`. Every
 later accepted update arrives as a `tree.update` frame carrying the transition
 from the previous root to the new one, as objects and deltas. She applies a
 batch in memory and materializes only its final state

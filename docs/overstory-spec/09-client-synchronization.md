@@ -74,7 +74,7 @@ basis.
 
 | State | Durable data | Meaning |
 |---|---|---|
-| `current` | confirmed `{ root, update, cursor }` | Every local change is settled. |
+| `current` | confirmed `{ root, update }` | Every local change is settled. |
 | `locally-pending` | confirmed base plus the change log through its tip | Local changes exist but are not part of any possibly transmitted request. |
 | `prepared` | one exact request from the base through a tip, its element digests, **and every object envelope the request carries** | The request is durable, self-contained, before its first network attempt. |
 | `submitting` | the same immutable request record | The outcome may become ambiguous; the request is never mutated or replaced. |
@@ -92,7 +92,7 @@ installed and the current transport availability.
 There is one normal entry into the machine.
 
 **Installation.** The entry into `current` is the installation of one
-validated accepted snapshot with its `{ root, update, cursor }`. A complete
+validated accepted snapshot with its `{ root, update }`. A complete
 snapshot qualifies. So does a **sparse install**: a validated spine, every
 directory and Markdown object present and hash-checked, whose absent hashes
 are files the client can resolve on demand through an object store and whose
@@ -100,7 +100,7 @@ sizes and media types the bootstrap names. A spine that omits a directory
 object is not sparse, it is incomplete, and must fail installation loudly. A
 preview, a partial download, or a fetched descriptor cannot enter the machine.
 If the host advanced while the snapshot downloaded, the client begins
-ordinary catch-up from the installed cursor rather than restarting placement.
+ordinary catch-up from the installed update rather than restarting placement.
 
 When an intermediary supplies that installation, its snapshot **must** be
 rooted at the accepted authority root. It must not substitute another working
@@ -165,12 +165,11 @@ transport is unavailable. Unsettled local changes behind it are then its tip.
 5. **Racing evidence.** The response and the matching watch event are
    evidence for the same request. The client correlates by request digest
    and accepted identity, applies whichever arrives first, and ignores the
-   duplicate receipt. Observation cursors deduplicate stream frames; they are
-   not accepted IDs and cannot alone prove that a particular request was
-   accepted.
+   duplicate receipt. A frame's update ID deduplicates it against the
+   response, but cannot alone prove that a particular request was accepted.
 6. **Validate before advancing.** Every returned object, root, transition
    chain, tree boundary, and request digest is rehashed and validated. The
-   confirmed `{ root, update, cursor }` advances only after durable
+   confirmed `{ root, update }` advances only after durable
    materialization succeeds; a restart in `accepted-pending-apply` completes
    the same apply idempotently.
 7. **Clean catch-up.** A watch event in `current` applies a contiguous

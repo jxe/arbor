@@ -15,6 +15,7 @@ review makes it.
 | The people directory is an optional read under the account | locators §5 | `GET /.overstory/directory` | `GET /.overstory/account/directory` | TS and Swift clients (moved) |
 | Host-to-host routes under `/.overstory/peer/` | README route index, accounts §5.4, locators §5.1 | `/.overstory/profiles/{id}/device-keys`, `/.overstory/domain-check` | `/.overstory/peer/profiles/{id}/device-keys`, `/.overstory/peer/domain-check` | overstoryd and the `story` CLI (moved); the old paths are answered for released CLIs |
 
+| A tree's accepted `update` is also where its watch resumes | tree operations §1.1, §1.1.3, §2.4; locators §5; client synchronization | `observedThrough` beside the descriptor, in update answers' `head` and in locator resolutions, and a watch frame's `id` read as a separate cursor | `update` alone: `watch?after={update}`, the frame's `id` is its update | Not yet: TS (protocol, working-tree, Story Sync, CLI) and Swift stop reading `observedThrough`; the conformance vectors drop it. overstoryd keeps sending it, equal to `update`, until the cleanup |
 | Entry times come with the content | tree operations §1.1.2a | `GET /trees/{id}/entry-metadata[?path=]` | `?times` on snapshot and path reads | overstoryd serves `?times`; TS, Story Sync and Swift moved (31e643fb) |
 
 `/.overstory/execution/authority-watch` had no caller, so it was removed outright rather
@@ -25,7 +26,14 @@ than moved.
 Swift moved to `PUT /accounts` in dc76eab (Overstory and OverstoryClient tests and the Mac
 app build pass on Joe's Mac). The release is on [Joe's to-do](../joe.md).
 
-1. **Remove the old forms** once that release is out: the `/.overstory/placements`, `/.overstory/directory` and `entry-metadata` routes (with `ProtocolClient.entryMetadata` in TS and Swift and the `entry_metadata` table, which only that route and the entry-time index's first-root seeds read), the unprefixed device-keys and
+1. **Clients stop reading `observedThrough`** for trees: about 120 uses across
+   `packages/protocol` (`transport.ts`, `updates/json.ts`, `model/node-model.ts`),
+   `packages/working-tree`, `packages/story-sync`, `packages/cli`, and Swift
+   (`ProtocolModels`, `ProtocolClient`, `TreeSession`, `UpdateCoordinator`, `StoryAppModel`).
+   Views keep their own `observedThrough` (executable documents §12), which is a different
+   thing. Move the conformance vectors in the same change.
+2. **Remove the old forms** once that release is out (and `observedThrough` from overstoryd's
+   tree answers): the `/.overstory/placements`, `/.overstory/directory` and `entry-metadata` routes (with `ProtocolClient.entryMetadata` in TS and Swift and the `entry_metadata` table, which only that route and the entry-time index's first-root seeds read), the unprefixed device-keys and
    domain-check paths, `LEGACY_DOMAIN_CHECK_PATH`, and the tests'
    "old path" checks. There is one host and it updates on push, so only released clients
    need the old forms (Joe, 2026-11-09).
