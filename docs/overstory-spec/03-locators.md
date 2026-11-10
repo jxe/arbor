@@ -443,13 +443,13 @@ object reachable from retained history and can take minutes on a large server;
 concurrent requests share one audit, and it is for operators, not polling.
 
 Authenticated account and tree-list reads use explicit envelopes,
-`{ account }` and `{ snapshot: RemoteTreeDescriptor[] }`; bare arrays and
+`{ account }` and `{ trees: RemoteTreeDescriptor[] }`; bare arrays and
 descriptors are not mutable responses. Each listed descriptor names its
 accepted `update`, after which a client may watch that tree.
 
 `account/directory` is an optional convenience read: the people and groups
 the authenticated account can see from this host, as
-`{ snapshot: DirectoryEntry[] }`. Everything in it a member could compute from
+`{ people: DirectoryEntry[] }`. Everything in it a member could compute from
 trees they already read: the community profile's members, the groups that
 name them, and the profiles named by their own trees' rules
 ([access control §4](05-access-control.md#4-reading-access)). A host MAY
@@ -478,7 +478,6 @@ and canonical resolution.
 type LocatorResolution = {
   ref: NodeRef;
   enclosingTree: RemoteTreeDescriptor;  // its `update` is where a watch starts
-  historical: boolean;
 };
 ```
 

@@ -455,7 +455,7 @@ type TreeUpdate = {
 
 type AcceptedTransition = TransitionPayload & {
   update: AcceptedUpdate;
-  from?: { id: string; root: Hash };
+  from?: AcceptedRef;
   requestDigest?: Hash;
 };
 
@@ -477,11 +477,16 @@ type AcceptedUpdate = {
   id: string;
   tree: TreeID;
   root: Hash;
-  previous: { id: string; root: Hash } | null;
+  previous: AcceptedRef | null;
   acceptedAt: number;
   subject: string | null;
   conflicted: boolean;
 };
+
+// One accepted state of a tree: the update that produced it and its root.
+// The descriptor, an update answer's `head` and a decision page spell the
+// same pair as `update` and `root` members, with `conflicted` beside them.
+type AcceptedRef = { update: string; root: Hash };
 ```
 
 The two arrays are alternative transfer encodings for the result objects
@@ -635,7 +640,7 @@ successful responses can be cached and reused after verification.
 type Material =
   | { kind: "basis"; path: string; object: Hash }
   | { kind: "operation"; change: string; operation: string }
-  | { kind: "alternative"; state: string; conflict: string; alternative: string };
+  | { kind: "alternative"; update: string; conflict: string; alternative: string };
 
 type Ref = {
   material: Material;
@@ -665,9 +670,9 @@ graph ID and does not inherently create a new origin. The host retains its
 immutable binding and the provenance needed to transport selections through later
 changes. Missing history requires an explicit failure, never fuzzy text matching.
 
-`alternative` names material in an exact retained accepted `state`. State IDs are
+`alternative` names material in an exact retained accepted `update`. Update IDs are
 opaque, nonempty strings of at most 1024 UTF-8 bytes. Conflict and alternative IDs
-come from the host. The state identifies the reviewed alternative revision;
+come from the host. The update identifies the reviewed alternative revision;
 bytes, display order and current paths cannot substitute for identity.
 
 Omitting selectors means the complete material. A nonempty `within` array selects
@@ -694,10 +699,10 @@ keys or symbols to exact source; it does not introduce a separate identity names
 
 #### 1.2.3 Reading conflicts
 
-`GET /.overstory/trees/{tree}/conflicts?state={acceptedUpdate}` lists decisions in an
+`GET /.overstory/trees/{tree}/conflicts?update={acceptedUpdate}` lists decisions in an
 exact retained accepted state. Optional `after` continues an opaque page token;
 optional `conflict` selects one decision. Each query field occurs at most once;
-`state` is required, nonempty and exact. `after` and `conflict` are mutually exclusive.
+`update` is required, nonempty and exact. `after` and `conflict` are mutually exclusive.
 The host authorizes every read, including continuation pages. Unknown or
 unauthorized trees, unavailable states and unknown selected decisions return `404`;
 malformed or mismatched page tokens return `400`. A page token is bound to tree,
@@ -705,7 +710,7 @@ accepted state and traversal position, never an authorization grant.
 
 ```ts
 type DecisionPage = {
-  tree: TreeID; state: string; root: Hash; conflicted: boolean;
+  tree: TreeID; update: string; root: Hash; conflicted: boolean;
   decisions: Decision[];
   next: string | null;
 };
@@ -735,7 +740,7 @@ on accepted conflict state. Documented storage/resource constraints remain hones
 implementation failures; a full response or absent automatic merge rule must not
 be misreported as a resolved tree or an unsupported decision count.
 
-`tree`, `state` and `root` must match the requested accepted context on every page.
+`tree`, `update` and `root` must match the requested accepted context on every page.
 `conflicted` describes the entire state, not just the current page. `next: null`
 ends the traversal. A complete traversal yields each decision once in stable order,
 with no omission or duplication. Pages remain at their original accepted state even
@@ -747,14 +752,14 @@ all tree decisions. Clients cannot infer resolution from an empty partial result
 
 Each decision record contains its complete alternative and dependency sets; it is
 not split into partial choices. Dependencies may name decisions on other pages.
-The client may fetch those by `conflict` at the same state. Not appearing on this
+The client may fetch those by `conflict` at the same update. Not appearing on this
 page does not mean a dependency is missing or resolved. Before preparing a joint
 resolution the client obtains the evidence required for the affected dependency
 closure. Unrelated sync requires neither a complete traversal nor that closure.
 The host still validates all guards and combinations at acceptance.
 
 `affected` uses the same material references as updates. A `basis` reference is
-interpreted at the page's `state`. Absence decisions can address a destination parent
+interpreted at the page's `update`. Absence decisions can address a destination parent
 or retained material rather than inventing a nonexistent file path. Whole-entry,
 placement and text selections therefore share the same identity vocabulary.
 An alternative is addressed in a mutation by an `alternative` material reference

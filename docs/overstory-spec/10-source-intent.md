@@ -244,7 +244,7 @@ snapshot fallback: a trace is optional, and once present it is checked in full. 
 
 ```ts
 type ResolutionDeclaration = {
-  state: string;
+  update: string;
   conflict: string;
   alternatives: string[];
 };
@@ -257,7 +257,7 @@ declaration supplies resolution intent and guards. For hidden material to become
 the chosen result, the candidate must materialize it using the appropriate ordinary
 operations. Editing a hidden alternative alone does not select it.
 
-`state` identifies the exact reviewed accepted evidence. `alternatives` is the
+`update` identifies the exact reviewed accepted evidence. `alternatives` is the
 complete nonempty set of reviewed alternative IDs, with no duplicates. The host
 loads their revisions, contributions and dependencies at that state and compares the
 relevant evidence with current. New or changed alternatives, affected locations,
