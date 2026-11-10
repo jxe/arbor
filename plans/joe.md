@@ -112,8 +112,8 @@ Built 2026-11-07 ([status](../status.md#trees-at-your-own-domain--2026-11-07)).
 ## Releases and publishing
 
 - [ ] **The next Story release** (Mac, iPhone, npm CLI) carries the spec review's new routes
-  ([Protocol 001](soon/protocol-001-spec-review-route-changes.md)); once it is out, a session
-  removes the old routes.
+  ([Protocol 001](soon/protocol-001-spec-review-route-changes.md)), including page dates read
+  from `?times`; once it is out and adopted, a session removes the old routes.
 
 ### Sharing 004: Railway template
 

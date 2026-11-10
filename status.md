@@ -12,6 +12,23 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Entry times with the content — 2026-11-10
+
+**Deployed** (main 791ca391, Swift 31e643fb). Tree operations §1.1.2a: an entry's time is
+when its content first appeared at its path, served as `times` on snapshot and path reads
+(`?times`) for any retained root.
+
+- overstoryd keeps a rebuildable index, `entry-times.sqlite3` beside its database
+  (`packages/overstoryd/src/updates/entry-times.ts`), caught up from accepted history after
+  each acceptance and on start; no fsync of its own. File↔page conversions keep their time;
+  a squashed first root takes earlier dates from `document_versions` and `entry_metadata`.
+- Rehearsed on the 2026-11-09 backup (12,264 updates: 1.1 s cold, rebuild identical, 75 of
+  198 head dates earlier than `entry_metadata`, the todos pages' conversion date replaced by
+  their real dates, none later). Live backfill: 12,921 updates in 5.2 s.
+- TS `timedSnapshot`/`timedPathRead`, Story Sync passes `?times` through, Swift
+  `TreeSession.refreshEntryDates` reads a timed snapshot. `entry-metadata` stays for released
+  clients until [Protocol 001](plans/soon/protocol-001-spec-review-route-changes.md).
+
 ## Views on the host, and declared views — 2026-11-08
 
 **Implemented** on main (merged 49cfced, 2026-11-08; overstoryd redeployed, but it serves no
