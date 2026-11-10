@@ -1223,7 +1223,6 @@ public enum StoryMarkdownCodec {
             return "\(prefix)```\(language ?? "")\(newline)\(body)\(newline)\(prefix)```\(newline)\(newline)"
         case .divider: line = prefix + "---"
         case let .toggle(title): line = prefix + "▸ " + inline(title)
-        case let .templateButton(label): line = prefix + "- " + label
         case let .documentLink(label, reference): line = prefix + "[\(inline(label))](\(reference.rawValue))"
         case let .image(source, alt): line = prefix + "![\(alt)](\(source))"
         case let .unsupported(payload, _): return payload
@@ -1456,7 +1455,7 @@ public enum StoryMarkdownCodec {
                 }
             case let .image(source, alt):
                 if let rebased = rebasedRelativeHref(source, from: from, to: to) { value.kind = .image(source: rebased, alt: alt) }
-            case .code, .divider, .templateButton, .unsupported: break
+            case .code, .divider, .unsupported: break
             }
             value.children = block.children.map(rebase)
             return value
@@ -1496,7 +1495,6 @@ public enum StoryMarkdownCodec {
         case let .code(source, language): "c:\(language ?? ""):\(source)"
         case .divider: "divider"
         case let .toggle(title): "toggle:\(title.characters)"
-        case let .templateButton(label): "template:\(label)"
         case let .documentLink(label, reference): "link:\(label.characters):\(reference.rawValue)"
         case let .image(source, alt): "image:\(source):\(alt)"
         case let .unsupported(payload, _): "raw:\(payload)"

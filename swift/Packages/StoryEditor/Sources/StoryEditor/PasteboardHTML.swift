@@ -78,8 +78,6 @@ enum StoryPasteboardHTML {
             appendBlocks(block.children, to: &out)
             out += "</details>"
             return
-        case let .templateButton(label):
-            out += "<p>\(escape(label))</p>"
         case let .documentLink(label, reference):
             out += "<p><a href=\"\(escape(reference.rawValue))\">\(inlineHTML(label))</a></p>"
         case let .image(source, alt):

@@ -75,7 +75,7 @@ Story already writes.
 
 ## Phases
 
-1. **Quagmire: remove template buttons; add `insertBlocks(at:)` for hosts.** The host API
+1. **Quagmire: add `insertBlocks(at:)` for hosts.** (Template buttons were removed 2026-11-10.) The host API
    inserts copies at the cursor (or replacing a text range in the editing block, for @),
    re-indented, as one transaction. Tests for both.
 2. **Story: index snippets and complete them in @.** Index from frontmatter across placed
