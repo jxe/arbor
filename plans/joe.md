@@ -111,9 +111,6 @@ Built 2026-11-07 ([status](../status.md#trees-at-your-own-domain--2026-11-07)).
 
 ## Releases and publishing
 
-- [ ] **Quagmire 0.16.0** with the next arbor release: main builds only against local
-  Quagmire, because the pinned 0.15.0 lacks `EditorPeer(avatar:)`. Release it and move
-  arbor's pin (found while building Clients 003, 2026-11-07).
 - [ ] **The next Story release** (Mac, iPhone, npm CLI) carries the spec review's new routes
   ([Protocol 001](soon/protocol-001-spec-review-route-changes.md)); once it is out, a session
   removes the old routes.
