@@ -67,11 +67,6 @@ Built 2026-11-05 and deployed ([visitor sessions](../status.md#visitor-sessions-
 
 Built on the Mac and iPhone ([status](../status.md#move-a-page-to-another-tree--2026-11-01)).
 
-- [ ] **Mac:** move a disposable page with one subpage and one link to a private page into a
-  writable tree. The new tree shows the pages, the old parent has a link that opens them,
-  another page's link to them still opens, the iPhone shows both trees after sync, and the
-  old pages are in Trash. Then New Tree… with "Everyone can view", and its public URL shows a
-  page moved there.
 - [ ] **iPhone:** move a page into a tree the iPhone has placed; the Mac shows it in the new
   tree after sync, with the link in the old parent.
 

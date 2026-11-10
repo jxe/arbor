@@ -434,6 +434,8 @@ fsync, a fast-forward went from 27.8 to 14.7 ms (median) and from 9 syncs to 1.
 - **Left:** New Tree… on the iPhone is [Sharing 003](plans/features/sharing-003-new-tree-on-the-iphone.md);
   the hand checks are in [Joe's to-do](plans/joe.md#sharing-003-moving-pages-between-trees).
 
+Joe checked the Mac move by hand (reported 2026-11-10); the iPhone move is still in joe.md.
+
 ## Agents 001: presence and agent tasks — 2026-11-01
 
 [Agents 001](https://github.com/jxe/arbor/blob/666afa30/plans/features/agents-001-presence-and-a-first-agent.md)
