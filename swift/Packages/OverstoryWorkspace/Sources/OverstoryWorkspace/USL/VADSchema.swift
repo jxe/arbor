@@ -9,7 +9,9 @@ import Foundation
 // row may still leave a defaulted field out, as VAD lets it.
 // A field's own `@index` is the table's `@index(field)`. In a `re` block only
 // the table's own presentation (`~views`) is kept; a field's presentation
-// belongs to views. The TypeScript checker (`packages/vad`) is the reference.
+// belongs to views. A row's color is data, a `color Text` field or an enum
+// value's `color` in its record; the USL checker reads it as `~color`, which
+// is added. The TypeScript checker (`packages/vad`) is the reference.
 
 /// The file name of a collection's schema.
 public let collectionSchemaFileName = "schema.vad"
@@ -36,6 +38,26 @@ private let afterDefault = try! NSRegularExpression(pattern: #"\s[@~][A-Za-z_]|/
 private let fieldIndex = try! NSRegularExpression(pattern: #"\s@index\b(?!\s*\()"#)
 /// A field line: a name, then its modifiers or type.
 private let fieldLine = try! NSRegularExpression(pattern: #"^([A-Za-z_][A-Za-z0-9_]*)\s+[A-Za-z_~@]"#)
+/// A `color Text` field, which holds a row's color.
+private let colorField = try! NSRegularExpression(pattern: #"^color\s+Text\??(?:\s|$)"#)
+/// An enum value's color in its record.
+private let recordColor = try! NSRegularExpression(pattern: #"\bcolor\s*:\s*"([^"\\]*)""#)
+
+/// `text` with `suffix` before its trailing comment, if it has one.
+private func beforeComment(_ text: String, _ suffix: String) -> String {
+    var quoted = false
+    var previous: Character = " "
+    for (offset, c) in text.enumerated() {
+        if c == "\"" { quoted.toggle() }
+        if !quoted, c == "/", previous == "/" {
+            let index = text.index(text.startIndex, offsetBy: offset - 1)
+            return String(text[..<index]).trimmingCharacters(in: .whitespaces) + suffix + "  " + String(text[index...])
+        }
+        previous = c
+    }
+    return text + suffix
+}
+
 /// Top-level declarations that hold no data tables.
 private let skipped = try! NSRegularExpression(pattern: #"^(?:view|rule|mutation|use|my\s+table|session\s+table)\b|^\}"#)
 
@@ -56,12 +78,14 @@ public func uslSourceOfVAD(_ source: String) -> String {
 
 /// `uslSourceOfVAD`, noting the fields that had defaults.
 private func convertVAD(_ source: String, defaulted defaultedFields: inout Set<String>) -> String {
-    enum Kind { case table, presentation, other }
+    enum Kind { case table, presentation, `enum`, other }
     var out: [String] = []
     /// Open blocks: the indent of their header line, and what they are.
     var open: [(indent: Int, kind: Kind)] = []
     var skipping = false
     var pending = ""
+    /// The open enum declares `color Text`.
+    var enumColored = false
 
     func close(below indent: Int) {
         while let last = open.last, last.indent >= indent {
@@ -93,7 +117,8 @@ private func convertVAD(_ source: String, defaulted defaultedFields: inout Set<S
             open.append((0, .table))
         } else if indent == 0, let g = groups(blockHeader, trimmed) {
             text = "\(g[0]!) \(g[1]!) {\(g[2].map { " " + $0 } ?? "")"
-            open.append((0, g[0] == "re" ? .presentation : .other))
+            open.append((0, g[0] == "re" ? .presentation : g[0] == "enum" ? .enum : .other))
+            enumColored = false
         } else if open.count == 1, open.last?.kind == .presentation, !trimmed.hasPrefix("~") {
             // A field's presentation in a `re` block belongs to views.
             text = ""
@@ -105,6 +130,13 @@ private func convertVAD(_ source: String, defaulted defaultedFields: inout Set<S
             let end = afterDefault.firstMatch(in: g[1]!, range: NSRange(location: 0, length: rest.length))?.range.location ?? rest.length
             text = g[0]! + rest.substring(from: end)
             if let name = groups(fieldLine, g[0]! + " x")?[0] { defaultedFields.insert(name) }
+        }
+        let isColorField = open.count == 1 && groups(colorField, text) != nil
+        if isColorField, open.last?.kind == .enum { enumColored = true }
+        if isColorField, open.last?.kind == .table, !text.contains("~color") { text = beforeComment(text, " ~color") }
+        if open.count == 1, open.last?.kind == .enum, enumColored, !isColorField, !text.contains("~color"),
+           let color = groups(recordColor, text)?[0] {
+            text = beforeComment(text, " ~color(\"\(color)\")")
         }
         if open.last?.kind == .table, open.count == 1, let g = groups(fieldLine, text),
            fieldIndex.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil {

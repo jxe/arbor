@@ -68,6 +68,3 @@ enum Visibility:
 enum ListKind:
   Standard
   Tagged
-
-re Tag:
-  color ~color  // the field that holds each tag's color

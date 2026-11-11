@@ -33,6 +33,52 @@ function arg(e: Expr): Usl.Expr {
   }
 }
 
+/**
+ * A row's color is data (spec 1.5 §2): a Text field named `color`, on a table's rows or in
+ * an enum value's record. The list views built on @ovst/usl read it as that checker's
+ * `~color`, so the translation adds that attribute; VAD itself has no `~` attributes
+ * except `~views`, which stays until lists are drawn from VAD views.
+ */
+const COLOR = "color";
+
+function colorAttribute(at: Usl.Position, value?: string): Usl.Attribute {
+  return { sigil: "~", name: COLOR, args: value === undefined ? [] : [{ kind: "string", value, at }], at };
+}
+
+function isColorField(m: TableMember): boolean {
+  return m.kind === "field" && m.name === COLOR && m.type === "Text" && m.arity !== "many";
+}
+
+/** `~x` written in a schema: only `~views` is left of VAD's presentation attributes. */
+function presentationAttributes(file: ViewFile): Diagnostic[] {
+  const found: Diagnostic[] = [];
+  const check = (attrs: SchemaAttribute[]) => {
+    for (const a of attrs) {
+      if (a.sigil === "~" && a.name !== "views") {
+        found.push({
+          code: "presentation-attribute",
+          message: a.name === COLOR
+            ? "A color is data: give the table or enum a `color Text` field, and enum values a record with their color"
+            : `\`~${a.name}\` is not VAD; presentation belongs in views`,
+          ...a.span,
+        });
+      }
+    }
+  };
+  const walk = (members: TableMember[]) => {
+    for (const m of members) {
+      if (m.kind === "field" || m.kind === "end" || m.kind === "value" || m.kind === "mention") check(m.attrs);
+      else if (m.kind === "attribute") check([m.attr]);
+      else if (m.kind === "seed") walk(m.rows);
+    }
+  };
+  for (const { decl } of file.declarations) {
+    if (decl.kind === "table" || decl.kind === "enum" || decl.kind === "re") walk(decl.members);
+    else if (decl.kind === "connection") { check(decl.a.attrs); check(decl.b.attrs); }
+  }
+  return found;
+}
+
 function attributes(attrs: SchemaAttribute[]): Usl.Attribute[] {
   return attrs.map((a) => ({ sigil: a.sigil, name: a.name, args: (a.args ?? []).map(arg), at: at(a.span) }));
 }
@@ -55,7 +101,8 @@ function members(list: TableMember[], context: "table" | "enum" | "re"): Usl.Mem
       case "field":
         result.push({
           kind: "field", name: m.name, modifiers: m.modifiers.map((name) => ({ name, at: at(m.span) })), type: m.type,
-          arity: m.arity, attrs: attributes(m.attrs), at: at(m.span),
+          arity: m.arity, attrs: [...attributes(m.attrs), ...(context === "table" && isColorField(m) && !m.attrs.some((a) => a.name === COLOR) ? [colorAttribute(at(m.span))] : [])],
+          at: at(m.span),
         });
         break;
       case "end":
@@ -67,10 +114,14 @@ function members(list: TableMember[], context: "table" | "enum" | "re"): Usl.Mem
       case "attribute":
         result.push({ kind: "modelAttribute", sigil: m.attr.sigil, name: m.attr.name, args: (m.attr.args ?? []).map(arg), at: at(m.attr.span) });
         break;
-      case "value":
+      case "value": {
         valuesAt ??= at(m.span);
-        values.push(row(m));
+        const value = row(m);
+        const color = list.some(isColorField) ? m.values?.entries.find((e) => e.name === COLOR)?.value : undefined;
+        if (color?.kind === "literal" && typeof color.value === "string" && !value.attrs.some((a) => a.name === COLOR)) value.attrs.push(colorAttribute(at(m.span), color.value));
+        values.push(value);
         break;
+      }
       case "seed":
         result.push({ kind: "rows", mode: "seed", rows: m.rows.flatMap((r) => (r.kind === "value" ? [row(r)] : [])), at: at(m.span) });
         break;
@@ -146,5 +197,5 @@ export function compileSchema(text: string): SchemaResult {
   const parsed = parseView(text);
   const { usl, diagnostics, defaults } = uslFileOf(parsed.file, true);
   const result = checkUsl(usl);
-  return { ...result, diagnostics: [...parsed.diagnostics, ...diagnostics, ...result.diagnostics], defaults };
+  return { ...result, diagnostics: [...parsed.diagnostics, ...presentationAttributes(parsed.file), ...diagnostics, ...result.diagnostics], defaults };
 }

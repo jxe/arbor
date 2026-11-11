@@ -24,14 +24,10 @@ ordered List.games[] @fold <-> Game.lists[]
 Game.status <-> Status.games[]
 
 enum Status:
-  Draft
-  Playtested
-  Polished
+  color Text
+  Draft      { color: "#9aa0aa" }
+  Playtested { color: "#bd861a" }
+  Polished   { color: "#27815a" }
 
 re Game:
   ~views([{ label: "By game", line: [status ~bullet, name, authors, description], sort: modified }, { label: "By author", group: authors }, { label: "By list", group: lists, sort: modified }])
-
-re Status:
-  Draft ~color("#9aa0aa")
-  Playtested ~color("#bd861a")
-  Polished ~color("#27815a")

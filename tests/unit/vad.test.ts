@@ -88,7 +88,7 @@ describe("vad formatting", () => {
     const source = [
       "table Tag (list, id):  // why",
       "  name Text",
-      "  color   Text? ~color",
+      "  color   Text?",
       "",
       "Tag.list <-> List.tags[]",
       "Tag.practices[]   <-> Practice.tags[]",
@@ -102,7 +102,7 @@ describe("vad formatting", () => {
     expect(formatView(source)).toBe([
       "table Tag (list, id):  // why",
       "  name  Text",
-      "  color Text? ~color",
+      "  color Text?",
       "",
       "Tag.list        <-> List.tags[]",
       "Tag.practices[] <-> Practice.tags[]",
@@ -320,14 +320,12 @@ describe("converting schema.usl to schema.vad", () => {
       "Game.status <-> Status.games[]",
       "",
       "enum Status:",
+      "  color Text?",
       "  Draft",
-      '  "In review"',
+      '  "In review" { color: "#bd861a" }',
       "",
       "re Game:",
       '  ~views([{ label: "By game", line: [status ~bullet, name, name ~label("title")], sort: modified }])',
-      "",
-      "re Status:",
-      '  "In review" ~color("#bd861a")',
       "",
     ].join("\n");
     expect(formatView(source)).toBe(source);
@@ -335,5 +333,32 @@ describe("converting schema.usl to schema.vad", () => {
     expect(schema.diagnostics).toEqual([]);
     const game = schema.models.find((m) => m.name === "Game")!;
     expect(JSON.stringify(game)).toContain('"bullet"');
+    // A value's color is data, which the list views read as its color.
+    const status = schema.models.find((m) => m.name === "Status")!;
+    expect(status.schemaRows.map((r) => [r.name, r.color ?? null])).toEqual([["Draft", null], ["In review", "#bd861a"]]);
+  });
+
+  test("converting moves enum colors into data, which only then changes the fingerprint", async () => {
+    const { convertVerified, movesColors } = await import("../../tools/convert-usl-to-vad.ts");
+    const colored = 'model Game {\n  status Status\n}\nGame.status <-> Status.games[]\nenum Status {\n  Draft ~color("#9aa0aa")\n  Done\n}\n';
+    expect(convertVerified(colored)).toContain('enum Status:\n  color Text?\n  Draft { color: "#9aa0aa" }\n  Done\n');
+    expect(movesColors(colored)).toBe(true);
+    expect(movesColors(colored.replace(' ~color("#9aa0aa")', ""))).toBe(false);
+    expect(() => convertVerified('model Tag {\n  hue Text ~color\n}\n')).toThrow("rename it first");
+  });
+
+  test("a color is a field, not an attribute; only ~views is left of ~", () => {
+    const schema = compileSchema([
+      "main table Tag:",
+      "  color Text ~color",
+      "  name  Text ~label(\"Name\")",
+      "",
+      "enum Status:",
+      '  Draft ~color("#9aa0aa")',
+      "",
+    ].join("\n"));
+    expect(schema.diagnostics.filter((d) => d.code === "presentation-attribute").map((d) => d.line)).toEqual([2, 3, 6]);
+    const tag = compileSchema("main table Tag:\n  color Text\n");
+    expect(tag.models.find((m) => m.name === "Tag")!.fields.find((f) => f.name === "color")!.color).toBe(true);
   });
 });

@@ -15,7 +15,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { compileUsl, layoutOf, modelLayer } from "@ovst/usl";
+import { compileUsl, layoutOf, modelLayer, type ResolvedModel } from "@ovst/usl";
 import { parseUslForFormat, type Comment } from "../packages/usl/src/parse.ts";
 import type * as Usl from "@ovst/usl";
 import { compileSchema, formatView } from "@ovst/vad";
@@ -88,10 +88,94 @@ function members(list: Usl.Member[], indent: string, out: Out[]): void {
   }
 }
 
+/**
+ * Colors are data in VAD (spec 1.5 §2): an enum value's `~color("#…")` becomes its record's
+ * `color`, under a `color Text` field the enum gains, and a table's `color Text ~color` field
+ * loses the attribute. Changes the file in place; true when it moved any.
+ */
+function moveColors(file: Usl.SchemaFile): boolean {
+  let moved = false;
+  const isColor = (a: Usl.Attribute) => a.sigil === "~" && a.name === "color";
+  const models = new Map(file.declarations.flatMap((d) => (d.kind === "model" ? [[d.name, d] as const] : [])));
+  const colorOf = (attrs: Usl.Attribute[]) => {
+    const a = attrs.find(isColor)?.args[0];
+    return a?.kind === "string" ? a.value : undefined;
+  };
+  // Value colors, wherever they were written: in the enum, or in a `re` block naming the value.
+  const valueColors = new Map<string, Map<string, string>>();
+  for (const d of file.declarations) {
+    if (d.kind !== "model" && d.kind !== "re") continue;
+    const model = models.get(d.name);
+    for (const m of d.members) {
+      if (m.kind === "rows" && m.mode === "fixed") {
+        for (const r of m.rows) {
+          const color = colorOf(r.attrs);
+          if (color !== undefined) valueColors.set(d.name, (valueColors.get(d.name) ?? new Map()).set(r.name, color));
+        }
+      }
+      if (m.kind === "mention" && model?.form === "enum") {
+        const color = colorOf(m.attrs);
+        if (color !== undefined) valueColors.set(d.name, (valueColors.get(d.name) ?? new Map()).set(m.name, color));
+      }
+    }
+  }
+  // Fields colored with `~color`, wherever written; they must already be `color Text`.
+  const fieldColored = new Set<string>();
+  for (const d of file.declarations) {
+    if (d.kind !== "model" && d.kind !== "re") continue;
+    for (const m of d.members) {
+      if ((m.kind === "field" || m.kind === "mention") && models.get(d.name)?.form !== "enum" && m.attrs.some(isColor)) fieldColored.add(`${d.name}.${m.name}`);
+    }
+  }
+  for (const key of fieldColored) {
+    const [model, field] = key.split(".") as [string, string];
+    const decl = models.get(model)?.members.find((m): m is Usl.FieldDecl => m.kind === "field" && m.name === field);
+    if (field !== "color" || decl?.type !== "Text" || decl.arity === "many") {
+      throw new Error(`${model}.${field} is colored with ~color; VAD reads a row's color from a \`color Text\` field, so rename it first`);
+    }
+  }
+  // Strip every `~color`, dropping `re` mentions left with no attributes.
+  for (const d of file.declarations) {
+    if (d.kind !== "model" && d.kind !== "re") continue;
+    for (const m of d.members) {
+      if (m.kind === "field" || m.kind === "mention" || m.kind === "end") {
+        if (m.attrs.some(isColor)) moved = true;
+        m.attrs = m.attrs.filter((a) => !isColor(a));
+      }
+      if (m.kind === "rows") for (const r of m.rows) {
+        if (r.attrs.some(isColor)) moved = true;
+        r.attrs = r.attrs.filter((a) => !isColor(a));
+      }
+    }
+    d.members = d.members.filter((m) => m.kind !== "mention" || m.attrs.length > 0);
+  }
+  file.declarations = file.declarations.filter((d) => d.kind !== "re" || d.members.length > 0);
+  for (const [name, colors] of valueColors) {
+    const decl = models.get(name)!;
+    if (decl.members.some((m) => m.kind === "field" && m.name === "color")) throw new Error(`enum ${name} already has a color field`);
+    const rows = decl.members.flatMap((m) => (m.kind === "rows" ? m.rows : []));
+    const at = decl.at;
+    const every = rows.every((r) => colors.has(r.name));
+    decl.members.unshift({ kind: "field", name: "color", modifiers: [], type: "Text", arity: every ? "one" : "optional", attrs: [], at });
+    for (const r of rows) {
+      const color = colors.get(r.name);
+      if (color !== undefined) r.values = [...r.values.filter((v) => v.key !== "color"), { key: "color", value: { kind: "string", value: color, at: r.at }, at: r.at }];
+    }
+  }
+  return moved;
+}
+
+/** True when converting `source` moves colors into data, which changes its model fingerprint. */
+export function movesColors(source: string): boolean {
+  const parsed = parseUslForFormat(source);
+  return parsed.file ? moveColors(parsed.file) : false;
+}
+
 /** The VAD text of a USL schema, before formatting. Throws for what VAD can't say. */
 export function convert(source: string): string {
   const parsed = parseUslForFormat(source);
   if (!parsed.file) throw new Error(parsed.diagnostics.map((d) => `${d.line}:${d.column} ${d.message}`).join("\n"));
+  moveColors(parsed.file);
   const out: Out[] = [];
   for (const d of parsed.file.declarations) {
     const line = d.at.line;
@@ -152,6 +236,22 @@ function place(out: Out[], comments: Comment[], lines: string[]): string {
   return result.join("\n").replace(/\n{3,}/g, "\n\n") + "\n";
 }
 
+/**
+ * A converted schema as its USL was: an enum's `color` field and its values' `color`
+ * records were `~color` (the translation shows them as that again).
+ */
+function withoutColorData<T extends { models: ResolvedModel[] }>(result: T, before: { models: ResolvedModel[] }): T {
+  const colored = new Set(before.models.filter((m) => m.rows === "fixed" && !m.fields.some((f) => f.name === "color")).map((m) => m.name));
+  return {
+    ...result,
+    models: result.models.map((m) => !colored.has(m.name) ? m : {
+      ...m,
+      fields: m.fields.filter((f) => f.name !== "color"),
+      schemaRows: m.schemaRows.map((r) => ({ ...r, values: Object.fromEntries(Object.entries(r.values).filter(([key]) => key !== "color")) })),
+    }),
+  };
+}
+
 /** Everything the schema says, without where it said it: tables, layout, presentation. */
 function fingerprintOf(result: { models: unknown; connections: unknown }): string {
   const positionless = (_key: string, value: unknown) =>
@@ -174,7 +274,7 @@ export function convertVerified(source: string): string {
   const after = compileSchema(formatted);
   const errors = after.diagnostics.filter((d) => !("severity" in d) || (d as { severity?: string }).severity !== "warning");
   if (errors.length > 0) throw new Error(`the VAD doesn't compile:\n${errors.map((d) => `  ${d.line}:${d.column} ${d.message}`).join("\n")}\n\n${formatted}`);
-  if (fingerprintOf(before) !== fingerprintOf(after)) throw new Error(`the VAD's tables differ from the USL's\n\n${formatted}`);
+  if (fingerprintOf(before) !== fingerprintOf(withoutColorData(after, before))) throw new Error(`the VAD's tables differ from the USL's\n\n${formatted}`);
   return formatted;
 }
 

@@ -29,7 +29,7 @@ table Item:
 // A tag's id is unique only within its list.
 table Tag (list, id):
   name  Text
-  color Text? ~color
+  color Text?
 
 Tag.list        <-> List.tags[]
 Tag.practices[] <-> Practice.tags[]
