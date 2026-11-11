@@ -112,26 +112,30 @@ fingerprint and the collection's logical hash
 Each row has an ordinary public address such as
 `/~joe/atlas/practices/walking;overstory-key=…` ([reading at the canonical URL](1.6-locators.md#6-reading-at-the-canonical-url)).
 
-## 7. Query it from a page
+## 7. Show it on a page
 
-Joe writes `Practices.mdx` importing a handle from `handles.ts`:
+Joe writes a view in `views/practices.tsx` and embeds it in his page with a
+link on its own line, `views/practices.tsx`:
 
-```ts
-import { node, query } from "overstory/data"
+```tsx
+import { node, view } from "overstory/data"
+import { Column, Link } from "overstory/ui"
 
-const practices = node("./practices").children
+const Practice = node("./practices").children
 
-export const publishedPractices = query.many(practices, practice => ({
-  where: practice.published.eq(true),
-  select: practice.pick("id", "title"),
-}))
+export default view(() => (
+  <Column>
+    {Practice.all(p => [p.published.is(true)]).map(p =>
+      <Link key={p.id} href={`practices/${p.id}`}>{p.title}</Link>)}
+  </Column>
+))
 ```
 
 The server has enabled hosting for the tree, so compilation produces a
-manifest that binds the handle to `(tr_…, /practices, schema fingerprint)` and
+manifest that binds the view to `(tr_…, /practices, schema fingerprint)` and
 records its read prefix ([handles](5.1-executable-documents.md#3-modules-and-named-handles),
 [queries](5.1-executable-documents.md#4-queries), [compilation](5.1-executable-documents.md#7-compilation-and-hosting)).
-A visitor's browser receives the server-rendered page with the query's result
+A visitor's browser receives the page with the view's result
 embedded, then opens `QUERY /.overstory/trees/tr_…/views` naming the document
 version and the view. The stream sends `result` and `ready`. When Joe edits
 the CSV, the tree advances, the provider reports which rows changed, the host
@@ -150,7 +154,7 @@ mutation changed an Overstory-canonical tree, the receipt's `affected` names the
 new accepted update, and Alice's watch sees an ordinary `tree.update` frame. A
 retry with the same `mutationID` returns the original receipt and does nothing
 twice ([mutations](5.1-executable-documents.md#5-mutations),
-[executable documents §12.2](5.1-executable-documents.md#122-execute-named-mutations), [actions](5.2-authoring-api.md#5-actions-and-forms)).
+[executable documents §12.2](5.1-executable-documents.md#122-execute-named-mutations), [actions](5.2-authoring-api.md#4-actions-and-forms)).
 
 ## 9. Rename the canonical URL
 

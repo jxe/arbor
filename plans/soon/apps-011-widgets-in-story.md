@@ -121,6 +121,23 @@ site, served by overstoryd and later from a host such as Vercel.
 - If the Supplies site ever moves off its current home, migrating its real data needs a
   reviewed identity map, durable redirects, side-by-side staging and a tested rollback.
 
+## Code to bring in line with the spec (Joe, 2026-11-11)
+
+The spec now addresses views by file path with the extension
+([executable documents §1](../../docs/overstory-spec/5.1-executable-documents.md#1-views-and-their-addresses)):
+a file's default `view` export is its one linkable view, and the same spelling is used to
+import, embed, link and `GET` it. `.mdx` is gone, and the React document model
+(`overstory/react`, `useQuery`, extensionless `.tsx` routing) is gone from
+[the authoring API](../../docs/overstory-spec/5.2-authoring-api.md). Still to do in code:
+
+- `.mdx` files are plain file entries, not pages: `packages/protocol/src/pages.ts`,
+  `path-read.ts` (`x.mdx`, `_index.mdx`), Swift `ProtocolPage.swift` and `ProtocolPathRead.swift`,
+  and the `pages.json` conformance vectors. A tree holding a `.mdx` page changes it at the
+  Protocol 003 flag day.
+- Supplies: `Home.mdx` becomes `Home.md` with embeds; the old React `List.tsx`, `Practice.tsx`,
+  `Profile.tsx`, `MyLists.tsx` give way to `views/*.tsx`.
+- A view embedded with no query string receives its page's query string.
+
 ## Verify
 
 - Each step has tests on the TypeScript side.
