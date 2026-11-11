@@ -70,6 +70,9 @@ function legacyDirectory(bytes: Uint8Array): LegacyDirectory {
 const content = (entry: LegacyEntry | undefined): { hash: ObjectHash; kind: Kind } | null =>
   entry?.file ? { hash: entry.file, kind: "file" } : entry?.page ? { hash: entry.page, kind: "page" } : null;
 
+/** Decoded directories kept while walking one tree's history. */
+const DIRECTORY_CACHE = 4096;
+
 class Objects {
   private readonly directories = new Map<ObjectHash, LegacyDirectory>();
   constructor(private readonly store: ObjectStore, readonly written = new Map<ObjectHash, Uint8Array>()) {}
@@ -78,11 +81,15 @@ class Objects {
   }
   async directory(hash: ObjectHash): Promise<LegacyDirectory> {
     let directory = this.directories.get(hash);
-    if (!directory) {
+    if (directory) {
+      // Most recently used last: consecutive roots share most directories.
+      this.directories.delete(hash);
+    } else {
       directory = legacyDirectory(await this.store.read(hash));
-      // Consecutive roots share most directories; one tree's are few enough to keep.
-      this.directories.set(hash, directory);
+      // A long history (the todos tree has over 12,000 updates) would otherwise hold every version.
+      if (this.directories.size >= DIRECTORY_CACHE) this.directories.delete(this.directories.keys().next().value!);
     }
+    this.directories.set(hash, directory);
     return directory;
   }
   put(bytes: Uint8Array): ObjectHash {
