@@ -21,6 +21,15 @@ the same time.
 - **Depends on:** nothing. It replaces Protocol 002's index, and it is a good moment to finish
   Protocol 001 and Filesystem 026, because every client updates at once.
 
+## Progress (2026-11-11)
+
+Steps 1-6 are built on branch `claude/project-thread-xl0yei` (host, TypeScript and Swift),
+with every Protocol 001 move and the Apps 011 `.mdx` change. The migration is batch
+`packages/overstoryd/migrations/next` (schema 32 → 34). It computes entry times from accepted
+history, so it does not need the live `entry-times.sqlite3`. First rehearsal on the Nov 9
+backup: 28 trees in 1.5 s, cold start serving in 4 s, `verify.ts` clean. Joe chose to take
+the fresh live backup and final rehearsal on the flag day itself. Left: step 7.
+
 ## Steps
 
 1. **Object format** in `packages/protocol` and Swift StoryKit: directory entries with
