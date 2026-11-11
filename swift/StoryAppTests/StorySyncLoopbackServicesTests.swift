@@ -98,8 +98,8 @@ struct LoopbackServicesTests {
         let index = try ProtocolObjectCodec.object(.file(Data("# Notes\n".utf8)))
         let photo = try ProtocolObjectCodec.object(.file(Data([1, 2, 3])))
         let root = try ProtocolObjectCodec.object(.directory([
-            .init(name: "_index.md", file: index.hash),
-            .init(name: "photo.bin", file: photo.hash),
+            .init(name: "_index.md", file: index.hash, created: 0, modified: 0),
+            .init(name: "photo.bin", file: photo.hash, created: 0, modified: 0),
         ]))
         await installPlacedTree(root: root, objects: [root, index, photo])
         let opening = try await StoryWorkspaceState.readPlacedTree("tr_notes7f3q2ab7c", client: stubbedClient())

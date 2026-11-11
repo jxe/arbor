@@ -903,7 +903,8 @@ struct StoryChoiceVersionCard: View {
         for entry in entries {
             guard let match = theirs[entry.name] else { result.append(.init(name: entry.name, state: "only here", symbol: symbol(entry))); continue }
             if kind(match) != kind(entry) { result.append(.init(name: entry.name, state: "a \(kind(entry)) here", symbol: symbol(entry))) }
-            else if match != entry { result.append(.init(name: entry.name, state: "changed", symbol: symbol(entry))) }
+            // Content, not times: an entry kept with other times is unchanged here.
+            else if match.untimed != entry.untimed { result.append(.init(name: entry.name, state: "changed", symbol: symbol(entry))) }
         }
         for entry in other where !ours.contains(entry.name) {
             result.append(.init(name: entry.name, state: "deleted here", symbol: "trash"))

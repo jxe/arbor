@@ -211,8 +211,9 @@ final class StoryWorkspaceState {
     /// identity, request shapes, canonical object encoding, or the durable
     /// state layout changes incompatibly. "4": content references (schema 2
     /// state, no inline file bytes), the `WorkingTrees/` layout, and
-    /// `update-control.json`.
-    static let workingTreeFormat = "5"
+    /// `update-control.json`. "6": Protocol 003, entries with times and
+    /// updates with `at` (schema 3 state, change-log records with `at`).
+    static let workingTreeFormat = "6"
 
     private(set) var provider: any WorkspaceProvider
     private(set) var editorWorkspace: StoryEditorWorkspace

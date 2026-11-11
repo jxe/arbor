@@ -157,7 +157,8 @@ extension UpdateCoordinator {
             let right = Dictionary(uniqueKeysWithValues: b.map { ($0.name, $0) })
             for name in Set(left.keys).union(right.keys).sorted() {
                 let entry = left[name], other = right[name]
-                guard entry != other else { continue }
+                // Content, not times: an entry that differs only in its times is the same here.
+                guard entry?.untimed != other?.untimed else { continue }
                 let child = path.isEmpty ? name : path + "/" + name
                 if (entry == nil || entry?.directory != nil), (other == nil || other?.directory != nil) {
                     try await compare(entry?.directory, other?.directory, path: child)
